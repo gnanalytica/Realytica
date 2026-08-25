@@ -102,21 +102,27 @@ export function PlotFactsCard({ identity }: { identity: PropertyIdentity }) {
       <CardHeader title="Site facts" subtitle="Land attributes that move a Bengaluru site's rate" icon={<LandPlot size={16} />} />
       <CardBody>
         <dl>
-          <KeyValue
-            label="Dimensions"
-            value={
-              dims ? (
-                <span>
-                  {dims.width} × {dims.depth} ft
-                  <span className="ml-1.5 font-normal text-ink-muted">
-                    ({Math.round(dimsAreaSqft ?? 0).toLocaleString('en-IN')} sq ft · {formatArea(dimsAreaSqm, 'sqm')})
+          {/* Dimensions gets its own row (not `KeyValue`) because its value —
+              "30 × 40 ft" plus the implied area in two units — is too long for
+              KeyValue's single-line `truncate` treatment at a narrow card width;
+              this wraps onto its own line instead of clipping. */}
+          <div className="flex items-baseline justify-between gap-4 border-b border-hairline py-1.5">
+            <dt className="shrink-0 text-xs text-ink-secondary">Dimensions</dt>
+            <dd className="min-w-0 text-right text-[13px] font-medium text-ink">
+              {dims ? (
+                <>
+                  <span>
+                    {dims.width} × {dims.depth} ft
                   </span>
-                </span>
+                  <span className="block text-xs font-normal text-ink-muted">
+                    {Math.round(dimsAreaSqft ?? 0).toLocaleString('en-IN')} sq ft · {formatArea(dimsAreaSqm, 'sqm')}
+                  </span>
+                </>
               ) : (
                 'Not recorded'
-              )
-            }
-          />
+              )}
+            </dd>
+          </div>
           <KeyValue label="Road width" value={plot.roadWidthFt !== undefined ? `${plot.roadWidthFt} ft` : 'Not recorded'} />
           <KeyValue label="Corner site" value={plot.cornerSite === undefined ? 'Not recorded' : plot.cornerSite ? 'Yes' : 'No'} />
           <KeyValue
@@ -139,7 +145,7 @@ export function PlotFactsCard({ identity }: { identity: PropertyIdentity }) {
           />
           <KeyValue
             label="Demarcated / possession"
-            value={plot.demarcated === undefined ? 'Not recorded' : plot.demarcated ? 'Yes — fenced & in possession' : 'No / unconfirmed'}
+            value={plot.demarcated === undefined ? 'Not recorded' : plot.demarcated ? 'Yes' : 'No'}
           />
         </dl>
         {isRiskyLayout ? (

@@ -180,17 +180,35 @@ export default function ValuationTab({ caseData, result }: TabProps) {
       </Card>
 
       <Card>
-        <CardHeader title={`Per ${unitLabel} summary`} subtitle="Subject range against the locality median" />
+        <CardHeader
+          title={`Per ${unitLabel} summary`}
+          subtitle={isLand ? "Subject land rate against the locality's land-rate benchmark" : 'Subject range against the locality median'}
+        />
         <CardBody>
+          {isLand ? (
+            <div className="mb-3">
+              <Callout tone="info" title="Land-rate basis">
+                Every figure below is a rate per {unitLabel} of <span className="font-medium text-ink">plot area</span> — benchmarked
+                against the locality's land rate, not the built-up price basis used for apartments and villas.
+              </Callout>
+            </div>
+          ) : null}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Stat label={`Subject low / ${unitLabel}`} value={formatRate(iv.perSqm.low, areaUnit, currency)} />
+            <Stat label={`Subject ${isLand ? 'land rate' : 'price'} low / ${unitLabel}`} value={formatRate(iv.perSqm.low, areaUnit, currency)} />
             <Stat
-              label={`Subject mid / ${unitLabel}`}
+              label={`Subject ${isLand ? 'land rate' : 'price'} mid / ${unitLabel}`}
               value={formatRate(iv.perSqm.mid, areaUnit, currency)}
-              sub={vsMedianPct !== null ? `${pct(vsMedianPct, 1, true)} vs. locality median` : undefined}
+              sub={vsMedianPct !== null ? `${pct(vsMedianPct, 1, true)} vs. locality ${isLand ? 'land rate' : 'median'}` : undefined}
             />
-            <Stat label={`Subject high / ${unitLabel}`} value={formatRate(iv.perSqm.high, areaUnit, currency)} />
-            <Stat label={`Locality median / ${unitLabel}`} value={formatRate(marketContext.medianPricePerSqm, areaUnit, currency)} sub={marketContext.source} />
+            <Stat
+              label={`Subject ${isLand ? 'land rate' : 'price'} high / ${unitLabel}`}
+              value={formatRate(iv.perSqm.high, areaUnit, currency)}
+            />
+            <Stat
+              label={`Locality ${isLand ? 'land rate' : 'median price'} / ${unitLabel}`}
+              value={formatRate(localityRateForSubject, areaUnit, currency)}
+              sub={marketContext.source}
+            />
           </div>
         </CardBody>
       </Card>
