@@ -1,17 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "composite": true,
-    "noEmit": false,
-    "emitDeclarationOnly": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
+    "noEmit": true,
     "lib": ["ES2022"],
-    "types": ["node"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "allowImportingTsExtensions": false
+    "types": ["node"]
   },
-  "include": ["src/**/*.ts"],
-  "references": [{ "path": "../../packages/shared" }]
+  "include": ["src/**/*.ts"]
 }
