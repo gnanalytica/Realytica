@@ -25,6 +25,9 @@ const INDIA_PACK: CountryPack = {
   locale: 'en-IN',
   parcelIdLabel: 'Survey / Khata number',
   statutoryRateLabel: 'Circle rate',
+  // Phase 1 is deliberately one state/metro. Every rule below — the Khata
+  // extract, the 5.6% stamp duty, the IGR registry naming — is Karnataka's.
+  coveredStates: ['Karnataka'],
   // Weights sum to 100. Title deed, encumbrance certificate, khata extract and the
   // latest tax receipt are the four documents a title check cannot proceed
   // without, so together they carry 70/100 of the score — the "critical" set
@@ -44,6 +47,8 @@ const INDIA_PACK: CountryPack = {
     'Municipal property tax roll',
     'Survey & Settlement records',
   ],
+  // Karnataka rates. These are state-set in India, which is precisely why the
+  // pack declares its covered states above.
   stampDutyPct: 5.6,
   registrationFeePct: 1,
   notes:
@@ -58,6 +63,9 @@ const NETHERLANDS_PACK: CountryPack = {
   countryName: 'Netherlands',
   currency: 'EUR',
   locale: 'nl-NL',
+  // Dutch conveyancing instruments are national (Kadaster, WOZ, energielabel),
+  // so coverage here is a statement about market-data reach, not document rules.
+  coveredStates: ['Noord-Holland', 'Utrecht', 'Zuid-Holland'],
   parcelIdLabel: 'Kadastrale aanduiding',
   statutoryRateLabel: 'WOZ value',
   // Weights sum to 100. Kadaster extract, WOZ assessment and the sale/purchase
@@ -187,76 +195,87 @@ export const LOCALITIES: LocalityReference[] = [
     infrastructureNote: 'Road-widening and the proposed metro Phase 3 extension are the main upside catalysts; current peak-hour congestion is significant.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
   },
-  // --- India — Pune --------------------------------------------------------
+  // --- India — Bengaluru (continued) --------------------------------------
+  // Phase 1 covers one state/metro, so every Indian locality is Karnataka /
+  // Bengaluru. The office and retail corridors below keep the commercial
+  // property types represented without reaching into another state's rules.
   {
-    id: 'in-pun-baner',
+    id: 'in-blr-orr-bellandur',
     country: 'IN',
-    state: 'Maharashtra',
-    city: 'Pune',
-    locality: 'Baner',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'Outer Ring Road (Bellandur)',
     currency: 'INR',
-    medianPricePerSqm: 84000,
-    statutoryRatePerSqm: 63000,
-    grossYield: 0.033,
-    yoyChangePct: 8,
-    liquidityDays: 60,
-    sampleSize: 121,
-    trend: buildTrend(84000, 8, 500),
-    zoning: 'Residential',
-    permittedUses: ['residential_apartment'],
-    farAllowed: 1.8,
-    planningNote: 'Pune Development Plan base FSI of 1.1 is commonly topped up to ~1.8 via premium FSI/TDR purchase.',
-    replacementCostPerSqm: 25500,
-    infrastructureNote: 'Close to the Mumbai-Pune Expressway and Hinjawadi IT corridor; Metro Line 3 is under construction.',
-    source: 'State Registration Department (IGR) — Pune registrations',
-  },
-  // --- India — Mumbai --------------------------------------------------------
-  {
-    id: 'in-mum-powai',
-    country: 'IN',
-    state: 'Maharashtra',
-    city: 'Mumbai',
-    locality: 'Powai',
-    currency: 'INR',
-    medianPricePerSqm: 258000,
-    statutoryRatePerSqm: 195000,
-    grossYield: 0.028,
-    yoyChangePct: 5.5,
-    liquidityDays: 80,
-    sampleSize: 88,
-    trend: buildTrend(258000, 5.5, 1000),
-    zoning: 'Residential (Development Plan — Powai node)',
-    permittedUses: ['residential_apartment'],
-    farAllowed: 2.5,
-    planningNote: 'Fungible FSI and premiums allow effective ratios above the base, but lake-buffer and height restrictions apply near Powai Lake.',
-    replacementCostPerSqm: 32000,
-    infrastructureNote: 'IIT Bombay and the Powai IT/BPO cluster anchor demand; access via JVLR is congested at peak hours.',
-    source: 'State Registration Department (IGR) — Mumbai City & Suburban registrations',
-  },
-  // --- India — Hyderabad -----------------------------------------------------
-  {
-    id: 'in-hyd-gachibowli',
-    country: 'IN',
-    state: 'Telangana',
-    city: 'Hyderabad',
-    locality: 'Gachibowli',
-    currency: 'INR',
-    medianPricePerSqm: 88000,
-    statutoryRatePerSqm: 60000,
-    grossYield: 0.082,
-    yoyChangePct: 7,
-    liquidityDays: 150,
-    sampleSize: 47,
-    trend: buildTrend(88000, 7, 500),
+    medianPricePerSqm: 86000,
+    statutoryRatePerSqm: 58000,
+    grossYield: 0.079,
+    yoyChangePct: 6.4,
+    liquidityDays: 145,
+    sampleSize: 52,
+    trend: buildTrend(86000, 6.4, 500),
     zoning: 'Commercial / IT-ITES corridor',
-    permittedUses: ['commercial_office', 'retail_unit', 'residential_apartment'],
-    farAllowed: 3.5,
+    permittedUses: ['commercial_office', 'retail_unit'],
+    farAllowed: 3.25,
     planningNote:
-      'HMDA permits high FAR in the designated IT corridor subject to vacant-land tax and mandatory open-space ' +
-      'norms; several Grade-A campuses still hold unbuilt entitlement.',
-    replacementCostPerSqm: 42000,
-    infrastructureNote: 'Outer Ring Road access and the Gachibowli-Kondapur IT cluster drive office demand; residential stock in the locality is comparatively thin.',
-    source: 'State Registration Department (IGR) — Hyderabad (Telangana) registrations',
+      'BBMP permits enhanced FAR along the Outer Ring Road commercial corridor subject to road width and ' +
+      'mandatory setbacks; several campuses retain unbuilt entitlement from phased approvals.',
+    replacementCostPerSqm: 41000,
+    infrastructureNote:
+      'The ORR office cluster between Bellandur and Marathahalli drives Grade-A demand; the Blue Line metro ' +
+      'corridor under construction is expected to ease the corridor\'s well-documented congestion.',
+    source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
+  },
+  {
+    id: 'in-blr-hebbal',
+    country: 'IN',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'Hebbal',
+    currency: 'INR',
+    medianPricePerSqm: 79000,
+    statutoryRatePerSqm: 46000,
+    grossYield: 0.033,
+    yoyChangePct: 8.1,
+    liquidityDays: 62,
+    sampleSize: 121,
+    trend: buildTrend(79000, 8.1, 500),
+    zoning: 'Residential (R2) — medium density with mixed-use frontage',
+    permittedUses: ['residential_apartment', 'residential_villa', 'commercial_office'],
+    farAllowed: 2.5,
+    planningNote:
+      'North Bengaluru growth corridor; BBMP zonal regulations allow FAR 2.5 with mixed-use frontage on ' +
+      'arterial roads, and airport-corridor parcels are subject to height restrictions.',
+    replacementCostPerSqm: 27500,
+    infrastructureNote:
+      'Airport-corridor position on the Bellary Road spine with metro Blue Line connectivity under delivery; ' +
+      'flyover capacity remains the binding constraint at peak.',
+    source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
+  },
+  {
+    id: 'in-blr-koramangala',
+    country: 'IN',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'Koramangala',
+    currency: 'INR',
+    medianPricePerSqm: 138000,
+    statutoryRatePerSqm: 82000,
+    grossYield: 0.036,
+    yoyChangePct: 5.2,
+    liquidityDays: 44,
+    sampleSize: 98,
+    trend: buildTrend(138000, 5.2, 500),
+    zoning: 'Residential (R1) with commercial frontage overlay',
+    permittedUses: ['residential_apartment', 'retail_unit', 'commercial_office'],
+    farAllowed: 2.25,
+    planningNote:
+      'Established, largely built-out micro-market; commercial conversion on designated frontage roads is ' +
+      'permitted but BBMP FAR headroom is thin and parking norms bind most redevelopment.',
+    replacementCostPerSqm: 31000,
+    infrastructureNote:
+      'Central location with mature retail and startup-office demand; scarcity of new supply supports pricing ' +
+      'and keeps time-to-transact short.',
+    source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
   },
   // --- Netherlands — Amsterdam -------------------------------------------------
   {
@@ -393,9 +412,6 @@ function mkComparable(opts: {
 }
 
 const IGR_BLR = 'State Registration Department (IGR) — Bengaluru Urban registrations';
-const IGR_PUN = 'State Registration Department (IGR) — Pune registrations';
-const IGR_MUM = 'State Registration Department (IGR) — Mumbai City & Suburban registrations';
-const IGR_HYD = 'State Registration Department (IGR) — Hyderabad (Telangana) registrations';
 const KADASTER_NONRES = 'Kadaster — non-residential transaction register';
 const NVM_AMS = 'CBS/NVM transaction statistics — Amsterdam';
 const NVM_ROT = 'CBS/NVM transaction statistics — Rotterdam';
@@ -419,22 +435,22 @@ export const COMPARABLE_POOL: Comparable[] = [
   mkComparable({ localityKey: 'blr-sarjapur', label: 'Shriram Chirping Woods', address: 'Shriram Chirping Woods, Sarjapur Road, Bengaluru, Karnataka', distanceKm: 2.4, propertyType: 'residential_apartment', areaSqm: 98, transactedAt: '2025-12-30', pricePerSqm: 68500, source: IGR_BLR, roundTo: 1000 }),
   mkComparable({ localityKey: 'blr-sarjapur', label: 'Sumadhura Silver Ripples', address: 'Sumadhura Silver Ripples, Sarjapur Road, Bengaluru, Karnataka', distanceKm: 1.7, propertyType: 'residential_apartment', areaSqm: 115, transactedAt: '2024-09-16', pricePerSqm: 65800, source: IGR_BLR, roundTo: 1000 }),
 
-  // --- Baner, Pune (3) ---
-  mkComparable({ localityKey: 'pun-baner', label: 'Kunal Icon', address: 'Kunal Icon, Baner, Pune, Maharashtra', distanceKm: 0.7, propertyType: 'residential_apartment', areaSqm: 108, transactedAt: '2025-05-19', pricePerSqm: 82500, source: IGR_PUN, roundTo: 1000 }),
-  mkComparable({ localityKey: 'pun-baner', label: 'Goel Ganga Newtown', address: 'Goel Ganga Newtown, Baner, Pune, Maharashtra', distanceKm: 1.3, propertyType: 'residential_apartment', areaSqm: 92, transactedAt: '2025-10-27', pricePerSqm: 86200, source: IGR_PUN, roundTo: 1000 }),
-  mkComparable({ localityKey: 'pun-baner', label: 'Kohinoor Viva City', address: 'Kohinoor Viva City, Baner, Pune, Maharashtra', distanceKm: 2.0, propertyType: 'residential_apartment', areaSqm: 124, transactedAt: '2026-02-11', pricePerSqm: 83900, source: IGR_PUN, roundTo: 1000 }),
+  // --- Outer Ring Road (Bellandur), Bengaluru (5) ---
+  mkComparable({ localityKey: 'blr-orr-bellandur', label: 'Embassy Tech Village — Block C', address: 'Embassy Tech Village, Block C, Outer Ring Road (Bellandur), Bengaluru, Karnataka', distanceKm: 0.9, propertyType: 'commercial_office', areaSqm: 720, transactedAt: '2025-08-21', pricePerSqm: 91500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-orr-bellandur', label: 'Cessna Business Park — Tower 2', address: 'Cessna Business Park, Tower 2, Outer Ring Road (Bellandur), Bengaluru, Karnataka', distanceKm: 1.6, propertyType: 'commercial_office', areaSqm: 540, transactedAt: '2025-03-12', pricePerSqm: 88200, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-orr-bellandur', label: 'Prestige Tech Park IV', address: 'Prestige Tech Park IV, Outer Ring Road (Bellandur), Bengaluru, Karnataka', distanceKm: 2.3, propertyType: 'commercial_office', areaSqm: 860, transactedAt: '2026-01-29', pricePerSqm: 94700, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-orr-bellandur', label: 'Ecospace Business Park — Block 4', address: 'Ecospace Business Park, Block 4, Outer Ring Road (Bellandur), Bengaluru, Karnataka', distanceKm: 1.1, propertyType: 'commercial_office', areaSqm: 610, transactedAt: '2024-11-08', pricePerSqm: 83400, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-orr-bellandur', label: 'Kalyani Tech Park Annexe', address: 'Kalyani Tech Park Annexe, Outer Ring Road (Bellandur), Bengaluru, Karnataka', distanceKm: 2.8, propertyType: 'commercial_office', areaSqm: 470, transactedAt: '2025-06-03', pricePerSqm: 85900, source: IGR_BLR, roundTo: 1000 }),
 
-  // --- Powai, Mumbai (3) ---
-  mkComparable({ localityKey: 'mum-powai', label: 'Hiranandani Gardens — Evita', address: 'Hiranandani Gardens, Evita, Powai, Mumbai, Maharashtra', distanceKm: 0.9, propertyType: 'residential_apartment', areaSqm: 105, transactedAt: '2025-08-04', pricePerSqm: 262000, source: IGR_MUM, roundTo: 1000 }),
-  mkComparable({ localityKey: 'mum-powai', label: 'L&T Crescent Bay', address: 'L&T Crescent Bay, Powai, Mumbai, Maharashtra', distanceKm: 3.2, propertyType: 'residential_apartment', areaSqm: 138, transactedAt: '2025-01-29', pricePerSqm: 251500, source: IGR_MUM, roundTo: 1000 }),
-  mkComparable({ localityKey: 'mum-powai', label: 'Adani Western Heights (Powai frontage)', address: 'Adani Western Heights, Powai, Mumbai, Maharashtra', distanceKm: 1.6, propertyType: 'residential_apartment', areaSqm: 92, transactedAt: '2024-11-06', pricePerSqm: 265800, source: IGR_MUM, roundTo: 1000 }),
+  // --- Hebbal, Bengaluru (3) ---
+  mkComparable({ localityKey: 'blr-hebbal', label: 'Godrej Air NXT', address: 'Godrej Air NXT, Hebbal, Bengaluru, Karnataka', distanceKm: 0.8, propertyType: 'residential_apartment', areaSqm: 116, transactedAt: '2025-09-25', pricePerSqm: 81300, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-hebbal', label: 'Brigade Northridge', address: 'Brigade Northridge, Hebbal, Bengaluru, Karnataka', distanceKm: 1.9, propertyType: 'residential_apartment', areaSqm: 94, transactedAt: '2025-01-17', pricePerSqm: 76800, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-hebbal', label: 'Sobha Lake Gardens', address: 'Sobha Lake Gardens, Hebbal, Bengaluru, Karnataka', distanceKm: 2.5, propertyType: 'residential_apartment', areaSqm: 138, transactedAt: '2026-02-06', pricePerSqm: 83900, source: IGR_BLR, roundTo: 1000 }),
 
-  // --- Gachibowli, Hyderabad (5: 4 office + 1 residential) ---
-  mkComparable({ localityKey: 'hyd-gachibowli', label: 'DivyaSree Orion — Block C', address: 'DivyaSree Orion, Block C, Gachibowli, Hyderabad, Telangana', distanceKm: 0.6, propertyType: 'commercial_office', areaSqm: 620, transactedAt: '2025-04-12', pricePerSqm: 86000, source: IGR_HYD, roundTo: 1000 }),
-  mkComparable({ localityKey: 'hyd-gachibowli', label: 'Vertex Panache IT Park', address: 'Vertex Panache IT Park, Gachibowli, Hyderabad, Telangana', distanceKm: 1.1, propertyType: 'commercial_office', areaSqm: 480, transactedAt: '2025-11-25', pricePerSqm: 91500, source: IGR_HYD, roundTo: 1000 }),
-  mkComparable({ localityKey: 'hyd-gachibowli', label: 'My Home Hub', address: 'My Home Hub, Gachibowli, Hyderabad, Telangana', distanceKm: 2.3, propertyType: 'commercial_office', areaSqm: 710, transactedAt: '2024-10-03', pricePerSqm: 84200, source: IGR_HYD, roundTo: 1000 }),
-  mkComparable({ localityKey: 'hyd-gachibowli', label: 'Sarath City Centre Annexe', address: 'Sarath City Centre Annexe, Gachibowli, Hyderabad, Telangana', distanceKm: 1.8, propertyType: 'commercial_office', areaSqm: 395, transactedAt: '2026-02-27', pricePerSqm: 89900, source: IGR_HYD, roundTo: 1000 }),
-  mkComparable({ localityKey: 'hyd-gachibowli', label: 'Aparna Sarovar Zenith', address: 'Aparna Sarovar Zenith, Gachibowli, Hyderabad, Telangana', distanceKm: 2.9, propertyType: 'residential_apartment', areaSqm: 122, transactedAt: '2025-06-30', pricePerSqm: 68500, source: IGR_HYD, roundTo: 1000 }),
+  // --- Koramangala, Bengaluru (3) ---
+  mkComparable({ localityKey: 'blr-koramangala', label: '5th Block Garden Residency', address: '5th Block Garden Residency, Koramangala, Bengaluru, Karnataka', distanceKm: 0.7, propertyType: 'residential_apartment', areaSqm: 102, transactedAt: '2025-10-14', pricePerSqm: 141500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-koramangala', label: '80 Feet Road Retail Parade', address: '80 Feet Road Retail Parade, Koramangala, Bengaluru, Karnataka', distanceKm: 1.0, propertyType: 'retail_unit', areaSqm: 165, transactedAt: '2025-04-30', pricePerSqm: 158000, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-koramangala', label: '6th Block Court Apartments', address: '6th Block Court Apartments, Koramangala, Bengaluru, Karnataka', distanceKm: 1.5, propertyType: 'residential_apartment', areaSqm: 87, transactedAt: '2024-12-02', pricePerSqm: 134200, source: IGR_BLR, roundTo: 1000 }),
 
   // --- Zuidas, Amsterdam (5, office) ---
   mkComparable({ localityKey: 'ams-zuidas', label: 'WTC Tower H', address: 'WTC Tower H, Zuidas, Amsterdam, Noord-Holland', distanceKm: 0.4, propertyType: 'commercial_office', areaSqm: 850, transactedAt: '2025-09-18', pricePerSqm: 8350, source: KADASTER_NONRES, roundTo: 100 }),

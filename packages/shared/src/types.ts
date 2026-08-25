@@ -463,6 +463,17 @@ export interface CountryPack {
   locale: string;
   parcelIdLabel: string;
   statutoryRateLabel: string;
+  /**
+   * States (IN) / provinces (NL) this pack's rules are actually calibrated for.
+   *
+   * India sets stamp duty, registration fees and the property-register
+   * instrument at state level — a Khata extract is a Karnataka instrument, and
+   * Telangana or Maharashtra would want a different document entirely. Until a
+   * State / Municipality Pack tier exists, a pack's rules are only correct
+   * inside these states, and the engine flags any case outside them rather than
+   * quietly applying the wrong document set.
+   */
+  coveredStates: string[];
   /** Documents this country pack expects for a complete screen. */
   requiredDocuments: { kind: DocumentKind; label: string; weight: number; required: boolean }[];
   /** Registry/dataset names quoted as external sources. */

@@ -975,6 +975,7 @@ function buildRisks(
   comparables: Comparable[],
   locality: LocalityReference,
   matchLevel: LocalityMatchLevel,
+  countryPack: CountryPack,
   planning: { farAllowed: number; farUsed: number },
   askingVsMidPctRaw: number | null,
   now: string,
@@ -1007,6 +1008,36 @@ function buildRisks(
       status: previous?.status ?? 'open',
     });
   };
+
+  // India sets its property-register instrument, stamp duty and registration fee
+  // at state level, so a pack calibrated for one state cannot silently be
+  // applied to another. Phase 1 covers a single state/metro; anything outside
+  // it is flagged rather than screened against the wrong document set.
+  if (identity.state && !countryPack.coveredStates.includes(identity.state)) {
+    const evId = evidence.add({
+      statement:
+        `Property is in ${identity.state}, which is outside this release's covered ` +
+        `${countryPack.countryName} coverage (${countryPack.coveredStates.join(', ')}).`,
+      sourceType: 'model_inference',
+      sourceRef: 'countryPack.coveredStates',
+      sourceLabel: `${countryPack.countryName} country pack — coverage`,
+      confidence: 0.99,
+    });
+    mk(
+      'outside_covered_state',
+      'Outside the covered state for this release',
+      'serious',
+      'data',
+      `This release calibrates ${countryPack.countryName} rules for ${countryPack.coveredStates.join(', ')} only. ` +
+        `${identity.state} sets its own registration instrument, stamp duty and registration fee, so the required-document ` +
+        `list, statutory rate basis and transaction costs applied here are not this state's.`,
+      'Document completeness, the statutory reference anchor and transaction-cost figures may all be wrong for this property — ' +
+        'the screen should be read as indicative of the market only, not of the legal position.',
+      `Treat the document checklist as provisional and confirm ${identity.state}'s own register extract, stamp duty and ` +
+        'registration requirements with a local adviser. A State / Municipality Pack for this state is planned for Phase 2.',
+      [evId],
+    );
+  }
 
   if (completeness.missingCritical.length > 0) {
     const evId = evidence.add({
@@ -1585,7 +1616,7 @@ export function runScreen(input: {
 
   const askingVsMidPctRaw = identity.askingPrice !== undefined ? ((identity.askingPrice - baseBlend.mid) / baseBlend.mid) * 100 : null;
 
-  const risks = buildRisks(caseId, identity, documentsWithExtraction, completeness, comparables, locality, matchLevel, planning, askingVsMidPctRaw, now, previousResult, evidence);
+  const risks = buildRisks(caseId, identity, documentsWithExtraction, completeness, comparables, locality, matchLevel, countryPack, planning, askingVsMidPctRaw, now, previousResult, evidence);
   const confidence = buildConfidence(completeness, comparables, matchLevel, documentsWithExtraction, anchors, identity.askingPrice !== undefined);
 
   const widened = widenForConfidence(baseBlend, confidence.band, identity.currency);

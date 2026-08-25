@@ -35,14 +35,14 @@ const WHITEFIELD_APARTMENT: CreateCaseRequest = {
 
 const GACHIBOWLI_LEASEHOLD_OFFICE: CreateCaseRequest = {
   identity: {
-    label: 'Leasehold office floor — Vertex Panache IT Park, Gachibowli',
+    label: 'Leasehold office floor — Vertex Panache IT Park, Bellandur',
     country: 'IN',
-    state: 'Telangana',
-    city: 'Hyderabad',
-    locality: 'Gachibowli',
-    addressLine: 'Vertex Panache IT Park, Survey No. 12, Gachibowli',
-    postalCode: '500032',
-    parcelId: 'Survey No. 12/2, Gachibowli',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'Outer Ring Road (Bellandur)',
+    addressLine: 'Vertex Panache IT Park, Outer Ring Road, Bellandur',
+    postalCode: '560103',
+    parcelId: 'Survey No. 12/2, Bellandur',
     propertyType: 'commercial_office',
     tenure: 'leasehold',
     builtUpAreaSqm: 650,

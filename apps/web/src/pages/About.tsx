@@ -23,7 +23,7 @@ import {
   ROLLOUT_PHASES,
 } from '@valytica/shared';
 import { api } from '../lib/api';
-import { Button, Card, CardBody, CardHeader, Modal, SectionTitle, cn, useToast } from '../components/ui/kit';
+import { Button, Callout, Card, CardBody, CardHeader, Modal, SectionTitle, cn, useToast } from '../components/ui/kit';
 
 /** Static product-page copy quoted directly from docs/SOURCE_SPEC.md — not part of the shared package. */
 const VISION = 'Make property decisions clearer, faster and evidence-driven.';
@@ -217,6 +217,16 @@ export default function About() {
               A deterministic screening engine — same inputs always produce the same evidence-backed result.
             </li>
           </ul>
+          <Callout tone="warning" title="Geographic coverage in this build">
+            Phase 1 is deliberately one state/metro. Indian rules here are calibrated for{' '}
+            <strong>Karnataka (Bengaluru)</strong> — stamp duty, registration fees and the property-register
+            instrument (the Khata extract) are all set at state level in India, so they are not portable to
+            another state. The Netherlands pack covers Noord-Holland, Utrecht and Zuid-Holland; Dutch
+            conveyancing instruments are national, so only market-data reach is limited there. A case entered
+            outside a covered state still screens, but is flagged with a material risk rather than being
+            quietly measured against the wrong document set. The State / Municipality Pack tier that would
+            remove this limit is Phase 2 work.
+          </Callout>
           <div className="flex items-center justify-between rounded-lg bg-sunken p-3">
             <div>
               <p className="text-[13px] font-medium text-ink">Reset demo data</p>

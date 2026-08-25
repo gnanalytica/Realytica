@@ -118,11 +118,28 @@ valytica/
 └── docs/SOURCE_SPEC.md      the transcribed product definition
 ```
 
-**Global Core + Country Pack + State/Municipality Pack**, as the specification requires. The core
-engine is country-agnostic; India and the Netherlands each supply a country pack (currency, parcel
-identifier, expected documents, statutory rate basis, transaction taxes, registry names), and each
-locality supplies market data (median price per m², statutory rate, yield, liquidity, zoning, FAR,
+**Global Core + Country Pack**, with per-locality market data. The core engine is
+country-agnostic; India and the Netherlands each supply a country pack (currency, parcel identifier,
+expected documents, statutory rate basis, transaction taxes, registry names), and each locality
+supplies market data (median price per m², statutory rate, yield, liquidity, zoning, FAR,
 replacement cost, an eight-quarter trend).
+
+### Geographic coverage, and the missing tier
+
+The specification's architecture has three tiers — Global Core, Country Pack, and **State /
+Municipality Pack**. This build implements the first two. That is fine for Phase 1, which is
+deliberately scoped to *"India, one state/metro"*, and the data here is scoped to match:
+
+| Country | Covered | Why it is bounded |
+| --- | --- | --- |
+| India | **Karnataka (Bengaluru)** | Stamp duty, registration fees and the property-register instrument are set at *state* level. The Khata extract in the required-document list is a Karnataka instrument; Telangana or Maharashtra would expect a different document entirely. |
+| Netherlands | Noord-Holland, Utrecht, Zuid-Holland | Dutch conveyancing instruments (Kadaster, WOZ, energielabel) are national, so only market-data reach is limited — not the rules. |
+
+Each country pack declares its `coveredStates`, and a case entered outside them still screens but
+raises a material risk saying the document checklist, statutory anchor and transaction costs are not
+that state's — rather than silently measuring the property against the wrong rules. Building the
+State / Municipality Pack tier is what lifts this limit, and it belongs with the second geography in
+Phase 2.
 
 The screening engine is **deterministic** — seeded by case id, no wall-clock or random input inside
 scoring — so the same case always produces the same result and a re-run is diffable. Document
