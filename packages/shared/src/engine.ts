@@ -12,10 +12,13 @@
 import type {
   ActionOwner,
   ActionPriority,
+  BufferRule,
   Comparable,
   ComparableAdjustment,
   CompletenessItem,
   CompletenessSummary,
+  ComplianceCheck,
+  ComplianceVerdict,
   ComparisonResult,
   ComparisonRow,
   ConfidenceBand,
@@ -27,6 +30,7 @@ import type {
   CurrencyCode,
   DocumentKind,
   DriverCategory,
+  DutySlab,
   EvidenceItem,
   EvidenceSourceType,
   ExtractedField,
@@ -46,6 +50,9 @@ import type {
   RiskSeverity,
   ScreenResult,
   ScreenVerdict,
+  StateComplianceSummary,
+  StatePack,
+  TransactionCostBreakdown,
   ValueAnchor,
   ValueDriver,
 } from './types';
@@ -145,14 +152,22 @@ function syntheticPersonName(seed: string, country: CountryCode): string {
 
 const CLASSIFICATION_RULES: { pattern: RegExp; kind: DocumentKind; confidence: number }[] = [
   { pattern: /sale.?deed|title.?deed|conveyance/i, kind: 'title_deed', confidence: 0.93 },
+  { pattern: /mother.?deed|link.?doc/i, kind: 'mother_deed', confidence: 0.9 },
   { pattern: /sale.?agreement|koopovereenkomst|agreement.?to.?sell/i, kind: 'sale_agreement', confidence: 0.88 },
   { pattern: /\bec[-_ ]|encumbrance/i, kind: 'encumbrance_certificate', confidence: 0.91 },
   { pattern: /khata/i, kind: 'khata_extract', confidence: 0.9 },
+  { pattern: /form.?9|form.?11/i, kind: 'form_9_11', confidence: 0.88 },
   { pattern: /rera/i, kind: 'rera_registration', confidence: 0.89 },
   { pattern: /kadaster|uittreksel/i, kind: 'kadaster_extract', confidence: 0.92 },
   { pattern: /woz/i, kind: 'woz_assessment', confidence: 0.94 },
   { pattern: /energie|energy.?label/i, kind: 'energy_label', confidence: 0.9 },
   { pattern: /\boc[-_ ]|occupancy/i, kind: 'occupancy_certificate', confidence: 0.87 },
+  { pattern: /conversion|dc.?convert|s\.?95/i, kind: 'conversion_certificate', confidence: 0.88 },
+  { pattern: /commencement|cc[-_ ]/i, kind: 'commencement_certificate', confidence: 0.87 },
+  { pattern: /betterment/i, kind: 'betterment_charges_receipt', confidence: 0.86 },
+  { pattern: /possession|allotment/i, kind: 'possession_certificate', confidence: 0.83 },
+  { pattern: /jda|joint.?development/i, kind: 'joint_development_agreement', confidence: 0.85 },
+  { pattern: /sanctioned.?plan.*bbmp|bbmp.*sanctioned.?plan/i, kind: 'sanctioned_plan_bbmp', confidence: 0.85 },
   { pattern: /tax|receipt|belasting/i, kind: 'property_tax_receipt', confidence: 0.85 },
   { pattern: /plan|drawing|dwg|blueprint|floor.?plan|plattegrond/i, kind: 'approved_building_plan', confidence: 0.75 },
   { pattern: /lease|huur|tenanc(y|e)/i, kind: 'lease_agreement', confidence: 0.84 },
@@ -236,16 +251,41 @@ export function extractFields(doc: CaseDocument, identity: PropertyIdentity, see
         mkField('ecPeriod', 'Period covered', `${2010 + Math.floor(rnd('span', 0, 5))}–${2024 + Math.floor(rnd('span2', 0, 2))}`, conf('ecPeriod'), docId, 'ocr'),
         mkField('encumbranceCount', 'Registered encumbrances', String(Math.floor(rnd('count', 0, 2))), conf('count'), docId, 'ocr'),
       ];
-    case 'khata_extract':
+    case 'khata_extract': {
+      // Karnataka's A/B distinction is the single biggest binary in a
+      // Bengaluru title screen, so a khata extract's classification field
+      // is derived from the case's own recorded khata type when known,
+      // rather than left to a random draw.
+      const khataType = identity.karnataka?.khataType;
+      const classification =
+        khataType === 'a_khata'
+          ? 'A'
+          : khataType === 'b_khata'
+            ? 'B'
+            : khataType === 'gram_panchayat_form_9_11'
+              ? 'Form 9/11 (Gram Panchayat)'
+              : 'Unclassified';
       return [
-        mkField('khataNumber', 'Khata number', `K/${Math.floor(rnd('khata', 1000, 9999))}/${new Date().getFullYear()}`, conf('khata'), docId, 'ocr'),
+        mkField('khataNumber', 'Khata number', `K/${Math.floor(rnd('khata', 1000, 9999))}/${uploadYear}`, conf('khata'), docId, 'ocr'),
+        mkField('khataClassification', 'Khata classification', classification, conf('khataClass'), docId, 'ocr'),
         mkField('assessedArea', 'Assessed area', identity.builtUpAreaSqm.toFixed(1), conf('area'), docId, 'parser', 'sqm'),
       ];
-    case 'property_tax_receipt':
-      return [
+    }
+    case 'property_tax_receipt': {
+      const fields = [
         mkField('assessmentYear', 'Assessment year', String(uploadYear - Math.floor(rnd('ay', 0, 1))), conf('ay'), docId, 'ocr'),
         mkField('annualTax', 'Annual tax paid', String(Math.round(rnd('tax', 8000, 65000))), conf('tax'), docId, 'ocr', identity.currency),
       ];
+      if (identity.country === 'IN') {
+        const zoneLetters = ['A', 'B', 'C', 'D', 'E', 'F'];
+        const zone = identity.karnataka?.bbmpTaxZone ?? zoneLetters[Math.floor(rnd('zone', 0, zoneLetters.length))];
+        fields.push(
+          mkField('sasApplicationNumber', 'SAS application number', `SAS-${Math.floor(rnd('sas', 100000, 999999))}`, conf('sas'), docId, 'ocr'),
+          mkField('bbmpZone', 'BBMP tax zone', zone, conf('zoneConf'), docId, 'ocr'),
+        );
+      }
+      return fields;
+    }
     case 'approved_building_plan':
       return [
         mkField('approvalAuthority', 'Approving authority', identity.country === 'IN' ? 'Municipal planning authority' : 'Gemeente (municipality)', conf('auth'), docId, 'ocr'),
@@ -256,11 +296,61 @@ export function extractFields(doc: CaseDocument, identity: PropertyIdentity, see
         mkField('ocIssueDate', 'Issue date', new Date(2016 + Math.floor(rnd('ocy', 0, 8)), Math.floor(rnd('ocm', 0, 11)), 1).toISOString().slice(0, 10), conf('ocDate'), docId, 'ocr'),
         mkField('ocNumber', 'OC reference number', `OC-${Math.floor(rnd('ocn', 10000, 99999))}`, conf('ocn'), docId, 'ocr'),
       ];
-    case 'rera_registration':
+    case 'rera_registration': {
+      const isKarnataka = identity.state.toLowerCase() === 'karnataka';
+      const reraNumber = isKarnataka
+        ? `PRM/KA/RERA/${Math.floor(rnd('krera1', 1250, 1299))}/${Math.floor(rnd('krera2', 300, 499))}/PR/${String(1 + Math.floor(rnd('kreram', 0, 11))).padStart(2, '0')}${uploadYear}/${Math.floor(rnd('krera3', 100000, 999999))}`
+        : `PR/${identity.state.slice(0, 2).toUpperCase()}/${Math.floor(rnd('rera', 100000, 999999))}`;
       return [
-        mkField('reraNumber', 'RERA registration number', `PR/${identity.state.slice(0, 2).toUpperCase()}/${Math.floor(rnd('rera', 100000, 999999))}`, conf('rera'), docId, 'ocr'),
+        mkField('reraNumber', isKarnataka ? 'K-RERA registration number' : 'RERA registration number', reraNumber, conf('rera'), docId, 'ocr'),
         mkField('reraValidTill', 'Valid until', `${uploadYear + Math.floor(rnd('reraexp', 1, 5))}-12-31`, conf('reraexp'), docId, 'parser'),
       ];
+    }
+    case 'mother_deed':
+      return [
+        mkField('surveyNumber', 'Survey number', identity.parcelId || `Sy. No. ${Math.floor(rnd('sy', 10, 400))}/${Math.floor(rnd('sysub', 1, 9))}`, conf('sy'), docId, 'ocr'),
+        mkField('extentConveyed', 'Extent', identity.plotAreaSqm.toFixed(1), conf('extent'), docId, 'parser', 'sqm'),
+      ];
+    case 'conversion_certificate':
+      return [
+        mkField(
+          'conversionOrderNumber',
+          'DC conversion order number',
+          `ALN(SLR)CR-${Math.floor(rnd('convno', 100, 999))}/${uploadYear - 1}-${String(uploadYear).slice(-2)}`,
+          conf('convno'),
+          docId,
+          'ocr',
+        ),
+        mkField(
+          'conversionOrderDate',
+          'Conversion order date',
+          new Date(uploadYear - Math.floor(rnd('convyr', 0, 3)), Math.floor(rnd('convm', 0, 11)), 1 + Math.floor(rnd('convd', 0, 27))).toISOString().slice(0, 10),
+          conf('convdate'),
+          docId,
+          'ocr',
+        ),
+      ];
+    case 'form_9_11':
+      return [mkField('formReference', 'Form 9/11 reference', `Form 9 & 11/${Math.floor(rnd('f911', 100, 999))}/${uploadYear}`, conf('f911'), docId, 'ocr')];
+    case 'commencement_certificate':
+      return [mkField('ccNumber', 'Commencement certificate number', `CC/${Math.floor(rnd('cc', 1000, 9999))}/${uploadYear}`, conf('cc'), docId, 'ocr')];
+    case 'betterment_charges_receipt':
+      return [mkField('bettermentAmount', 'Betterment charges paid', String(Math.round(rnd('betterment', 20000, 250000))), conf('betterment'), docId, 'ocr', identity.currency)];
+    case 'possession_certificate':
+      return [
+        mkField(
+          'possessionDate',
+          'Possession handover date',
+          new Date(uploadYear, Math.floor(rnd('possm', 0, 11)), 1 + Math.floor(rnd('possd', 0, 27))).toISOString().slice(0, 10),
+          conf('poss'),
+          docId,
+          'ocr',
+        ),
+      ];
+    case 'joint_development_agreement':
+      return [mkField('jdaSharingRatio', 'JDA sharing ratio (owner:developer)', `${40 + Math.floor(rnd('jda', 0, 20))}:${60 - Math.floor(rnd('jda2', 0, 20))}`, conf('jda'), docId, 'ocr')];
+    case 'sanctioned_plan_bbmp':
+      return [mkField('sanctionNumber', 'BBMP sanction number', `BBMP/Addl.Dir/${Math.floor(rnd('sanc', 1000, 9999))}/${uploadYear}`, conf('sanc'), docId, 'ocr')];
     case 'valuation_report':
       return [
         mkField('valuerName', 'Valuer / firm', 'Independent valuer on file', conf('valuer'), docId, 'ocr'),
@@ -378,6 +468,40 @@ function matchLocalityReference(
   }
 
   throw new Error(`No reference data available for country ${identity.country}`);
+}
+
+/* ==================================================================== */
+/* State / Municipality Pack resolution                                  */
+/* ==================================================================== */
+
+/**
+ * Picks the `StatePack` that covers a case's country + state, case-insensitive.
+ * India sets its property register instrument, transaction taxes and title
+ * checks at state level, so a pack only applies inside the state it was
+ * calibrated for — anything else returns `undefined` and the engine falls
+ * back to the country-level `outside_covered_state` risk rather than quietly
+ * applying the wrong state's rules.
+ */
+function resolveStatePack(identity: PropertyIdentity, refData: ReferenceData): StatePack | undefined {
+  return refData.statePacks.find(p => p.country === identity.country && p.state.toLowerCase() === identity.state.toLowerCase());
+}
+
+type RequiredDocSpec = { kind: DocumentKind; label: string; weight: number; required: boolean; note?: string };
+
+/**
+ * Merges a State Pack's required documents over the Country Pack's: the state
+ * wins on any `kind` both packs name (e.g. a state's own khata-specific
+ * wording), and state-only kinds (mother deed, conversion certificate, ...)
+ * are added. Order is country-first-then-state so a `Map` keyed by `kind`
+ * gives exactly "state overrides, state-only adds" semantics.
+ */
+function resolveRequiredDocuments(countryPack: CountryPack, statePack: StatePack | undefined): RequiredDocSpec[] {
+  const merged = new Map<DocumentKind, RequiredDocSpec>();
+  for (const rd of countryPack.requiredDocuments) merged.set(rd.kind, rd);
+  if (statePack) {
+    for (const rd of statePack.requiredDocuments) merged.set(rd.kind, rd);
+  }
+  return [...merged.values()];
 }
 
 /* ==================================================================== */
@@ -529,7 +653,12 @@ function buildAnchors(
   comparables: Comparable[],
   locality: LocalityReference,
   matchLevel: LocalityMatchLevel,
-  countryPack: CountryPack,
+  /**
+   * The statutory reference rate's display label — "Circle rate" for the
+   * bare Country Pack, or a State Pack's own term (Karnataka says
+   * "Guidance value") when one covers the case.
+   */
+  statutoryRateLabel: string,
   documents: CaseDocument[],
   now: string,
   evidence: EvidenceBuilder,
@@ -576,7 +705,7 @@ function buildAnchors(
   // --- statutory_reference --------------------------------------------------
   {
     const statutoryEvId = evidence.add({
-      statement: `${countryPack.statutoryRateLabel} for ${locality.locality}, ${locality.city} is ${locality.statutoryRatePerSqm.toLocaleString()}/sqm against a market median of ${locality.medianPricePerSqm.toLocaleString()}/sqm.`,
+      statement: `${statutoryRateLabel} for ${locality.locality}, ${locality.city} is ${locality.statutoryRatePerSqm.toLocaleString()}/sqm against a market median of ${locality.medianPricePerSqm.toLocaleString()}/sqm.`,
       sourceType: 'external_dataset',
       sourceRef: locality.id,
       sourceLabel: locality.source,
@@ -593,13 +722,13 @@ function buildAnchors(
     anchors.push({
       id: `anchor-${caseId}-statutory_reference`,
       method: 'statutory_reference',
-      label: `${countryPack.statutoryRateLabel} reference`,
+      label: `${statutoryRateLabel} reference`,
       low: roundMoney(floorRate * area, currency),
       mid: roundMoney(midRate * area, currency),
       high: roundMoney(ceilingRate * area, currency),
       weight: 0.15,
       confidence: round2(clamp(0.7 - matchPenalty, 0.2, 0.9)),
-      rationale: `Uses the ${countryPack.statutoryRateLabel.toLowerCase()} as a conservative floor and the locality's transacted market median as a ceiling — statutory rates typically lag realised prices, so the midpoint is the central estimate.`,
+      rationale: `Uses the ${statutoryRateLabel.toLowerCase()} as a conservative floor and the locality's transacted market median as a ceiling — statutory rates typically lag realised prices, so the midpoint is the central estimate.`,
       evidenceIds: [statutoryEvId],
     });
   }
@@ -758,13 +887,14 @@ function widenForConfidence(
 /* ==================================================================== */
 
 /**
- * Produces 5-9 drivers. Four are always applicable (tenure, locality
+ * Produces 5-12 drivers. Four are always applicable (tenure, locality
  * liquidity, transit proximity, planning headroom); floor level, building
- * age, encumbrance/energy-label and tenancy-in-place are added only when the
- * underlying data exists. A final reconciling driver absorbs whatever gap
- * between the subject's own mid rate and the locality median the itemised
- * drivers don't explain, so the list is not just decorative — it actually
- * adds up to the anchor blend.
+ * age, encumbrance/energy-label, tenancy-in-place and — for Karnataka cases —
+ * the B-khata discount, occupancy-certificate absence and gram-panchayat
+ * jurisdiction drivers are added only when the underlying data exists. A
+ * final reconciling driver absorbs whatever gap between the subject's own mid
+ * rate and the locality median the itemised drivers don't explain, so the
+ * list is not just decorative — it actually adds up to the anchor blend.
  */
 function buildDrivers(
   caseId: string,
@@ -800,6 +930,65 @@ function buildDrivers(
     }
     const evId = evidence.add({ statement: `Tenure recorded as ${identity.tenure}.`, sourceType: 'user_input', sourceRef: 'identity.tenure', sourceLabel: 'Case identity — tenure', confidence: 0.95 });
     push('Tenure', pct, 'legal', text, [evId]);
+  }
+
+  // B-khata discount — Karnataka only. B-khata property is shut out of
+  // normal home-loan financing, which narrows the buyer pool to cash buyers
+  // only and forces a real transaction-price discount independent of the
+  // property's physical quality — placed early so it survives the cap below.
+  if (identity.karnataka?.khataType === 'b_khata') {
+    const evId = evidence.add({
+      statement: 'Khata classification recorded as B-khata.',
+      sourceType: 'user_input',
+      sourceRef: 'identity.karnataka.khataType',
+      sourceLabel: 'Case identity — Karnataka khata type',
+      confidence: 0.9,
+    });
+    push(
+      'B-khata discount',
+      -12,
+      'legal',
+      'B-khata properties cannot get a home loan from scheduled banks, which narrows the buyer pool to cash buyers only — this alone typically forces a real transaction-price discount versus equivalent A-khata stock, independent of the property\'s physical quality.',
+      [evId],
+    );
+  }
+
+  // Gram Panchayat jurisdiction — Karnataka only. Outside BBMP/BDA limits,
+  // height/density caps and lender caution both compress achievable value.
+  if (identity.karnataka?.jurisdiction === 'gram_panchayat') {
+    const evId = evidence.add({
+      statement: 'Jurisdiction recorded as Gram Panchayat (outside BBMP/BDA limits).',
+      sourceType: 'user_input',
+      sourceRef: 'identity.karnataka.jurisdiction',
+      sourceLabel: 'Case identity — Karnataka jurisdiction',
+      confidence: 0.85,
+    });
+    push(
+      'Gram Panchayat jurisdiction',
+      -6,
+      'legal',
+      'Property sits outside BBMP/BDA limits under Gram Panchayat jurisdiction, which caps building height/density and is viewed more cautiously by mainstream lenders than BBMP-khata stock.',
+      [evId],
+    );
+  }
+
+  // Occupancy certificate absence — Karnataka only (this is distinct from,
+  // and applies more broadly than, the age-triggered OC risk below).
+  if (identity.karnataka && !documents.some(d => d.kind === 'occupancy_certificate')) {
+    const evId = evidence.add({
+      statement: 'No occupancy certificate on file.',
+      sourceType: 'model_inference',
+      sourceRef: 'documents.occupancy_certificate',
+      sourceLabel: 'Document completeness',
+      confidence: 0.65,
+    });
+    push(
+      'Occupancy certificate absence',
+      -5,
+      'legal',
+      'Absent an OC, compliance with the sanctioned plan cannot be confirmed — both lenders and cautious buyers price this in as a discount.',
+      [evId],
+    );
   }
 
   // Locality liquidity — always applicable, continuous around a 60-day baseline.
@@ -929,8 +1118,8 @@ function buildDrivers(
     }
   }
 
-  // Cap the itemised set at 8 so a reconciling driver always fits within the 5-9 total.
-  const explicit = drivers.slice(0, 8);
+  // Cap the itemised set at 11 so a reconciling driver always fits within the 5-12 total.
+  const explicit = drivers.slice(0, 11);
 
   const gapPct = ((baseMidPerSqm - locality.medianPricePerSqm) / locality.medianPricePerSqm) * 100;
   const explainedPct = explicit.reduce((s, d) => s + d.impactPct, 0);
@@ -967,6 +1156,35 @@ function buildDrivers(
  * matching `code`, so a risk a user has already marked `mitigated` /
  * `accepted` stays that way across re-screens instead of reverting to `open`.
  */
+/**
+ * Builds a `(code, ...) -> RiskFlag` factory closed over one case id and its
+ * previous result, so any part of the engine that discovers real jeopardy —
+ * `buildRisks` itself, or `buildStateCompliance` below — can mint a `RiskFlag`
+ * with the same id scheme (`risk-<caseId>-<code>`) and the same `status`
+ * carry-over semantics, keeping Risks and Compliance from ever disagreeing
+ * about what a risk's id or status is.
+ */
+function makeRiskFactory(
+  caseId: string,
+  previousResult: ScreenResult | undefined,
+): (code: string, title: string, severity: RiskSeverity, category: RiskCategory, description: string, impact: string, mitigation: string, evidenceIds: string[]) => RiskFlag {
+  return (code, title, severity, category, description, impact, mitigation, evidenceIds) => {
+    const previous = previousResult?.risks.find(r => r.code === code);
+    return {
+      id: `risk-${caseId}-${code}`,
+      code,
+      title,
+      severity,
+      category,
+      description,
+      impact,
+      mitigation,
+      evidenceIds,
+      status: previous?.status ?? 'open',
+    };
+  };
+}
+
 function buildRisks(
   caseId: string,
   identity: PropertyIdentity,
@@ -976,6 +1194,7 @@ function buildRisks(
   locality: LocalityReference,
   matchLevel: LocalityMatchLevel,
   countryPack: CountryPack,
+  statePack: StatePack | undefined,
   planning: { farAllowed: number; farUsed: number },
   askingVsMidPctRaw: number | null,
   now: string,
@@ -983,6 +1202,7 @@ function buildRisks(
   evidence: EvidenceBuilder,
 ): RiskFlag[] {
   const risks: RiskFlag[] = [];
+  const makeRisk = makeRiskFactory(caseId, previousResult);
 
   const mk = (
     code: string,
@@ -994,19 +1214,7 @@ function buildRisks(
     mitigation: string,
     evidenceIds: string[],
   ): void => {
-    const previous = previousResult?.risks.find(r => r.code === code);
-    risks.push({
-      id: `risk-${caseId}-${code}`,
-      code,
-      title,
-      severity,
-      category,
-      description,
-      impact,
-      mitigation,
-      evidenceIds,
-      status: previous?.status ?? 'open',
-    });
+    risks.push(makeRisk(code, title, severity, category, description, impact, mitigation, evidenceIds));
   };
 
   // India sets its property-register instrument, stamp duty and registration fee
@@ -1136,8 +1344,11 @@ function buildRisks(
   // Occupancy certificates are an India-specific construction-compliance
   // concept (they are not part of the Netherlands country pack at all), so
   // this check only applies to Indian cases — otherwise every older Dutch
-  // building would trip a risk that doesn't meaningfully apply to it.
-  if (identity.country === 'IN' && identity.yearBuilt !== undefined) {
+  // building would trip a risk that doesn't meaningfully apply to it. Where a
+  // State Pack covers the case, its own (age-independent) occupancy-
+  // certificate compliance check owns this ground instead, so the two views
+  // don't double-flag the same gap.
+  if (identity.country === 'IN' && !statePack && identity.yearBuilt !== undefined) {
     const age = new Date(now).getFullYear() - identity.yearBuilt;
     if (age > 30 && !documents.some(d => d.kind === 'occupancy_certificate')) {
       const evId = evidence.add({ statement: `Building is ${age} years old with no occupancy certificate on file.`, sourceType: 'model_inference', sourceRef: 'identity.yearBuilt', sourceLabel: 'Case identity — year built', confidence: 0.7 });
@@ -1232,6 +1443,594 @@ function buildRisks(
 }
 
 /* ==================================================================== */
+/* State compliance (Karnataka title checks)                             */
+/* ==================================================================== */
+
+/**
+ * Karnataka title checks, each derived from what the case actually contains
+ * (identity attributes, uploaded documents, extracted fields) rather than a
+ * fixed template — a check only reaches `'clear'` or a jeopardy verdict when
+ * the input actually answers the question; otherwise it is honestly
+ * `'unknown'` and listed in `unresolved`. Every check that represents real
+ * jeopardy also mints a `RiskFlag` via `makeRiskFactory` (the same factory
+ * `buildRisks` uses) so Risks and Compliance can never disagree about a
+ * finding's id, severity or carried-over status; the check's
+ * `relatedRiskIds` points straight at it. Where a jeopardy is already
+ * covered by a country-level risk (the encumbrance certificate), the check
+ * links to that existing `RiskFlag` instead of minting a duplicate.
+ */
+export function buildStateCompliance(
+  caseId: string,
+  identity: PropertyIdentity,
+  documents: CaseDocument[],
+  statePack: StatePack,
+  countryLevelRisks: RiskFlag[],
+  previousResult: ScreenResult | undefined,
+  evidence: EvidenceBuilder,
+): { compliance: StateComplianceSummary; risks: RiskFlag[] } {
+  const ka = identity.karnataka;
+  const findDoc = (kind: DocumentKind): CaseDocument | undefined => documents.find(d => d.kind === kind);
+  const checks: ComplianceCheck[] = [];
+  const risks: RiskFlag[] = [];
+  const unresolved: string[] = [];
+  const makeRisk = makeRiskFactory(caseId, previousResult);
+
+  const addRisk = (
+    code: string,
+    title: string,
+    severity: RiskSeverity,
+    category: RiskCategory,
+    description: string,
+    impact: string,
+    mitigation: string,
+    evidenceIds: string[],
+  ): string => {
+    const r = makeRisk(code, title, severity, category, description, impact, mitigation, evidenceIds);
+    risks.push(r);
+    return r.id;
+  };
+
+  const pushCheck = (
+    key: string,
+    label: string,
+    verdict: ComplianceVerdict,
+    finding: string,
+    consequence: string,
+    nextStep: string,
+    statute: string,
+    evidenceIds: string[],
+    relatedRiskIds: string[],
+  ): void => {
+    checks.push({ key, label, verdict, finding, consequence, nextStep, statute, evidenceIds, relatedRiskIds });
+    if (verdict === 'unknown') unresolved.push(label);
+  };
+
+  // The pack's own `titleChecks` catalog is the single source of truth for a
+  // named check's statute citation — falling back to the given text only for
+  // the one check (area basis) the catalog doesn't name.
+  const statuteFor = (key: string, fallback: string): string => statePack.titleChecks.find(tc => tc.key === key)?.statute ?? fallback;
+
+  // 1. Khata classification — the single biggest binary in a Bengaluru title screen.
+  {
+    const khataType = ka?.khataType;
+    const khataDoc = findDoc('khata_extract');
+    const evIds: string[] = [];
+    if (khataDoc) {
+      evIds.push(
+        evidence.add({ statement: `Khata extract on file (${khataDoc.fileName}).`, sourceType: 'document', sourceRef: khataDoc.id, sourceLabel: khataDoc.fileName, confidence: khataDoc.classificationConfidence }),
+      );
+    }
+    let verdict: ComplianceVerdict;
+    let finding: string;
+    let consequence: string;
+    let nextStep: string;
+    let relatedRiskIds: string[] = [];
+
+    if (khataType === 'a_khata') {
+      verdict = 'clear';
+      finding = 'Property is recorded on an A-khata — the fully compliant BBMP property register entry.';
+      consequence = 'A-khata supports normal bank lending, building-plan sanction and resale without restriction.';
+      nextStep = 'Confirm the khata extract matches the current owner and survey number before proceeding.';
+    } else if (khataType === 'b_khata') {
+      verdict = 'blocker';
+      finding = 'Property is recorded on a B-khata — an irregular/provisional BBMP entry, not the fully compliant register.';
+      consequence =
+        'B-khata properties are routinely refused home-loan financing by scheduled banks, cannot get a building plan sanctioned, and sell at a real cash-buyer-only discount to A-khata stock — this is usually the single most consequential finding in a Bengaluru title screen.';
+      nextStep =
+        'Confirm the specific reason for B-khata status (unauthorised layout, DC-conversion pending, property-tax arrears) with BBMP and evaluate the cost/feasibility of conversion to A-khata before offering.';
+      const evId = evidence.add({ statement: 'Khata classification recorded as B-khata.', sourceType: 'user_input', sourceRef: 'identity.karnataka.khataType', sourceLabel: 'Case identity — Karnataka khata type', confidence: 0.9 });
+      evIds.push(evId);
+      const riskId = addRisk('karnataka_b_khata', 'B-khata property', 'critical', 'title', finding, consequence, nextStep, evIds);
+      relatedRiskIds = [riskId];
+    } else if (khataType === 'gram_panchayat_form_9_11') {
+      verdict = 'attention';
+      finding = 'Property is recorded under Gram Panchayat Form 9/11 rather than a BBMP khata — it sits outside Bengaluru municipal limits.';
+      consequence = 'Form 9/11 properties face tighter limits on construction and are viewed cautiously by bank lenders relative to BBMP A-khata stock.';
+      nextStep = 'Confirm current jurisdiction (BBMP/BDA limits sometimes expand over such land) and check the panchayat register for conversion or annexation notices.';
+      const evId = evidence.add({ statement: 'Property register instrument recorded as Gram Panchayat Form 9/11.', sourceType: 'user_input', sourceRef: 'identity.karnataka.khataType', sourceLabel: 'Case identity — Karnataka khata type', confidence: 0.85 });
+      evIds.push(evId);
+      const riskId = addRisk('karnataka_gram_panchayat_register', 'Gram Panchayat register (Form 9/11), not BBMP khata', 'warning', 'title', finding, consequence, nextStep, evIds);
+      relatedRiskIds = [riskId];
+    } else if (khataType === 'none') {
+      verdict = 'attention';
+      finding = 'No khata has been recorded for this property.';
+      consequence = "Without any khata, property tax cannot be paid in the owner's name and registration/resale is materially harder.";
+      nextStep = 'Apply for khata registration with BBMP/BDA before proceeding.';
+      const evId = evidence.add({ statement: 'Khata type recorded as none.', sourceType: 'user_input', sourceRef: 'identity.karnataka.khataType', sourceLabel: 'Case identity — Karnataka khata type', confidence: 0.85 });
+      evIds.push(evId);
+      const riskId = addRisk('karnataka_no_khata', 'No khata on record', 'serious', 'title', finding, consequence, nextStep, evIds);
+      relatedRiskIds = [riskId];
+    } else {
+      verdict = 'unknown';
+      finding = 'Khata classification (A-khata / B-khata / Form 9-11) has not been confirmed for this property.';
+      consequence =
+        'Khata status directly gates lending, plan sanction and resale, so the screen cannot rule out a B-khata restriction until this is confirmed.';
+      nextStep = 'Obtain the khata extract (or Form 9/11 for gram-panchayat land) and record the classification.';
+    }
+    pushCheck('khata_classification', 'Khata classification', verdict, finding, consequence, nextStep, statuteFor('khata_classification', 'Karnataka Municipal Corporations Act, 1976 — BBMP khata register'), evIds, relatedRiskIds);
+  }
+
+  // 2. e-Khata issuance.
+  {
+    let verdict: ComplianceVerdict;
+    let finding: string;
+    let consequence: string;
+    let nextStep: string;
+    const evIds: string[] = [];
+    let relatedRiskIds: string[] = [];
+
+    if (!ka) {
+      verdict = 'unknown';
+      finding = 'e-Khata issuance status has not been recorded.';
+      consequence = 'Registration at the Sub-Registrar can stall without a matching e-khata on the Kaveri portal.';
+      nextStep = "Check the property's e-khata status on the BBMP portal and record it.";
+    } else if (ka.jurisdiction !== 'BBMP') {
+      verdict = 'clear';
+      finding = `e-Khata is a BBMP-specific digitised record; this property falls under ${ka.jurisdiction} jurisdiction.`;
+      consequence = 'No e-khata-specific restriction applies outside BBMP limits.';
+      nextStep = 'Confirm the equivalent property-register instrument for this jurisdiction is on file.';
+    } else if (ka.eKhataIssued) {
+      verdict = 'clear';
+      finding = 'e-Khata has been issued for this property on the BBMP portal.';
+      consequence = 'Registration at the Sub-Registrar should not be blocked on this ground.';
+      nextStep = 'Keep the e-khata printout current at the time of registration.';
+      evIds.push(evidence.add({ statement: 'e-Khata recorded as issued.', sourceType: 'user_input', sourceRef: 'identity.karnataka.eKhataIssued', sourceLabel: 'Case identity — e-Khata status', confidence: 0.85 }));
+    } else {
+      verdict = 'attention';
+      finding = 'e-Khata has not yet been issued for this BBMP property.';
+      consequence = "Absence of an e-khata is a common, avoidable cause of registration being stalled or refused at the Sub-Registrar's office.";
+      nextStep = 'Apply for e-khata migration on the BBMP portal before scheduling registration.';
+      const evId = evidence.add({ statement: 'e-Khata recorded as not issued.', sourceType: 'user_input', sourceRef: 'identity.karnataka.eKhataIssued', sourceLabel: 'Case identity — e-Khata status', confidence: 0.85 });
+      evIds.push(evId);
+      const riskId = addRisk('karnataka_no_ekhata', 'e-Khata not issued', 'warning', 'title', finding, consequence, nextStep, evIds);
+      relatedRiskIds = [riskId];
+    }
+    pushCheck('e_khata_issuance', 'e-Khata issuance', verdict, finding, consequence, nextStep, statuteFor('e_khata_issuance', 'BBMP e-Khata initiative, administered under the Karnataka Municipal Corporations Act 1976'), evIds, relatedRiskIds);
+  }
+
+  // 3. DC conversion status.
+  {
+    const status = ka?.landConversionStatus;
+    const convDoc = findDoc('conversion_certificate');
+    const isNonAgUse = identity.propertyType !== 'land_parcel';
+    let verdict: ComplianceVerdict;
+    let finding: string;
+    let consequence: string;
+    let nextStep: string;
+    const evIds: string[] = [];
+    let relatedRiskIds: string[] = [];
+
+    if (!status || status === 'unknown') {
+      verdict = 'unknown';
+      finding = 'DC (Deputy Commissioner) land-conversion status has not been confirmed.';
+      consequence =
+        'If the land is still agricultural, non-agricultural use or construction on it is unauthorised under s.95 of the Karnataka Land Revenue Act, 1964, putting financing and plan sanction at risk.';
+      nextStep = 'Obtain the DC conversion order (or confirm the land was never agricultural) before proceeding.';
+    } else if (status === 'agricultural' && isNonAgUse) {
+      verdict = 'blocker';
+      finding = `Land is recorded as still agricultural, but the property is being screened as a ${identity.propertyType.replace(/_/g, ' ')} — a non-agricultural use.`;
+      consequence =
+        'Non-agricultural use or construction on unconverted agricultural land is unauthorised under s.95 of the Karnataka Land Revenue Act, 1964, exposing the buyer to penalty, resumption, or an inability to register or mortgage the property.';
+      nextStep = 'Obtain the DC conversion order before any construction, registration or financing step.';
+      const evId = evidence.add({ statement: 'Land conversion status recorded as agricultural for a non-agricultural property type.', sourceType: 'user_input', sourceRef: 'identity.karnataka.landConversionStatus', sourceLabel: 'Case identity — DC conversion status', confidence: 0.9 });
+      evIds.push(evId);
+      const riskId = addRisk('karnataka_unconverted_agricultural_land', 'Unconverted agricultural land under non-agricultural use', 'critical', 'planning', finding, consequence, nextStep, evIds);
+      relatedRiskIds = [riskId];
+    } else if (status === 'converted') {
+      if (convDoc) {
+        verdict = 'clear';
+        finding = 'Land has been converted for non-agricultural use and the DC conversion certificate is on file.';
+        consequence = 'Supports lawful non-agricultural use, financing and plan sanction.';
+        nextStep = 'Cross-check the conversion order number and extent against the survey number on the title deed.';
+        evIds.push(evidence.add({ statement: `DC conversion certificate on file (${convDoc.fileName}).`, sourceType: 'document', sourceRef: convDoc.id, sourceLabel: convDoc.fileName, confidence: convDoc.classificationConfidence }));
+      } else {
+        verdict = 'attention';
+        finding = 'Land is recorded as converted for non-agricultural use, but the DC conversion certificate itself is not on file.';
+        consequence = 'Without the certificate, the conversion cannot be independently verified — lenders and the Sub-Registrar will typically ask for it.';
+        nextStep = 'Obtain a copy of the DC conversion order/certificate for the file.';
+        const evId = evidence.add({ statement: 'Land conversion status recorded as converted, but no conversion certificate document is on file.', sourceType: 'model_inference', sourceRef: 'documents.conversion_certificate', sourceLabel: 'Document completeness', confidence: 0.7 });
+        evIds.push(evId);
+        const riskId = addRisk('karnataka_conversion_certificate_missing', 'DC conversion certificate not on file', 'warning', 'title', finding, consequence, nextStep, evIds);
+        relatedRiskIds = [riskId];
+      }
+    } else {
+      verdict = 'clear';
+      finding = 'DC conversion is not applicable to this property.';
+      consequence = 'No conversion-related restriction applies.';
+      nextStep = 'No action needed on this point.';
+    }
+    pushCheck('dc_conversion', 'DC land-conversion status', verdict, finding, consequence, nextStep, statuteFor('dc_conversion', 'Karnataka Land Revenue Act 1964, s.95'), evIds, relatedRiskIds);
+  }
+
+  // 4. PTCL Act, 1978 granted land.
+  {
+    const flagged = ka?.grantedLandPtcl;
+    let verdict: ComplianceVerdict;
+    let finding: string;
+    let consequence: string;
+    let nextStep: string;
+    const evIds: string[] = [];
+    let relatedRiskIds: string[] = [];
+
+    if (flagged === true) {
+      verdict = 'blocker';
+      finding = 'Property is flagged as granted land under the Karnataka Scheduled Castes and Scheduled Tribes (Prohibition of Transfer of Certain Lands) Act, 1978 (PTCL Act).';
+      consequence =
+        'PTCL-granted land carries statutory restrictions — in many cases an outright prohibition — on transfer without government permission; a sale in breach of the Act can be set aside years later, even against a bona fide purchaser.';
+      nextStep = 'Obtain a certified non-applicability / transfer-permission order from the Assistant Commissioner before proceeding — do not rely on the title deed alone.';
+      const evId = evidence.add({ statement: 'Property flagged as PTCL Act 1978 granted land.', sourceType: 'user_input', sourceRef: 'identity.karnataka.grantedLandPtcl', sourceLabel: 'Case identity — PTCL granted-land flag', confidence: 0.9 });
+      evIds.push(evId);
+      const riskId = addRisk('karnataka_ptcl_granted_land', 'PTCL Act granted-land transfer restriction', 'critical', 'title', finding, consequence, nextStep, evIds);
+      relatedRiskIds = [riskId];
+    } else if (flagged === false) {
+      verdict = 'clear';
+      finding = 'Property is not flagged as PTCL Act granted land.';
+      consequence = 'No PTCL transfer restriction applies on the information provided.';
+      nextStep = "If the seller's title traces back to a government grant, independently confirm the PTCL position with the Revenue Department regardless.";
+    } else {
+      verdict = 'unknown';
+      finding = 'Whether the land was originally granted under the PTCL Act, 1978 has not been checked.';
+      consequence = 'Undisclosed PTCL-granted status can void a sale years after completion.';
+      nextStep = "Trace the title chain back to the original grant (if any) and check the Revenue Department's PTCL register.";
+    }
+    pushCheck('ptcl_restriction', 'PTCL Act 1978 granted-land status', verdict, finding, consequence, nextStep, statuteFor('ptcl_restriction', 'Karnataka Scheduled Castes and Scheduled Tribes (Prohibition of Transfer of Certain Lands) Act, 1978'), evIds, relatedRiskIds);
+  }
+
+  // 5. Rajakaluve / lake buffer.
+  {
+    let verdict: ComplianceVerdict;
+    let finding: string;
+    let consequence: string;
+    let nextStep: string;
+    const evIds: string[] = [];
+    let relatedRiskIds: string[] = [];
+
+    if (!ka) {
+      verdict = 'unknown';
+      finding = 'Proximity to a storm-water drain (rajakaluve) or lake boundary has not been checked.';
+      consequence = 'Construction within a drain/lake buffer is subject to demolition orders under NGT directions even where the property otherwise has clean title.';
+      nextStep = 'Check the BBMP/BDA drain and lake maps for this survey number.';
+    } else if (!ka.nearRajakaluve && !ka.nearLake) {
+      verdict = 'clear';
+      finding = 'No storm-water drain (rajakaluve) or lake-buffer proximity has been flagged for this property.';
+      consequence = 'No buffer-zone construction restriction is indicated by the information on file.';
+      nextStep = 'If a site inspection shows proximity to a drain or lake not captured here, re-run this check with that flag set.';
+    } else {
+      // Rajakaluve buffers are banded by drain classification (primary /
+      // secondary / tertiary) — quoting a single rule's distance would
+      // misleadingly imply we know which band applies, so this reports the
+      // full range and leaves the specific figure to a survey.
+      const drainRules: BufferRule[] = statePack.buffers.value.filter(b => /rajakaluve|drain|storm/i.test(`${b.key} ${b.label} ${b.appliesTo}`));
+      const lakeRule = statePack.buffers.value.find(b => /lake/i.test(`${b.key} ${b.label} ${b.appliesTo}`));
+      const drainMetres = drainRules.map(r => r.metres);
+      const drainText = drainMetres.length > 0 ? (drainMetres.length > 1 ? `${Math.min(...drainMetres)}-${Math.max(...drainMetres)}m, depending on primary/secondary/tertiary classification` : `${drainMetres[0]}m`) : undefined;
+      const featureLabel = ka.nearRajakaluve && ka.nearLake ? 'a storm-water drain (rajakaluve) and a lake' : ka.nearRajakaluve ? 'a storm-water drain (rajakaluve)' : 'a lake';
+      const ruleText = [
+        ka.nearRajakaluve && drainText ? `${drainText} from the drain edge` : null,
+        ka.nearLake && lakeRule ? `${lakeRule.metres}m from ${lakeRule.appliesTo}` : null,
+      ]
+        .filter((s): s is string => Boolean(s))
+        .join(' / ');
+      verdict = 'attention';
+      finding = `Property is recorded as being near ${featureLabel}.`;
+      consequence =
+        `Karnataka's buffer rules (${statePack.buffers.source}, as of ${statePack.buffers.asOf})${ruleText ? ` set a no-construction setback of ${ruleText}` : ' restrict construction near drains and lakes'}, but the distance that actually applies depends on how this specific drain is classified in the current BBMP/BDA drain-classification map, and these distances have been repeatedly revised by NGT orders — it cannot be assumed from a proximity flag alone.`;
+      nextStep = 'Commission a licensed surveyor to measure the actual setback against the current BBMP/BDA drain-classification map before relying on any development or resale plan for this site.';
+      const evId = evidence.add({ statement: `Property flagged as near ${featureLabel}.`, sourceType: 'user_input', sourceRef: 'identity.karnataka.nearRajakaluve|nearLake', sourceLabel: 'Case identity — buffer proximity flags', confidence: 0.8 });
+      evIds.push(evId);
+      const riskId = addRisk('karnataka_buffer_proximity', 'Rajakaluve / lake buffer proximity', 'serious', 'environmental', finding, consequence, nextStep, evIds);
+      relatedRiskIds = [riskId];
+    }
+    pushCheck('rajakaluve_lake_buffer', 'Rajakaluve / lake buffer', verdict, finding, consequence, nextStep, statuteFor('rajakaluve_lake_buffer', 'Karnataka Town and Country Planning Act 1961; NGT orders on Bengaluru lake and drain buffers'), evIds, relatedRiskIds);
+  }
+
+  // 6. Occupancy certificate — very commonly absent in Bengaluru.
+  {
+    const ocDoc = findDoc('occupancy_certificate');
+    let verdict: ComplianceVerdict;
+    let finding: string;
+    let consequence: string;
+    let nextStep: string;
+    const evIds: string[] = [];
+    let relatedRiskIds: string[] = [];
+
+    if (ocDoc) {
+      verdict = 'clear';
+      finding = 'Occupancy certificate is on file.';
+      consequence = 'Supports lawful occupation, insurability and normal resale/financing.';
+      nextStep = 'Confirm the OC covers the specific unit/floor being screened, not just the overall project.';
+      evIds.push(evidence.add({ statement: `Occupancy certificate on file (${ocDoc.fileName}).`, sourceType: 'document', sourceRef: ocDoc.id, sourceLabel: ocDoc.fileName, confidence: ocDoc.classificationConfidence }));
+    } else {
+      verdict = 'attention';
+      finding = 'No occupancy certificate is on file — very commonly absent for Bengaluru stock, but still a gap.';
+      consequence = 'Without an OC, compliance with the sanctioned plan cannot be confirmed, which can affect insurability, resale and further financing.';
+      nextStep = "Request the occupancy certificate from the builder/seller, or check BBMP's OC-status portal for the project.";
+      const evId = evidence.add({ statement: 'No occupancy certificate on file.', sourceType: 'model_inference', sourceRef: 'documents.occupancy_certificate', sourceLabel: 'Document completeness', confidence: 0.7 });
+      evIds.push(evId);
+      const riskId = addRisk('karnataka_no_occupancy_certificate', 'Occupancy certificate not on file', 'warning', 'title', finding, consequence, nextStep, evIds);
+      relatedRiskIds = [riskId];
+    }
+    pushCheck('occupancy_certificate_compliance', 'Occupancy certificate', verdict, finding, consequence, nextStep, statuteFor('occupancy_certificate_compliance', 'Karnataka Municipal Corporations Act 1976, s.310'), evIds, relatedRiskIds);
+  }
+
+  // 7. Encumbrance continuity — reuses the existing country-level risk (if any) rather than duplicating it.
+  {
+    const ecDoc = findDoc('encumbrance_certificate');
+    let verdict: ComplianceVerdict;
+    let finding: string;
+    let consequence: string;
+    let nextStep: string;
+    let evIds: string[] = [];
+    let relatedRiskIds: string[] = [];
+
+    if (ecDoc) {
+      verdict = 'clear';
+      finding = 'A 30-year encumbrance certificate is on file, evidencing continuity of the recorded chain of title.';
+      consequence = 'Supports a clean-title basis for lending and registration.';
+      nextStep = 'Confirm the EC period actually spans the full 30 years and shows no unresolved entries.';
+      evIds.push(evidence.add({ statement: `Encumbrance certificate on file (${ecDoc.fileName}).`, sourceType: 'document', sourceRef: ecDoc.id, sourceLabel: ecDoc.fileName, confidence: ecDoc.classificationConfidence }));
+    } else {
+      verdict = 'attention';
+      finding = 'No encumbrance certificate is on file to evidence continuity of title.';
+      consequence = 'Undisclosed mortgages, liens or pending litigation would not be visible without this document.';
+      nextStep = 'Obtain a fresh 30-year encumbrance certificate from the Sub-Registrar (Kaveri Online Services).';
+      const existing = countryLevelRisks.find(r => r.code === 'no_encumbrance_certificate');
+      if (existing) {
+        relatedRiskIds = [existing.id];
+        evIds = [...existing.evidenceIds];
+      }
+    }
+    pushCheck('encumbrance_continuity', 'Encumbrance continuity (30-year EC)', verdict, finding, consequence, nextStep, statuteFor('encumbrance_continuity', 'Registration Act 1908, s.57'), evIds, relatedRiskIds);
+  }
+
+  // 8. K-RERA registration — only for projects that require it.
+  {
+    const reraApplicable = identity.propertyType === 'residential_apartment' || identity.propertyType === 'residential_villa';
+    let verdict: ComplianceVerdict;
+    let finding: string;
+    let consequence: string;
+    let nextStep: string;
+    const evIds: string[] = [];
+    let relatedRiskIds: string[] = [];
+
+    if (!reraApplicable) {
+      verdict = 'clear';
+      finding = 'K-RERA registration is not applicable to this property type.';
+      consequence = 'No RERA-related restriction applies.';
+      nextStep = 'No action needed on this point.';
+    } else {
+      const reraDoc = findDoc('rera_registration');
+      const kreraNumber = ka?.kreraNumber ?? reraDoc?.extracted.find(f => f.key === 'reraNumber')?.value;
+      if (kreraNumber) {
+        verdict = 'clear';
+        finding = `K-RERA registration number ${kreraNumber} is on record for this project.`;
+        consequence = 'Supports buyer protections (receivables escrow, delivery timeline, defect liability) under the RERA Act, 2016.';
+        nextStep = 'Verify the registration is still active on the K-RERA portal (rera.karnataka.gov.in).';
+        evIds.push(
+          evidence.add({
+            statement: `K-RERA registration number recorded: ${kreraNumber}.`,
+            sourceType: reraDoc ? 'document' : 'user_input',
+            sourceRef: reraDoc?.id ?? 'identity.karnataka.kreraNumber',
+            sourceLabel: reraDoc?.fileName ?? 'Case identity — K-RERA number',
+            confidence: 0.85,
+          }),
+        );
+      } else {
+        verdict = 'attention';
+        finding = 'This is an apartment/villa project but no K-RERA registration number is on record.';
+        consequence = 'Selling a RERA-eligible project without registration is a statutory breach and forfeits the buyer protections RERA provides.';
+        nextStep = "Confirm the project's K-RERA registration number on rera.karnataka.gov.in before booking or paying any advance.";
+        const evId = evidence.add({ statement: 'No K-RERA registration number on record for an apartment/villa project.', sourceType: 'model_inference', sourceRef: 'documents.rera_registration', sourceLabel: 'Document completeness', confidence: 0.6 });
+        evIds.push(evId);
+        const riskId = addRisk('karnataka_no_krera_registration', 'K-RERA registration not on record', 'warning', 'title', finding, consequence, nextStep, evIds);
+        relatedRiskIds = [riskId];
+      }
+    }
+    pushCheck('krera_registration', 'K-RERA registration', verdict, finding, consequence, nextStep, statuteFor('krera_registration', 'Real Estate (Regulation and Development) Act 2016, as administered by K-RERA'), evIds, relatedRiskIds);
+  }
+
+  // 9. Acquisition / de-notification status (BDA/BMRDA).
+  {
+    let verdict: ComplianceVerdict;
+    let finding: string;
+    let consequence: string;
+    let nextStep: string;
+    const evIds: string[] = [];
+    let relatedRiskIds: string[] = [];
+
+    if (!ka || ka.jurisdiction === 'unknown') {
+      verdict = 'unknown';
+      finding = 'Whether this parcel has ever been notified for acquisition (and, if so, de-notified) by BDA/BMRDA has not been checked.';
+      consequence = 'A parcel under an unresolved acquisition notification cannot be safely developed or financed even if title otherwise looks clean.';
+      nextStep = 'Search the BDA/BMRDA acquisition and de-notification registers against the survey number.';
+    } else if (ka.jurisdiction === 'BDA' || ka.jurisdiction === 'BMRDA') {
+      verdict = 'attention';
+      finding = `Property falls under ${ka.jurisdiction} jurisdiction, where historical land-acquisition notifications are common across Bengaluru's peripheral layouts.`;
+      consequence = 'An unresolved or improperly de-notified acquisition can result in the land reverting to the acquiring authority regardless of the current sale deed.';
+      nextStep = `Search the ${ka.jurisdiction} acquisition and de-notification registers against the survey number before proceeding.`;
+      const evId = evidence.add({ statement: `Property jurisdiction recorded as ${ka.jurisdiction}.`, sourceType: 'user_input', sourceRef: 'identity.karnataka.jurisdiction', sourceLabel: 'Case identity — Karnataka jurisdiction', confidence: 0.8 });
+      evIds.push(evId);
+      const riskId = addRisk('karnataka_acquisition_notification_unconfirmed', `${ka.jurisdiction} acquisition/de-notification status unconfirmed`, 'warning', 'title', finding, consequence, nextStep, evIds);
+      relatedRiskIds = [riskId];
+    } else {
+      verdict = 'clear';
+      finding = `Property falls under ${ka.jurisdiction} jurisdiction, where BDA/BMRDA-style acquisition-notification exposure is materially lower.`;
+      consequence = 'No specific acquisition-notification concern is indicated by jurisdiction alone.';
+      nextStep = 'No action needed on this point beyond the standard encumbrance search.';
+    }
+    pushCheck('bda_bmrda_acquisition', 'Acquisition / de-notification status', verdict, finding, consequence, nextStep, statuteFor('bda_bmrda_acquisition', 'Bangalore Development Authority Act 1976; Bangalore Metropolitan Region Development Authority Act 1985'), evIds, relatedRiskIds);
+  }
+
+  // 10. Area basis — Bengaluru pricing is routinely quoted on super built-up area.
+  {
+    const basis = ka?.areaBasis;
+    let verdict: ComplianceVerdict;
+    let finding: string;
+    let consequence: string;
+    let nextStep: string;
+    const evIds: string[] = [];
+    let relatedRiskIds: string[] = [];
+
+    if (basis === 'carpet') {
+      verdict = 'clear';
+      finding = 'Quoted area is on a RERA carpet-area basis.';
+      consequence = 'Price-per-sqm figures are directly comparable to RERA-mandated carpet-area disclosures and to other carpet-area comparables.';
+      nextStep = 'No action needed on this point.';
+    } else if (basis === 'built_up') {
+      verdict = 'attention';
+      finding = 'Quoted area is on a built-up basis, not RERA carpet area.';
+      consequence = 'Built-up area typically runs 10-15% above carpet area, so a price-per-sqm computed on it understates the true carpet-area rate by a similar margin.';
+      nextStep = 'Ask for the carpet-area figure (or the built-up-to-carpet efficiency ratio) before comparing this price per sqm to carpet-area comparables.';
+      evIds.push(evidence.add({ statement: 'Area basis recorded as built-up, not carpet.', sourceType: 'user_input', sourceRef: 'identity.karnataka.areaBasis', sourceLabel: 'Case identity — area basis', confidence: 0.85 }));
+    } else {
+      verdict = 'attention';
+      finding = basis === 'super_built_up' ? 'Quoted area is on a super built-up basis, not RERA carpet area.' : 'The basis the quoted area is measured on (carpet / built-up / super built-up) has not been confirmed.';
+      consequence =
+        'Bengaluru pricing is routinely quoted on super built-up area while RERA mandates carpet area — the quoted rate is typically 25-35% optimistic against a genuine carpet-area comparison, so anchors and comparables here may overstate value versus carpet-area market data.';
+      nextStep = 'Obtain the RERA carpet-area figure from the sale agreement/RERA filing and re-express the price per sqm on that basis before relying on the comparable-sales anchor.';
+      const evId = evidence.add({
+        statement: basis === 'super_built_up' ? 'Area basis recorded as super built-up.' : 'Area basis has not been recorded.',
+        sourceType: 'user_input',
+        sourceRef: 'identity.karnataka.areaBasis',
+        sourceLabel: 'Case identity — area basis',
+        confidence: basis ? 0.85 : 0.4,
+      });
+      evIds.push(evId);
+      const riskId = addRisk('karnataka_area_basis_not_carpet', 'Quoted area basis is not RERA carpet area', 'warning', 'data', finding, consequence, nextStep, evIds);
+      relatedRiskIds = [riskId];
+    }
+    pushCheck('area_basis', 'Quoted area basis', verdict, finding, consequence, nextStep, 'Real Estate (Regulation and Development) Act, 2016 — s.2(k) carpet-area definition', evIds, relatedRiskIds);
+  }
+
+  const applicable = checks.filter(c => c.verdict !== 'unknown');
+  const clearCount = applicable.filter(c => c.verdict === 'clear').length;
+  const score = applicable.length > 0 ? Math.round((clearCount / applicable.length) * 100) : 0;
+
+  const compliance: StateComplianceSummary = {
+    statePackId: statePack.id,
+    state: statePack.state,
+    score,
+    checks,
+    unresolved,
+    // Buffer rules are the most frequently revised (NGT orders, RMP
+    // revisions) of the pack's statutory rules, and are exactly the kind of
+    // value a screen must not silently let go stale — so they carry the
+    // provenance banner shown across the whole compliance view.
+    rulesAsOf: statePack.buffers.asOf,
+    verifyNote: statePack.buffers.verifyNote,
+  };
+
+  return { compliance, risks };
+}
+
+/* ==================================================================== */
+/* Transaction costs (stamp duty, cess, surcharge, registration)         */
+/* ==================================================================== */
+
+/**
+ * Karnataka charges stamp duty as a single flat rate on the whole dutiable
+ * value based on which band it falls into (not a marginal/progressive
+ * calculation like income tax) — this picks the smallest `upTo` that still
+ * covers `value`, falling back to the open-ended ("and above") slab.
+ */
+function computeSlabDuty(value: number, slabs: DutySlab[]): number {
+  const sorted = [...slabs].sort((a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity));
+  const slab = sorted.find(s => s.upTo === null || value <= s.upTo) ?? sorted[sorted.length - 1];
+  return value * (slab.pct / 100);
+}
+
+/**
+ * Stamp duty is charged on the higher of transacted consideration and the
+ * statutory guidance value, then cess and surcharge are computed on the duty
+ * itself (not on the price), then the registration fee on the dutiable
+ * value. Every line is rounded to the nearest currency unit *before* summing,
+ * so `lines` always sums exactly to `total` — no separate coarse rounding is
+ * applied afterwards that could break that invariant.
+ */
+export function computeTransactionCosts(identity: PropertyIdentity, statePack: StatePack, locality: LocalityReference): TransactionCostBreakdown {
+  const area = identity.builtUpAreaSqm;
+  const guidanceValue = Math.round(locality.statutoryRatePerSqm * area);
+  const consideration = identity.askingPrice !== undefined ? Math.round(identity.askingPrice) : 0;
+  const dutiableValue = Math.max(consideration, guidanceValue);
+  const dutiableBasis: TransactionCostBreakdown['dutiableBasis'] = consideration > guidanceValue ? 'consideration' : 'statutory_guidance_value';
+
+  const dutyAmt = Math.round(computeSlabDuty(dutiableValue, statePack.stampDutySlabs.value));
+  const cessPct = statePack.stampDutyCessPct.value;
+  const surchargePct = statePack.stampDutySurchargePct.value;
+  const registrationFeePct = statePack.registrationFeePct.value;
+  const cessAmt = Math.round(dutyAmt * (cessPct / 100));
+  const surchargeAmt = Math.round(dutyAmt * (surchargePct / 100));
+  const registrationAmt = Math.round(dutiableValue * (registrationFeePct / 100));
+
+  const lines: TransactionCostBreakdown['lines'] = [
+    {
+      key: 'stamp_duty',
+      label: 'Stamp duty',
+      pct: null,
+      amount: dutyAmt,
+      note: `Banded stamp duty on the dutiable value of ${identity.currency} ${dutiableValue.toLocaleString()} (the higher of ${identity.currency} ${consideration.toLocaleString()} consideration and the ${identity.currency} ${guidanceValue.toLocaleString()} ${statePack.statutoryRateLabel.toLowerCase()}), per ${statePack.stampDutySlabs.source}.`,
+    },
+    {
+      key: 'cess',
+      label: 'Cess',
+      pct: cessPct,
+      amount: cessAmt,
+      note: `${cessPct}% of the stamp duty itself (${identity.currency} ${dutyAmt.toLocaleString()}), not of the price, per ${statePack.stampDutyCessPct.source}.`,
+    },
+    {
+      key: 'surcharge',
+      label: 'Surcharge',
+      pct: surchargePct,
+      amount: surchargeAmt,
+      note: `${surchargePct}% of the stamp duty itself, not of the price, per ${statePack.stampDutySurchargePct.source}.`,
+    },
+    {
+      key: 'registration_fee',
+      label: 'Registration fee',
+      pct: registrationFeePct,
+      amount: registrationAmt,
+      note: `${registrationFeePct}% of the dutiable value, per ${statePack.registrationFeePct.source}.`,
+    },
+  ];
+
+  const total = lines.reduce((s, l) => s + l.amount, 0);
+  const priceBasis = consideration > 0 ? consideration : dutiableValue;
+  const totalPctOfPrice = priceBasis > 0 ? round2((total / priceBasis) * 100) : 0;
+
+  return {
+    dutiableValue,
+    dutiableBasis,
+    lines,
+    total,
+    totalPctOfPrice,
+    currency: identity.currency,
+    asOf: statePack.stampDutySlabs.asOf,
+    source: statePack.stampDutySlabs.source,
+    verifyNote: statePack.stampDutySlabs.verifyNote,
+  };
+}
+
+/* ==================================================================== */
 /* Planning position                                                     */
 /* ==================================================================== */
 
@@ -1275,8 +2074,8 @@ function buildPlanning(identity: PropertyIdentity, locality: LocalityReference, 
 /* Document completeness                                                 */
 /* ==================================================================== */
 
-function buildCompleteness(countryPack: CountryPack, documents: CaseDocument[]): CompletenessSummary {
-  const items: CompletenessItem[] = countryPack.requiredDocuments.map(rd => {
+function buildCompleteness(requiredDocs: RequiredDocSpec[], documents: CaseDocument[]): CompletenessSummary {
+  const items: CompletenessItem[] = requiredDocs.map(rd => {
     const doc = documents.find(d => d.kind === rd.kind);
     return {
       key: rd.kind,
@@ -1286,7 +2085,7 @@ function buildCompleteness(countryPack: CountryPack, documents: CaseDocument[]):
       present: Boolean(doc),
       documentId: doc?.id,
       weight: rd.weight,
-      note: doc ? undefined : rd.required ? 'Required and not yet on file.' : 'Optional — improves confidence if provided.',
+      note: doc ? undefined : rd.note ?? (rd.required ? 'Required and not yet on file.' : 'Optional — improves confidence if provided.'),
     };
   });
   const totalWeight = items.reduce((s, i) => s + i.weight, 0) || 1;
@@ -1439,6 +2238,14 @@ function buildActions(caseId: string, completeness: CompletenessSummary, risks: 
         mk('risk-locality-data', 'Commission a local market appraisal', risk.mitigation, 'before_offer', 'valuer', 'medium', ['Replaces the country-level proxy with local data'], [risk.id]);
         break;
       default:
+        // Generic fallback for risk codes without a hand-authored action above
+        // — chiefly the Karnataka compliance-driven risks (B-khata,
+        // unconverted agricultural land, PTCL-granted land, buffer proximity,
+        // ...), so a critical or serious compliance finding always drives a
+        // concrete next step even before it earns its own bespoke wording.
+        if (risk.severity === 'critical' || risk.severity === 'serious') {
+          mk(`risk-${risk.code}`, `Resolve: ${risk.title}`, risk.mitigation, risk.severity === 'critical' ? 'now' : 'before_offer', 'lawyer', 'medium', [`Addresses ${risk.title.toLowerCase()}`], [risk.id]);
+        }
         break;
     }
   }
@@ -1555,8 +2362,23 @@ function assertEvidenceIntegrity(result: ScreenResult): void {
   result.drivers.forEach(d => check(d.evidenceIds, `driver:${d.id}`));
   result.risks.forEach(r => check(r.evidenceIds, `risk:${r.id}`));
   check(result.planning.evidenceIds, 'planning');
+  result.stateCompliance?.checks.forEach(c => check(c.evidenceIds, `compliance:${c.key}`));
   if (missing.length > 0) {
     throw new Error(`Evidence traceability broken — dangling evidenceIds: ${missing.join(', ')}`);
+  }
+
+  // Risks and Compliance must never disagree: every relatedRiskIds entry a
+  // compliance check names has to point at a RiskFlag that actually exists
+  // in this same result.
+  const knownRiskIds = new Set(result.risks.map(r => r.id));
+  const missingRiskLinks: string[] = [];
+  result.stateCompliance?.checks.forEach(c => {
+    for (const riskId of c.relatedRiskIds) {
+      if (!knownRiskIds.has(riskId)) missingRiskLinks.push(`compliance:${c.key} -> ${riskId}`);
+    }
+  });
+  if (missingRiskLinks.length > 0) {
+    throw new Error(`Compliance/risk linkage broken — dangling relatedRiskIds: ${missingRiskLinks.join(', ')}`);
   }
 }
 
@@ -1580,6 +2402,9 @@ export function runScreen(input: {
   if (!countryPack) {
     throw new Error(`No country pack registered for ${identity.country}`);
   }
+  const statePack = resolveStatePack(identity, refData);
+  const statutoryRateLabel = statePack?.statutoryRateLabel ?? countryPack.statutoryRateLabel;
+  const requiredDocs = resolveRequiredDocuments(countryPack, statePack);
 
   // Backfill extraction for any document that has finished OCR but has not
   // had field extraction run against it yet — keeps the engine usable even
@@ -1606,17 +2431,24 @@ export function runScreen(input: {
 
   const { ref: locality, matchLevel } = matchLocalityReference(identity, refData.localities);
   const comparables = buildComparables(identity, refData.comparablePool, refData.localities, locality, now);
-  const anchors = buildAnchors(caseId, identity, comparables, locality, matchLevel, countryPack, documentsWithExtraction, now, evidence);
+  const anchors = buildAnchors(caseId, identity, comparables, locality, matchLevel, statutoryRateLabel, documentsWithExtraction, now, evidence);
 
   const baseBlend = blendIndicativeValue(anchors, identity.currency);
   const baseMidPerSqm = baseBlend.mid / identity.builtUpAreaSqm;
 
   const planning = buildPlanning(identity, locality, now, evidence);
-  const completeness = buildCompleteness(countryPack, documentsWithExtraction);
+  const completeness = buildCompleteness(requiredDocs, documentsWithExtraction);
 
   const askingVsMidPctRaw = identity.askingPrice !== undefined ? ((identity.askingPrice - baseBlend.mid) / baseBlend.mid) * 100 : null;
 
-  const risks = buildRisks(caseId, identity, documentsWithExtraction, completeness, comparables, locality, matchLevel, countryPack, planning, askingVsMidPctRaw, now, previousResult, evidence);
+  const baseRisks = buildRisks(caseId, identity, documentsWithExtraction, completeness, comparables, locality, matchLevel, countryPack, statePack, planning, askingVsMidPctRaw, now, previousResult, evidence);
+
+  // A State Pack's title checks run after the country-level risks so that
+  // checks like "Encumbrance continuity" can link to an existing risk (e.g.
+  // `no_encumbrance_certificate`) instead of minting a duplicate.
+  const stateComplianceResult = statePack ? buildStateCompliance(caseId, identity, documentsWithExtraction, statePack, baseRisks, previousResult, evidence) : undefined;
+  const risks = stateComplianceResult ? [...baseRisks, ...stateComplianceResult.risks] : baseRisks;
+
   const confidence = buildConfidence(completeness, comparables, matchLevel, documentsWithExtraction, anchors, identity.askingPrice !== undefined);
 
   const widened = widenForConfidence(baseBlend, confidence.band, identity.currency);
@@ -1641,6 +2473,7 @@ export function runScreen(input: {
   const actions = buildActions(caseId, completeness, risks, previousResult);
   const snapshot = buildSnapshot(identity, indicativeValue, confidence, risks, completeness, countryPack);
   const recommendation = buildRecommendation(risks, confidence, completeness, indicativeValue);
+  const transactionCosts = statePack ? computeTransactionCosts(identity, statePack, locality) : undefined;
 
   const marketContext: MarketContext = {
     medianPricePerSqm: locality.medianPricePerSqm,
@@ -1667,6 +2500,8 @@ export function runScreen(input: {
     evidence: evidence.list(),
     actions,
     marketContext,
+    stateCompliance: stateComplianceResult?.compliance,
+    transactionCosts,
     recommendation,
   };
 

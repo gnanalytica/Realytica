@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { DocumentKind } from '@valytica/shared';
+import type { AreaBasis, DocumentKind, KarnatakaAttributes, KarnatakaJurisdiction, KhataType, LandConversionStatus } from '@valytica/shared';
 
 /**
  * zod schemas mirroring the request-body shapes of `@valytica/shared`'s
@@ -43,6 +43,15 @@ export const documentKindSchema = z.enum([
   'occupancy_certificate',
   'khata_extract',
   'rera_registration',
+  // --- Karnataka / Bengaluru pack -----------------------------------------
+  'mother_deed',
+  'conversion_certificate',
+  'commencement_certificate',
+  'betterment_charges_receipt',
+  'possession_certificate',
+  'form_9_11',
+  'sanctioned_plan_bbmp',
+  'joint_development_agreement',
   'valuation_report',
   'lease_agreement',
   'kadaster_extract',
@@ -55,6 +64,31 @@ export const documentKindSchema = z.enum([
 ]) satisfies z.ZodType<DocumentKind>;
 
 export const riskStatusSchema = z.enum(['open', 'mitigated', 'accepted']);
+
+// Karnataka State Pack attributes, carried on `PropertyIdentity.karnataka`.
+// The `satisfies` checks keep each enum in sync with its `types.ts` union.
+export const karnatakaJurisdictionSchema = z.enum(['BBMP', 'BDA', 'BMRDA', 'BIAAPA', 'gram_panchayat', 'unknown']) satisfies z.ZodType<KarnatakaJurisdiction>;
+
+export const khataTypeSchema = z.enum(['a_khata', 'b_khata', 'e_khata', 'gram_panchayat_form_9_11', 'none', 'unknown']) satisfies z.ZodType<KhataType>;
+
+export const landConversionStatusSchema = z.enum(['converted', 'agricultural', 'not_applicable', 'unknown']) satisfies z.ZodType<LandConversionStatus>;
+
+export const areaBasisSchema = z.enum(['carpet', 'built_up', 'super_built_up', 'unknown']) satisfies z.ZodType<AreaBasis>;
+
+export const bbmpTaxZoneSchema = z.enum(['A', 'B', 'C', 'D', 'E', 'F']);
+
+export const karnatakaAttributesSchema = z.object({
+  jurisdiction: karnatakaJurisdictionSchema,
+  khataType: khataTypeSchema,
+  eKhataIssued: z.boolean(),
+  landConversionStatus: landConversionStatusSchema,
+  areaBasis: areaBasisSchema,
+  bbmpTaxZone: bbmpTaxZoneSchema.optional(),
+  kreraNumber: z.string().optional(),
+  nearRajakaluve: z.boolean().optional(),
+  nearLake: z.boolean().optional(),
+  grantedLandPtcl: z.boolean().optional(),
+}) satisfies z.ZodType<KarnatakaAttributes>;
 
 export const propertyIdentitySchema = z.object({
   label: z.string().min(1),
@@ -74,6 +108,7 @@ export const propertyIdentitySchema = z.object({
   totalFloors: z.number().int().optional(),
   askingPrice: z.number().nonnegative().optional(),
   currency: currencyCodeSchema,
+  karnataka: karnatakaAttributesSchema.optional(),
 });
 
 export const createCaseSchema = z.object({

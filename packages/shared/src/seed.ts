@@ -27,6 +27,17 @@ const WHITEFIELD_APARTMENT: CreateCaseRequest = {
     totalFloors: 14,
     askingPrice: 13500000,
     currency: 'INR',
+    karnataka: {
+      jurisdiction: 'BBMP',
+      khataType: 'a_khata',
+      eKhataIssued: true,
+      landConversionStatus: 'not_applicable',
+      areaBasis: 'carpet',
+      bbmpTaxZone: 'D',
+      nearRajakaluve: false,
+      nearLake: false,
+      grantedLandPtcl: false,
+    },
   },
   ownerName: 'Meera Krishnan',
   persona: 'property_investor',
@@ -52,10 +63,61 @@ const GACHIBOWLI_LEASEHOLD_OFFICE: CreateCaseRequest = {
     totalFloors: 9,
     askingPrice: 78000000,
     currency: 'INR',
+    karnataka: {
+      jurisdiction: 'BBMP',
+      khataType: 'a_khata',
+      eKhataIssued: false,
+      landConversionStatus: 'not_applicable',
+      areaBasis: 'super_built_up',
+      bbmpTaxZone: 'D',
+      nearRajakaluve: false,
+      nearLake: false,
+      grantedLandPtcl: false,
+    },
   },
   ownerName: 'Suresh Achar',
   persona: 'developer_acquisition_manager',
   notes: 'Seller claims stable IT-tenant income and quotes a premium price on that basis. Title and building-compliance paperwork is thin — verify before committing anything.',
+};
+
+/**
+ * The case built to make the Karnataka compliance engine earn its keep: a
+ * B-khata, unconverted (still agricultural), gram-panchayat site flagged as
+ * near a rajakaluve. Deliberately given almost no documents — a real buyer
+ * confronted with this little paperwork on this kind of property should get
+ * an honestly bad screen, not a falsely reassuring one.
+ */
+const GUNJUR_GRAM_PANCHAYAT_SITE: CreateCaseRequest = {
+  identity: {
+    label: 'Residential site — Site No. 42, Sri Ranga Layout, off Sarjapur Road',
+    country: 'IN',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'Sarjapur Road',
+    addressLine: 'Site No. 42, Sri Ranga Layout, Gunjur Post, off Sarjapur Road',
+    postalCode: '562125',
+    parcelId: 'Survey No. 88/2, Gunjur Village',
+    propertyType: 'residential_plot',
+    tenure: 'freehold',
+    builtUpAreaSqm: 150,
+    plotAreaSqm: 220,
+    askingPrice: 3800000,
+    currency: 'INR',
+    karnataka: {
+      jurisdiction: 'gram_panchayat',
+      khataType: 'b_khata',
+      eKhataIssued: false,
+      landConversionStatus: 'agricultural',
+      areaBasis: 'unknown',
+      nearRajakaluve: true,
+      nearLake: false,
+      grantedLandPtcl: false,
+    },
+  },
+  ownerName: 'Ganesh Naik',
+  persona: 'property_investor',
+  notes:
+    'Broker is pushing this as an under-the-radar bargain near the Sarjapur growth corridor. Seller has only a sale agreement and a panchayat Form 9/11 — no khata, no EC, no conversion order. Want an honest read before paying even the token booking amount.',
 };
 
 const ZUIDAS_OFFICE: CreateCaseRequest = {
@@ -108,7 +170,7 @@ const DE_PIJP_APARTMENT: CreateCaseRequest = {
   notes: "Advising a first-time buy-to-let client. Want a clear read on yield and condition risk given the building's age.",
 };
 
-export const SEED_CASES: CreateCaseRequest[] = [WHITEFIELD_APARTMENT, GACHIBOWLI_LEASEHOLD_OFFICE, ZUIDAS_OFFICE, DE_PIJP_APARTMENT];
+export const SEED_CASES: CreateCaseRequest[] = [WHITEFIELD_APARTMENT, GACHIBOWLI_LEASEHOLD_OFFICE, GUNJUR_GRAM_PANCHAYAT_SITE, ZUIDAS_OFFICE, DE_PIJP_APARTMENT];
 
 /**
  * Realistic filenames the API can materialise as demo `CaseDocument`s for
@@ -118,6 +180,7 @@ export const SEED_CASES: CreateCaseRequest[] = [WHITEFIELD_APARTMENT, GACHIBOWLI
 export const SEED_DOCUMENT_FILENAMES: Record<string, string[]> = {
   [WHITEFIELD_APARTMENT.identity.label]: [
     'Sale_Deed_2020_Prestige_Lakeside.pdf',
+    'Mother_Deed_Link_Documents_1998_2020.pdf',
     'EC_2010_2025_Whitefield.pdf',
     'Khata_Extract_2025.pdf',
     'Property_Tax_Receipt_2025-26.pdf',
@@ -126,6 +189,9 @@ export const SEED_DOCUMENT_FILENAMES: Record<string, string[]> = {
     'RERA_Registration_Certificate.pdf',
   ],
   [GACHIBOWLI_LEASEHOLD_OFFICE.identity.label]: ['Lease_Agreement_IT_Tenant.pdf', 'Approved_Building_Plan_1994.pdf'],
+  // Deliberately thin — no khata, no EC, no conversion order — so the case
+  // screens badly on genuine document absence, not just on the identity flags.
+  [GUNJUR_GRAM_PANCHAYAT_SITE.identity.label]: ['Sale_Agreement_SriRanga_Site42.pdf', 'Form_9_11_GramPanchayat_SriRanga.pdf'],
   [ZUIDAS_OFFICE.identity.label]: [
     'Koopovereenkomst_WTC_Tower_H.pdf',
     'Kadaster_Uittreksel_2025.pdf',

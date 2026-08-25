@@ -13,6 +13,7 @@
  */
 
 import type { Comparable, CountryPack, LocalityReference, PropertyType, ReferenceData } from './types';
+import { KARNATAKA_PACK } from './packs/karnataka';
 
 /* ------------------------------------------------------------------ */
 /* Country packs                                                       */
@@ -93,6 +94,16 @@ const NETHERLANDS_PACK: CountryPack = {
 };
 
 export const COUNTRY_PACKS: CountryPack[] = [INDIA_PACK, NETHERLANDS_PACK];
+
+/* ------------------------------------------------------------------ */
+/* State / Municipality packs                                          */
+/* ------------------------------------------------------------------ */
+
+// Phase 1's one state/metro (India, Karnataka, Bengaluru — see SOURCE_SPEC.md)
+// now has its own State Pack tier. See packages/shared/src/packs/karnataka.ts
+// for the substance and, critically, the provenance/verify-note discipline
+// every statutory figure in it carries.
+export const STATE_PACKS = [KARNATAKA_PACK];
 
 /* ------------------------------------------------------------------ */
 /* Locality references                                                 */
@@ -277,6 +288,216 @@ export const LOCALITIES: LocalityReference[] = [
       'and keeps time-to-transact short.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
   },
+  // --- India — Bengaluru (Karnataka State Pack expansion) -----------------
+  // Eight more micro-markets, chosen to span the real price ladder from
+  // outer-IT-corridor (Electronic City) to heritage-premium (Jayanagar) to a
+  // land-led, pre-conversion airport-corridor market (Devanahalli) — see the
+  // Karnataka State Pack build brief. Guidance value is deliberately modelled
+  // as a materially larger lag against market median in Devanahalli than in
+  // the built-up city localities: peripheral/land guidance values are the
+  // slowest of all to catch up with speculative, infrastructure-anticipation
+  // pricing, which is itself the point the compliance view needs to make.
+  {
+    id: 'in-blr-hsr-layout',
+    country: 'IN',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'HSR Layout',
+    currency: 'INR',
+    medianPricePerSqm: 118000,
+    statutoryRatePerSqm: 68000,
+    grossYield: 0.03,
+    yoyChangePct: 8,
+    liquidityDays: 48,
+    sampleSize: 132,
+    trend: buildTrend(118000, 8, 500),
+    zoning: 'Residential (R1) — established layout with sector commercial frontage',
+    permittedUses: ['residential_apartment', 'retail_unit', 'commercial_office'],
+    farAllowed: 2.5,
+    planningNote:
+      'BBMP property-tax Zone C; RMP 2015 zoning is Residential (R1) with a commercial overlay on sector arterial roads (e.g. 27th Main). Falls within BBMP\'s Bommanahalli zone; startup/office use in converted residential buildings is common but not always plan-compliant.',
+    replacementCostPerSqm: 29000,
+    infrastructureNote:
+      'No direct metro station; the Silk Board junction — where the under-construction Blue Line will eventually interchange — is the corridor\'s most congested pinch point, and access today is entirely road-based via Sarjapur Road, Hosur Road and the Outer Ring Road.',
+    source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
+  },
+  {
+    id: 'in-blr-jp-nagar',
+    country: 'IN',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'JP Nagar',
+    currency: 'INR',
+    medianPricePerSqm: 108000,
+    statutoryRatePerSqm: 64000,
+    grossYield: 0.029,
+    yoyChangePct: 6,
+    liquidityDays: 58,
+    sampleSize: 140,
+    trend: buildTrend(108000, 6, 500),
+    zoning: 'Residential (R1) — established layout',
+    permittedUses: ['residential_apartment', 'retail_unit'],
+    farAllowed: 2.25,
+    planningNote:
+      'BBMP property-tax Zone C; RMP 2015 zoning is Residential (R1). A mature, largely built-out layout with limited redevelopment headroom under current setback and parking norms.',
+    replacementCostPerSqm: 27000,
+    infrastructureNote:
+      'Green Line (JP Nagar station, part of the original Nagasandra–Yelachenahalli stretch) has been operational since 2021, giving direct CBD access without surface congestion.',
+    source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
+  },
+  {
+    id: 'in-blr-jayanagar',
+    country: 'IN',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'Jayanagar',
+    currency: 'INR',
+    medianPricePerSqm: 132000,
+    statutoryRatePerSqm: 80000,
+    grossYield: 0.027,
+    yoyChangePct: 5.5,
+    liquidityDays: 50,
+    sampleSize: 105,
+    trend: buildTrend(132000, 5.5, 500),
+    zoning: 'Residential (R1) — heritage layout, height-restricted in core blocks',
+    permittedUses: ['residential_apartment', 'retail_unit'],
+    farAllowed: 2.0,
+    planningNote:
+      'BBMP property-tax Zone B; RMP 2015 zoning is Residential (R1). One of BBMP\'s original planned layouts; heritage and height restrictions in the core blocks cap FAR below comparable-tier localities without that overlay.',
+    replacementCostPerSqm: 30500,
+    infrastructureNote:
+      'Green Line (Jayanagar station) is operational; the 4th Block shopping complex anchors local retail demand, while narrow internal roads cap the scale of any redevelopment.',
+    source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
+  },
+  {
+    id: 'in-blr-yelahanka',
+    country: 'IN',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'Yelahanka',
+    currency: 'INR',
+    medianPricePerSqm: 68000,
+    statutoryRatePerSqm: 40000,
+    grossYield: 0.035,
+    yoyChangePct: 10,
+    liquidityDays: 60,
+    sampleSize: 128,
+    trend: buildTrend(68000, 10, 500),
+    zoning: 'Residential (R2) — new-town / airport-corridor growth area',
+    permittedUses: ['residential_apartment', 'residential_villa'],
+    farAllowed: 2.5,
+    planningNote:
+      'BBMP property-tax Zone D; RMP 2015 zoning is Residential (R2). The northern edge toward the airport carries a BIAAPA planning overlay and height restriction that a parcel-specific check should confirm before assuming full BBMP norms apply.',
+    replacementCostPerSqm: 23000,
+    infrastructureNote:
+      'The Blue Line airport extension (a planned Yelahanka station) is under construction; Bellary Road/NH44 gives current road access, but today\'s connectivity is entirely road-based.',
+    source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
+  },
+  {
+    id: 'in-blr-electronic-city',
+    country: 'IN',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'Electronic City',
+    currency: 'INR',
+    medianPricePerSqm: 62000,
+    statutoryRatePerSqm: 37000,
+    grossYield: 0.038,
+    yoyChangePct: 7,
+    liquidityDays: 70,
+    sampleSize: 158,
+    trend: buildTrend(62000, 7, 500),
+    zoning: 'Residential (R1/R2) with adjoining IT/ITES-SEZ zoning (Phase 1 & 2 tech parks)',
+    permittedUses: ['residential_apartment', 'residential_villa', 'commercial_office'],
+    farAllowed: 2.5,
+    planningNote:
+      'BBMP property-tax Zone E; RMP 2015 zoning is Residential (R1/R2) alongside IT/SEZ land use in the tech-park precincts. Falls mostly within BBMP\'s Bommanahalli zone (added 2007), though civic infrastructure inside the tech-park precincts is co-administered by ELCITA (Electronics City Industrial Township Authority) — confirm khata jurisdiction parcel-by-parcel rather than assuming uniform BBMP coverage across both phases.',
+    replacementCostPerSqm: 23500,
+    infrastructureNote:
+      'Yellow Line (RV Road–Bommasandra) commissioning was phased through 2024–2025 — verify current operational status for this stretch before treating it as delivered infrastructure. NICE Road and Hosur Road remain the historically congested surface routes.',
+    source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
+  },
+  {
+    id: 'in-blr-devanahalli',
+    country: 'IN',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'Devanahalli',
+    currency: 'INR',
+    // Land-led market: pricing is per sqm of plotted/converted land, not built
+    // apartment stock. Guidance value lags market median by roughly half here
+    // (vs ~40% in the built-up city localities above) — peripheral, pre-
+    // conversion land is exactly where guidance values are slowest to catch up
+    // with speculative, infrastructure-anticipation pricing.
+    medianPricePerSqm: 35000,
+    statutoryRatePerSqm: 18000,
+    // A nominal, low figure: this is a capital-appreciation/land-banking market,
+    // not a rental-yield one, so the gross-yield field has limited meaning here
+    // — flagged explicitly in the planning note rather than left to imply a
+    // rent-driven return that does not really exist for most raw plots.
+    grossYield: 0.015,
+    yoyChangePct: 14,
+    liquidityDays: 160,
+    sampleSize: 38,
+    trend: buildTrend(35000, 14, 500),
+    zoning: 'Agricultural / residential — BIAAPA zonal regulations, conversion-dependent',
+    permittedUses: ['residential_plot', 'residential_villa', 'land_parcel'],
+    farAllowed: 1.5,
+    planningNote:
+      'Outside BBMP limits — administered under BIAAPA (Bengaluru International Airport Area Planning Authority) zonal regulations, with the surrounding taluk sitting in Bengaluru Rural district rather than Bengaluru Urban. No BBMP property-tax zone applies. Most parcels remain agricultural revenue land; DC conversion under Karnataka Land Revenue Act s.95 is a precondition for any residential or commercial use, and its absence is the most common reason a promising-looking plot here turns out to be undevelopable in the near term. This is a land-banking, infrastructure-anticipation market rather than a rental-yield one.',
+    replacementCostPerSqm: 24000,
+    infrastructureNote:
+      'Kempegowda International Airport anchors the corridor; the Blue Line metro extension to the airport, the Satellite Town Ring Road (STRR) and NH44 are the main medium-term catalysts, but all three are still under construction or planned — price appreciation here is substantially forward-looking and speculative, not backed by delivered infrastructure.',
+    source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
+  },
+  {
+    id: 'in-blr-kanakapura-road',
+    country: 'IN',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'Kanakapura Road',
+    currency: 'INR',
+    medianPricePerSqm: 58000,
+    statutoryRatePerSqm: 34000,
+    grossYield: 0.033,
+    yoyChangePct: 9,
+    liquidityDays: 75,
+    sampleSize: 96,
+    trend: buildTrend(58000, 9, 500),
+    zoning: 'Residential (R2) — growth corridor, BBMP inner stretch / BMRDA outer stretch',
+    permittedUses: ['residential_apartment', 'residential_villa'],
+    farAllowed: 2.25,
+    planningNote:
+      'BBMP property-tax Zone E for the inner stretch (roughly up to Talaghattapura/Vajarahalli); beyond that the corridor passes into BMRDA-regulated and gram-panchayat areas before reaching Kanakapura town — treat jurisdiction as parcel-specific rather than assuming BBMP coverage along the full corridor. RMP 2015 zoning is Residential (R2).',
+    replacementCostPerSqm: 23000,
+    infrastructureNote:
+      'The Green Line\'s southern extension (Yelachenahalli–Silk Institute, via Konanakunte and Talaghattapura) runs along this corridor and is operational — one of the few outer growth corridors with delivered, not merely planned, metro access. NICE Road gives peripheral ring-road access.',
+    source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
+  },
+  {
+    id: 'in-blr-thanisandra-hennur',
+    country: 'IN',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    locality: 'Thanisandra/Hennur',
+    currency: 'INR',
+    medianPricePerSqm: 74000,
+    statutoryRatePerSqm: 44000,
+    grossYield: 0.032,
+    yoyChangePct: 9.5,
+    liquidityDays: 58,
+    sampleSize: 118,
+    trend: buildTrend(74000, 9.5, 500),
+    zoning: 'Residential (R1/R2) — established growth corridor adjoining Manyata Tech Park',
+    permittedUses: ['residential_apartment', 'residential_villa'],
+    farAllowed: 2.5,
+    planningNote:
+      'BBMP property-tax Zone D; RMP 2015 zoning is Residential (R1/R2). Adjoins the Manyata Tech Park employment cluster, which is the corridor\'s main rental-demand driver.',
+    replacementCostPerSqm: 25500,
+    infrastructureNote:
+      'Within commuting distance of the under-construction Blue Line station cluster around Hebbal; Hennur Road widening is underway. No metro station sits directly on this corridor today — connectivity is currently road-based.',
+    source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
+  },
   // --- Netherlands — Amsterdam -------------------------------------------------
   {
     id: 'nl-ams-zuidas',
@@ -452,6 +673,48 @@ export const COMPARABLE_POOL: Comparable[] = [
   mkComparable({ localityKey: 'blr-koramangala', label: '80 Feet Road Retail Parade', address: '80 Feet Road Retail Parade, Koramangala, Bengaluru, Karnataka', distanceKm: 1.0, propertyType: 'retail_unit', areaSqm: 165, transactedAt: '2025-04-30', pricePerSqm: 158000, source: IGR_BLR, roundTo: 1000 }),
   mkComparable({ localityKey: 'blr-koramangala', label: '6th Block Court Apartments', address: '6th Block Court Apartments, Koramangala, Bengaluru, Karnataka', distanceKm: 1.5, propertyType: 'residential_apartment', areaSqm: 87, transactedAt: '2024-12-02', pricePerSqm: 134200, source: IGR_BLR, roundTo: 1000 }),
 
+  // --- HSR Layout, Bengaluru (4) ---
+  mkComparable({ localityKey: 'blr-hsr', label: 'Salarpuria Sattva East Crest', address: 'Salarpuria Sattva East Crest, HSR Layout, Bengaluru, Karnataka', distanceKm: 0.6, propertyType: 'residential_apartment', areaSqm: 128, transactedAt: '2025-09-05', pricePerSqm: 119500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-hsr', label: 'Mantri Espana', address: 'Mantri Espana, HSR Layout, Bengaluru, Karnataka', distanceKm: 1.3, propertyType: 'residential_apartment', areaSqm: 96, transactedAt: '2025-02-11', pricePerSqm: 114800, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-hsr', label: 'Sector 2 Lakeview Residency', address: 'Sector 2 Lakeview Residency, HSR Layout, Bengaluru, Karnataka', distanceKm: 1.9, propertyType: 'residential_apartment', areaSqm: 142, transactedAt: '2024-11-27', pricePerSqm: 122300, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-hsr', label: '27th Main Business Suites', address: '27th Main Business Suites, HSR Layout, Bengaluru, Karnataka', distanceKm: 0.9, propertyType: 'retail_unit', areaSqm: 85, transactedAt: '2026-01-08', pricePerSqm: 131000, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- JP Nagar, Bengaluru (3) ---
+  mkComparable({ localityKey: 'blr-jpnagar', label: 'Purva Westend', address: 'Purva Westend, JP Nagar, Bengaluru, Karnataka', distanceKm: 1.1, propertyType: 'residential_apartment', areaSqm: 118, transactedAt: '2025-07-19', pricePerSqm: 109200, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-jpnagar', label: 'Mantri Synergy', address: 'Mantri Synergy, JP Nagar, Bengaluru, Karnataka', distanceKm: 0.7, propertyType: 'residential_apartment', areaSqm: 92, transactedAt: '2025-03-02', pricePerSqm: 104500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-jpnagar', label: '7th Phase Residency', address: '7th Phase Residency, JP Nagar, Bengaluru, Karnataka', distanceKm: 2.0, propertyType: 'residential_apartment', areaSqm: 105, transactedAt: '2024-10-08', pricePerSqm: 106900, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Jayanagar, Bengaluru (3) ---
+  mkComparable({ localityKey: 'blr-jayanagar', label: '4th Block Heritage Residency', address: '4th Block Heritage Residency, Jayanagar, Bengaluru, Karnataka', distanceKm: 0.5, propertyType: 'residential_apartment', areaSqm: 110, transactedAt: '2025-08-14', pricePerSqm: 134800, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-jayanagar', label: 'Adarsh Welkin Park', address: 'Adarsh Welkin Park, Jayanagar, Bengaluru, Karnataka', distanceKm: 1.4, propertyType: 'residential_apartment', areaSqm: 98, transactedAt: '2025-01-26', pricePerSqm: 128600, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-jayanagar', label: '9th Block Residency Court', address: '9th Block Residency Court, Jayanagar, Bengaluru, Karnataka', distanceKm: 1.8, propertyType: 'residential_apartment', areaSqm: 88, transactedAt: '2026-02-19', pricePerSqm: 137200, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Yelahanka, Bengaluru (3) ---
+  mkComparable({ localityKey: 'blr-yelahanka', label: 'Brigade Calista', address: 'Brigade Calista, Yelahanka, Bengaluru, Karnataka', distanceKm: 1.2, propertyType: 'residential_apartment', areaSqm: 108, transactedAt: '2025-06-06', pricePerSqm: 66500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-yelahanka', label: 'Century Regalia', address: 'Century Regalia, Yelahanka, Bengaluru, Karnataka', distanceKm: 2.1, propertyType: 'residential_apartment', areaSqm: 92, transactedAt: '2025-11-23', pricePerSqm: 70200, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-yelahanka', label: 'New Town Garden Residency', address: 'New Town Garden Residency, Yelahanka, Bengaluru, Karnataka', distanceKm: 0.8, propertyType: 'residential_apartment', areaSqm: 124, transactedAt: '2024-09-30', pricePerSqm: 64800, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Electronic City, Bengaluru (4) ---
+  mkComparable({ localityKey: 'blr-ecity', label: 'Sobha Dream Gardenia', address: 'Sobha Dream Gardenia, Electronic City, Bengaluru, Karnataka', distanceKm: 1.5, propertyType: 'residential_apartment', areaSqm: 96, transactedAt: '2025-05-15', pricePerSqm: 60800, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-ecity', label: 'Provident Welworth City', address: 'Provident Welworth City, Electronic City, Bengaluru, Karnataka', distanceKm: 2.3, propertyType: 'residential_apartment', areaSqm: 88, transactedAt: '2025-10-02', pricePerSqm: 58900, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-ecity', label: 'Phase 1 Tech Residency', address: 'Phase 1 Tech Residency, Electronic City, Bengaluru, Karnataka', distanceKm: 0.9, propertyType: 'residential_apartment', areaSqm: 112, transactedAt: '2024-12-11', pricePerSqm: 63500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-ecity', label: 'Infosys Avenue Business Park', address: 'Infosys Avenue Business Park, Electronic City, Bengaluru, Karnataka', distanceKm: 1.1, propertyType: 'commercial_office', areaSqm: 480, transactedAt: '2026-01-20', pricePerSqm: 72000, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Devanahalli, Bengaluru (3, plotted land) ---
+  mkComparable({ localityKey: 'blr-devanahalli', label: 'Aerocity Layout Plot 42', address: 'Aerocity Layout Plot 42, Devanahalli, Bengaluru, Karnataka', distanceKm: 3.2, propertyType: 'residential_plot', areaSqm: 240, transactedAt: '2025-07-28', pricePerSqm: 34200, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-devanahalli', label: 'Bettahalasuru Garden Plots', address: 'Bettahalasuru Garden Plots, Devanahalli, Bengaluru, Karnataka', distanceKm: 4.5, propertyType: 'residential_plot', areaSqm: 300, transactedAt: '2025-02-14', pricePerSqm: 31800, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-devanahalli', label: 'Sadahalli Cross Villa Plot', address: 'Sadahalli Cross Villa Plot, Devanahalli, Bengaluru, Karnataka', distanceKm: 2.8, propertyType: 'residential_plot', areaSqm: 200, transactedAt: '2024-11-05', pricePerSqm: 36500, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Kanakapura Road, Bengaluru (3) ---
+  mkComparable({ localityKey: 'blr-kanakapura', label: 'Provident Sunworth City', address: 'Provident Sunworth City, Kanakapura Road, Bengaluru, Karnataka', distanceKm: 1.6, propertyType: 'residential_apartment', areaSqm: 102, transactedAt: '2025-04-17', pricePerSqm: 57200, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-kanakapura', label: 'Shriram Chirping Meadows', address: 'Shriram Chirping Meadows, Kanakapura Road, Bengaluru, Karnataka', distanceKm: 2.4, propertyType: 'residential_apartment', areaSqm: 118, transactedAt: '2025-09-29', pricePerSqm: 59800, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-kanakapura', label: 'Silk Institute Residency', address: 'Silk Institute Residency, Kanakapura Road, Bengaluru, Karnataka', distanceKm: 0.9, propertyType: 'residential_apartment', areaSqm: 88, transactedAt: '2024-12-19', pricePerSqm: 55600, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Thanisandra/Hennur, Bengaluru (3) ---
+  mkComparable({ localityKey: 'blr-thanisandra', label: 'Prestige Jindal City', address: 'Prestige Jindal City, Thanisandra/Hennur, Bengaluru, Karnataka', distanceKm: 1.0, propertyType: 'residential_apartment', areaSqm: 108, transactedAt: '2025-08-01', pricePerSqm: 75400, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-thanisandra', label: 'Godrej Air NXT Extension', address: 'Godrej Air NXT Extension, Thanisandra/Hennur, Bengaluru, Karnataka', distanceKm: 1.8, propertyType: 'residential_apartment', areaSqm: 96, transactedAt: '2025-03-14', pricePerSqm: 72300, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-thanisandra', label: 'Nagavara Lake View Residency', address: 'Nagavara Lake View Residency, Thanisandra/Hennur, Bengaluru, Karnataka', distanceKm: 2.2, propertyType: 'residential_apartment', areaSqm: 128, transactedAt: '2024-11-30', pricePerSqm: 76800, source: IGR_BLR, roundTo: 1000 }),
+
   // --- Zuidas, Amsterdam (5, office) ---
   mkComparable({ localityKey: 'ams-zuidas', label: 'WTC Tower H', address: 'WTC Tower H, Zuidas, Amsterdam, Noord-Holland', distanceKm: 0.4, propertyType: 'commercial_office', areaSqm: 850, transactedAt: '2025-09-18', pricePerSqm: 8350, source: KADASTER_NONRES, roundTo: 100 }),
   mkComparable({ localityKey: 'ams-zuidas', label: 'Symphony Offices', address: 'Symphony Offices, Zuidas, Amsterdam, Noord-Holland', distanceKm: 0.9, propertyType: 'commercial_office', areaSqm: 640, transactedAt: '2025-03-22', pricePerSqm: 8050, source: KADASTER_NONRES, roundTo: 100 }),
@@ -479,6 +742,7 @@ export const COMPARABLE_POOL: Comparable[] = [
 
 export const REFERENCE_DATA: ReferenceData = {
   countryPacks: COUNTRY_PACKS,
+  statePacks: STATE_PACKS,
   localities: LOCALITIES,
   comparablePool: COMPARABLE_POOL,
 };

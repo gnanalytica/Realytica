@@ -4,7 +4,26 @@
  * that must stay in sync with `docs/SOURCE_SPEC.md` and `types.ts`.
  */
 
-import type { CaseStatus, CountryCode, DocumentKind, PersonaKey, PropertyType } from './types';
+import type {
+  AreaBasis,
+  CaseStatus,
+  CountryCode,
+  DocumentKind,
+  KarnatakaJurisdiction,
+  KhataType,
+  LandConversionStatus,
+  PersonaKey,
+  PropertyType,
+} from './types';
+import {
+  AREA_BASIS_LABEL,
+  BBMP_TAX_ZONES,
+  BENGALURU_METRO_LINES,
+  JURISDICTION_LABEL,
+  KARNATAKA_PACK,
+  KHATA_TYPE_LABEL,
+  LAND_CONVERSION_LABEL,
+} from './packs/karnataka';
 
 /** Version stamp written onto every `ScreenResult`. Bump when scoring logic changes. */
 export const ENGINE_VERSION = '0.1.0';
@@ -30,6 +49,16 @@ export const DOCUMENT_KINDS: DocumentKind[] = [
   'occupancy_certificate',
   'khata_extract',
   'rera_registration',
+  // --- Karnataka / Bengaluru pack -----------------------------------------
+  'mother_deed',
+  'conversion_certificate',
+  'commencement_certificate',
+  'betterment_charges_receipt',
+  'possession_certificate',
+  'form_9_11',
+  'sanctioned_plan_bbmp',
+  'joint_development_agreement',
+  // -------------------------------------------------------------------------
   'valuation_report',
   'lease_agreement',
   'kadaster_extract',
@@ -40,6 +69,42 @@ export const DOCUMENT_KINDS: DocumentKind[] = [
   'other',
   'unclassified',
 ];
+
+/**
+ * Generic short label for every `DocumentKind`, exhaustive by construction
+ * (TypeScript rejects a missing key). This is the canonical map — a page-level
+ * fallback map may exist elsewhere until it is switched over to import this
+ * one instead of maintaining its own copy.
+ */
+export const DOCUMENT_KIND_LABEL: Record<DocumentKind, string> = {
+  title_deed: 'Title deed',
+  sale_agreement: 'Sale agreement',
+  encumbrance_certificate: 'Encumbrance certificate',
+  property_tax_receipt: 'Property tax receipt',
+  approved_building_plan: 'Approved building plan',
+  occupancy_certificate: 'Occupancy certificate',
+  khata_extract: 'Khata extract',
+  rera_registration: 'RERA registration',
+  // --- Karnataka / Bengaluru pack -----------------------------------------
+  mother_deed: 'Mother deed',
+  conversion_certificate: 'Conversion certificate (DC conversion order)',
+  commencement_certificate: 'Commencement certificate',
+  betterment_charges_receipt: 'Betterment charges receipt',
+  possession_certificate: 'Possession certificate',
+  form_9_11: 'Form 9 & 11 (gram panchayat)',
+  sanctioned_plan_bbmp: 'Sanctioned plan (BBMP)',
+  joint_development_agreement: 'Joint development agreement',
+  // -------------------------------------------------------------------------
+  valuation_report: 'Valuation report',
+  lease_agreement: 'Lease agreement',
+  kadaster_extract: 'Kadaster extract',
+  energy_label: 'Energy label',
+  woz_assessment: 'WOZ assessment',
+  floor_plan: 'Floor plan',
+  photograph: 'Photograph',
+  other: 'Other',
+  unclassified: 'Unclassified',
+};
 
 export const CASE_STATUSES: CaseStatus[] = ['draft', 'collecting', 'analysing', 'screened', 'archived'];
 
@@ -76,6 +141,46 @@ export const COUNTRY_PACKS_META: {
   { country: 'IN', countryName: 'India', phase: 'Phase 1 (MVP)', flagLabel: 'IN' },
   { country: 'NL', countryName: 'Netherlands', phase: 'Phase 3', flagLabel: 'NL' },
 ];
+
+/* ------------------------------------------------------------------ */
+/* Karnataka State Pack — enum option arrays for the case wizard       */
+/*                                                                      */
+/* The label maps themselves (KHATA_TYPE_LABEL and friends) live with   */
+/* the pack's own content in packages/shared/src/packs/karnataka.ts —   */
+/* they are re-exported here and turned into {key, label} option lists  */
+/* because that is the shape a <select> in the wizard actually wants.   */
+/* ------------------------------------------------------------------ */
+
+export {
+  AREA_BASIS_LABEL,
+  BBMP_TAX_ZONES,
+  BENGALURU_METRO_LINES,
+  JURISDICTION_LABEL,
+  KARNATAKA_PACK,
+  KHATA_TYPE_LABEL,
+  LAND_CONVERSION_LABEL,
+};
+
+export const KHATA_TYPE_OPTIONS: { key: KhataType; label: string }[] = (
+  Object.keys(KHATA_TYPE_LABEL) as KhataType[]
+).map(key => ({ key, label: KHATA_TYPE_LABEL[key] }));
+
+export const JURISDICTION_OPTIONS: { key: KarnatakaJurisdiction; label: string }[] = (
+  Object.keys(JURISDICTION_LABEL) as KarnatakaJurisdiction[]
+).map(key => ({ key, label: JURISDICTION_LABEL[key] }));
+
+export const LAND_CONVERSION_OPTIONS: { key: LandConversionStatus; label: string }[] = (
+  Object.keys(LAND_CONVERSION_LABEL) as LandConversionStatus[]
+).map(key => ({ key, label: LAND_CONVERSION_LABEL[key] }));
+
+export const AREA_BASIS_OPTIONS: { key: AreaBasis; label: string }[] = (
+  Object.keys(AREA_BASIS_LABEL) as AreaBasis[]
+).map(key => ({ key, label: AREA_BASIS_LABEL[key] }));
+
+/** BBMP property-tax zone options (A–F), for a case's `bbmpTaxZone` field. */
+export const BBMP_TAX_ZONE_OPTIONS: { key: 'A' | 'B' | 'C' | 'D' | 'E' | 'F'; label: string }[] = BBMP_TAX_ZONES.map(
+  z => ({ key: z.zone, label: `Zone ${z.zone} — ${z.description}` }),
+);
 
 /* ------------------------------------------------------------------ */
 /* About-page content, transcribed from docs/SOURCE_SPEC.md            */

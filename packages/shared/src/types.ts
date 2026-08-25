@@ -60,6 +60,66 @@ export interface PropertyIdentity {
   /** Asking price in major units of `currency`. Optional — a case can be screened without one. */
   askingPrice?: number;
   currency: CurrencyCode;
+  /**
+   * State-pack specific attributes. Present only when a State Pack defines them
+   * — for Karnataka these drive the khata, jurisdiction and conversion checks
+   * that dominate a Bengaluru title screen. Everything here is optional so the
+   * core engine and other geographies are unaffected.
+   */
+  karnataka?: KarnatakaAttributes;
+}
+
+/** Which body's building and revenue rules the property actually falls under. */
+export type KarnatakaJurisdiction =
+  | 'BBMP'
+  | 'BDA'
+  | 'BMRDA'
+  | 'BIAAPA'
+  | 'gram_panchayat'
+  | 'unknown';
+
+/**
+ * Khata is the BBMP property register entry. The A/B distinction is the single
+ * biggest binary in a Bengaluru title screen: a B-khata property is recorded but
+ * not fully compliant, which restricts bank lending, building plan sanction and
+ * resale. e-Khata is the digitised record Karnataka moved to; a property without
+ * one can be blocked at registration.
+ */
+export type KhataType =
+  | 'a_khata'
+  | 'b_khata'
+  | 'e_khata'
+  | 'gram_panchayat_form_9_11'
+  | 'none'
+  | 'unknown';
+
+/** Agricultural land needs a DC conversion order before non-agricultural use. */
+export type LandConversionStatus = 'converted' | 'agricultural' | 'not_applicable' | 'unknown';
+
+/**
+ * Bengaluru prices are quoted on super built-up area while RERA mandates carpet
+ * area, so the basis a figure is quoted on changes the price per unit by 25-35%.
+ * Recording it is what stops the app comparing two incomparable numbers.
+ */
+export type AreaBasis = 'carpet' | 'built_up' | 'super_built_up' | 'unknown';
+
+export interface KarnatakaAttributes {
+  jurisdiction: KarnatakaJurisdiction;
+  khataType: KhataType;
+  /** True when an e-khata (digitised record) has been issued for the property. */
+  eKhataIssued: boolean;
+  landConversionStatus: LandConversionStatus;
+  areaBasis: AreaBasis;
+  /** BBMP property-tax zone A-F, which sets the unit area value. */
+  bbmpTaxZone?: 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+  /** Karnataka RERA registration number, where the project is registered. */
+  kreraNumber?: string;
+  /** Set when the property is known to sit near a storm-water drain (rajakaluve). */
+  nearRajakaluve?: boolean;
+  /** Set when the property is known to sit near a lake boundary. */
+  nearLake?: boolean;
+  /** Granted land under the PTCL Act carries transfer restrictions. */
+  grantedLandPtcl?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -75,6 +135,15 @@ export type DocumentKind =
   | 'occupancy_certificate'
   | 'khata_extract'
   | 'rera_registration'
+  // --- Karnataka / Bengaluru pack -----------------------------------------
+  | 'mother_deed'
+  | 'conversion_certificate'
+  | 'commencement_certificate'
+  | 'betterment_charges_receipt'
+  | 'possession_certificate'
+  | 'form_9_11'
+  | 'sanctioned_plan_bbmp'
+  | 'joint_development_agreement'
   | 'valuation_report'
   | 'lease_agreement'
   | 'kadaster_extract'
@@ -355,6 +424,52 @@ export interface PropertySnapshot {
   keyFacts: { label: string; value: string; sourceEvidenceId?: string }[];
 }
 
+export type ComplianceVerdict = 'clear' | 'attention' | 'blocker' | 'unknown';
+
+/** One state-specific check, e.g. "Khata classification" or "Rajakaluve buffer". */
+export interface ComplianceCheck {
+  key: string;
+  label: string;
+  verdict: ComplianceVerdict;
+  /** What the engine concluded, in plain language. */
+  finding: string;
+  /** Why it matters commercially or legally. */
+  consequence: string;
+  /** What the user should do about it. */
+  nextStep: string;
+  statute: string;
+  evidenceIds: string[];
+  /** Risk ids this check produced, so the two views stay linked. */
+  relatedRiskIds: string[];
+}
+
+export interface StateComplianceSummary {
+  statePackId: string;
+  state: string;
+  /** 0..100 — share of applicable checks that came back clear. */
+  score: number;
+  checks: ComplianceCheck[];
+  /** Checks that cannot be answered from what the user has supplied. */
+  unresolved: string[];
+  /** Provenance banner: statutory values are only as current as their source. */
+  rulesAsOf: string;
+  verifyNote: string;
+}
+
+/** Indicative acquisition cost on top of the price — stamp duty, cess, fees. */
+export interface TransactionCostBreakdown {
+  /** Value the duty is computed on: higher of consideration and guidance value. */
+  dutiableValue: number;
+  dutiableBasis: 'consideration' | 'statutory_guidance_value';
+  lines: { key: string; label: string; pct: number | null; amount: number; note: string }[];
+  total: number;
+  totalPctOfPrice: number;
+  currency: CurrencyCode;
+  asOf: string;
+  source: string;
+  verifyNote: string;
+}
+
 export interface ScreenResult {
   caseId: string;
   generatedAt: string;
@@ -372,6 +487,10 @@ export interface ScreenResult {
   evidence: EvidenceItem[];
   actions: RecommendedAction[];
   marketContext: MarketContext;
+  /** Present when a State Pack covers the property's state. */
+  stateCompliance?: StateComplianceSummary;
+  /** Present when the state pack can compute acquisition costs. */
+  transactionCosts?: TransactionCostBreakdown;
   recommendation: {
     verdict: ScreenVerdict;
     headline: string;
@@ -483,8 +602,83 @@ export interface CountryPack {
   notes: string;
 }
 
+/**
+ * A single statutory rule, carried with the provenance a user needs in order to
+ * trust or challenge it.
+ *
+ * Karnataka's guidance values, stamp-duty slabs and buffer distances all change
+ * by circular and notification. A screening tool that hard-codes them silently
+ * goes stale and starts giving confidently wrong advice, so every statutory
+ * value in a State Pack states when it was last confirmed and against what.
+ */
+export interface StatutoryRule<T> {
+  value: T;
+  /** ISO date the value was last confirmed against its source. */
+  asOf: string;
+  /** The circular, act, notification or portal this comes from. */
+  source: string;
+  /** Shown to the user wherever the rule drives a number they might act on. */
+  verifyNote: string;
+}
+
+/** A stamp-duty band: `upTo` null means "and above". */
+export interface DutySlab {
+  upTo: number | null;
+  pct: number;
+}
+
+/**
+ * Buffer distances measured from a watercourse or waterbody edge, inside which
+ * construction is restricted. These have been revised repeatedly in Karnataka
+ * (NGT orders, RMP revisions), which is exactly why they carry provenance.
+ */
+export interface BufferRule {
+  key: string;
+  label: string;
+  metres: number;
+  appliesTo: string;
+}
+
+/**
+ * The State / Municipality Pack — the tier between Country Pack and locality.
+ *
+ * Everything a country cannot answer uniformly lives here: the property
+ * register instrument, transaction taxes, the statutory value basis and the
+ * state's own title and planning checks.
+ */
+export interface StatePack {
+  id: string;
+  country: CountryCode;
+  state: string;
+  /** Cities/metros this pack's municipal rules are calibrated for. */
+  coveredCities: string[];
+  /** e.g. "Guidance value" in Karnataka, where other states say "circle rate". */
+  statutoryRateLabel: string;
+  statutoryRatePortal: string;
+  /** Property register instrument, e.g. "Khata (BBMP)". */
+  registerInstrumentLabel: string;
+  /** Registering authority, e.g. "Sub-Registrar (Kaveri Online Services)". */
+  registrationAuthority: string;
+  /** State RERA authority name. */
+  reraAuthority: string;
+  /** Documents this state expects on top of, or instead of, the country set. */
+  requiredDocuments: { kind: DocumentKind; label: string; weight: number; required: boolean; note?: string }[];
+  stampDutySlabs: StatutoryRule<DutySlab[]>;
+  /** Cess as a percentage of the stamp duty itself. */
+  stampDutyCessPct: StatutoryRule<number>;
+  /** Surcharge as a percentage of the stamp duty itself. */
+  stampDutySurchargePct: StatutoryRule<number>;
+  registrationFeePct: StatutoryRule<number>;
+  buffers: StatutoryRule<BufferRule[]>;
+  /** Named state-specific title checks surfaced in the compliance view. */
+  titleChecks: { key: string; label: string; description: string; statute: string }[];
+  datasets: string[];
+  notes: string;
+}
+
 export interface ReferenceData {
   countryPacks: CountryPack[];
+  statePacks: StatePack[];
   localities: LocalityReference[];
   comparablePool: Comparable[];
 }
