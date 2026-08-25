@@ -36,9 +36,12 @@ import type {
   ExtractedField,
   ExtractionMethod,
   IndicativeValue,
+  LayoutApproval,
   LocalityReference,
   MarketContext,
   PlanningPosition,
+  PlotAttributes,
+  PlotFacing,
   PropertyCase,
   PropertyIdentity,
   PropertySnapshot,
@@ -505,6 +508,101 @@ function resolveRequiredDocuments(countryPack: CountryPack, statePack: StatePack
 }
 
 /* ==================================================================== */
+/* Land vs built classification & plot-specific value adjustments        */
+/*                                                                        */
+/* A site is priced per sqm of PLOT, a flat or office per sqm of         */
+/* BUILT-UP space — two different quantities, not the same one scaled by */
+/* a constant. Every place the engine picks a comparable, an area basis  */
+/* or a benchmark rate has to know which side of that boundary the       */
+/* subject sits on, so it is decided once here and reused everywhere.    */
+/* ==================================================================== */
+
+const LAND_PROPERTY_TYPES: PropertyType[] = ['residential_plot', 'land_parcel'];
+
+function isLandPropertyType(propertyType: PropertyType): boolean {
+  return LAND_PROPERTY_TYPES.includes(propertyType);
+}
+
+/** The area a subject's value is actually measured against: plot area for a site, built-up area for everything else. */
+function subjectComparisonAreaSqm(identity: PropertyIdentity): number {
+  return isLandPropertyType(identity.propertyType) ? identity.plotAreaSqm : identity.builtUpAreaSqm;
+}
+
+/**
+ * Road width drives both access/visibility and permissible FAR in Bengaluru
+ * zoning (several localities' own planning notes tie enhanced FAR to roads
+ * 12m/40ft and wider), so a narrower road is priced down and a wider one up.
+ * Bands follow common Bengaluru layout-road categories rather than a
+ * continuous formula, since that is how the market actually steps.
+ */
+function roadWidthAdjustmentPct(roadWidthFt: number | undefined): number {
+  if (roadWidthFt === undefined) return 0;
+  if (roadWidthFt < 20) return -6;
+  if (roadWidthFt < 30) return -3;
+  if (roadWidthFt < 40) return 0;
+  if (roadWidthFt < 60) return 4;
+  return 8;
+}
+
+/** A genuine premium for dual road frontage and easier access — not decorative. */
+function cornerSiteAdjustmentPct(cornerSite: boolean | undefined): number {
+  return cornerSite === true ? 5 : 0;
+}
+
+/**
+ * East and north facing command a measurable premium in the Bengaluru
+ * market; south and west trade at a discount. Magnitudes are kept modest
+ * (a handful of percent either way) — this is a real, priceable preference,
+ * not the dominant driver of a site's value.
+ */
+const FACING_ADJUSTMENT_PCT: Record<PlotFacing, number> = {
+  east: 4,
+  north: 3,
+  north_east: 5,
+  north_west: 1,
+  south_east: -1,
+  south: -3,
+  west: -4,
+  south_west: -6,
+  unknown: 0,
+};
+
+/**
+ * Standard Bengaluru site sizes (30x40, 40x60, 50x80, ...) sit close to a
+ * 4:3 aspect ratio and resell fastest; a very elongated site is harder to
+ * build on efficiently and harder to resell, so a high depth-to-width ratio
+ * is penalised on a step scale.
+ */
+function dimensionStandardnessAdjustmentPct(dims: PlotAttributes['dimensionsFt']): number {
+  if (!dims || dims.width <= 0 || dims.depth <= 0) return 0;
+  const longer = Math.max(dims.width, dims.depth);
+  const shorter = Math.min(dims.width, dims.depth);
+  const aspectRatio = longer / shorter;
+  let pct = aspectRatio <= 1.45 ? 2 : 0;
+  if (aspectRatio > 2.5) pct -= 5;
+  else if (aspectRatio > 2.0) pct -= 3;
+  else if (aspectRatio > 1.6) pct -= 1;
+  return pct;
+}
+
+/**
+ * BDA/BMRDA-approved layouts are the most bankable and carry a real premium;
+ * a revenue layout or an outright unapproved layout is hard to finance and
+ * hard to resell, so the discount here is deliberately the largest-magnitude
+ * plot adjustment — matching how the market (and `buildStateCompliance`'s
+ * own layout-approval-status check) actually treats the finding.
+ */
+const LAYOUT_APPROVAL_ADJUSTMENT_PCT: Record<LayoutApproval, number> = {
+  bda_approved: 6,
+  bmrda_approved: 3,
+  panchayat_approved: 0,
+  private_approved: -2,
+  revenue_layout: -12,
+  unapproved: -18,
+  unknown: -5,
+};
+
+/* ==================================================================== */
 /* Comparable selection & adjustment                                     */
 /* ==================================================================== */
 
@@ -530,32 +628,59 @@ function addressMentions(comp: Comparable, needle: string): boolean {
   return comp.address.toLowerCase().includes(needle.toLowerCase());
 }
 
-function selectComparableCandidates(identity: PropertyIdentity, pool: Comparable[], localities: LocalityReference[]): Comparable[] {
-  const byLocality = pool.filter(c => addressMentions(c, identity.locality));
-  let candidates = byLocality;
+/**
+ * Gates on the land/built boundary FIRST, before any locality/city/country
+ * cascade — a comparable may never cross that boundary regardless of how
+ * similar it otherwise looks, which is the core fix for a site being valued
+ * against apartment comparables. `level` reports how far the search had to
+ * widen to assemble a same-side candidate set, reusing the same
+ * locality/city/country vocabulary `matchLocalityReference` uses elsewhere so
+ * a widened land search can be surfaced through the existing
+ * confidence/risk machinery rather than silently substituting the wrong side.
+ */
+function selectComparableCandidates(
+  identity: PropertyIdentity,
+  pool: Comparable[],
+  localities: LocalityReference[],
+): { candidates: Comparable[]; level: LocalityMatchLevel } {
+  const sameSidePool = pool.filter(c => isLandPropertyType(c.propertyType) === isLandPropertyType(identity.propertyType));
+
+  let candidates = sameSidePool.filter(c => addressMentions(c, identity.locality));
+  let level: LocalityMatchLevel = 'locality';
 
   if (candidates.length < 4) {
-    const byCity = pool.filter(c => addressMentions(c, identity.city));
+    level = 'city';
+    const byCity = sameSidePool.filter(c => addressMentions(c, identity.city));
     candidates = dedupeById([...candidates, ...byCity]);
   }
 
   if (candidates.length < 4) {
+    level = 'country';
     const countryLocalities = localities.filter(l => l.country === identity.country);
-    const byCountry = pool.filter(c => countryLocalities.some(l => addressMentions(c, l.locality) || addressMentions(c, l.city)));
+    const byCountry = sameSidePool.filter(c => countryLocalities.some(l => addressMentions(c, l.locality) || addressMentions(c, l.city)));
     candidates = dedupeById([...candidates, ...byCountry]);
   }
 
-  return candidates;
+  return { candidates, level };
 }
 
 /**
- * Applies signed, per-comparable adjustments (time, size, floor/age/condition,
- * tenure) to bring a raw pool transaction toward the subject's own profile, and
- * sets the final `similarity` score used both to rank and to weight the
- * comparable-sales anchor.
+ * Applies signed, per-comparable adjustments to bring a raw pool transaction
+ * toward the subject's own profile, and sets the final `similarity` score
+ * used both to rank and to weight the comparable-sales/land-rate anchors.
+ *
+ * For a land subject this adds five plot-specific adjustments (road width,
+ * corner site, facing, dimension standardness, layout approval) on top of
+ * the existing time/size ones — each a signed, labelled
+ * `ComparableAdjustment` so the chain from raw comp to adjusted rate stays
+ * auditable. Like the existing floor/age/condition adjustment below, these
+ * are derived from the SUBJECT's own plot attributes and applied uniformly
+ * across every selected comp, because `Comparable` (see `types.ts`) carries
+ * no per-comp road-width/facing/dimensions data to compare against.
  */
 function adjustComparable(comp: Comparable, identity: PropertyIdentity, locality: LocalityReference, now: string, similarity: number): Comparable {
   const adjustments: ComparableAdjustment[] = [];
+  const isLand = isLandPropertyType(identity.propertyType);
 
   // 1. Time / market movement — bring an older transaction up (or down) to the
   // valuation date using the locality's own annual trend.
@@ -565,36 +690,75 @@ function adjustComparable(comp: Comparable, identity: PropertyIdentity, locality
     adjustments.push({ key: 'time', label: 'Time adjustment to valuation date', pct: timePct });
   }
 
-  // 2. Size — larger units typically transact at a discount per sqm, smaller at a premium.
-  const areaDeltaPct = (comp.areaSqm - identity.builtUpAreaSqm) / Math.max(identity.builtUpAreaSqm, 1);
+  // 2. Size — larger units/sites typically transact at a discount per sqm,
+  // smaller at a premium. Basis is plot area for a land subject, built-up
+  // area otherwise — comparing a site's size fit against built-up area (or
+  // vice versa) would silently reintroduce the land/built mismatch this
+  // engine exists to prevent.
+  const subjectArea = subjectComparisonAreaSqm(identity);
+  const areaDeltaPct = (comp.areaSqm - subjectArea) / Math.max(subjectArea, 1);
   let sizePct = 0;
   if (areaDeltaPct > 0.2) sizePct = -3;
   else if (areaDeltaPct < -0.2) sizePct = 3;
   if (sizePct !== 0) {
-    adjustments.push({ key: 'size', label: 'Unit size differential', pct: sizePct });
+    adjustments.push({ key: 'size', label: isLand ? 'Plot size differential' : 'Unit size differential', pct: sizePct });
   }
 
-  // 3. Floor level, age & condition — normalises the comparable toward the
-  // subject's own physical profile (the pool has no per-comp floor/age data,
-  // so this is applied uniformly across all selected comps for one case).
-  let conditionPct = 0;
-  if (identity.floor !== undefined && identity.totalFloors !== undefined && identity.totalFloors > 0) {
-    const rel = identity.floor / identity.totalFloors;
-    if (rel >= 0.66) conditionPct += 2;
-    else if (identity.floor <= 1) conditionPct -= 2;
-  }
-  if (identity.yearBuilt !== undefined) {
-    const age = new Date(now).getFullYear() - identity.yearBuilt;
-    if (age > 30) conditionPct -= 3;
-    else if (age < 5) conditionPct += 2;
-  }
-  if (conditionPct !== 0) {
-    adjustments.push({ key: 'condition', label: 'Floor level, age & condition', pct: round1(conditionPct) });
+  if (isLand) {
+    // 3. Plot-specific adjustments — road width, corner site, facing,
+    // dimension standardness and layout approval. There is no building here
+    // to have a floor, age or condition, so that adjustment is skipped
+    // entirely rather than relying on those fields happening to be unset.
+    const plot = identity.plot;
+
+    const roadPct = roadWidthAdjustmentPct(plot?.roadWidthFt);
+    if (roadPct !== 0) {
+      adjustments.push({ key: 'road_width', label: `Road width (${plot?.roadWidthFt}ft)`, pct: roadPct });
+    }
+
+    const cornerPct = cornerSiteAdjustmentPct(plot?.cornerSite);
+    if (cornerPct !== 0) {
+      adjustments.push({ key: 'corner_site', label: 'Corner site premium', pct: cornerPct });
+    }
+
+    const facingPct = plot ? FACING_ADJUSTMENT_PCT[plot.facing] : 0;
+    if (facingPct !== 0 && plot) {
+      adjustments.push({ key: 'facing', label: `Facing (${plot.facing.replace(/_/g, ' ')})`, pct: facingPct });
+    }
+
+    const dimPct = dimensionStandardnessAdjustmentPct(plot?.dimensionsFt);
+    if (dimPct !== 0) {
+      adjustments.push({ key: 'dimension_standardness', label: 'Site dimension standardness', pct: dimPct });
+    }
+
+    const layoutPct = plot ? LAYOUT_APPROVAL_ADJUSTMENT_PCT[plot.layoutApproval] : 0;
+    if (layoutPct !== 0 && plot) {
+      adjustments.push({ key: 'layout_approval', label: `Layout approval (${plot.layoutApproval.replace(/_/g, ' ')})`, pct: layoutPct });
+    }
+  } else {
+    // 3. Floor level, age & condition — normalises the comparable toward the
+    // subject's own physical profile (the pool has no per-comp floor/age data,
+    // so this is applied uniformly across all selected comps for one case).
+    let conditionPct = 0;
+    if (identity.floor !== undefined && identity.totalFloors !== undefined && identity.totalFloors > 0) {
+      const rel = identity.floor / identity.totalFloors;
+      if (rel >= 0.66) conditionPct += 2;
+      else if (identity.floor <= 1) conditionPct -= 2;
+    }
+    if (identity.yearBuilt !== undefined) {
+      const age = new Date(now).getFullYear() - identity.yearBuilt;
+      if (age > 30) conditionPct -= 3;
+      else if (age < 5) conditionPct += 2;
+    }
+    if (conditionPct !== 0) {
+      adjustments.push({ key: 'condition', label: 'Floor level, age & condition', pct: round1(conditionPct) });
+    }
   }
 
   // 4. Tenure — the comparable pool is predominantly freehold-quality market
   // stock, so a leasehold or unresolved-tenure subject is adjusted down rather
-  // than assumed equivalent.
+  // than assumed equivalent. Applies equally to land — a leasehold site is
+  // just as real a discount as a leasehold flat.
   let tenurePct = 0;
   if (identity.tenure === 'leasehold') tenurePct = -8;
   else if (identity.tenure === 'unknown') tenurePct = -4;
@@ -613,14 +777,24 @@ function adjustComparable(comp: Comparable, identity: PropertyIdentity, locality
 /**
  * Selects 4-7 comparables (fewer only when the pool genuinely has less to
  * offer, which `buildRisks` flags), ranked by a similarity score blending
- * distance, area fit, recency and property-type match.
+ * distance, area fit, recency and property-type match. Candidates are gated
+ * to the subject's own land/built side before scoring even begins (see
+ * `selectComparableCandidates`) — within that side, the similarity formula
+ * itself is unchanged, including the existing type-mismatch penalty.
  */
-function buildComparables(identity: PropertyIdentity, pool: Comparable[], localities: LocalityReference[], locality: LocalityReference, now: string): Comparable[] {
-  const candidates = selectComparableCandidates(identity, pool, localities);
+function buildComparables(
+  identity: PropertyIdentity,
+  pool: Comparable[],
+  localities: LocalityReference[],
+  locality: LocalityReference,
+  now: string,
+): { comparables: Comparable[]; compMatchLevel: LocalityMatchLevel } {
+  const { candidates, level } = selectComparableCandidates(identity, pool, localities);
+  const subjectArea = subjectComparisonAreaSqm(identity);
 
   const scored = candidates.map(c => {
     const distanceScore = clamp(1 - c.distanceKm / 8, 0, 1);
-    const areaScore = clamp(1 - Math.abs(c.areaSqm - identity.builtUpAreaSqm) / Math.max(identity.builtUpAreaSqm, 1), 0, 1);
+    const areaScore = clamp(1 - Math.abs(c.areaSqm - subjectArea) / Math.max(subjectArea, 1), 0, 1);
     const monthsAgo = Math.max(0, monthsBetween(c.transactedAt, now));
     const recencyScore = clamp(1 - monthsAgo / 24, 0, 1);
     const typeScore = c.propertyType === identity.propertyType ? 1 : 0.3;
@@ -631,7 +805,10 @@ function buildComparables(identity: PropertyIdentity, pool: Comparable[], locali
   scored.sort((a, b) => b.similarity - a.similarity);
   const selected = scored.slice(0, Math.min(7, scored.length));
 
-  return selected.map(({ comp, similarity }) => adjustComparable(comp, identity, locality, now, similarity));
+  return {
+    comparables: selected.map(({ comp, similarity }) => adjustComparable(comp, identity, locality, now, similarity)),
+    compMatchLevel: level,
+  };
 }
 
 /* ==================================================================== */
@@ -640,12 +817,46 @@ function buildComparables(identity: PropertyIdentity, pool: Comparable[], locali
 
 const INCOME_ELIGIBLE_TYPES: PropertyType[] = ['commercial_office', 'retail_unit', 'industrial_warehouse'];
 
+/** The subset of `PlanningPosition` the residual-development anchor needs. */
+type PlanningForAnchors = Pick<PlanningPosition, 'farAllowed' | 'farUsed' | 'buildablePotentialSqm' | 'developmentPotential'>;
+
+/** Assumptions behind the `residual_development` sense-check anchor — kept named and in one place so the rationale text and the maths never drift apart. */
+const RESIDUAL_DEVELOPMENT_PERIOD_YEARS = 2;
+const RESIDUAL_DEVELOPER_MARGIN_PCT = 0.2;
+const RESIDUAL_DISCOUNT_RATE_PCT = 0.12;
+
 /**
- * Builds 3-5 value anchors depending on what data is actually available for
- * the case. `comparable_sales`, `statutory_reference` and `index_trend` are
- * always present (every case has comparables-or-a-fallback, a matched
- * locality, and a country pack); `income_capitalisation`,
- * `depreciated_replacement_cost` and `asking_price_adjusted` are conditional.
+ * How much a comparable set disagrees with itself, as a coefficient of
+ * variation over the adjusted rates.
+ *
+ * A comparable-driven anchor's confidence must fall as its evidence disperses.
+ * Counting comparables alone gets this backwards: seven transactions spanning a
+ * 3x rate range are weaker evidence than three that agree, but a count-based
+ * score rates them higher. That matters most for land, where widening the
+ * search beyond the locality can pull in a genuinely different market.
+ */
+function rateDispersion(rates: number[]): number {
+  if (rates.length < 2) return 0;
+  const mean = rates.reduce((a, b) => a + b, 0) / rates.length;
+  if (mean <= 0) return 0;
+  const variance = rates.reduce((sum, r) => sum + (r - mean) ** 2, 0) / rates.length;
+  return Math.sqrt(variance) / mean;
+}
+
+/** Confidence penalty for a dispersed comparable set. Caps so it never alone zeroes an anchor. */
+function dispersionPenalty(rates: number[]): number {
+  return clamp(rateDispersion(rates) * 0.8, 0, 0.35);
+}
+
+/**
+ * Builds the value anchors available for the case. `statutory_reference` and
+ * `index_trend` are always present; for a BUILT subject `comparable_sales`,
+ * `income_capitalisation`, `depreciated_replacement_cost` and
+ * `asking_price_adjusted` are conditional exactly as before. For a LAND
+ * subject, `comparable_sales`/`depreciated_replacement_cost` are replaced by
+ * `land_rate` (the primary anchor, highest weight) and — where genuine FAR
+ * headroom exists — `residual_development` (a low-weight sense check);
+ * `income_capitalisation` only applies with a documented lease.
  */
 function buildAnchors(
   caseId: string,
@@ -653,6 +864,8 @@ function buildAnchors(
   comparables: Comparable[],
   locality: LocalityReference,
   matchLevel: LocalityMatchLevel,
+  compMatchLevel: LocalityMatchLevel,
+  planning: PlanningForAnchors,
   /**
    * The statutory reference rate's display label — "Circle rate" for the
    * bare Country Pack, or a State Pack's own term (Karnataka says
@@ -664,11 +877,12 @@ function buildAnchors(
   evidence: EvidenceBuilder,
 ): ValueAnchor[] {
   const anchors: ValueAnchor[] = [];
+  const isLand = isLandPropertyType(identity.propertyType);
   const area = identity.builtUpAreaSqm;
   const currency = identity.currency;
 
-  // --- comparable_sales ---------------------------------------------------
-  if (comparables.length > 0) {
+  // --- comparable_sales (built subjects only — see land_rate below) ---------
+  if (!isLand && comparables.length > 0) {
     const compEvidenceIds = comparables.map(c =>
       evidence.add({
         statement: `${c.label} transacted ${c.transactedAt} at ${Math.round(c.pricePerSqm).toLocaleString()}/sqm, adjusted to ${Math.round(c.adjustedPricePerSqm).toLocaleString()}/sqm.`,
@@ -686,7 +900,10 @@ function buildAnchors(
     const highRate = Math.max(...adjustedRates);
     const avgSimilarity = weights.reduce((a, b) => a + b, 0) / comparables.length;
     const recentCount = comparables.filter(c => monthsBetween(c.transactedAt, now) <= 12).length;
-    const confidence = round2(clamp(0.45 + comparables.length * 0.04 + avgSimilarity * 0.25 + (recentCount / comparables.length) * 0.1, 0, 0.95));
+    const spread = dispersionPenalty(adjustedRates);
+    const confidence = round2(
+      clamp(0.45 + comparables.length * 0.04 + avgSimilarity * 0.25 + (recentCount / comparables.length) * 0.1 - spread, 0, 0.95),
+    );
     const matchLabel = matchLevel === 'locality' ? identity.locality : matchLevel === 'city' ? identity.city : identity.country;
     anchors.push({
       id: `anchor-${caseId}-comparable_sales`,
@@ -697,15 +914,117 @@ function buildAnchors(
       high: roundMoney(highRate * area, currency),
       weight: 0.4,
       confidence,
-      rationale: `Derived from ${comparables.length} adjusted comparable transaction${comparables.length === 1 ? '' : 's'} in ${matchLabel}, averaging ${round1(avgSimilarity * 100)}% similarity to the subject after adjusting each for time, size, condition and tenure.`,
+      rationale: `Derived from ${comparables.length} adjusted comparable transaction${comparables.length === 1 ? '' : 's'} in ${matchLabel}, averaging ${round1(avgSimilarity * 100)}% similarity to the subject after adjusting each for time, size, condition and tenure.${
+        rateDispersion(adjustedRates) > 0.25
+          ? ` The set disagrees widely (${Math.round(lowRate).toLocaleString()}-${Math.round(
+              highRate,
+            ).toLocaleString()}/sqm), which holds this anchor's confidence down.`
+          : ''
+      }`,
       evidenceIds: compEvidenceIds,
+    });
+  }
+
+  // --- land_rate (land subjects only) — the primary anchor for a site -------
+  // Land rate from the same adjusted land comparables (see `adjustComparable`,
+  // which already layers road-width/corner/facing/dimension/layout-approval
+  // adjustments on top of time/size for a land subject) × plot area. Absent
+  // entirely — not fabricated — when no land comparable exists anywhere,
+  // even after widening city-then-country; `buildRisks`/`buildConfidence`
+  // surface that gap instead.
+  if (isLand && comparables.length > 0) {
+    const landEvidenceIds = comparables.map(c =>
+      evidence.add({
+        statement: `${c.label} (land) transacted ${c.transactedAt} at ${Math.round(c.pricePerSqm).toLocaleString()}/sqm of plot area, adjusted for time, size and this site's own attributes to ${Math.round(c.adjustedPricePerSqm).toLocaleString()}/sqm.`,
+        sourceType: 'comparable',
+        sourceRef: c.id,
+        sourceLabel: c.source,
+        confidence: c.similarity,
+      }),
+    );
+    const weights = comparables.map(c => c.similarity || 0.01);
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    const weightedMidRate = comparables.reduce((sum, c, i) => sum + c.adjustedPricePerSqm * weights[i], 0) / totalWeight;
+    const adjustedRates = comparables.map(c => c.adjustedPricePerSqm);
+    const lowRate = Math.min(...adjustedRates);
+    const highRate = Math.max(...adjustedRates);
+    const avgSimilarity = weights.reduce((a, b) => a + b, 0) / comparables.length;
+    const recentCount = comparables.filter(c => monthsBetween(c.transactedAt, now) <= 12).length;
+
+    // Confidence also reflects how much of the subject's own plot data
+    // (which drove the plot-specific adjustments above) is actually known,
+    // and how far the comparable search had to widen beyond the locality —
+    // a land_rate built on assumed-unknown attributes or country-wide comps
+    // should not read as confidently as one built on a fully-described,
+    // locally-sourced set.
+    const plot = identity.plot;
+    const knownPlotFacts = [
+      plot?.roadWidthFt !== undefined,
+      plot?.cornerSite !== undefined,
+      plot !== undefined && plot.facing !== 'unknown',
+      plot?.dimensionsFt !== undefined,
+      plot !== undefined && plot.layoutApproval !== 'unknown',
+    ].filter(Boolean).length;
+    const plotCompletenessPenalty = (5 - knownPlotFacts) * 0.02;
+    const compGeographyPenalty = compMatchLevel === 'country' ? 0.1 : compMatchLevel === 'city' ? 0.04 : 0;
+    const spread = dispersionPenalty(adjustedRates);
+    const confidence = round2(
+      clamp(
+        0.5 +
+          comparables.length * 0.04 +
+          avgSimilarity * 0.25 +
+          (recentCount / comparables.length) * 0.1 -
+          plotCompletenessPenalty -
+          compGeographyPenalty -
+          spread,
+        0,
+        0.95,
+      ),
+    );
+    const matchLabel = compMatchLevel === 'locality' ? identity.locality : compMatchLevel === 'city' ? identity.city : identity.country;
+
+    const plotDescriptors: string[] = [];
+    if (plot?.roadWidthFt !== undefined) plotDescriptors.push(`${plot.roadWidthFt}ft road`);
+    if (plot?.cornerSite) plotDescriptors.push('corner site');
+    if (plot && plot.facing !== 'unknown') plotDescriptors.push(`${plot.facing.replace(/_/g, ' ')} facing`);
+    if (plot?.dimensionsFt) plotDescriptors.push(`${plot.dimensionsFt.width}x${plot.dimensionsFt.depth}ft`);
+    if (plot && plot.layoutApproval !== 'unknown') {
+      // 'revenue_layout' already ends in the word, so don't say "layout layout".
+      const approval = plot.layoutApproval.replace(/_/g, ' ');
+      plotDescriptors.push(approval.endsWith('layout') ? approval : `${approval} layout`);
+    }
+
+    anchors.push({
+      id: `anchor-${caseId}-land_rate`,
+      method: 'land_rate',
+      label: 'Land rate',
+      low: roundMoney(lowRate * identity.plotAreaSqm, currency),
+      mid: roundMoney(weightedMidRate * identity.plotAreaSqm, currency),
+      high: roundMoney(highRate * identity.plotAreaSqm, currency),
+      weight: 0.5,
+      confidence,
+      rationale: `Primary basis for a site: derived from ${comparables.length} adjusted land-parcel comparable${comparables.length === 1 ? '' : 's'} in ${matchLabel}, applied per sqm of plot area and adjusted for time and size${
+        plotDescriptors.length > 0 ? `, and this site's own ${plotDescriptors.join(', ')}` : ''
+      }.${
+        rateDispersion(adjustedRates) > 0.25
+          ? ` These comparables disagree widely — adjusted rates run from ${Math.round(lowRate).toLocaleString()} to ${Math.round(
+              highRate,
+            ).toLocaleString()}/sqm, so confidence in this anchor is held down and the range is genuinely this uncertain.`
+          : ''
+      }`,
+      evidenceIds: landEvidenceIds,
     });
   }
 
   // --- statutory_reference --------------------------------------------------
   {
+    const floorRate = isLand ? locality.statutoryLandRatePerSqm : locality.statutoryRatePerSqm;
+    const ceilingRate = isLand ? locality.medianLandRatePerSqm : locality.medianPricePerSqm;
+    const statutoryArea = isLand ? identity.plotAreaSqm : area;
     const statutoryEvId = evidence.add({
-      statement: `${statutoryRateLabel} for ${locality.locality}, ${locality.city} is ${locality.statutoryRatePerSqm.toLocaleString()}/sqm against a market median of ${locality.medianPricePerSqm.toLocaleString()}/sqm.`,
+      statement: isLand
+        ? `${statutoryRateLabel} for land in ${locality.locality}, ${locality.city} is ${floorRate.toLocaleString()}/sqm of plot area against a market land rate of ${ceilingRate.toLocaleString()}/sqm.`
+        : `${statutoryRateLabel} for ${locality.locality}, ${locality.city} is ${floorRate.toLocaleString()}/sqm against a market median of ${ceilingRate.toLocaleString()}/sqm.`,
       sourceType: 'external_dataset',
       sourceRef: locality.id,
       sourceLabel: locality.source,
@@ -715,27 +1034,34 @@ function buildAnchors(
     // and the locality market median a ceiling, with the midpoint as the
     // central estimate. This keeps the anchor genuinely distinct from (and
     // more conservative than) the comparable/index anchors.
-    const floorRate = locality.statutoryRatePerSqm;
-    const ceilingRate = locality.medianPricePerSqm;
     const midRate = (floorRate + ceilingRate) / 2;
     const matchPenalty = matchLevel === 'country' ? 0.15 : matchLevel === 'city' ? 0.05 : 0;
     anchors.push({
       id: `anchor-${caseId}-statutory_reference`,
       method: 'statutory_reference',
-      label: `${statutoryRateLabel} reference`,
-      low: roundMoney(floorRate * area, currency),
-      mid: roundMoney(midRate * area, currency),
-      high: roundMoney(ceilingRate * area, currency),
+      label: isLand ? `${statutoryRateLabel} reference (land)` : `${statutoryRateLabel} reference`,
+      low: roundMoney(floorRate * statutoryArea, currency),
+      mid: roundMoney(midRate * statutoryArea, currency),
+      high: roundMoney(ceilingRate * statutoryArea, currency),
       weight: 0.15,
       confidence: round2(clamp(0.7 - matchPenalty, 0.2, 0.9)),
-      rationale: `Uses the ${statutoryRateLabel.toLowerCase()} as a conservative floor and the locality's transacted market median as a ceiling — statutory rates typically lag realised prices, so the midpoint is the central estimate.`,
+      rationale: isLand
+        ? "Uses the statutory land guidance rate as a conservative floor and the locality's transacted land-rate median as a ceiling, applied to the plot area — statutory land rates typically lag realised land prices even more than built-property guidance values, so the midpoint is a cautious central estimate."
+        : `Uses the ${statutoryRateLabel.toLowerCase()} as a conservative floor and the locality's transacted market median as a ceiling — statutory rates typically lag realised prices, so the midpoint is the central estimate.`,
       evidenceIds: [statutoryEvId],
     });
   }
 
   // --- income_capitalisation -------------------------------------------------
+  // A bare site earns no rent, so this is suppressed for land subjects unless
+  // a lease document genuinely exists (and, in that case, only off the
+  // documented rent — never the locality-median-rent estimate a built
+  // subject would fall back to, since that estimate itself assumes a built
+  // rate that does not apply to land).
   const leaseDoc = documents.find(d => d.kind === 'lease_agreement');
-  if (INCOME_ELIGIBLE_TYPES.includes(identity.propertyType) || leaseDoc) {
+  const rentFieldPreview = leaseDoc?.extracted.find(f => f.key === 'annualRent');
+  const showIncomeAnchor = isLand ? Boolean(leaseDoc && rentFieldPreview) : INCOME_ELIGIBLE_TYPES.includes(identity.propertyType) || Boolean(leaseDoc);
+  if (showIncomeAnchor) {
     const rentField = leaseDoc?.extracted.find(f => f.key === 'annualRent');
     let annualRent: number;
     let rentEvidenceId: string;
@@ -778,7 +1104,8 @@ function buildAnchors(
   }
 
   // --- depreciated_replacement_cost -------------------------------------------
-  if (identity.yearBuilt !== undefined) {
+  // Suppressed for land subjects — there is no building to depreciate.
+  if (!isLand && identity.yearBuilt !== undefined) {
     const age = new Date(now).getFullYear() - identity.yearBuilt;
     const usefulLifeYears = 60;
     const depreciationFactor = clamp(1 - age / usefulLifeYears, 0.3, 1);
@@ -830,28 +1157,73 @@ function buildAnchors(
   }
 
   // --- index_trend -------------------------------------------------------
+  // Trends the land rate, per sqm of plot area, for a land subject.
   {
+    const trendRate = isLand ? locality.medianLandRatePerSqm : locality.medianPricePerSqm;
+    const trendArea = isLand ? identity.plotAreaSqm : area;
     const trendEvId = evidence.add({
-      statement: `Locality median of ${locality.medianPricePerSqm.toLocaleString()}/sqm, trending ${round1(locality.yoyChangePct)}% YoY across ${locality.sampleSize} sampled transactions.`,
+      statement: isLand
+        ? `Locality median land rate of ${trendRate.toLocaleString()}/sqm of plot area, trending ${round1(locality.yoyChangePct)}% YoY across ${locality.sampleSize} sampled transactions.`
+        : `Locality median of ${trendRate.toLocaleString()}/sqm, trending ${round1(locality.yoyChangePct)}% YoY across ${locality.sampleSize} sampled transactions.`,
       sourceType: 'external_dataset',
       sourceRef: locality.id,
       sourceLabel: locality.source,
       confidence: 0.75,
     });
     const band = clamp(0.05 + (100 / Math.max(locality.sampleSize, 10)) * 0.05, 0.05, 0.18);
-    const mid = locality.medianPricePerSqm * area;
+    const mid = trendRate * trendArea;
     anchors.push({
       id: `anchor-${caseId}-index_trend`,
       method: 'index_trend',
-      label: 'Locality index trend',
+      label: isLand ? 'Locality land-rate index trend' : 'Locality index trend',
       low: roundMoney(mid * (1 - band), currency),
       mid: roundMoney(mid, currency),
       high: roundMoney(mid * (1 + band), currency),
-      weight: 0.22,
+      weight: isLand ? 0.2 : 0.22,
       confidence: round2(clamp(0.8 - (band - 0.05), 0.3, 0.85)),
-      rationale: `Locality median price per sqm applied to the built-up area; the band widens for thinner samples (${locality.sampleSize} transactions).`,
+      rationale: isLand
+        ? `Locality median land rate per sqm applied to the plot area; the band widens for thinner samples (${locality.sampleSize} transactions).`
+        : `Locality median price per sqm applied to the built-up area; the band widens for thinner samples (${locality.sampleSize} transactions).`,
       evidenceIds: [trendEvId],
     });
+  }
+
+  // --- residual_development (land subjects with real FAR headroom) ----------
+  // A sense-check on development potential, not a market price: values the
+  // permitted envelope as built product, nets construction cost and a
+  // developer's margin, and discounts the result back to a land value today.
+  // Skipped entirely when development potential is 'none' or 'limited', and
+  // whenever the maths comes out non-positive (the development would destroy
+  // value, not create it) — either way this is never fabricated to look like
+  // a viable scheme it is not.
+  if (isLand && (planning.developmentPotential === 'moderate' || planning.developmentPotential === 'significant')) {
+    const buildableSqm = planning.buildablePotentialSqm;
+    const gdv = buildableSqm * locality.medianPricePerSqm;
+    const constructionCost = buildableSqm * locality.replacementCostPerSqm;
+    const developerMargin = gdv * RESIDUAL_DEVELOPER_MARGIN_PCT;
+    const residualToday = (gdv - constructionCost - developerMargin) / Math.pow(1 + RESIDUAL_DISCOUNT_RATE_PCT, RESIDUAL_DEVELOPMENT_PERIOD_YEARS);
+    if (residualToday > 0) {
+      const rdEvId = evidence.add({
+        statement: `Permitted envelope of ${Math.round(buildableSqm).toLocaleString()} sqm at FAR ${locality.farAllowed}, built at ${locality.replacementCostPerSqm.toLocaleString()}/sqm and sold at the locality's built median of ${locality.medianPricePerSqm.toLocaleString()}/sqm, less a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, discounted ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year build-and-sell period.`,
+        sourceType: 'model_inference',
+        sourceRef: 'residual_development',
+        sourceLabel: locality.source,
+        confidence: 0.4,
+      });
+      const band = 0.18;
+      anchors.push({
+        id: `anchor-${caseId}-residual_development`,
+        method: 'residual_development',
+        label: 'Residual development value',
+        low: roundMoney(residualToday * (1 - band), currency),
+        mid: roundMoney(residualToday, currency),
+        high: roundMoney(residualToday * (1 + band), currency),
+        weight: 0.08,
+        confidence: planning.developmentPotential === 'significant' ? 0.45 : 0.35,
+        rationale: `A sense-check on development potential, not a market price: values the FAR-${locality.farAllowed} permitted envelope as built product at the locality's median sale rate, nets off construction cost and a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, and discounts the result back to today at ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year timeline. It depends on construction-cost, margin and absorption assumptions this screen cannot independently verify, so it carries lower weight and lower confidence than the direct land-rate anchor.`,
+        evidenceIds: [rdEvId],
+      });
+    }
   }
 
   return anchors;
@@ -887,14 +1259,20 @@ function widenForConfidence(
 /* ==================================================================== */
 
 /**
- * Produces 5-12 drivers. Four are always applicable (tenure, locality
- * liquidity, transit proximity, planning headroom); floor level, building
- * age, encumbrance/energy-label, tenancy-in-place and — for Karnataka cases —
- * the B-khata discount, occupancy-certificate absence and gram-panchayat
- * jurisdiction drivers are added only when the underlying data exists. A
+ * Produces a bounded set of itemised drivers plus one reconciling driver.
+ * Four are always applicable (tenure, locality liquidity, transit proximity,
+ * planning headroom); floor level, building age, encumbrance/energy-label,
+ * tenancy-in-place and — for Karnataka cases — the B-khata discount,
+ * occupancy-certificate absence and gram-panchayat jurisdiction drivers are
+ * added only when the underlying data exists. For a LAND subject, five more
+ * plot-specific drivers (road width, corner site, facing, dimension
+ * standardness, layout approval) reconcile to the locality LAND rate rather
+ * than the built median, and occupancy-certificate absence is skipped
+ * entirely — there is no structure on a bare site to have been occupied. A
  * final reconciling driver absorbs whatever gap between the subject's own mid
- * rate and the locality median the itemised drivers don't explain, so the
- * list is not just decorative — it actually adds up to the anchor blend.
+ * rate and the relevant locality median the itemised drivers don't explain,
+ * so the list is not just decorative — it actually adds up to the anchor
+ * blend.
  */
 function buildDrivers(
   caseId: string,
@@ -930,6 +1308,95 @@ function buildDrivers(
     }
     const evId = evidence.add({ statement: `Tenure recorded as ${identity.tenure}.`, sourceType: 'user_input', sourceRef: 'identity.tenure', sourceLabel: 'Case identity — tenure', confidence: 0.95 });
     push('Tenure', pct, 'legal', text, [evId]);
+  }
+
+  // Plot-specific drivers — land subjects only. Each reconciles the subject
+  // toward the locality LAND rate (see the reconciling driver at the bottom),
+  // and mirrors the same adjustments `adjustComparable` applies to land
+  // comparables, so the value driver list and the land_rate anchor never
+  // silently disagree about what the site's own attributes are worth.
+  const isLand = isLandPropertyType(identity.propertyType);
+  if (isLand) {
+    const plot = identity.plot;
+
+    if (plot?.roadWidthFt !== undefined) {
+      const pct = roadWidthAdjustmentPct(plot.roadWidthFt);
+      const evId = evidence.add({ statement: `Abutting road width recorded as ${plot.roadWidthFt}ft.`, sourceType: 'user_input', sourceRef: 'identity.plot.roadWidthFt', sourceLabel: 'Case identity — plot road width', confidence: 0.85 });
+      push(
+        'Road width',
+        pct,
+        'location',
+        `A ${plot.roadWidthFt}ft abutting road ${pct >= 0 ? 'supports easier access and higher permissible FAR, both priced as a premium' : 'is narrower than the layout norm, constraining access and permissible FAR'}.`,
+        [evId],
+      );
+    }
+
+    if (plot?.cornerSite !== undefined) {
+      const pct = cornerSiteAdjustmentPct(plot.cornerSite);
+      const evId = evidence.add({ statement: `Corner-site status recorded as ${plot.cornerSite ? 'yes' : 'no'}.`, sourceType: 'user_input', sourceRef: 'identity.plot.cornerSite', sourceLabel: 'Case identity — corner site', confidence: 0.9 });
+      push(
+        'Corner site',
+        pct,
+        'location',
+        plot.cornerSite ? 'Dual road frontage and better access earn a genuine corner-site premium.' : 'Not a corner site — priced at the layout baseline rather than the corner premium.',
+        [evId],
+      );
+    }
+
+    if (plot && plot.facing !== 'unknown') {
+      const pct = FACING_ADJUSTMENT_PCT[plot.facing];
+      const facingLabel = plot.facing.replace(/_/g, ' ');
+      const evId = evidence.add({ statement: `Site facing recorded as ${facingLabel}.`, sourceType: 'user_input', sourceRef: 'identity.plot.facing', sourceLabel: 'Case identity — plot facing', confidence: 0.85 });
+      push(
+        'Facing',
+        pct,
+        'location',
+        `${facingLabel[0].toUpperCase()}${facingLabel.slice(1)}-facing sites ${pct > 0 ? 'command a measurable premium' : pct < 0 ? 'trade at a discount' : 'are priced at the layout norm'} in the Bengaluru market.`,
+        [evId],
+      );
+    }
+
+    if (plot?.dimensionsFt) {
+      const pct = dimensionStandardnessAdjustmentPct(plot.dimensionsFt);
+      const evId = evidence.add({
+        statement: `Site dimensions recorded as ${plot.dimensionsFt.width}ft x ${plot.dimensionsFt.depth}ft.`,
+        sourceType: 'user_input',
+        sourceRef: 'identity.plot.dimensionsFt',
+        sourceLabel: 'Case identity — plot dimensions',
+        confidence: 0.85,
+      });
+      push(
+        'Dimension standardness',
+        pct,
+        'location',
+        pct >= 0 ? 'A near-standard site shape resells more easily than an irregular one.' : 'An elongated, non-standard shape is harder to resell and is priced at a discount.',
+        [evId],
+      );
+    }
+
+    {
+      const layoutApproval = plot?.layoutApproval ?? 'unknown';
+      const pct = LAYOUT_APPROVAL_ADJUSTMENT_PCT[layoutApproval];
+      const layoutLabel = layoutApproval.replace(/_/g, ' ');
+      const evId = evidence.add({
+        statement: `Layout approval recorded as ${layoutLabel}.`,
+        sourceType: 'user_input',
+        sourceRef: 'identity.plot.layoutApproval',
+        sourceLabel: 'Case identity — layout approval',
+        confidence: layoutApproval === 'unknown' ? 0.4 : 0.9,
+      });
+      const explanation =
+        layoutApproval === 'bda_approved'
+          ? 'BDA approval is the most bankable layout status and carries a real premium.'
+          : layoutApproval === 'revenue_layout'
+            ? 'A revenue layout (not a sanctioned residential layout) trades at a heavy discount and is hard to finance.'
+            : layoutApproval === 'unapproved'
+              ? 'An unapproved layout is the weakest possible status — hard to finance, hard to resell, and exposed to regularisation risk.'
+              : layoutApproval === 'unknown'
+                ? 'Layout approval status has not been confirmed, so value is priced conservatively until it is.'
+                : `${layoutLabel} status is priced relative to a BDA-approved layout.`;
+      push('Layout approval', pct, 'legal', explanation, [evId]);
+    }
   }
 
   // B-khata discount — Karnataka only. B-khata property is shut out of
@@ -973,8 +1440,9 @@ function buildDrivers(
   }
 
   // Occupancy certificate absence — Karnataka only (this is distinct from,
-  // and applies more broadly than, the age-triggered OC risk below).
-  if (identity.karnataka && !documents.some(d => d.kind === 'occupancy_certificate')) {
+  // and applies more broadly than, the age-triggered OC risk below). Not
+  // applicable to land: a bare site has no structure to have been occupied.
+  if (!isLand && identity.karnataka && !documents.some(d => d.kind === 'occupancy_certificate')) {
     const evId = evidence.add({
       statement: 'No occupancy certificate on file.',
       sourceType: 'model_inference',
@@ -1118,14 +1586,19 @@ function buildDrivers(
     }
   }
 
-  // Cap the itemised set at 11 so a reconciling driver always fits within the 5-12 total.
-  const explicit = drivers.slice(0, 11);
+  // Cap the itemised set at 14 (land cases can carry five plot-specific
+  // drivers on top of the Karnataka-specific ones) so a reconciling driver
+  // always fits on top.
+  const explicit = drivers.slice(0, 14);
 
-  const gapPct = ((baseMidPerSqm - locality.medianPricePerSqm) / locality.medianPricePerSqm) * 100;
+  const benchmarkRate = isLand ? locality.medianLandRatePerSqm : locality.medianPricePerSqm;
+  const gapPct = ((baseMidPerSqm - benchmarkRate) / benchmarkRate) * 100;
   const explainedPct = explicit.reduce((s, d) => s + d.impactPct, 0);
   const residualPct = round1(gapPct - explainedPct);
   const gapEvId = evidence.add({
-    statement: `Subject mid rate of ${round1(baseMidPerSqm).toLocaleString()}/sqm vs locality median ${locality.medianPricePerSqm.toLocaleString()}/sqm implies a ${round1(gapPct)}% overall gap.`,
+    statement: isLand
+      ? `Subject mid land rate of ${round1(baseMidPerSqm).toLocaleString()}/sqm vs locality median land rate ${benchmarkRate.toLocaleString()}/sqm implies a ${round1(gapPct)}% overall gap.`
+      : `Subject mid rate of ${round1(baseMidPerSqm).toLocaleString()}/sqm vs locality median ${benchmarkRate.toLocaleString()}/sqm implies a ${round1(gapPct)}% overall gap.`,
     sourceType: 'model_inference',
     sourceRef: 'drivers.reconciliation',
     sourceLabel: locality.source,
@@ -1193,6 +1666,7 @@ function buildRisks(
   comparables: Comparable[],
   locality: LocalityReference,
   matchLevel: LocalityMatchLevel,
+  compMatchLevel: LocalityMatchLevel,
   countryPack: CountryPack,
   statePack: StatePack | undefined,
   planning: { farAllowed: number; farUsed: number },
@@ -1201,6 +1675,7 @@ function buildRisks(
   previousResult: ScreenResult | undefined,
   evidence: EvidenceBuilder,
 ): RiskFlag[] {
+  const isLand = isLandPropertyType(identity.propertyType);
   const risks: RiskFlag[] = [];
   const makeRisk = makeRiskFactory(caseId, previousResult);
 
@@ -1341,6 +1816,53 @@ function buildRisks(
     );
   }
 
+  // Land-comparable geography — says so, through the same risk/confidence
+  // machinery as `locality_data_thin` above, rather than silently falling
+  // back to built comparables when a site's own locality has too few land
+  // transactions. Distinct from `thin_comparable_evidence`: this is
+  // specifically about having had to widen the SEARCH GEOGRAPHY for a land
+  // subject, not about the resulting count being small.
+  if (isLand) {
+    if (comparables.length === 0) {
+      const evId = evidence.add({
+        statement: `No land-parcel comparables were found for this site anywhere in the reference pool, even after widening the search to a country-wide proxy.`,
+        sourceType: 'model_inference',
+        sourceRef: 'comparables.landSearch',
+        sourceLabel: 'Comparable selection',
+        confidence: 0.8,
+      });
+      mk(
+        'no_land_comparables',
+        'No land-parcel comparables available',
+        'serious',
+        'market',
+        'No comparable land/plot transactions were found for this site, even after widening the search to a country-wide proxy.',
+        'The land-rate anchor could not be built at all — the indicative value rests only on the statutory and index-trend anchors, both materially weaker bases on their own.',
+        'Commission a local land-rate opinion or broker survey for this site before relying on the indicative value.',
+        [evId],
+      );
+    } else if (compMatchLevel !== 'locality') {
+      const widenedTo = compMatchLevel === 'city' ? identity.city : `a country-wide (${identity.country}) proxy`;
+      const evId = evidence.add({
+        statement: `Fewer than 4 land-parcel comparables were available within ${identity.locality} itself, so the search was widened to ${widenedTo}.`,
+        sourceType: 'model_inference',
+        sourceRef: 'comparables.landSearch',
+        sourceLabel: 'Comparable selection',
+        confidence: 0.75,
+      });
+      mk(
+        'land_comparables_widened',
+        'Land comparables sourced outside the immediate locality',
+        'warning',
+        'market',
+        `Fewer than 4 land-parcel comparables were available within ${identity.locality} itself, so the comparable search was widened to ${widenedTo}.`,
+        'A land rate built on comparables from outside the immediate locality is a real, if partial, proxy — it does not carry the same precision as locality-specific land transactions.',
+        'Commission a local land-rate opinion for this specific locality to supplement the widened comparable set.',
+        [evId],
+      );
+    }
+  }
+
   // Occupancy certificates are an India-specific construction-compliance
   // concept (they are not part of the Netherlands country pack at all), so
   // this check only applies to Indian cases — otherwise every older Dutch
@@ -1417,6 +1939,61 @@ function buildRisks(
       'Order an energy label assessment before marketing or completing the transaction.',
       [evId],
     );
+  }
+
+  // Plot-specific risks — land subjects only. Layout approval itself is
+  // handled as a Karnataka compliance check (`buildStateCompliance`, key
+  // `layout_approval_status`) rather than here, since it is a statutory
+  // finding with its own catalogued statute citation; demarcation/possession
+  // and the road-width/FAR interaction are country-agnostic land concerns
+  // that apply regardless of whether a State Pack covers the case.
+  if (isLand && identity.plot) {
+    const plot = identity.plot;
+
+    if (plot.demarcated === false) {
+      const evId = evidence.add({
+        statement: 'Site recorded as not demarcated / possession not confirmed.',
+        sourceType: 'user_input',
+        sourceRef: 'identity.plot.demarcated',
+        sourceLabel: 'Case identity — plot demarcation',
+        confidence: 0.85,
+      });
+      mk(
+        'plot_not_demarcated',
+        'Site not demarcated — possession unconfirmed',
+        'serious',
+        'title',
+        'The site has not been confirmed as fenced/demarcated or in undisputed possession.',
+        'Boundary disputes and encroachment are common on undemarcated sites, and unclear possession complicates both financing and resale.',
+        'Commission a licensed surveyor to demarcate the site and confirm physical possession before proceeding.',
+        [evId],
+      );
+    }
+
+    // Karnataka zonal FAR is commonly tied to road-width bands (several
+    // tracked localities' own planning notes require ~12m/40ft+ frontage for
+    // their higher FAR bands) — a narrower road caps what the permitted
+    // envelope can actually deliver, independent of the FAR figure on paper.
+    const FAR_ROAD_WIDTH_THRESHOLD_FT = 40;
+    if (plot.roadWidthFt !== undefined && plot.roadWidthFt < FAR_ROAD_WIDTH_THRESHOLD_FT && planning.farAllowed > 2) {
+      const evId = evidence.add({
+        statement: `Abutting road width recorded as ${plot.roadWidthFt}ft against a zoning FAR of ${planning.farAllowed} that Bengaluru practice typically ties to wider frontage.`,
+        sourceType: 'model_inference',
+        sourceRef: 'identity.plot.roadWidthFt',
+        sourceLabel: 'Case identity — plot road width',
+        confidence: 0.6,
+      });
+      mk(
+        'plot_road_width_far_cap',
+        'Road width may cap achievable FAR',
+        'warning',
+        'planning',
+        `The site's ${plot.roadWidthFt}ft abutting road is narrower than the ${FAR_ROAD_WIDTH_THRESHOLD_FT}ft threshold Bengaluru zoning commonly ties to its higher FAR bands.`,
+        'The zoning FAR quoted for this locality may not actually be achievable on this specific site — confirm before pricing in the full permitted envelope.',
+        'Confirm the road-width-linked FAR band that actually applies to this survey number with the local planning authority before relying on the zoning FAR figure.',
+        [evId],
+      );
+    }
   }
 
   if (matchLevel === 'country') {
@@ -1744,9 +2321,11 @@ export function buildStateCompliance(
     pushCheck('rajakaluve_lake_buffer', 'Rajakaluve / lake buffer', verdict, finding, consequence, nextStep, statuteFor('rajakaluve_lake_buffer', 'Karnataka Town and Country Planning Act 1961; NGT orders on Bengaluru lake and drain buffers'), evIds, relatedRiskIds);
   }
 
-  // 6. Occupancy certificate — very commonly absent in Bengaluru.
+  // 6. Occupancy certificate — very commonly absent in Bengaluru. Not
+  // applicable to a bare plot: there is no structure to have been occupied.
   {
     const ocDoc = findDoc('occupancy_certificate');
+    const isLandType = identity.propertyType === 'residential_plot' || identity.propertyType === 'land_parcel';
     let verdict: ComplianceVerdict;
     let finding: string;
     let consequence: string;
@@ -1754,7 +2333,12 @@ export function buildStateCompliance(
     const evIds: string[] = [];
     let relatedRiskIds: string[] = [];
 
-    if (ocDoc) {
+    if (isLandType) {
+      verdict = 'clear';
+      finding = 'Occupancy certificate is not applicable — this is a bare plot with no structure to have been occupied.';
+      consequence = 'No occupancy-certificate-related restriction applies until a building is actually constructed on the site.';
+      nextStep = 'Revisit this check once construction begins and an occupancy certificate becomes relevant.';
+    } else if (ocDoc) {
       verdict = 'clear';
       finding = 'Occupancy certificate is on file.';
       consequence = 'Supports lawful occupation, insurability and normal resale/financing.';
@@ -1881,9 +2465,12 @@ export function buildStateCompliance(
     pushCheck('bda_bmrda_acquisition', 'Acquisition / de-notification status', verdict, finding, consequence, nextStep, statuteFor('bda_bmrda_acquisition', 'Bangalore Development Authority Act 1976; Bangalore Metropolitan Region Development Authority Act 1985'), evIds, relatedRiskIds);
   }
 
-  // 10. Area basis — Bengaluru pricing is routinely quoted on super built-up area.
+  // 10. Area basis — Bengaluru pricing is routinely quoted on super built-up
+  // area. Not applicable to a bare plot: carpet/built-up/super-built-up is a
+  // built-property distinction, and a site is priced on plot area directly.
   {
     const basis = ka?.areaBasis;
+    const isLandType = identity.propertyType === 'residential_plot' || identity.propertyType === 'land_parcel';
     let verdict: ComplianceVerdict;
     let finding: string;
     let consequence: string;
@@ -1891,7 +2478,12 @@ export function buildStateCompliance(
     const evIds: string[] = [];
     let relatedRiskIds: string[] = [];
 
-    if (basis === 'carpet') {
+    if (isLandType) {
+      verdict = 'clear';
+      finding = 'Quoted-area basis (carpet / built-up / super built-up) is a built-property distinction and does not apply — this site is priced on plot area directly.';
+      consequence = 'No area-basis distortion applies to a land rate quoted per sqm of plot area.';
+      nextStep = 'No action needed on this point.';
+    } else if (basis === 'carpet') {
       verdict = 'clear';
       finding = 'Quoted area is on a RERA carpet-area basis.';
       consequence = 'Price-per-sqm figures are directly comparable to RERA-mandated carpet-area disclosures and to other carpet-area comparables.';
@@ -1920,6 +2512,83 @@ export function buildStateCompliance(
       relatedRiskIds = [riskId];
     }
     pushCheck('area_basis', 'Quoted area basis', verdict, finding, consequence, nextStep, 'Real Estate (Regulation and Development) Act, 2016 — s.2(k) carpet-area definition', evIds, relatedRiskIds);
+  }
+
+  // 11. Layout approval status — plot-specific, and per the pack's own
+  // title-check catalogue "the single most consequential fact about a plot
+  // that a flat purchase never has to establish". A revenue layout or an
+  // outright unapproved layout is a blocker: BBMP/BDA can refuse khata and
+  // building-plan sanction outright, and mainstream lenders will typically
+  // decline to finance it.
+  {
+    const isLandType = identity.propertyType === 'residential_plot' || identity.propertyType === 'land_parcel';
+    const layoutApproval = identity.plot?.layoutApproval;
+    let verdict: ComplianceVerdict;
+    let finding: string;
+    let consequence: string;
+    let nextStep: string;
+    const evIds: string[] = [];
+    let relatedRiskIds: string[] = [];
+
+    if (!isLandType) {
+      verdict = 'clear';
+      finding = 'Layout approval status is a plot-specific check and does not apply to a built unit.';
+      consequence = 'No layout-approval-specific restriction applies to a constructed unit.';
+      nextStep = 'No action needed on this point.';
+    } else if (!layoutApproval || layoutApproval === 'unknown') {
+      verdict = 'unknown';
+      finding = 'The layout approval status of this site (BDA / BMRDA / panchayat / private / revenue / unapproved) has not been confirmed.';
+      consequence = 'Layout approval status gates khata issuance, building-plan sanction and financing, so the screen cannot rule out a revenue or unapproved layout until this is confirmed.';
+      nextStep = 'Trace the layout-approval order (or its absence) for this survey number with the relevant planning authority before relying on this screen.';
+    } else if (layoutApproval === 'bda_approved' || layoutApproval === 'bmrda_approved') {
+      verdict = 'clear';
+      finding = `The site sits in a ${layoutApproval === 'bda_approved' ? 'BDA' : 'BMRDA'}-approved layout.`;
+      consequence = 'Supports normal khata issuance, building-plan sanction and mortgage financing.';
+      nextStep = 'Cross-check the layout-approval order number against the survey number on the title deed.';
+      evIds.push(evidence.add({ statement: `Layout approval recorded as ${layoutApproval.replace(/_/g, ' ')}.`, sourceType: 'user_input', sourceRef: 'identity.plot.layoutApproval', sourceLabel: 'Case identity — layout approval', confidence: 0.85 }));
+    } else if (layoutApproval === 'panchayat_approved' || layoutApproval === 'private_approved') {
+      verdict = 'attention';
+      finding = `The site sits in a ${layoutApproval === 'panchayat_approved' ? 'gram panchayat-approved' : 'privately approved'} layout, not a BDA/BMRDA-sanctioned one.`;
+      consequence = `${layoutApproval === 'panchayat_approved' ? 'Panchayat' : 'Private'} approval needs verifying on its own merits — lenders and BBMP/BDA treat it more cautiously than a BDA/BMRDA sanction.`;
+      nextStep = 'Obtain and independently verify the specific approval order/certificate for this layout before relying on it for financing.';
+      const evId = evidence.add({ statement: `Layout approval recorded as ${layoutApproval.replace(/_/g, ' ')}.`, sourceType: 'user_input', sourceRef: 'identity.plot.layoutApproval', sourceLabel: 'Case identity — layout approval', confidence: 0.8 });
+      evIds.push(evId);
+      const riskId = addRisk(
+        'karnataka_plot_layout_needs_verification',
+        `${layoutApproval === 'panchayat_approved' ? 'Panchayat' : 'Privately'}-approved layout needs verification`,
+        'warning',
+        'planning',
+        finding,
+        consequence,
+        nextStep,
+        evIds,
+      );
+      relatedRiskIds = [riskId];
+    } else {
+      // revenue_layout or unapproved — the serious/critical end.
+      verdict = 'blocker';
+      finding =
+        layoutApproval === 'revenue_layout'
+          ? 'The site sits in a revenue layout — carved out of agricultural revenue land and sold without a sanctioned layout plan.'
+          : 'The site sits in a layout with no planning-authority approval at all.';
+      consequence =
+        'BBMP/BDA can refuse khata and building-plan sanction outright, mainstream lenders will typically decline to finance it, and the site can be exposed to demolition or resumption action even where the sale deed itself registered without issue.';
+      nextStep = 'Do not treat the sale deed alone as proof of a lawful layout — trace the layout-approval order (if any) with BDA/BMRDA and get an independent legal opinion on regularisation prospects before offering.';
+      const evId = evidence.add({ statement: `Layout approval recorded as ${layoutApproval.replace(/_/g, ' ')}.`, sourceType: 'user_input', sourceRef: 'identity.plot.layoutApproval', sourceLabel: 'Case identity — layout approval', confidence: 0.9 });
+      evIds.push(evId);
+      const riskId = addRisk(
+        'karnataka_plot_layout_not_approved',
+        layoutApproval === 'revenue_layout' ? 'Revenue layout, not a sanctioned residential layout' : 'Unapproved layout',
+        layoutApproval === 'revenue_layout' ? 'serious' : 'critical',
+        'planning',
+        finding,
+        consequence,
+        nextStep,
+        evIds,
+      );
+      relatedRiskIds = [riskId];
+    }
+    pushCheck('layout_approval_status', 'Layout approval status', verdict, finding, consequence, nextStep, statuteFor('layout_approval_status', 'Karnataka Town and Country Planning Act 1961, ss.17 & 32'), evIds, relatedRiskIds);
   }
 
   const applicable = checks.filter(c => c.verdict !== 'unknown');
@@ -1968,8 +2637,10 @@ function computeSlabDuty(value: number, slabs: DutySlab[]): number {
  * applied afterwards that could break that invariant.
  */
 export function computeTransactionCosts(identity: PropertyIdentity, statePack: StatePack, locality: LocalityReference): TransactionCostBreakdown {
-  const area = identity.builtUpAreaSqm;
-  const guidanceValue = Math.round(locality.statutoryRatePerSqm * area);
+  const isLand = isLandPropertyType(identity.propertyType);
+  const area = isLand ? identity.plotAreaSqm : identity.builtUpAreaSqm;
+  const statutoryRate = isLand ? locality.statutoryLandRatePerSqm : locality.statutoryRatePerSqm;
+  const guidanceValue = Math.round(statutoryRate * area);
   const consideration = identity.askingPrice !== undefined ? Math.round(identity.askingPrice) : 0;
   const dutiableValue = Math.max(consideration, guidanceValue);
   const dutiableBasis: TransactionCostBreakdown['dutiableBasis'] = consideration > guidanceValue ? 'consideration' : 'statutory_guidance_value';
@@ -2112,6 +2783,14 @@ function buildConfidence(
   documents: CaseDocument[],
   anchors: ValueAnchor[],
   askingPricePresent: boolean,
+  /**
+   * Only passed for a land subject: how far the LAND-comparable search had
+   * to widen (see `selectComparableCandidates`), and whether it found
+   * anything at all. `undefined` for a built subject, which keeps this
+   * factor list — and therefore every built demo case's confidence score —
+   * byte-identical to before this feature existed.
+   */
+  landComparableGeography?: { level: LocalityMatchLevel; found: boolean },
 ): ConfidenceSummary {
   const factors: ConfidenceFactor[] = [];
   const base = 30;
@@ -2122,7 +2801,12 @@ function buildConfidence(
 
   const compCount = comparables.length;
   const compContribution = clamp(Math.round(compCount * 2.5), 0, 15);
-  factors.push({ key: 'comparables', label: 'Comparable count & recency', contribution: compContribution, note: `${compCount} comparable(s) used in the comparable-sales anchor.` });
+  factors.push({
+    key: 'comparables',
+    label: 'Comparable count & recency',
+    contribution: compContribution,
+    note: `${compCount} comparable(s) used in the ${landComparableGeography ? 'land-rate' : 'comparable-sales'} anchor.`,
+  });
 
   const localityContribution = matchLevel === 'locality' ? 10 : matchLevel === 'city' ? 3 : -10;
   factors.push({
@@ -2155,6 +2839,23 @@ function buildConfidence(
     contribution: askingContribution,
     note: askingPricePresent ? 'An asking price is available to sense-check against.' : 'No asking price on file to sense-check against.',
   });
+
+  if (landComparableGeography) {
+    const { level, found } = landComparableGeography;
+    const contribution = !found ? -12 : level === 'locality' ? 6 : level === 'city' ? 0 : -6;
+    factors.push({
+      key: 'land_comparable_geography',
+      label: 'Land comparable geography',
+      contribution,
+      note: !found
+        ? 'No land-parcel comparables were found for this site anywhere in the reference pool, even after widening to a country-wide search.'
+        : level === 'locality'
+          ? 'Enough land-parcel comparables were found within the subject locality itself.'
+          : level === 'city'
+            ? 'Land-parcel comparables were only sufficient after widening the search to the city as a whole.'
+            : 'Land-parcel comparables were only found after widening the search to a country-wide proxy.',
+    });
+  }
 
   const score = clamp(Math.round(factors.reduce((s, f) => s + f.contribution, 0)), 0, 100);
   const band: ConfidenceBand = score < 45 ? 'low' : score < 72 ? 'moderate' : 'high';
@@ -2280,9 +2981,14 @@ function buildSnapshot(
     `${completeness.score}/100 document completeness${completeness.missingCritical.length > 0 ? `, missing: ${completeness.missingCritical.join(', ')}` : ', all critical documents on file'}.`,
     openCritical > 0 ? `${openCritical} open critical risk${openCritical === 1 ? '' : 's'} require resolution before proceeding.` : 'No open critical risks identified.',
   ];
+  // A bare site's meaningful area is plot area, not built-up area (which is
+  // legitimately 0 for a site with nothing built on it yet).
+  const isLand = isLandPropertyType(identity.propertyType);
   const keyFacts = [
     { label: 'Property type', value: identity.propertyType.replace(/_/g, ' ') },
-    { label: 'Built-up area', value: `${identity.builtUpAreaSqm.toLocaleString()} sqm` },
+    isLand
+      ? { label: 'Plot area', value: `${identity.plotAreaSqm.toLocaleString()} sqm` }
+      : { label: 'Built-up area', value: `${identity.builtUpAreaSqm.toLocaleString()} sqm` },
     { label: 'Tenure', value: identity.tenure },
     { label: 'Locality', value: `${identity.locality}, ${identity.city}` },
   ];
@@ -2429,19 +3135,41 @@ export function runScreen(input: {
     }
   }
 
+  const isLand = isLandPropertyType(identity.propertyType);
   const { ref: locality, matchLevel } = matchLocalityReference(identity, refData.localities);
-  const comparables = buildComparables(identity, refData.comparablePool, refData.localities, locality, now);
-  const anchors = buildAnchors(caseId, identity, comparables, locality, matchLevel, statutoryRateLabel, documentsWithExtraction, now, evidence);
+  const { comparables, compMatchLevel } = buildComparables(identity, refData.comparablePool, refData.localities, locality, now);
+
+  // Planning is computed before anchors (rather than after, as it used to
+  // be) so the residual_development anchor can use it — it depends only on
+  // identity/locality/now, never on anchors or comparables, so reordering it
+  // changes no value, only the sequence evidence ids are minted in.
+  const planning = buildPlanning(identity, locality, now, evidence);
+  const anchors = buildAnchors(caseId, identity, comparables, locality, matchLevel, compMatchLevel, planning, statutoryRateLabel, documentsWithExtraction, now, evidence);
 
   const baseBlend = blendIndicativeValue(anchors, identity.currency);
-  const baseMidPerSqm = baseBlend.mid / identity.builtUpAreaSqm;
+  const baseMidPerSqm = baseBlend.mid / subjectComparisonAreaSqm(identity);
 
-  const planning = buildPlanning(identity, locality, now, evidence);
   const completeness = buildCompleteness(requiredDocs, documentsWithExtraction);
 
   const askingVsMidPctRaw = identity.askingPrice !== undefined ? ((identity.askingPrice - baseBlend.mid) / baseBlend.mid) * 100 : null;
 
-  const baseRisks = buildRisks(caseId, identity, documentsWithExtraction, completeness, comparables, locality, matchLevel, countryPack, statePack, planning, askingVsMidPctRaw, now, previousResult, evidence);
+  const baseRisks = buildRisks(
+    caseId,
+    identity,
+    documentsWithExtraction,
+    completeness,
+    comparables,
+    locality,
+    matchLevel,
+    compMatchLevel,
+    countryPack,
+    statePack,
+    planning,
+    askingVsMidPctRaw,
+    now,
+    previousResult,
+    evidence,
+  );
 
   // A State Pack's title checks run after the country-level risks so that
   // checks like "Encumbrance continuity" can link to an existing risk (e.g.
@@ -2449,21 +3177,33 @@ export function runScreen(input: {
   const stateComplianceResult = statePack ? buildStateCompliance(caseId, identity, documentsWithExtraction, statePack, baseRisks, previousResult, evidence) : undefined;
   const risks = stateComplianceResult ? [...baseRisks, ...stateComplianceResult.risks] : baseRisks;
 
-  const confidence = buildConfidence(completeness, comparables, matchLevel, documentsWithExtraction, anchors, identity.askingPrice !== undefined);
+  const confidence = buildConfidence(
+    completeness,
+    comparables,
+    matchLevel,
+    documentsWithExtraction,
+    anchors,
+    identity.askingPrice !== undefined,
+    isLand ? { level: compMatchLevel, found: comparables.length > 0 } : undefined,
+  );
 
   const widened = widenForConfidence(baseBlend, confidence.band, identity.currency);
   const spreadPct = round1(((widened.high - widened.low) / 2 / widened.mid) * 100);
   const askingVsMidPct = identity.askingPrice !== undefined ? round1(((identity.askingPrice - widened.mid) / widened.mid) * 100) : null;
 
+  // A site is priced per sqm of plot, not built-up area — showing the
+  // indicative range per sqm of a (possibly zero) built-up area would be the
+  // exact mispricing this feature exists to fix.
+  const perSqmArea = subjectComparisonAreaSqm(identity);
   const indicativeValue: IndicativeValue = {
     low: widened.low,
     mid: widened.mid,
     high: widened.high,
     currency: identity.currency,
     perSqm: {
-      low: roundRate(widened.low / identity.builtUpAreaSqm, identity.currency),
-      mid: roundRate(widened.mid / identity.builtUpAreaSqm, identity.currency),
-      high: roundRate(widened.high / identity.builtUpAreaSqm, identity.currency),
+      low: roundRate(widened.low / perSqmArea, identity.currency),
+      mid: roundRate(widened.mid / perSqmArea, identity.currency),
+      high: roundRate(widened.high / perSqmArea, identity.currency),
     },
     spreadPct,
     askingVsMidPct,

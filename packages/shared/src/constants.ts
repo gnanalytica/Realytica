@@ -26,7 +26,13 @@ import {
 } from './packs/karnataka';
 
 /** Version stamp written onto every `ScreenResult`. Bump when scoring logic changes. */
-export const ENGINE_VERSION = '0.1.0';
+/**
+ * 0.2.0 — land-rate valuation. Comparables no longer cross the land/built
+ * boundary, sites value from a land rate on plot area, and guidance value for
+ * a vacant site is computed on plot rather than built-up area. Results carry
+ * this so a stored screen states which engine produced it.
+ */
+export const ENGINE_VERSION = '0.2.0';
 
 /** Property types the MVP screens. Order drives select-box order in the UI. */
 export const PROPERTY_TYPES: PropertyType[] = [

@@ -1,5 +1,15 @@
 import { z } from 'zod';
-import type { AreaBasis, DocumentKind, KarnatakaAttributes, KarnatakaJurisdiction, KhataType, LandConversionStatus } from '@valytica/shared';
+import type {
+  AreaBasis,
+  DocumentKind,
+  KarnatakaAttributes,
+  KarnatakaJurisdiction,
+  KhataType,
+  LandConversionStatus,
+  LayoutApproval,
+  PlotAttributes,
+  PlotFacing,
+} from '@valytica/shared';
 
 /**
  * zod schemas mirroring the request-body shapes of `@valytica/shared`'s
@@ -90,6 +100,40 @@ export const karnatakaAttributesSchema = z.object({
   grantedLandPtcl: z.boolean().optional(),
 }) satisfies z.ZodType<KarnatakaAttributes>;
 
+// Plot/site attributes, carried on `PropertyIdentity.plot`. Present for land
+// property types (`residential_plot` / `land_parcel`), where value is set by
+// the land itself rather than by a building.
+export const plotFacingSchema = z.enum([
+  'north',
+  'east',
+  'north_east',
+  'south',
+  'west',
+  'north_west',
+  'south_east',
+  'south_west',
+  'unknown',
+]) satisfies z.ZodType<PlotFacing>;
+
+export const layoutApprovalSchema = z.enum([
+  'bda_approved',
+  'bmrda_approved',
+  'panchayat_approved',
+  'private_approved',
+  'revenue_layout',
+  'unapproved',
+  'unknown',
+]) satisfies z.ZodType<LayoutApproval>;
+
+export const plotAttributesSchema = z.object({
+  roadWidthFt: z.number().nonnegative().optional(),
+  cornerSite: z.boolean().optional(),
+  facing: plotFacingSchema,
+  dimensionsFt: z.object({ width: z.number().positive(), depth: z.number().positive() }).optional(),
+  layoutApproval: layoutApprovalSchema,
+  demarcated: z.boolean().optional(),
+}) satisfies z.ZodType<PlotAttributes>;
+
 export const propertyIdentitySchema = z.object({
   label: z.string().min(1),
   country: countryCodeSchema,
@@ -108,6 +152,7 @@ export const propertyIdentitySchema = z.object({
   totalFloors: z.number().int().optional(),
   askingPrice: z.number().nonnegative().optional(),
   currency: currencyCodeSchema,
+  plot: plotAttributesSchema.optional(),
   karnataka: karnatakaAttributesSchema.optional(),
 });
 
