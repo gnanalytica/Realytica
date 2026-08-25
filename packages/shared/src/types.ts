@@ -61,12 +61,61 @@ export interface PropertyIdentity {
   askingPrice?: number;
   currency: CurrencyCode;
   /**
+   * Plot/site attributes. Present for land property types, where value is set
+   * by the land itself rather than by a building — road width, shape, corner
+   * position and layout approval move a Bengaluru site's rate materially.
+   */
+  plot?: PlotAttributes;
+  /**
    * State-pack specific attributes. Present only when a State Pack defines them
    * — for Karnataka these drive the khata, jurisdiction and conversion checks
    * that dominate a Bengaluru title screen. Everything here is optional so the
    * core engine and other geographies are unaffected.
    */
   karnataka?: KarnatakaAttributes;
+}
+
+/**
+ * Compass facing. In Bengaluru this is priced, not decorative — east and north
+ * facing sites command a measurable premium, so it is recorded rather than
+ * dismissed.
+ */
+export type PlotFacing =
+  | 'north'
+  | 'east'
+  | 'north_east'
+  | 'south'
+  | 'west'
+  | 'north_west'
+  | 'south_east'
+  | 'south_west'
+  | 'unknown';
+
+/**
+ * Who approved the layout the site sits in. This is a value driver and a risk
+ * in one: an unapproved or revenue layout trades at a heavy discount and is
+ * hard to finance, while a BDA-approved site carries a premium.
+ */
+export type LayoutApproval =
+  | 'bda_approved'
+  | 'bmrda_approved'
+  | 'panchayat_approved'
+  | 'private_approved'
+  | 'revenue_layout'
+  | 'unapproved'
+  | 'unknown';
+
+export interface PlotAttributes {
+  /** Abutting road width in feet — drives both rate and permissible FAR. */
+  roadWidthFt?: number;
+  /** Corner sites carry a premium for frontage and access. */
+  cornerSite?: boolean;
+  facing: PlotFacing;
+  /** Site dimensions in feet; standard sizes (30x40, 40x60) resell more easily. */
+  dimensionsFt?: { width: number; depth: number };
+  layoutApproval: LayoutApproval;
+  /** True when the site is fenced/demarcated and in undisputed possession. */
+  demarcated?: boolean;
 }
 
 /** Which body's building and revenue rules the property actually falls under. */
@@ -194,6 +243,10 @@ export interface CaseDocument {
 
 export type ValuationMethod =
   | 'comparable_sales'
+  /** Land rate per unit area applied to plot area — the primary basis for a site. */
+  | 'land_rate'
+  /** Land value plus what the permitted envelope could be built and sold for. */
+  | 'residual_development'
   | 'income_capitalisation'
   | 'depreciated_replacement_cost'
   | 'statutory_reference'
@@ -571,6 +624,14 @@ export interface LocalityReference {
   planningNote: string;
   /** Construction cost per sqm used by the replacement-cost anchor. */
   replacementCostPerSqm: number;
+  /**
+   * Median transacted *land* rate per sqm of plot area. A different quantity
+   * from `medianPricePerSqm`, which is per sqm of built-up area — conflating
+   * the two is the classic way to misprice a site.
+   */
+  medianLandRatePerSqm: number;
+  /** Statutory guidance rate for land, per sqm of plot area. */
+  statutoryLandRatePerSqm: number;
   infrastructureNote: string;
   source: string;
 }
