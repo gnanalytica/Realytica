@@ -84,6 +84,22 @@ export const BASE_REQUEST = {
   fallbacks: 'default' as const,
 };
 
+/*
+ * Note on casts at the call sites.
+ *
+ * `@anthropic-ai/sdk` 0.71.2 ships types that predate two things this code
+ * relies on: `thinking: {type: "adaptive"}` (the types know only
+ * `enabled`/`disabled`) and the `fallbacks` parameter. Both are accepted at
+ * runtime — `BASE_REQUEST` above is correct for the live API.
+ *
+ * Each agent therefore casts once, at its own call site. That is deliberate
+ * rather than untidy: the four call shapes here are genuinely different types
+ * (tool-runner params, stream params, create params, a tool union), so a single
+ * shared helper would have to widen to something meaningless to cover them all.
+ * A narrow cast to the right type at each site keeps the rest of the params
+ * type-checked. Remove them when the SDK types catch up.
+ */
+
 export function estimateUsage(usage: {
   input_tokens?: number | null;
   output_tokens?: number | null;

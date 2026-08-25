@@ -1,6 +1,11 @@
 import type {
+  AgentCapability,
+  AgentKind,
+  AgentRun,
+  AgentStep,
   CaseSummary,
   ComparisonResult,
+  CopilotTurn,
   CreateCaseRequest,
   CaseDocument,
   DocumentKind,
@@ -88,4 +93,82 @@ export const api = {
   seedDemo: () => request<{ created: number }>('/demo/seed', { method: 'POST' }),
 
   resetAll: () => request<{ ok: true }>('/demo/reset', { method: 'POST' }),
+
+  agentCapability: () => request<AgentCapability>('/agents/capability'),
+
+  runAgents: (id: string, agents?: AgentKind[]) =>
+    request<PropertyCase>(`/cases/${id}/agents/run`, {
+      method: 'POST',
+      body: JSON.stringify({ agents }),
+    }),
+
+  askCopilot: (id: string, question: string) =>
+    request<{ userTurn: CopilotTurn; assistantTurn: CopilotTurn }>(`/cases/${id}/agents/copilot`, {
+      method: 'POST',
+      body: JSON.stringify({ question }),
+    }),
+
+  clearConversation: (id: string) => request<void>(`/cases/${id}/agents/conversation`, { method: 'DELETE' }),
 };
+
+export interface AgentStreamHandlers {
+  onStep?: (step: AgentStep) => void;
+  onRun?: (run: AgentRun) => void;
+  onDone?: (updated: PropertyCase) => void;
+  onError?: (message: string) => void;
+}
+
+/**
+ * Live agent-run progress over Server-Sent Events, so the UI can show what
+ * each agent is doing instead of a bare spinner. Returns an unsubscribe
+ * function — call it on unmount or before starting a new run.
+ */
+export function streamAgentRun(id: string, agents: AgentKind[] | undefined, handlers: AgentStreamHandlers): () => void {
+  const query = agents && agents.length > 0 ? `?agents=${agents.map(encodeURIComponent).join(',')}` : '';
+  const source = new EventSource(`${BASE}/cases/${id}/agents/stream${query}`);
+
+  source.addEventListener('step', (event) => {
+    try {
+      handlers.onStep?.(JSON.parse((event as MessageEvent<string>).data) as AgentStep);
+    } catch {
+      /* malformed event — drop it rather than crash the stream */
+    }
+  });
+
+  source.addEventListener('run', (event) => {
+    try {
+      handlers.onRun?.(JSON.parse((event as MessageEvent<string>).data) as AgentRun);
+    } catch {
+      /* ignore */
+    }
+  });
+
+  source.addEventListener('done', (event) => {
+    try {
+      handlers.onDone?.(JSON.parse((event as MessageEvent<string>).data) as PropertyCase);
+    } catch {
+      /* ignore */
+    } finally {
+      source.close();
+    }
+  });
+
+  // A server-sent `event: error` and the browser's native connection-error
+  // event both land in the 'error' listener; only the former carries `.data`.
+  source.addEventListener('error', (event) => {
+    const raw = (event as MessageEvent<string>).data;
+    if (raw) {
+      try {
+        const payload = JSON.parse(raw) as { error?: string };
+        handlers.onError?.(payload.error ?? 'The agent run failed.');
+      } catch {
+        handlers.onError?.('The agent run failed.');
+      }
+    } else {
+      handlers.onError?.('Lost connection to the agent run.');
+    }
+    source.close();
+  });
+
+  return () => source.close();
+}

@@ -14,6 +14,7 @@ import {
   RefreshCw,
   ScrollText,
   ShieldAlert,
+  Sparkles,
   Waypoints,
 } from 'lucide-react';
 import { api } from '../../lib/api';
@@ -51,6 +52,7 @@ import CompletenessTab from './tabs/CompletenessTab';
 import EvidenceTab from './tabs/EvidenceTab';
 import ActionsTab from './tabs/ActionsTab';
 import ReportTab from './tabs/ReportTab';
+import IntelligenceTab from './tabs/IntelligenceTab';
 
 const TAB_KEYS = [
   'snapshot',
@@ -64,6 +66,7 @@ const TAB_KEYS = [
   'evidence',
   'actions',
   'report',
+  'intelligence',
 ] as const;
 
 type TabKey = (typeof TAB_KEYS)[number];
@@ -200,6 +203,12 @@ export default function CaseWorkspace() {
         badge: openActions > 0 ? <Badge tone="brand">{openActions}</Badge> : undefined,
       },
       { key: 'report', label: 'Report', icon: <FileBarChart2 size={13} /> },
+      {
+        key: 'intelligence',
+        label: 'Intelligence',
+        icon: <Sparkles size={13} />,
+        badge: caseData?.intelligence?.runs.length ? <Badge tone="neutral">{caseData.intelligence.runs.length}</Badge> : undefined,
+      },
     ];
   }, [caseData, result]);
 
@@ -266,6 +275,8 @@ export default function CaseWorkspace() {
         return <ActionsTab {...tabProps} />;
       case 'report':
         return <ReportTab {...tabProps} />;
+      case 'intelligence':
+        return <IntelligenceTab {...tabProps} />;
       default:
         return null;
     }

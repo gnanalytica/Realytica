@@ -110,6 +110,12 @@ valytica/
 │           ├── lib/         API client, formatters, theme tokens
 │           └── pages/       dashboard · new case · case workspace · compare · about
 ├── packages/
+│   ├── agents/              @valytica/agents — the agentic layer (optional)
+│   │   └── src/
+│   │       ├── agents/      document intelligence · proof pathways · copilot
+│   │       │                market research · diligence planner
+│   │       ├── knowledge/   Karnataka proof-route corpus
+│   │       └── orchestrator.ts
 │   └── shared/              @valytica/shared — domain contract + screening engine
 │       └── src/
 │           ├── types.ts     the frozen domain model both apps build against
@@ -145,6 +151,47 @@ findings that should stop someone before they spend money on lawyers.
 
 Areas display in **square feet** and rates in **₹/sq ft** for Indian cases, with a toggle. The domain
 model stores square metres throughout; a Dutch case keeps m² and €/m².
+
+### Agentic layer (optional)
+
+Six agents sit on top of the deterministic screen. **They are an addition, not a
+dependency** — with no credentials configured the app behaves exactly as it does
+today, and the Intelligence tab explains what is missing rather than breaking.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...     # or: ant auth login
+export VALYTICA_AGENT_WEB_SEARCH=1      # optional; enables the research agent
+pnpm dev
+```
+
+| Agent | What it does |
+| --- | --- |
+| **Document intelligence** | Reads the actual uploaded PDF and extracts typed fields with **page citations**, replacing the simulated OCR. Contradictions with what you entered are reported, not smoothed over. |
+| **Proof pathways** | For every gap the engine finds, works out *every* route to closing it — portal, office, intermediary, seller, or reconstruct-from-secondary — costed, timed and sequenced, with what can go wrong. |
+| **Analyst copilot** | Grounded Q&A over the case. Cites evidence ids, and says "the documents on file do not answer this" rather than guessing. |
+| **Market research** | Web search for local transaction and infrastructure signal. Off by default. |
+| **Diligence planner** | Ranks insights and drafts the actual document-request messages for a human to send. |
+| **Orchestrator** | Plans and sequences the rest; one agent failing does not sink the run. |
+
+Configuration: `VALYTICA_AGENT_MODEL` (defaults to `claude-opus-5`),
+`VALYTICA_AGENTS_DISABLED=1` to turn the layer off entirely.
+
+**Three boundaries are enforced in code, not just prompted:**
+
+- **The engine stays the arithmetic authority.** Agents supply inputs and
+  narrative; they never overwrite a computed valuation. A model that is wrong
+  can contradict or widen the evidence, but cannot silently move the number you
+  act on.
+- **Model output is labelled.** Everything an agent infers enters the evidence
+  ledger as `model_inference`, visibly distinct from a documented fact.
+  Extracted document fields are the exception — they carry real page citations,
+  so they enter as `document` evidence with a genuine source.
+- **Only one agent talks to the outside world, and it gets a stripped context.**
+  Market research receives locality and market terms only; the address, owner,
+  price and document contents never leave your machine.
+
+Runs report their real token usage and an estimated cost, so a run is never a
+surprise on the bill.
 
 ### Statutory values are versioned, not asserted
 

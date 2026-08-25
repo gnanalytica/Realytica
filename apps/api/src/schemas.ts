@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type {
+  AgentKind,
   AreaBasis,
   DocumentKind,
   KarnatakaAttributes,
@@ -186,4 +187,27 @@ export const actionDoneBodySchema = z.object({
 
 export const compareBodySchema = z.object({
   caseIds: z.array(z.string().min(1)).min(2).max(4),
+});
+
+/* ------------------------------------------------------------------ */
+/* Agentic layer                                                       */
+/* ------------------------------------------------------------------ */
+
+// `satisfies` keeps this enum in sync with the AgentKind union in
+// packages/shared/src/types.ts — the same convention used above.
+export const agentKindSchema = z.enum([
+  'orchestrator',
+  'document_intelligence',
+  'proof_pathways',
+  'analyst_copilot',
+  'market_research',
+  'diligence_planner',
+]) satisfies z.ZodType<AgentKind>;
+
+export const runAgentsBodySchema = z.object({
+  agents: z.array(agentKindSchema).min(1).optional(),
+});
+
+export const copilotBodySchema = z.object({
+  question: z.string().min(1).max(2000),
 });
