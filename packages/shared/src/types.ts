@@ -414,7 +414,9 @@ export interface CaseSummary {
   documentCount: number;
   currency: CurrencyCode;
   askingPrice?: number;
+  indicativeLow?: number;
   indicativeMid?: number;
+  indicativeHigh?: number;
   confidenceScore?: number;
   confidenceBand?: ConfidenceBand;
   completenessScore?: number;
