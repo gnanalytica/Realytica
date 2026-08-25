@@ -2,9 +2,11 @@
   "name": "valytica",
   "private": true,
   "version": "0.1.0",
-  "description": "Valytica — AI-powered Property Intelligence. Local-first MVP: Valytica Property Screen.",
+  "description": "Valytica \u2014 AI-powered Property Intelligence. Local-first MVP: Valytica Property Screen.",
   "packageManager": "pnpm@10.33.0",
-  "engines": { "node": ">=20.10" },
+  "engines": {
+    "node": ">=20.10"
+  },
   "scripts": {
     "dev": "concurrently -k -n api,web -c cyan,magenta \"pnpm -F @valytica/api dev\" \"pnpm -F @valytica/web dev\"",
     "dev:api": "pnpm -F @valytica/api dev",
@@ -12,7 +14,7 @@
     "build": "pnpm -F @valytica/web build",
     "preview": "pnpm -F @valytica/web preview",
     "start": "concurrently -k -n api,web -c cyan,magenta \"pnpm -F @valytica/api start\" \"pnpm -F @valytica/web preview\"",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc -p packages/shared && tsc -p apps/api && tsc -p apps/web",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/web/dist"
   },
   "devDependencies": {
