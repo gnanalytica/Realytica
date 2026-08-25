@@ -1,0 +1,316 @@
+import { useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from 'lucide-react';
+import type { Comparable, CurrencyCode } from '@valytica/shared';
+import {
+  Badge,
+  Callout,
+  Card,
+  CardBody,
+  CardHeader,
+  EmptyState,
+  ProgressBar,
+  SectionTitle,
+  Stat,
+  cn,
+} from '../../../components/ui/kit';
+import { AnchorWeightChart, ComparablesChart, ValueRangeChart } from '../../../components/charts';
+import { EvidenceLink } from '../../../components/EvidenceLink';
+import { date, money, num, perSqm, pct, titleCase } from '../../../lib/format';
+import type { TabProps } from '../tab-props';
+
+type SortKey = 'adjustedPricePerSqm' | 'distanceKm' | 'transactedAt' | 'areaSqm' | 'similarity';
+
+const SORT_COLUMNS: { key: SortKey; label: string }[] = [
+  { key: 'adjustedPricePerSqm', label: 'Adjusted price / m²' },
+  { key: 'distanceKm', label: 'Distance' },
+  { key: 'transactedAt', label: 'Date' },
+  { key: 'areaSqm', label: 'Area' },
+  { key: 'similarity', label: 'Similarity' },
+];
+
+function confidenceTone(c: number): 'good' | 'warning' | 'critical' {
+  if (c >= 0.7) return 'good';
+  if (c >= 0.4) return 'warning';
+  return 'critical';
+}
+
+function sortValue(c: Comparable, key: SortKey): number {
+  if (key === 'transactedAt') return new Date(c.transactedAt).getTime();
+  return c[key];
+}
+
+export default function ValuationTab({ caseData, result }: TabProps) {
+  const [expandedComparableIds, setExpandedComparableIds] = useState<Set<string>>(new Set());
+  const [sortKey, setSortKey] = useState<SortKey>('similarity');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const sortedComparables = useMemo(() => {
+    if (!result) return [];
+    const arr = [...result.comparables];
+    arr.sort((a, b) => {
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+    return arr;
+  }, [result, sortKey, sortDir]);
+
+  if (!result) {
+    return (
+      <EmptyState
+        title="Not screened yet"
+        description="Run the screen to see the indicative value range, anchors and comparables."
+      />
+    );
+  }
+
+  const { indicativeValue: iv, anchors, marketContext } = result;
+  const currency = iv.currency;
+
+  const toggleSort = (key: SortKey) => {
+    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  };
+
+  const toggleComparable = (id: string) => {
+    setExpandedComparableIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const totalWeight = anchors.reduce((s, a) => s + a.weight, 0) || 1;
+  const weightPct = (w: number) => (w / totalWeight) * 100;
+
+  const weightParts = anchors.map((a) => `${a.label} (${pct(weightPct(a.weight), 0)})`);
+  const weightSentence =
+    weightParts.length > 1
+      ? `${weightParts.slice(0, -1).join(', ')} and ${weightParts[weightParts.length - 1]}`
+      : (weightParts[0] ?? 'no anchors');
+
+  const vsMedianPct =
+    marketContext.medianPricePerSqm > 0 ? ((iv.perSqm.mid - marketContext.medianPricePerSqm) / marketContext.medianPricePerSqm) * 100 : null;
+
+  return (
+    <div className="mx-auto flex max-w-5xl flex-col gap-5">
+      <Card>
+        <CardHeader title="Indicative value range" subtitle="Blended across all value anchors, each shown beneath the blended band" />
+        <CardBody>
+          <ValueRangeChart
+            low={iv.low}
+            mid={iv.mid}
+            high={iv.high}
+            currency={currency}
+            askingPrice={caseData.identity.askingPrice ?? null}
+            anchors={anchors.map((a) => ({ label: a.label, method: titleCase(a.method), low: a.low, mid: a.mid, high: a.high }))}
+          />
+        </CardBody>
+      </Card>
+
+      <Callout tone="neutral" title="This is an indicative screening range">
+        Not a certified valuation, a legal title opinion, or a formal mortgage valuation. Use it to decide whether further diligence is
+        worth the effort — not as the basis for a lending or legal decision.
+      </Callout>
+
+      <Card>
+        <CardHeader title="Value anchors" subtitle="How the blended range is built" />
+        <CardBody className="flex flex-col gap-4">
+          <p className="text-[13px] leading-relaxed text-ink-secondary">
+            The blended mid of <span className="font-semibold text-ink">{money(iv.mid, currency)}</span> is a weighted combination of{' '}
+            {anchors.length} value anchor{anchors.length === 1 ? '' : 's'}: {weightSentence}.
+          </p>
+          <AnchorWeightChart anchors={anchors} currency={currency} />
+          <div className="flex flex-col gap-3">
+            {anchors.map((a) => (
+              <Card key={a.id} className="!shadow-none">
+                <CardBody className="flex flex-col gap-2.5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="text-[13px] font-semibold text-ink">{a.label}</div>
+                      <Badge tone="neutral" className="mt-1">
+                        {titleCase(a.method)}
+                      </Badge>
+                    </div>
+                    <EvidenceLink ids={a.evidenceIds} evidence={result.evidence} />
+                  </div>
+                  <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[13px]">
+                    <span className="text-ink-secondary">
+                      Low <span className="tabular font-medium text-ink">{money(a.low, currency)}</span>
+                    </span>
+                    <span className="text-ink-secondary">
+                      Mid <span className="tabular font-semibold text-ink">{money(a.mid, currency)}</span>
+                    </span>
+                    <span className="text-ink-secondary">
+                      High <span className="tabular font-medium text-ink">{money(a.high, currency)}</span>
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <ProgressBar value={weightPct(a.weight)} tone="brand" label="Weight in blend" />
+                    <ProgressBar value={a.confidence * 100} tone={confidenceTone(a.confidence)} label="Confidence" />
+                  </div>
+                  <p className="text-[13px] leading-relaxed text-ink-secondary">{a.rationale}</p>
+                </CardBody>
+              </Card>
+            ))}
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="Per m² summary" subtitle="Subject range against the locality median" />
+        <CardBody>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Stat label="Subject low / m²" value={perSqm(iv.perSqm.low, currency)} />
+            <Stat
+              label="Subject mid / m²"
+              value={perSqm(iv.perSqm.mid, currency)}
+              sub={vsMedianPct !== null ? `${pct(vsMedianPct, 1, true)} vs. locality median` : undefined}
+            />
+            <Stat label="Subject high / m²" value={perSqm(iv.perSqm.high, currency)} />
+            <Stat label="Locality median / m²" value={perSqm(marketContext.medianPricePerSqm, currency)} sub={marketContext.source} />
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="Comparables" subtitle={`${result.comparables.length} transactions considered`} />
+        <CardBody className="flex flex-col gap-4">
+          <ComparablesChart comparables={result.comparables} subjectPricePerSqm={iv.perSqm.mid} currency={currency} />
+          <div className="overflow-x-auto rounded-lg ring-1 ring-[var(--ring)]">
+            <table className="w-full min-w-[760px] border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-hairline bg-sunken text-left text-[11px] uppercase tracking-wide text-ink-muted">
+                  <th className="w-8 px-3 py-2" />
+                  <th className="px-3 py-2">Comparable</th>
+                  {SORT_COLUMNS.map((col) => (
+                    <th key={col.key} className="px-3 py-2">
+                      <button
+                        onClick={() => toggleSort(col.key)}
+                        className={cn(
+                          'inline-flex items-center gap-1 hover:text-ink',
+                          sortKey === col.key ? 'text-ink' : 'text-ink-muted',
+                        )}
+                      >
+                        {col.label}
+                        {sortKey === col.key ? sortDir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} /> : null}
+                      </button>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedComparables.map((c) => (
+                  <ComparableRow
+                    key={c.id}
+                    comparable={c}
+                    currency={currency}
+                    expanded={expandedComparableIds.has(c.id)}
+                    onToggle={() => toggleComparable(c.id)}
+                  />
+                ))}
+                {sortedComparables.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-6 text-center text-xs text-ink-muted">
+                      No comparables were found for this property.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+function ComparableRow({
+  comparable,
+  currency,
+  expanded,
+  onToggle,
+}: {
+  comparable: Comparable;
+  currency: CurrencyCode;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <tr className="border-b border-hairline last:border-0 hover:bg-sunken/60">
+        <td className="px-3 py-2 align-top">
+          <button
+            onClick={onToggle}
+            aria-label={expanded ? `Collapse adjustments for ${comparable.label}` : `Expand adjustments for ${comparable.label}`}
+            aria-expanded={expanded}
+            className="text-ink-muted hover:text-ink"
+          >
+            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+        </td>
+        <td className="px-3 py-2 align-top">
+          <div className="font-medium text-ink">{comparable.label}</div>
+          <div className="text-xs text-ink-muted">{comparable.address}</div>
+          <div className="mt-0.5 text-[11px] text-ink-muted">{comparable.source}</div>
+        </td>
+        <td className="tabular px-3 py-2 align-top font-medium text-ink">{perSqm(comparable.adjustedPricePerSqm, currency)}</td>
+        <td className="tabular px-3 py-2 align-top text-ink-secondary">{comparable.distanceKm.toFixed(1)} km</td>
+        <td className="px-3 py-2 align-top text-ink-secondary">{date(comparable.transactedAt)}</td>
+        <td className="tabular px-3 py-2 align-top text-ink-secondary">{num(comparable.areaSqm)} m²</td>
+        <td className="px-3 py-2 align-top">
+          <div className="w-20">
+            <ProgressBar value={comparable.similarity * 100} tone="brand" showValue={false} />
+          </div>
+          <div className="tabular mt-1 text-[11px] text-ink-muted">{Math.round(comparable.similarity * 100)}%</div>
+        </td>
+      </tr>
+      {expanded ? (
+        <tr className="border-b border-hairline bg-sunken/40 last:border-0">
+          <td />
+          <td colSpan={6} className="px-3 py-3">
+            <AdjustmentChain comparable={comparable} currency={currency} />
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+function AdjustmentChain({ comparable, currency }: { comparable: Comparable; currency: CurrencyCode }) {
+  let running = comparable.pricePerSqm;
+  const steps = comparable.adjustments.map((adj) => {
+    const before = running;
+    running = running * (1 + adj.pct / 100);
+    return { ...adj, before, after: running };
+  });
+
+  return (
+    <div className="flex max-w-md flex-col gap-1.5 text-[12px]">
+      <SectionTitle>Adjustments — raw to adjusted price / m²</SectionTitle>
+      <div className="flex items-center justify-between border-b border-hairline py-1">
+        <span className="text-ink-secondary">Raw transacted price / m²</span>
+        <span className="tabular font-medium text-ink">{perSqm(comparable.pricePerSqm, currency)}</span>
+      </div>
+      {steps.map((s) => (
+        <div key={s.key} className="flex items-center justify-between border-b border-hairline py-1 last:border-0">
+          <span className="text-ink-secondary">{s.label}</span>
+          <span className="flex items-center gap-2">
+            <span className={cn('tabular font-medium', s.pct >= 0 ? 'text-[var(--status-good-text)]' : 'text-critical')}>
+              {pct(s.pct, 1, true)}
+            </span>
+            <span className="tabular text-ink-muted">{perSqm(s.after, currency)}</span>
+          </span>
+        </div>
+      ))}
+      <div className="flex items-center justify-between pt-1 font-semibold text-ink">
+        <span>Adjusted price / m²</span>
+        <span className="tabular">{perSqm(comparable.adjustedPricePerSqm, currency)}</span>
+      </div>
+    </div>
+  );
+}

@@ -1,15 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "composite": true,
-    "noEmit": false,
-    "emitDeclarationOnly": true,
-    "outDir": "./dist-types",
+    "noEmit": true,
     "jsx": "react-jsx",
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "references": [{ "path": "../../packages/shared" }]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
 }

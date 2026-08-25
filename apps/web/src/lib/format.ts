@@ -1,6 +1,8 @@
 import type { CurrencyCode, ConfidenceBand, RiskSeverity, ScreenVerdict, PropertyType, DocumentKind, CaseStatus } from '@valytica/shared';
 
-const LOCALE: Record<CurrencyCode, string> = { INR: 'en-IN', EUR: 'nl-NL' };
+// English-language UI, so euro figures use an English euro locale (en-IE) rather
+// than nl-NL — "€7.140/m²" in Dutch grouping reads as seven euros to everyone else.
+const LOCALE: Record<CurrencyCode, string> = { INR: 'en-IN', EUR: 'en-IE' };
 
 /** Compact money for headline figures: ₹2.4 Cr / €1.2M. */
 export function money(value: number | null | undefined, currency: CurrencyCode, opts?: { compact?: boolean }): string {
@@ -17,7 +19,7 @@ export function money(value: number | null | undefined, currency: CurrencyCode, 
     const abs = Math.abs(value);
     if (abs >= 1e6) return `€${trim(value / 1e6)}M`;
     if (abs >= 1e3) return `€${trim(value / 1e3)}K`;
-    return `€${Math.round(value).toLocaleString('nl-NL')}`;
+    return `€${Math.round(value).toLocaleString(LOCALE.EUR)}`;
   }
   return new Intl.NumberFormat(LOCALE[currency], {
     style: 'currency',
@@ -141,6 +143,7 @@ export function verdictTone(v: ScreenVerdict): 'good' | 'warning' | 'serious' | 
     case 'pursue_with_conditions': return 'warning';
     case 'investigate_further': return 'serious';
     case 'do_not_pursue': return 'critical';
+    default: return 'serious';
   }
 }
 
