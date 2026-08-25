@@ -14,7 +14,7 @@
     "build": "pnpm -F @valytica/web build",
     "preview": "pnpm -F @valytica/web preview",
     "start": "concurrently -k -n api,web -c cyan,magenta \"pnpm -F @valytica/api start\" \"pnpm -F @valytica/web preview\"",
-    "typecheck": "tsc -p packages/shared && tsc -p apps/api && tsc -p apps/web",
+    "typecheck": "tsc -p packages/shared && tsc -p packages/agents && tsc -p apps/api && tsc -p apps/web",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/web/dist"
   },
   "devDependencies": {
