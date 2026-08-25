@@ -570,6 +570,8 @@ export interface PropertyCase {
   documents: CaseDocument[];
   result?: ScreenResult;
   notes: string;
+  /** Agent output. Absent until an agent has run against this case. */
+  intelligence?: CaseIntelligence;
 }
 
 /** Case shape without the heavy nested payloads — used by list endpoints. */
@@ -789,4 +791,172 @@ export interface UpdateCaseRequest {
 export interface ApiError {
   error: string;
   details?: unknown;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agentic layer                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The agent roster.
+ *
+ * Agents supply *inputs and narrative*; they never overwrite a computed
+ * valuation. The deterministic engine stays the arithmetic authority, so a
+ * model that is wrong can widen or contradict the evidence but cannot silently
+ * move the number a user acts on.
+ */
+export type AgentKind =
+  | 'orchestrator'
+  | 'document_intelligence'
+  | 'proof_pathways'
+  | 'analyst_copilot'
+  | 'market_research'
+  | 'diligence_planner';
+
+export type AgentRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface AgentStep {
+  id: string;
+  at: string;
+  kind: 'plan' | 'tool_call' | 'tool_result' | 'message' | 'error';
+  label: string;
+  detail?: string;
+  toolName?: string;
+}
+
+export interface AgentUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  /** Estimated, from the model's published rates — shown so cost is never a surprise. */
+  estimatedCostUsd: number;
+}
+
+export interface AgentRun {
+  id: string;
+  caseId: string;
+  agent: AgentKind;
+  status: AgentRunStatus;
+  startedAt: string;
+  finishedAt?: string;
+  model: string;
+  steps: AgentStep[];
+  summary?: string;
+  error?: string;
+  usage?: AgentUsage;
+  /** Evidence this run contributed to the case ledger. */
+  producedEvidenceIds: string[];
+}
+
+/* --- Proof sourcing: how to actually obtain a missing document ------ */
+
+export type ProofRouteKind =
+  | 'online_portal'
+  | 'in_person_office'
+  | 'authorised_intermediary'
+  | 'from_seller'
+  | 'from_lender'
+  | 'court_or_tribunal'
+  | 'reconstruct_from_secondary';
+
+/** One concrete way to obtain a proof, costed and sequenced. */
+export interface ProofRoute {
+  id: string;
+  kind: ProofRouteKind;
+  title: string;
+  /** BBMP, Sub-Registrar, DC office, K-RERA, Kadaster … */
+  authority: string;
+  portalOrAddress?: string;
+  /** Form number, Sakala service code, or statutory reference. */
+  formOrReference?: string;
+  steps: string[];
+  prerequisites: string[];
+  typicalCost?: { low: number; high: number; currency: CurrencyCode };
+  typicalDurationDays?: { low: number; high: number };
+  feasibility: 'straightforward' | 'moderate' | 'difficult' | 'blocked';
+  /** How this route can fail — stated, not glossed. */
+  risks: string[];
+  confidence: number;
+  evidenceIds: string[];
+}
+
+/**
+ * Every viable way to close one evidence gap.
+ *
+ * The point is exhaustiveness: a buyer stuck without a khata needs to know all
+ * the routes and their trade-offs, not just the first one a model thought of.
+ */
+export interface DocumentPathway {
+  id: string;
+  targetKind: 'missing_document' | 'unresolved_check' | 'weak_evidence';
+  /** Document kind, compliance check key, or evidence id this closes. */
+  targetKey: string;
+  targetLabel: string;
+  whyItMatters: string;
+  /** Ranked best-first; an empty list means the gap has no known route. */
+  routes: ProofRoute[];
+  recommendedRouteId?: string;
+  /** What becomes provable once this lands. */
+  unlocks: string[];
+  /** Which screen outputs would change — confidence, a risk, a compliance check. */
+  wouldResolve: string[];
+}
+
+/* --- External research ---------------------------------------------- */
+
+export interface ResearchFinding {
+  id: string;
+  claim: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
+  retrievedAt: string;
+  relevance: string;
+  confidence: number;
+  corroboration: 'multiple_sources' | 'single_source' | 'uncorroborated';
+  /** True when the finding contradicts something the deterministic engine holds. */
+  contradictsEngine: boolean;
+}
+
+/* --- Insights & copilot ---------------------------------------------- */
+
+export interface AgentInsight {
+  id: string;
+  title: string;
+  body: string;
+  category: 'valuation' | 'risk' | 'compliance' | 'market' | 'process';
+  importance: 'high' | 'medium' | 'low';
+  evidenceIds: string[];
+  /** True when this rests on model reasoning rather than a documented fact. */
+  inferred: boolean;
+}
+
+export interface CopilotTurn {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  at: string;
+  citedEvidenceIds: string[];
+  toolCalls?: { name: string; summary: string }[];
+  /** Set when the agent declined to answer because the evidence does not support one. */
+  refusedForLackOfEvidence?: boolean;
+}
+
+export interface CaseIntelligence {
+  runs: AgentRun[];
+  pathways: DocumentPathway[];
+  research: ResearchFinding[];
+  insights: AgentInsight[];
+  conversation: CopilotTurn[];
+  lastRunAt?: string;
+}
+
+/** Reported to the UI so it can degrade honestly when no key is configured. */
+export interface AgentCapability {
+  available: boolean;
+  /** 'ok' | 'no_credentials' | 'disabled' */
+  reason: string;
+  model: string;
+  webSearchEnabled: boolean;
+  /** Agents the deployment permits, in run order. */
+  enabledAgents: AgentKind[];
 }
