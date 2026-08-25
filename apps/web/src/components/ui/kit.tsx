@@ -38,7 +38,7 @@ const TONE_CHIP: Record<Tone, string> = {
   good: 'bg-good/10 text-[var(--status-good-text)] ring-1 ring-inset ring-good/35',
   warning: 'bg-warning/15 text-ink ring-1 ring-inset ring-warning/45',
   serious: 'bg-serious/15 text-ink ring-1 ring-inset ring-serious/45',
-  critical: 'bg-critical/12 text-critical ring-1 ring-inset ring-critical/40',
+  critical: 'bg-critical/10 text-critical ring-1 ring-inset ring-critical/40',
 };
 
 export const TONE_ICON: Record<Tone, typeof Info> = {

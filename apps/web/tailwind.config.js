@@ -17,17 +17,20 @@ export default {
           muted: 'var(--text-muted)',
           inverse: 'var(--text-inverse)',
         },
+        // Tones are declared against RGB channel triplets so alpha modifiers
+        // (bg-warning/15, ring-brand/25) actually compile. A bare `var(--x)`
+        // colour cannot take one and emits no CSS at all.
         brand: {
-          DEFAULT: 'var(--brand)',
+          DEFAULT: 'rgb(var(--brand-rgb) / <alpha-value>)',
           strong: 'var(--brand-strong)',
-          soft: 'var(--brand-soft)',
+          soft: 'rgb(var(--brand-soft-rgb) / <alpha-value>)',
           ink: 'var(--brand-ink)',
         },
         // Status palette — reserved, never reused as a series colour.
-        good: 'var(--status-good)',
-        warning: 'var(--status-warning)',
-        serious: 'var(--status-serious)',
-        critical: 'var(--status-critical)',
+        good: 'rgb(var(--status-good-rgb) / <alpha-value>)',
+        warning: 'rgb(var(--status-warning-rgb) / <alpha-value>)',
+        serious: 'rgb(var(--status-serious-rgb) / <alpha-value>)',
+        critical: 'rgb(var(--status-critical-rgb) / <alpha-value>)',
         // Categorical series slots, fixed order, never cycled.
         series: {
           1: 'var(--series-1)',

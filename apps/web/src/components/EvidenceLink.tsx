@@ -50,7 +50,12 @@ export function EvidenceLink({
     return ids.map((id) => byId.get(id)).filter((e): e is EvidenceItem => Boolean(e));
   }, [ids, evidence]);
 
-  if (ids.length === 0 || matched.length === 0) {
+  // Nothing cited is not the same as citing something that cannot be resolved.
+  // A statement with no evidence ids simply has nothing to show; a statement
+  // whose ids miss the ledger is a real traceability gap and must say so.
+  if (ids.length === 0) return null;
+
+  if (matched.length === 0) {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] italic text-ink-muted">
         source unavailable

@@ -23,15 +23,29 @@
   --text-muted: #898781;
   --text-inverse: #ffffff;
 
-  --brand: #2a78d6;
+  /*
+   * Tone colours are declared as space-separated RGB channels so Tailwind can
+   * compose an alpha channel onto them (bg-warning/15, ring-brand/25). A bare
+   * `var(--x)` colour cannot take an alpha modifier — those utilities silently
+   * generate no CSS at all. The resolved colour is kept alongside for inline
+   * SVG and plain CSS, which need an actual colour value.
+   */
+  --brand-rgb: 42 120 214;
+  --brand-soft-rgb: 232 241 253;
+  --status-good-rgb: 12 163 12;
+  --status-warning-rgb: 250 178 25;
+  --status-serious-rgb: 236 131 90;
+  --status-critical-rgb: 208 59 59;
+
+  --brand: rgb(var(--brand-rgb));
   --brand-strong: #1c5cab;
-  --brand-soft: #e8f1fd;
+  --brand-soft: rgb(var(--brand-soft-rgb));
   --brand-ink: #ffffff;
 
-  --status-good: #0ca30c;
-  --status-warning: #fab219;
-  --status-serious: #ec835a;
-  --status-critical: #d03b3b;
+  --status-good: rgb(var(--status-good-rgb));
+  --status-warning: rgb(var(--status-warning-rgb));
+  --status-serious: rgb(var(--status-serious-rgb));
+  --status-critical: rgb(var(--status-critical-rgb));
   --status-good-text: #006300;
 
   --series-1: #2a78d6;
@@ -63,9 +77,12 @@
     --text-muted: #898781;
     --text-inverse: #0b0b0b;
 
-    --brand: #3987e5;
+    --brand-rgb: 57 135 229;
+    --brand-soft-rgb: 23 41 63;
+
+    --brand: rgb(var(--brand-rgb));
     --brand-strong: #86b6ef;
-    --brand-soft: #17293f;
+    --brand-soft: rgb(var(--brand-soft-rgb));
     --brand-ink: #ffffff;
 
     --status-good-text: #0ca30c;
@@ -99,9 +116,12 @@
   --text-muted: #898781;
   --text-inverse: #0b0b0b;
 
-  --brand: #3987e5;
+  --brand-rgb: 57 135 229;
+  --brand-soft-rgb: 23 41 63;
+
+  --brand: rgb(var(--brand-rgb));
   --brand-strong: #86b6ef;
-  --brand-soft: #17293f;
+  --brand-soft: rgb(var(--brand-soft-rgb));
   --brand-ink: #ffffff;
 
   --status-good-text: #0ca30c;
