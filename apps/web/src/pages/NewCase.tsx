@@ -7,6 +7,10 @@ import {
   ArrowRight,
   Building2,
   Check,
+  Compass,
+  CornerUpRight,
+  Fence,
+  LandPlot,
   Landmark,
   MapPin,
   Scale,
@@ -22,8 +26,11 @@ import type {
   KarnatakaJurisdiction,
   KhataType,
   LandConversionStatus,
+  LayoutApproval,
   LocalityReference,
   PersonaKey,
+  PlotAttributes,
+  PlotFacing,
   PropertyIdentity,
   PropertyType,
   ReferenceData,
@@ -33,7 +40,7 @@ import { COUNTRY_PACKS_META, PERSONAS, PROPERTY_TYPES } from '@valytica/shared';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { PROPERTY_TYPE_LABEL, money, pct } from '../lib/format';
-import { defaultAreaUnit, describeAreaBasis, formatArea, formatRate, sqftToSqm, type AreaUnit } from '../lib/units';
+import { defaultAreaUnit, describeAreaBasis, formatArea, formatRate, sqftToSqm, sqmToSqft, type AreaUnit } from '../lib/units';
 import {
   Badge,
   Button,
@@ -51,6 +58,13 @@ import {
   useToast,
 } from '../components/ui/kit';
 import { UnitToggle } from '../components/UnitToggle';
+import {
+  FACING_LABEL,
+  LAYOUT_APPROVAL_LABEL,
+  PREMIUM_FACINGS,
+  RISKY_LAYOUT_APPROVALS,
+  isLandPropertyType,
+} from '../components/PlotFactsCard';
 
 const TENURE_OPTIONS: { value: Tenure; label: string }[] = [
   { value: 'freehold', label: 'Freehold' },
@@ -128,6 +142,74 @@ function areaBasisLabel(v: AreaBasis): string {
   return AREA_BASIS_OPTIONS.find((o) => o.value === v)?.label ?? v;
 }
 
+/* ------------------------------------------------------------------ */
+/* Site (plot) option content                                          */
+/*                                                                      */
+/* Base labels (FACING_LABEL, LAYOUT_APPROVAL_LABEL, …) come from        */
+/* PlotFactsCard.tsx — a file this agent also owns — so the wizard and   */
+/* the read-only facts card never drift apart. The one-line "what this   */
+/* means" notes are wizard-specific and defined only here, same as the   */
+/* Karnataka options above.                                              */
+/* ------------------------------------------------------------------ */
+
+const LAYOUT_APPROVAL_NOTES: Record<LayoutApproval, string> = {
+  bda_approved: 'Approved by the Bangalore Development Authority — the strongest layout status; financing and resale are straightforward.',
+  bmrda_approved: 'Approved by the metropolitan regional authority — generally financeable, though less liquid than a BDA layout.',
+  panchayat_approved: 'Approved by the local gram panchayat — financing is possible, but lenders scrutinise these more closely.',
+  private_approved: 'A private developer layout with plan sanction — usually financeable if the sanction is genuine and verifiable.',
+  revenue_layout: 'Formed on revenue (agricultural) land without a layout conversion — hard to finance and hard to resell.',
+  unapproved: 'No layout approval on record — expect financing to be refused and resale to be difficult.',
+  unknown: 'Not yet confirmed — Property Screen will report this as an unresolved title/planning question.',
+};
+
+const LAYOUT_APPROVAL_OPTIONS: { value: LayoutApproval; label: string; note: string }[] = (
+  Object.keys(LAYOUT_APPROVAL_LABEL) as LayoutApproval[]
+).map((value) => ({ value, label: LAYOUT_APPROVAL_LABEL[value], note: LAYOUT_APPROVAL_NOTES[value] }));
+
+/** 3×3 grid position for each compass direction; the centre cell doubles as "Unknown". */
+const COMPASS_CELLS: { value: PlotFacing; label: string; col: number; row: number }[] = [
+  { value: 'north_west', label: 'NW', col: 1, row: 1 },
+  { value: 'north', label: 'N', col: 2, row: 1 },
+  { value: 'north_east', label: 'NE', col: 3, row: 1 },
+  { value: 'west', label: 'W', col: 1, row: 2 },
+  { value: 'unknown', label: '?', col: 2, row: 2 },
+  { value: 'east', label: 'E', col: 3, row: 2 },
+  { value: 'south_west', label: 'SW', col: 1, row: 3 },
+  { value: 'south', label: 'S', col: 2, row: 3 },
+  { value: 'south_east', label: 'SE', col: 3, row: 3 },
+];
+
+/** Compact compass selector for `PlotFacing` — every cell is a real, labelled button. */
+function CompassPicker({ value, onChange }: { value: PlotFacing; onChange: (v: PlotFacing) => void }) {
+  return (
+    <div role="group" aria-label="Plot facing" className="grid w-max grid-cols-3 grid-rows-3 gap-1.5">
+      {COMPASS_CELLS.map((cell) => {
+        const active = value === cell.value;
+        const premium = PREMIUM_FACINGS.includes(cell.value);
+        return (
+          <button
+            key={cell.value}
+            type="button"
+            onClick={() => onChange(cell.value)}
+            style={{ gridColumn: cell.col, gridRow: cell.row }}
+            aria-label={`${FACING_LABEL[cell.value]}${premium ? ' — premium facing in this market' : ''}`}
+            aria-pressed={active}
+            title={FACING_LABEL[cell.value]}
+            className={cn(
+              'relative flex h-10 w-10 items-center justify-center rounded-lg text-xs font-semibold ring-1 ring-inset transition-colors',
+              active ? 'bg-brand-soft text-brand ring-2 ring-brand' : 'bg-surface text-ink-secondary ring-[var(--ring)] hover:bg-sunken',
+              cell.value === 'unknown' && 'text-[10px]',
+            )}
+          >
+            {cell.label}
+            {premium ? <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-good" aria-hidden="true" /> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * Review-step area cell: leads with whatever unit the wizard is currently
  * showing (respecting the country default / the user's in-wizard override),
@@ -147,6 +229,23 @@ function reviewAreaValue(sqm: number, unit: AreaUnit) {
 
 function isKarnatakaState(country: CountryCode, state: string): boolean {
   return country === 'IN' && state.trim().toLowerCase() === 'karnataka';
+}
+
+/** Builds the `PlotAttributes` payload from the wizard's text-field draft state. */
+function buildPlotAttributes(p: PlotFormState): PlotAttributes {
+  const width = Number(p.dimensionsWidthFt);
+  const depth = Number(p.dimensionsDepthFt);
+  const hasDimensions = p.dimensionsWidthFt.trim() !== '' && p.dimensionsDepthFt.trim() !== '' && width > 0 && depth > 0;
+  const roadWidth = Number(p.roadWidthFt);
+  const hasRoadWidth = p.roadWidthFt.trim() !== '' && !Number.isNaN(roadWidth) && roadWidth >= 0;
+  return {
+    roadWidthFt: hasRoadWidth ? roadWidth : undefined,
+    cornerSite: p.cornerSite,
+    facing: p.facing,
+    dimensionsFt: hasDimensions ? { width, depth } : undefined,
+    layoutApproval: p.layoutApproval,
+    demarcated: p.demarcated,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -182,6 +281,29 @@ function initialKarnataka(): KarnatakaFormState {
   };
 }
 
+interface PlotFormState {
+  /** Text, in feet — the wizard's own number-field convention (parsed only at submit time). */
+  roadWidthFt: string;
+  cornerSite: boolean;
+  facing: PlotFacing;
+  dimensionsWidthFt: string;
+  dimensionsDepthFt: string;
+  layoutApproval: LayoutApproval;
+  demarcated: boolean;
+}
+
+function initialPlot(): PlotFormState {
+  return {
+    roadWidthFt: '',
+    cornerSite: false,
+    facing: 'unknown',
+    dimensionsWidthFt: '',
+    dimensionsDepthFt: '',
+    layoutApproval: 'unknown',
+    demarcated: false,
+  };
+}
+
 interface FormState {
   country: CountryCode;
   persona: PersonaKey | null;
@@ -204,6 +326,7 @@ interface FormState {
   askingPrice: string;
   notes: string;
   karnataka: KarnatakaFormState;
+  plot: PlotFormState;
 }
 
 function nameFromEmail(email: string): string {
@@ -235,6 +358,7 @@ function initialForm(): FormState {
     askingPrice: '',
     notes: '',
     karnataka: initialKarnataka(),
+    plot: initialPlot(),
   };
 }
 
@@ -323,19 +447,28 @@ export default function NewCase() {
     setForm((f) => ({ ...f, karnataka: { ...f.karnataka, [key]: value } }));
   }
 
+  function setPlot<K extends keyof PlotFormState>(key: K, value: PlotFormState[K]) {
+    setForm((f) => ({ ...f, plot: { ...f.plot, [key]: value } }));
+  }
+
   const countryPack = reference?.countryPacks.find((p) => p.country === form.country);
   const currency = countryPack?.currency ?? CURRENCY_BY_COUNTRY[form.country];
   const parcelIdLabel = countryPack?.parcelIdLabel ?? 'Parcel / survey ID';
 
   const isKarnataka = isKarnatakaState(form.country, form.state);
+  // Land is priced per sq ft of land, not built-up area — residential_plot and
+  // land_parcel are the two types that carry site-level attributes.
+  const isLandType = isLandPropertyType(form.propertyType);
 
   const stepLabels = useMemo(() => {
     const labels = ['Market & intent', 'Property identification'];
+    if (isLandType) labels.push('Site details');
     if (isKarnataka) labels.push('Karnataka details');
     labels.push('Review & create');
     return labels;
-  }, [isKarnataka]);
-  const karnatakaStepIndex = isKarnataka ? 2 : -1;
+  }, [isLandType, isKarnataka]);
+  const siteStepIndex = isLandType ? 2 : -1;
+  const karnatakaStepIndex = isKarnataka ? (isLandType ? 3 : 2) : -1;
   const reviewStepIndex = stepLabels.length - 1;
 
   // Reset the wizard's area unit to the country default whenever the country
@@ -432,9 +565,12 @@ export default function NewCase() {
         e.askingPrice = 'Asking price must be greater than zero, or left blank.';
       }
     }
-    // Karnataka step (index === karnatakaStepIndex when present): every field is
-    // optional — a user who knows none of it can still proceed, and the engine
-    // will report those checks as unresolved rather than blocking case creation.
+    // Site details step (index === siteStepIndex when present) and Karnataka step
+    // (index === karnatakaStepIndex when present): every field is optional — a
+    // user who knows none of it can still proceed, and the engine will report
+    // those checks as unresolved rather than blocking case creation. Facing and
+    // layout approval always carry a value (defaulted to "unknown"), so there is
+    // nothing to require there either.
     return e;
   }
 
@@ -460,6 +596,8 @@ export default function NewCase() {
       // (well below any real survey tolerance).
       const builtUpAreaSqm = Math.round((toSqm(form.builtUpArea) || 0) * 100) / 100;
       const plotAreaSqm = Math.round((toSqm(form.plotArea) || 0) * 100) / 100;
+
+      const plot: PlotAttributes | undefined = isLandType ? buildPlotAttributes(form.plot) : undefined;
 
       const karnataka: KarnatakaAttributes | undefined = isKarnataka
         ? {
@@ -494,6 +632,7 @@ export default function NewCase() {
         totalFloors: form.totalFloors.trim() ? Number(form.totalFloors) : undefined,
         askingPrice: form.askingPrice.trim() ? Number(form.askingPrice) : undefined,
         currency,
+        plot,
         karnataka,
       };
       const body: CreateCaseRequest = {
@@ -513,8 +652,79 @@ export default function NewCase() {
   }
 
   const builtUpSqmLive = toSqm(form.builtUpArea);
+  const plotAreaSqmEntered = toSqm(form.plotArea);
+  // A plot is priced on land area, not built-up area (which may legitimately be
+  // zero) — the live sanity check and the review step's implied rate both key
+  // off whichever area actually prices this property type.
+  const areaForImpliedRate = isLandType ? plotAreaSqmEntered : builtUpSqmLive;
   const impliedPricePerSqm =
-    form.askingPrice.trim() && builtUpSqmLive > 0 ? Number(form.askingPrice) / builtUpSqmLive : null;
+    form.askingPrice.trim() && areaForImpliedRate > 0 ? Number(form.askingPrice) / areaForImpliedRate : null;
+
+  // Dimensions-vs-plot-area sanity check — dimensions are captured natively in
+  // feet (a "30×40 site" is already feet), so the implied area is computed in
+  // sq ft and the entered plot area is converted to sq ft for a like-for-like
+  // comparison, whatever unit the wizard is currently displaying.
+  const dimsWidthNum = Number(form.plot.dimensionsWidthFt);
+  const dimsDepthNum = Number(form.plot.dimensionsDepthFt);
+  const hasDims =
+    form.plot.dimensionsWidthFt.trim() !== '' && form.plot.dimensionsDepthFt.trim() !== '' && dimsWidthNum > 0 && dimsDepthNum > 0;
+  const dimsAreaSqft = hasDims ? dimsWidthNum * dimsDepthNum : null;
+  const dimsAreaSqm = dimsAreaSqft !== null ? sqftToSqm(dimsAreaSqft) : null;
+  const plotAreaSqftEntered = Number.isNaN(plotAreaSqmEntered) ? null : sqmToSqft(plotAreaSqmEntered);
+  const areaMismatchPct =
+    dimsAreaSqft !== null && plotAreaSqftEntered !== null && plotAreaSqftEntered > 0
+      ? ((dimsAreaSqft - plotAreaSqftEntered) / plotAreaSqftEntered) * 100
+      : null;
+  // "A few percent" — flag anything beyond ordinary rounding/survey slack.
+  const areaMismatch = areaMismatchPct !== null && Math.abs(areaMismatchPct) > 5;
+
+  const builtUpAreaField = (
+    <Field
+      key="builtUpArea"
+      label="Built-up area"
+      required
+      error={errors.builtUpArea}
+      htmlFor="builtUpAreaSqm"
+      hint={
+        isLandType
+          ? 'Usually 0 for a plot — value comes from land area, not built-up area.'
+          : areaUnit === 'sqft' && !errors.builtUpArea && form.builtUpArea.trim() !== ''
+            ? `≈ ${formatArea(toSqm(form.builtUpArea) || 0, 'sqm')}`
+            : undefined
+      }
+    >
+      <NumberField
+        id="builtUpAreaSqm"
+        value={form.builtUpArea}
+        onChange={(v) => set('builtUpArea', v)}
+        suffix={areaUnit === 'sqft' ? 'sq ft' : 'm²'}
+      />
+    </Field>
+  );
+
+  const plotAreaField = (
+    <Field
+      key="plotArea"
+      label="Plot area"
+      required
+      error={errors.plotArea}
+      htmlFor="plotAreaSqm"
+      hint={
+        isLandType
+          ? 'Primary area for this property — used directly in its land-rate valuation.'
+          : areaUnit === 'sqft' && !errors.plotArea && form.plotArea.trim() !== ''
+            ? `≈ ${formatArea(toSqm(form.plotArea) || 0, 'sqm')}`
+            : undefined
+      }
+    >
+      <NumberField
+        id="plotAreaSqm"
+        value={form.plotArea}
+        onChange={(v) => set('plotArea', v)}
+        suffix={areaUnit === 'sqft' ? 'sq ft' : 'm²'}
+      />
+    </Field>
+  );
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -609,11 +819,17 @@ export default function NewCase() {
               htmlFor="locality"
               hint={
                 selectedLocality
-                  ? `Median: ${formatRate(selectedLocality.medianPricePerSqm, areaUnit, selectedLocality.currency)} · Statutory rate: ${formatRate(
-                      selectedLocality.statutoryRatePerSqm,
-                      areaUnit,
-                      selectedLocality.currency,
-                    )}`
+                  ? isLandType
+                    ? `Land rate: ${formatRate(selectedLocality.medianLandRatePerSqm, areaUnit, selectedLocality.currency)} · Statutory land rate: ${formatRate(
+                        selectedLocality.statutoryLandRatePerSqm,
+                        areaUnit,
+                        selectedLocality.currency,
+                      )} — per unit of plot area, not built-up area.`
+                    : `Median: ${formatRate(selectedLocality.medianPricePerSqm, areaUnit, selectedLocality.currency)} · Statutory rate: ${formatRate(
+                        selectedLocality.statutoryRatePerSqm,
+                        areaUnit,
+                        selectedLocality.currency,
+                      )}`
                   : 'Pick from suggestions to prefill state/city and see market context.'
               }
             >
@@ -670,38 +886,17 @@ export default function NewCase() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field
-                label="Built-up area"
-                required
-                error={errors.builtUpArea}
-                htmlFor="builtUpAreaSqm"
-                hint={
-                  areaUnit === 'sqft' && !errors.builtUpArea && form.builtUpArea.trim() !== ''
-                    ? `≈ ${formatArea(toSqm(form.builtUpArea) || 0, 'sqm')}`
-                    : undefined
-                }
-              >
-                <NumberField
-                  id="builtUpAreaSqm"
-                  value={form.builtUpArea}
-                  onChange={(v) => set('builtUpArea', v)}
-                  suffix={areaUnit === 'sqft' ? 'sq ft' : 'm²'}
-                />
-              </Field>
-              <Field
-                label="Plot area"
-                required
-                error={errors.plotArea}
-                htmlFor="plotAreaSqm"
-                hint={areaUnit === 'sqft' && !errors.plotArea ? `≈ ${formatArea(toSqm(form.plotArea) || 0, 'sqm')}` : undefined}
-              >
-                <NumberField
-                  id="plotAreaSqm"
-                  value={form.plotArea}
-                  onChange={(v) => set('plotArea', v)}
-                  suffix={areaUnit === 'sqft' ? 'sq ft' : 'm²'}
-                />
-              </Field>
+              {isLandType ? (
+                <>
+                  {plotAreaField}
+                  {builtUpAreaField}
+                </>
+              ) : (
+                <>
+                  {builtUpAreaField}
+                  {plotAreaField}
+                </>
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -729,22 +924,170 @@ export default function NewCase() {
               <Callout tone="info" title="Live sanity check">
                 {selectedLocality ? (
                   <p>
-                    Locality median:{' '}
-                    <span className="font-medium text-ink">{formatRate(selectedLocality.medianPricePerSqm, areaUnit, currency)}</span>
+                    {isLandType ? 'Locality land rate' : 'Locality median'}:{' '}
+                    <span className="font-medium text-ink">
+                      {formatRate(
+                        isLandType ? selectedLocality.medianLandRatePerSqm : selectedLocality.medianPricePerSqm,
+                        areaUnit,
+                        currency,
+                      )}
+                    </span>
                   </p>
                 ) : null}
                 {impliedPricePerSqm ? (
                   <p className="mt-0.5">
-                    Your asking price implies <span className="font-medium text-ink">{formatRate(impliedPricePerSqm, areaUnit, currency)}</span>
+                    Your asking price implies{' '}
+                    <span className="font-medium text-ink">{formatRate(impliedPricePerSqm, areaUnit, currency)}</span>
+                    {isLandType ? ' per unit of plot area' : ''}
                     {selectedLocality
-                      ? ` — ${pct(
-                          ((impliedPricePerSqm - selectedLocality.medianPricePerSqm) / selectedLocality.medianPricePerSqm) * 100,
-                          0,
-                          true,
-                        )} vs the locality median.`
+                      ? (() => {
+                          const benchmark = isLandType ? selectedLocality.medianLandRatePerSqm : selectedLocality.medianPricePerSqm;
+                          return ` — ${pct(((impliedPricePerSqm - benchmark) / benchmark) * 100, 0, true)} vs the locality ${
+                            isLandType ? 'land rate' : 'median'
+                          }.`;
+                        })()
                       : '.'}
                   </p>
                 ) : null}
+              </Callout>
+            ) : null}
+          </CardBody>
+        </Card>
+      ) : null}
+
+      {isLandType && step === siteStepIndex ? (
+        <Card>
+          <CardHeader
+            title="Site details"
+            subtitle="Land-specific facts that move a site's rate and financeability — this is priced per sq ft of land, not built-up area."
+            icon={<LandPlot size={16} />}
+          />
+          <CardBody className="space-y-6">
+            <Callout tone="neutral" title="Everything here is optional">
+              Facing and layout approval default to "Unknown" so the case can still be created — Property Screen will report the rest as
+              unresolved rather than block case creation. But the more you can confirm now, the sharper the screen.
+            </Callout>
+
+            <Field label="Plot dimensions" hint="In feet — a “30×40 site” is already feet, captured natively and never converted.">
+              <div className="grid grid-cols-2 gap-3">
+                <NumberField
+                  id="plotWidthFt"
+                  value={form.plot.dimensionsWidthFt}
+                  onChange={(v) => setPlot('dimensionsWidthFt', v)}
+                  placeholder="Width"
+                  suffix="ft"
+                />
+                <NumberField
+                  id="plotDepthFt"
+                  value={form.plot.dimensionsDepthFt}
+                  onChange={(v) => setPlot('dimensionsDepthFt', v)}
+                  placeholder="Depth"
+                  suffix="ft"
+                />
+              </div>
+              {hasDims ? (
+                <p className="mt-1.5 text-xs text-ink-secondary">
+                  Implied area:{' '}
+                  <span className="font-medium text-ink">{Math.round(dimsAreaSqft ?? 0).toLocaleString('en-IN')} sq ft</span>
+                  <span className="text-ink-muted"> ({formatArea(dimsAreaSqm, 'sqm')})</span> — compare against the plot area entered on
+                  the previous step.
+                </p>
+              ) : null}
+            </Field>
+
+            {areaMismatch ? (
+              <Callout tone="warning" title="Dimensions don't match the plot area you entered">
+                {form.plot.dimensionsWidthFt} × {form.plot.dimensionsDepthFt} ft implies{' '}
+                <span className="font-medium text-ink">{Math.round(dimsAreaSqft ?? 0).toLocaleString('en-IN')} sq ft</span> —{' '}
+                <span className="font-medium text-ink">{pct(Math.abs(areaMismatchPct ?? 0), 0)}</span>{' '}
+                {(areaMismatchPct ?? 0) > 0 ? 'higher than' : 'lower than'} the{' '}
+                {Math.round(plotAreaSqftEntered ?? 0).toLocaleString('en-IN')} sq ft plot area entered earlier. Worth double-checking — a
+                gap this size is a real data-quality signal, not a rounding error.
+              </Callout>
+            ) : null}
+
+            <Field label="Road width" hint="Affects both the achievable rate and the permissible FAR (floor area ratio).">
+              <NumberField id="roadWidthFt" value={form.plot.roadWidthFt} onChange={(v) => setPlot('roadWidthFt', v)} suffix="ft" />
+            </Field>
+
+            <Field label="Site status" hint="Optional flags — confirm on survey, not from a listing.">
+              <div className="space-y-2.5 rounded-lg bg-sunken p-3 ring-1 ring-inset ring-[var(--ring)]">
+                <Checkbox
+                  checked={form.plot.cornerSite}
+                  onChange={(v) => setPlot('cornerSite', v)}
+                  label={
+                    <span className="flex flex-col gap-0.5">
+                      <span className="flex items-center gap-1.5 font-medium text-ink">
+                        <CornerUpRight size={13} className="text-ink-muted" /> Corner site
+                      </span>
+                      <span className="text-xs text-ink-secondary">Corner sites carry a premium for frontage and access.</span>
+                    </span>
+                  }
+                />
+                <Checkbox
+                  checked={form.plot.demarcated}
+                  onChange={(v) => setPlot('demarcated', v)}
+                  label={
+                    <span className="flex flex-col gap-0.5">
+                      <span className="flex items-center gap-1.5 font-medium text-ink">
+                        <Fence size={13} className="text-ink-muted" /> Demarcated / in possession
+                      </span>
+                      <span className="text-xs text-ink-secondary">
+                        Fenced and in undisputed possession — an unresolved boundary or possession dispute is a title risk.
+                      </span>
+                    </span>
+                  }
+                />
+              </div>
+            </Field>
+
+            <Field
+              label="Facing"
+              hint="East and north-facing sites carry a measurable premium in this market — that's why it's asked."
+            >
+              <div className="flex flex-wrap items-start gap-4">
+                <CompassPicker value={form.plot.facing} onChange={(v) => setPlot('facing', v)} />
+                <p className="max-w-[15rem] text-xs leading-relaxed text-ink-secondary">
+                  Currently: <span className="font-medium text-ink">{FACING_LABEL[form.plot.facing]}</span>
+                  {PREMIUM_FACINGS.includes(form.plot.facing) ? (
+                    <Badge tone="good" className="ml-1.5">
+                      Premium
+                    </Badge>
+                  ) : null}
+                  <br />
+                  North, north-east and east (marked •) typically sell at a premium to other facings.
+                </p>
+              </div>
+            </Field>
+
+            <Field label="Layout approval" hint="Who approved the layout the site sits in — this drives both value and financeability.">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {LAYOUT_APPROVAL_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => setPlot('layoutApproval', o.value)}
+                    className={cn(
+                      'flex flex-col gap-0.5 rounded-lg p-2.5 text-left ring-1 ring-inset transition-colors',
+                      form.plot.layoutApproval === o.value
+                        ? RISKY_LAYOUT_APPROVALS.includes(o.value)
+                          ? cn(WARNING_TINT_BG, 'ring-2 ring-warning')
+                          : 'bg-brand-soft ring-2 ring-brand'
+                        : 'bg-surface ring-[var(--ring)] hover:bg-sunken',
+                    )}
+                  >
+                    <span className="text-[13px] font-semibold text-ink">{o.label}</span>
+                    <span className="text-xs leading-snug text-ink-secondary">{o.note}</span>
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            {RISKY_LAYOUT_APPROVALS.includes(form.plot.layoutApproval) ? (
+              <Callout tone="warning" title="This layout status is a material finding">
+                {LAYOUT_APPROVAL_LABEL[form.plot.layoutApproval]} sites are <span className="font-medium text-ink">hard to finance</span>{' '}
+                and <span className="font-medium text-ink">hard to resell</span>. Property Screen will treat this as a risk that needs
+                resolving before the case can score well.
               </Callout>
             ) : null}
           </CardBody>
@@ -980,12 +1323,66 @@ export default function NewCase() {
                   label="Asking price"
                   value={form.askingPrice ? money(Number(form.askingPrice), currency) : 'Not provided — screened as a claim, not evidence'}
                 />
-                {form.askingPrice && builtUpSqmLive > 0 ? (
-                  <KeyValue label="Implied rate" value={formatRate(Number(form.askingPrice) / builtUpSqmLive, areaUnit, currency)} />
+                {form.askingPrice && areaForImpliedRate > 0 ? (
+                  <KeyValue
+                    label={isLandType ? 'Implied land rate' : 'Implied rate'}
+                    value={formatRate(Number(form.askingPrice) / areaForImpliedRate, areaUnit, currency)}
+                  />
                 ) : null}
               </dl>
             </CardBody>
           </Card>
+
+          {isLandType ? (
+            <Card>
+              <CardHeader title="Site details" subtitle="Land-specific facts captured for this plot." icon={<LandPlot size={16} />} />
+              <CardBody>
+                <dl>
+                  <KeyValue
+                    label="Dimensions"
+                    value={
+                      hasDims
+                        ? `${form.plot.dimensionsWidthFt} × ${form.plot.dimensionsDepthFt} ft (${Math.round(dimsAreaSqft ?? 0).toLocaleString('en-IN')} sq ft)`
+                        : 'Not provided'
+                    }
+                  />
+                  <KeyValue label="Road width" value={form.plot.roadWidthFt.trim() ? `${form.plot.roadWidthFt} ft` : 'Not provided'} />
+                  <KeyValue label="Corner site" value={form.plot.cornerSite ? 'Yes' : 'No'} />
+                  <KeyValue
+                    label="Facing"
+                    value={
+                      PREMIUM_FACINGS.includes(form.plot.facing) ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          {FACING_LABEL[form.plot.facing]} <Badge tone="good">Premium</Badge>
+                        </span>
+                      ) : (
+                        FACING_LABEL[form.plot.facing]
+                      )
+                    }
+                  />
+                  <KeyValue
+                    label="Layout approval"
+                    value={
+                      RISKY_LAYOUT_APPROVALS.includes(form.plot.layoutApproval) ? (
+                        <Badge tone="warning">{LAYOUT_APPROVAL_LABEL[form.plot.layoutApproval]}</Badge>
+                      ) : (
+                        LAYOUT_APPROVAL_LABEL[form.plot.layoutApproval]
+                      )
+                    }
+                  />
+                  <KeyValue label="Demarcated / possession" value={form.plot.demarcated ? 'Yes' : 'No / unconfirmed'} />
+                </dl>
+                {RISKY_LAYOUT_APPROVALS.includes(form.plot.layoutApproval) ? (
+                  <div className="mt-3">
+                    <Callout tone="warning" title="Carried forward as a material finding">
+                      {LAYOUT_APPROVAL_LABEL[form.plot.layoutApproval]} status will be reported as a risk restricting financing and
+                      resale.
+                    </Callout>
+                  </div>
+                ) : null}
+              </CardBody>
+            </Card>
+          ) : null}
 
           {isKarnataka ? (
             <Card>

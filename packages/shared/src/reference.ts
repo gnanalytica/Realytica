@@ -134,6 +134,51 @@ function buildTrend(
   }));
 }
 
+/**
+ * Land rate methodology (medianLandRatePerSqm / statutoryLandRatePerSqm).
+ *
+ * A land rate prices a sqm of PLOT; a built rate (medianPricePerSqm) prices a
+ * sqm of BUILT-UP space on a multi-storey site — a different quantity, not the
+ * same one scaled by a constant. FAR is what connects them, and it connects
+ * them the opposite way intuition suggests: land is usually the SCARCER,
+ * MORE-expensive-per-sqm quantity, not the cheaper one, because every sqm of
+ * plot backs `farAllowed` sqm of saleable built area, all of it capitalising
+ * that one plot.
+ *
+ * Approximate developer-economics identity used to derive the figures below:
+ *
+ *   medianPricePerSqm ≈ (landRatePerSqm / farAllowed) + constructionCostPerSqm + margin&otherCosts
+ *   ⇒ landRatePerSqm  ≈ farAllowed × (k × medianPricePerSqm − replacementCostPerSqm)
+ *
+ * where k is the share of the built price that is land + margin + approvals
+ * rather than pure shell construction — taken as ≈0.72 for established,
+ * built-out localities (thicker developer margins; land itself is genuinely
+ * scarce) and ≈0.76 for active peripheral growth corridors (thinner margins,
+ * more of the price is land-driven). The FAR multiplier is exactly why a
+ * Whitefield plot (FAR 2.75) prices well above the Whitefield apartment rate
+ * even though "land must be cheaper than a finished flat" sounds intuitive —
+ * the apartment rate is the land value *diluted* across every floor the FAR
+ * permits, and grossing it back up by FAR is what a standalone plot buyer
+ * actually pays per sqm of land.
+ *
+ * statutoryLandRatePerSqm (guidance value for land) is set at roughly
+ * 0.48–0.56× the derived median land rate — a larger lag than the ~0.58–0.61×
+ * typical of built-property guidance values in the same localities, because
+ * periodic guidance-value revision cycles lag a speculative, retail-driven
+ * plot market even more than they lag built-property transactions.
+ *
+ * Deliberate exceptions, each re-stated at the locality itself:
+ *  - Outer Ring Road (Bellandur): a commercial corridor with no retail plot
+ *    market — land is held in large institutional campus parcels, and
+ *    high-spec Grade-A construction cost eats most of the FAR uplift, so the
+ *    derived land rate sits BELOW the office built rate rather than above it.
+ *  - Devanahalli: `medianPricePerSqm` here already tracks plotted/converted
+ *    LAND, not apartment stock (see that locality's own comment below) — so
+ *    its land rate sits only slightly above its own median, not diluted up
+ *    by FAR the way a genuine apartment locality's is.
+ *  - The Netherlands localities use related but distinct reasoning per
+ *    locality — see the comment above that section.
+ */
 export const LOCALITIES: LocalityReference[] = [
   // --- India — Bengaluru --------------------------------------------------
   {
@@ -157,6 +202,11 @@ export const LOCALITIES: LocalityReference[] = [
       'BBMP zonal regulations permit FAR up to 2.75 on roads wider than 12m; several large IT-park-adjacent ' +
       'parcels have unused headroom from phased development.',
     replacementCostPerSqm: 26000,
+    // FAR 2.75 × (0.72×92,000 − 26,000) ≈ 110,700 → 110,000: ~1.20× the built
+    // median. Illustrative case for the methodology note above — a Whitefield
+    // plot trades well above the apartment rate despite thin plot supply.
+    medianLandRatePerSqm: 110000,
+    statutoryLandRatePerSqm: 61000,
     infrastructureNote:
       'Served by the ITPL/Whitefield IT corridor and the Purple Line metro extension; arterial road widening ' +
       'has reduced peak-hour congestion since 2024.',
@@ -181,6 +231,11 @@ export const LOCALITIES: LocalityReference[] = [
     farAllowed: 2.25,
     planningNote: 'Mature, largely built-out locality; narrower internal roads cap FAR below newer corridors.',
     replacementCostPerSqm: 30000,
+    // FAR 2.25 × (0.72×150,000 − 30,000) = 2.25 × 78,000 = 175,500 → 176,000:
+    // ~1.17× the built median. Central, built-out, almost no plot supply —
+    // exactly the "very high land rate, land itself is the scarce thing" case.
+    medianLandRatePerSqm: 176000,
+    statutoryLandRatePerSqm: 97000,
     infrastructureNote: 'Purple Line metro station within the locality; limited surface parking is a known constraint.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
   },
@@ -203,6 +258,11 @@ export const LOCALITIES: LocalityReference[] = [
     farAllowed: 2.75,
     planningNote: 'Fastest-appreciating of the tracked Bengaluru micro-markets; several large master-planned layouts still under construction.',
     replacementCostPerSqm: 24000,
+    // Active growth corridor (k≈0.76): 2.75 × (0.76×66,000 − 24,000) ≈ 71,900
+    // → 73,000, ~1.11× the built median. One of the corridors where sites
+    // genuinely change hands — layouts sell directly to retail plot buyers.
+    medianLandRatePerSqm: 73000,
+    statutoryLandRatePerSqm: 36000,
     infrastructureNote: 'Road-widening and the proposed metro Phase 3 extension are the main upside catalysts; current peak-hour congestion is significant.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
   },
@@ -231,6 +291,12 @@ export const LOCALITIES: LocalityReference[] = [
       'BBMP permits enhanced FAR along the Outer Ring Road commercial corridor subject to road width and ' +
       'mandatory setbacks; several campuses retain unbuilt entitlement from phased approvals.',
     replacementCostPerSqm: 41000,
+    // Deliberate exception: 3.25 × (0.72×86,000 − 41,000) ≈ 67,900 → 68,000,
+    // BELOW the office built rate (86,000). High-spec Grade-A shell+core cost
+    // eats most of the FAR uplift, and there is no retail plot market here —
+    // land trades only in bulk institutional campus parcels, not small sites.
+    medianLandRatePerSqm: 68000,
+    statutoryLandRatePerSqm: 44000,
     infrastructureNote:
       'The ORR office cluster between Bellandur and Marathahalli drives Grade-A demand; the Blue Line metro ' +
       'corridor under construction is expected to ease the corridor\'s well-documented congestion.',
@@ -257,6 +323,12 @@ export const LOCALITIES: LocalityReference[] = [
       'North Bengaluru growth corridor; BBMP zonal regulations allow FAR 2.5 with mixed-use frontage on ' +
       'arterial roads, and airport-corridor parcels are subject to height restrictions.',
     replacementCostPerSqm: 27500,
+    // Active corridor (k≈0.76, plots genuinely trade here): 2.5 ×
+    // (0.76×79,000 − 27,500) ≈ 81,300 → 81,000, a modest ~1.03× the built
+    // median — Hebbal is more apartment-led than Sarjapur/Yelahanka, so the
+    // land premium is thinner even though sites do change hands.
+    medianLandRatePerSqm: 81000,
+    statutoryLandRatePerSqm: 42000,
     infrastructureNote:
       'Airport-corridor position on the Bellary Road spine with metro Blue Line connectivity under delivery; ' +
       'flyover capacity remains the binding constraint at peak.',
@@ -283,6 +355,10 @@ export const LOCALITIES: LocalityReference[] = [
       'Established, largely built-out micro-market; commercial conversion on designated frontage roads is ' +
       'permitted but BBMP FAR headroom is thin and parking norms bind most redevelopment.',
     replacementCostPerSqm: 31000,
+    // FAR 2.25 × (0.72×138,000 − 31,000) ≈ 153,800 → 154,000: ~1.12× the
+    // built median. Central, built-out, almost no plot supply.
+    medianLandRatePerSqm: 154000,
+    statutoryLandRatePerSqm: 85000,
     infrastructureNote:
       'Central location with mature retail and startup-office demand; scarcity of new supply supports pricing ' +
       'and keeps time-to-transact short.',
@@ -317,6 +393,10 @@ export const LOCALITIES: LocalityReference[] = [
     planningNote:
       'BBMP property-tax Zone C; RMP 2015 zoning is Residential (R1) with a commercial overlay on sector arterial roads (e.g. 27th Main). Falls within BBMP\'s Bommanahalli zone; startup/office use in converted residential buildings is common but not always plan-compliant.',
     replacementCostPerSqm: 29000,
+    // FAR 2.5 × (0.72×118,000 − 29,000) ≈ 139,900 → 140,000: ~1.19× the built
+    // median. Established layout, high FAR, moderate scarcity.
+    medianLandRatePerSqm: 140000,
+    statutoryLandRatePerSqm: 78000,
     infrastructureNote:
       'No direct metro station; the Silk Board junction — where the under-construction Blue Line will eventually interchange — is the corridor\'s most congested pinch point, and access today is entirely road-based via Sarjapur Road, Hosur Road and the Outer Ring Road.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
@@ -341,6 +421,11 @@ export const LOCALITIES: LocalityReference[] = [
     planningNote:
       'BBMP property-tax Zone C; RMP 2015 zoning is Residential (R1). A mature, largely built-out layout with limited redevelopment headroom under current setback and parking norms.',
     replacementCostPerSqm: 27000,
+    // FAR 2.25 × (0.72×108,000 − 27,000) ≈ 114,200 → 114,000: ~1.06× the
+    // built median — established and largely built out, but without the
+    // extreme scarcity premium of Indiranagar/Koramangala/Jayanagar.
+    medianLandRatePerSqm: 114000,
+    statutoryLandRatePerSqm: 64000,
     infrastructureNote:
       'Green Line (JP Nagar station, part of the original Nagasandra–Yelachenahalli stretch) has been operational since 2021, giving direct CBD access without surface congestion.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
@@ -365,6 +450,14 @@ export const LOCALITIES: LocalityReference[] = [
     planningNote:
       'BBMP property-tax Zone B; RMP 2015 zoning is Residential (R1). One of BBMP\'s original planned layouts; heritage and height restrictions in the core blocks cap FAR below comparable-tier localities without that overlay.',
     replacementCostPerSqm: 30500,
+    // FAR is capped at 2.0 by the heritage overlay, so the pure formula
+    // (2.0 × (0.72×132,000 − 30,500) ≈ 129,100) only just clears the built
+    // median; nudged to 137,000 (k≈0.75, ~1.04×) for the retail scarcity
+    // premium a heritage core with almost no plot supply commands in
+    // practice — one of the "very high land rate" localities alongside
+    // Indiranagar and Koramangala, just capped lower by the FAR ceiling.
+    medianLandRatePerSqm: 137000,
+    statutoryLandRatePerSqm: 75000,
     infrastructureNote:
       'Green Line (Jayanagar station) is operational; the 4th Block shopping complex anchors local retail demand, while narrow internal roads cap the scale of any redevelopment.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
@@ -389,6 +482,12 @@ export const LOCALITIES: LocalityReference[] = [
     planningNote:
       'BBMP property-tax Zone D; RMP 2015 zoning is Residential (R2). The northern edge toward the airport carries a BIAAPA planning overlay and height restriction that a parcel-specific check should confirm before assuming full BBMP norms apply.',
     replacementCostPerSqm: 23000,
+    // Active corridor (k≈0.76): 2.5 × (0.76×68,000 − 23,000) ≈ 71,700 →
+    // 72,000, ~1.06× the built median. BDA/private layouts here sell
+    // directly to retail plot buyers — one of the corridors sites genuinely
+    // transact in.
+    medianLandRatePerSqm: 72000,
+    statutoryLandRatePerSqm: 35000,
     infrastructureNote:
       'The Blue Line airport extension (a planned Yelahanka station) is under construction; Bellary Road/NH44 gives current road access, but today\'s connectivity is entirely road-based.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
@@ -413,6 +512,13 @@ export const LOCALITIES: LocalityReference[] = [
     planningNote:
       'BBMP property-tax Zone E; RMP 2015 zoning is Residential (R1/R2) alongside IT/SEZ land use in the tech-park precincts. Falls mostly within BBMP\'s Bommanahalli zone (added 2007), though civic infrastructure inside the tech-park precincts is co-administered by ELCITA (Electronics City Industrial Township Authority) — confirm khata jurisdiction parcel-by-parcel rather than assuming uniform BBMP coverage across both phases.',
     replacementCostPerSqm: 23500,
+    // 2.5 × (0.76×62,000 − 23,500) ≈ 59,100 → 59,000, just under the built
+    // median (~0.95×) — plot supply here is genuinely thin (only a couple of
+    // sites trade at all; most of the corridor is tech-park/apartment
+    // stock), and commodity apartment pricing already prices in most of the
+    // FAR uplift, so land sits at rough parity rather than well above it.
+    medianLandRatePerSqm: 59000,
+    statutoryLandRatePerSqm: 31000,
     infrastructureNote:
       'Yellow Line (RV Road–Bommasandra) commissioning was phased through 2024–2025 — verify current operational status for this stretch before treating it as delivered infrastructure. NICE Road and Hosur Road remain the historically congested surface routes.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
@@ -446,6 +552,15 @@ export const LOCALITIES: LocalityReference[] = [
     planningNote:
       'Outside BBMP limits — administered under BIAAPA (Bengaluru International Airport Area Planning Authority) zonal regulations, with the surrounding taluk sitting in Bengaluru Rural district rather than Bengaluru Urban. No BBMP property-tax zone applies. Most parcels remain agricultural revenue land; DC conversion under Karnataka Land Revenue Act s.95 is a precondition for any residential or commercial use, and its absence is the most common reason a promising-looking plot here turns out to be undevelopable in the near term. This is a land-banking, infrastructure-anticipation market rather than a rental-yield one.',
     replacementCostPerSqm: 24000,
+    // Exception to the FAR-dilution formula: `medianPricePerSqm` here already
+    // IS a land/plotted rate, not an apartment rate (see the comment above),
+    // so there is no multi-storey dilution to gross back up — the land rate
+    // sits only modestly above its own median (comparables below transact in
+    // the 31,800–36,500 band). Guidance keeps the same ~0.51 lag ratio as the
+    // built figure, since it is the same DC guidance-value regime pricing the
+    // same land.
+    medianLandRatePerSqm: 37000,
+    statutoryLandRatePerSqm: 19000,
     infrastructureNote:
       'Kempegowda International Airport anchors the corridor; the Blue Line metro extension to the airport, the Satellite Town Ring Road (STRR) and NH44 are the main medium-term catalysts, but all three are still under construction or planned — price appreciation here is substantially forward-looking and speculative, not backed by delivered infrastructure.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
@@ -470,6 +585,16 @@ export const LOCALITIES: LocalityReference[] = [
     planningNote:
       'BBMP property-tax Zone E for the inner stretch (roughly up to Talaghattapura/Vajarahalli); beyond that the corridor passes into BMRDA-regulated and gram-panchayat areas before reaching Kanakapura town — treat jurisdiction as parcel-specific rather than assuming BBMP coverage along the full corridor. RMP 2015 zoning is Residential (R2).',
     replacementCostPerSqm: 23000,
+    // Raw formula (k=0.76) gives 2.25 × (0.76×58,000 − 23,000) ≈ 47,400,
+    // below the built median — but Kanakapura Road is a long-established
+    // plotted-development corridor (Vajarahalli, Thalaghattapura and
+    // similar BDA/BMRDA layouts) where individual home-builders compete for
+    // a limited stock of good sites, a retail scarcity premium the pure
+    // developer-economics formula does not capture. Nudged to 64,000
+    // (~1.10× the built median) to reflect that — one of the corridors
+    // sites genuinely transact in.
+    medianLandRatePerSqm: 64000,
+    statutoryLandRatePerSqm: 31000,
     infrastructureNote:
       'The Green Line\'s southern extension (Yelachenahalli–Silk Institute, via Konanakunte and Talaghattapura) runs along this corridor and is operational — one of the few outer growth corridors with delivered, not merely planned, metro access. NICE Road gives peripheral ring-road access.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
@@ -494,11 +619,35 @@ export const LOCALITIES: LocalityReference[] = [
     planningNote:
       'BBMP property-tax Zone D; RMP 2015 zoning is Residential (R1/R2). Adjoins the Manyata Tech Park employment cluster, which is the corridor\'s main rental-demand driver.',
     replacementCostPerSqm: 25500,
+    // Active corridor (k≈0.76): 2.5 × (0.76×74,000 − 25,500) ≈ 76,900 →
+    // 77,000, ~1.04× the built median — sites trade actively alongside the
+    // Manyata-driven apartment demand.
+    medianLandRatePerSqm: 77000,
+    statutoryLandRatePerSqm: 40000,
     infrastructureNote:
       'Within commuting distance of the under-construction Blue Line station cluster around Hebbal; Hennur Road widening is underway. No metro station sits directly on this corridor today — connectivity is currently road-based.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
   },
   // --- Netherlands — Amsterdam -------------------------------------------------
+  // Land-rate logic differs by locality here, not just by number:
+  //  - Zuidas & De Pijp (Amsterdam): built out for decades/centuries, and
+  //    Zuidas additionally sits substantially on municipal erfpacht
+  //    (leasehold) rather than freehold — bare plots essentially never come
+  //    to market. The figures are a conservative, notional back-calculation
+  //    (not an observed transaction rate), and — because there is no
+  //    independent market to pull ahead of the assessment — statutory sits
+  //    much closer to median here (≈0.85–0.90×) than the ~0.5–0.6× typical
+  //    where a real market exists. This is deliberate: it is how "plots
+  //    barely transact" should look in the numbers, not an active market
+  //    dressed up with a plausible-looking gap.
+  //  - Kop van Zuid (Rotterdam) & Leidsche Rijn (Utrecht): both explicitly
+  //    still have active build-out phases per their planningNote, so plots
+  //    genuinely do trade — a normal ~0.55–0.58× statutory lag applies.
+  //    Leidsche Rijn's low FAR (1.2, low-rise Vinex housing) means the
+  //    FAR-dilution multiplier barely exceeds 1, so its land rate lands well
+  //    BELOW the built rate — the mirror image of Bengaluru's high-FAR
+  //    apartment markets, and a useful check that this isn't a formula
+  //    hard-coded to always push land above built.
   {
     id: 'nl-ams-zuidas',
     country: 'NL',
@@ -518,6 +667,14 @@ export const LOCALITIES: LocalityReference[] = [
     farAllowed: 6,
     planningNote: 'High-rise business-district plan allows dense floor ratios; several dock plots retain unbuilt office entitlement under the Zuidasdok programme.',
     replacementCostPerSqm: 2650,
+    // Formula (k=0.72, FAR 6) gives 6 × (0.72×8,200 − 2,650) ≈ 19,500 — the
+    // extreme FAR makes the mechanical dilution-uplift implausibly large for
+    // a market with no actual freehold bare-land sales to calibrate against.
+    // Deliberately capped well below that to a conservative erfpacht-canon
+    // style grondwaarde instead (~1.46× built) rather than presenting false
+    // precision on a market that does not really transact.
+    medianLandRatePerSqm: 12000,
+    statutoryLandRatePerSqm: 10800,
     infrastructureNote: 'Zuid station gives direct rail/metro/international connections; the Zuidasdok infrastructure works are an ongoing construction-noise consideration through the decade.',
     source: 'Kadaster — non-residential transaction register',
   },
@@ -540,6 +697,11 @@ export const LOCALITIES: LocalityReference[] = [
     farAllowed: 2.4,
     planningNote: 'Dense pre-war building blocks are largely built out; municipal policy restricts short-stay letting, which affects buy-to-let assumptions.',
     replacementCostPerSqm: 2150,
+    // 2.4 × (0.72×7,900 − 2,150) ≈ 8,500, ~1.08× built — modest since De
+    // Pijp's dense pre-war blocks are fully built out and a bare plot here
+    // would only ever arise from a rare demolition/infill, not a market.
+    medianLandRatePerSqm: 8500,
+    statutoryLandRatePerSqm: 7200,
     infrastructureNote: 'Well served by tram lines and the Ferdinand Bolstraat/Albert Cuyp retail strip; on-street parking permits are capped.',
     source: 'CBS/NVM transaction statistics — Amsterdam',
   },
@@ -563,6 +725,11 @@ export const LOCALITIES: LocalityReference[] = [
     farAllowed: 3.2,
     planningNote: 'Former harbour redevelopment area still has several plots in active build-out; mixed-use zoning gives flexibility on end use.',
     replacementCostPerSqm: 2300,
+    // Active redevelopment area (k=0.76): 3.2 × (0.76×5,200 − 2,300) ≈ 5,300,
+    // roughly at parity with the built rate — remaining harbour-redevelopment
+    // plots genuinely do trade here, unlike the two Amsterdam localities.
+    medianLandRatePerSqm: 5300,
+    statutoryLandRatePerSqm: 3100,
     infrastructureNote: 'Erasmus Bridge and Wilhelminapier metro access anchor the district; ongoing quayside development is a medium-term amenity upside.',
     source: 'CBS/NVM transaction statistics — Rotterdam',
   },
@@ -586,6 +753,13 @@ export const LOCALITIES: LocalityReference[] = [
     farAllowed: 1.2,
     planningNote: 'Low-rise Vinex-era masterplan; remaining build phases (Leidsche Rijn Centrum) will add retail and density over the next decade.',
     replacementCostPerSqm: 1950,
+    // 1.2 × (0.76×4,800 − 1,950) ≈ 2,000, well BELOW the built rate — the
+    // mirror image of the high-FAR Bengaluru/office markets above: low-rise
+    // Vinex housing has little floor-area dilution, so a bare building plot
+    // (kavel) here genuinely sells for a fraction of the finished home's sqm
+    // rate, matching how Dutch greenfield land actually prices.
+    medianLandRatePerSqm: 2000,
+    statutoryLandRatePerSqm: 1100,
     infrastructureNote: 'Utrecht Leidsche Rijn rail station and A2 motorway access; local amenities are still catching up to population growth.',
     source: 'CBS/NVM transaction statistics — Utrecht',
   },
@@ -700,10 +874,13 @@ export const COMPARABLE_POOL: Comparable[] = [
   mkComparable({ localityKey: 'blr-ecity', label: 'Phase 1 Tech Residency', address: 'Phase 1 Tech Residency, Electronic City, Bengaluru, Karnataka', distanceKm: 0.9, propertyType: 'residential_apartment', areaSqm: 112, transactedAt: '2024-12-11', pricePerSqm: 63500, source: IGR_BLR, roundTo: 1000 }),
   mkComparable({ localityKey: 'blr-ecity', label: 'Infosys Avenue Business Park', address: 'Infosys Avenue Business Park, Electronic City, Bengaluru, Karnataka', distanceKm: 1.1, propertyType: 'commercial_office', areaSqm: 480, transactedAt: '2026-01-20', pricePerSqm: 72000, source: IGR_BLR, roundTo: 1000 }),
 
-  // --- Devanahalli, Bengaluru (3, plotted land) ---
+  // --- Devanahalli, Bengaluru (6, plotted land) ---
   mkComparable({ localityKey: 'blr-devanahalli', label: 'Aerocity Layout Plot 42', address: 'Aerocity Layout Plot 42, Devanahalli, Bengaluru, Karnataka', distanceKm: 3.2, propertyType: 'residential_plot', areaSqm: 240, transactedAt: '2025-07-28', pricePerSqm: 34200, source: IGR_BLR, roundTo: 1000 }),
   mkComparable({ localityKey: 'blr-devanahalli', label: 'Bettahalasuru Garden Plots', address: 'Bettahalasuru Garden Plots, Devanahalli, Bengaluru, Karnataka', distanceKm: 4.5, propertyType: 'residential_plot', areaSqm: 300, transactedAt: '2025-02-14', pricePerSqm: 31800, source: IGR_BLR, roundTo: 1000 }),
   mkComparable({ localityKey: 'blr-devanahalli', label: 'Sadahalli Cross Villa Plot', address: 'Sadahalli Cross Villa Plot, Devanahalli, Bengaluru, Karnataka', distanceKm: 2.8, propertyType: 'residential_plot', areaSqm: 200, transactedAt: '2024-11-05', pricePerSqm: 36500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-devanahalli', label: 'Bagalur Cross Corner Site, 40x60 East-facing', address: 'Bagalur Cross Corner Site, Devanahalli, Bengaluru, Karnataka', distanceKm: 5.0, propertyType: 'residential_plot', areaSqm: 223, transactedAt: '2025-05-20', pricePerSqm: 38500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-devanahalli', label: 'Vishwanathapura Layout Site No. 18, 30x40', address: 'Vishwanathapura Layout, Site No. 18, Devanahalli, Bengaluru, Karnataka', distanceKm: 3.8, propertyType: 'residential_plot', areaSqm: 111, transactedAt: '2025-12-11', pricePerSqm: 35200, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-devanahalli', label: 'BMRDA Layout Site, 50x80 North-facing', address: 'BMRDA Layout, Devanahalli, Bengaluru, Karnataka', distanceKm: 6.1, propertyType: 'residential_plot', areaSqm: 372, transactedAt: '2026-04-02', pricePerSqm: 39800, source: IGR_BLR, roundTo: 1000 }),
 
   // --- Kanakapura Road, Bengaluru (3) ---
   mkComparable({ localityKey: 'blr-kanakapura', label: 'Provident Sunworth City', address: 'Provident Sunworth City, Kanakapura Road, Bengaluru, Karnataka', distanceKm: 1.6, propertyType: 'residential_apartment', areaSqm: 102, transactedAt: '2025-04-17', pricePerSqm: 57200, source: IGR_BLR, roundTo: 1000 }),
@@ -714,6 +891,52 @@ export const COMPARABLE_POOL: Comparable[] = [
   mkComparable({ localityKey: 'blr-thanisandra', label: 'Prestige Jindal City', address: 'Prestige Jindal City, Thanisandra/Hennur, Bengaluru, Karnataka', distanceKm: 1.0, propertyType: 'residential_apartment', areaSqm: 108, transactedAt: '2025-08-01', pricePerSqm: 75400, source: IGR_BLR, roundTo: 1000 }),
   mkComparable({ localityKey: 'blr-thanisandra', label: 'Godrej Air NXT Extension', address: 'Godrej Air NXT Extension, Thanisandra/Hennur, Bengaluru, Karnataka', distanceKm: 1.8, propertyType: 'residential_apartment', areaSqm: 96, transactedAt: '2025-03-14', pricePerSqm: 72300, source: IGR_BLR, roundTo: 1000 }),
   mkComparable({ localityKey: 'blr-thanisandra', label: 'Nagavara Lake View Residency', address: 'Nagavara Lake View Residency, Thanisandra/Hennur, Bengaluru, Karnataka', distanceKm: 2.2, propertyType: 'residential_apartment', areaSqm: 128, transactedAt: '2024-11-30', pricePerSqm: 76800, source: IGR_BLR, roundTo: 1000 }),
+
+  // ===================================================================
+  // Bengaluru land / plot comparables (site transactions, not built stock)
+  //
+  // Weighted to the corridors where sites genuinely trade — Devanahalli
+  // (above), Kanakapura Road, Yelahanka and Sarjapur Road most heavily, then
+  // Hebbal and Thanisandra/Hennur, with only a couple each in Whitefield and
+  // Electronic City where plot supply is thin. Sizes are standard Bengaluru
+  // site dimensions (30x40 ft ≈ 111 sqm, 40x60 ft ≈ 223 sqm, 50x80 ft ≈ 372
+  // sqm); `areaSqm` is plot area and `pricePerSqm` is the land rate, both
+  // scattered around each locality's `medianLandRatePerSqm` in reference.ts
+  // above with a modest corner/road-width/facing premium or discount, which
+  // is exactly what `runScreen`'s plot-attribute adjustments are meant to
+  // explain rather than leaving as unexplained scatter.
+  // ===================================================================
+
+  // --- Kanakapura Road, Bengaluru (3, plotted land) ---
+  mkComparable({ localityKey: 'blr-kanakapura', label: 'BMRDA Layout Site No. 9, 30x40 West-facing', address: 'BMRDA Approved Layout, Thalaghattapura, Kanakapura Road, Bengaluru, Karnataka', distanceKm: 2.6, propertyType: 'residential_plot', areaSqm: 111, transactedAt: '2025-06-25', pricePerSqm: 63000, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-kanakapura', label: 'Corner site, 40x60, 60ft road', address: 'Vajarahalli Layout Corner Site, Kanakapura Road, Bengaluru, Karnataka', distanceKm: 3.4, propertyType: 'residential_plot', areaSqm: 223, transactedAt: '2025-10-09', pricePerSqm: 68500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-kanakapura', label: 'Konanakunte Cross Site No. 76, 40x60', address: 'Konanakunte Cross, Site No. 76, Kanakapura Road, Bengaluru, Karnataka', distanceKm: 4.0, propertyType: 'residential_plot', areaSqm: 223, transactedAt: '2024-11-14', pricePerSqm: 59500, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Yelahanka, Bengaluru (3, plotted land) ---
+  mkComparable({ localityKey: 'blr-yelahanka', label: 'BDA Layout Site No. 112, 30x40 East-facing', address: 'BDA Layout, Site No. 112, Yelahanka, Bengaluru, Karnataka', distanceKm: 2.0, propertyType: 'residential_plot', areaSqm: 111, transactedAt: '2025-07-30', pricePerSqm: 74500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-yelahanka', label: 'Corner site, 40x60, 40ft road', address: 'Rajanukunte Corner Site, Yelahanka, Bengaluru, Karnataka', distanceKm: 5.5, propertyType: 'residential_plot', areaSqm: 223, transactedAt: '2025-02-22', pricePerSqm: 69800, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-yelahanka', label: 'New Town BDA Layout Site, 50x80 North-facing', address: 'New Town BDA Layout, Yelahanka, Bengaluru, Karnataka', distanceKm: 1.4, propertyType: 'residential_plot', areaSqm: 372, transactedAt: '2026-03-18', pricePerSqm: 79200, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Sarjapur Road, Bengaluru (3, plotted land) ---
+  mkComparable({ localityKey: 'blr-sarjapur', label: 'Corner site, 40x60, Dommasandra', address: 'Dommasandra Layout Corner Site, Sarjapur Road, Bengaluru, Karnataka', distanceKm: 3.1, propertyType: 'residential_plot', areaSqm: 223, transactedAt: '2025-05-08', pricePerSqm: 74800, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-sarjapur', label: 'Chikkakannalli Layout Site No. 27, 30x40', address: 'Chikkakannalli Layout, Site No. 27, Sarjapur Road, Bengaluru, Karnataka', distanceKm: 1.9, propertyType: 'residential_plot', areaSqm: 111, transactedAt: '2025-09-15', pricePerSqm: 70200, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-sarjapur', label: 'BMRDA Layout Site, 40x60, Attibele Road', address: 'BMRDA Layout, Attibele Road, Sarjapur Road, Bengaluru, Karnataka', distanceKm: 6.8, propertyType: 'residential_plot', areaSqm: 223, transactedAt: '2024-12-27', pricePerSqm: 67500, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Hebbal, Bengaluru (2, plotted land) ---
+  mkComparable({ localityKey: 'blr-hebbal', label: 'Corner site, 30x40, Kempapura', address: 'Kempapura Layout Corner Site, Hebbal, Bengaluru, Karnataka', distanceKm: 2.3, propertyType: 'residential_plot', areaSqm: 111, transactedAt: '2025-08-19', pricePerSqm: 93500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-hebbal', label: 'BDA Layout Site No. 54, 40x60, Jakkur Road', address: 'Jakkur Road Layout, Site No. 54, Hebbal, Bengaluru, Karnataka', distanceKm: 3.5, propertyType: 'residential_plot', areaSqm: 223, transactedAt: '2025-01-30', pricePerSqm: 87200, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Thanisandra/Hennur, Bengaluru (2, plotted land) ---
+  mkComparable({ localityKey: 'blr-thanisandra', label: 'Private Layout Site No. 63, 30x40, Kothanur', address: 'Kothanur Layout, Site No. 63, Thanisandra/Hennur, Bengaluru, Karnataka', distanceKm: 2.8, propertyType: 'residential_plot', areaSqm: 111, transactedAt: '2025-06-11', pricePerSqm: 82500, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-thanisandra', label: 'Corner site, 40x60, Bagalur Main Road', address: 'Bagalur Main Road Corner Site, Thanisandra/Hennur, Bengaluru, Karnataka', distanceKm: 4.2, propertyType: 'residential_plot', areaSqm: 223, transactedAt: '2024-10-25', pricePerSqm: 78600, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Whitefield, Bengaluru (2, plotted land — supply here is genuinely thin) ---
+  mkComparable({ localityKey: 'blr-whitefield', label: 'Varthur BDA Layout Site, 30x40 East-facing', address: 'Varthur BDA Layout Site, Whitefield, Bengaluru, Karnataka', distanceKm: 3.2, propertyType: 'residential_plot', areaSqm: 111, transactedAt: '2025-04-12', pricePerSqm: 112000, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-whitefield', label: 'Corner site, 40x60, 60ft road, Kadugodi', address: 'Kadugodi Corner Site, 60ft Road, Whitefield, Bengaluru, Karnataka', distanceKm: 4.7, propertyType: 'residential_plot', areaSqm: 223, transactedAt: '2025-11-05', pricePerSqm: 108500, source: IGR_BLR, roundTo: 1000 }),
+
+  // --- Electronic City, Bengaluru (2, plotted land — supply here is genuinely thin) ---
+  mkComparable({ localityKey: 'blr-ecity', label: 'Neeladri Road Layout Site No. 31, 30x40', address: 'Neeladri Road Layout, Site No. 31, Electronic City, Bengaluru, Karnataka', distanceKm: 2.9, propertyType: 'residential_plot', areaSqm: 111, transactedAt: '2025-03-27', pricePerSqm: 65800, source: IGR_BLR, roundTo: 1000 }),
+  mkComparable({ localityKey: 'blr-ecity', label: 'Corner site, 40x60, Konappana Agrahara', address: 'Konappana Agrahara Corner Site, Electronic City, Bengaluru, Karnataka', distanceKm: 1.6, propertyType: 'residential_plot', areaSqm: 223, transactedAt: '2025-09-02', pricePerSqm: 69200, source: IGR_BLR, roundTo: 1000 }),
 
   // --- Zuidas, Amsterdam (5, office) ---
   mkComparable({ localityKey: 'ams-zuidas', label: 'WTC Tower H', address: 'WTC Tower H, Zuidas, Amsterdam, Noord-Holland', distanceKm: 0.4, propertyType: 'commercial_office', areaSqm: 850, transactedAt: '2025-09-18', pricePerSqm: 8350, source: KADASTER_NONRES, roundTo: 100 }),

@@ -258,12 +258,15 @@ export const KARNATAKA_PACK: StatePack = {
   registrationAuthority: 'Jurisdictional Sub-Registrar, booked and paid for via Kaveri Online Services',
   reraAuthority: 'Karnataka Real Estate Regulatory Authority (K-RERA)',
 
-  // Weights sum to 100. The five documents that establish "does the seller own
-  // this, cleanly, and can it legally be registered" — mother deed, sale deed,
-  // encumbrance certificate, khata, latest tax receipt — carry 67/100 between
-  // them, deliberately dominating the remaining nine optional/conditional
-  // documents (33/100) so a Bengaluru case cannot score as complete on
-  // paperwork that skips the title chain itself.
+  // Weights are relative, not percentages — the engine normalises by the actual
+  // total (currently 107 across 15 documents), so adding a document does not
+  // silently rescale the others.
+  //
+  // The five that establish "does the seller own this, cleanly, and can it
+  // legally be registered" — mother deed, sale deed, encumbrance certificate,
+  // khata, latest tax receipt — carry 67 of that 107 between them, deliberately
+  // dominating the remaining ten optional/conditional documents so a Bengaluru
+  // case cannot score as complete on paperwork that skips the title chain.
   requiredDocuments: [
     {
       kind: 'mother_deed',
@@ -363,6 +366,14 @@ export const KARNATAKA_PACK: StatePack = {
       required: false,
       note: 'For a BDA-allotted site, proves the original allottee lawfully took possession from the Bangalore Development Authority before any resale began the chain.',
     },
+    {
+      kind: 'other',
+      label: 'Layout approval plan / release or partition deed (site purchases)',
+      weight: 4,
+      required: false,
+      note:
+        'Plot-specific: the layout-approval order (BDA/BMRDA/panchayat/private) sanctioning the subdivision the site sits in, and — where the site was carved out of a larger family or joint holding rather than bought straight from a layout — the registered release or partition deed establishing that the seller\'s individual, undivided share became this specific, identifiable site. Neither has its own document type in this schema; both are filed under "other" until a dedicated plot-document taxonomy exists. A site with no traceable layout-approval order behind it is the paperwork signature of a revenue layout — see the layout approval status title check.',
+    },
   ],
 
   stampDutySlabs: STAMP_DUTY_SLABS,
@@ -406,6 +417,13 @@ export const KARNATAKA_PACK: StatePack = {
       description:
         'Whether the parcel was ever acquired for a BDA/BMRDA scheme and, if so, validly de-notified before the current sale. A live acquisition notice defeats the seller\'s title regardless of what the khata or tax receipts show.',
       statute: 'Bangalore Development Authority Act 1976; Bangalore Metropolitan Region Development Authority Act 1985',
+    },
+    {
+      key: 'layout_approval_status',
+      label: 'Layout approval status (BDA / BMRDA / panchayat / private / revenue / unapproved)',
+      description:
+        'Which authority, if any, approved the layout the site sits in. A BDA- or BMRDA-approved layout carries a traceable sanction; a panchayat- or private-approved layout needs that specific approval verified on its own merits. A revenue layout — sites carved directly out of agricultural revenue land and sold by sketch or GPA without any layout-plan sanction — or an outright unapproved layout is a serious, not a minor, finding: BBMP/BDA can refuse khata and building-plan sanction outright, lenders will typically decline to finance it, and the site can be exposed to demolition or resumption action even where the sale deed itself registered without issue. This is the single most consequential fact about a plot that a flat purchase never has to establish.',
+      statute: 'Karnataka Town and Country Planning Act 1961, ss.17 & 32; Bangalore Development Authority Act 1976; Karnataka Land Revenue Act 1964, s.95 (conversion of the underlying revenue land)',
     },
     {
       key: 'gram_panchayat_form_limits',

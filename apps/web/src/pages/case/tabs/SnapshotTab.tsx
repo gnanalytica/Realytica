@@ -3,9 +3,12 @@ import { AlertTriangle, Minus, Pencil } from 'lucide-react';
 import type {
   CountryCode,
   CurrencyCode,
+  LayoutApproval,
   MarketContext,
+  PlotFacing,
   PropertyIdentity,
   PropertyType,
+  ReferenceData,
   ScreenResult,
   Tenure,
 } from '@valytica/shared';
@@ -16,6 +19,7 @@ import {
   Card,
   CardBody,
   CardHeader,
+  Checkbox,
   EmptyState,
   Field,
   Input,
@@ -28,9 +32,18 @@ import {
 } from '../../../components/ui/kit';
 import { CompletenessRing, ConfidenceGauge, MarketTrendChart, ValueRangeChart } from '../../../components/charts';
 import { EvidenceLink } from '../../../components/EvidenceLink';
+import {
+  FACING_LABEL,
+  LAYOUT_APPROVAL_LABEL,
+  PlotFactsCard,
+  RISKY_LAYOUT_APPROVALS,
+  isLandPropertyType,
+  localityBenchmarkPerSqm,
+} from '../../../components/PlotFactsCard';
 import { api } from '../../../lib/api';
+import { useAsync } from '../../../lib/useAsync';
 import { PROPERTY_TYPE_LABEL, area, money, num, perSqm, pct, titleCase } from '../../../lib/format';
-import { formatArea, formatRate, useAreaUnitFor } from '../../../lib/units';
+import { SQM_PER_SQFT, formatArea, formatRate, sqmToSqft, useAreaUnitFor } from '../../../lib/units';
 import type { TabProps } from '../tab-props';
 
 const COUNTRY_LABEL: Record<CountryCode, string> = { IN: 'India', NL: 'Netherlands' };
@@ -129,9 +142,11 @@ export default function SnapshotTab({ caseData, result, refresh, runScreen, runn
 
       <IdentityCard caseData={caseData} refresh={refresh} runScreen={runScreen} running={running} />
 
+      {isLandPropertyType(identity.propertyType) ? <PlotFactsCard identity={identity} /> : null}
+
       <MissingCard result={result} goToTab={goToTab} />
 
-      {result ? <MarketStrip market={result.marketContext} currency={result.indicativeValue.currency} country={caseData.identity.country} /> : null}
+      {result ? <MarketStrip market={result.marketContext} currency={result.indicativeValue.currency} identity={identity} /> : null}
     </div>
   );
 }
@@ -175,21 +190,71 @@ function IdentityCard({
   const areaUnit = useAreaUnitFor(identity.country);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<PropertyIdentity>(identity);
+  // Plot dimensions are a compound { width, depth } value — kept as separate
+  // draft strings (like the wizard) rather than collapsing into `form.plot`
+  // directly, so typing one side doesn't wipe the other while incomplete.
+  const [plotWidthFt, setPlotWidthFt] = useState('');
+  const [plotDepthFt, setPlotDepthFt] = useState('');
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const toast = useToast();
 
+  const isLand = isLandPropertyType(form.propertyType);
+
   const openEdit = () => {
     setForm(identity);
+    setPlotWidthFt(identity.plot?.dimensionsFt ? String(identity.plot.dimensionsFt.width) : '');
+    setPlotDepthFt(identity.plot?.dimensionsFt ? String(identity.plot.dimensionsFt.depth) : '');
     setEditing(true);
   };
 
   const numOrUndefined = (raw: string): number | undefined => (raw === '' ? undefined : Number(raw));
 
+  function setPlotField<K extends 'roadWidthFt' | 'cornerSite' | 'facing' | 'layoutApproval' | 'demarcated'>(
+    key: K,
+    value: NonNullable<PropertyIdentity['plot']>[K],
+  ) {
+    setForm((f) => ({
+      ...f,
+      plot: { ...(f.plot ?? { facing: 'unknown', layoutApproval: 'unknown' }), [key]: value },
+    }));
+  }
+
+  // Dimensions-vs-plot-area sanity check, mirroring the wizard's Site details
+  // step — dimensions are captured natively in feet, so the comparison is done
+  // in sq ft regardless of the wizard-wide display unit.
+  const dimsWidthNum = Number(plotWidthFt);
+  const dimsDepthNum = Number(plotDepthFt);
+  const hasDims = plotWidthFt.trim() !== '' && plotDepthFt.trim() !== '' && dimsWidthNum > 0 && dimsDepthNum > 0;
+  const dimsAreaSqft = hasDims ? dimsWidthNum * dimsDepthNum : null;
+  const dimsAreaSqm = dimsAreaSqft !== null ? dimsAreaSqft * SQM_PER_SQFT : null;
+  const plotAreaSqftOnRecord = form.plotAreaSqm > 0 ? sqmToSqft(form.plotAreaSqm) : null;
+  const areaMismatchPct =
+    dimsAreaSqft !== null && plotAreaSqftOnRecord !== null && plotAreaSqftOnRecord > 0
+      ? ((dimsAreaSqft - plotAreaSqftOnRecord) / plotAreaSqftOnRecord) * 100
+      : null;
+  const areaMismatch = areaMismatchPct !== null && Math.abs(areaMismatchPct) > 5;
+
   const save = async () => {
     setSaving(true);
     try {
-      await api.updateCase(caseData.id, { identity: form });
+      const width = plotWidthFt.trim() === '' ? undefined : Number(plotWidthFt);
+      const depth = plotDepthFt.trim() === '' ? undefined : Number(plotDepthFt);
+      const dimensionsFt = width !== undefined && depth !== undefined && width > 0 && depth > 0 ? { width, depth } : undefined;
+      const payload: PropertyIdentity = {
+        ...form,
+        plot: isLandPropertyType(form.propertyType)
+          ? {
+              facing: form.plot?.facing ?? 'unknown',
+              layoutApproval: form.plot?.layoutApproval ?? 'unknown',
+              roadWidthFt: form.plot?.roadWidthFt,
+              cornerSite: form.plot?.cornerSite,
+              demarcated: form.plot?.demarcated,
+              dimensionsFt,
+            }
+          : undefined,
+      };
+      await api.updateCase(caseData.id, { identity: payload });
       await refresh();
       setEditing(false);
       setJustSaved(true);
@@ -339,6 +404,86 @@ function IdentityCard({
           <Field label="Plot area (m²)">
             <Input type="number" value={form.plotAreaSqm} onChange={(e) => setForm({ ...form, plotAreaSqm: Number(e.target.value) })} />
           </Field>
+
+          {isLand ? (
+            <>
+              <div className="sm:col-span-2">
+                <SectionTitle hint="Priced per sq ft of land, not built-up area">Site details</SectionTitle>
+              </div>
+              <Field label="Plot width (ft)" hint="Optional">
+                <Input type="number" value={plotWidthFt} onChange={(e) => setPlotWidthFt(e.target.value)} />
+              </Field>
+              <Field label="Plot depth (ft)" hint="Optional">
+                <Input type="number" value={plotDepthFt} onChange={(e) => setPlotDepthFt(e.target.value)} />
+              </Field>
+              {hasDims ? (
+                <p className="-mt-1 text-xs text-ink-secondary sm:col-span-2">
+                  Implied area: <span className="font-medium text-ink">{Math.round(dimsAreaSqft ?? 0).toLocaleString('en-IN')} sq ft</span>{' '}
+                  <span className="text-ink-muted">({formatArea(dimsAreaSqm, 'sqm')})</span>
+                </p>
+              ) : null}
+              {areaMismatch ? (
+                <div className="sm:col-span-2">
+                  <Callout tone="warning" title="Dimensions don't match the plot area on record">
+                    {plotWidthFt} × {plotDepthFt} ft implies{' '}
+                    <span className="font-medium text-ink">{Math.round(dimsAreaSqft ?? 0).toLocaleString('en-IN')} sq ft</span> —{' '}
+                    {pct(Math.abs(areaMismatchPct ?? 0), 0)} {(areaMismatchPct ?? 0) > 0 ? 'higher than' : 'lower than'} the{' '}
+                    {Math.round(plotAreaSqftOnRecord ?? 0).toLocaleString('en-IN')} sq ft plot area above. Worth double-checking.
+                  </Callout>
+                </div>
+              ) : null}
+              <Field label="Road width (ft)" hint="Affects both the achievable rate and permissible FAR.">
+                <Input
+                  type="number"
+                  value={form.plot?.roadWidthFt ?? ''}
+                  onChange={(e) => setPlotField('roadWidthFt', e.target.value === '' ? undefined : Number(e.target.value))}
+                />
+              </Field>
+              <Field label="Facing" hint="East/north-facing sites carry a measurable premium here.">
+                <Select value={form.plot?.facing ?? 'unknown'} onChange={(e) => setPlotField('facing', e.target.value as PlotFacing)}>
+                  {(Object.keys(FACING_LABEL) as PlotFacing[]).map((f) => (
+                    <option key={f} value={f}>
+                      {FACING_LABEL[f]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Layout approval" className="sm:col-span-2">
+                <Select
+                  value={form.plot?.layoutApproval ?? 'unknown'}
+                  onChange={(e) => setPlotField('layoutApproval', e.target.value as LayoutApproval)}
+                >
+                  {(Object.keys(LAYOUT_APPROVAL_LABEL) as LayoutApproval[]).map((l) => (
+                    <option key={l} value={l}>
+                      {LAYOUT_APPROVAL_LABEL[l]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              {form.plot && RISKY_LAYOUT_APPROVALS.includes(form.plot.layoutApproval) ? (
+                <div className="sm:col-span-2">
+                  <Callout tone="warning" title="This layout status is a material finding">
+                    {LAYOUT_APPROVAL_LABEL[form.plot.layoutApproval]} sites are hard to finance and hard to resell.
+                  </Callout>
+                </div>
+              ) : null}
+              <Field label="Corner site">
+                <Checkbox
+                  checked={form.plot?.cornerSite ?? false}
+                  onChange={(v) => setPlotField('cornerSite', v)}
+                  label="This is a corner site"
+                />
+              </Field>
+              <Field label="Demarcated / possession">
+                <Checkbox
+                  checked={form.plot?.demarcated ?? false}
+                  onChange={(v) => setPlotField('demarcated', v)}
+                  label="Fenced and in undisputed possession"
+                />
+              </Field>
+            </>
+          ) : null}
+
           <Field label="Year built" hint="Optional">
             <Input
               type="number"
@@ -435,16 +580,35 @@ function MissingCard({ result, goToTab }: { result: ScreenResult | null; goToTab
   );
 }
 
-function MarketStrip({ market, currency, country }: { market: MarketContext; currency: CurrencyCode; country: CountryCode }) {
-  const areaUnit = useAreaUnitFor(country);
+function MarketStrip({ market, currency, identity }: { market: MarketContext; currency: CurrencyCode; identity: PropertyIdentity }) {
+  const areaUnit = useAreaUnitFor(identity.country);
   const unitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
+  const isLand = isLandPropertyType(identity.propertyType);
+  // Independently resolved from the reference data rather than trusted
+  // wholesale from `market.medianPricePerSqm` — a site's rate must never be
+  // benchmarked against a built-up price basis, so a land subject without a
+  // resolvable land-rate figure shows "—" rather than the wrong number.
+  const { data: reference } = useAsync<ReferenceData>(() => api.reference(), []);
+  const localityRate = localityBenchmarkPerSqm(reference, identity);
+  const rateToShow = isLand ? localityRate : (localityRate ?? market.medianPricePerSqm);
 
   return (
     <Card>
       <CardHeader title="Market context" subtitle={market.source} />
       <CardBody>
+        {isLand ? (
+          <div className="mb-3">
+            <Callout tone="info" title="Land-rate basis">
+              This locality figure is the median <span className="font-medium text-ink">land rate</span> per {unitLabel} of plot area —
+              not the built-up price basis used for apartments and villas.
+            </Callout>
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Stat label={`Median price / ${unitLabel}`} value={formatRate(market.medianPricePerSqm, areaUnit, currency)} />
+          <Stat
+            label={`${isLand ? 'Median land rate' : 'Median price'} / ${unitLabel}`}
+            value={formatRate(rateToShow, areaUnit, currency)}
+          />
           <Stat
             label="YoY change"
             value={pct(market.yoyChangePct, 1, true)}

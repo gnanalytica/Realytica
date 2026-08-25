@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from 'lucide-react';
-import type { Comparable, CurrencyCode } from '@valytica/shared';
+import type { Comparable, CurrencyCode, ReferenceData } from '@valytica/shared';
 import {
   Badge,
   Callout,
@@ -15,6 +15,9 @@ import {
 } from '../../../components/ui/kit';
 import { AnchorWeightChart, ComparablesChart, ValueRangeChart } from '../../../components/charts';
 import { EvidenceLink } from '../../../components/EvidenceLink';
+import { isLandPropertyType, localityBenchmarkPerSqm } from '../../../components/PlotFactsCard';
+import { api } from '../../../lib/api';
+import { useAsync } from '../../../lib/useAsync';
 import { date, money, num, perSqm, pct, titleCase } from '../../../lib/format';
 import { formatArea, formatRate, useAreaUnitFor } from '../../../lib/units';
 import type { AreaUnit } from '../../../lib/units';
@@ -44,6 +47,13 @@ function sortValue(c: Comparable, key: SortKey): number {
 export default function ValuationTab({ caseData, result }: TabProps) {
   const areaUnit = useAreaUnitFor(caseData.identity.country);
   const unitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
+  const isLand = isLandPropertyType(caseData.identity.propertyType);
+  // Resolved independently from the reference data rather than trusted
+  // wholesale from `marketContext.medianPricePerSqm` — a site's rate must
+  // never be benchmarked against the built-up basis used for apartments and
+  // villas, so a land subject without a resolvable land-rate figure falls
+  // back to "—", never to the wrong number.
+  const { data: reference } = useAsync<ReferenceData>(() => api.reference(), []);
   const [expandedComparableIds, setExpandedComparableIds] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>('similarity');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -97,8 +107,12 @@ export default function ValuationTab({ caseData, result }: TabProps) {
       ? `${weightParts.slice(0, -1).join(', ')} and ${weightParts[weightParts.length - 1]}`
       : (weightParts[0] ?? 'no anchors');
 
+  const localityRate = localityBenchmarkPerSqm(reference, caseData.identity);
+  const localityRateForSubject = isLand ? localityRate : (localityRate ?? marketContext.medianPricePerSqm);
   const vsMedianPct =
-    marketContext.medianPricePerSqm > 0 ? ((iv.perSqm.mid - marketContext.medianPricePerSqm) / marketContext.medianPricePerSqm) * 100 : null;
+    localityRateForSubject !== null && localityRateForSubject > 0
+      ? ((iv.perSqm.mid - localityRateForSubject) / localityRateForSubject) * 100
+      : null;
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5">
