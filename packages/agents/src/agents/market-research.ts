@@ -156,7 +156,7 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
     ...BASE_REQUEST,
     max_tokens: 8000,
     system: [{ type: 'text' as const, text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' as const } }],
-    tools: [WEB_SEARCH_TOOL as unknown as Anthropic.Beta.BetaToolUnion],
+    tools: [WEB_SEARCH_TOOL],
     messages: [{ role: 'user' as const, content: `Locality market terms (this is all you are given — do not ask for more):\n${contextBlock}` }],
   };
 
@@ -171,7 +171,7 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
 
   let final: Anthropic.Beta.BetaMessage;
   try {
-    const runner = client.beta.messages.toolRunner(requestParams as unknown as NonStreamingToolRunnerParams);
+    const runner = client.beta.messages.toolRunner(requestParams);
     // web_search is a server-side tool: a long research turn can come back
     // with stop_reason "pause_turn" after the server's own iteration limit.
     // The runner does not auto-resume that — it would otherwise silently

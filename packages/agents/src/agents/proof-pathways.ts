@@ -586,11 +586,7 @@ export async function runProofPathways(input: {
 
   let finalMessage: Anthropic.Beta.Messages.BetaMessage;
   try {
-    // The params object is cast once, at this call site, because BASE_REQUEST's
-    // `thinking: {type:'adaptive'}` and `fallbacks` are current API but postdate
-    // this SDK build's bundled .d.ts. Everything else stays type-checked. See
-    // the note in client.ts.
-    const streamParams = {
+    const stream = client.beta.messages.stream({
       ...BASE_REQUEST,
       max_tokens: 64000,
       output_config: { effort: 'high' },
@@ -605,10 +601,7 @@ export async function runProofPathways(input: {
         },
       ],
       tool_choice: { type: 'tool', name: TOOL_NAME },
-    };
-    const stream = client.beta.messages.stream(
-      streamParams as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
-    );
+    });
     finalMessage = await stream.finalMessage();
   } catch (e) {
     return fail(describeError(e));

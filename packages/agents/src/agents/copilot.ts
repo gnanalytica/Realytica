@@ -199,7 +199,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
 
   let final: Anthropic.Beta.BetaMessage;
   try {
-    const runner = client.beta.messages.toolRunner(requestParams as unknown as NonStreamingToolRunnerParams);
+    const runner = client.beta.messages.toolRunner(requestParams);
     for await (const message of runner) {
       for (const block of message.content) {
         if (block.type === 'tool_use') {

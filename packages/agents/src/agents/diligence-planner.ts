@@ -271,7 +271,7 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
   // adaptive thinking, hence the cast below (`unknown` only — never `any`).
   let final: Anthropic.Beta.BetaMessage;
   try {
-    const stream = client.beta.messages.stream(requestParams as unknown as Anthropic.Beta.MessageCreateParamsNonStreaming);
+    const stream = client.beta.messages.stream(requestParams);
     final = await stream.finalMessage();
   } catch (e) {
     const reason = describeError(e);

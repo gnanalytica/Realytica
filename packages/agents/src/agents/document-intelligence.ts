@@ -643,7 +643,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     // cast unblocks the compiler against a stale type union without touching
     // the request body itself (no `any` involved — `unknown` is a type-only
     // detour, not a runtime one).
-    const stream = client.beta.messages.stream(requestParams as unknown as Anthropic.Beta.MessageCreateParamsNonStreaming);
+    const stream = client.beta.messages.stream(requestParams);
     message = await stream.finalMessage();
   } catch (e) {
     const reason = describeError(e);
