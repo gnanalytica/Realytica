@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { CurrencyCode } from '@valytica/shared';
 import { perSqm } from '../../lib/format';
+import { formatRate, useAreaUnitForCurrency } from '../../lib/units';
 import {
   ChartContainer,
   ChartEmpty,
@@ -36,6 +37,8 @@ const PAD_TOP = 26;
 
 /** A single-series line + area wash — median price/m² over time, endpoint-labelled, with a crosshair tooltip. */
 export default function MarketTrendChart({ trend, currency, height = 200 }: MarketTrendChartProps) {
+  // Labels only — the scale stays on the stored per-m² series.
+  const areaUnit = useAreaUnitForCurrency(currency);
   const [containerRef, size] = useMeasure<HTMLDivElement>();
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -72,7 +75,7 @@ export default function MarketTrendChart({ trend, currency, height = 200 }: Mark
   const last = trend[trend.length - 1];
   const firstYoy = trend.length > 1 ? ((last.medianPricePerSqm - first.medianPricePerSqm) / first.medianPricePerSqm) * 100 : 0;
 
-  const ariaLabel = `Market trend across ${trend.length} periods, from ${perSqm(first.medianPricePerSqm, currency)} in ${first.period} to ${perSqm(
+  const ariaLabel = `Market trend across ${trend.length} periods, from ${formatRate(first.medianPricePerSqm, areaUnit, currency)} in ${first.period} to ${perSqm(
     last.medianPricePerSqm,
     currency,
   )} in ${last.period} (${firstYoy >= 0 ? '+' : ''}${firstYoy.toFixed(1)}% overall)`;
@@ -86,7 +89,7 @@ export default function MarketTrendChart({ trend, currency, height = 200 }: Mark
     setTooltip({
       x: x(idx),
       y: y(point.medianPricePerSqm),
-      content: <TooltipRow swatch="var(--series-1)" label={point.period} value={perSqm(point.medianPricePerSqm, currency)} />,
+      content: <TooltipRow swatch="var(--series-1)" label={point.period} value={formatRate(point.medianPricePerSqm, areaUnit, currency)} />,
     });
   }
 
@@ -134,10 +137,10 @@ export default function MarketTrendChart({ trend, currency, height = 200 }: Mark
 
         {/* endpoint labels only */}
         <text x={x(0)} y={y(first.medianPricePerSqm) - 10} textAnchor="start" fontSize={11} fontWeight={600} fill="var(--text-primary)">
-          {perSqm(first.medianPricePerSqm, currency)}
+          {formatRate(first.medianPricePerSqm, areaUnit, currency)}
         </text>
         <text x={x(trend.length - 1)} y={y(last.medianPricePerSqm) - 10} textAnchor="end" fontSize={11} fontWeight={600} fill="var(--text-primary)">
-          {perSqm(last.medianPricePerSqm, currency)}
+          {formatRate(last.medianPricePerSqm, areaUnit, currency)}
         </text>
 
         {trend.map((t, i) =>

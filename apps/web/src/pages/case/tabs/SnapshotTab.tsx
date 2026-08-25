@@ -30,6 +30,7 @@ import { CompletenessRing, ConfidenceGauge, MarketTrendChart, ValueRangeChart } 
 import { EvidenceLink } from '../../../components/EvidenceLink';
 import { api } from '../../../lib/api';
 import { PROPERTY_TYPE_LABEL, area, money, num, perSqm, pct, titleCase } from '../../../lib/format';
+import { formatArea, formatRate, useAreaUnitFor } from '../../../lib/units';
 import type { TabProps } from '../tab-props';
 
 const COUNTRY_LABEL: Record<CountryCode, string> = { IN: 'India', NL: 'Netherlands' };
@@ -130,7 +131,7 @@ export default function SnapshotTab({ caseData, result, refresh, runScreen, runn
 
       <MissingCard result={result} goToTab={goToTab} />
 
-      {result ? <MarketStrip market={result.marketContext} currency={result.indicativeValue.currency} /> : null}
+      {result ? <MarketStrip market={result.marketContext} currency={result.indicativeValue.currency} country={caseData.identity.country} /> : null}
     </div>
   );
 }
@@ -171,6 +172,7 @@ function IdentityCard({
   running,
 }: Pick<TabProps, 'caseData' | 'refresh' | 'runScreen' | 'running'>) {
   const { identity } = caseData;
+  const areaUnit = useAreaUnitFor(identity.country);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<PropertyIdentity>(identity);
   const [saving, setSaving] = useState(false);
@@ -240,8 +242,8 @@ function IdentityCard({
           <KeyValue label="Parcel ID" value={identity.parcelId} mono />
           <KeyValue label="Property type" value={PROPERTY_TYPE_LABEL[identity.propertyType]} />
           <KeyValue label="Tenure" value={titleCase(identity.tenure)} />
-          <KeyValue label="Built-up area" value={area(identity.builtUpAreaSqm)} />
-          <KeyValue label="Plot area" value={area(identity.plotAreaSqm)} />
+          <KeyValue label="Built-up area" value={formatArea(identity.builtUpAreaSqm, areaUnit)} />
+          <KeyValue label="Plot area" value={formatArea(identity.plotAreaSqm, areaUnit)} />
           {identity.yearBuilt ? <KeyValue label="Year built" value={identity.yearBuilt} /> : null}
           {identity.floor !== undefined ? (
             <KeyValue label="Floor" value={identity.totalFloors ? `${identity.floor} / ${identity.totalFloors}` : identity.floor} />
@@ -433,13 +435,16 @@ function MissingCard({ result, goToTab }: { result: ScreenResult | null; goToTab
   );
 }
 
-function MarketStrip({ market, currency }: { market: MarketContext; currency: CurrencyCode }) {
+function MarketStrip({ market, currency, country }: { market: MarketContext; currency: CurrencyCode; country: CountryCode }) {
+  const areaUnit = useAreaUnitFor(country);
+  const unitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
+
   return (
     <Card>
       <CardHeader title="Market context" subtitle={market.source} />
       <CardBody>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Stat label="Median price / m²" value={perSqm(market.medianPricePerSqm, currency)} />
+          <Stat label={`Median price / ${unitLabel}`} value={formatRate(market.medianPricePerSqm, areaUnit, currency)} />
           <Stat
             label="YoY change"
             value={pct(market.yoyChangePct, 1, true)}

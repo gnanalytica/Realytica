@@ -14,6 +14,7 @@ import {
 import type {
   ActionPriority,
   Comparable,
+  ComplianceCheck,
   ConfidenceFactor,
   DriverCategory,
   EvidenceItem,
@@ -36,6 +37,7 @@ import {
   VERDICT_LABEL,
   verdictTone,
 } from '../../../lib/format';
+import { formatArea, formatRate, useAreaUnitFor } from '../../../lib/units';
 import {
   Badge,
   Button,
@@ -52,6 +54,7 @@ import {
   useToast,
   type Tone,
 } from '../../../components/ui/kit';
+import { StatutoryProvenance } from '../../../components/StatutoryProvenance';
 import ValueRangeChart from '../../../components/charts/ValueRangeChart';
 import AnchorWeightChart from '../../../components/charts/AnchorWeightChart';
 import ComparablesChart from '../../../components/charts/ComparablesChart';
@@ -73,6 +76,27 @@ const EVIDENCE_SOURCE_LABEL: Record<EvidenceItem['sourceType'], string> = {
   user_input: 'User input',
   model_inference: 'Model inference',
 };
+
+const COMPLIANCE_VERDICT_RANK: Record<ComplianceCheck['verdict'], number> = {
+  blocker: 0,
+  attention: 1,
+  unknown: 2,
+  clear: 3,
+};
+
+function complianceVerdictTone(v: ComplianceCheck['verdict']): Tone {
+  switch (v) {
+    case 'clear':
+      return 'good';
+    case 'attention':
+      return 'warning';
+    case 'blocker':
+      return 'critical';
+    case 'unknown':
+    default:
+      return 'neutral';
+  }
+}
 
 function driverTone(direction: ValueDriver['direction']): Tone {
   if (direction === 'positive') return 'good';
@@ -176,12 +200,47 @@ function TableWrap({ children }: { children: ReactNode }) {
   return <div className="overflow-x-auto rounded-lg ring-1 ring-[var(--ring)]">{children}</div>;
 }
 
+const COMPLIANCE_VERDICT_LABEL: Record<ComplianceCheck['verdict'], string> = {
+  clear: 'Clear',
+  attention: 'Attention',
+  blocker: 'Blocker',
+  unknown: 'Unknown',
+};
+
+/** One Karnataka compliance check, printed with the same fields as the Compliance tab card. */
+function ComplianceCheckRow({ check }: { check: ComplianceCheck }) {
+  return (
+    <div className="rounded-lg border border-hairline p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={complianceVerdictTone(check.verdict)}>{COMPLIANCE_VERDICT_LABEL[check.verdict]}</Badge>
+        <span className="text-[13px] font-medium text-ink">{check.label}</span>
+        <span className="ml-auto rounded bg-sunken px-1.5 py-0.5 font-mono text-[10.5px] text-ink-secondary">
+          {check.statute}
+        </span>
+      </div>
+      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-secondary">{check.finding}</p>
+      <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-muted">Consequence</div>
+          <p className="text-xs text-ink-secondary">{check.consequence}</p>
+        </div>
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-muted">Next step</div>
+          <p className="text-xs text-ink-secondary">{check.nextStep}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Report                                                              */
 /* ------------------------------------------------------------------ */
 
 export default function ReportTab({ caseData, result, runScreen, running, goToTab }: TabProps) {
   const toast = useToast();
+  const areaUnit = useAreaUnitFor(caseData.identity.country);
+  const unitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
   const [showAppendix, setShowAppendix] = useState(false);
 
   if (!result) {
@@ -290,6 +349,26 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
   const factorSum = result.confidence.factors.reduce((s, f) => s + f.contribution, 0);
   const openRisksCount = result.risks.filter((r) => r.status === 'open').length;
 
+  // The State / Municipality Pack sections only exist for a state a pack covers
+  // (Karnataka in this release) — both are inserted together, or neither is,
+  // and every later section number shifts by this amount.
+  const stateCompliance = result.stateCompliance ?? null;
+  const transactionCosts = result.transactionCosts ?? null;
+  const hasStatePack = Boolean(stateCompliance);
+  const extra = hasStatePack ? 2 : 0;
+  const complianceBlockers = stateCompliance ? stateCompliance.checks.filter((c) => c.verdict === 'blocker') : [];
+  const complianceRest = stateCompliance
+    ? [...stateCompliance.checks]
+        .filter((c) => c.verdict !== 'blocker')
+        .sort((a, b) => COMPLIANCE_VERDICT_RANK[a.verdict] - COMPLIANCE_VERDICT_RANK[b.verdict])
+    : [];
+  const complianceUnresolved = stateCompliance
+    ? stateCompliance.unresolved.map((keyOrLabel) => {
+        const match = stateCompliance.checks.find((c) => c.key === keyOrLabel || c.label === keyOrLabel);
+        return match ? match.label : keyOrLabel;
+      })
+    : [];
+
   return (
     <div className="vly-report-print mx-auto max-w-4xl">
       <style>{PRINT_STYLE}</style>
@@ -377,9 +456,9 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
               value={result.indicativeValue.askingVsMidPct != null ? pct(result.indicativeValue.askingVsMidPct, 1, true) : '—'}
               mono
             />
-            <KeyValue label="Per m² — low" value={perSqm(result.indicativeValue.perSqm.low, currency)} mono />
-            <KeyValue label="Per m² — mid" value={perSqm(result.indicativeValue.perSqm.mid, currency)} mono />
-            <KeyValue label="Per m² — high" value={perSqm(result.indicativeValue.perSqm.high, currency)} mono />
+            <KeyValue label={`Per {unitLabel} — low`} value={formatRate(result.indicativeValue.perSqm.low, areaUnit, currency)} mono />
+            <KeyValue label={`Per {unitLabel} — mid`} value={formatRate(result.indicativeValue.perSqm.mid, areaUnit, currency)} mono />
+            <KeyValue label={`Per {unitLabel} — high`} value={formatRate(result.indicativeValue.perSqm.high, areaUnit, currency)} mono />
             <KeyValue label="Asking price" value={identity.askingPrice != null ? money(identity.askingPrice, currency) : 'Not supplied'} mono />
           </div>
           <ValueRangeChart
@@ -435,9 +514,9 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
                   <th className="px-3 py-2">Comparable</th>
                   <th className="px-3 py-2">Transacted</th>
                   <th className="px-3 py-2">Area</th>
-                  <th className="px-3 py-2">Raw /m²</th>
+                  <th className="px-3 py-2">{`Raw /${unitLabel}`}</th>
                   <th className="px-3 py-2">Adjustments</th>
-                  <th className="px-3 py-2">Adjusted /m²</th>
+                  <th className="px-3 py-2">{`Adjusted /${unitLabel}`}</th>
                   <th className="px-3 py-2">Similarity</th>
                 </tr>
               </thead>
@@ -451,14 +530,14 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
                       </div>
                     </td>
                     <td className="px-3 py-2 tabular text-ink-secondary">{date(c.transactedAt)}</td>
-                    <td className="px-3 py-2 tabular text-ink-secondary">{area(c.areaSqm)}</td>
-                    <td className="px-3 py-2 tabular text-ink-secondary">{perSqm(c.pricePerSqm, currency)}</td>
+                    <td className="px-3 py-2 tabular text-ink-secondary">{formatArea(c.areaSqm, areaUnit)}</td>
+                    <td className="px-3 py-2 tabular text-ink-secondary">{formatRate(c.pricePerSqm, areaUnit, currency)}</td>
                     <td className="px-3 py-2 text-ink-secondary">
                       {c.adjustments.length > 0
                         ? c.adjustments.map((adj) => `${adj.label} ${pct(adj.pct, 1, true)}`).join(', ')
                         : 'None'}
                     </td>
-                    <td className="px-3 py-2 tabular font-medium text-ink">{perSqm(c.adjustedPricePerSqm, currency)}</td>
+                    <td className="px-3 py-2 tabular font-medium text-ink">{formatRate(c.adjustedPricePerSqm, areaUnit, currency)}</td>
                     <td className="px-3 py-2 tabular text-ink-secondary">{pct(c.similarity * 100, 0)}</td>
                   </tr>
                 ))}
@@ -532,12 +611,145 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </div>
         </Section>
 
-        {/* 8. Planning position */}
-        <Section n={8} title="Planning position">
+        {/* 8. State compliance (Karnataka) — only when a State Pack covers this property's state */}
+        {stateCompliance ? (
+          <Section
+            n={8}
+            title={`State compliance (${stateCompliance.state})`}
+            subtitle="Title and municipal checks specific to this state — not a legal opinion or certified title report"
+            action={<Badge tone={complianceBlockers.length > 0 ? 'critical' : 'good'}>{complianceBlockers.length} blocker{complianceBlockers.length === 1 ? '' : 's'}</Badge>}
+          >
+            <div className="flex flex-wrap items-center gap-6">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Compliance score</div>
+                <div className="text-3xl font-semibold text-ink">
+                  {stateCompliance.score}
+                  <span className="text-base text-ink-muted">/100</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
+                <KeyValue label="Clear" value={stateCompliance.checks.filter((c) => c.verdict === 'clear').length} mono />
+                <KeyValue label="Attention" value={stateCompliance.checks.filter((c) => c.verdict === 'attention').length} mono />
+                <KeyValue label="Blocker" value={complianceBlockers.length} mono />
+                <KeyValue label="Unknown" value={stateCompliance.checks.filter((c) => c.verdict === 'unknown').length} mono />
+              </div>
+            </div>
+
+            {complianceBlockers.length > 0 ? (
+              <div>
+                <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-critical">
+                  Blockers — resolve before proceeding
+                </div>
+                <div className="space-y-2">
+                  {complianceBlockers.map((c) => (
+                    <ComplianceCheckRow key={c.key} check={c} />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <Callout tone="good" title="No blockers found">
+                None of the applicable checks came back as a hard blocker.
+              </Callout>
+            )}
+
+            {complianceRest.length > 0 ? (
+              <div>
+                <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Other checks</div>
+                <div className="space-y-2">
+                  {complianceRest.map((c) => (
+                    <ComplianceCheckRow key={c.key} check={c} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div>
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Unresolved checks</div>
+              {complianceUnresolved.length > 0 ? (
+                <ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink-secondary">
+                  {complianceUnresolved.map((u, i) => (
+                    <li key={i}>{u}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[13px] text-ink-muted">Every applicable check could be resolved from what was supplied.</p>
+              )}
+            </div>
+
+            <StatutoryProvenance
+              asOf={stateCompliance.rulesAsOf}
+              source={`${stateCompliance.state} State Pack — ${stateCompliance.statePackId}`}
+              verifyNote={stateCompliance.verifyNote}
+            />
+          </Section>
+        ) : null}
+
+        {/* 9. Indicative acquisition costs — only alongside state compliance */}
+        {transactionCosts ? (
+          <Section
+            n={9}
+            title="Indicative acquisition costs"
+            subtitle="Stamp duty, cess, surcharge and registration on top of the price"
+          >
+            <Callout tone="info" title="Duty is charged on the higher of price and guidance value">
+              Stamp duty and registration fees are computed on whichever is higher: the agreed sale consideration or
+              the government&rsquo;s statutory guidance value for the locality — never on the lower figure.
+            </Callout>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <KeyValue
+                label="Dutiable value"
+                value={money(transactionCosts.dutiableValue, transactionCosts.currency)}
+                mono
+              />
+              <KeyValue
+                label="Basis used"
+                value={transactionCosts.dutiableBasis === 'statutory_guidance_value' ? 'Guidance value' : 'Sale consideration'}
+              />
+              <KeyValue label="Total cost" value={money(transactionCosts.total, transactionCosts.currency)} mono />
+              <KeyValue label="As % of price" value={pct(transactionCosts.totalPctOfPrice, 1)} mono />
+            </div>
+            <TableWrap>
+              <table className="w-full min-w-[520px] border-collapse text-[13px]">
+                <thead>
+                  <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-[0.05em] text-ink-muted">
+                    <th className="px-3 py-2">Line item</th>
+                    <th className="px-3 py-2">Rate</th>
+                    <th className="px-3 py-2">Note</th>
+                    <th className="px-3 py-2">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactionCosts.lines.map((line) => (
+                    <tr key={line.key} className="border-b border-hairline last:border-0 align-top">
+                      <td className="px-3 py-2 font-medium text-ink">{line.label}</td>
+                      <td className="px-3 py-2 tabular text-ink-secondary">{line.pct != null ? pct(line.pct, 2) : '—'}</td>
+                      <td className="px-3 py-2 text-ink-secondary">{line.note}</td>
+                      <td className="px-3 py-2 tabular font-medium text-ink">{money(line.amount, transactionCosts.currency, { compact: false })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td className="px-3 py-2 text-[13px] font-semibold text-ink" colSpan={3}>
+                      Total
+                    </td>
+                    <td className="px-3 py-2 tabular text-[13px] font-semibold text-ink">
+                      {money(transactionCosts.total, transactionCosts.currency, { compact: false })}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </TableWrap>
+            <StatutoryProvenance asOf={transactionCosts.asOf} source={transactionCosts.source} verifyNote={transactionCosts.verifyNote} />
+          </Section>
+        ) : null}
+
+        {/* 8+extra. Planning position */}
+        <Section n={8 + extra} title="Planning position">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <KeyValue label="Zoning" value={result.planning.zoning} />
             <KeyValue label="Development potential" value={titleCase(result.planning.developmentPotential)} />
-            <KeyValue label="Buildable potential" value={area(result.planning.buildablePotentialSqm)} mono />
+            <KeyValue label="Buildable potential" value={formatArea(result.planning.buildablePotentialSqm, areaUnit)} mono />
             <KeyValue label="Source" value={result.planning.source} />
           </div>
           <div>
@@ -577,9 +789,9 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <p className="text-[11px] text-ink-muted">Last checked {date(result.planning.lastCheckedAt)}</p>
         </Section>
 
-        {/* 9. Document completeness */}
+        {/* 9+extra. Document completeness */}
         <Section
-          n={9}
+          n={9 + extra}
           title="Document completeness"
           action={
             <Button variant="ghost" size="sm" onClick={() => goToTab('documents')}>
@@ -631,8 +843,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           ) : null}
         </Section>
 
-        {/* 10. Confidence */}
-        <Section n={10} title="Confidence" subtitle="Stated as arithmetic, not a black box">
+        {/* 10+extra. Confidence */}
+        <Section n={10 + extra} title="Confidence" subtitle="Stated as arithmetic, not a black box">
           <div className="flex flex-wrap items-center gap-6">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Score</div>
@@ -666,8 +878,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </Callout>
         </Section>
 
-        {/* 11. Recommended actions */}
-        <Section n={11} title="Recommended actions">
+        {/* 11+extra. Recommended actions */}
+        <Section n={11 + extra} title="Recommended actions">
           <div className="space-y-4">
             {PRIORITY_ORDER.map((priority) => {
               const list = actionsByPriority.get(priority) ?? [];
@@ -700,9 +912,9 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </div>
         </Section>
 
-        {/* 12. Evidence appendix */}
+        {/* 12+extra. Evidence appendix */}
         {showAppendix ? (
-          <Section n={12} title="Evidence appendix" subtitle={`Full ledger — ${result.evidence.length} items`}>
+          <Section n={12 + extra} title="Evidence appendix" subtitle={`Full ledger — ${result.evidence.length} items`}>
             <TableWrap>
               <table className="w-full min-w-[640px] border-collapse text-[13px]">
                 <thead>
@@ -741,8 +953,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </div>
         )}
 
-        {/* 13. Scope and limitations */}
-        <Section n={showAppendix ? 13 : 12} title="Scope and limitations">
+        {/* 13+extra (or 12+extra without the appendix). Scope and limitations */}
+        <Section n={(showAppendix ? 13 : 12) + extra} title="Scope and limitations">
           <p className="text-[13px] leading-relaxed text-ink-secondary">This Property Screen report is an evidence-based indicative screen. It is not:</p>
           <ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink-secondary">
             {OUT_OF_SCOPE.map((item, i) => (

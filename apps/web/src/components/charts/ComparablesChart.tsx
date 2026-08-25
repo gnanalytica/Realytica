@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Comparable, CurrencyCode } from '@valytica/shared';
 import { area, date, perSqm, pct } from '../../lib/format';
+import { formatArea, formatRate, useAreaUnitForCurrency } from '../../lib/units';
 import {
   ChartContainer,
   ChartEmpty,
@@ -34,6 +35,10 @@ const AXIS_H = 26;
  * a distinct dashed reference line, never folded into the comparable color.
  */
 export default function ComparablesChart({ comparables, subjectPricePerSqm, currency, height = 240 }: ComparablesChartProps) {
+  // Only the tick and tooltip labels convert; the scale is computed on the
+  // stored per-m² values so no rounding reaches the plotted geometry.
+  const areaUnit = useAreaUnitForCurrency(currency);
+  const rateUnitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
   const [containerRef, size] = useMeasure<HTMLDivElement>();
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -76,7 +81,7 @@ export default function ComparablesChart({ comparables, subjectPricePerSqm, curr
   const yTickTs = tMin === tMax ? [tMin] : [tMin, tMin + (tMax - tMin) / 2, tMax];
 
   const ariaLabel = `${comparables.length} comparables plotted by adjusted price per square metre and transaction recency${
-    subject != null ? `, subject at ${perSqm(subject, currency)}` : ''
+    subject != null ? `, subject at ${formatRate(subject, areaUnit, currency)}` : ''
   }`;
 
   return (
@@ -95,7 +100,7 @@ export default function ComparablesChart({ comparables, subjectPricePerSqm, curr
         ))}
         {xTicks.map((t) => (
           <TickText key={`x-${t}`} x={x(t)} y={plotBottom + 15} anchor="middle">
-            {perSqm(t, currency)}
+            {formatRate(t, areaUnit, currency)}
           </TickText>
         ))}
 
@@ -135,8 +140,8 @@ export default function ComparablesChart({ comparables, subjectPricePerSqm, curr
                       <div className="flex max-w-[15rem] flex-col gap-1">
                         <div className="font-semibold">{c.label}</div>
                         <div className="opacity-80">{c.address}</div>
-                        <TooltipRow swatch="var(--series-1)" label="adjusted /m²" value={perSqm(c.adjustedPricePerSqm, currency)} />
-                        <TooltipRow label="raw /m²" value={perSqm(c.pricePerSqm, currency)} />
+                        <TooltipRow swatch="var(--series-1)" label={`adjusted /${rateUnitLabel}`} value={formatRate(c.adjustedPricePerSqm, areaUnit, currency)} />
+                        <TooltipRow label={`raw /${rateUnitLabel}`} value={formatRate(c.pricePerSqm, areaUnit, currency)} />
                         <TooltipRow label="area" value={area(c.areaSqm)} />
                         <TooltipRow label="transacted" value={date(c.transactedAt)} />
                         <TooltipRow label="distance" value={`${c.distanceKm.toFixed(1)} km`} />

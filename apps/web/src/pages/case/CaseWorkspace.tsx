@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import UnitToggle from '../../components/UnitToggle';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -11,6 +12,7 @@ import {
   ListChecks,
   MapPinned,
   RefreshCw,
+  ScrollText,
   ShieldAlert,
   Waypoints,
 } from 'lucide-react';
@@ -43,6 +45,7 @@ import DocumentsTab from './tabs/DocumentsTab';
 import ValuationTab from './tabs/ValuationTab';
 import DriversTab from './tabs/DriversTab';
 import RisksTab from './tabs/RisksTab';
+import ComplianceTab from './tabs/ComplianceTab';
 import PlanningTab from './tabs/PlanningTab';
 import CompletenessTab from './tabs/CompletenessTab';
 import EvidenceTab from './tabs/EvidenceTab';
@@ -55,6 +58,7 @@ const TAB_KEYS = [
   'valuation',
   'drivers',
   'risks',
+  'compliance',
   'planning',
   'completeness',
   'evidence',
@@ -69,6 +73,7 @@ const ANALYSIS_TABS = new Set<TabKey>([
   'valuation',
   'drivers',
   'risks',
+  'compliance',
   'planning',
   'completeness',
   'evidence',
@@ -145,6 +150,10 @@ export default function CaseWorkspace() {
   const tabDefs: TabDef[] = useMemo(() => {
     const openCriticalRisks = result?.risks.filter((r) => r.severity === 'critical' && r.status === 'open').length ?? 0;
     const openActions = result?.actions.filter((a) => !a.done).length ?? 0;
+    // Unknown until screened (show the tab so it isn't a hidden surprise); once
+    // screened, hide it when no State Pack covers this property's state.
+    const showCompliance = !result || Boolean(result.stateCompliance);
+    const blockerCount = result?.stateCompliance?.checks.filter((c) => c.verdict === 'blocker').length ?? 0;
     return [
       { key: 'snapshot', label: 'Snapshot', icon: <LayoutDashboard size={13} /> },
       {
@@ -161,6 +170,16 @@ export default function CaseWorkspace() {
         icon: <ShieldAlert size={13} />,
         badge: openCriticalRisks > 0 ? <Badge tone="critical">{openCriticalRisks}</Badge> : undefined,
       },
+      ...(showCompliance
+        ? [
+            {
+              key: 'compliance',
+              label: 'Compliance',
+              icon: <ScrollText size={13} />,
+              badge: blockerCount > 0 ? <Badge tone="critical">{blockerCount}</Badge> : undefined,
+            },
+          ]
+        : []),
       { key: 'planning', label: 'Planning', icon: <MapPinned size={13} /> },
       {
         key: 'completeness',
@@ -235,6 +254,8 @@ export default function CaseWorkspace() {
         return <DriversTab {...tabProps} />;
       case 'risks':
         return <RisksTab {...tabProps} />;
+      case 'compliance':
+        return <ComplianceTab {...tabProps} />;
       case 'planning':
         return <PlanningTab {...tabProps} />;
       case 'completeness':
@@ -305,6 +326,7 @@ export default function CaseWorkspace() {
               {result ? (
                 <span className="text-[11px] text-ink-muted">Screened {relativeTime(result.generatedAt)}</span>
               ) : null}
+              <UnitToggle />
               <Button
                 variant="primary"
                 size="sm"

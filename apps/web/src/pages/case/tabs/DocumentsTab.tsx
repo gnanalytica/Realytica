@@ -12,6 +12,8 @@ import {
   FileSignature,
   FileText,
   Inbox,
+  Landmark,
+  ReceiptText,
   Loader2,
   Ruler,
   ScrollText,
@@ -57,6 +59,15 @@ const KIND_ICON: Record<DocumentKind, typeof FileText> = {
   photograph: FileImage,
   other: FileText,
   unclassified: FileQuestion,
+  // Karnataka / Bengaluru pack
+  mother_deed: ScrollText,
+  conversion_certificate: FileCheck2,
+  commencement_certificate: FileCheck2,
+  betterment_charges_receipt: ReceiptText,
+  possession_certificate: FileSignature,
+  form_9_11: Landmark,
+  sanctioned_plan_bbmp: Ruler,
+  joint_development_agreement: FileSignature,
 };
 
 const REVIEW_THRESHOLD = 0.7;

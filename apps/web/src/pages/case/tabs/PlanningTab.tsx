@@ -3,6 +3,7 @@ import { AlertTriangle, Building2, Landmark, MapPin } from 'lucide-react';
 import type { PlanningPosition } from '@valytica/shared';
 import type { TabProps } from '../tab-props';
 import { area, date, num, relativeTime, titleCase } from '../../../lib/format';
+import { formatArea, useAreaUnitFor } from '../../../lib/units';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, KeyValue } from '../../../components/ui/kit';
 import type { Tone } from '../../../components/ui/kit';
 import { EvidenceLink } from '../../../components/EvidenceLink';
@@ -27,6 +28,7 @@ const STALE_AFTER_DAYS = 180;
 
 export default function PlanningTab({ caseData, result, runScreen, running, goToTab }: TabProps) {
   const navigate = useNavigate();
+  const areaUnit = useAreaUnitFor(caseData.identity.country);
 
   if (!result) {
     return (
@@ -111,7 +113,7 @@ export default function PlanningTab({ caseData, result, runScreen, running, goTo
                 Headroom: <strong className="text-ink">{num(headroomFar, 2)} FAR points</strong> —{' '}
                 {planning.buildablePotentialSqm > 0 ? (
                   <>
-                    approximately <strong className="text-ink">{area(planning.buildablePotentialSqm)}</strong> of
+                    approximately <strong className="text-ink">{formatArea(planning.buildablePotentialSqm, areaUnit)}</strong> of
                     additional buildable area.
                   </>
                 ) : (

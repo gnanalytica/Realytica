@@ -124,22 +124,49 @@ expected documents, statutory rate basis, transaction taxes, registry names), an
 supplies market data (median price per m², statutory rate, yield, liquidity, zoning, FAR,
 replacement cost, an eight-quarter trend).
 
-### Geographic coverage, and the missing tier
+### The Karnataka / Bengaluru State Pack
 
-The specification's architecture has three tiers — Global Core, Country Pack, and **State /
-Municipality Pack**. This build implements the first two. That is fine for Phase 1, which is
-deliberately scoped to *"India, one state/metro"*, and the data here is scoped to match:
+All three tiers of the specified architecture are implemented — Global Core, Country Pack and
+**State / Municipality Pack**. Karnataka is the first state pack, and it is where a Bengaluru title
+screen actually lives:
+
+| What | Karnataka pack |
+| --- | --- |
+| Statutory value | **Guidance value** (Kaveri Online Services) — not "circle rate" |
+| Property register | **Khata (BBMP)**, with the A / B / e-khata distinction as a first-class field |
+| Transaction tax | Banded stamp duty, cess and surcharge computed **on the duty**, registration fee on value — charged on the **higher of consideration and guidance value** |
+| Title checks | Khata classification · e-khata issuance · DC land conversion (KLR Act s.95) · PTCL Act 1978 granted land · rajakaluve and lake buffers · occupancy certificate · 30-year EC continuity · K-RERA · BDA/BMRDA acquisition · quoted area basis |
+| Documents | 14 Bengaluru-specific documents, weighted so the five title-chain deal-breakers dominate completeness |
+
+The **Compliance** tab surfaces these as pass/attention/blocker findings, each with its statute, the
+commercial consequence, and the next step. Blockers — a B-khata classification, unconverted
+agricultural land — render above everything and cannot be filtered out of view, because they are the
+findings that should stop someone before they spend money on lawyers.
+
+Areas display in **square feet** and rates in **₹/sq ft** for Indian cases, with a toggle. The domain
+model stores square metres throughout; a Dutch case keeps m² and €/m².
+
+### Statutory values are versioned, not asserted
+
+Guidance values, stamp-duty slabs and buffer distances change by circular, notification and court
+order. Every statutory value in a state pack is a `StatutoryRule` carrying an `asOf` date, its source
+instrument, and a verify-before-relying note, all shown in the UI beside the numbers they drive.
+
+**Treat the shipped figures as placeholders to confirm against current circulars.** The rajakaluve
+and lake buffer distances especially: the applicable setback depends on how BBMP/BDA classify that
+specific drain and has been revised repeatedly by NGT orders, so the app tells you to commission a
+survey rather than asserting a distance.
+
+### Coverage
 
 | Country | Covered | Why it is bounded |
 | --- | --- | --- |
-| India | **Karnataka (Bengaluru)** | Stamp duty, registration fees and the property-register instrument are set at *state* level. The Khata extract in the required-document list is a Karnataka instrument; Telangana or Maharashtra would expect a different document entirely. |
+| India | **Karnataka (Bengaluru)** | Stamp duty, registration fees and the property-register instrument are set at *state* level. A Khata extract is a Karnataka instrument; Telangana or Maharashtra would expect a different document entirely. |
 | Netherlands | Noord-Holland, Utrecht, Zuid-Holland | Dutch conveyancing instruments (Kadaster, WOZ, energielabel) are national, so only market-data reach is limited — not the rules. |
 
-Each country pack declares its `coveredStates`, and a case entered outside them still screens but
-raises a material risk saying the document checklist, statutory anchor and transaction costs are not
-that state's — rather than silently measuring the property against the wrong rules. Building the
-State / Municipality Pack tier is what lifts this limit, and it belongs with the second geography in
-Phase 2.
+A case entered outside a covered state still screens, but raises a material risk saying the document
+checklist, statutory anchor and transaction costs are not that state's — rather than silently
+measuring the property against the wrong rules.
 
 The screening engine is **deterministic** — seeded by case id, no wall-clock or random input inside
 scoring — so the same case always produces the same result and a re-run is diffable. Document
@@ -148,7 +175,8 @@ patterns; there is no external model call and nothing leaves your machine.
 
 ### Adding a market
 
-Add a `CountryPack` and its `LocalityReference` entries in `packages/shared/src/reference.ts`. The
+Add a `CountryPack` and its `LocalityReference` entries in `packages/shared/src/reference.ts`, and a
+`StatePack` under `packages/shared/src/packs/` where the state sets its own rules. The
 engine, the API and every screen pick it up without further change — that is what the pack
 architecture buys.
 

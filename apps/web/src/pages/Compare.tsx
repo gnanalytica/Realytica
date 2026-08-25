@@ -14,6 +14,8 @@ import type { CaseSummary, ComparisonResult, ComparisonRow, CurrencyCode, Proper
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { PROPERTY_TYPE_LABEL, money, num, perSqm, pct } from '../lib/format';
+import { formatRate, useAreaUnit } from '../lib/units';
+import type { AreaUnit } from '../lib/units';
 import {
   Badge,
   Button,
@@ -47,14 +49,19 @@ function parseIds(raw: string | null): string[] {
   return out;
 }
 
-function formatRowValue(row: ComparisonRow, value: number | string | null, currency: CurrencyCode): string {
+function formatRowValue(
+  row: ComparisonRow,
+  value: number | string | null,
+  currency: CurrencyCode,
+  areaUnit: AreaUnit,
+): string {
   if (value === null || value === undefined) return '—';
   if (row.format === 'text' || typeof value !== 'number') return String(value);
   switch (row.format) {
     case 'currency':
       return money(value, currency);
     case 'currency_per_sqm':
-      return perSqm(value, currency);
+      return formatRate(value, areaUnit, currency);
     case 'number':
       return num(value);
     case 'percent':
@@ -76,13 +83,13 @@ function winningCaseIds(row: ComparisonRow): Set<string> {
   return new Set(numeric.filter((v) => v.value === best).map((v) => v.caseId));
 }
 
-function buildTsv(result: ComparisonResult): string {
+function buildTsv(result: ComparisonResult, areaUnit: AreaUnit): string {
   const header = ['Metric', ...result.cases.map((c) => `${c.reference} — ${c.label}`)];
   const lines = [header.join('\t')];
   for (const row of result.rows) {
     const cells = result.cases.map((c) => {
       const v = row.values.find((x) => x.caseId === c.id)?.value ?? null;
-      return formatRowValue(row, v, c.currency);
+      return formatRowValue(row, v, c.currency, areaUnit);
     });
     lines.push([row.label, ...cells].join('\t'));
   }
@@ -210,6 +217,9 @@ function PickerScreen({ preselected }: { preselected: string[] }) {
 function CompareScreen({ caseIds }: { caseIds: string[] }) {
   const [, setSearchParams] = useSearchParams();
   const toast = useToast();
+  // Comparison spans cases that may differ in country, so the shared
+  // preference decides rather than any one case's default.
+  const { unit: areaUnit } = useAreaUnit();
   const [editing, setEditing] = useState(false);
   const [draftSelected, setDraftSelected] = useState<string[]>(caseIds);
   const [addPick, setAddPick] = useState('');
@@ -257,7 +267,7 @@ function CompareScreen({ caseIds }: { caseIds: string[] }) {
   async function copyTsv() {
     if (!result) return;
     try {
-      await navigator.clipboard.writeText(buildTsv(result));
+      await navigator.clipboard.writeText(buildTsv(result, areaUnit));
       toast('Comparison copied to clipboard as a table', 'good');
     } catch {
       toast('Could not copy — clipboard unavailable', 'critical');
@@ -510,7 +520,7 @@ function CompareScreen({ caseIds }: { caseIds: string[] }) {
                               <div className="flex items-center gap-1.5">
                                 {isBest ? <Check size={12} className="shrink-0 text-[var(--status-good-text)]" /> : null}
                                 <span className={cn('truncate', isBest ? 'font-semibold text-ink' : 'text-ink-secondary')}>
-                                  {formatRowValue(row, value, c.currency)}
+                                  {formatRowValue(row, value, c.currency, areaUnit)}
                                 </span>
                               </div>
                               {cell?.note ? <div className="mt-0.5 text-[11px] text-ink-muted">{cell.note}</div> : null}

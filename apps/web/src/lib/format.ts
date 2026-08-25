@@ -39,6 +39,32 @@ export function perSqm(value: number | null | undefined, currency: CurrencyCode)
   return `${symbol}${Math.round(value).toLocaleString(LOCALE[currency])}/m²`;
 }
 
+/**
+ * A rate already expressed in ₹/m² or €/m², shown per sq ft instead — never a
+ * decimal on the rounded rate. For the general sq-ft/m² toggle used across the
+ * app, prefer `formatRate` in `lib/units.ts`, which is unit-aware; this sibling
+ * exists so callers that only ever want sq ft (e.g. a fixed India-only table)
+ * don't need to pull in the unit-preference machinery.
+ */
+export function perSqft(perSqmValue: number | null | undefined, currency: CurrencyCode): string {
+  if (perSqmValue === null || perSqmValue === undefined) return '—';
+  const symbol = currency === 'INR' ? '₹' : '€';
+  const SQM_PER_SQFT = 0.09290304;
+  return `${symbol}${Math.round(perSqmValue * SQM_PER_SQFT).toLocaleString(LOCALE[currency])}/sq ft`;
+}
+
+/**
+ * Full (non-compact) lakh/crore rendering for INR — `₹1.35 Cr`, `₹78.5 L`,
+ * `₹42,000`. `money()` already does this compaction for INR; this just gives
+ * it a name for call sites that only ever deal in rupees and want the intent
+ * ("give me lakh/crore") to be obvious at the call site, and always compacts
+ * regardless of the caller's default. Falls back to a plain grouped number for
+ * EUR, since lakh/crore is an Indian numbering convention only.
+ */
+export function lakhCrore(value: number | null | undefined, currency: CurrencyCode = 'INR'): string {
+  return money(value, currency, { compact: true });
+}
+
 export function num(value: number | null | undefined, digits = 0): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
   return value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -101,6 +127,13 @@ export const PROPERTY_TYPE_LABEL: Record<PropertyType, string> = {
   land_parcel: 'Land parcel',
 };
 
+// The Karnataka / Bengaluru pack added document kinds to the shared `DocumentKind`
+// union (packages/shared/src/types.ts). Their labels belong with the pack's own
+// content (KHATA_TYPE_LABEL and friends in packages/shared/src/packs/karnataka.ts),
+// but that pack may not exist on disk yet, and `DOCUMENT_KIND_LABEL` below must
+// stay an exhaustive `Record<DocumentKind, string>` regardless — so the new kinds
+// are labelled here. If the shared pack later exports its own document-kind
+// labels, prefer merging those in rather than keeping two sources of truth.
 export const DOCUMENT_KIND_LABEL: Record<DocumentKind, string> = {
   title_deed: 'Title deed',
   sale_agreement: 'Sale agreement',
@@ -110,6 +143,14 @@ export const DOCUMENT_KIND_LABEL: Record<DocumentKind, string> = {
   occupancy_certificate: 'Occupancy certificate',
   khata_extract: 'Khata extract',
   rera_registration: 'RERA registration',
+  mother_deed: 'Mother deed',
+  conversion_certificate: 'Conversion certificate (DC conversion order)',
+  commencement_certificate: 'Commencement certificate',
+  betterment_charges_receipt: 'Betterment charges receipt',
+  possession_certificate: 'Possession certificate',
+  form_9_11: 'Form 9 & 11 (gram panchayat)',
+  sanctioned_plan_bbmp: 'Sanctioned plan (BBMP)',
+  joint_development_agreement: 'Joint development agreement',
   valuation_report: 'Valuation report',
   lease_agreement: 'Lease agreement',
   kadaster_extract: 'Kadaster extract',

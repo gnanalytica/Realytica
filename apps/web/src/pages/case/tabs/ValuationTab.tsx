@@ -16,12 +16,14 @@ import {
 import { AnchorWeightChart, ComparablesChart, ValueRangeChart } from '../../../components/charts';
 import { EvidenceLink } from '../../../components/EvidenceLink';
 import { date, money, num, perSqm, pct, titleCase } from '../../../lib/format';
+import { formatArea, formatRate, useAreaUnitFor } from '../../../lib/units';
+import type { AreaUnit } from '../../../lib/units';
 import type { TabProps } from '../tab-props';
 
 type SortKey = 'adjustedPricePerSqm' | 'distanceKm' | 'transactedAt' | 'areaSqm' | 'similarity';
 
 const SORT_COLUMNS: { key: SortKey; label: string }[] = [
-  { key: 'adjustedPricePerSqm', label: 'Adjusted price / m²' },
+  { key: 'adjustedPricePerSqm', label: 'Adjusted price' },
   { key: 'distanceKm', label: 'Distance' },
   { key: 'transactedAt', label: 'Date' },
   { key: 'areaSqm', label: 'Area' },
@@ -40,6 +42,8 @@ function sortValue(c: Comparable, key: SortKey): number {
 }
 
 export default function ValuationTab({ caseData, result }: TabProps) {
+  const areaUnit = useAreaUnitFor(caseData.identity.country);
+  const unitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
   const [expandedComparableIds, setExpandedComparableIds] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>('similarity');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -162,17 +166,17 @@ export default function ValuationTab({ caseData, result }: TabProps) {
       </Card>
 
       <Card>
-        <CardHeader title="Per m² summary" subtitle="Subject range against the locality median" />
+        <CardHeader title={`Per ${unitLabel} summary`} subtitle="Subject range against the locality median" />
         <CardBody>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Stat label="Subject low / m²" value={perSqm(iv.perSqm.low, currency)} />
+            <Stat label={`Subject low / ${unitLabel}`} value={formatRate(iv.perSqm.low, areaUnit, currency)} />
             <Stat
-              label="Subject mid / m²"
-              value={perSqm(iv.perSqm.mid, currency)}
+              label={`Subject mid / ${unitLabel}`}
+              value={formatRate(iv.perSqm.mid, areaUnit, currency)}
               sub={vsMedianPct !== null ? `${pct(vsMedianPct, 1, true)} vs. locality median` : undefined}
             />
-            <Stat label="Subject high / m²" value={perSqm(iv.perSqm.high, currency)} />
-            <Stat label="Locality median / m²" value={perSqm(marketContext.medianPricePerSqm, currency)} sub={marketContext.source} />
+            <Stat label={`Subject high / ${unitLabel}`} value={formatRate(iv.perSqm.high, areaUnit, currency)} />
+            <Stat label={`Locality median / ${unitLabel}`} value={formatRate(marketContext.medianPricePerSqm, areaUnit, currency)} sub={marketContext.source} />
           </div>
         </CardBody>
       </Card>
@@ -197,6 +201,7 @@ export default function ValuationTab({ caseData, result }: TabProps) {
                         )}
                       >
                         {col.label}
+                        {col.key === 'adjustedPricePerSqm' ? ` / ${unitLabel}` : ''}
                         {sortKey === col.key ? sortDir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} /> : null}
                       </button>
                     </th>
@@ -211,6 +216,7 @@ export default function ValuationTab({ caseData, result }: TabProps) {
                     currency={currency}
                     expanded={expandedComparableIds.has(c.id)}
                     onToggle={() => toggleComparable(c.id)}
+                    areaUnit={areaUnit}
                   />
                 ))}
                 {sortedComparables.length === 0 ? (
@@ -234,11 +240,13 @@ function ComparableRow({
   currency,
   expanded,
   onToggle,
+  areaUnit,
 }: {
   comparable: Comparable;
   currency: CurrencyCode;
   expanded: boolean;
   onToggle: () => void;
+  areaUnit: AreaUnit;
 }) {
   return (
     <>
@@ -258,10 +266,10 @@ function ComparableRow({
           <div className="text-xs text-ink-muted">{comparable.address}</div>
           <div className="mt-0.5 text-[11px] text-ink-muted">{comparable.source}</div>
         </td>
-        <td className="tabular px-3 py-2 align-top font-medium text-ink">{perSqm(comparable.adjustedPricePerSqm, currency)}</td>
+        <td className="tabular px-3 py-2 align-top font-medium text-ink">{formatRate(comparable.adjustedPricePerSqm, areaUnit, currency)}</td>
         <td className="tabular px-3 py-2 align-top text-ink-secondary">{comparable.distanceKm.toFixed(1)} km</td>
         <td className="px-3 py-2 align-top text-ink-secondary">{date(comparable.transactedAt)}</td>
-        <td className="tabular px-3 py-2 align-top text-ink-secondary">{num(comparable.areaSqm)} m²</td>
+        <td className="tabular px-3 py-2 align-top text-ink-secondary">{formatArea(comparable.areaSqm, areaUnit)}</td>
         <td className="px-3 py-2 align-top">
           <div className="w-20">
             <ProgressBar value={comparable.similarity * 100} tone="brand" showValue={false} />
@@ -273,7 +281,7 @@ function ComparableRow({
         <tr className="border-b border-hairline bg-sunken/40 last:border-0">
           <td />
           <td colSpan={6} className="px-3 py-3">
-            <AdjustmentChain comparable={comparable} currency={currency} />
+            <AdjustmentChain comparable={comparable} currency={currency} areaUnit={areaUnit} />
           </td>
         </tr>
       ) : null}
@@ -281,7 +289,8 @@ function ComparableRow({
   );
 }
 
-function AdjustmentChain({ comparable, currency }: { comparable: Comparable; currency: CurrencyCode }) {
+function AdjustmentChain({ comparable, currency, areaUnit }: { comparable: Comparable; currency: CurrencyCode; areaUnit: AreaUnit }) {
+  const unitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
   let running = comparable.pricePerSqm;
   const steps = comparable.adjustments.map((adj) => {
     const before = running;
@@ -291,10 +300,10 @@ function AdjustmentChain({ comparable, currency }: { comparable: Comparable; cur
 
   return (
     <div className="flex max-w-md flex-col gap-1.5 text-[12px]">
-      <SectionTitle>Adjustments — raw to adjusted price / m²</SectionTitle>
+      <SectionTitle>{`Adjustments — raw to adjusted price / ${unitLabel}`}</SectionTitle>
       <div className="flex items-center justify-between border-b border-hairline py-1">
-        <span className="text-ink-secondary">Raw transacted price / m²</span>
-        <span className="tabular font-medium text-ink">{perSqm(comparable.pricePerSqm, currency)}</span>
+        <span className="text-ink-secondary">{`Raw transacted price / ${unitLabel}`}</span>
+        <span className="tabular font-medium text-ink">{formatRate(comparable.pricePerSqm, areaUnit, currency)}</span>
       </div>
       {steps.map((s) => (
         <div key={s.key} className="flex items-center justify-between border-b border-hairline py-1 last:border-0">
@@ -303,13 +312,13 @@ function AdjustmentChain({ comparable, currency }: { comparable: Comparable; cur
             <span className={cn('tabular font-medium', s.pct >= 0 ? 'text-[var(--status-good-text)]' : 'text-critical')}>
               {pct(s.pct, 1, true)}
             </span>
-            <span className="tabular text-ink-muted">{perSqm(s.after, currency)}</span>
+            <span className="tabular text-ink-muted">{formatRate(s.after, areaUnit, currency)}</span>
           </span>
         </div>
       ))}
       <div className="flex items-center justify-between pt-1 font-semibold text-ink">
-        <span>Adjusted price / m²</span>
-        <span className="tabular">{perSqm(comparable.adjustedPricePerSqm, currency)}</span>
+        <span>{`Adjusted price / ${unitLabel}`}</span>
+        <span className="tabular">{formatRate(comparable.adjustedPricePerSqm, areaUnit, currency)}</span>
       </div>
     </div>
   );

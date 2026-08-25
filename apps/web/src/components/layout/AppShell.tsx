@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AreaUnitProvider } from '../../lib/units';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
@@ -41,6 +42,7 @@ export default function AppShell() {
   }
 
   return (
+    <AreaUnitProvider>
     <div className="flex min-h-full min-w-0">
       <Sidebar
         collapsed={collapsed}
@@ -57,5 +59,6 @@ export default function AppShell() {
         </main>
       </div>
     </div>
+    </AreaUnitProvider>
   );
 }

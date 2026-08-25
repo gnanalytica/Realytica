@@ -1,10 +1,27 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Building2, Check, Landmark } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Building2,
+  Check,
+  Landmark,
+  MapPin,
+  Scale,
+  Sprout,
+  Waves,
+} from 'lucide-react';
 import type {
+  AreaBasis,
   CountryCode,
   CreateCaseRequest,
   CurrencyCode,
+  KarnatakaAttributes,
+  KarnatakaJurisdiction,
+  KhataType,
+  LandConversionStatus,
   LocalityReference,
   PersonaKey,
   PropertyIdentity,
@@ -15,10 +32,25 @@ import type {
 import { COUNTRY_PACKS_META, PERSONAS, PROPERTY_TYPES } from '@valytica/shared';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
-import { PROPERTY_TYPE_LABEL, area, money, perSqm, pct } from '../lib/format';
-import { Button, Callout, Card, CardBody, CardHeader, Field, Input, KeyValue, Select, Textarea, cn, useToast } from '../components/ui/kit';
-
-const STEP_LABELS = ['Market & intent', 'Property identification', 'Review & create'] as const;
+import { PROPERTY_TYPE_LABEL, money, pct } from '../lib/format';
+import { defaultAreaUnit, describeAreaBasis, formatArea, formatRate, sqftToSqm, type AreaUnit } from '../lib/units';
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  CardBody,
+  CardHeader,
+  Checkbox,
+  Field,
+  Input,
+  KeyValue,
+  Select,
+  Textarea,
+  cn,
+  useToast,
+} from '../components/ui/kit';
+import { UnitToggle } from '../components/UnitToggle';
 
 const TENURE_OPTIONS: { value: Tenure; label: string }[] = [
   { value: 'freehold', label: 'Freehold' },
@@ -27,6 +59,128 @@ const TENURE_OPTIONS: { value: Tenure; label: string }[] = [
 ];
 
 const CURRENCY_BY_COUNTRY: Record<CountryCode, CurrencyCode> = { IN: 'INR', NL: 'EUR' };
+
+/* ------------------------------------------------------------------ */
+/* Karnataka option content                                            */
+/*                                                                      */
+/* Labels/notes are defined locally rather than imported from           */
+/* `@valytica/shared`: a parallel agent owns `packages/shared/src/`     */
+/* label maps (KHATA_TYPE_LABEL, JURISDICTION_LABEL, …) and they may     */
+/* not exist on disk yet. The *types* (`KhataType`, `KarnatakaJurisdiction`,   */
+/* etc.) are already in the shared contract, so this file only supplies */
+/* its own UI copy against those types — safe to keep even after the    */
+/* shared label maps land, since the copy here is wizard-specific       */
+/* (a one-line "what this means" note per option, not just a label).    */
+/* ------------------------------------------------------------------ */
+
+const JURISDICTION_OPTIONS: { value: KarnatakaJurisdiction; label: string; note: string }[] = [
+  { value: 'BBMP', label: 'BBMP', note: 'Bengaluru municipal corporation — plan sanction and property tax run through BBMP directly.' },
+  { value: 'BDA', label: 'BDA', note: 'Bangalore Development Authority — for BDA-formed layouts and sites; approvals run through BDA.' },
+  { value: 'BMRDA', label: 'BMRDA', note: 'Metropolitan region authority for peripheral areas outside BBMP/BDA — approvals are typically slower.' },
+  { value: 'BIAAPA', label: 'BIAAPA', note: 'Airport-influence-area authority — extra height and land-use restrictions can apply.' },
+  { value: 'gram_panchayat', label: 'Gram panchayat', note: "Village-level local body — outside urban planning jurisdiction; recorded via Form 9 & 11, not a khata." },
+  { value: 'unknown', label: 'Unknown', note: 'Not yet confirmed — the applicable authority determines which approvals and records are valid.' },
+];
+
+const KHATA_OPTIONS: { value: KhataType; label: string; note: string }[] = [
+  { value: 'a_khata', label: 'A-khata', note: 'Fully compliant with BBMP bye-laws — eligible for plan sanction, bank loans and clean resale.' },
+  { value: 'b_khata', label: 'B-khata', note: 'Recorded for tax purposes only, not fully compliant — restricts lending, plan sanction and resale.' },
+  { value: 'e_khata', label: 'e-Khata', note: "Digitised BBMP khata record — confirm it reflects current ownership before relying on it." },
+  { value: 'gram_panchayat_form_9_11', label: 'Gram panchayat (Form 9 & 11)', note: "Village-panchayat property record, not a BBMP khata." },
+  { value: 'none', label: 'None', note: 'No khata on record — a significant gap; financing and resale are typically blocked until resolved.' },
+  { value: 'unknown', label: 'Unknown', note: 'Not yet confirmed — this is the single most consequential field for a Bengaluru property.' },
+];
+
+const LAND_CONVERSION_OPTIONS: { value: LandConversionStatus; label: string; note: string }[] = [
+  { value: 'converted', label: 'Converted', note: 'DC conversion order obtained — cleared for non-agricultural (residential/commercial) use.' },
+  { value: 'agricultural', label: 'Agricultural', note: 'Still agricultural revenue land — needs a DC conversion order before non-agricultural use.' },
+  { value: 'not_applicable', label: 'Not applicable', note: 'Conversion does not apply, e.g. already inside an approved urban layout.' },
+  { value: 'unknown', label: 'Unknown', note: 'Not yet confirmed — needed to know before assuming residential/commercial use is lawful.' },
+];
+
+const AREA_BASIS_OPTIONS: { value: AreaBasis; label: string }[] = [
+  { value: 'carpet', label: 'Carpet area' },
+  { value: 'built_up', label: 'Built-up area' },
+  { value: 'super_built_up', label: 'Super built-up area' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
+const BBMP_TAX_ZONE_OPTIONS: ('A' | 'B' | 'C' | 'D' | 'E' | 'F')[] = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+/**
+ * Warning tint for the B-khata treatments. Plain Tailwind alpha utilities,
+ * which compile correctly now that the tone tokens are declared as RGB channel
+ * triplets in index.css.
+ */
+const WARNING_TINT_BG = 'bg-warning/15';
+const WARNING_TINT_RING = 'ring-warning/45';
+
+function jurisdictionLabel(v: KarnatakaJurisdiction): string {
+  return JURISDICTION_OPTIONS.find((o) => o.value === v)?.label ?? v;
+}
+function khataLabel(v: KhataType): string {
+  return KHATA_OPTIONS.find((o) => o.value === v)?.label ?? v;
+}
+function landConversionLabel(v: LandConversionStatus): string {
+  return LAND_CONVERSION_OPTIONS.find((o) => o.value === v)?.label ?? v;
+}
+function areaBasisLabel(v: AreaBasis): string {
+  return AREA_BASIS_OPTIONS.find((o) => o.value === v)?.label ?? v;
+}
+
+/**
+ * Review-step area cell: leads with whatever unit the wizard is currently
+ * showing (respecting the country default / the user's in-wizard override),
+ * with the sqm equivalent alongside only when that's not already the primary
+ * — mirrors the "show the converted m² underneath" treatment used on the
+ * identification step, without flipping an NL case to a sq ft-first display.
+ */
+function reviewAreaValue(sqm: number, unit: AreaUnit) {
+  if (unit === 'sqm') return formatArea(sqm, 'sqm');
+  return (
+    <span>
+      {formatArea(sqm, 'sqft')}
+      <span className="ml-1.5 text-ink-muted">({formatArea(sqm, 'sqm')})</span>
+    </span>
+  );
+}
+
+function isKarnatakaState(country: CountryCode, state: string): boolean {
+  return country === 'IN' && state.trim().toLowerCase() === 'karnataka';
+}
+
+/* ------------------------------------------------------------------ */
+/* Form state                                                          */
+/* ------------------------------------------------------------------ */
+
+interface KarnatakaFormState {
+  jurisdiction: KarnatakaJurisdiction;
+  khataType: KhataType;
+  eKhataIssued: boolean;
+  landConversionStatus: LandConversionStatus;
+  areaBasis: AreaBasis;
+  bbmpTaxZone: '' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+  kreraNumber: string;
+  nearRajakaluve: boolean;
+  nearLake: boolean;
+  grantedLandPtcl: boolean;
+}
+
+function initialKarnataka(): KarnatakaFormState {
+  return {
+    jurisdiction: 'unknown',
+    khataType: 'unknown',
+    eKhataIssued: false,
+    landConversionStatus: 'unknown',
+    // Bengaluru listings default to quoting super built-up area — see describeAreaBasis().
+    areaBasis: 'super_built_up',
+    bbmpTaxZone: '',
+    kreraNumber: '',
+    nearRajakaluve: false,
+    nearLake: false,
+    grantedLandPtcl: false,
+  };
+}
 
 interface FormState {
   country: CountryCode;
@@ -41,13 +195,15 @@ interface FormState {
   parcelId: string;
   propertyType: PropertyType;
   tenure: Tenure;
-  builtUpAreaSqm: string;
-  plotAreaSqm: string;
+  /** Numeric text, expressed in whatever `areaUnit` currently is — converted to sqm only at submit/toggle time. */
+  builtUpArea: string;
+  plotArea: string;
   yearBuilt: string;
   floor: string;
   totalFloors: string;
   askingPrice: string;
   notes: string;
+  karnataka: KarnatakaFormState;
 }
 
 function nameFromEmail(email: string): string {
@@ -71,13 +227,14 @@ function initialForm(): FormState {
     parcelId: '',
     propertyType: 'residential_apartment',
     tenure: 'freehold',
-    builtUpAreaSqm: '',
-    plotAreaSqm: '',
+    builtUpArea: '',
+    plotArea: '',
     yearBuilt: '',
     floor: '',
     totalFloors: '',
     askingPrice: '',
     notes: '',
+    karnataka: initialKarnataka(),
   };
 }
 
@@ -100,7 +257,7 @@ function NumberField(props: {
           const v = e.target.value;
           if (v === '' || /^\d*\.?\d*$/.test(v)) props.onChange(v);
         }}
-        className={props.suffix ? 'pr-10' : undefined}
+        className={props.suffix ? (props.suffix.length > 2 ? 'pr-12' : 'pr-10') : undefined}
       />
       {props.suffix ? (
         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-ink-muted">{props.suffix}</span>
@@ -109,13 +266,13 @@ function NumberField(props: {
   );
 }
 
-function Stepper({ current }: { current: number }) {
+function Stepper({ current, labels }: { current: number; labels: string[] }) {
   return (
     <ol className="mb-6 flex items-center">
-      {STEP_LABELS.map((label, i) => {
+      {labels.map((label, i) => {
         const state = i < current ? 'done' : i === current ? 'active' : 'todo';
         return (
-          <li key={label} className={cn('flex items-center', i < STEP_LABELS.length - 1 && 'flex-1')}>
+          <li key={label} className={cn('flex items-center', i < labels.length - 1 && 'flex-1')}>
             <div className="flex items-center gap-2">
               <div
                 className={cn(
@@ -131,7 +288,7 @@ function Stepper({ current }: { current: number }) {
                 {label}
               </span>
             </div>
-            {i < STEP_LABELS.length - 1 ? (
+            {i < labels.length - 1 ? (
               <div className={cn('mx-3 h-px flex-1', state === 'done' ? 'bg-brand' : 'bg-hairline')} />
             ) : null}
           </li>
@@ -151,13 +308,67 @@ export default function NewCase() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
 
+  // The area unit is a wizard-local, transient choice (not the persisted
+  // dashboard-wide preference from lib/units.ts) — it defaults from the
+  // country being entered and resets when the country changes, unless the
+  // user has explicitly overridden it for this case.
+  const [areaUnit, setAreaUnitState] = useState<AreaUnit>(() => defaultAreaUnit(initialForm().country));
+  const [areaUnitTouched, setAreaUnitTouched] = useState(false);
+
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function setKarnataka<K extends keyof KarnatakaFormState>(key: K, value: KarnatakaFormState[K]) {
+    setForm((f) => ({ ...f, karnataka: { ...f.karnataka, [key]: value } }));
   }
 
   const countryPack = reference?.countryPacks.find((p) => p.country === form.country);
   const currency = countryPack?.currency ?? CURRENCY_BY_COUNTRY[form.country];
   const parcelIdLabel = countryPack?.parcelIdLabel ?? 'Parcel / survey ID';
+
+  const isKarnataka = isKarnatakaState(form.country, form.state);
+
+  const stepLabels = useMemo(() => {
+    const labels = ['Market & intent', 'Property identification'];
+    if (isKarnataka) labels.push('Karnataka details');
+    labels.push('Review & create');
+    return labels;
+  }, [isKarnataka]);
+  const karnatakaStepIndex = isKarnataka ? 2 : -1;
+  const reviewStepIndex = stepLabels.length - 1;
+
+  // Reset the wizard's area unit to the country default whenever the country
+  // changes, unless the user has deliberately switched it — mirrors the
+  // "sq ft for India, m² for NL" default without fighting a manual choice.
+  useEffect(() => {
+    if (!areaUnitTouched) setAreaUnitState(defaultAreaUnit(form.country));
+  }, [form.country, areaUnitTouched]);
+
+  function setAreaUnit(next: AreaUnit) {
+    if (next === areaUnit) return;
+    setAreaUnitTouched(true);
+    setForm((f) => {
+      const convert = (text: string): string => {
+        const trimmed = text.trim();
+        if (trimmed === '') return text;
+        const n = Number(trimmed);
+        if (Number.isNaN(n)) return text;
+        const sqm = areaUnit === 'sqft' ? sqftToSqm(n) : n;
+        if (next === 'sqft') return String(Math.round(sqm / 0.09290304));
+        return String(Math.round(sqm * 10) / 10);
+      };
+      return { ...f, builtUpArea: convert(f.builtUpArea), plotArea: convert(f.plotArea) };
+    });
+    setAreaUnitState(next);
+  }
+
+  /** The value currently sitting in a text field, converted to canonical sqm. NaN-safe. */
+  function toSqm(text: string): number {
+    const n = Number(text.trim());
+    if (text.trim() === '' || Number.isNaN(n)) return NaN;
+    return areaUnit === 'sqft' ? sqftToSqm(n) : n;
+  }
 
   const localities = useMemo(
     () => (reference?.localities ?? []).filter((l) => l.country === form.country),
@@ -196,14 +407,15 @@ export default function NewCase() {
       if (!form.postalCode.trim()) e.postalCode = 'Postal code is required.';
       if (!form.parcelId.trim()) e.parcelId = `${parcelIdLabel} is required.`;
 
-      const builtUp = form.builtUpAreaSqm.trim();
-      const plot = form.plotAreaSqm.trim();
-      if (builtUp === '') e.builtUpAreaSqm = 'Enter the built-up area (0 if not applicable).';
-      else if (Number(builtUp) < 0) e.builtUpAreaSqm = 'Area cannot be negative.';
-      if (plot === '') e.plotAreaSqm = 'Enter the plot area (0 if not applicable).';
-      else if (Number(plot) < 0) e.plotAreaSqm = 'Area cannot be negative.';
+      const builtUp = form.builtUpArea.trim();
+      const plot = form.plotArea.trim();
+      const areaUnitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
+      if (builtUp === '') e.builtUpArea = `Enter the built-up area in ${areaUnitLabel} (0 if not applicable).`;
+      else if (Number(builtUp) < 0) e.builtUpArea = 'Area cannot be negative.';
+      if (plot === '') e.plotArea = `Enter the plot area in ${areaUnitLabel} (0 if not applicable).`;
+      else if (Number(plot) < 0) e.plotArea = 'Area cannot be negative.';
       if (builtUp !== '' && plot !== '' && Number(builtUp) === 0 && Number(plot) === 0) {
-        e.builtUpAreaSqm = 'At least one of built-up or plot area must be greater than zero.';
+        e.builtUpArea = 'At least one of built-up or plot area must be greater than zero.';
       }
 
       if (form.yearBuilt.trim()) {
@@ -220,13 +432,16 @@ export default function NewCase() {
         e.askingPrice = 'Asking price must be greater than zero, or left blank.';
       }
     }
+    // Karnataka step (index === karnatakaStepIndex when present): every field is
+    // optional — a user who knows none of it can still proceed, and the engine
+    // will report those checks as unresolved rather than blocking case creation.
     return e;
   }
 
   function attemptNext() {
     const e = validateStep(step);
     setErrors(e);
-    if (Object.keys(e).length === 0) setStep((s) => Math.min(s + 1, STEP_LABELS.length - 1));
+    if (Object.keys(e).length === 0) setStep((s) => Math.min(s + 1, stepLabels.length - 1));
   }
 
   function goBack() {
@@ -238,6 +453,29 @@ export default function NewCase() {
     if (!form.persona) return;
     setCreating(true);
     try {
+      // Convert once, from the authoritative text the user last typed, using the
+      // exact ft->m factor — never round-tripped through an already-rounded
+      // intermediate, so the sqm figure sent to the API is as precise as the
+      // input allows. Rounded to 2 decimals only for a clean payload value
+      // (well below any real survey tolerance).
+      const builtUpAreaSqm = Math.round((toSqm(form.builtUpArea) || 0) * 100) / 100;
+      const plotAreaSqm = Math.round((toSqm(form.plotArea) || 0) * 100) / 100;
+
+      const karnataka: KarnatakaAttributes | undefined = isKarnataka
+        ? {
+            jurisdiction: form.karnataka.jurisdiction,
+            khataType: form.karnataka.khataType,
+            eKhataIssued: form.karnataka.eKhataIssued,
+            landConversionStatus: form.karnataka.landConversionStatus,
+            areaBasis: form.karnataka.areaBasis,
+            bbmpTaxZone: form.karnataka.bbmpTaxZone || undefined,
+            kreraNumber: form.karnataka.kreraNumber.trim() || undefined,
+            nearRajakaluve: form.karnataka.nearRajakaluve,
+            nearLake: form.karnataka.nearLake,
+            grantedLandPtcl: form.karnataka.grantedLandPtcl,
+          }
+        : undefined;
+
       const identity: PropertyIdentity = {
         label: form.label.trim(),
         country: form.country,
@@ -249,13 +487,14 @@ export default function NewCase() {
         parcelId: form.parcelId.trim(),
         propertyType: form.propertyType,
         tenure: form.tenure,
-        builtUpAreaSqm: Number(form.builtUpAreaSqm) || 0,
-        plotAreaSqm: Number(form.plotAreaSqm) || 0,
+        builtUpAreaSqm,
+        plotAreaSqm,
         yearBuilt: form.yearBuilt.trim() ? Number(form.yearBuilt) : undefined,
         floor: form.floor.trim() ? Number(form.floor) : undefined,
         totalFloors: form.totalFloors.trim() ? Number(form.totalFloors) : undefined,
         askingPrice: form.askingPrice.trim() ? Number(form.askingPrice) : undefined,
         currency,
+        karnataka,
       };
       const body: CreateCaseRequest = {
         identity,
@@ -273,12 +512,13 @@ export default function NewCase() {
     }
   }
 
+  const builtUpSqmLive = toSqm(form.builtUpArea);
   const impliedPricePerSqm =
-    form.askingPrice.trim() && Number(form.builtUpAreaSqm) > 0 ? Number(form.askingPrice) / Number(form.builtUpAreaSqm) : null;
+    form.askingPrice.trim() && builtUpSqmLive > 0 ? Number(form.askingPrice) / builtUpSqmLive : null;
 
   return (
     <div className="mx-auto max-w-3xl">
-      <Stepper current={step} />
+      <Stepper current={step} labels={stepLabels} />
 
       {step === 0 ? (
         <Card>
@@ -336,7 +576,12 @@ export default function NewCase() {
 
       {step === 1 ? (
         <Card>
-          <CardHeader title="Property identification" subtitle="What the property is and where it sits." icon={<Building2 size={16} />} />
+          <CardHeader
+            title="Property identification"
+            subtitle="What the property is and where it sits."
+            icon={<Building2 size={16} />}
+            action={<UnitToggle value={areaUnit} onChange={setAreaUnit} />}
+          />
           <CardBody className="space-y-5">
             {referenceError ? (
               <Callout tone="warning" title="Reference data unavailable">
@@ -364,8 +609,9 @@ export default function NewCase() {
               htmlFor="locality"
               hint={
                 selectedLocality
-                  ? `Median: ${perSqm(selectedLocality.medianPricePerSqm, selectedLocality.currency)} · Statutory rate: ${perSqm(
+                  ? `Median: ${formatRate(selectedLocality.medianPricePerSqm, areaUnit, selectedLocality.currency)} · Statutory rate: ${formatRate(
                       selectedLocality.statutoryRatePerSqm,
+                      areaUnit,
                       selectedLocality.currency,
                     )}`
                   : 'Pick from suggestions to prefill state/city and see market context.'
@@ -424,11 +670,37 @@ export default function NewCase() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Built-up area" required error={errors.builtUpAreaSqm} htmlFor="builtUpAreaSqm">
-                <NumberField id="builtUpAreaSqm" value={form.builtUpAreaSqm} onChange={(v) => set('builtUpAreaSqm', v)} suffix="m²" />
+              <Field
+                label="Built-up area"
+                required
+                error={errors.builtUpArea}
+                htmlFor="builtUpAreaSqm"
+                hint={
+                  areaUnit === 'sqft' && !errors.builtUpArea && form.builtUpArea.trim() !== ''
+                    ? `≈ ${formatArea(toSqm(form.builtUpArea) || 0, 'sqm')}`
+                    : undefined
+                }
+              >
+                <NumberField
+                  id="builtUpAreaSqm"
+                  value={form.builtUpArea}
+                  onChange={(v) => set('builtUpArea', v)}
+                  suffix={areaUnit === 'sqft' ? 'sq ft' : 'm²'}
+                />
               </Field>
-              <Field label="Plot area" required error={errors.plotAreaSqm} htmlFor="plotAreaSqm">
-                <NumberField id="plotAreaSqm" value={form.plotAreaSqm} onChange={(v) => set('plotAreaSqm', v)} suffix="m²" />
+              <Field
+                label="Plot area"
+                required
+                error={errors.plotArea}
+                htmlFor="plotAreaSqm"
+                hint={areaUnit === 'sqft' && !errors.plotArea ? `≈ ${formatArea(toSqm(form.plotArea) || 0, 'sqm')}` : undefined}
+              >
+                <NumberField
+                  id="plotAreaSqm"
+                  value={form.plotArea}
+                  onChange={(v) => set('plotArea', v)}
+                  suffix={areaUnit === 'sqft' ? 'sq ft' : 'm²'}
+                />
               </Field>
             </div>
 
@@ -457,12 +729,13 @@ export default function NewCase() {
               <Callout tone="info" title="Live sanity check">
                 {selectedLocality ? (
                   <p>
-                    Locality median: <span className="font-medium text-ink">{perSqm(selectedLocality.medianPricePerSqm, currency)}</span>
+                    Locality median:{' '}
+                    <span className="font-medium text-ink">{formatRate(selectedLocality.medianPricePerSqm, areaUnit, currency)}</span>
                   </p>
                 ) : null}
                 {impliedPricePerSqm ? (
                   <p className="mt-0.5">
-                    Your asking price implies <span className="font-medium text-ink">{perSqm(impliedPricePerSqm, currency)}</span>
+                    Your asking price implies <span className="font-medium text-ink">{formatRate(impliedPricePerSqm, areaUnit, currency)}</span>
                     {selectedLocality
                       ? ` — ${pct(
                           ((impliedPricePerSqm - selectedLocality.medianPricePerSqm) / selectedLocality.medianPricePerSqm) * 100,
@@ -478,7 +751,209 @@ export default function NewCase() {
         </Card>
       ) : null}
 
-      {step === 2 ? (
+      {isKarnataka && step === karnatakaStepIndex ? (
+        <Card>
+          <CardHeader
+            title="Karnataka details"
+            subtitle="Title, jurisdiction and land-status facts that drive the Bengaluru compliance checks."
+            icon={<Scale size={16} />}
+          />
+          <CardBody className="space-y-6">
+            <Callout tone="neutral" title="Everything here is optional">
+              Leave anything you don't know as "Unknown" — Property Screen will report those checks as unresolved rather than block case
+              creation. But the more you can confirm now, the sharper the screen.
+            </Callout>
+
+            <Field label="Jurisdiction" hint="Which body's building and revenue rules the property actually falls under.">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {JURISDICTION_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => setKarnataka('jurisdiction', o.value)}
+                    className={cn(
+                      'flex flex-col gap-0.5 rounded-lg p-2.5 text-left ring-1 ring-inset transition-colors',
+                      form.karnataka.jurisdiction === o.value
+                        ? 'bg-brand-soft ring-2 ring-brand'
+                        : 'bg-surface ring-[var(--ring)] hover:bg-sunken',
+                    )}
+                  >
+                    <span className="text-[13px] font-semibold text-ink">{o.label}</span>
+                    <span className="text-xs leading-snug text-ink-secondary">{o.note}</span>
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            <Field
+              label="Khata type"
+              hint="The BBMP property-register entry. A vs B is the single biggest binary in a Bengaluru title screen."
+            >
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {KHATA_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => setKarnataka('khataType', o.value)}
+                    className={cn(
+                      'flex flex-col gap-0.5 rounded-lg p-2.5 text-left ring-1 ring-inset transition-colors',
+                      form.karnataka.khataType === o.value
+                        ? o.value === 'b_khata'
+                          ? cn(WARNING_TINT_BG, 'ring-2 ring-warning')
+                          : 'bg-brand-soft ring-2 ring-brand'
+                        : 'bg-surface ring-[var(--ring)] hover:bg-sunken',
+                    )}
+                  >
+                    <span className="text-[13px] font-semibold text-ink">{o.label}</span>
+                    <span className="text-xs leading-snug text-ink-secondary">{o.note}</span>
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            {form.karnataka.khataType === 'b_khata' ? (
+              <Callout tone="warning" title="B-khata is a material finding">
+                B-khata properties are recorded but not fully compliant. This restricts{' '}
+                <span className="font-medium text-ink">bank lending</span>, <span className="font-medium text-ink">building plan sanction</span>{' '}
+                and <span className="font-medium text-ink">resale</span>. Property Screen will treat this as a material title finding that
+                needs resolving before the case can score well.
+              </Callout>
+            ) : null}
+
+            <Field label="e-Khata issued" hint="The digitised BBMP record. A property without one can be blocked at registration.">
+              <Checkbox
+                checked={form.karnataka.eKhataIssued}
+                onChange={(v) => setKarnataka('eKhataIssued', v)}
+                label="An e-khata has been issued for this property"
+              />
+            </Field>
+
+            <Field
+              label="Land conversion status"
+              hint="Agricultural land needs a DC conversion order before non-agricultural use."
+            >
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {LAND_CONVERSION_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => setKarnataka('landConversionStatus', o.value)}
+                    className={cn(
+                      'flex flex-col gap-0.5 rounded-lg p-2.5 text-left ring-1 ring-inset transition-colors',
+                      form.karnataka.landConversionStatus === o.value
+                        ? 'bg-brand-soft ring-2 ring-brand'
+                        : 'bg-surface ring-[var(--ring)] hover:bg-sunken',
+                    )}
+                  >
+                    <span className="flex items-center gap-1.5 text-[13px] font-semibold text-ink">
+                      {o.value === 'agricultural' ? <Sprout size={13} className="text-ink-muted" /> : null}
+                      {o.label}
+                    </span>
+                    <span className="text-xs leading-snug text-ink-secondary">{o.note}</span>
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Area basis" htmlFor="areaBasis" hint={describeAreaBasis(form.karnataka.areaBasis)}>
+                <Select
+                  id="areaBasis"
+                  value={form.karnataka.areaBasis}
+                  onChange={(e) => setKarnataka('areaBasis', e.target.value as AreaBasis)}
+                >
+                  {AREA_BASIS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="BBMP tax zone" htmlFor="bbmpTaxZone" hint="Optional — sets the unit area value for property tax.">
+                <Select
+                  id="bbmpTaxZone"
+                  value={form.karnataka.bbmpTaxZone}
+                  onChange={(e) => setKarnataka('bbmpTaxZone', e.target.value as KarnatakaFormState['bbmpTaxZone'])}
+                >
+                  <option value="">Not known</option>
+                  {BBMP_TAX_ZONE_OPTIONS.map((z) => (
+                    <option key={z} value={z}>
+                      Zone {z}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+
+            <Field label="K-RERA number" htmlFor="kreraNumber" hint="Optional — Karnataka RERA registration number, where the project is registered.">
+              <Input
+                id="kreraNumber"
+                value={form.karnataka.kreraNumber}
+                onChange={(e) => setKarnataka('kreraNumber', e.target.value)}
+                placeholder="e.g. PRM/KA/RERA/1251/…"
+              />
+            </Field>
+
+            <Field label="Site conditions" hint="Optional flags — each must be confirmed on survey, not assumed from a listing.">
+              <div className="space-y-2.5 rounded-lg bg-sunken p-3 ring-1 ring-inset ring-[var(--ring)]">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    checked={form.karnataka.nearRajakaluve}
+                    onChange={(v) => setKarnataka('nearRajakaluve', v)}
+                    label={
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-1.5 font-medium text-ink">
+                          <Waves size={13} className="text-ink-muted" /> Near a rajakaluve (storm-water drain)
+                        </span>
+                        <span className="text-xs text-ink-secondary">
+                          Construction within the buffer is restricted and subject to demolition drives — confirm the buffer distance on
+                          survey.
+                        </span>
+                      </span>
+                    }
+                  />
+                </div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    checked={form.karnataka.nearLake}
+                    onChange={(v) => setKarnataka('nearLake', v)}
+                    label={
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-1.5 font-medium text-ink">
+                          <MapPin size={13} className="text-ink-muted" /> Near a lake boundary
+                        </span>
+                        <span className="text-xs text-ink-secondary">
+                          Lake-buffer zones carry construction restrictions — confirm against the surveyed boundary, not what looks close on
+                          a map.
+                        </span>
+                      </span>
+                    }
+                  />
+                </div>
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    checked={form.karnataka.grantedLandPtcl}
+                    onChange={(v) => setKarnataka('grantedLandPtcl', v)}
+                    label={
+                      <span className="flex flex-col gap-0.5">
+                        <span className="flex items-center gap-1.5 font-medium text-ink">
+                          <Scale size={13} className="text-ink-muted" /> Granted land under the PTCL Act
+                        </span>
+                        <span className="text-xs text-ink-secondary">
+                          Land originally granted to an SC/ST grantee carries transfer restrictions that can void a later sale — confirm the
+                          grant history.
+                        </span>
+                      </span>
+                    }
+                  />
+                </div>
+              </div>
+            </Field>
+          </CardBody>
+        </Card>
+      ) : null}
+
+      {step === reviewStepIndex ? (
         <div className="space-y-4">
           <Card>
             <CardHeader title="Review" subtitle="Check the details before creating the case." />
@@ -495,8 +970,8 @@ export default function NewCase() {
                 <KeyValue label={parcelIdLabel} value={form.parcelId || '—'} mono />
                 <KeyValue label="Property type" value={PROPERTY_TYPE_LABEL[form.propertyType]} />
                 <KeyValue label="Tenure" value={TENURE_OPTIONS.find((t) => t.value === form.tenure)?.label ?? '—'} />
-                <KeyValue label="Built-up area" value={area(Number(form.builtUpAreaSqm) || 0)} />
-                <KeyValue label="Plot area" value={area(Number(form.plotAreaSqm) || 0)} />
+                <KeyValue label="Built-up area" value={reviewAreaValue(toSqm(form.builtUpArea) || 0, areaUnit)} />
+                <KeyValue label="Plot area" value={reviewAreaValue(toSqm(form.plotArea) || 0, areaUnit)} />
                 {form.yearBuilt ? <KeyValue label="Year built" value={form.yearBuilt} /> : null}
                 {form.floor || form.totalFloors ? (
                   <KeyValue label="Floor" value={`${form.floor || '—'} / ${form.totalFloors || '—'}`} />
@@ -505,9 +980,57 @@ export default function NewCase() {
                   label="Asking price"
                   value={form.askingPrice ? money(Number(form.askingPrice), currency) : 'Not provided — screened as a claim, not evidence'}
                 />
+                {form.askingPrice && builtUpSqmLive > 0 ? (
+                  <KeyValue label="Implied rate" value={formatRate(Number(form.askingPrice) / builtUpSqmLive, areaUnit, currency)} />
+                ) : null}
               </dl>
             </CardBody>
           </Card>
+
+          {isKarnataka ? (
+            <Card>
+              <CardHeader title="Karnataka details" subtitle="Title, jurisdiction and land-status facts captured for this case." icon={<Scale size={16} />} />
+              <CardBody>
+                <dl>
+                  <KeyValue label="Jurisdiction" value={jurisdictionLabel(form.karnataka.jurisdiction)} />
+                  <KeyValue
+                    label="Khata type"
+                    value={
+                      form.karnataka.khataType === 'b_khata' ? (
+                        <Badge tone="warning">{khataLabel(form.karnataka.khataType)}</Badge>
+                      ) : (
+                        khataLabel(form.karnataka.khataType)
+                      )
+                    }
+                  />
+                  <KeyValue label="e-Khata issued" value={form.karnataka.eKhataIssued ? 'Yes' : 'No / unknown'} />
+                  <KeyValue label="Land conversion" value={landConversionLabel(form.karnataka.landConversionStatus)} />
+                  <KeyValue label="Area basis" value={areaBasisLabel(form.karnataka.areaBasis)} />
+                  <KeyValue label="BBMP tax zone" value={form.karnataka.bbmpTaxZone ? `Zone ${form.karnataka.bbmpTaxZone}` : 'Not provided'} />
+                  <KeyValue label="K-RERA number" value={form.karnataka.kreraNumber || 'Not provided'} mono />
+                  <KeyValue
+                    label="Site conditions"
+                    value={
+                      [
+                        form.karnataka.nearRajakaluve && 'Near rajakaluve',
+                        form.karnataka.nearLake && 'Near lake',
+                        form.karnataka.grantedLandPtcl && 'PTCL granted land',
+                      ]
+                        .filter(Boolean)
+                        .join(', ') || 'None flagged'
+                    }
+                  />
+                </dl>
+                {form.karnataka.khataType === 'b_khata' ? (
+                  <div className="mt-3">
+                    <Callout tone="warning" title="Carried forward as a material finding">
+                      B-khata will be reported as a title risk restricting lending, plan sanction and resale.
+                    </Callout>
+                  </div>
+                ) : null}
+              </CardBody>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader title="Notes" subtitle="Optional — anything you already know that should inform the screen." />
@@ -534,7 +1057,7 @@ export default function NewCase() {
         <Button variant="secondary" icon={<ArrowLeft size={14} />} onClick={goBack} disabled={step === 0}>
           Back
         </Button>
-        {step < STEP_LABELS.length - 1 ? (
+        {step < stepLabels.length - 1 ? (
           <Button variant="primary" onClick={attemptNext} icon={<ArrowRight size={14} />}>
             Next
           </Button>
