@@ -55,7 +55,7 @@ export default function DriverImpactChart({ drivers, height }: DriverImpactChart
   // Truncate to whatever actually fits in leftLabelWidth (minus its 10px gutter)
   // rather than a fixed character count, so a narrow chart shortens labels
   // instead of running them off the left edge of the SVG.
-  const labelMaxChars = Math.max(4, Math.floor((leftLabelWidth - 10) / 5.6));
+  const labelMaxChars = Math.max(4, Math.floor((leftLabelWidth - 10) / 6.5));
   const plotRight = size.width - 44;
   const plotTop = 6;
   const plotBottom = plotTop + sorted.length * ROW_H;

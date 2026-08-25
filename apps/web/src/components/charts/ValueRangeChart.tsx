@@ -55,7 +55,7 @@ export default function ValueRangeChart({ low, mid, high, currency, askingPrice,
   // Truncate anchor-row labels to whatever actually fits in leftLabelWidth,
   // rather than a fixed character count — narrow charts get shorter labels
   // instead of overflowing the label column into the plotted bars.
-  const labelMaxChars = Math.max(4, Math.floor((leftLabelWidth - 6) / 5.6));
+  const labelMaxChars = Math.max(4, Math.floor((leftLabelWidth - 6) / 6.5));
 
   const mainRowH = compact ? Math.max(28, height ?? 56) : 68;
   const anchorRowH = 26;
