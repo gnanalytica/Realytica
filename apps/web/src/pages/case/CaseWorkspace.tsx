@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import UnitToggle from '../../components/UnitToggle';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   CheckSquare,
@@ -11,6 +11,7 @@ import {
   Landmark,
   LayoutDashboard,
   ListChecks,
+  MessageSquare,
   MapPinned,
   RefreshCw,
   ScrollText,
@@ -35,6 +36,7 @@ import {
   Badge,
   Button,
   Callout,
+  cn,
   EmptyState,
   Skeleton,
   Tabs,
@@ -43,54 +45,11 @@ import {
 } from '../../components/ui/kit';
 import type { RunGraph } from '@valytica/shared';
 import type { TabProps } from './tab-props';
+import { CASE_GROUPS, NEEDS_SCREEN, LEGACY_TAB_REDIRECT, findGroup } from './groups';
 
-import SnapshotTab from './tabs/SnapshotTab';
-import DocumentsTab from './tabs/DocumentsTab';
-import ValuationTab from './tabs/ValuationTab';
-import DriversTab from './tabs/DriversTab';
-import RisksTab from './tabs/RisksTab';
-import ComplianceTab from './tabs/ComplianceTab';
-import TitleTab from './tabs/TitleTab';
-import PlanningTab from './tabs/PlanningTab';
-import CompletenessTab from './tabs/CompletenessTab';
-import EvidenceTab from './tabs/EvidenceTab';
-import ActionsTab from './tabs/ActionsTab';
-import ReportTab from './tabs/ReportTab';
-import IntelligenceTab from './tabs/IntelligenceTab';
-import FlowTab from './tabs/FlowTab';
+import ChatTab from './tabs/ChatTab';
 
-const TAB_KEYS = [
-  'snapshot',
-  'documents',
-  'valuation',
-  'drivers',
-  'risks',
-  'title',
-  'compliance',
-  'planning',
-  'completeness',
-  'evidence',
-  'actions',
-  'report',
-  'intelligence',
-  'flow',
-] as const;
 
-type TabKey = (typeof TAB_KEYS)[number];
-
-/** Tabs whose content is meaningless before the case has been screened at least once. */
-const ANALYSIS_TABS = new Set<TabKey>([
-  'valuation',
-  'drivers',
-  'risks',
-  'title',
-  'compliance',
-  'planning',
-  'completeness',
-  'evidence',
-  'actions',
-  'report',
-]);
 
 /**
  * Shared "not screened yet" state for every analysis tab. Explains what running
@@ -132,11 +91,28 @@ export default function CaseWorkspace() {
 
   const { data: caseData, error, loading, refresh } = useAsync(() => api.getCase(caseId as string), [caseId]);
 
-  const activeTab: TabKey = (TAB_KEYS as readonly string[]).includes(tab ?? '') ? (tab as TabKey) : 'snapshot';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const legacy = tab ? LEGACY_TAB_REDIRECT[tab] : undefined;
+  const activeTab: string =
+    tab === 'chat' || CASE_GROUPS.some((g) => g.key === tab) ? (tab as string) : legacy?.group ?? 'chat';
+
+  /*
+   * An old tab URL is rewritten rather than merely tolerated.
+   *
+   * `/cases/:id/completeness` was a real address; people have it in tabs and
+   * in messages. It now resolves to the group and view that absorbed it, and
+   * the address bar is corrected so the next reload is not a redirect too.
+   */
+  useEffect(() => {
+    if (!legacy || !caseId) return;
+    navigate(`/cases/${caseId}/${legacy.group}?view=${legacy.view}`, { replace: true });
+  }, [legacy, caseId, navigate]);
 
   const goToTab = useCallback(
     (key: string) => {
       if (!caseId) return;
+      // `key` may carry a view — "documents?view=evidence" — so the chat can
+      // link at a panel rather than only at a group.
       navigate(`/cases/${caseId}/${key}`, { replace: true });
     },
     [caseId, navigate],
@@ -178,8 +154,9 @@ export default function CaseWorkspace() {
     error: null,
   });
   const flowStamp = caseData?.updatedAt;
+  const [wantsGraph, setWantsGraph] = useState(false);
   useEffect(() => {
-    if (activeTab !== 'flow' || !caseId) return;
+    if (!wantsGraph || !caseId) return;
     let live = true;
     setFlow((f) => ({ ...f, loading: true, error: null }));
     api
@@ -195,80 +172,41 @@ export default function CaseWorkspace() {
     return () => {
       live = false;
     };
-  }, [activeTab, caseId, flowStamp]);
+  }, [wantsGraph, caseId, flowStamp]);
 
+  /*
+   * Five groups, badged with the number that would make someone open them.
+   *
+   * The badges are the same counts the fourteen tabs carried; they just moved
+   * up to the group that absorbed them, so nothing that used to be visible at
+   * a glance stopped being visible.
+   */
   const tabDefs: TabDef[] = useMemo(() => {
     const openCriticalRisks = result?.risks.filter((r) => r.severity === 'critical' && r.status === 'open').length ?? 0;
     const openActions = result?.actions.filter((a) => !a.done).length ?? 0;
-    // Unknown until screened (show the tab so it isn't a hidden surprise); once
-    // screened, hide it when no State Pack covers this property's state.
-    const showCompliance = !result || Boolean(result.stateCompliance);
-    const blockerCount = result?.stateCompliance?.checks.filter((c) => c.verdict === 'blocker').length ?? 0;
-    // Chain breaks and contradictions together: both are title defects, and a
-    // user deciding whether to open the tab does not care which kind they are.
     const titleFindings = result?.titleGraph
       ? result.titleGraph.contradictions.length
         + result.titleGraph.chains.reduce((n, c) => n + c.breaks.length, 0)
       : 0;
+    const blockerCount = result?.stateCompliance?.checks.filter((c) => c.verdict === 'blocker').length ?? 0;
+    const legalFindings = titleFindings + blockerCount;
+
+    const badge: Record<string, ReactNode> = {
+      overview: openCriticalRisks > 0 ? <Badge tone="critical">{openCriticalRisks}</Badge> : undefined,
+      legal: legalFindings > 0 ? <Badge tone="warning">{legalFindings}</Badge> : undefined,
+      documents: caseData ? <Badge tone="neutral">{caseData.documents.length}</Badge> : undefined,
+      report: openActions > 0 ? <Badge tone="brand">{openActions}</Badge> : undefined,
+    };
+    const icon: Record<string, ReactNode> = {
+      overview: <LayoutDashboard size={13} />,
+      value: <Landmark size={13} />,
+      legal: <ScrollText size={13} />,
+      documents: <Files size={13} />,
+      report: <FileBarChart2 size={13} />,
+    };
     return [
-      { key: 'snapshot', label: 'Snapshot', icon: <LayoutDashboard size={13} /> },
-      {
-        key: 'documents',
-        label: 'Documents',
-        icon: <Files size={13} />,
-        badge: caseData ? <Badge tone="neutral">{caseData.documents.length}</Badge> : undefined,
-      },
-      { key: 'valuation', label: 'Valuation', icon: <Landmark size={13} /> },
-      { key: 'drivers', label: 'Drivers', icon: <Waypoints size={13} /> },
-      {
-        key: 'risks',
-        label: 'Risks',
-        icon: <ShieldAlert size={13} />,
-        badge: openCriticalRisks > 0 ? <Badge tone="critical">{openCriticalRisks}</Badge> : undefined,
-      },
-      {
-        key: 'title',
-        label: 'Title',
-        icon: <GitBranch size={13} />,
-        badge: titleFindings > 0 ? <Badge tone="warning">{titleFindings}</Badge> : undefined,
-      },
-      ...(showCompliance
-        ? [
-            {
-              key: 'compliance',
-              label: 'Compliance',
-              icon: <ScrollText size={13} />,
-              badge: blockerCount > 0 ? <Badge tone="critical">{blockerCount}</Badge> : undefined,
-            },
-          ]
-        : []),
-      { key: 'planning', label: 'Planning', icon: <MapPinned size={13} /> },
-      {
-        key: 'completeness',
-        label: 'Completeness',
-        icon: <ListChecks size={13} />,
-        badge: result ? <Badge tone="neutral">{result.completeness.score}</Badge> : undefined,
-      },
-      {
-        key: 'evidence',
-        label: 'Evidence',
-        icon: <FolderSearch size={13} />,
-        badge: result ? <Badge tone="neutral">{result.evidence.length}</Badge> : undefined,
-      },
-      {
-        key: 'actions',
-        label: 'Actions',
-        icon: <CheckSquare size={13} />,
-        badge: openActions > 0 ? <Badge tone="brand">{openActions}</Badge> : undefined,
-      },
-      { key: 'report', label: 'Report', icon: <FileBarChart2 size={13} /> },
-      {
-        key: 'intelligence',
-        label: 'Intelligence',
-        icon: <Sparkles size={13} />,
-        badge: caseData?.intelligence?.runs.length ? <Badge tone="neutral">{caseData.intelligence.runs.length}</Badge> : undefined,
-      },
-      { key: 'flow', label: 'Run graph', icon: <Workflow size={13} /> },
+      { key: 'chat', label: 'Chat', icon: <MessageSquare size={13} /> },
+      ...CASE_GROUPS.map((g) => ({ key: g.key, label: g.label, icon: icon[g.key], badge: badge[g.key] })),
     ];
   }, [caseData, result]);
 
@@ -308,42 +246,57 @@ export default function CaseWorkspace() {
 
   const tabProps: TabProps = { caseData, result, refresh, runScreen, running, goToTab };
 
+  /*
+   * Which view inside the group is showing.
+   *
+   * Carried in the query string rather than in component state so that a link
+   * to a specific view survives being pasted — every one of the fourteen old
+   * tab URLs redirects to a group plus a view, and those redirects would be
+   * pointless if the view could not be addressed.
+   */
+  const group = findGroup(activeTab) ?? CASE_GROUPS[0];
+  const requestedView = searchParams.get('view');
+  const view = group.views.find((v) => v.key === requestedView) ?? group.views[0];
+
   const renderTab = () => {
-    if (ANALYSIS_TABS.has(activeTab) && !result) {
+    if (activeTab === 'chat') {
+      return (
+        <ChatTab
+          {...tabProps}
+          graph={flow.graph}
+          graphLoading={flow.loading}
+          graphError={flow.error}
+          onNeedGraph={() => setWantsGraph(true)}
+        />
+      );
+    }
+    if (NEEDS_SCREEN.has(view.key) && !result) {
       return <NotScreenedYet running={running} onRun={runScreen} />;
     }
-    switch (activeTab) {
-      case 'snapshot':
-        return <SnapshotTab {...tabProps} />;
-      case 'documents':
-        return <DocumentsTab {...tabProps} />;
-      case 'valuation':
-        return <ValuationTab {...tabProps} />;
-      case 'drivers':
-        return <DriversTab {...tabProps} />;
-      case 'risks':
-        return <RisksTab {...tabProps} />;
-      case 'title':
-        return <TitleTab {...tabProps} />;
-      case 'compliance':
-        return <ComplianceTab {...tabProps} />;
-      case 'planning':
-        return <PlanningTab {...tabProps} />;
-      case 'completeness':
-        return <CompletenessTab {...tabProps} />;
-      case 'evidence':
-        return <EvidenceTab {...tabProps} />;
-      case 'actions':
-        return <ActionsTab {...tabProps} />;
-      case 'report':
-        return <ReportTab {...tabProps} />;
-      case 'intelligence':
-        return <IntelligenceTab {...tabProps} />;
-      case 'flow':
-        return <FlowTab {...tabProps} graph={flow.graph} loading={flow.loading} error={flow.error} />;
-      default:
-        return null;
-    }
+    const View = view.component;
+    return (
+      <>
+        {group.views.length > 1 ? (
+          <div className="mx-auto mb-4 flex max-w-5xl flex-wrap gap-1.5" role="tablist" aria-label={group.label}>
+            {group.views.map((v) => (
+              <button
+                key={v.key}
+                role="tab"
+                aria-selected={v.key === view.key}
+                onClick={() => setSearchParams(v.key === group.views[0].key ? {} : { view: v.key }, { replace: true })}
+                className={cn(
+                  'rounded-full px-3 py-1 text-[13px] font-medium transition-colors',
+                  v.key === view.key ? 'bg-brand text-ink-inverse' : 'bg-sunken text-ink-secondary hover:text-ink',
+                )}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <View {...tabProps} />
+      </>
+    );
   };
 
   return (
