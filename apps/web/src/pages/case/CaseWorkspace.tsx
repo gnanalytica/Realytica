@@ -92,9 +92,19 @@ export default function CaseWorkspace() {
   const { data: caseData, error, loading, refresh } = useAsync(() => api.getCase(caseId as string), [caseId]);
 
   const [searchParams, setSearchParams] = useSearchParams();
-  const legacy = tab ? LEGACY_TAB_REDIRECT[tab] : undefined;
+  /*
+   * A legacy key only counts when it is not also a group key.
+   *
+   * Two of the old tab names — `documents` and `report` — are also names of
+   * the groups that absorbed them. Without this guard the redirect fired on
+   * the group itself and rewrote `?view=evidence` to `?view=files`, so every
+   * deep link into those two groups silently landed on their first view.
+   * The chat's own "N sources cited" link is one of them.
+   */
+  const isGroup = CASE_GROUPS.some((g) => g.key === tab);
+  const legacy = tab && !isGroup ? LEGACY_TAB_REDIRECT[tab] : undefined;
   const activeTab: string =
-    tab === 'chat' || CASE_GROUPS.some((g) => g.key === tab) ? (tab as string) : legacy?.group ?? 'chat';
+    tab === 'chat' || isGroup ? (tab as string) : legacy?.group ?? 'chat';
 
   /*
    * An old tab URL is rewritten rather than merely tolerated.
