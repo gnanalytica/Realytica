@@ -807,6 +807,9 @@ export interface ApiError {
  */
 export type AgentKind =
   | 'orchestrator'
+  | 'planner'
+  | 'critic'
+  | 'explorer'
   | 'document_intelligence'
   | 'proof_pathways'
   | 'analyst_copilot'
@@ -943,6 +946,10 @@ export interface CopilotTurn {
 
 export interface CaseIntelligence {
   runs: AgentRun[];
+  plan?: AgentPlan;
+  verification?: VerificationSummary;
+  /** Optional so that adding exploration did not force a change on every existing construction site. */
+  explorations?: ExplorationSession[];
   pathways: DocumentPathway[];
   research: ResearchFinding[];
   insights: AgentInsight[];
@@ -959,4 +966,112 @@ export interface AgentCapability {
   webSearchEnabled: boolean;
   /** Agents the deployment permits, in run order. */
   enabledAgents: AgentKind[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Verification, planning and open-ended exploration                   */
+/* ------------------------------------------------------------------ */
+
+export type CriticVerdict = 'supported' | 'partly_supported' | 'unsupported' | 'contradicted';
+
+/**
+ * One adversarial check of another agent's claim.
+ *
+ * A generative agent asked to be exhaustive will reach past its grounding —
+ * that is the failure mode this product cannot afford, because an invented fee
+ * or a fabricated service code reads exactly like a real one. The critic exists
+ * to make that reach visible rather than to be polite about it.
+ */
+export interface CriticFinding {
+  id: string;
+  /** What was checked: a pathway id, route id, insight id, or research finding id. */
+  targetId: string;
+  targetKind: 'proof_route' | 'pathway' | 'insight' | 'research_finding' | 'copilot_answer';
+  targetLabel: string;
+  verdict: CriticVerdict;
+  /** The specific claim examined, quoted. */
+  claim: string;
+  reasoning: string;
+  /** Corpus entry, evidence id or dataset the check was made against. */
+  checkedAgainst: string[];
+  /** Set when the claim states a figure, code or procedure the grounding does not contain. */
+  unsupportedSpecifics: string[];
+  confidence: number;
+}
+
+export interface VerificationSummary {
+  checkedCount: number;
+  findings: CriticFinding[];
+  /** Ids the critic judged unsupported or contradicted — the UI must mark these. */
+  flaggedIds: string[];
+  /** 0..100 share of checked claims that came back supported. */
+  groundingScore: number;
+}
+
+/* --- Dynamic planning ------------------------------------------------ */
+
+export type TaskDepth = 'skip' | 'light' | 'standard' | 'deep';
+
+export interface PlannedTask {
+  agent: AgentKind;
+  depth: TaskDepth;
+  /** Why this case warrants this depth — shown to the user, not just logged. */
+  rationale: string;
+  /** Lower runs earlier; equal values may run concurrently. */
+  order: number;
+  /** Specific things this run should concentrate on for this case. */
+  focus: string[];
+}
+
+export interface AgentPlan {
+  id: string;
+  createdAt: string;
+  /** The planner's read of what this case actually needs. */
+  caseAssessment: string;
+  tasks: PlannedTask[];
+  /** Named things the planner deliberately chose not to do, and why. */
+  deliberateOmissions: string[];
+  estimatedCostUsd: number;
+}
+
+/* --- Open-ended exploration ------------------------------------------ */
+
+export type SourceReachability = 'fetched' | 'blocked_auth' | 'blocked_captcha' | 'not_found' | 'rate_limited';
+
+/** A lead the explorer chose to follow, and what came of it. */
+export interface ExplorationLead {
+  id: string;
+  question: string;
+  /** Why the agent decided this was worth pursuing. */
+  motivation: string;
+  queries: string[];
+  visited: { url: string; title?: string; reachability: SourceReachability; note?: string }[];
+  outcome: 'answered' | 'partial' | 'dead_end';
+  finding?: string;
+  confidence: number;
+  spawnedLeadIds: string[];
+}
+
+/**
+ * An open-ended research run.
+ *
+ * Unlike the other agents this one has no fixed output shape to fill — it
+ * decides what to look at, follows what it finds, and stops when the marginal
+ * lead stops paying. The budget and the dead-end record are what keep that from
+ * becoming an expensive wander.
+ */
+export interface ExplorationSession {
+  id: string;
+  caseId: string;
+  objective: string;
+  startedAt: string;
+  finishedAt?: string;
+  leads: ExplorationLead[];
+  /** Sources the agent could not reach, so the user knows what was NOT checked. */
+  unreachable: { source: string; reachability: SourceReachability; whatItWouldHaveAnswered: string }[];
+  /** The agent's own account of what it still does not know. */
+  openQuestions: string[];
+  iterations: number;
+  stoppedBecause: 'objective_met' | 'budget_exhausted' | 'no_new_leads' | 'error';
+  usage?: AgentUsage;
 }

@@ -65,6 +65,9 @@ import {
 
 const AGENT_LABEL: Record<AgentKind, string> = {
   orchestrator: 'Orchestrator',
+  planner: 'Planner',
+  critic: 'Critic',
+  explorer: 'Explorer',
   document_intelligence: 'Document Intelligence',
   proof_pathways: 'Proof Pathways',
   analyst_copilot: 'Analyst Copilot',
