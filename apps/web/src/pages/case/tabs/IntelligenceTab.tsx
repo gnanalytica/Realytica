@@ -43,6 +43,7 @@ import { EvidenceLink } from '../../../components/EvidenceLink';
 import { AgentRunTimeline, formatUsd } from '../../../components/AgentRunTimeline';
 import { CopilotPanel } from '../../../components/CopilotPanel';
 import { AgentPlanCard } from '../../../components/AgentPlanCard';
+import { CostBreakdown } from '../../../components/CostBreakdown';
 import { CriticFlagBanner, VerificationPanel, findFlaggedCriticFinding } from '../../../components/VerificationPanel';
 import { ExplorationTrail } from '../../../components/ExplorationTrail';
 import type { VerificationSummary } from '@valytica/shared';
@@ -1013,6 +1014,8 @@ export default function IntelligenceTab({ caseData, result, refresh }: TabProps)
       </Card>
 
       <AgentPlanCard plan={intel.plan} actualSpendUsd={totalCost} />
+
+      {intel.cost && intel.cost.perAgent.length > 0 && <CostBreakdown cost={intel.cost} />}
 
       <InsightsCard insights={intel.insights} evidence={evidence} onOpenEvidence={openEvidence} verification={intel.verification} />
 

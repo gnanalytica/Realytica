@@ -14,6 +14,7 @@ import type { ComplianceCheck, ComplianceVerdict, EvidenceItem, TransactionCostB
 import type { TabProps } from '../tab-props';
 import { StatutoryProvenance } from '../../../components/StatutoryProvenance';
 import { EvidenceLink } from '../../../components/EvidenceLink';
+import { PlaybookPanel } from '../../../components/PlaybookPanel';
 import { money, pct } from '../../../lib/format';
 import {
   Badge,
@@ -237,6 +238,11 @@ export default function ComplianceTab({ caseData, result, runScreen, running, go
 
   const band = complianceBand(compliance.score, blockers.length);
   const filtersActive = restFilter !== 'all' || hideClear;
+  // Playbooks sit above the individual checks. A check answers "is this one
+  // thing in order"; a playbook answers "where am I in the procedure, and what
+  // can I not yet ask" — which is what a user opening this tab actually wants
+  // to know first.
+  const playbooks = result.playbooks ?? [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -269,6 +275,8 @@ export default function ComplianceTab({ caseData, result, runScreen, running, go
           />
         </CardBody>
       </Card>
+
+      {playbooks.length > 0 && <PlaybookPanel runs={playbooks} />}
 
       {/* Blockers first — never sorted below routine checks */}
       {blockers.length > 0 ? (
