@@ -862,6 +862,15 @@ export interface AgentRun {
   provider?: ProviderId;
   /** Capabilities this run asked for and did not get. */
   capabilityGaps?: CapabilityGap[];
+  /**
+   * Prompt versions this run used.
+   *
+   * Recorded so a change in output can be attributed to a change in text. A
+   * run that used an edited prompt which dropped a guardrail carries that here
+   * too, because the finding it produced should not look the same as one
+   * produced under the shipped rules.
+   */
+  prompts?: PromptUsage[];
   steps: AgentStep[];
   summary?: string;
   /** What was actually put in front of the model, when retrieval selected it. */
@@ -1930,4 +1939,174 @@ export interface EvalComparison {
   ranking: EvalRanking[];
   /** Cases that could not be run at all, and why — never silently dropped. */
   skipped: { evalCaseId: string; reason: string }[];
+}
+
+/* ==================================================================== */
+/* Prompt management                                                    */
+/* ==================================================================== */
+
+export type PromptRole =
+  /** The shared preamble every agent inherits — where the anti-fabrication rules live. */
+  | 'grounding'
+  /** An agent's own role definition. */
+  | 'system'
+  /** A per-call instruction assembled from case data. */
+  | 'instruction';
+
+/**
+ * A guardrail a prompt version is checked against.
+ *
+ * Editable prompts and a diligence product are an uncomfortable pair. The
+ * shared preamble is not stylistic — it is the text that says never invent a
+ * document, a statute, a case number or a figure, and an invented survey
+ * number is the one failure this product cannot ship. A prompt UI that lets
+ * someone delete that line while the app keeps reporting business as usual
+ * would quietly remove the guarantee the whole evidence ledger rests on.
+ *
+ * So versions are not validated into acceptance or rejection — an operator may
+ * genuinely need to rewrite a preamble — but every guardrail is checked, the
+ * result travels with the version, and any run using a version that dropped
+ * one is marked. Editing is allowed; editing invisibly is not.
+ */
+export interface PromptInvariantCheck {
+  id: string;
+  label: string;
+  /** Why it matters, in product terms rather than prompt-engineering terms. */
+  rationale: string;
+  satisfied: boolean;
+}
+
+export interface PromptVersion {
+  id: string;
+  promptKey: string;
+  /** Monotonic within a key. Version 1 is always the built-in. */
+  version: number;
+  label: string;
+  content: string;
+  createdAt: string;
+  /** Shipped with the build. Never editable or deletable, so there is always a way back. */
+  builtIn: boolean;
+  /**
+   * Digest of `content`.
+   *
+   * Recorded on every run that used it, so a result can be tied to the exact
+   * text that produced it. Without this, "the extraction got worse last
+   * Tuesday" is unanswerable the moment anyone edits a prompt.
+   */
+  contentHash: string;
+  notes?: string;
+  invariants: PromptInvariantCheck[];
+}
+
+export interface PromptDescriptor {
+  /** Stable identity, e.g. `document_intelligence.system`. */
+  key: string;
+  agent: AgentKind;
+  role: PromptRole;
+  label: string;
+  description: string;
+  /**
+   * Placeholders the template expects.
+   *
+   * A version that drops one renders a blank where a case fact should be, and
+   * a prompt with a hole in it fails in a way that looks like a model problem.
+   * Checked as an invariant rather than trusted.
+   */
+  variables: string[];
+  activeVersionId: string;
+  versions: PromptVersion[];
+}
+
+/** What a run actually used. Without it, comparing two versions is guesswork. */
+export interface PromptUsage {
+  promptKey: string;
+  versionId: string;
+  version: number;
+  contentHash: string;
+  /** Ids of guardrails the version in force did not satisfy. Empty is the normal case. */
+  invariantsBroken: string[];
+}
+
+/* ==================================================================== */
+/* Run graph — the visual view of an orchestration                      */
+/* ==================================================================== */
+
+export type RunGraphNodeKind =
+  | 'plan'
+  /** One agent run. */
+  | 'agent'
+  /** A deterministic step: the screening engine, the title graph, a re-screen. */
+  | 'engine'
+  /** Something produced and carried forward — a valuation, a pathway set. */
+  | 'output';
+
+export type RunGraphEdgeKind =
+  /** B ran after A. */
+  | 'sequence'
+  /** A's output was an input to B. */
+  | 'data'
+  /** B re-ran something upstream because A changed a fact. */
+  | 'feedback';
+
+export interface RunGraphOutput {
+  key: string;
+  label: string;
+  /** How many things: fields extracted, pathways produced, findings raised. */
+  count?: number;
+  /** One line a user reads without opening the node. */
+  summary?: string;
+}
+
+export interface RunGraphNode {
+  id: string;
+  kind: RunGraphNodeKind;
+  label: string;
+  agent?: AgentKind;
+  status: AgentRunStatus | 'ok';
+  /**
+   * Execution layer. Nodes sharing a lane ran concurrently — the orchestrator
+   * groups planned tasks by `order`, and the canvas draws that grouping rather
+   * than inventing a layout, so the picture is the schedule.
+   */
+  lane: number;
+  provider?: ProviderId;
+  model?: string;
+  tier?: ModelTier;
+  durationMs?: number;
+  /** Absent rather than zero when the route's rates are unknown. */
+  costUsd?: number;
+  capabilityGaps?: CapabilityGap[];
+  prompts?: PromptUsage[];
+  outputs: RunGraphOutput[];
+  /** Links the node back to the run it came from, for the detail panel. */
+  runId?: string;
+  detail?: string;
+}
+
+export interface RunGraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  kind: RunGraphEdgeKind;
+  label?: string;
+}
+
+export interface RunGraphLane {
+  index: number;
+  label: string;
+}
+
+export interface RunGraph {
+  caseId: string;
+  builtAt: string;
+  lanes: RunGraphLane[];
+  nodes: RunGraphNode[];
+  edges: RunGraphEdge[];
+  totals: {
+    durationMs: number;
+    /** Absent when any node on the graph could not be priced. */
+    costUsd?: number;
+    degradedNodes: number;
+    failedNodes: number;
+  };
 }
