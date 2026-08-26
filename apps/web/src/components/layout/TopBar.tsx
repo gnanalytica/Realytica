@@ -10,7 +10,7 @@ export interface TopBarProps {
 }
 
 function pageTitle(pathname: string): string {
-  if (pathname === '/') return 'Dashboard';
+  if (pathname === '/app') return 'Dashboard';
   if (pathname.startsWith('/cases/new')) return 'New property case';
   if (pathname.startsWith('/cases/')) return 'Case workspace';
   if (pathname.startsWith('/compare')) return 'Compare cases';

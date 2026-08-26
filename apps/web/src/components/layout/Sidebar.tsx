@@ -18,7 +18,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   // Chat is the front door, so it is the index route and the first item.
-  { to: '/', label: 'Chat', icon: MessageSquare, end: true },
+  { to: '/app', label: 'Chat', icon: MessageSquare, end: true },
   { to: '/cases', label: 'Your cases', icon: LayoutDashboard, end: false },
   { to: '/compare', label: 'Compare', icon: GitCompare, end: false },
   { to: '/observability', label: 'AI activity', icon: Gauge, end: false },
