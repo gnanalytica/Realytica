@@ -1,6 +1,8 @@
 import {
   DOCUMENT_KIND_LABEL,
   KARNATAKA_PLAYBOOKS,
+  assessmentProfile,
+  inferProjectKind,
   runScreen,
 } from '@realytica/shared';
 import type {
@@ -13,9 +15,10 @@ import type {
   IntakeStage,
   LocalityReference,
   ReferenceData,
+  ProjectKindInference,
   ScreenResult,
 } from '@realytica/shared';
-import { INTAKE_FIELDS, draftIdentity, valueOf } from './fields';
+import { INTAKE_FIELDS, draftIdentity, draftProjectKind, valueOf } from './fields';
 
 /**
  * Everything derived from a draft.
@@ -120,7 +123,32 @@ export function documentRequests(
  * layer already uses for capability gaps. Two different kinds of gap in one
  * namespace is a name worth spending four extra characters on.
  */
-export function particularGaps(fields: IntakeField[]): IntakeGap[] {
+/**
+ * How the draft reads as a project, and whether that reading needs asking about.
+ *
+ * The inference runs on every read. Whether it becomes a *question* is the
+ * interesting part: a reading with no alternatives is settled, and asking
+ * anyway would be the form's habit — collecting a field because the schema
+ * has one. A reading with alternatives is a genuine fork the numbers depend
+ * on, and that is worth one question.
+ */
+export function readProject(
+  fields: IntakeField[],
+  documents: CaseDocument[],
+): { inference: ProjectKindInference; stated: boolean; needsAsking: boolean } {
+  const stated = draftProjectKind(fields);
+  const identity = draftIdentity(fields);
+  const inference = stated
+    ? { kind: stated, confidence: 1, basis: ['You told us.'], alternatives: [] }
+    : inferProjectKind(identity, { documentKinds: documents.map(d => d.kind) });
+  return {
+    inference,
+    stated: stated !== undefined,
+    needsAsking: stated === undefined && inference.alternatives.length > 0,
+  };
+}
+
+export function particularGaps(fields: IntakeField[], projectSettled = false): IntakeGap[] {
   const known = new Set(
     fields.filter(f => f.value !== null && f.value !== '' && f.value !== 'unknown').map(f => f.path),
   );
@@ -135,6 +163,11 @@ export function particularGaps(fields: IntakeField[]): IntakeGap[] {
     if (isLand && spec.path === 'builtUpAreaSqm') return false;
     if (!isLand && spec.path === 'plotAreaSqm') return false;
     if (isLand && spec.path === 'yearBuilt') return false;
+    // Only ask what the project is when the draft does not already settle it.
+    // The whole point of inferring the kind is that most cases never need the
+    // question — an intake that asks anyway has learned nothing from having
+    // read the case.
+    if (spec.path === 'projectKind' && projectSettled) return false;
     return true;
   }).map(spec => ({
     path: spec.path,
@@ -208,7 +241,10 @@ export function readDraft(
   now: string,
 ): IntakeReadout {
   const preview = previewScreen(session.fields, session.documents, refData, now);
-  const gaps = particularGaps(session.fields);
+  const project = readProject(session.fields, session.documents);
+  // A settled reading is not a gap. It is still shown — see `project` below —
+  // so the user can correct it, but the conversation does not stop to ask.
+  const gaps = particularGaps(session.fields, !project.needsAsking);
   const documents = documentRequests(session.fields, session.documents, preview);
   const screenable = preview !== undefined;
   return {
@@ -217,8 +253,19 @@ export function readDraft(
     documents,
     screenable,
     preview,
+    project: project.inference,
+    assessment: assessmentProfile(project.inference.kind),
+    projectKindStated: project.stated,
     // Blocking gaps first; the list is already in ask-order, so the head of it
     // is the next thing a person should be asked.
-    nextQuestion: gaps.find(g => g.blocking) ?? gaps[0],
+    //
+    // The unsettled project kind jumps ahead of every non-blocking gap,
+    // including the document requests — because it decides which documents
+    // are critical. Asking for a khata extract before knowing whether this is
+    // a purchase or a subdivision is asking for the right document by luck.
+    nextQuestion:
+      gaps.find(g => g.blocking) ??
+      (project.needsAsking ? gaps.find(g => g.path === 'projectKind') : undefined) ??
+      gaps[0],
   };
 }

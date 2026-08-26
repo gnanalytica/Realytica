@@ -1548,6 +1548,12 @@ export interface CreateCaseRequest {
   ownerName: string;
   persona: PersonaKey;
   notes?: string;
+  /**
+   * What is being done with the property, when the creator knows. Omitted,
+   * the engine infers it on the first screen — so this is how a stated
+   * intention survives into the case, not a required field.
+   */
+  project?: ProjectBrief;
 }
 
 export interface UpdateCaseRequest {
@@ -3084,6 +3090,21 @@ export interface IntakeReadout {
   preview?: ScreenResult;
   /** One line on what the intake would ask next, when nothing else is pressing. */
   nextQuestion?: IntakeGap;
+  /**
+   * What kind of project this reads as, from what has been said so far.
+   *
+   * Present from the moment a property type is known, because the assessment
+   * method is being selected from it whether or not anyone has been asked —
+   * so the conversation should say which method it is using rather than
+   * apply one silently. When the reading has alternatives, the intake asks;
+   * when it does not, it states the conclusion and moves on. That is the
+   * difference between an intake that decides and one that interrogates.
+   */
+  project?: ProjectKindInference;
+  /** The profile that reading selects, so the chat can name the method in play. */
+  assessment?: AssessmentProfile;
+  /** True once the user has stated the kind themselves, rather than it being read off the draft. */
+  projectKindStated?: boolean;
 }
 
 export interface IntakeSession {

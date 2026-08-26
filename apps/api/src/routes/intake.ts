@@ -302,6 +302,10 @@ intakeRouter.post<{ id: string }>('/:id/commit', async (req, res) => {
     identity: outcome.request.identity,
     status: 'collecting',
     persona: outcome.request.persona,
+    // Carried from the conversation, so a case built from a chat where the
+    // person said what they were building starts screened under that method
+    // rather than under one inferred from scratch on the first run.
+    project: outcome.request.project,
     ownerName: outcome.request.ownerName,
     createdAt: now,
     updatedAt: now,

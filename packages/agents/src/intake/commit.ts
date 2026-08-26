@@ -1,5 +1,6 @@
-import type { CreateCaseRequest, IntakeField, IntakeSession, PersonaKey, ReferenceData } from '@realytica/shared';
-import { draftIdentity } from './fields';
+import type { CreateCaseRequest, IntakeField, IntakeSession, PersonaKey, ProjectBrief, ReferenceData } from '@realytica/shared';
+import { assessmentFitCaution } from '@realytica/shared';
+import { draftIdentity, draftProjectKind } from './fields';
 import { readDraft } from './readout';
 
 /**
@@ -49,6 +50,28 @@ export function commitDraft(
   const unconfirmed = session.fields.filter(f => !f.confirmed);
 
   /*
+   * The project kind carries across from the conversation.
+   *
+   * `source` is the load-bearing part: a kind the person picked is `user` and
+   * the engine will not revise it, while one the conversation merely read off
+   * the draft stays `inferred` and keeps showing its reasoning on the case.
+   * Collapsing the two would turn "we think this is a land purchase" into
+   * "you said this is a land purchase" at the moment a case is created.
+   */
+  const statedKind = draftProjectKind(session.fields);
+  const inference = readout.project;
+  const project: ProjectBrief | undefined = inference
+    ? {
+        kind: statedKind ?? inference.kind,
+        source: statedKind ? 'user' : 'inferred',
+        intent: 'unknown',
+        inference,
+        fitCaution: assessmentFitCaution(identity, statedKind ?? inference.kind),
+        decidedAt: now,
+      }
+    : undefined;
+
+  /*
    * The note is the audit trail for the conversation.
    *
    * A case built from a chat should carry, on its face, which of its
@@ -57,6 +80,14 @@ export function commitDraft(
    * reads the case a week later.
    */
   const noteLines = [`Built from an intake conversation on ${now.slice(0, 10)}.`];
+  if (project) {
+    noteLines.push(
+      '',
+      project.source === 'user'
+        ? `Assessed as: ${readout.assessment?.label ?? project.kind} — stated in the conversation.`
+        : `Assessed as: ${readout.assessment?.label ?? project.kind} — read from the particulars, not stated. ${project.inference.basis.join(' ')}`,
+    );
+  }
   if (unconfirmed.length > 0) {
     noteLines.push(
       '',
@@ -72,6 +103,7 @@ export function commitDraft(
       ownerName: session.ownerName?.trim() || 'Unnamed',
       persona: session.persona ?? DEFAULT_PERSONA,
       notes: noteLines.join('\n'),
+      project,
     },
     unconfirmed,
   };

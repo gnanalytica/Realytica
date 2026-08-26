@@ -84,6 +84,31 @@ export function describeState(readout: IntakeReadout, fields: IntakeField[]): st
     lines.push('', 'No preview yet — the engine cannot screen this draft until the blocking particulars below are known.');
   }
 
+  /*
+   * The assessment method in force, and whether it is settled.
+   *
+   * Stated to the model rather than left implicit, because the method is not
+   * a particular the conversation collects — it is the frame everything else
+   * is collected for. A concierge that does not know it is screening a
+   * subdivision will ask about the built-up area of a layout.
+   */
+  if (readout.project && readout.assessment) {
+    lines.push('', `READING THIS AS: ${readout.assessment.label}. The question it answers: ${readout.assessment.headlineQuestion}`);
+    lines.push(`  Because: ${readout.project.basis.join(' ')}`);
+    if (readout.projectKindStated) {
+      lines.push('  The user stated this themselves. Do not re-open it.');
+    } else if (readout.project.alternatives.length > 0) {
+      lines.push(
+        `  NOT SETTLED — equally consistent with: ${readout.project.alternatives.join(', ')}.`,
+        `  Ask this once, in your own words: ${readout.project.settledBy ?? 'what do you intend to do with it?'}`,
+        '  Say which method you are using meanwhile, and that it is the reading that assumes least. Never present it as established.',
+      );
+    } else {
+      lines.push('  Settled by the particulars. State the method in passing; do not ask about it.');
+    }
+    lines.push(`  What this assessment turns on: ${readout.assessment.decisionBasis.join('; ')}`);
+  }
+
   const blocking = readout.gaps.filter(g => g.blocking);
   const optional = readout.gaps.filter(g => !g.blocking);
   if (blocking.length > 0) {
@@ -115,7 +140,10 @@ export function describeState(readout: IntakeReadout, fields: IntakeField[]): st
    * trusted.
    */
   const topDocument = critical[0];
-  if (readout.stage === 'documents' && topDocument) {
+  const projectUnsettled = readout.project !== undefined && !readout.projectKindStated && readout.project.alternatives.length > 0;
+  if (projectUnsettled && readout.project?.settledBy) {
+    lines.push('', `The single most useful thing to ask for now: ${readout.project.settledBy} — it decides which valuation leads and which documents are critical, so asking for a document before it is asking by luck.`);
+  } else if (readout.stage === 'documents' && topDocument) {
     lines.push('', `The single most useful thing to ask for now: the ${topDocument.label} — it settles ${topDocument.settles}`);
   } else if (readout.nextQuestion) {
     lines.push('', `The single most useful thing to ask for now: ${readout.nextQuestion.label} — ${readout.nextQuestion.consequence}`);
@@ -161,10 +189,24 @@ export function fallbackReply(readout: IntakeReadout, userMessage: string, reaso
   }
 
   const nextDoc = readout.documents.find(d => d.critical && !d.received);
-  if (readout.stage === 'ready') {
-    parts.push('That is enough to build the case. Everything still open will show as a gap on the screen rather than blocking it.');
-  } else if (readout.gaps.some(g => g.blocking)) {
+  // Same ordering the state block gives the model: an unsettled project kind
+  // outranks a document request, because which documents are critical
+  // depends on it. Both paths have to agree, or the deterministic fallback
+  // asks a different question from the one the agent was told to ask.
+  const projectUnsettled =
+    readout.project !== undefined && !readout.projectKindStated && readout.project.alternatives.length > 0;
+  if (readout.gaps.some(g => g.blocking)) {
     parts.push(askFor(readout));
+  } else if (projectUnsettled) {
+    // Asked even at 'ready', where the build offer still stands below it: a
+    // case built without this gets screened under an assumption, and the one
+    // moment it is cheap to correct is before the case exists.
+    if (readout.stage === 'ready') {
+      parts.push('That is enough to build the case, but one thing would change how it is assessed.');
+    }
+    parts.push(askFor(readout));
+  } else if (readout.stage === 'ready') {
+    parts.push('That is enough to build the case. Everything still open will show as a gap on the screen rather than blocking it.');
   } else if (nextDoc) {
     parts.push(`Do you have the ${nextDoc.label.toLowerCase()}? It settles: ${nextDoc.settles}`);
   } else {

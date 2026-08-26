@@ -1,4 +1,4 @@
-import { Check, FileText, Sparkles, Trash2, X } from 'lucide-react';
+import { Check, Compass, FileText, Sparkles, Trash2, X } from 'lucide-react';
 import type { IntakeField, IntakeReadout } from '@realytica/shared';
 import { Badge, Button, Card, CardBody, CardHeader, Stat, cn } from '../ui/kit';
 import { VERDICT_LABEL, money } from '../../lib/format';
@@ -63,6 +63,40 @@ export function DraftPanel({ readout, fields, onConfirm, onClear, onBuild, build
 
   return (
     <div className="flex flex-col gap-4">
+      {/*
+        * Above the range, because the reading decides how the range was
+        * produced. A user who sees a number first and the method second has
+        * already formed a view of the number.
+        */}
+      {readout.project && readout.assessment && (
+        <Card>
+          <CardHeader
+            title="Reading this as"
+            subtitle={readout.projectKindStated ? 'You told us this.' : 'Read from what you have said so far — correct it any time.'}
+            icon={<Compass size={15} />}
+          />
+          <CardBody className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[14px] font-semibold text-ink">{readout.assessment.label}</span>
+              {!readout.projectKindStated && (
+                <Badge tone={readout.project.alternatives.length > 0 ? 'warning' : 'neutral'}>
+                  {readout.project.alternatives.length > 0 ? 'Not settled' : `${Math.round(readout.project.confidence * 100)}% confident`}
+                </Badge>
+              )}
+            </div>
+            <p className="text-[12.5px] leading-relaxed text-ink-secondary">{readout.assessment.headlineQuestion}</p>
+            <ul className="flex flex-col gap-1">
+              {readout.project.basis.map((b) => (
+                <li key={b} className="flex gap-2 text-[11.5px] leading-relaxed text-ink-muted">
+                  <span aria-hidden="true" className="mt-[6px] h-1 w-1 shrink-0 rounded-full bg-ink-faint" />
+                  {b}
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
+
       {preview ? (
         <Card>
           <CardHeader

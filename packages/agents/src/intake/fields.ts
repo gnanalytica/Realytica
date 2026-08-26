@@ -1,4 +1,5 @@
-import type { IntakeField, IntakeProvenance, PropertyIdentity } from '@realytica/shared';
+import { ASSESSMENT_PROFILES, PROJECT_KINDS } from '@realytica/shared';
+import type { IntakeField, IntakeProvenance, ProjectKind, PropertyIdentity } from '@realytica/shared';
 
 /**
  * The particulars the intake knows how to capture, and what each one is worth.
@@ -45,6 +46,17 @@ const PROPERTY_TYPES: { value: string; label: string }[] = [
   { value: 'land_parcel', label: 'Land parcel' },
 ];
 
+/**
+ * Built from the assessment profiles rather than restated here, so the ten
+ * choices a person is offered are exactly the ten the engine can assess. A
+ * hand-written list would be free to drift out of step with them, and the
+ * failure would be silent: an option that selects no profile.
+ */
+const PROJECT_KIND_OPTIONS = PROJECT_KINDS.map(kind => ({
+  value: kind,
+  label: ASSESSMENT_PROFILES[kind].label,
+}));
+
 export const INTAKE_FIELDS: IntakeFieldSpec[] = [
   {
     path: 'locality',
@@ -63,6 +75,16 @@ export const INTAKE_FIELDS: IntakeFieldSpec[] = [
     blocking: true,
     consequence:
       'Decides whether value comes from built-up area or from the land itself, and which diligence applies — a site and a flat fail in completely different ways.',
+  },
+  {
+    path: 'projectKind',
+    label: 'What you are doing here',
+    kind: 'enum',
+    options: PROJECT_KIND_OPTIONS,
+    consequence:
+      'Decides the whole method: which valuations lead, which checks cannot be skipped, which documents the answer depends on. Buying a site, subdividing it and building flats on it are three different assessments of the same land.',
+    parseHint:
+      'What the person intends to do, not what the property is. "We are putting up 90 flats" is an apartment project; "cutting it into 30x40 sites" is a plotted development; "the landowner keeps 40%" is a joint development; "just buying the flat" is a built asset purchase.',
   },
   {
     path: 'builtUpAreaSqm',
@@ -291,6 +313,18 @@ export function applyCapture(existing: IntakeField[], captures: CaptureInput[], 
 export function valueOf(fields: IntakeField[], path: string): string | number | boolean | null | undefined {
   const f = fields.find(x => x.path === path);
   return f ? f.value : undefined;
+}
+
+/**
+ * The project kind the user stated, if they stated one.
+ *
+ * Deliberately not part of `draftIdentity`: the kind is a fact about the
+ * undertaking, not about the property, and folding it into the identity would
+ * make every consumer of an identity think it knew something about intent.
+ */
+export function draftProjectKind(fields: IntakeField[]): ProjectKind | undefined {
+  const v = valueOf(fields, 'projectKind');
+  return typeof v === 'string' && PROJECT_KINDS.includes(v as ProjectKind) ? (v as ProjectKind) : undefined;
 }
 
 /**
