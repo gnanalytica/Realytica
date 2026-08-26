@@ -58,8 +58,10 @@ import type {
   TransactionCostBreakdown,
   ValueAnchor,
   ValueDriver,
+  SiteContext,
 } from './types';
-import { analyseTitleGraph } from './graph';
+import { amenityDistance, nearestTransit, sitePinIsAccurate } from './site';
+import { COMPASS_SIDES, analyseTitleGraph, type CompassSide } from './graph';
 import { runPlaybooks } from './playbooks';
 import { ENGINE_VERSION } from './constants';
 import { REFERENCE_DATA } from './reference';
@@ -230,6 +232,63 @@ function mkField(
  * re-derive fields for documents that were uploaded without extraction having
  * run yet.
  */
+/**
+ * Synthetic schedule of property for the demo extractor.
+ *
+ * A Bengaluru site deed states the boundaries and the two dimensions as well
+ * as the extent, and the graph now reads all three. Without them the demo
+ * cases would exercise none of that, and the schedule card would be empty on
+ * exactly the cases it was built for.
+ *
+ * Two details matter, both about not manufacturing findings:
+ *
+ * - The dimensions come from the case's own `plot.dimensionsFt` where it has
+ *   them, and are otherwise derived from the recorded extent and rounded to
+ *   whole feet, which is what a deed does. Either way the product agrees with
+ *   the stated extent to within `AREA_DRIFT_FLOOR`, so `area_mismatch` does
+ *   not fire on arithmetic that is actually correct.
+ *
+ * - The abutters are seeded from the *case*, not the document, so the sale
+ *   deed and the mother deed describe the same neighbours and
+ *   `boundary_mismatch` does not fire on two documents that agree.
+ *
+ * Only for an Indian site — a flat's deed has no site dimensions to state,
+ * and inventing some would put a fictional rectangle into the reconciliation.
+ */
+function scheduleFields(identity: PropertyIdentity, seed: string, docId: string, confidence: number): ExtractedField[] {
+  if (identity.country !== 'IN' || identity.plotAreaSqm <= 0 || identity.builtUpAreaSqm > 0) return [];
+
+  const METRES_PER_FOOT = 0.3048;
+  const areaSqft = identity.plotAreaSqm / (METRES_PER_FOOT * METRES_PER_FOOT);
+  // Where the case already records the site's dimensions, the deed states
+  // those. Deriving a different pair from the extent would put the case
+  // record and its own title deed into a disagreement this codebase invented.
+  const recorded = identity.plot?.dimensionsFt;
+  const eastWestFt = recorded ? recorded.width : Math.round(Math.sqrt(areaSqft / round2(seededRange(`${seed}:schedule:ratio`, 1.35, 1.65))));
+  const northSouthFt = recorded ? recorded.depth : Math.round(areaSqft / eastWestFt);
+
+  // A site's facing *is* the side its access road runs along, and the case
+  // already records both the facing and the road width. The schedule states
+  // the road on that side and states its recorded width — a schedule that
+  // put the road somewhere else, or gave it a different width, would put the
+  // deed at odds with the plot facts on the same screen.
+  const roadWidth = identity.plot?.roadWidthFt ?? [20, 30, 40][Math.floor(seededRange(`${seed}:schedule:road`, 0, 3))];
+  const facing = identity.plot?.facing ?? 'east';
+  const roadSide: CompassSide = facing === 'unknown' ? 'east' : (facing.split('_')[0] as CompassSide);
+  const neighbour = (side: string): string => `Sy. No. ${Math.floor(seededRange(`${seed}:schedule:${side}`, 100, 190))}/${Math.floor(seededRange(`${seed}:schedule:${side}:sub`, 1, 9))}`;
+
+  const label: Record<CompassSide, string> = { north: 'North', east: 'East', south: 'South', west: 'West' };
+  const key: Record<CompassSide, string> = { north: 'boundaryNorth', east: 'boundaryEast', south: 'boundarySouth', west: 'boundaryWest' };
+
+  return [
+    ...COMPASS_SIDES.map(side =>
+      mkField(key[side], `Boundary — ${label[side]}`, side === roadSide ? `${roadWidth} feet wide road` : neighbour(side), confidence, docId, 'ocr'),
+    ),
+    mkField('dimensionEastWest', 'Dimension — East to West', String(eastWestFt), confidence, docId, 'parser', 'ft'),
+    mkField('dimensionNorthSouth', 'Dimension — North to South', String(northSouthFt), confidence, docId, 'parser', 'ft'),
+  ];
+}
+
 export function extractFields(doc: CaseDocument, identity: PropertyIdentity, seed: string): ExtractedField[] {
   const rnd = (label: string, min: number, max: number): number => seededRange(`${seed}:${doc.id}:${label}`, min, max);
   const conf = (label: string): number => round2(rnd(`conf:${label}`, 0.6, 0.98));
@@ -245,6 +304,7 @@ export function extractFields(doc: CaseDocument, identity: PropertyIdentity, see
         mkField('deedDate', 'Deed execution date', new Date(2015 + Math.floor(rnd('year', 0, 9)), Math.floor(rnd('month', 0, 11)), 1 + Math.floor(rnd('day', 0, 27))).toISOString().slice(0, 10), conf('deedDate'), docId, 'ocr'),
         mkField('registrationNumber', 'Registration number', `${identity.state.slice(0, 2).toUpperCase()}-${Math.floor(rnd('regno', 100000, 999999))}`, conf('regno'), docId, 'ocr'),
         mkField('extent', 'Extent conveyed', identity.plotAreaSqm.toFixed(1), conf('extent'), docId, 'parser', 'sqm'),
+        ...scheduleFields(identity, seed, docId, conf('schedule')),
       ];
     case 'sale_agreement':
       return [
@@ -315,6 +375,7 @@ export function extractFields(doc: CaseDocument, identity: PropertyIdentity, see
       return [
         mkField('surveyNumber', 'Survey number', identity.parcelId || `Sy. No. ${Math.floor(rnd('sy', 10, 400))}/${Math.floor(rnd('sysub', 1, 9))}`, conf('sy'), docId, 'ocr'),
         mkField('extentConveyed', 'Extent', identity.plotAreaSqm.toFixed(1), conf('extent'), docId, 'parser', 'sqm'),
+        ...scheduleFields(identity, seed, docId, conf('schedule')),
       ];
     case 'conversion_certificate':
       return [
@@ -1285,6 +1346,7 @@ function buildDrivers(
   baseMidPerSqm: number,
   now: string,
   evidence: EvidenceBuilder,
+  siteContext: SiteContext | undefined,
 ): ValueDriver[] {
   const drivers: ValueDriver[] = [];
   let idx = 0;
@@ -1474,22 +1536,78 @@ function buildDrivers(
     );
   }
 
-  // Transit proximity — a deterministic (per-case) estimate, not a measured
-  // survey; biased closer when the locality's own infrastructure note
-  // mentions rail/metro/tram access.
+  // Transit proximity.
+  //
+  // Two ways to arrive at the same driver, and they are not interchangeable.
+  //
+  // The measured path runs only when a mapping provider located this property
+  // *specifically* — `sitePinIsAccurate` gates on the geocode precision, and
+  // a pin that landed on the centre of the locality is refused here even
+  // though it is a perfectly good pin to draw on a map. A locality-centre
+  // measurement is a fact about the locality, and the estimate below is
+  // already a fact about the locality that says so; swapping one for the
+  // other would trade a figure that admits what it is for one that does not,
+  // while looking like an upgrade.
+  //
+  // The estimated path is the original behaviour, unchanged: a deterministic
+  // per-case figure biased closer when the locality's own infrastructure note
+  // mentions rail/metro/tram access. It is labelled as an inference, priced
+  // identically, and carries half the confidence.
   {
-    const infra = locality.infrastructureNote.toLowerCase();
-    const nearTransit = /metro|rail|station|tram/.test(infra);
-    const distanceKm = round2(seededRange(`${caseId}:metro`, nearTransit ? 0.2 : 1.0, nearTransit ? 1.2 : 3.0));
-    const pct = clamp((1.5 - distanceKm) * 2, -3, 3);
-    const evId = evidence.add({
-      statement: `Estimated distance to the nearest rapid-transit stop: ${distanceKm} km (inferred from the locality's infrastructure note, not a measured survey).`,
-      sourceType: 'model_inference',
-      sourceRef: 'drivers.transitProximity',
-      sourceLabel: 'Locality infrastructure note',
-      confidence: 0.5,
-    });
-    push('Transit proximity', pct, 'location', `Estimated ${distanceKm} km from the nearest rapid-transit stop.`, [evId]);
+    const transit = sitePinIsAccurate(siteContext) ? nearestTransit(siteContext) : undefined;
+    if (transit && siteContext?.location) {
+      const { metres, basis } = amenityDistance(transit);
+      const distanceKm = round2(metres / 1000);
+      const pct = clamp((1.5 - distanceKm) * 2, -3, 3);
+      const basisText =
+        basis === 'driving'
+          ? 'by road'
+          : 'in a straight line (no road-distance measurement was available, so the real journey is longer)';
+      const evId = evidence.add({
+        statement:
+          `Distance to the nearest rapid-transit stop, ${transit.name}: ${distanceKm} km ${basisText}, measured from the ` +
+          `located position of the property (${siteContext.location.resolvedAddress}) via ${siteContext.provider}.`,
+        sourceType: 'external_dataset',
+        sourceRef: 'siteContext.amenities.transit',
+        sourceLabel: `${siteContext.provider} mapping data`,
+        // Not 1.0. The distance is measured, but it is measured from a
+        // geocoded address rather than from a surveyed corner, and it is a
+        // distance to a station entrance the provider placed, not to a
+        // platform.
+        confidence: basis === 'driving' ? 0.85 : 0.75,
+      });
+      push('Transit proximity', pct, 'location', `${distanceKm} km from ${transit.name}, measured ${basis === 'driving' ? 'by road' : 'in a straight line'}.`, [evId]);
+    } else {
+      const infra = locality.infrastructureNote.toLowerCase();
+      const nearTransit = /metro|rail|station|tram/.test(infra);
+      const distanceKm = round2(seededRange(`${caseId}:metro`, nearTransit ? 0.2 : 1.0, nearTransit ? 1.2 : 3.0));
+      const pct = clamp((1.5 - distanceKm) * 2, -3, 3);
+
+      // When a mapping provider *did* find a station and this driver declined
+      // to use it, say so here.
+      //
+      // Without this the case shows two different distances to the same metro
+      // station on two different screens — a measured one on the location
+      // view and an estimated one here — and nothing accounts for the gap.
+      // Two unexplained numbers for one fact is worse than either number
+      // alone, and the explanation is short: the pin those metres were
+      // measured from is the middle of the locality, so they are a fact about
+      // the locality and not about this site.
+      const declined = siteContext?.location && nearestTransit(siteContext);
+      const because = declined
+        ? ` A nearby stop was found on the map, but the address on file only located to ${siteContext.location!.resolvedAddress} rather than to this property, so the distance measured from it is not used here.`
+        : '';
+
+      const evId = evidence.add({
+        statement:
+          `Estimated distance to the nearest rapid-transit stop: ${distanceKm} km (inferred from the locality's infrastructure note, not a measured survey).${because}`,
+        sourceType: 'model_inference',
+        sourceRef: 'drivers.transitProximity',
+        sourceLabel: 'Locality infrastructure note',
+        confidence: 0.5,
+      });
+      push('Transit proximity', pct, 'location', `Estimated ${distanceKm} km from the nearest rapid-transit stop.${because}`, [evId]);
+    }
   }
 
   // Planning / FAR headroom — always applicable.
@@ -3106,8 +3224,19 @@ export function runScreen(input: {
   refData: ReferenceData;
   now: string;
   previousResult?: ScreenResult;
+  /**
+   * Where the property is and what surrounds it, when a mapping provider has
+   * been configured and a build has run.
+   *
+   * Optional, and optional in the strong sense: every figure this engine
+   * produces has a defined value without it. It is read in exactly one place
+   * — the transit-proximity driver — and only when the geocode landed on the
+   * property rather than on its locality. It never supplies an extent, a
+   * boundary or a setback; see `SiteContext` for why.
+   */
+  siteContext?: SiteContext;
 }): ScreenResult {
-  const { caseId, identity, documents, refData, now, previousResult } = input;
+  const { caseId, identity, documents, refData, now, previousResult, siteContext } = input;
   const evidence = new EvidenceBuilder(caseId, now);
 
   const countryPack = refData.countryPacks.find(p => p.country === identity.country);
@@ -3215,7 +3344,7 @@ export function runScreen(input: {
     askingVsMidPct,
   };
 
-  const drivers = buildDrivers(caseId, identity, locality, planning, documentsWithExtraction, baseMidPerSqm, now, evidence);
+  const drivers = buildDrivers(caseId, identity, locality, planning, documentsWithExtraction, baseMidPerSqm, now, evidence, siteContext);
   const actions = buildActions(caseId, completeness, risks, previousResult);
   const snapshot = buildSnapshot(identity, indicativeValue, confidence, risks, completeness, countryPack);
   const recommendation = buildRecommendation(risks, confidence, completeness, indicativeValue);

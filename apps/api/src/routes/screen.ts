@@ -3,6 +3,7 @@ import { runScreen, REFERENCE_DATA } from '@valytica/shared';
 import { store } from '../store';
 import { riskStatusBodySchema, actionDoneBodySchema } from '../schemas';
 import { findCase } from './cases';
+import { ensureSiteContext } from '../site-context';
 
 export const screenRouter = Router({ mergeParams: true });
 
@@ -15,6 +16,11 @@ screenRouter.post<{ id: string }>('/', async (req, res) => {
     return;
   }
   const now = new Date().toISOString();
+  // Built before the screen rather than after, because the screen prices a
+  // transit driver off it. Cached against the address, so this is free unless
+  // the address changed; never throws, so a mapping outage cannot stop a
+  // screen.
+  const siteContext = await ensureSiteContext(found, now);
   const result = runScreen({
     caseId: found.id,
     reference: found.reference,
@@ -23,6 +29,7 @@ screenRouter.post<{ id: string }>('/', async (req, res) => {
     refData: REFERENCE_DATA,
     now,
     previousResult: found.result,
+    siteContext,
   });
   found.result = result;
   found.status = 'screened';

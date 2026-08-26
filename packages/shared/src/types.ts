@@ -562,6 +562,178 @@ export interface ScreenResult {
 }
 
 /* ------------------------------------------------------------------ */
+/* Site context (location, surroundings, street-level imagery)         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How precisely a geocode landed on the ground.
+ *
+ * This exists because a map pin is the single most convincing thing this
+ * product can put on a screen, and in Bengaluru it is very often wrong. A
+ * geocoder resolves postal addresses; it does not resolve survey numbers.
+ * Ask one for "Sy. No. 118/2, Varthur Hobli" and it returns the centre of
+ * Varthur, confidently, with no signal in the payload that it has done so
+ * unless you read the precision back out. So the precision is carried on the
+ * location itself and every consumer is expected to branch on it:
+ *
+ *   rooftop          the provider matched a specific address/premise
+ *   interpolated     interpolated along a road segment from a house-number range
+ *   locality_centre  the provider fell back to the locality, ward or town
+ *   approximate      matched something, but not a class this code recognises
+ *
+ * Only the first two are treated as describing *this property*. The other two
+ * describe the neighbourhood, and are shown as such — never used to price a
+ * driver, never captioned as the site.
+ */
+export type GeocodePrecision = 'rooftop' | 'interpolated' | 'locality_centre' | 'approximate';
+
+/** WGS84 decimal degrees. */
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+}
+
+export interface SiteLocation {
+  point: GeoPoint;
+  precision: GeocodePrecision;
+  /** The address string actually sent to the geocoder, verbatim. */
+  queried: string;
+  /** The provider's own formatted address for what it matched. */
+  resolvedAddress: string;
+  /** Provider id, e.g. "google". */
+  provider: string;
+  resolvedAt: string;
+  /**
+   * The caveat to render wherever this pin appears, in plain language.
+   *
+   * Written by the provider that produced the location rather than by the
+   * component that draws it, so a pin can never be shown without the sentence
+   * that qualifies it — the two travel together or not at all.
+   */
+  caveat: string;
+}
+
+export type AmenityKind = 'transit' | 'school' | 'hospital' | 'market' | 'employment' | 'airport';
+
+/**
+ * One nearby place, with the distance to it and an honest account of how that
+ * distance was arrived at.
+ *
+ * `straightLineMetres` is computed here from the two coordinates and is
+ * always present. `drivingMetres`/`drivingSeconds` are present only when a
+ * routing call was actually made and returned — never estimated from the
+ * straight line, because a 900 m crow-flight in Bengaluru is routinely a
+ * 3.4 km drive and presenting one as the other is the kind of small lie that
+ * makes a whole report untrustworthy.
+ */
+export interface NearbyAmenity {
+  id: string;
+  kind: AmenityKind;
+  name: string;
+  point: GeoPoint;
+  /** Great-circle metres from the site pin. Always present. */
+  straightLineMetres: number;
+  /** Road-network metres. Present only when a routing call returned one. */
+  drivingMetres?: number;
+  /** Road-network seconds in typical traffic. Present only with `drivingMetres`. */
+  drivingSeconds?: number;
+  /**
+   * True when the pin these distances were measured from was not resolved to
+   * the property itself (see `GeocodePrecision`). The distance is then a
+   * locality distance wearing a property's clothes, and is labelled that way.
+   */
+  fromApproximatePin: boolean;
+}
+
+/**
+ * A street-level photograph of the site's surroundings.
+ *
+ * `capturedAt` is not decoration. Google's Bengaluru coverage on the
+ * peripheries — Sarjapur, Hennur, Devanahalli, exactly the corridors where a
+ * buyer most wants to see the road — is routinely years stale, and a
+ * three-year-old image of an empty site next to a property being sold as
+ * "adjacent to the new tech park" actively misleads. If the metadata endpoint
+ * does not return a date, the image is not shown at all rather than shown
+ * undated: see `PlaceProviderGap`.
+ */
+export interface StreetViewImage {
+  /**
+   * A URL on this API, not on the provider — the provider key is a server
+   * secret and never reaches the browser. See the street-view proxy route.
+   */
+  url: string;
+  /** Panorama capture date as the provider reports it, usually "YYYY-MM". */
+  capturedAt: string;
+  panoramaId: string;
+  /** Where the camera stood, which is not where the property is. */
+  point: GeoPoint;
+  /** Camera bearing, degrees clockwise from north, pointed at the site pin. */
+  headingDegrees: number;
+  /** Metres between the camera and the site pin. */
+  offsetMetres: number;
+}
+
+/**
+ * Something the site-context build could not obtain, and what that leaves
+ * unknown.
+ *
+ * Same discipline as `CapabilityGap` on the agent side: a missing key, a
+ * quota error or a place with no coverage produces a named gap with a
+ * consequence a user can read, not an empty array that looks like "nothing
+ * nearby".
+ */
+export interface SiteContextGap {
+  /** Stable identifier, e.g. "no_provider_key", "geocode_no_match". */
+  code: string;
+  /** What was attempted, in plain language. */
+  attempted: string;
+  /** What is not known as a result — never "unavailable". */
+  consequence: string;
+}
+
+/**
+ * Everything known about where this property sits and what surrounds it.
+ *
+ * --- What is deliberately absent -----------------------------------------
+ *
+ * There is no parcel polygon, no drawn boundary and no map-derived area, and
+ * that is a design decision rather than an unbuilt feature.
+ *
+ * The title graph carries an `asserts_area` edge whose entire purpose is to
+ * make the disagreement between the extent a sale deed conveys and the extent
+ * a khata assesses findable and quotable, with each figure attributed to the
+ * document that states it. Every number in that reconciliation traces to a
+ * source a lawyer can demand a certified copy of. An area computed from a
+ * polygon a user dragged over a satellite tile has no such source — it would
+ * enter the same reconciliation as a third figure with the same visual weight
+ * and no provenance at all, which is precisely the failure the feature was
+ * built to catch. Extents are settled by a licensed surveyor's sketch, not by
+ * a mouse.
+ *
+ * For the same reason there is no distance-to-rajakaluve or
+ * distance-to-lake-boundary measurement. The Karnataka pack states plainly
+ * that which buffer binds depends on how a specific drain is classified in
+ * the current BBMP/BDA drain map, and that those distances have been revised
+ * repeatedly by NGT orders, court directions and master-plan revisions. No
+ * consumer map carries a rajakaluve layer; measuring to a blue line on a
+ * satellite tile measures something that is not the legal feature, and
+ * printing the result to a metre would assert a precision the legal position
+ * does not have.
+ */
+export interface SiteContext {
+  caseId: string;
+  /** Null when the address could not be resolved at all. */
+  location: SiteLocation | null;
+  amenities: NearbyAmenity[];
+  /** Null when there is no coverage, or coverage with no capture date. */
+  streetView: StreetViewImage | null;
+  gaps: SiteContextGap[];
+  /** Provider id that produced this, e.g. "google" or "unconfigured". */
+  provider: string;
+  builtAt: string;
+}
+
+/* ------------------------------------------------------------------ */
 /* Case aggregate                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -580,6 +752,13 @@ export interface PropertyCase {
   notes: string;
   /** Agent output. Absent until an agent has run against this case. */
   intelligence?: CaseIntelligence;
+  /**
+   * Where the property is and what surrounds it. Absent until a place
+   * provider has been configured and a build has run — and absent is the
+   * correct state, not a degraded one: the whole engine screens a case
+   * without it.
+   */
+  siteContext?: SiteContext;
 }
 
 /** Case shape without the heavy nested payloads — used by list endpoints. */
@@ -1186,6 +1365,14 @@ export type TitleEdgeKind =
   | 'supersedes'
   /** Any node → parcel, carrying a claimed area. The edge that makes area conflicts findable. */
   | 'asserts_area'
+  /**
+   * Any node -> parcel. One side of a schedule of property: "bounded on the
+   * East by Sy. No. 118/3". Modelled as an edge rather than an attribute for
+   * the same reason `asserts_area` is — several documents legitimately
+   * describe the same side of the same parcel, and the whole point is to keep
+   * their claims distinct so a disagreement survives to be found.
+   */
+  | 'describes_boundary'
   /** Two nodes the builder judged to be the same real-world thing. */
   | 'identifies';
 
@@ -1307,7 +1494,16 @@ export type ContradictionKind =
   | 'party_mismatch'
   | 'date_impossible'
   | 'identifier_mismatch'
-  | 'status_conflict';
+  | 'status_conflict'
+  /**
+   * Two instruments describing the same parcel name different abutters on the
+   * same side of it. In Karnataka conveyancing the schedule of property — the
+   * four boundaries — is how a parcel is identified when survey numbers have
+   * been subdivided and renumbered, so a north boundary that reads "Sy. No.
+   * 118/3" in the mother deed and "road" in the sale deed is either a
+   * subdivision nobody documented or the wrong parcel entirely.
+   */
+  | 'boundary_mismatch';
 
 export interface ContradictionClaim {
   sourceRef: string;

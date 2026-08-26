@@ -161,11 +161,24 @@ function isDocumentKind(value: string): value is DocumentKind {
  * else falls back to the generic instruction in the system prompt. */
 const FIELD_GUIDANCE: Partial<Record<DocumentKind, string>> = {
   title_deed:
-    'parties (seller/vendor name, buyer/purchaser name), sale consideration (amount, with currency as the unit), registration number, execution/registration date, survey number, and extent conveyed (value + unit, e.g. "2400" + "sqft").',
+    'parties (seller/vendor name, buyer/purchaser name), sale consideration (amount, with currency as the unit), registration number, ' +
+    'execution/registration date, survey number, and extent conveyed (value + unit, e.g. "2400" + "sqft"). ' +
+    'Then the SCHEDULE OF PROPERTY, which is usually a separate block at the end of the deed and is the most under-read part of it. ' +
+    'Extract each of the four boundaries exactly as written, under the keys boundaryNorth, boundaryEast, boundarySouth and boundaryWest ' +
+    '(value = the abutting feature, e.g. "Sy. No. 118/3", "30 feet wide road", "property of Sri. Ramaiah"). ' +
+    'Extract the site dimensions separately from the extent, under the keys dimensionEastWest and dimensionNorthSouth, ' +
+    'value = the number alone and unit = "ft" or "m" (e.g. "40" + "ft"). Do not compute either from the other and do not ' +
+    'derive the dimensions from the extent — if the deed states only one of them, extract only that one.',
   khata_extract: 'khata number, khata classification (A-Khata / B-Khata / E-Khata / Form 9 & 11), recorded owner name, site dimensions, and the BBMP property id (PID).',
   encumbrance_certificate: 'the period covered (from–to dates) and every encumbrance listed (or "nil" if the certificate is clean).',
   property_tax_receipt: 'assessment year, SAS application number, and BBMP tax zone.',
   conversion_certificate: 'DC conversion order number, order date, and extent converted (value + unit).',
+  mother_deed:
+    'parties (grantor name, grantee name), execution/registration date, survey number, and the extent conveyed under the key ' +
+    'extentConveyed (value + unit). Extract the schedule of property exactly as for a sale deed: the four boundaries under ' +
+    'boundaryNorth, boundaryEast, boundarySouth and boundaryWest, and the site dimensions under dimensionEastWest and ' +
+    'dimensionNorthSouth (value = the number alone, unit = "ft" or "m"). The schedule in the parent conveyance is what makes ' +
+    'an undocumented subdivision visible, so it matters here as much as it does in the sale deed.',
   rera_registration: 'K-RERA registration number and its period of validity (from–to dates).',
 };
 

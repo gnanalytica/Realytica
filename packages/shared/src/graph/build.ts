@@ -49,7 +49,11 @@ import {
   AREA_CLAIM_FIELDS,
   DOCUMENT_GRAPH_ROLE,
   PARTY_NAME_FIELDS,
+  SCHEDULE_BOUNDARY_FIELDS,
+  SCHEDULE_DIMENSION_FIELDS,
   areaToSqm,
+  lengthToMetres,
+  type ScheduleAxis,
   builtUnitMergeKey,
   compareEdges,
   compareNodes,
@@ -722,6 +726,83 @@ export function buildTitleGraph(propertyCase: PropertyCase, now: string): TitleG
         },
         assertion: fromDocument(doc, extracted),
       });
+    }
+
+    /* -- Schedule of property ---------------------------------------- */
+
+    // The schedule is how a parcel is identified when survey numbers cannot
+    // be trusted to be stable. Two things come out of it.
+    //
+    // First, the boundaries: recorded as attributes on the parcel node with
+    // the document that stated each one, so `detectContradictions` can find
+    // two deeds describing different neighbours on the same side.
+    //
+    // Second, the dimensions: multiplied into an extent and entered as an
+    // `asserts_area` claim like any other. This is the one derived figure in
+    // the whole reconciliation, and it is admitted only because its two
+    // inputs are both quoted from the document itself — the deed is being
+    // checked against its own arithmetic, not against a number from
+    // somewhere else. Nothing measured off a map is ever allowed in here;
+    // `SiteContext` in the shared types sets out why.
+    {
+      const dimensions: Partial<Record<ScheduleAxis, { metres: number; field: ExtractedField }>> = {};
+      const source = speaker ?? authorityNode;
+      for (const extracted of doc.extracted) {
+        const side = SCHEDULE_BOUNDARY_FIELDS[extracted.key];
+        if (side && extracted.value.trim() !== '' && source) {
+          graph.addEdge({
+            kind: 'describes_boundary',
+            from: source.id,
+            to: landParcel.id,
+            label: `${source.label} describes the ${side} boundary as ${extracted.value.trim()}`,
+            // Per document *and* per side: one deed describes four sides, and
+            // four deeds may describe the same side. Both have to stay apart.
+            discriminator: `${doc.id}:${side}`,
+            attributes: {
+              side,
+              abutter: extracted.value.trim(),
+              fieldKey: extracted.key,
+              documentId: doc.id,
+              documentKind: doc.kind,
+            },
+            assertion: fromDocument(doc, extracted),
+          });
+        }
+        const axis = SCHEDULE_DIMENSION_FIELDS[extracted.key];
+        if (axis) {
+          const metres = lengthToMetres(extracted.value, extracted.unit);
+          if (metres !== undefined) dimensions[axis] = { metres, field: extracted };
+        }
+      }
+
+      const ew = dimensions.east_west;
+      const ns = dimensions.north_south;
+      if (ew && ns && source) {
+        const sqm = Math.round(ew.metres * ns.metres * 100) / 100;
+        const stated = `${ew.field.value}${ew.field.unit ? ` ${ew.field.unit}` : ' ft'} x ${ns.field.value}${ns.field.unit ? ` ${ns.field.unit}` : ' ft'}`;
+        graph.addEdge({
+          kind: 'asserts_area',
+          from: source.id,
+          to: landParcel.id,
+          label: `${source.label} states the site as ${stated} in its schedule of property`,
+          discriminator: `${doc.id}:scheduleDimensions`,
+          attributes: {
+            areaSqm: sqm,
+            statedValue: stated,
+            statedUnit: 'sqm',
+            fieldKey: 'scheduleDimensions',
+            fieldLabel: 'Dimensions in the schedule of property',
+            subject: 'land',
+            documentId: doc.id,
+            documentKind: doc.kind,
+          },
+          // An inference, not a quotation: the deed states two lengths, and
+          // the product is this builder's arithmetic on them. Recording it as
+          // a document assertion would claim the deed states an extent it may
+          // well contradict.
+          assertion: fromInference(doc, 'scheduleDimensions'),
+        });
+      }
     }
 
     /* -- Encumbrances ------------------------------------------------ */

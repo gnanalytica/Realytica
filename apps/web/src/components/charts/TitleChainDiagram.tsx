@@ -94,9 +94,18 @@ export default function TitleChainDiagram({ graph, summary, height }: TitleChain
       svgHeight: PAD * 2 + 22 + rows * (NODE_H + ROW_GAP),
       // Self-edges and edges to a node the graph does not contain are dropped
       // rather than drawn to nowhere; `identifies` is a merge decision, not a
-      // relationship anyone reading a chain wants to see.
+      // relationship anyone reading a chain wants to see. `describes_boundary`
+      // is dropped for a different reason: every deed contributes four of
+      // them between the same two nodes, so drawing them adds eight parallel
+      // lines that say nothing about the chain. The schedule of property is
+      // drawn properly, as a compass, in its own card below this one.
       edges: graph.edges.filter(
-        e => e.kind !== 'identifies' && e.fromNodeId !== e.toNodeId && byId.has(e.fromNodeId) && byId.has(e.toNodeId),
+        e =>
+          e.kind !== 'identifies'
+          && e.kind !== 'describes_boundary'
+          && e.fromNodeId !== e.toNodeId
+          && byId.has(e.fromNodeId)
+          && byId.has(e.toNodeId),
       ),
       cols,
     };

@@ -21,6 +21,7 @@ import type {
   ReferenceData,
   RiskStatus,
   RunGraph,
+  SiteContext,
   TitleGraph,
   ScreenResult,
   TelemetrySummary,
@@ -205,6 +206,22 @@ export const api = {
    * states the canvas draws rather than errors.
    */
   caseFlow: (id: string) => request<RunGraph>(`/cases/${id}/flow`),
+
+  /* --- Where the property is ---------------------------------------- */
+
+  /**
+   * Location, surroundings and street-level imagery.
+   *
+   * Always answers 200, even with no mapping provider configured — the reply
+   * then carries a named gap saying so. A 404 would be indistinguishable from
+   * "there is nothing nearby", which is the one thing this must never look
+   * like.
+   */
+  siteContext: (id: string) => request<SiteContext>(`/cases/${id}/site-context`),
+
+  /** Rebuild from the provider. The only way to retry an address that failed. */
+  refreshSiteContext: (id: string) =>
+    request<SiteContext>(`/cases/${id}/site-context/refresh`, { method: 'POST' }),
 
   /* --- Prompt registry ---------------------------------------------- */
 

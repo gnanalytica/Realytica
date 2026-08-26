@@ -494,6 +494,7 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
             refData,
             now,
             previousResult: caseData.result,
+            siteContext: caseData.siteContext,
           });
           freshScreenResult = rescreened;
 

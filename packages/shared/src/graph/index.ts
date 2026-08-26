@@ -175,6 +175,7 @@ const HEADLINE_PRIORITY = [
   'area_mismatch',
   'party_mismatch',
   'missing_predecessor',
+  'boundary_mismatch',
   'identifier_mismatch',
   'status_conflict',
   'undated_instrument',

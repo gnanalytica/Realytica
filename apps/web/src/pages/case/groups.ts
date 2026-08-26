@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import type { TabProps } from './tab-props';
 import SnapshotTab from './tabs/SnapshotTab';
+import LocationTab from './tabs/LocationTab';
 import DocumentsTab from './tabs/DocumentsTab';
 import ValuationTab from './tabs/ValuationTab';
 import DriversTab from './tabs/DriversTab';
@@ -50,6 +51,12 @@ export const CASE_GROUPS: CaseGroup[] = [
       { key: 'summary', label: 'Summary', component: SnapshotTab },
       { key: 'risks', label: 'Risks', component: RisksTab },
       { key: 'missing', label: "What's missing", component: CompletenessTab },
+      // Location sits under Overview rather than in a group of its own: it is
+      // context for "is this worth pursuing", not an answer in itself. It is
+      // also the one view here that does not need a screen — a case with an
+      // address can be placed on a map before anything has been run against
+      // it, so it is deliberately absent from NEEDS_SCREEN below.
+      { key: 'location', label: 'Location', component: LocationTab },
     ],
   },
   {

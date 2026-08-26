@@ -20,6 +20,7 @@ import type {
   TitleGraphSummary,
 } from '@valytica/shared';
 import { TitleChainDiagram } from '../../../components/charts';
+import { ScheduleOfProperty } from '../../../components/ScheduleOfProperty';
 import { api } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
 import type { TabProps } from '../tab-props';
@@ -413,6 +414,14 @@ export default function TitleTab({ caseData, result }: TabProps) {
            * prose has something to refer to.
            */}
           {full ? <TitleChainDiagram graph={full} summary={graph} /> : null}
+          {/*
+           * The schedule sits with the chain rather than under Documents,
+           * because it answers the same question the chain does — is this the
+           * piece of land the deeds describe — and because a boundary the
+           * sources disagree about belongs next to the chain it casts doubt
+           * on.
+           */}
+          {full ? <ScheduleOfProperty graph={full} /> : null}
           {graph.chains.length === 0 ? (
             <EmptyState
               icon={<Unlink size={24} />}

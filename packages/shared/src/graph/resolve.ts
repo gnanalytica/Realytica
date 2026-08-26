@@ -51,6 +51,7 @@ const FINDING_PHRASE: Record<string, string> = {
   date_impossible: 'impossible sequence of dates',
   identifier_mismatch: 'conflict between the parcel identifiers the sources use',
   status_conflict: 'conflict between the recorded statuses',
+  boundary_mismatch: 'conflict between the abutters the schedules of property describe',
 };
 
 function phraseFor(kind: string): string {

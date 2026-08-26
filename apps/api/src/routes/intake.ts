@@ -7,6 +7,7 @@ import type { CaseDocument, IntakeSession, PropertyCase } from '@valytica/shared
 import { commitDraft, intakeModelAvailable, openingTurn, readDraft, runIntakeTurn } from '@valytica/agents';
 import { toCaseSummary } from './cases';
 import { store } from '../store';
+import { ensureSiteContext } from '../site-context';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 
@@ -310,6 +311,9 @@ intakeRouter.post<{ id: string }>('/:id/commit', async (req, res) => {
   for (const doc of newCase.documents) {
     doc.extracted = extractFields(doc, newCase.identity, caseId);
   }
+  // The case is pushed to the store below, so this mutates a local object —
+  // `siteContext` rides along with it into the store on the same save.
+  const siteContext = await ensureSiteContext(newCase, now);
   newCase.result = runScreen({
     caseId,
     reference: newCase.reference,
@@ -317,6 +321,7 @@ intakeRouter.post<{ id: string }>('/:id/commit', async (req, res) => {
     documents: newCase.documents,
     refData: REFERENCE_DATA,
     now,
+    siteContext,
   });
   newCase.status = 'screened';
 

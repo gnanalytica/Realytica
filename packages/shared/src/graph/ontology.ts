@@ -67,6 +67,7 @@ export const TITLE_EDGE_KINDS: readonly TitleEdgeKind[] = [
   'issued_by',
   'supersedes',
   'asserts_area',
+  'describes_boundary',
   'identifies',
 ] as const;
 
@@ -99,6 +100,7 @@ export const EDGE_ENDPOINT_RULES: Record<
   issued_by: { from: ['approval', 'encumbrance', 'instrument'], to: ['authority'] },
   supersedes: { from: ['instrument'], to: ['instrument'] },
   asserts_area: { to: ['parcel'] },
+  describes_boundary: { to: ['parcel'] },
   // Two nodes judged to be the same real-world thing, so they must at least
   // be the same kind of thing.
   identifies: {},
@@ -409,7 +411,102 @@ export const AREA_CLAIM_FIELDS: Record<string, { subject: AreaSubject; landWhenS
   drawnArea: { subject: 'built', what: 'area drawn on the floor plan' },
   /** Kadaster — perceel oppervlakte is by definition the land parcel. */
   perceelOppervlakte: { subject: 'land', what: 'perceel oppervlakte on the Kadaster extract' },
+  /**
+   * Derived by the graph builder from the schedule's own stated dimensions —
+   * see `SCHEDULE_DIMENSION_FIELDS`. Never extracted under this key.
+   */
+  scheduleDimensions: { subject: 'land', what: 'extent implied by the dimensions in the schedule of property' },
 };
+
+/* ==================================================================== */
+/* Schedule of property                                                  */
+/* ==================================================================== */
+
+/**
+ * The four sides of a parcel, as a Karnataka schedule of property states
+ * them.
+ *
+ * The schedule — "bounded on the East by Sy. No. 118/3, on the West by a 30ft
+ * road…" — is how a parcel is *identified* in Indian conveyancing, and it
+ * does work no survey number can. Survey numbers get subdivided and
+ * renumbered; the abutters do not change when the numbering does. Two deeds
+ * whose schedules describe different neighbours on the same side are either
+ * describing a subdivision nobody documented, or describing two different
+ * pieces of land — and a purchaser who never compared the schedules would
+ * find out at possession.
+ *
+ * Ordered north, east, south, west because that is the order a schedule is
+ * conventionally read and written; keeping it stable means the same case
+ * always renders its boundaries the same way round.
+ */
+export type CompassSide = 'north' | 'east' | 'south' | 'west';
+
+export const COMPASS_SIDES: CompassSide[] = ['north', 'east', 'south', 'west'];
+
+export const SCHEDULE_BOUNDARY_FIELDS: Record<string, CompassSide> = {
+  boundaryNorth: 'north',
+  boundaryEast: 'east',
+  boundarySouth: 'south',
+  boundaryWest: 'west',
+  // The extractor is instructed to use the four keys above, but a model
+  // asked for "the schedule of property" reaches for the natural-language
+  // form often enough that refusing it would silently drop real data.
+  northBoundary: 'north',
+  eastBoundary: 'east',
+  southBoundary: 'south',
+  westBoundary: 'west',
+};
+
+/**
+ * The two dimensions a schedule states, and which axis each runs along.
+ *
+ * A Bengaluru site schedule almost always gives both the dimensions ("East to
+ * West 40 feet, North to South 60 feet") and the extent ("2400 sq ft"). The
+ * pair is a checksum on the deed itself: multiply the dimensions and the
+ * product should be the stated extent. When it is not — and it is not, often,
+ * where a site was informally partitioned and the deed reused an old extent —
+ * the deed contradicts itself, and that contradiction is visible from the
+ * document alone, before any register is compared to anything.
+ */
+export type ScheduleAxis = 'east_west' | 'north_south';
+
+export const SCHEDULE_DIMENSION_FIELDS: Record<string, ScheduleAxis> = {
+  dimensionEastWest: 'east_west',
+  dimensionNorthSouth: 'north_south',
+  eastWestDimension: 'east_west',
+  northSouthDimension: 'north_south',
+};
+
+/** Length units a schedule states dimensions in, to metres. */
+const LENGTH_UNIT_TO_METRES: Record<string, number> = {
+  m: 1,
+  metre: 1,
+  metres: 1,
+  meter: 1,
+  meters: 1,
+  ft: 0.3048,
+  feet: 0.3048,
+  foot: 0.3048,
+  sqft: Number.NaN, // an area unit on a length field is a mis-extraction
+};
+
+/**
+ * A schedule dimension in metres, or undefined when it cannot be trusted.
+ *
+ * Undefined rather than a best guess on an unrecognised unit: a dimension
+ * with the wrong unit multiplies into an extent that is wrong by a factor of
+ * ten, and a wrong extent in the reconciliation is worse than an absent one.
+ */
+export function lengthToMetres(value: string | number, unit?: string): number | undefined {
+  const numeric = typeof value === 'number' ? value : Number(String(value).replace(/[,\s]/g, ''));
+  if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
+  // Feet is the Bengaluru default and the unit a schedule states without
+  // naming it far more often than not.
+  const key = (unit ?? 'ft').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const factor = LENGTH_UNIT_TO_METRES[key];
+  if (factor === undefined || !Number.isFinite(factor)) return undefined;
+  return numeric * factor;
+}
 
 /* ==================================================================== */
 /* Party-bearing fields                                                  */

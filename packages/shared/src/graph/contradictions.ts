@@ -41,7 +41,7 @@ import type {
   TitleNode,
 } from '../types';
 import { KHATA_TYPE_LABEL } from '../packs/karnataka';
-import { AREA_CLAIM_FIELDS, REMEDIES, severityRank, stableDigest } from './ontology';
+import { AREA_CLAIM_FIELDS, COMPASS_SIDES, REMEDIES, mergeKeyFor, severityRank, stableDigest } from './ontology';
 import { caseDocumentsForGraph } from './build';
 
 /* ==================================================================== */
@@ -97,10 +97,11 @@ function makeId(kind: ContradictionKind, caseId: string, discriminator: string):
  * the prose always names the actual source of the number — "the area assessed
  * on the khata", not "source 2".
  */
-function claimPhrase(fieldKey: string): string {
+function claimPhrase(fieldKey: string, source?: string): string {
+  const qualifier = source ? ` in ${source}` : '';
   if (fieldKey === 'identity.plotAreaSqm') return 'the plot area recorded on the case';
   if (fieldKey === 'identity.builtUpAreaSqm') return 'the built-up area recorded on the case';
-  return `the ${AREA_CLAIM_FIELDS[fieldKey]?.what ?? fieldKey}`;
+  return `the ${AREA_CLAIM_FIELDS[fieldKey]?.what ?? fieldKey}${qualifier}`;
 }
 
 function attrString(node: TitleNode, key: string): string | undefined {
@@ -200,6 +201,7 @@ export function detectContradictions(graph: TitleGraph, propertyCase: PropertyCa
     const divergence = (largest.sqm - smallest.sqm) / largest.sqm;
     if (divergence < AREA_DRIFT_FLOOR) continue;
 
+    const sameField = largest.fieldKey === smallest.fieldKey;
     const isBuilt = parcel.attributes.subject === 'built';
     const subject = `${isBuilt ? 'Built-up area' : 'Extent'} of ${parcel.label}`;
     const pct = round1(divergence * 100);
@@ -212,13 +214,97 @@ export function detectContradictions(graph: TitleGraph, propertyCase: PropertyCa
       kind: 'area_mismatch',
       subject,
       statement:
-        `${capitalise(claimPhrase(largest.fieldKey))} is ${round2(largest.sqm)} sqm but ${claimPhrase(smallest.fieldKey)} is ` +
+        // When the two extremes came from the same kind of field — two deeds
+        // each stating their own schedule, say — the field phrase alone reads
+        // as the same source twice ("the extent in the schedule is X but the
+        // extent in the schedule is Y"), and the reader cannot tell which
+        // document to go and look at. Naming the source disambiguates them,
+        // and only then, so the common case stays short.
+        `${capitalise(claimPhrase(largest.fieldKey, sameField ? largest.sourceLabel : undefined))} is ${round2(largest.sqm)} sqm but ` +
+        `${claimPhrase(smallest.fieldKey, sameField ? smallest.sourceLabel : undefined)} is ` +
         `${round2(smallest.sqm)} sqm — a ${pct}% difference across ${claims.length} sources describing ${parcel.label}.`,
       claims: claims.map(({ sqm: _sqm, ...claim }) => claim),
       divergence: Math.round(divergence * 10000) / 10000,
       severity: areaSeverity(divergence),
       resolvedBy,
     });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* boundary_mismatch                                                   */
+  /* ------------------------------------------------------------------ */
+
+  // The schedule of property identifies a parcel by what it abuts. Survey
+  // numbers get subdivided and renumbered; the neighbours do not change when
+  // the numbering does, which is exactly why Karnataka conveyancing leans on
+  // the schedule at all. Two instruments describing different abutters on the
+  // same side of the same parcel are describing either an undocumented
+  // subdivision or two different pieces of land, and the difference between
+  // those two answers is the whole transaction.
+  //
+  // Comparison is on the normalised abutter text, so "Sy. No. 118/3" and
+  // "Survey Number 118/3" are one neighbour — the same normalisation the
+  // builder merges parcels with, for the same reason: a mismatch reported on
+  // punctuation would be noise, and noise here trains a user to skip the one
+  // check that catches a wrong-parcel purchase.
+  {
+    interface BoundaryClaim {
+      abutter: string;
+      normalised: string;
+      sourceRef: string;
+      sourceLabel: string;
+      fieldKey: string;
+      confidence: number;
+    }
+    const bySideByParcel = new Map<string, Map<string, BoundaryClaim[]>>();
+    for (const edge of graph.edges) {
+      if (edge.kind !== 'describes_boundary') continue;
+      const side = typeof edge.attributes?.side === 'string' ? edge.attributes.side : undefined;
+      const abutter = typeof edge.attributes?.abutter === 'string' ? edge.attributes.abutter : undefined;
+      if (!side || !abutter) continue;
+      const assertion = edge.assertedBy[0];
+      const perParcel = bySideByParcel.get(edge.toNodeId) ?? new Map<string, BoundaryClaim[]>();
+      const claims = perParcel.get(side) ?? [];
+      claims.push({
+        abutter,
+        normalised: mergeKeyFor('parcel', abutter),
+        sourceRef: assertion?.sourceRef ?? edge.fromNodeId,
+        sourceLabel: assertion?.sourceLabel ?? nodeById.get(edge.fromNodeId)?.label ?? 'Unknown source',
+        fieldKey: typeof edge.attributes?.fieldKey === 'string' ? edge.attributes.fieldKey : `boundary_${side}`,
+        confidence: edge.confidence,
+      });
+      perParcel.set(side, claims);
+      bySideByParcel.set(edge.toNodeId, perParcel);
+    }
+
+    for (const [parcelId, perSide] of bySideByParcel) {
+      const parcel = nodeById.get(parcelId);
+      if (!parcel) continue;
+      for (const side of COMPASS_SIDES) {
+        const claims = perSide.get(side);
+        if (!claims || claims.length < 2) continue;
+        const distinct = new Set(claims.map(c => c.normalised).filter(n => n.length > 0));
+        if (distinct.size < 2) continue;
+
+        // Ordered so the same case always names the same two sources in the
+        // same order, whatever order the documents were uploaded in.
+        claims.sort((a, b) => (a.sourceLabel < b.sourceLabel ? -1 : a.sourceLabel > b.sourceLabel ? 1 : a.normalised < b.normalised ? -1 : 1));
+        const [first, second] = claims;
+        found.push({
+          id: makeId('boundary_mismatch', graph.caseId, `${parcelId}:${side}`),
+          kind: 'boundary_mismatch',
+          subject: `${capitalise(side)} boundary of ${parcel.label}`,
+          statement:
+            `${first.sourceLabel} describes the ${side} boundary of ${parcel.label} as "${first.abutter}", but ` +
+            `${second.sourceLabel} describes it as "${second.abutter}". The schedule of property is how this parcel is ` +
+            'identified when survey numbers have been subdivided, so two schedules that disagree are describing either an ' +
+            'undocumented subdivision or two different pieces of land.',
+          claims: claims.map(c => ({ sourceRef: c.sourceRef, sourceLabel: c.sourceLabel, fieldKey: c.fieldKey, value: c.abutter, confidence: c.confidence })),
+          severity: 'serious',
+          resolvedBy: [REMEDIES.surveyorSketch.obtain, REMEDIES.certifiedRegisteredCopies.obtain],
+        });
+      }
+    }
   }
 
   /* ------------------------------------------------------------------ */
