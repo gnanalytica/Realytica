@@ -803,7 +803,14 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   // The classification is a self-report about the same unverified input the
   // fields came from, so it takes the same discount rather than standing
   // alone as the one confident number on a degraded run.
-  const kindConfidence = pageVerificationAvailable ? parsed.data.kindConfidence : discountUnverified(parsed.data.kindConfidence);
+  //
+  // Gated on the *provider*, not on `pageVerificationAvailable`. An image has
+  // no page verification on any route, and discounting its classification here
+  // would penalise a full-capability Anthropic run for a capability it never
+  // lost — a behaviour change dressed up as honesty.
+  const kindConfidence = descriptor.capabilities.documentCitations
+    ? parsed.data.kindConfidence
+    : discountUnverified(parsed.data.kindConfidence);
 
   // Citations are PDF-only AND provider-dependent (see `pageVerificationAvailable`);
   // where either condition fails this is simply an empty list, and every field
