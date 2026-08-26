@@ -227,10 +227,39 @@ Configuration:
 
 | Variable | Effect |
 | --- | --- |
-| `VALYTICA_MODEL_EXTRACTION` / `_REASONING` / `_JUDGMENT` | Override one tier's model. |
+| `VALYTICA_MODEL_EXTRACTION` / `_REASONING` / `_JUDGMENT` | Route one tier. Accepts `model` or `provider:model`. |
 | `VALYTICA_TIER_<AGENT>` | Move one agent between tiers, e.g. `VALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment` for a deployment whose scans are poor. |
-| `VALYTICA_AGENT_MODEL` | Outranks all of the above and collapses every tier onto one model. What you reach for to pin the roster during an incident. |
+| `VALYTICA_ROUTE_<AGENT>` | Route one agent, overriding everything else. |
+| `VALYTICA_AGENT_MODEL` | Collapses every tier onto one route. What you reach for to pin the roster during an incident. |
 | `VALYTICA_AGENTS_DISABLED=1` | Turn the agent layer off entirely. |
+
+**Providers are not locked in.** A route is written `provider:model`, or bare
+`model` for Anthropic — so every existing configuration keeps working and keeps
+meaning what it meant:
+
+```bash
+VALYTICA_MODEL_REASONING=openai_compatible:meta-llama/llama-3.3-70b-instruct
+VALYTICA_ROUTE_DOCUMENT_INTELLIGENCE=anthropic:claude-haiku-4-5-20251001
+VALYTICA_OPENAI_BASE_URL=https://openrouter.ai/api/v1   # or a self-hosted LiteLLM
+VALYTICA_OPENAI_API_KEY=...
+```
+
+Precedence, most specific first: `VALYTICA_ROUTE_<AGENT>` → `VALYTICA_AGENT_MODEL`
+→ `VALYTICA_MODEL_<TIER>` → the built-in default. Every route records where its
+decision came from, because a surprising route is otherwise an archaeology
+exercise across four variables, and the one time that matters is during an
+incident.
+
+**The abstraction declares capabilities rather than flattening to what every
+provider shares.** That distinction is the whole design. Anthropic's
+server-verified document citations are what separate *"the khata number is on
+page 3, checked"* from a model asserting a page it may have invented — a
+lowest-common-denominator port would quietly cost this product its grounding.
+So a provider states what it can do, a call that wanted something unavailable
+degrades explicitly, and the gap travels into the evidence and the telemetry.
+Losing a feature is allowed; losing it silently is not. **Model ops** in the
+sidebar shows every route, what it degrades, and which degradations change the
+meaning of a result rather than only its cost.
 
 Every run records the model and tier it actually used, and `CaseIntelligence.cost`
 carries the per-agent breakdown alongside what the same tokens would have cost
