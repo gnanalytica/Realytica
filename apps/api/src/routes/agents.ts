@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase } from '@valytica/shared';
 import { REFERENCE_DATA } from '@valytica/shared';
-import { agentCapability, describeError, recallForCase, runCopilot, runExplorer, runOrchestration, type RunOrchestrationResult } from '@valytica/agents';
+import { agentCapability, capabilityWithRoutes, describeError, recallForCase, runCopilot, runExplorer, runOrchestration, type RunOrchestrationResult } from '@valytica/agents';
 import { memoryStore } from '../memory';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
@@ -100,7 +100,7 @@ function applyOrchestrationResult(found: PropertyCase, result: RunOrchestrationR
 export const agentsCapabilityRouter = Router();
 
 agentsCapabilityRouter.get('/capability', (_req, res) => {
-  res.json(agentCapability());
+  res.json(capabilityWithRoutes());
 });
 
 /** Mounted at `/api/cases/:id/agents`, before the generic `/api/cases` router. */

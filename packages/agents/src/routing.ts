@@ -1,5 +1,5 @@
-import type { AgentKind, AgentRoute, CapabilityGap, ModelTier, ProviderId } from '@valytica/shared';
-import { AGENT_TIERS, tierFor, warnOnce } from './client';
+import type { AgentCapability, AgentKind, AgentRoute, CapabilityGap, ModelTier, ProviderId } from '@valytica/shared';
+import { AGENT_TIERS, agentCapability, tierFor, warnOnce } from './client';
 
 /**
  * Which provider and model each agent runs on, and where that decision came
@@ -177,4 +177,27 @@ export function describeGap(gap: CapabilityGap): string {
     case 'strict_tools_unavailable':
       return 'Tool arguments are not schema-guaranteed, so a malformed response is possible and has to be validated and retried in-app.';
   }
+}
+
+/* ==================================================================== */
+/* Capability, composed                                                  */
+/* ==================================================================== */
+
+/**
+ * `agentCapability()` plus full routing.
+ *
+ * Kept here rather than folded into `agentCapability` itself, and not merely
+ * to avoid an import cycle. The core probe answers "can the agent layer run
+ * at all", which has to stay true with no provider configured and no routing
+ * resolved — that is exactly the state a disabled deployment is in, and it is
+ * when an operator most needs a straight answer. Routing is a layer above
+ * that: it presumes the question is already settled and asks where each agent
+ * would go.
+ *
+ * `expectedGaps` is filled by the caller that knows the provider registry.
+ * This function deliberately does not reach for it, so the capability probe
+ * never depends on a provider being constructible.
+ */
+export function capabilityWithRoutes(): AgentCapability {
+  return { ...agentCapability(), routes: allRoutes() };
 }

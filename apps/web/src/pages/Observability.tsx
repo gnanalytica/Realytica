@@ -117,13 +117,33 @@ function CapabilityDots({ descriptor }: { descriptor: ProviderDescriptor }) {
 
 function RoutingCard({ routes, providers }: { routes: AgentRoute[]; providers: ProviderDescriptor[] }) {
   const degraded = routes.filter((r) => r.expectedGaps.length > 0);
+  /*
+   * "No gaps" and "gaps not computed" look identical in the data and must not
+   * look identical here.
+   *
+   * `expectedGaps` is filled by whichever layer knows the provider registry.
+   * An API build that does not fill it returns empty arrays — which, on a
+   * roster pointed at a non-Anthropic provider, would render as a confident
+   * "Full capability" badge over routes that certainly cannot do verified
+   * citations. Claiming a guarantee that was never checked is the worst of the
+   * three possible answers, so an unassessed non-Anthropic route says so.
+   */
+  const assessed = providers.length > 0;
+  const nonAnthropic = routes.some((r) => r.provider !== 'anthropic');
+  const badge = degraded.length > 0
+    ? <Badge tone="warning">{degraded.length} degraded</Badge>
+    : assessed
+      ? <Badge tone="good">Full capability</Badge>
+      : nonAnthropic
+        ? <Badge tone="neutral">Capability not assessed</Badge>
+        : <Badge tone="good">Full capability</Badge>;
   return (
     <Card>
       <CardHeader
         title="Routing"
         subtitle="Which provider and model each agent runs on, and where the decision came from"
         icon={<ServerCog size={16} />}
-        action={degraded.length > 0 ? <Badge tone="warning">{degraded.length} degraded</Badge> : <Badge tone="good">Full capability</Badge>}
+        action={badge}
       />
       <CardBody>
         <div className="mb-4 space-y-2">
@@ -165,7 +185,9 @@ function RoutingCard({ routes, providers }: { routes: AgentRoute[]; providers: P
                     <td className="py-1.5 pr-3 align-top text-[11px] text-ink-muted">{r.source.replace(/_/g, ' ')}</td>
                     <td className="py-1.5 align-top">
                       {r.expectedGaps.length === 0 ? (
-                        <span className="text-[11px] text-ink-muted">—</span>
+                        <span className="text-[11px] text-ink-muted">
+                          {!assessed && r.provider !== 'anthropic' ? 'not assessed' : '—'}
+                        </span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
                           {r.expectedGaps.map((g) => (
