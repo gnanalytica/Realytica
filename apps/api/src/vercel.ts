@@ -11,23 +11,13 @@ import { app, initApp } from './app';
  * call signature in `@types/express-serve-static-core` — so no adapter layer
  * or `@vercel/node` request/response types are needed here.
  *
- * This file is not itself the deployed function. The root `build` script
- * bundles it with esbuild into `api/index.mjs`, which is what Vercel picks
- * up, and `vercel.json` routes every `/api/*` request there; Express's own
- * router then dispatches within it exactly as it does locally, including its
- * own JSON 404 for unmatched `/api/*` paths.
- *
- * The bundling is not a packaging preference, it is a requirement. Vercel
- * transpiles function sources file by file rather than bundling them, and
- * this codebase is written for a bundler: `tsconfig.base.json` sets
- * `moduleResolution: "Bundler"`, so relative imports carry no file
- * extension. Node's ESM loader does not add one, so a file-by-file build
- * produces a module graph that cannot resolve itself at runtime. Bundling
- * resolves every one of those specifiers at build time instead.
- *
- * The bundle must be ESM, not CommonJS: `storage/index.ts` chooses its
- * adapter with a top-level `await`, and `app.ts` reads `import.meta.url` —
- * neither survives a CommonJS output format.
+ * This file is not itself the deployed function. `scripts/build-vercel-
+ * output.mjs` bundles it with esbuild into the deployment's single
+ * `api.func`, and routes every `/api/*` request there; Express's own router
+ * then dispatches within it exactly as it does locally, including its own
+ * JSON 404 for unmatched `/api/*` paths. That script carries the reasoning
+ * for why the function is bundled at all and why the deployment is assembled
+ * by hand rather than by Vercel's `api/` directory convention.
  *
  * Vercel may reuse the bundled module across invocations on a warm instance
  * but never runs its top-level code concurrently for a single instance, so

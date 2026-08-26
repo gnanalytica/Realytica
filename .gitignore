@@ -11,7 +11,6 @@ apps/api/data/
 coverage/
 *.tsbuildinfo
 
-# The bundled Vercel serverless function. Built from apps/api/src/vercel.ts by
-# `pnpm build`; see scripts/build-function.mjs.
-api/index.mjs
-api/index.mjs.map
+# The Vercel deployment — static files plus the bundled serverless function.
+# Produced by `pnpm build:vercel`; see scripts/build-vercel-output.mjs.
+.vercel/
