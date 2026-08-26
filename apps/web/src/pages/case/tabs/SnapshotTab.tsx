@@ -9,6 +9,7 @@ import type {
   PropertyIdentity,
   PropertyType,
   ReferenceData,
+  RiskSeverity,
   ScreenResult,
   Tenure,
 } from '@valytica/shared';
@@ -29,6 +30,7 @@ import {
   SectionTitle,
   Stat,
   useToast,
+  type Tone,
 } from '../../../components/ui/kit';
 import { CompletenessRing, ConfidenceGauge, MarketTrendChart, ValueRangeChart } from '../../../components/charts';
 import { EvidenceLink } from '../../../components/EvidenceLink';
@@ -73,6 +75,8 @@ export default function SnapshotTab({ caseData, result, refresh, runScreen, runn
               ) : null}
             </CardBody>
           </Card>
+
+          <TitleFindingStrip result={result} goToTab={goToTab} />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr,1fr]">
             <Card>
@@ -577,6 +581,50 @@ function MissingCard({ result, goToTab }: { result: ScreenResult | null; goToTab
         )}
       </CardBody>
     </Card>
+  );
+}
+
+/**
+ * The title graph's single worst finding, on the first screen a user sees.
+ *
+ * A chain break or an area contradiction is not a footnote — it is usually the
+ * most consequential thing known about the property, and leaving it two tabs
+ * away means a user forms a view from the value range before they learn the
+ * ownership does not join up. This strip is deliberately one line and a link
+ * rather than a summary: it exists to redirect attention, not to replace the
+ * tab that explains it.
+ */
+function TitleFindingStrip({ result, goToTab }: { result: ScreenResult; goToTab: (key: string) => void }) {
+  const graph = result.titleGraph;
+  if (!graph) return null;
+
+  const breaks = graph.chains.flatMap((c) => c.breaks);
+  const worstSeverity: RiskSeverity | null = (['critical', 'serious', 'warning', 'info'] as RiskSeverity[]).find(
+    (sev) => graph.contradictions.some((c) => c.severity === sev) || breaks.some((b) => b.severity === sev),
+  ) ?? null;
+  if (!worstSeverity) return null;
+
+  // The specific finding, not a count. "1 contradiction" tells a user nothing;
+  // the sentence naming the two figures that disagree is the whole value.
+  const worst =
+    graph.contradictions.find((c) => c.severity === worstSeverity)?.statement
+    ?? breaks.find((b) => b.severity === worstSeverity)?.statement;
+  if (!worst) return null;
+
+  const tone: Tone = worstSeverity === 'critical' ? 'critical' : worstSeverity === 'serious' ? 'serious' : 'warning';
+  const total = graph.contradictions.length + breaks.length;
+
+  return (
+    <Callout tone={tone} title="Title finding">
+      {worst}
+      <button
+        type="button"
+        onClick={() => goToTab('title')}
+        className="ml-1 font-medium underline underline-offset-2 hover:no-underline"
+      >
+        {total > 1 ? `See all ${total} title findings` : 'See the chain'}
+      </button>
+    </Callout>
   );
 }
 

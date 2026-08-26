@@ -171,6 +171,23 @@ export function detectLinearUnit(text: string): LinearUnitKey | undefined {
   return LINEAR_ALIAS_INDEX.find(entry => hasToken(c, entry.alias))?.key;
 }
 
+/**
+ * Remove a unit's words from a value so only the quantity is left.
+ *
+ * Each alias is matched with any run of non-alphanumerics standing in for the
+ * space inside it, because real cells write the same unit as `sq ft`, `sq.ft`
+ * and `sqft` interchangeably, and a parser that only handles one of the three
+ * fails on a third of a real file.
+ */
+function stripUnitWords(text: string, aliases: string[]): string {
+  let out = text;
+  for (const alias of [...aliases].sort((a, b) => b.length - a.length)) {
+    const pattern = alias.replace(/ /g, '[^a-z0-9]*');
+    out = out.replace(new RegExp(`(^|[^a-z0-9])${pattern}\\.?([^a-z0-9]|$)`, 'gi'), '$1 $2');
+  }
+  return out;
+}
+
 export function areaUnitByKey(key: string): AreaUnitDef | undefined {
   const c = canonicalise(key);
   return AREA_UNITS.find(u => u.key === c) ?? detectAreaUnit(key);
@@ -413,11 +430,7 @@ export function parseAreaToSqm(raw: unknown, opts: AreaParseOptions = {}): Parse
   }
 
   // Strip the unit words out of the value before parsing the quantity.
-  let numericPart = text;
-  for (const alias of resolved.unit.aliases) {
-    numericPart = numericPart.replace(new RegExp(`(^|[^a-z0-9])${alias.replace(/ /g, '\\s*')}\\.?([^a-z0-9]|$)`, 'gi'), '$1 $2');
-  }
-  numericPart = numericPart.replace(/\bper\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  const numericPart = stripUnitWords(text, resolved.unit.aliases).replace(/\bper\b/gi, ' ').replace(/\s+/g, ' ').trim();
 
   const qty = parseNumeric(numericPart);
   if (!qty.ok) return fail(`area "${text}": ${qty.reason}`);
@@ -473,11 +486,7 @@ export function parseRateToPerSqm(raw: unknown, opts: AreaParseOptions = {}): Pa
     );
   }
 
-  let numericPart = text;
-  for (const alias of unit.aliases) {
-    numericPart = numericPart.replace(new RegExp(`(^|[^a-z0-9])${alias.replace(/ /g, '\\s*')}\\.?([^a-z0-9]|$)`, 'gi'), '$1 $2');
-  }
-  numericPart = numericPart
+  const numericPart = stripUnitWords(text, unit.aliases)
     .replace(/\bper\b/gi, ' ')
     .replace(/[/]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -680,7 +689,7 @@ export const RECORD_SCHEMAS: Record<IngestedRecordType, RecordSchema> = {
     rowDescription: 'a notified guidance value for a locality or classification',
     observedAtFields: ['effectiveOn'],
     fields: [
-      f('locality', 'Locality', 'text', true, ['locality', 'area', 'area name', 'place', 'location', 'village', 'ward', 'zone name']),
+      f('locality', 'Locality', 'text', true, ['locality', 'area name', 'place', 'location', 'village', 'ward', 'zone name']),
       f('ratePerSqm', 'Guidance rate per m²', 'rate', true, ['rate', 'guidance value', 'guidance rate', 'circle rate', 'value', 'rate per unit', 'market value', 'woz value']),
       f('effectiveOn', 'Effective from', 'date', false, ['effective from', 'effective date', 'effective on', 'w e f', 'wef', 'notified on', 'date', 'valuation date', 'waardepeildatum']),
       f('propertyClass', 'Property classification', 'text', false, ['property class', 'classification', 'category', 'type', 'property type', 'usage']),
@@ -816,11 +825,17 @@ function isUnitColumn(canonicalHeader: string): boolean {
 /**
  * Bind the file's headers to schema fields.
  *
- * Three passes, most specific first, and each column binds at most once so a
- * generic alias (`date`) cannot steal a column a specific one (`transaction
- * date`) already claimed. Unmatched columns are reported rather than ignored —
- * an operator whose `Guidance Value` column was silently unread would
- * otherwise see an empty result and no explanation.
+ * Candidates are scored, not taken in declaration order. An exact alias match
+ * beats a prefix match beats a containment match, and within a tier the
+ * *longest* alias wins — otherwise a schema field declared early with a short
+ * generic alias steals a column a later field describes precisely. `Site area
+ * (sq ft)` binding to `address` because `address` lists `site` and comes first
+ * is not a hypothetical: it is what the naive version did.
+ *
+ * Each column binds at most once and each field is filled at most once, and
+ * every unmatched column is reported rather than ignored — an operator whose
+ * `Guidance Value` column was silently unread would otherwise see an empty
+ * result and no explanation.
  */
 export function bindColumns(columns: string[], schema: RecordSchema): ColumnBinding[] {
   const bindings: ColumnBinding[] = columns.map(column => ({
@@ -830,32 +845,40 @@ export function bindColumns(columns: string[], schema: RecordSchema): ColumnBind
     headerUnit: detectAreaUnit(column)?.key,
   }));
 
-  const taken = new Set<string>();
+  type Candidate = { columnIndex: number; fieldIndex: number; tier: number; aliasLength: number; matchedBy: NonNullable<ColumnBinding['matchedBy']> };
+  const candidates: Candidate[] = [];
 
-  const claim = (binding: ColumnBinding, field: FieldSpec, matchedBy: ColumnBinding['matchedBy']) => {
-    binding.field = field;
-    binding.matchedBy = matchedBy;
-    taken.add(field.key);
-  };
+  bindings.forEach((binding, columnIndex) => {
+    if (isUnitColumn(binding.canonicalHeader)) return;
+    schema.fields.forEach((field, fieldIndex) => {
+      for (const alias of field.aliases) {
+        if (binding.canonicalHeader === alias) {
+          candidates.push({ columnIndex, fieldIndex, tier: 3, aliasLength: alias.length, matchedBy: 'exact' });
+        } else if (binding.canonicalHeader.startsWith(`${alias} `)) {
+          candidates.push({ columnIndex, fieldIndex, tier: 2, aliasLength: alias.length, matchedBy: 'prefix' });
+        } else if (alias.length >= 4 && binding.canonicalHeader.includes(alias)) {
+          candidates.push({ columnIndex, fieldIndex, tier: 1, aliasLength: alias.length, matchedBy: 'contains' });
+        }
+      }
+    });
+  });
 
-  for (const field of schema.fields) {
-    if (taken.has(field.key)) continue;
-    const hit = bindings.find(b => !b.field && !isUnitColumn(b.canonicalHeader) && field.aliases.includes(b.canonicalHeader));
-    if (hit) claim(hit, field, 'exact');
-  }
-  for (const field of schema.fields) {
-    if (taken.has(field.key)) continue;
-    const hit = bindings.find(
-      b => !b.field && !isUnitColumn(b.canonicalHeader) && field.aliases.some(a => b.canonicalHeader.startsWith(`${a} `)),
-    );
-    if (hit) claim(hit, field, 'prefix');
-  }
-  for (const field of schema.fields) {
-    if (taken.has(field.key)) continue;
-    const hit = bindings.find(
-      b => !b.field && !isUnitColumn(b.canonicalHeader) && field.aliases.some(a => a.length >= 4 && b.canonicalHeader.includes(a)),
-    );
-    if (hit) claim(hit, field, 'contains');
+  candidates.sort(
+    (a, b) =>
+      b.tier - a.tier ||
+      b.aliasLength - a.aliasLength ||
+      a.fieldIndex - b.fieldIndex ||
+      a.columnIndex - b.columnIndex,
+  );
+
+  const takenColumns = new Set<number>();
+  const takenFields = new Set<number>();
+  for (const c of candidates) {
+    if (takenColumns.has(c.columnIndex) || takenFields.has(c.fieldIndex)) continue;
+    takenColumns.add(c.columnIndex);
+    takenFields.add(c.fieldIndex);
+    bindings[c.columnIndex].field = schema.fields[c.fieldIndex];
+    bindings[c.columnIndex].matchedBy = c.matchedBy;
   }
 
   return bindings;
