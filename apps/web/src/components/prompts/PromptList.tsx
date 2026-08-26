@@ -20,6 +20,7 @@ import { activeVersion, brokenChecks } from './InvariantList';
  */
 
 const AGENT_LABEL: Record<AgentKind, string> = {
+  property_discovery: 'Property discovery',
   orchestrator: 'Orchestrator',
   planner: 'Planner',
   critic: 'Critic',

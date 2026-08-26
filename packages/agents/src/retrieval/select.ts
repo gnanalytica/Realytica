@@ -51,6 +51,7 @@ const AGENT_REQUIRED_SECTIONS: Partial<Record<AgentKind, string[]>> = {
 
 /** Per-agent focus terms, layered on top of whatever the caller asks for. */
 const AGENT_FOCUS: Record<AgentKind, string[]> = {
+  property_discovery: ['title', 'litigation', 'notification', 'rera', 'developer'],
   orchestrator: [],
   intake_concierge: [],
   planner: ['completeness', 'missing', 'confidence', 'risk', 'verdict'],

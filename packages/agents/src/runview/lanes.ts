@@ -63,6 +63,7 @@ import type {
  * different things to the person comparing them.
  */
 export const AGENT_LABEL: Record<AgentKind, string> = {
+  property_discovery: 'Property discovery',
   orchestrator: 'Orchestrator',
   planner: 'Planner',
   critic: 'Critic',

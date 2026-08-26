@@ -62,6 +62,13 @@ import { readEnv } from './env';
  * per-agent cost breakdown makes the price of reversing it visible.
  */
 export const AGENT_TIERS: Record<AgentKind, ModelTier> = {
+  /**
+   * Reads search results into typed findings and judges whether each one is
+   * about *this* parcel. Reasoning rather than extraction: the hard part is
+   * not pulling fields out of a page, it is deciding that a court listing
+   * naming a different Survey No. 42 is not evidence about this property.
+   */
+  property_discovery: 'reasoning',
   /** Reads scanned deeds and khata extracts and returns typed fields. See the note above. */
   document_intelligence: 'extraction',
   // Reads prose into typed particulars and writes a short reply. Mechanical,
@@ -445,6 +452,10 @@ type RosterPolicy =
  * Declaration order is run order — `ALL_AGENTS` is `Object.keys` of this.
  */
 const ROSTER_POLICY: Record<AgentKind, RosterPolicy> = {
+  // Not scheduled by the orchestrator and not offered on a screen run: a
+  // sweep costs money and sends identifiers outside, so it happens when a
+  // person asks for it on a case whose disclosure level they chose.
+  property_discovery: 'offered_with_web_search',
   orchestrator: 'offered',
   planner: 'scheduled_by_orchestrator',
   document_intelligence: 'offered',

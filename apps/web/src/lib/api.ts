@@ -144,6 +144,12 @@ export const api = {
   setDisclosure: (id: string, disclosure: DisclosureLevel) =>
     request<PropertyCase>(`/cases/${id}`, { method: 'PATCH', body: JSON.stringify({ disclosure }) }),
 
+  /**
+   * Sweep public records for this property, at whatever disclosure level the
+   * case carries. Returns the whole case, because the sweep lands on it.
+   */
+  discoverProperty: (id: string) => request<PropertyCase>(`/cases/${id}/agents/discover`, { method: 'POST' }),
+
   runScreen: (id: string) => request<ScreenResult>(`/cases/${id}/screen`, { method: 'POST' }),
 
   /**

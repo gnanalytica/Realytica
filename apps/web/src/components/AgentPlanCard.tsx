@@ -14,6 +14,7 @@ import { Badge, Card, CardBody, CardHeader, EmptyState, Stat, cn } from './ui/ki
  */
 
 const AGENT_LABEL: Record<AgentKind, string> = {
+  property_discovery: 'Property discovery',
   orchestrator: 'Orchestrator',
   planner: 'Planner',
   critic: 'Critic',

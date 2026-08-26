@@ -1489,6 +1489,13 @@ export interface PropertyCase {
    */
   disclosure?: DisclosureLevel;
   /**
+   * The last sweep of outside records for this property. Stored on the case
+   * rather than the screen result: it is not derived from the engine, it has
+   * its own cost and its own consent, and re-running the screen must not
+   * silently re-run a set of external searches.
+   */
+  discovery?: DiscoverySweep;
+  /**
    * What is being done with the site, and how that was decided. Absent on
    * cases created before the project model existed — the engine infers a
    * brief for those on every run rather than treating the gap as a blocker.
@@ -1849,7 +1856,15 @@ export type AgentKind =
    * language — reading what a person said into typed particulars, and asking
    * the next question like a person would.
    */
-  | 'intake_concierge';
+  | 'intake_concierge'
+  /**
+   * Sweeps public records for one specific property, under a disclosure level
+   * a person chose. The only agent whose search targets are fixed by the
+   * deterministic layer rather than decided by the model — see
+   * `discovery.ts` — because which records matter is a domain question, not a
+   * language one.
+   */
+  | 'property_discovery';
 
 export type AgentRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -1970,6 +1985,103 @@ export interface ResearchFinding {
   corroboration: 'multiple_sources' | 'single_source' | 'uncorroborated';
   /** True when the finding contradicts something the deterministic engine holds. */
   contradictsEngine: boolean;
+}
+
+/* --- Property discovery ---------------------------------------------- */
+
+/**
+ * The kinds of outside record a property can leave behind.
+ *
+ * Closed on purpose, like every other ontology here. A model that could
+ * invent a record kind could report "zoning irregularity" as a category and
+ * make it look like a finding of the same standing as a RERA registration.
+ */
+export type DiscoveryRecordKind =
+  /** The project's registration with the state RERA authority, and its status. */
+  | 'rera_registration'
+  /** A development-authority notification or de-notification naming the parcel. */
+  | 'planning_notification'
+  /** A court or tribunal matter naming the parcel, the project or the owner's title. */
+  | 'litigation'
+  /** A municipal notice, demolition order or civic complaint against the property. */
+  | 'municipal_notice'
+  /** What the developer has completed, delayed or abandoned elsewhere. */
+  | 'developer_track_record'
+  /** A sale or rental listing, which prices the property but proves nothing about it. */
+  | 'listing'
+  /** Press or filings about the project, the layout or the corridor. */
+  | 'news'
+  | 'other';
+
+/**
+ * One thing found outside Realytica.
+ *
+ * `identityConfidence` is the field this type exists for. A search for
+ * "Survey No. 42, Sarjapur" returns records about every other Survey No. 42
+ * in Karnataka, and presenting one of those as a finding about this property
+ * would be worse than finding nothing — it would be a fabricated encumbrance.
+ * So every finding states how sure it is that the record is about *this*
+ * parcel, and what it matched on to believe that.
+ */
+export interface DiscoveryFinding {
+  id: string;
+  kind: DiscoveryRecordKind;
+  /** What was found, in one sentence. */
+  claim: string;
+  /** Why it bears on this case. */
+  bearing: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
+  /** When the source was published, where the source says. */
+  publishedAt?: string;
+  retrievedAt: string;
+  /**
+   * 0..1 — confidence that this record is about this property, as distinct
+   * from confidence that the record says what it says. A perfectly reliable
+   * court listing about a different parcel is a 1.0 record at 0.1 identity.
+   */
+  identityConfidence: number;
+  /** Which identifier matched, in plain words. */
+  matchedOn: string;
+  /** The disclosure level that made this findable. */
+  foundAtDisclosure: DisclosureLevel;
+  /** How much it would matter if it is both true and about this property. */
+  materiality: RiskSeverity;
+  corroboration: 'multiple_sources' | 'single_source' | 'uncorroborated';
+}
+
+/** A record kind that was not searched for, and what would unlock it. */
+export interface DiscoveryGate {
+  kind: DiscoveryRecordKind;
+  /** The disclosure level this kind needs before it can be looked for. */
+  needs: DisclosureLevel;
+  /** What is going unchecked as a result. */
+  consequence: string;
+}
+
+/**
+ * One sweep of the outside world for a property.
+ *
+ * The three list fields are the point, and they are three different
+ * statements that an ordinary "results" list collapses into one:
+ * `findings` is what was found, `lookedForNotFound` is what was searched for
+ * and genuinely was not there, and `notLookedFor` is what was never searched
+ * because the disclosure level forbids it. Only the second is evidence of
+ * absence.
+ */
+export interface DiscoverySweep {
+  ranAt: string;
+  /** The level in force when it ran. Findings are stamped with it individually too. */
+  disclosure: DisclosureLevel;
+  /** Every query actually issued — the audit trail of what left the system. */
+  queriesRun: string[];
+  findings: DiscoveryFinding[];
+  lookedForNotFound: DiscoveryRecordKind[];
+  notLookedFor: DiscoveryGate[];
+  /** Sources declared unreachable, carried through so silence is explained. */
+  unreachable: { label: string; whatItWouldHaveAnswered: string }[];
+  /** Present when no model was available and only the deterministic plan ran. */
+  planOnlyReason?: string;
 }
 
 /* --- Insights & copilot ---------------------------------------------- */

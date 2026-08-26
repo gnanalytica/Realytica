@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase } from '@realytica/shared';
 import { REFERENCE_DATA } from '@realytica/shared';
-import { agentCapability, capabilityWithRoutes, describeError, describeProviders, recallForCase, resolveRoute, runCopilot, runExplorer, runOrchestration, type RunOrchestrationResult } from '@realytica/agents';
+import { agentCapability, capabilityWithRoutes, describeError, describeProviders, recallForCase, resolveRoute, runCopilot, runExplorer, runOrchestration, runPropertyDiscovery, type RunOrchestrationResult } from '@realytica/agents';
 import { memoryStore } from '../memory';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
@@ -344,6 +344,46 @@ caseAgentsRouter.post<{ id: string }>('/explore', async (req, res) => {
     if (!found.intelligence) found.intelligence = emptyIntelligence();
     found.intelligence.runs = [...found.intelligence.runs, run];
     found.intelligence.explorations = [...(found.intelligence.explorations ?? []), session];
+    found.updatedAt = new Date().toISOString();
+    await store.save();
+    res.json(found);
+  } catch (e) {
+    res.status(502).json({ error: describeError(e) });
+  }
+});
+
+/**
+ * Sweep public records for this specific property.
+ *
+ * Deliberately its own route rather than a step in the screen. It costs money
+ * and it sends parcel identifiers outside the system, so it happens when a
+ * person asks for it — on a case whose disclosure level they chose, having
+ * read what that level sends.
+ *
+ * Unlike the other agent routes this one does NOT 503 when agents are
+ * unconfigured. The sweep's plan is deterministic and worth having on its own:
+ * a deployment with no credentials still learns what would have been searched
+ * for, what its disclosure level is gating, and which registries are
+ * unreachable — which is a real answer about the case's blind spots, and a
+ * different one from an empty list.
+ */
+caseAgentsRouter.post<{ id: string }>('/discover', async (req, res) => {
+  const found = findCase(req.params.id);
+  if (!found) {
+    res.status(404).json({ error: 'Case not found' });
+    return;
+  }
+  try {
+    const now = new Date().toISOString();
+    const { run, sweep } = await runPropertyDiscovery({
+      caseId: found.id,
+      caseData: found,
+      refData: REFERENCE_DATA,
+      now,
+    });
+    found.discovery = sweep;
+    if (!found.intelligence) found.intelligence = emptyIntelligence();
+    found.intelligence.runs = [...found.intelligence.runs, run];
     found.updatedAt = new Date().toISOString();
     await store.save();
     res.json(found);
