@@ -120,7 +120,8 @@ export function resolutionPaths(chains: TitleChain[], contradictions: GraphContr
       impact: round2(impact),
       rationale:
         `Named as the remedy by ${cleared.length} of ${findings.length} open finding${findings.length === 1 ? '' : 's'}, ` +
-        `including the ${worst.severity} ${worst.phrase}. Obtaining it clears ${pct}% of the open finding weight on this title.`,
+        `the gravest of them rated ${worst.severity}: the ${worst.phrase}. ` +
+        `Obtaining it clears ${pct}% of the open finding weight on this title.`,
     });
   }
 

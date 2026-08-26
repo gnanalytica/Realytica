@@ -204,7 +204,7 @@ export function detectContradictions(graph: TitleGraph, propertyCase: PropertyCa
     const subject = `${isBuilt ? 'Built-up area' : 'Extent'} of ${parcel.label}`;
     const pct = round1(divergence * 100);
     const khataOnFile = documents.some(d => d.kind === 'khata_extract');
-    const resolvedBy = [REMEDIES.surveyorSketch.obtain, REMEDIES.certifiedRegisteredCopies.obtain];
+    const resolvedBy: string[] = [REMEDIES.surveyorSketch.obtain, REMEDIES.certifiedRegisteredCopies.obtain];
     if (isIndia && !khataOnFile) resolvedBy.push(REMEDIES.khataExtract.obtain);
 
     found.push({

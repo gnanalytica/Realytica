@@ -59,6 +59,8 @@ import type {
   ValueAnchor,
   ValueDriver,
 } from './types';
+import { analyseTitleGraph } from './graph';
+import { runPlaybooks } from './playbooks';
 import { ENGINE_VERSION } from './constants';
 import { REFERENCE_DATA } from './reference';
 
@@ -3069,6 +3071,10 @@ function assertEvidenceIntegrity(result: ScreenResult): void {
   result.risks.forEach(r => check(r.evidenceIds, `risk:${r.id}`));
   check(result.planning.evidenceIds, 'planning');
   result.stateCompliance?.checks.forEach(c => check(c.evidenceIds, `compliance:${c.key}`));
+  // Playbook steps cite evidence like every other surface, so they are held to
+  // the same guarantee. A step whose citation dangles is worse than one with
+  // no citation at all: it reads as traceable and is not.
+  result.playbooks?.forEach(p => p.steps.forEach(step => check(step.evidenceIds, `playbook:${p.playbookId}:${step.key}`)));
   if (missing.length > 0) {
     throw new Error(`Evidence traceability broken — dangling evidenceIds: ${missing.join(', ')}`);
   }
@@ -3244,6 +3250,44 @@ export function runScreen(input: {
     transactionCosts,
     recommendation,
   };
+
+  /*
+   * Title graph and playbooks.
+   *
+   * Both run after the result is assembled, and for different reasons. The
+   * graph is independent of the screen — it reads documents, not valuations —
+   * but attaching it here keeps a single object as the case's analytical
+   * output rather than a second thing the caller has to remember to fetch.
+   * Playbooks genuinely depend on the result: a step that asks whether a
+   * statutory check cleared has to read the check.
+   *
+   * Neither may change a computed number. They are additive fields on a
+   * finished `ScreenResult`, which is the same boundary the agent layer
+   * observes — the engine stays the arithmetic authority.
+   */
+  const graphCase: PropertyCase = {
+    id: caseId,
+    reference: input.reference,
+    identity,
+    status: 'screened',
+    persona: 'property_investor',
+    ownerName: '',
+    createdAt: now,
+    updatedAt: now,
+    documents: documentsWithExtraction,
+    notes: '',
+  };
+  const analysis = analyseTitleGraph(graphCase, now);
+  // An empty graph is not a finding, it is an absence. Attaching a summary
+  // that says "0 nodes, integrity 0" would render as a title problem on a
+  // case whose documents simply do not speak to ownership.
+  if (analysis.graph.nodes.length > 0) {
+    result.titleGraph = analysis.summary;
+  }
+  const playbooks = runPlaybooks({ ...graphCase, result }, result, now);
+  if (playbooks.length > 0) {
+    result.playbooks = playbooks;
+  }
 
   assertEvidenceIntegrity(result);
   return result;

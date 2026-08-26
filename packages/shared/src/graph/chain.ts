@@ -47,6 +47,11 @@ function attrNumber(node: TitleNode, key: string): number | undefined {
   return typeof value === 'number' ? value : undefined;
 }
 
+/** Lowercases only the leading character, so a label reads naturally mid-sentence without mangling an acronym. */
+function lowerFirst(text: string): string {
+  return text.length === 0 ? text : text[0].toLowerCase() + text.slice(1);
+}
+
 function makeBreakId(kind: ChainBreakKind, parcelNodeId: string, discriminator: string): string {
   return `break-${kind}-${stableDigest(`${parcelNodeId}|${kind}|${discriminator}`, 8)}`;
 }
@@ -170,11 +175,15 @@ export function reconstructChains(graph: TitleGraph): TitleChain[] {
         n => n.kind === 'instrument' && n.attributes.conveysOwnership === false && edgesFrom(n.id).some(e => e.kind === 'affects' && aliasIds.has(e.toNodeId)),
       );
       const severity: RiskSeverity = yearsExpected !== undefined ? 'critical' : registerBacked ? 'warning' : 'serious';
+      // The register-backed wording is confined to jurisdictions with no
+      // expected chain span — which in practice means the Kadaster. Saying
+      // that ownership "rests on the register extract" of a khata would be
+      // actively wrong: a khata is a tax record and is not proof of title.
       const statement =
-        nonConveying.length > 0
-          ? `No instrument on file conveys title to ${parcel.label} — ${nonConveying[0].label.toLowerCase()} is on file but an agreement is not a conveyance, so the chain of title has no root.`
-          : registerBacked
-            ? `No deed of transfer is on file for ${parcel.label}; ownership rests on the register extract alone, so the chain of title has no documented root.`
+        registerBacked && yearsExpected === undefined
+          ? `No deed of transfer is on file for ${parcel.label}; ownership rests on the register extract alone, so the chain of title has no documented root.`
+          : nonConveying.length > 0
+            ? `No instrument on file conveys title to ${parcel.label}: the ${lowerFirst(nonConveying[0].label)} on file does not itself pass title, so the chain of title has no root.`
             : `No instrument on file conveys title to ${parcel.label}, so the chain of title has no root.`;
       push(
         'no_root',

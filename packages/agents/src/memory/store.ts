@@ -254,7 +254,12 @@ export class MemoryLedger {
     // Idempotence first. Re-running extraction over an unchanged case must be a
     // no-op, or every run would double the store and inflate every "how often
     // has this recurred" count that reads it.
-    const existing = this.facts.find(f => !f.supersededById && memoryFactIdentity(f) === identity);
+    //
+    // The match deliberately includes facts that have already been superseded.
+    // Re-deriving a belief a later case has since corrected is not new evidence
+    // — it is the same old observation being read again — and letting it back in
+    // would make an unrelated re-ingestion silently undo a correction.
+    const existing = this.facts.find(f => memoryFactIdentity(f) === identity);
     if (existing) {
       return { fact: copy(existing), superseded: [], deduplicated: true, arrivedSuperseded: false };
     }

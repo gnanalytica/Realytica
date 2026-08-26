@@ -922,6 +922,12 @@ export interface NormalisationContext {
   baseConfidence: number;
   /** Carry columns the schema did not claim onto the record as `extra.<key>`. */
   keepUnmapped?: boolean;
+  /**
+   * Distinguishes record ids when one source contributes more than one file in
+   * a single run. Without it two files against the same source would collide
+   * on `...-r0007`, and the second would look like a duplicate of the first.
+   */
+  idDiscriminator?: string;
 }
 
 export interface NormalisationResult {
@@ -1053,7 +1059,7 @@ function normaliseRow(
   );
 
   return ok({
-    id: `ingested-${ctx.sourceId}-${ctx.recordType}-r${String(row.rowNumber).padStart(4, '0')}`,
+    id: `ingested-${ctx.sourceId}${ctx.idDiscriminator ? `-${ctx.idDiscriminator}` : ''}-${ctx.recordType}-r${String(row.rowNumber).padStart(4, '0')}`,
     sourceId: ctx.sourceId,
     recordType: ctx.recordType,
     fields,

@@ -43,6 +43,11 @@ import {
  */
 export const EDGE_PROPOSAL_CONFIDENCE_FLOOR = 0.6;
 
+/** Indefinite article for a node kind, so a rejection reason reads as English rather than as a template. */
+function article(kind: string): string {
+  return `${/^[aeiou]/.test(kind) ? 'an' : 'a'} ${kind}`;
+}
+
 /** What a merge key resolved to, and why it did not resolve when it did not. */
 type Resolution =
   | { status: 'resolved'; node: TitleNode }
@@ -181,7 +186,7 @@ export function applyEdgeProposals(
     if (!edgeEndpointsValid(proposal.kind, from.node.kind, to.node.kind)) {
       return reject(
         'rejected_invalid_kind',
-        `'${proposal.kind}' cannot join a ${from.node.kind} to a ${to.node.kind}. The kind exists, but not between these two things.`,
+        `'${proposal.kind}' cannot join ${article(from.node.kind)} to ${article(to.node.kind)}. The kind exists, but not between these two things.`,
       );
     }
 
