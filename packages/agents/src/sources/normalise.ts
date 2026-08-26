@@ -193,6 +193,19 @@ export function areaUnitByKey(key: string): AreaUnitDef | undefined {
   return AREA_UNITS.find(u => u.key === c) ?? detectAreaUnit(key);
 }
 
+/**
+ * Trim IEEE-754 display noise from a conversion factor.
+ *
+ * `1089 * 0.09290304` is exactly 101.17141056 in decimal but prints as
+ * `101.17141056000001`, and a working string that shows that undermines the
+ * very thing it exists for — a reader checking the arithmetic by hand should
+ * see the factor they would look up, not the float that approximates it. The
+ * *stored* value is untouched; this is presentation only.
+ */
+function formatFactor(value: number): string {
+  return String(Number(value.toPrecision(12)));
+}
+
 /* ------------------------------------------------------------------ */
 /* Parse results                                                       */
 /* ------------------------------------------------------------------ */
@@ -419,7 +432,7 @@ export function parseAreaToSqm(raw: unknown, opts: AreaParseOptions = {}): Parse
       unitLabel: unitDef.label,
       sqmPerUnit: unitDef.sqmPerUnit,
       quantity,
-      working: `${w.value.value} × ${d.value.value} ${LINEAR_UNITS[linear].label} = ${quantity} ${unitDef.label} × ${unitDef.sqmPerUnit} = ${round(sqm, 4)} m²`,
+      working: `${w.value.value} × ${d.value.value} ${LINEAR_UNITS[linear].label} = ${quantity} ${unitDef.label} × ${formatFactor(unitDef.sqmPerUnit)} = ${round(sqm, 4)} m²`,
     });
   }
 
@@ -443,7 +456,7 @@ export function parseAreaToSqm(raw: unknown, opts: AreaParseOptions = {}): Parse
     unitLabel: resolved.unit.label,
     sqmPerUnit: resolved.unit.sqmPerUnit,
     quantity: qty.value.value,
-    working: `${qty.value.value} ${resolved.unit.label} (unit from ${resolved.from}) × ${resolved.unit.sqmPerUnit} = ${round(sqm, 4)} m²`,
+    working: `${qty.value.value} ${resolved.unit.label} (unit from ${resolved.from}) × ${formatFactor(resolved.unit.sqmPerUnit)} = ${round(sqm, 4)} m²`,
   });
 }
 
@@ -503,7 +516,7 @@ export function parseRateToPerSqm(raw: unknown, opts: AreaParseOptions = {}): Pa
     unit: unit.key,
     unitLabel: unit.label,
     sqmPerUnit: unit.sqmPerUnit,
-    working: `${qty.value.value} per ${unit.label} ÷ ${unit.sqmPerUnit} m² per ${unit.label} = ${round(perSqm, 2)} per m²`,
+    working: `${qty.value.value} per ${unit.label} ÷ ${formatFactor(unit.sqmPerUnit)} m² per ${unit.label} = ${round(perSqm, 2)} per m²`,
   });
 }
 
@@ -830,7 +843,10 @@ function isUnitColumn(canonicalHeader: string): boolean {
  * *longest* alias wins — otherwise a schema field declared early with a short
  * generic alias steals a column a later field describes precisely. `Site area
  * (sq ft)` binding to `address` because `address` lists `site` and comes first
- * is not a hypothetical: it is what the naive version did.
+ * is not a hypothetical: it is what the naive version did. Where two fields
+ * match the same alias equally well, the field whose own name *is* that alias
+ * wins — otherwise `Village` is claimed by `locality` (which lists `village` as
+ * a fallback) and the file's real `Locality` column is left unread.
  *
  * Each column binds at most once and each field is filled at most once, and
  * every unmatched column is reported rather than ignored — an operator whose
@@ -845,19 +861,29 @@ export function bindColumns(columns: string[], schema: RecordSchema): ColumnBind
     headerUnit: detectAreaUnit(column)?.key,
   }));
 
-  type Candidate = { columnIndex: number; fieldIndex: number; tier: number; aliasLength: number; matchedBy: NonNullable<ColumnBinding['matchedBy']> };
+  type Candidate = {
+    columnIndex: number;
+    fieldIndex: number;
+    tier: number;
+    /** 1 when the alias is the field's own name — the tie-break that keeps `Village` off `locality`. */
+    selfMatch: number;
+    aliasLength: number;
+    matchedBy: NonNullable<ColumnBinding['matchedBy']>;
+  };
   const candidates: Candidate[] = [];
 
   bindings.forEach((binding, columnIndex) => {
     if (isUnitColumn(binding.canonicalHeader)) return;
     schema.fields.forEach((field, fieldIndex) => {
+      const ownName = canonicalise(field.key);
       for (const alias of field.aliases) {
+        const selfMatch = ownName === alias ? 1 : 0;
         if (binding.canonicalHeader === alias) {
-          candidates.push({ columnIndex, fieldIndex, tier: 3, aliasLength: alias.length, matchedBy: 'exact' });
+          candidates.push({ columnIndex, fieldIndex, tier: 3, selfMatch, aliasLength: alias.length, matchedBy: 'exact' });
         } else if (binding.canonicalHeader.startsWith(`${alias} `)) {
-          candidates.push({ columnIndex, fieldIndex, tier: 2, aliasLength: alias.length, matchedBy: 'prefix' });
+          candidates.push({ columnIndex, fieldIndex, tier: 2, selfMatch, aliasLength: alias.length, matchedBy: 'prefix' });
         } else if (alias.length >= 4 && binding.canonicalHeader.includes(alias)) {
-          candidates.push({ columnIndex, fieldIndex, tier: 1, aliasLength: alias.length, matchedBy: 'contains' });
+          candidates.push({ columnIndex, fieldIndex, tier: 1, selfMatch, aliasLength: alias.length, matchedBy: 'contains' });
         }
       }
     });
@@ -866,6 +892,7 @@ export function bindColumns(columns: string[], schema: RecordSchema): ColumnBind
   candidates.sort(
     (a, b) =>
       b.tier - a.tier ||
+      b.selfMatch - a.selfMatch ||
       b.aliasLength - a.aliasLength ||
       a.fieldIndex - b.fieldIndex ||
       a.columnIndex - b.columnIndex,

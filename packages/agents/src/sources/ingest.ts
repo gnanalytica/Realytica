@@ -171,6 +171,28 @@ export async function runIngestion(request: IngestionRequest): Promise<Ingestion
   return (await runIngestionDetailed(request)).report;
 }
 
+/**
+ * A file supplied against a source that has no file intake.
+ *
+ * Registering the wrong source id is the easy mistake to make: the registry
+ * distinguishes the CAPTCHA-gated guidance-value *lookup* from the
+ * guidance-value *file* an operator downloads, and they read almost the same
+ * to a human. Without this the run reported the source as unreachable, said
+ * nothing about the file, and the operator was told about CAPTCHAs when their
+ * actual problem was that their upload went nowhere.
+ *
+ * Names the source that would have taken it, when one of the same kind exists.
+ */
+function misfiledFilesNote(source: RegisteredSource, suppliedFiles: readonly SuppliedFile[]): string {
+  const mine = suppliedFiles.filter(f => f.sourceId === source.id);
+  if (mine.length === 0) return '';
+  const names = mine.map(f => f.fileName).join(', ');
+  const alternative = DATA_SOURCES.find(s => s.access === 'file_upload' && s.kind === source.kind && s.id !== source.id);
+  return ` NOTE: ${mine.length} supplied file(s) (${names}) named this source, but it takes no file upload, so they were NOT ingested.${
+    alternative ? ` Supply them against "${alternative.id}" (${alternative.label}) instead.` : ''
+  }`;
+}
+
 export async function runIngestionDetailed(request: IngestionRequest): Promise<IngestionDetail> {
   const { caseData, now } = request;
   const identity = caseData.identity;
@@ -207,6 +229,7 @@ export async function runIngestionDetailed(request: IngestionRequest): Promise<I
         );
         continue;
       }
+      const misfiled = misfiledFilesNote(source, suppliedFiles);
       const result = await fetchOpenSource(source, identity, {
         now,
         baseConfidence: baseConfidenceFor(source),
@@ -219,7 +242,7 @@ export async function runIngestionDetailed(request: IngestionRequest): Promise<I
       if (result.rejected.length > 0) {
         rejections.push({ sourceId: source.id, sourceLabel: source.label, rows: result.rejected });
       }
-      attempted.push(attempt(source, result.outcome, result.note, result.records.length));
+      attempted.push(attempt(source, result.outcome, result.note + misfiled, result.records.length));
       continue;
     }
 
@@ -267,7 +290,7 @@ export async function runIngestionDetailed(request: IngestionRequest): Promise<I
         'unreachable',
         `Not attempted: declared \`${source.access}\` in the source registry, so no request was made. ${source.accessBasis} What it would have answered: ${source.whatItWouldHaveAnswered}${
           source.manualRoute ? ` How to obtain it by hand: ${source.manualRoute}` : ''
-        }`,
+        }${misfiledFilesNote(source, suppliedFiles)}`,
         0,
       ),
     );

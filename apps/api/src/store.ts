@@ -1,4 +1,4 @@
-import type { PropertyCase } from '@valytica/shared';
+import type { MemoryFact, PropertyCase } from '@valytica/shared';
 import { storageAdapter } from './storage';
 
 /**
@@ -17,6 +17,20 @@ export interface StoreData {
   cases: PropertyCase[];
   /** Monotonic counter used to mint human references like "VPS-0001". */
   nextReferenceSeq: number;
+  /**
+   * Cross-case agent memory (see `@valytica/agents`'s `memory/`).
+   *
+   * Kept in the same document as the cases rather than in its own, because
+   * one document means one durability path — and durability is the property
+   * that matters on serverless, where a write that has only been scheduled is
+   * a write that never happens. The cost is that a case mutation rewrites the
+   * memory set with it; facts are small and this dataset is small, so that is
+   * the cheaper side of the trade. If memory ever outgrows the cases it
+   * should move to its own blob, and this comment is the note to do so.
+   *
+   * Optional so a store written before memory existed still loads.
+   */
+  memory?: MemoryFact[];
 }
 
 // Re-exported for the routes that still build upload paths directly against
