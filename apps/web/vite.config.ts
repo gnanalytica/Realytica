@@ -11,7 +11,11 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: false,
+    // Fail loudly rather than drifting. With fallback enabled Vite quietly
+    // takes the next free port — which is 5174, the API's own port — and the
+    // dev server then shadows the backend it is supposed to be proxying to.
+    // A clear "port in use" beats a confusing half-working app.
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://localhost:5174',
