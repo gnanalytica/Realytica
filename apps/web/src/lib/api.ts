@@ -16,6 +16,7 @@ import type {
   ReferenceData,
   RiskStatus,
   ScreenResult,
+  TelemetrySummary,
   UpdateCaseRequest,
 } from '@valytica/shared';
 
@@ -117,6 +118,15 @@ export const api = {
   resetAll: () => request<{ ok: true }>('/demo/reset', { method: 'POST' }),
 
   agentCapability: () => request<AgentCapability>('/agents/capability'),
+
+  /** Cross-provider cost, latency and degradation, for the model-operations view. */
+  telemetry: (params: { sinceMinutes?: number; caseId?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.sinceMinutes) q.set('sinceMinutes', String(params.sinceMinutes));
+    if (params.caseId) q.set('caseId', params.caseId);
+    const suffix = q.toString() ? `?${q}` : '';
+    return request<TelemetrySummary>(`/telemetry${suffix}`);
+  },
 
   runAgents: (id: string, agents?: AgentKind[]) =>
     request<PropertyCase>(`/cases/${id}/agents/run`, {
