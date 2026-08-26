@@ -2110,3 +2110,171 @@ export interface RunGraph {
     failedNodes: number;
   };
 }
+
+/* ==================================================================== */
+/* Conversational intake                                                */
+/* ==================================================================== */
+
+/**
+ * Where a captured particular came from.
+ *
+ * The same distinction the evidence ledger already draws between a documented
+ * fact and a `model_inference`, applied one stage earlier. An intake that
+ * quietly fills in a khata type because the project name sounded like an
+ * apartment complex has invented a particular, and every number downstream
+ * inherits that invention while looking exactly like a number the user gave.
+ * So nothing enters a draft without saying where it came from.
+ */
+export type IntakeProvenance =
+  /** The user said it, in so many words. */
+  | 'stated'
+  /** Derived from something the user said. Always carries a `basis`. */
+  | 'inferred'
+  /** Read off a document they uploaded. */
+  | 'document'
+  /** A state-pack default that holds until contradicted. Always carries a `basis`. */
+  | 'default';
+
+/**
+ * One particular, and its provenance.
+ *
+ * Addressed by a dotted `path` into `PropertyIdentity` rather than held in a
+ * nested partial, because a flat list is what both the confirmation UI and the
+ * "what changed this turn" receipt need, and assembling the nested object is a
+ * single function at the end (`draftToCreateRequest`) rather than a merge on
+ * every turn.
+ */
+export interface IntakeField {
+  /** e.g. `locality`, `builtUpAreaSqm`, `karnataka.khataType`. */
+  path: string;
+  /** How this particular is named to a person. */
+  label: string;
+  value: string | number | boolean | null;
+  /** What the user actually typed, when that differs from the parsed value. */
+  saidAs?: string;
+  provenance: IntakeProvenance;
+  /** Why, for anything not `stated`. Shown, not merely logged. */
+  basis?: string;
+  /**
+   * Whether the user has explicitly accepted this value.
+   *
+   * Only meaningful for `inferred` and `default`: a `stated` field is
+   * confirmed by having been said. An unconfirmed inference may sit in the
+   * draft and drive the preview, but it is marked wherever it appears and it
+   * is never presented as something the user told us.
+   */
+  confirmed: boolean;
+  at: string;
+}
+
+/** A particular the intake still wants, and what not having it costs. */
+export interface IntakeGap {
+  path: string;
+  label: string;
+  /** What the screen cannot do, or does worse, without this. */
+  consequence: string;
+  /**
+   * True when the screen cannot run at all until this is known. Distinguished
+   * from a gap that only widens the answer, because telling someone they are
+   * blocked when they are merely imprecise is how a tool loses their patience.
+   */
+  blocking: boolean;
+  /** Offered answers, where the field is an enum. Lets the UI show buttons instead of demanding prose. */
+  options?: { value: string; label: string }[];
+}
+
+/**
+ * A document the intake is asking for, and what it settles.
+ *
+ * Never chosen by a model. The list is derived from the playbook steps that
+ * declare the document in their `needs`, plus whatever the engine's
+ * completeness summary already calls critical — so the request is the same one
+ * the deterministic layer would make, and a model cannot invent a document
+ * that does not exist or omit one that does.
+ */
+export interface IntakeDocumentRequest {
+  kind: DocumentKind;
+  label: string;
+  /** The question this document answers, taken from the step that needs it. */
+  settles: string;
+  /** Playbook step keys, for tracing the request back to the procedure. */
+  neededBy: string[];
+  /** Critical to the screen's completeness, as opposed to merely useful. */
+  critical: boolean;
+  received: boolean;
+}
+
+/**
+ * How far the conversation has got.
+ *
+ * `ready` means the deterministic core would accept a case, not that the
+ * conversation is finished — there is always more that could be asked, and
+ * stopping is the user's call.
+ */
+export type IntakeStage = 'orienting' | 'particulars' | 'documents' | 'ready' | 'built';
+
+export interface IntakeTurn {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  at: string;
+  /**
+   * Particulars this turn captured.
+   *
+   * Rendered as a visible receipt under the message. A conversation that
+   * silently populates a form is worse than the form: the user cannot see
+   * what it decided they said, so they cannot correct it.
+   */
+  captured?: IntakeField[];
+  /** Documents this turn asked for. */
+  requested?: DocumentKind[];
+  /**
+   * The agent run behind an assistant turn.
+   *
+   * Absent when the turn came from the deterministic fallback — which is the
+   * honest signal that no model was involved, not a missing field.
+   */
+  runId?: string;
+}
+
+/**
+ * Everything derived from a draft, recomputed on every read.
+ *
+ * Not stored, for the same reason the run graph is not: it is a projection of
+ * the captured fields plus the reference data, and a stored copy is a copy
+ * that can disagree with what it describes.
+ */
+export interface IntakeReadout {
+  stage: IntakeStage;
+  gaps: IntakeGap[];
+  documents: IntakeDocumentRequest[];
+  /** True when the deterministic core would accept this draft as a case. */
+  screenable: boolean;
+  /**
+   * The screen as it stands, run against the draft before any case exists.
+   *
+   * This is the point of the whole approach: the engine needs locality, type
+   * and area to produce an indicative range and name the documents that decide
+   * the rest, so a user can see a real answer three questions in rather than
+   * after a form. Absent until `screenable`.
+   */
+  preview?: ScreenResult;
+  /** One line on what the intake would ask next, when nothing else is pressing. */
+  nextQuestion?: IntakeGap;
+}
+
+export interface IntakeSession {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  turns: IntakeTurn[];
+  /** Captured particulars. The only stored half of the draft. */
+  fields: IntakeField[];
+  /** Documents received during the conversation, before a case exists to hold them. */
+  documents: CaseDocument[];
+  /** Set once the session has been committed and a case built from it. */
+  caseId?: string;
+  /** Who the case will belong to, and the lens the screen leads with. */
+  ownerName?: string;
+  persona?: PersonaKey;
+}
