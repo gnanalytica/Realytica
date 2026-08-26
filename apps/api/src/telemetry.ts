@@ -1,11 +1,11 @@
-import type { LlmCallRecord } from '@valytica/shared';
-import { setTelemetrySink, PersistedTelemetrySink, type TelemetryPersistence } from '@valytica/agents';
+import type { LlmCallRecord } from '@realytica/shared';
+import { setTelemetrySink, PersistedTelemetrySink, type TelemetryPersistence } from '@realytica/agents';
 import { store } from './store';
 
 /**
  * Model-call telemetry, persisted through the app's own store.
  *
- * `@valytica/agents` deliberately does not know how this deployment persists
+ * `@realytica/agents` deliberately does not know how this deployment persists
  * anything — the sink takes a `load`/`save` port and leaves the backend to the
  * caller. This is that port, over the same `StorageAdapter` the cases use
  * (filesystem locally, Vercel Blob in a deployment), so telemetry inherits the

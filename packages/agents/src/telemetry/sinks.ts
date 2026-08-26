@@ -16,7 +16,7 @@
  * acceptable outcome, and a failed diligence run is not.
  */
 
-import type { LlmCallRecord } from '@valytica/shared';
+import type { LlmCallRecord } from '@realytica/shared';
 import { warnOnce } from '../client';
 import {
   systemClock,
@@ -275,7 +275,7 @@ export interface PersistedTelemetrySinkOptions {
  * ## Durability
  *
  * No debouncing, no timers, no background flush — `record` resolves only once
- * the port's `save` has. Valytica runs on serverless, where the process can be
+ * the port's `save` has. Realytica runs on serverless, where the process can be
  * frozen the instant a response is sent, so a scheduled write there is a write
  * that never happens. This is the same rule `store.save()` and
  * `PersistedMemoryStore` already follow, for the same reason.

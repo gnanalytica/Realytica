@@ -17,7 +17,7 @@
  *
  * So this module has exactly one rule: never invent a rate. A rate is either
  * published (Anthropic, via `client.ts`), declared by the operator
- * (`VALYTICA_PRICING`), or absent — and absent is a state that travels all the
+ * (`REALYTICA_PRICING`), or absent — and absent is a state that travels all the
  * way to the panel rather than collapsing into a zero.
  *
  * ## Where the numbers come from
@@ -31,7 +31,7 @@
  * the one direction it can be wrong.
  */
 
-import type { AgentUsage, ProviderId } from '@valytica/shared';
+import type { AgentUsage, ProviderId } from '@realytica/shared';
 import { priceTokensUsd, warnOnce } from '../client';
 import { formatRoute, parseRoute } from '../routing';
 
@@ -155,19 +155,19 @@ function round4(n: number): number {
 /* Operator overrides                                                    */
 /* ==================================================================== */
 
-export const PRICING_ENV_VAR = 'VALYTICA_PRICING';
+export const PRICING_ENV_VAR = 'REALYTICA_PRICING';
 
 /**
  * Rates an operator declares for models this codebase cannot know.
  *
  * ```
- * VALYTICA_PRICING='{
+ * REALYTICA_PRICING='{
  *   "openai_compatible:meta-llama/llama-3.3-70b-instruct": { "input": 0.6, "output": 0.6 },
  *   "openai_compatible:*": { "input": 0.9, "output": 0.9, "cacheRead": 0.09 }
  * }'
  * ```
  *
- * Keys use the same route syntax as `VALYTICA_MODEL_*` (`provider:model`, or a
+ * Keys use the same route syntax as `REALYTICA_MODEL_*` (`provider:model`, or a
  * bare model id meaning Anthropic), because an operator who has just written a
  * route into one variable should not have to learn a second spelling to price
  * it. Values are USD per million tokens.
@@ -281,7 +281,7 @@ export function declaredPricingRoutes(): string[] {
 /**
  * Prices token counts for one (provider, model), in resolution order:
  *
- *   1. an exact `VALYTICA_PRICING` entry for the route;
+ *   1. an exact `REALYTICA_PRICING` entry for the route;
  *   2. a `provider:*` wildcard entry;
  *   3. Anthropic's published rates, via `client.ts`;
  *   4. nothing — the cost is unknown and says so.
@@ -377,7 +377,7 @@ export function describePriceConfidence(confidence: PriceConfidence): string {
     case 'upper_bound':
       return 'No published rate for this model id, so it is priced at the most expensive rate its own vendor charges. The figure is a ceiling, not an estimate.';
     case 'unavailable':
-      return 'No rate on file for this provider and model, so these tokens are not counted at all. The total is a lower bound — declare a rate in VALYTICA_PRICING to include them.';
+      return 'No rate on file for this provider and model, so these tokens are not counted at all. The total is a lower bound — declare a rate in REALYTICA_PRICING to include them.';
   }
 }
 
@@ -404,7 +404,7 @@ export interface PricingCoverage {
   unpricedCalls: number;
   /** Routes in `upperBoundCalls`, sorted. */
   upperBoundRoutes: string[];
-  /** Routes in `unpricedCalls`, sorted. Exactly what to put in `VALYTICA_PRICING`. */
+  /** Routes in `unpricedCalls`, sorted. Exactly what to put in `REALYTICA_PRICING`. */
   unpricedRoutes: string[];
   /** Tokens the total does not account for. Given so an operator can price them by hand. */
   unpricedTokens: TokenCounts;

@@ -1,4 +1,4 @@
-import type { IntakeField, IntakeProvenance, PropertyIdentity } from '@valytica/shared';
+import type { IntakeField, IntakeProvenance, PropertyIdentity } from '@realytica/shared';
 
 /**
  * The particulars the intake knows how to capture, and what each one is worth.

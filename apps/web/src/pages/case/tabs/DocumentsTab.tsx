@@ -21,7 +21,7 @@ import {
   UploadCloud,
   Zap,
 } from 'lucide-react';
-import type { CaseDocument, DocumentKind, ExtractedField } from '@valytica/shared';
+import type { CaseDocument, DocumentKind, ExtractedField } from '@realytica/shared';
 import {
   Badge,
   Button,

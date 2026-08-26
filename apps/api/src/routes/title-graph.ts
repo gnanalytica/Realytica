@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { buildTitleGraph } from '@valytica/shared';
+import { buildTitleGraph } from '@realytica/shared';
 import { findCase } from './cases';
 
 /**

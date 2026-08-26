@@ -12,10 +12,10 @@ import type {
   LayoutApproval,
   PlotAttributes,
   PlotFacing,
-} from '@valytica/shared';
+} from '@realytica/shared';
 
 /**
- * zod schemas mirroring the request-body shapes of `@valytica/shared`'s
+ * zod schemas mirroring the request-body shapes of `@realytica/shared`'s
  * domain types. Kept independent of the shared package's runtime exports
  * (only its *types* are referenced, for a compile-time cross-check) so this
  * file works even before the shared engine modules land.

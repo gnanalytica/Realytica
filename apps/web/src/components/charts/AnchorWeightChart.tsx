@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import type { CurrencyCode, ValueAnchor } from '@valytica/shared';
+import type { CurrencyCode, ValueAnchor } from '@realytica/shared';
 import { money, pct } from '../../lib/format';
 import { seriesColor } from '../../lib/theme';
 import {

@@ -1,18 +1,14 @@
 import { useEffect, useState } from 'react';
 import { AreaUnitProvider } from '../../lib/units';
+import { readPref, writePref } from '../../lib/prefs';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 
-const SIDEBAR_STORAGE_KEY = 'valytica.sidebarCollapsed';
+const SIDEBAR_STORAGE_KEY = 'sidebarCollapsed';
 
 function readStoredCollapsed(): boolean {
-  try {
-    return localStorage.getItem(SIDEBAR_STORAGE_KEY) === '1';
-  } catch {
-    /* storage blocked — default to expanded */
-    return false;
-  }
+  return readPref(SIDEBAR_STORAGE_KEY) === '1';
 }
 
 /**
@@ -32,11 +28,7 @@ export default function AppShell() {
   function toggleCollapsed() {
     setCollapsed((prev) => {
       const next = !prev;
-      try {
-        localStorage.setItem(SIDEBAR_STORAGE_KEY, next ? '1' : '0');
-      } catch {
-        /* storage blocked — collapse state just won't persist across reloads */
-      }
+      writePref(SIDEBAR_STORAGE_KEY, next ? '1' : '0');
       return next;
     });
   }

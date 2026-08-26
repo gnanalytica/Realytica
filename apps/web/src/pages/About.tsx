@@ -21,7 +21,7 @@ import {
   PRODUCT_FAMILY,
   PRODUCT_PRINCIPLES,
   ROLLOUT_PHASES,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { api } from '../lib/api';
 import { Button, Callout, Card, CardBody, CardHeader, Modal, SectionTitle, cn, useToast } from '../components/ui/kit';
 
@@ -29,7 +29,7 @@ import { Button, Callout, Card, CardBody, CardHeader, Modal, SectionTitle, cn, u
 const VISION = 'Make property decisions clearer, faster and evidence-driven.';
 const POSITIONING = 'Long-term positioning: property decision infrastructure.';
 const NORTH_STAR =
-  'Valytica succeeds when the customer can go from "I have this property. I don’t know what to make of it." to "I understand what it is likely worth, why, what I need to worry about, what evidence supports that conclusion, and exactly what I need to do next."';
+  'Realytica succeeds when the customer can go from "I have this property. I don’t know what to make of it." to "I understand what it is likely worth, why, what I need to worry about, what evidence supports that conclusion, and exactly what I need to do next."';
 
 export default function About() {
   const toast = useToast();
@@ -52,10 +52,10 @@ export default function About() {
   return (
     <div className="mx-auto max-w-4xl space-y-8 pb-16">
       <section className="space-y-2 pt-2 text-center">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">Valytica</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">Realytica</p>
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{VISION}</h1>
         <p className="text-[13px] text-ink-secondary">{POSITIONING}</p>
-        <p className="text-xs text-ink-muted">Initial release: Valytica Property Screen · Initial markets: India and Netherlands</p>
+        <p className="text-xs text-ink-muted">Initial release: Realytica Property Screen · Initial markets: India and Netherlands</p>
       </section>
 
       <Card as="article" className="border-l-4 border-l-brand p-5">

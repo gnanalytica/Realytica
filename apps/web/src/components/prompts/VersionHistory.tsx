@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Check, GitBranch, Lock, Pencil, ShieldAlert, Trash2 } from 'lucide-react';
-import type { PromptDescriptor, PromptVersion } from '@valytica/shared';
+import type { PromptDescriptor, PromptVersion } from '@realytica/shared';
 import { Badge, Button, Modal, cn } from '../ui/kit';
 import { date, relativeTime } from '../../lib/format';
 import { GuardrailWaiver, UNGUARDED_CONSEQUENCE, brokenChecks, versionsNewestFirst } from './InvariantList';

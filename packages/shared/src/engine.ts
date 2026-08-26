@@ -1,5 +1,5 @@
 /**
- * Valytica scoring engine.
+ * Realytica scoring engine.
  *
  * Every exported function here is a pure function of its arguments — no
  * `Math.random()`, no `Date.now()`, no ambient state. Where a case needs

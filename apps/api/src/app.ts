@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { ErrorRequestHandler, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import { ENGINE_VERSION, compareCases } from '@valytica/shared';
+import { ENGINE_VERSION, compareCases } from '@realytica/shared';
 import { store, initStore } from './store';
 import { initPrompts } from './prompts';
 import { initTelemetry } from './telemetry';
@@ -26,6 +26,7 @@ import { stalenessRouter } from './routes/staleness';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { compareBodySchema } from './schemas';
+import { readEnv } from '@realytica/agents';
 
 /**
  * The Express app, fully configured but never listening.
@@ -114,7 +115,7 @@ app.use('/api', (_req, res) => {
  *
  * In development Vite serves the UI on its own port and proxies /api here. For
  * a deployment that split means two services to host and a CORS story to get
- * right; serving the build from here makes Valytica a single process on a
+ * right; serving the build from here makes Realytica a single process on a
  * single port, which is the difference between a one-click deploy and an
  * afternoon of wiring.
  *
@@ -127,9 +128,8 @@ app.use('/api', (_req, res) => {
  * never ships inside the serverless function bundle. It stays here purely so
  * `pnpm build && pnpm start` continues to serve one process on one port.
  */
-const WEB_DIST = process.env.VALYTICA_WEB_DIST
-  ? path.resolve(process.env.VALYTICA_WEB_DIST)
-  : path.resolve(here, '../../web/dist');
+const webDistOverride = readEnv('WEB_DIST');
+const WEB_DIST = webDistOverride ? path.resolve(webDistOverride) : path.resolve(here, '../../web/dist');
 
 if (existsSync(path.join(WEB_DIST, 'index.html'))) {
   app.use(express.static(WEB_DIST, { index: false, maxAge: '1h' }));

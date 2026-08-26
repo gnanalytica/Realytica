@@ -36,7 +36,7 @@
  * see `types.ts` for why that boundary is kept structural.
  */
 
-import type { MemoryFact, MemoryScope, PropertyCase, RiskSeverity } from '@valytica/shared';
+import type { MemoryFact, MemoryScope, PropertyCase, RiskSeverity } from '@realytica/shared';
 import { memoryFactId } from './store';
 import type { MemoryFactInput } from './types';
 import {
@@ -173,7 +173,7 @@ export interface PartyMention {
  * differently.
  *
  * Note that `PropertyCase.ownerName` is deliberately *not* read here: that is
- * the Valytica user who opened the case, not a party to the property. It feeds
+ * the Realytica user who opened the case, not a party to the property. It feeds
  * the `user_preference` scope instead.
  */
 export function partyMentionsInCase(c: PropertyCase): PartyMention[] {

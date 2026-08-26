@@ -1,5 +1,5 @@
-import type { IntakeSession, LlmCallRecord, MemoryFact, PropertyCase } from '@valytica/shared';
-import type { PromptStoreData } from '@valytica/agents';
+import type { IntakeSession, LlmCallRecord, MemoryFact, PropertyCase } from '@realytica/shared';
+import type { PromptStoreData } from '@realytica/agents';
 import { storageAdapter } from './storage';
 
 /**
@@ -19,7 +19,7 @@ export interface StoreData {
   /** Monotonic counter used to mint human references like "VPS-0001". */
   nextReferenceSeq: number;
   /**
-   * Cross-case agent memory (see `@valytica/agents`'s `memory/`).
+   * Cross-case agent memory (see `@realytica/agents`'s `memory/`).
    *
    * Kept in the same document as the cases rather than in its own, because
    * one document means one durability path — and durability is the property
@@ -33,7 +33,7 @@ export interface StoreData {
    */
   memory?: MemoryFact[];
   /**
-   * Model-call telemetry (see `@valytica/agents`'s `telemetry/`).
+   * Model-call telemetry (see `@realytica/agents`'s `telemetry/`).
    *
    * Bounded by the sink's own retention rule rather than by anything here —
    * this is the highest-volume collection in the store, and two components
@@ -43,7 +43,7 @@ export interface StoreData {
    */
   telemetry?: LlmCallRecord[];
   /**
-   * Custom prompt versions and which one is in force (see `@valytica/agents`'s
+   * Custom prompt versions and which one is in force (see `@realytica/agents`'s
    * `prompts/`).
    *
    * Built-in versions are never written here — they come from the build, and a
@@ -55,7 +55,7 @@ export interface StoreData {
    */
   prompts?: PromptStoreData;
   /**
-   * In-flight intake conversations (see `@valytica/agents`'s `intake/`).
+   * In-flight intake conversations (see `@realytica/agents`'s `intake/`).
    *
    * Kept here rather than in their own document for the same reason memory is:
    * one document means one durability path. A session is small — a handful of

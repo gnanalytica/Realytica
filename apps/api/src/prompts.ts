@@ -1,10 +1,10 @@
-import { PersistedPromptStore, setPromptStore, type PromptPersistence, type PromptStoreData } from '@valytica/agents';
+import { PersistedPromptStore, setPromptStore, type PromptPersistence, type PromptStoreData } from '@realytica/agents';
 import { store } from './store';
 
 /**
  * The prompt registry, persisted through the app's own store.
  *
- * Same shape and the same reasoning as `./memory.ts`: `@valytica/agents` takes
+ * Same shape and the same reasoning as `./memory.ts`: `@realytica/agents` takes
  * a `{load, save}` port and leaves the backend to the caller, so the registry
  * inherits the durability guarantee the cases already have (filesystem
  * locally, Vercel Blob in a deployment) instead of inventing a weaker second

@@ -1,10 +1,10 @@
-# Valytica — Property Intelligence
+# Realytica — Property Intelligence
 
 > Understand a property **before** you commit money, professional effort, financing or acquisition
 > resources.
 
-Valytica is an AI-powered property intelligence platform. This repository contains the MVP release —
-**Valytica Property Screen** — as a local-first, installable `pnpm` application. It answers one
+Realytica is an AI-powered property intelligence platform. This repository contains the MVP release —
+**Realytica Property Screen** — as a local-first, installable `pnpm` application. It answers one
 question end to end: *should I pursue this property?*
 
 The product definition this build implements is transcribed in
@@ -25,8 +25,8 @@ Then open **http://localhost:5173**.
 
 | Process | Port | What it is |
 | --- | --- | --- |
-| `@valytica/web` | 5173 | Vite + React UI |
-| `@valytica/api` | 5174 | Express API, JSON-file store, screening engine |
+| `@realytica/web` | 5173 | Vite + React UI |
+| `@realytica/api` | 5174 | Express API, JSON-file store, screening engine |
 
 The API auto-seeds six demo cases (four Bengaluru, two Amsterdam) on first boot, so the app is
 populated the moment it opens. Wipe them from **About → Reset demo data**.
@@ -43,7 +43,7 @@ this is one service on one port — no second host, no CORS setup:
 pnpm install && pnpm build && pnpm start   # http://localhost:5174
 ```
 
-Attach a persistent disk and point `VALYTICA_DATA_DIR` at it, and that is a
+Attach a persistent disk and point `REALYTICA_DATA_DIR` at it, and that is a
 complete deployment.
 
 **On Vercel.** `vercel.json` builds the repo root. Push it, and you get the web
@@ -68,8 +68,15 @@ and needs none of them:
 | --- | --- |
 | `BLOB_READ_WRITE_TOKEN` | Set automatically by attaching a Vercel Blob store. Switches storage from the filesystem to Blob, which is what makes a serverless deployment durable. |
 | `ANTHROPIC_API_KEY` | Turns on the agent layer. Without it every agent route answers `503 no_credentials` and the rest of the app is unaffected. |
-| `VALYTICA_AGENT_WEB_SEARCH=1` | Lets the research and explorer agents reach the public web. Off by default: enabling it is a permission, and only external-safe case context is ever sent. |
-| `VALYTICA_DATA_DIR` | Filesystem adapter only. Where the JSON store and uploaded documents live. |
+| `REALYTICA_AGENT_WEB_SEARCH=1` | Lets the research and explorer agents reach the public web. Off by default: enabling it is a permission, and only external-safe case context is ever sent. |
+| `REALYTICA_DATA_DIR` | Filesystem adapter only. Where the JSON store and uploaded documents live. |
+
+Every `REALYTICA_*` variable in this README is also read under the older
+`VALYTICA_*` prefix the product shipped with, so an existing deployment keeps
+working untouched. `REALYTICA_*` wins where both are set. The same applies to
+persisted state: the store file is now `realytica.json` and browser
+preferences use a `realytica.` prefix, with the previous names read as a
+fallback so no case data and no saved preference is orphaned by the rename.
 
 ### Other commands
 
@@ -105,7 +112,7 @@ way to check those rules are doing anything.
 
 ## What Property Screen does
 
-Create a property case, upload whatever documents you have, and run a screen. Valytica produces:
+Create a property case, upload whatever documents you have, and run a screen. Realytica produces:
 
 - **A property snapshot** — what this property is, in a paragraph.
 - **An indicative value range** — a low/mid/high band, never a single fake-precise number, blended
@@ -155,24 +162,24 @@ recommendation without explanation.
 ## Architecture
 
 ```
-valytica/
+realytica/
 ├── apps/
-│   ├── api/                 @valytica/api  — Express + JSON-file store
+│   ├── api/                 @realytica/api  — Express + JSON-file store
 │   │   ├── src/routes/      cases · documents · screen · reference · demo
 │   │   └── data/            your local state (gitignored)
-│   └── web/                 @valytica/web  — Vite + React + Tailwind
+│   └── web/                 @realytica/web  — Vite + React + Tailwind
 │       └── src/
 │           ├── components/  UI kit, layout, hand-written SVG charts
 │           ├── lib/         API client, formatters, theme tokens
 │           └── pages/       dashboard · new case · case workspace · compare · about
 ├── packages/
-│   ├── agents/              @valytica/agents — the agentic layer (optional)
+│   ├── agents/              @realytica/agents — the agentic layer (optional)
 │   │   └── src/
 │   │       ├── agents/      document intelligence · proof pathways · copilot
 │   │       │                market research · diligence planner
 │   │       ├── knowledge/   Karnataka proof-route corpus
 │   │       └── orchestrator.ts
-│   └── shared/              @valytica/shared — domain contract + screening engine
+│   └── shared/              @realytica/shared — domain contract + screening engine
 │       └── src/
 │           ├── types.ts     the frozen domain model both apps build against
 │           ├── engine.ts    classification, extraction, valuation, scoring
@@ -262,7 +269,7 @@ today, and the Intelligence tab explains what is missing rather than breaking.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...     # or: ant auth login
-export VALYTICA_AGENT_WEB_SEARCH=1      # optional; enables the research agent
+export REALYTICA_AGENT_WEB_SEARCH=1      # optional; enables the research agent
 pnpm dev
 ```
 
@@ -296,25 +303,25 @@ Configuration:
 
 | Variable | Effect |
 | --- | --- |
-| `VALYTICA_MODEL_EXTRACTION` / `_REASONING` / `_JUDGMENT` | Route one tier. Accepts `model` or `provider:model`. |
-| `VALYTICA_TIER_<AGENT>` | Move one agent between tiers, e.g. `VALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment` for a deployment whose scans are poor. |
-| `VALYTICA_ROUTE_<AGENT>` | Route one agent, overriding everything else. |
-| `VALYTICA_AGENT_MODEL` | Collapses every tier onto one route. What you reach for to pin the roster during an incident. |
-| `VALYTICA_AGENTS_DISABLED=1` | Turn the agent layer off entirely. |
+| `REALYTICA_MODEL_EXTRACTION` / `_REASONING` / `_JUDGMENT` | Route one tier. Accepts `model` or `provider:model`. |
+| `REALYTICA_TIER_<AGENT>` | Move one agent between tiers, e.g. `REALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment` for a deployment whose scans are poor. |
+| `REALYTICA_ROUTE_<AGENT>` | Route one agent, overriding everything else. |
+| `REALYTICA_AGENT_MODEL` | Collapses every tier onto one route. What you reach for to pin the roster during an incident. |
+| `REALYTICA_AGENTS_DISABLED=1` | Turn the agent layer off entirely. |
 
 **Providers are not locked in.** A route is written `provider:model`, or bare
 `model` for Anthropic — so every existing configuration keeps working and keeps
 meaning what it meant:
 
 ```bash
-VALYTICA_MODEL_REASONING=openai_compatible:meta-llama/llama-3.3-70b-instruct
-VALYTICA_ROUTE_DOCUMENT_INTELLIGENCE=anthropic:claude-haiku-4-5-20251001
-VALYTICA_OPENAI_BASE_URL=https://openrouter.ai/api/v1   # or a self-hosted LiteLLM
-VALYTICA_OPENAI_API_KEY=...
+REALYTICA_MODEL_REASONING=openai_compatible:meta-llama/llama-3.3-70b-instruct
+REALYTICA_ROUTE_DOCUMENT_INTELLIGENCE=anthropic:claude-haiku-4-5-20251001
+REALYTICA_OPENAI_BASE_URL=https://openrouter.ai/api/v1   # or a self-hosted LiteLLM
+REALYTICA_OPENAI_API_KEY=...
 ```
 
-Precedence, most specific first: `VALYTICA_ROUTE_<AGENT>` → `VALYTICA_AGENT_MODEL`
-→ `VALYTICA_MODEL_<TIER>` → the built-in default. Every route records where its
+Precedence, most specific first: `REALYTICA_ROUTE_<AGENT>` → `REALYTICA_AGENT_MODEL`
+→ `REALYTICA_MODEL_<TIER>` → the built-in default. Every route records where its
 decision came from, because a surprising route is otherwise an archaeology
 exercise across four variables, and the one time that matters is during an
 incident.
@@ -380,7 +387,7 @@ a prompt.
 
 | Variable | Effect |
 | --- | --- |
-| `VALYTICA_PROMPT_<KEY>` | Pin one prompt to a version id or number, overriding the stored selection. E.g. `VALYTICA_PROMPT_CRITIC_SYSTEM=1` to force the shipped text. |
+| `REALYTICA_PROMPT_<KEY>` | Pin one prompt to a version id or number, overriding the stored selection. E.g. `REALYTICA_PROMPT_CRITIC_SYSTEM=1` to force the shipped text. |
 
 **The run graph draws what actually happened.** The **Run graph** tab on a case
 is a pannable, zoomable canvas of one orchestration: lanes are the schedule the
@@ -441,8 +448,8 @@ architecture buys.
 | 1 — MVP | India, one state/metro, one property type, professional users first |
 | 2 | Second property type and geography, comparison, collaboration, deeper diligence, professional review, more data integrations |
 | 3 | Netherlands Country Pack |
-| 4 | Valytica Project Intelligence |
-| 5 | Valytica Portfolio Intelligence |
+| 4 | Realytica Project Intelligence |
+| 5 | Realytica Portfolio Intelligence |
 
 The product family beyond Property Screen: **Diligence** (*what exactly am I getting into?*),
 **Project Intelligence** (*does this opportunity make commercial sense?*) and **Portfolio

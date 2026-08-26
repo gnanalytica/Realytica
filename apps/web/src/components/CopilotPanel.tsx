@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import { ArrowUp, MessageCircle, SearchX, Sparkles, Trash2 } from 'lucide-react';
-import type { CopilotTurn, EvidenceItem, VerificationSummary } from '@valytica/shared';
+import type { CopilotTurn, EvidenceItem, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
 import { Badge, Button, Callout, Input, cn } from './ui/kit';
@@ -118,7 +118,7 @@ function SuggestionChip({ text, disabled, onClick }: { text: string; disabled?: 
 /**
  * Chat panel over the analyst copilot. An assistant turn shows its cited
  * evidence inline, and a turn where the agent declined for lack of evidence
- * reads as a good outcome rather than an error — Valytica's whole promise is
+ * reads as a good outcome rather than an error — Realytica's whole promise is
  * Evidence Before Assertion, so "the evidence doesn't support an answer" is a
  * correct, valuable response, not a dead end.
  */
@@ -181,7 +181,7 @@ export function CopilotPanel({
     <div className="flex flex-col gap-3">
       {disabled ? (
         <Callout tone="neutral" title="Copilot needs Anthropic credentials">
-          {disabledReason ?? 'Configure agent credentials to ask questions about this case.'} The rest of Valytica works
+          {disabledReason ?? 'Configure agent credentials to ask questions about this case.'} The rest of Realytica works
           fully without it.
         </Callout>
       ) : null}

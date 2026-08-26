@@ -3,7 +3,7 @@
  *
  * The whole surface is re-exported through `../context`, which the package
  * index already re-exports, so the API layer reaches it as
- * `import { resolvePrompt, PersistedPromptStore } from '@valytica/agents'`
+ * `import { resolvePrompt, PersistedPromptStore } from '@realytica/agents'`
  * rather than by deep import path — the same rule the rest of the package
  * follows, and the reason its internal layout can move without breaking
  * callers.

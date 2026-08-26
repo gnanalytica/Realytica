@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Lock, MinusCircle, TriangleAlert } from 'lucide-react';
-import type { ComplianceVerdict, PlaybookRun, PlaybookStepResult, PlaybookStepState } from '@valytica/shared';
+import type { ComplianceVerdict, PlaybookRun, PlaybookStepResult, PlaybookStepState } from '@realytica/shared';
 import { DOCUMENT_KIND_LABEL } from '../lib/format';
 import { Badge, Card, CardBody, CardHeader, ProgressBar, cn, type Tone } from './ui/kit';
 import { PlaybookTrack } from './charts';

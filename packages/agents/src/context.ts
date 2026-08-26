@@ -1,4 +1,4 @@
-import type { PropertyCase, ReferenceData, StatePack } from '@valytica/shared';
+import type { PropertyCase, ReferenceData, StatePack } from '@realytica/shared';
 
 /**
  * The case, rendered for a model.
@@ -16,7 +16,7 @@ import type { PropertyCase, ReferenceData, StatePack } from '@valytica/shared';
  * The shared preamble used to be a `const` in this file. It now lives in
  * `./prompts/registry.ts` as version 1 of the `shared.grounding` prompt —
  * byte-identical, and still exported under the same name from here, so
- * `import { GROUNDING_RULES } from '@valytica/agents'` means what it always
+ * `import { GROUNDING_RULES } from '@realytica/agents'` means what it always
  * meant: the *shipped* rules.
  *
  * The move is not tidying. That text is the one that says never invent a

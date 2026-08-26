@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Database, FileText, Link2, MapPinned, Sparkles, User } from 'lucide-react';
-import type { EvidenceItem, EvidenceSourceType } from '@valytica/shared';
+import type { EvidenceItem, EvidenceSourceType } from '@realytica/shared';
 import { Badge, Card, EmptyState, Modal, ProgressBar, Tooltip, cn } from './ui/kit';
 import { date as fmtDate } from '../lib/format';
 

@@ -27,7 +27,7 @@ import type {
   ScreenResult,
   TelemetrySummary,
   UpdateCaseRequest,
-} from '@valytica/shared';
+} from '@realytica/shared';
 
 const BASE = '/api';
 

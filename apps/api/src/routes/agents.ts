@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase } from '@valytica/shared';
-import { REFERENCE_DATA } from '@valytica/shared';
-import { agentCapability, capabilityWithRoutes, describeError, describeProviders, recallForCase, resolveRoute, runCopilot, runExplorer, runOrchestration, type RunOrchestrationResult } from '@valytica/agents';
+import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase } from '@realytica/shared';
+import { REFERENCE_DATA } from '@realytica/shared';
+import { agentCapability, capabilityWithRoutes, describeError, describeProviders, recallForCase, resolveRoute, runCopilot, runExplorer, runOrchestration, type RunOrchestrationResult } from '@realytica/agents';
 import { memoryStore } from '../memory';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
@@ -14,7 +14,7 @@ import { agentKindSchema, copilotBodySchema, runAgentsBodySchema } from '../sche
 /**
  * Agent layer routes.
  *
- * Valytica runs local-first — the deterministic screen is the product's
+ * Realytica runs local-first — the deterministic screen is the product's
  * floor and works with zero credentials. Everything under `/agents` is an
  * addition on top of it, never a requirement, so every route here (besides
  * the capability probe itself) guards on `agentCapability().available` and

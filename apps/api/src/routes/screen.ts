@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { runScreen, REFERENCE_DATA } from '@valytica/shared';
+import { runScreen, REFERENCE_DATA } from '@realytica/shared';
 import { store } from '../store';
 import { riskStatusBodySchema, actionDoneBodySchema } from '../schemas';
 import { findCase } from './cases';

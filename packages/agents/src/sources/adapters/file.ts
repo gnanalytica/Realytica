@@ -27,7 +27,7 @@
  * to attribute.
  */
 
-import type { IngestedRecord, IngestedRecordType } from '@valytica/shared';
+import type { IngestedRecord, IngestedRecordType } from '@realytica/shared';
 import type { DateOrder, NormalisationResult, RawRow, RecordSchema, RejectedRow } from '../normalise';
 import { RECORD_SCHEMAS, bindColumns, canonicalise, normaliseRows } from '../normalise';
 import type { RegisteredSource } from '../registry';

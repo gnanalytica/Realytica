@@ -1,4 +1,4 @@
-import type { EvalCase, EvalExpectation, EvalFieldResult, EvalScore, ExtractedField } from '@valytica/shared';
+import type { EvalCase, EvalExpectation, EvalFieldResult, EvalScore, ExtractedField } from '@realytica/shared';
 
 /**
  * Scoring one model's answer against one case.

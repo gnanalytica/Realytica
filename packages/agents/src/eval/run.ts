@@ -8,7 +8,7 @@ import type {
   EvalTaskKind,
   ModelTier,
   ProviderId,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { AGENT_CAPABILITY_NEEDS, parseRoute } from '../routing';
 import { rankEvalResults } from './rank';
 import { scoreEvalCase, type EvalAnswer } from './score';

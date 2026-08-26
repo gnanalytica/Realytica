@@ -1,5 +1,5 @@
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
-import type { CaseSummary, IntakeProvenance, ReferenceData } from '@valytica/shared';
+import type { CaseSummary, IntakeProvenance, ReferenceData } from '@realytica/shared';
 import { INTAKE_FIELDS } from './fields';
 import type { CaptureInput } from './fields';
 import { resolveLocality } from './readout';

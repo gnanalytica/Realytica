@@ -2,9 +2,9 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import multer from 'multer';
 import { z } from 'zod';
-import { REFERENCE_DATA, classifyDocument, extractFields, runScreen } from '@valytica/shared';
-import type { CaseDocument, IntakeSession, PropertyCase } from '@valytica/shared';
-import { commitDraft, intakeModelAvailable, openingTurn, readDraft, runIntakeTurn } from '@valytica/agents';
+import { REFERENCE_DATA, classifyDocument, extractFields, runScreen } from '@realytica/shared';
+import type { CaseDocument, IntakeSession, PropertyCase } from '@realytica/shared';
+import { commitDraft, intakeModelAvailable, openingTurn, readDraft, runIntakeTurn } from '@realytica/agents';
 import { toCaseSummary } from './cases';
 import { store } from '../store';
 import { ensureSiteContext } from '../site-context';
@@ -152,7 +152,7 @@ intakeRouter.post<{ id: string }>('/:id/fields', async (req, res) => {
     return;
   }
   const now = new Date().toISOString();
-  const { applyCapture } = await import('@valytica/agents');
+  const { applyCapture } = await import('@realytica/agents');
   const { fields, captured, rejected } = applyCapture(
     session.fields,
     [{ path: parsed.data.path, value: parsed.data.value, provenance: 'stated', saidAs: parsed.data.saidAs }],

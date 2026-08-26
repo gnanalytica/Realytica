@@ -1,4 +1,4 @@
-import type { CurrencyCode, ConfidenceBand, RiskSeverity, ScreenVerdict, PropertyType, DocumentKind, CaseStatus } from '@valytica/shared';
+import type { CurrencyCode, ConfidenceBand, RiskSeverity, ScreenVerdict, PropertyType, DocumentKind, CaseStatus } from '@realytica/shared';
 
 // English-language UI, so euro figures use an English euro locale (en-IE) rather
 // than nl-NL — "€7.140/m²" in Dutch grouping reads as seven euros to everyone else.

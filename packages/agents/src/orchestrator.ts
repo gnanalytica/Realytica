@@ -73,8 +73,8 @@ import type {
   ScreenResult,
   TaskDepth,
   VerificationSummary,
-} from '@valytica/shared';
-import { runScreen } from '@valytica/shared';
+} from '@realytica/shared';
+import { runScreen } from '@realytica/shared';
 import { agentCapability, describeError, modelFor, summariseCost, sumUsage, tierFor } from './client';
 import { runPlanner } from './agents/planner';
 import { runDocumentIntelligence } from './agents/document-intelligence';

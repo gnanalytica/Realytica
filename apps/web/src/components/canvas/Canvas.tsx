@@ -1,7 +1,7 @@
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Crosshair, Maximize2, Minus, Plus } from 'lucide-react';
-import type { AgentRun } from '@valytica/shared';
+import type { AgentRun } from '@realytica/shared';
 import { cn } from '../ui/kit';
 import { useMeasure } from '../charts/primitives';
 import type { GraphLayout, PositionedNode } from './layout';

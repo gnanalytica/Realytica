@@ -61,7 +61,7 @@ import type {
   ProofRoute,
   ResearchFinding,
   VerificationSummary,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { describeError, sumUsage } from '../client';
 import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { KARNATAKA_PROOF_ROUTES_VERIFY_BANNER, renderKarnatakaProofRoutesCorpus } from '../knowledge/karnataka-proof-routes';

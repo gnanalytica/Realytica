@@ -9,7 +9,7 @@
  * ## The boundary this module exists on the other side of
  *
  * This is **not** the title graph and must never become a section of it. The
- * title graph (`TitleNode` / `TitleEdge` in `@valytica/shared`) is a legal
+ * title graph (`TitleNode` / `TitleEdge` in `@realytica/shared`) is a legal
  * object built deterministically from documents, with a closed ontology, where a
  * wrong edge is a liability. Memory is loose, accretive, heuristic and expressly
  * allowed to be wrong.

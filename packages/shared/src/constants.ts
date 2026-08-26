@@ -199,19 +199,19 @@ export interface SpecEntry {
 
 export const PRODUCT_FAMILY: SpecEntry[] = [
   {
-    title: 'Valytica Property Screen',
+    title: 'Realytica Property Screen',
     description: 'Should I pursue this property? — the initial release, and the product this app implements.',
   },
   {
-    title: 'Valytica Diligence',
+    title: 'Realytica Diligence',
     description: 'What exactly am I getting into? — a future product for deeper, document-level diligence.',
   },
   {
-    title: 'Valytica Project Intelligence',
+    title: 'Realytica Project Intelligence',
     description: 'Does this acquisition or development opportunity make commercial sense?',
   },
   {
-    title: 'Valytica Portfolio Intelligence',
+    title: 'Realytica Portfolio Intelligence',
     description: 'Where are the risks and opportunities across our properties?',
   },
 ];

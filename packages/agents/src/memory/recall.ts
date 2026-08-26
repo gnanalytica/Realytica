@@ -31,7 +31,7 @@
  * the version that stays correct as the schema grows.
  */
 
-import type { MemoryFact, MemoryRecall, MemoryScope, PropertyCase } from '@valytica/shared';
+import type { MemoryFact, MemoryRecall, MemoryScope, PropertyCase } from '@realytica/shared';
 import { partyMentionsInCase } from './learn';
 import { DEFAULT_HALF_LIFE_DAYS, DEFAULT_RECALL_LIMIT } from './store';
 import type { MemoryStore } from './types';

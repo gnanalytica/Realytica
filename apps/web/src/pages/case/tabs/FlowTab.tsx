@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { FileWarning, Network, RefreshCw, ShieldAlert, Workflow } from 'lucide-react';
-import type { AgentRun, RunGraph } from '@valytica/shared';
+import type { AgentRun, RunGraph } from '@realytica/shared';
 import type { TabProps } from '../tab-props';
 import {
   Badge,

@@ -12,7 +12,7 @@ import {
   Wrench,
   XCircle,
 } from 'lucide-react';
-import type { AgentRun, AgentRunStatus, AgentStep, AgentUsage } from '@valytica/shared';
+import type { AgentRun, AgentRunStatus, AgentStep, AgentUsage } from '@realytica/shared';
 import { Badge, Card, EmptyState, cn, type Tone } from './ui/kit';
 import { titleCase } from '../lib/format';
 

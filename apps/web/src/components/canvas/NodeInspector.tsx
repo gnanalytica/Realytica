@@ -13,7 +13,7 @@ import {
   ShieldAlert,
   X,
 } from 'lucide-react';
-import type { AgentRun, AgentStep, ModelTier, PromptUsage, RunGraphNode } from '@valytica/shared';
+import type { AgentRun, AgentStep, ModelTier, PromptUsage, RunGraphNode } from '@realytica/shared';
 import { Badge, KeyValue, SectionTitle, cn } from '../ui/kit';
 import {
   GAP_CONSEQUENCE,

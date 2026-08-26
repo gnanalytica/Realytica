@@ -1,5 +1,5 @@
 /**
- * Public surface of `@valytica/agents`.
+ * Public surface of `@realytica/agents`.
  *
  * Everything a consumer (the API layer, or a script exercising these agents
  * directly) needs is re-exported from here rather than reached into by deep
@@ -7,6 +7,7 @@
  * breaking callers.
  */
 
+export * from './env';
 export * from './client';
 export * from './context';
 export * from './tools/case-tools';

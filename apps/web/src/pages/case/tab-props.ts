@@ -1,4 +1,4 @@
-import type { PropertyCase, ScreenResult } from '@valytica/shared';
+import type { PropertyCase, ScreenResult } from '@realytica/shared';
 
 /**
  * Every tab inside the case workspace receives exactly this prop object.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, GitBranch, Save, ShieldAlert, TriangleAlert, XCircle } from 'lucide-react';
-import type { PromptDescriptor, PromptInvariantCheck, PromptVersion } from '@valytica/shared';
+import type { PromptDescriptor, PromptInvariantCheck, PromptVersion } from '@realytica/shared';
 import { Badge, Button, Callout, Checkbox, Field, Input, Textarea, cn } from '../ui/kit';
 import {
   GuardrailWaiver,

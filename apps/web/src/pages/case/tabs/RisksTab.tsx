@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ChevronDown, Filter, ShieldAlert, ShieldCheck } from 'lucide-react';
-import type { EvidenceItem, RiskCategory, RiskFlag, RiskSeverity, RiskStatus } from '@valytica/shared';
+import type { EvidenceItem, RiskCategory, RiskFlag, RiskSeverity, RiskStatus } from '@realytica/shared';
 import type { TabProps } from '../tab-props';
 import { api } from '../../../lib/api';
 import { severityTone, titleCase } from '../../../lib/format';

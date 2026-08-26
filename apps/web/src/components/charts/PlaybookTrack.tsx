@@ -1,4 +1,4 @@
-import type { PlaybookRun, PlaybookStepState } from '@valytica/shared';
+import type { PlaybookRun, PlaybookStepState } from '@realytica/shared';
 import { cn } from '../ui/kit';
 
 export interface PlaybookTrackProps {

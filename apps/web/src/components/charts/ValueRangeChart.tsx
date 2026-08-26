@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { CurrencyCode } from '@valytica/shared';
+import type { CurrencyCode } from '@realytica/shared';
 import { money, pct } from '../../lib/format';
 import {
   ChartContainer,

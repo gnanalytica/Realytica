@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { MessageSquare, Paperclip, Send, Sparkles } from 'lucide-react';
-import type { IntakeGap } from '@valytica/shared';
+import type { IntakeGap } from '@realytica/shared';
 import { api, type IntakeEnvelope } from '../lib/api';
 import { Badge, Button, Card, CardBody, Input, Spinner, cn, useToast } from '../components/ui/kit';
 import { DraftPanel, displayValue } from '../components/intake/DraftPanel';

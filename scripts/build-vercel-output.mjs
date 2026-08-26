@@ -55,12 +55,12 @@ const functionDir = path.join(outputDir, 'functions/api.func');
  * under plain `node` and exercising the API through it.
  */
 const NODE_GLOBALS_BANNER = [
-  "import { createRequire as __valyticaCreateRequire } from 'node:module';",
-  "import { fileURLToPath as __valyticaFileURLToPath } from 'node:url';",
-  "import { dirname as __valyticaDirname } from 'node:path';",
-  'const require = __valyticaCreateRequire(import.meta.url);',
-  'const __filename = __valyticaFileURLToPath(import.meta.url);',
-  'const __dirname = __valyticaDirname(__filename);',
+  "import { createRequire as __realyticaCreateRequire } from 'node:module';",
+  "import { fileURLToPath as __realyticaFileURLToPath } from 'node:url';",
+  "import { dirname as __realyticaDirname } from 'node:path';",
+  'const require = __realyticaCreateRequire(import.meta.url);',
+  'const __filename = __realyticaFileURLToPath(import.meta.url);',
+  'const __dirname = __realyticaDirname(__filename);',
 ].join('\n');
 
 async function bundleFunction() {

@@ -44,7 +44,7 @@ import type {
   PropertyCase,
   RunGraphOutput,
   ScreenResult,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import type { FeedbackLoopReading, RunPlacement } from './lanes';
 
 /* ==================================================================== */
@@ -339,7 +339,7 @@ function diligencePlannerOutputs(run: AgentRun, ctx: OutputContext): RunGraphOut
         key: 'drafts',
         label: 'Outreach drafts',
         count: drafts,
-        summary: `${plural(drafts, 'message')} drafted for a human to review — Valytica never sends these.`,
+        summary: `${plural(drafts, 'message')} drafted for a human to review — Realytica never sends these.`,
       });
     }
   }

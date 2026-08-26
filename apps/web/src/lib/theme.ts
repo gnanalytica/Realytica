@@ -1,14 +1,12 @@
+import { readPref, writePref } from './prefs';
+
 export type ThemeMode = 'light' | 'dark' | 'system';
 
-const KEY = 'valytica.theme';
+const KEY = 'theme';
 
 export function getStoredTheme(): ThemeMode {
-  try {
-    const v = localStorage.getItem(KEY);
-    if (v === 'light' || v === 'dark' || v === 'system') return v;
-  } catch {
-    /* storage blocked — fall through to system */
-  }
+  const v = readPref(KEY);
+  if (v === 'light' || v === 'dark' || v === 'system') return v;
   return 'system';
 }
 
@@ -16,11 +14,7 @@ export function applyTheme(mode: ThemeMode): void {
   const root = document.documentElement;
   if (mode === 'system') root.removeAttribute('data-theme');
   else root.setAttribute('data-theme', mode);
-  try {
-    localStorage.setItem(KEY, mode);
-  } catch {
-    /* storage blocked — theme still applies for this page view */
-  }
+  writePref(KEY, mode);
 }
 
 export function initTheme(): ThemeMode {

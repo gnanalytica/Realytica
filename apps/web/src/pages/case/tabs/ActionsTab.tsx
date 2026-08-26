@@ -10,7 +10,7 @@ import {
   ShieldAlert,
   User,
 } from 'lucide-react';
-import type { ActionOwner, ActionPriority, RecommendedAction } from '@valytica/shared';
+import type { ActionOwner, ActionPriority, RecommendedAction } from '@realytica/shared';
 import type { TabProps } from '../tab-props';
 import { api } from '../../../lib/api';
 import { titleCase } from '../../../lib/format';

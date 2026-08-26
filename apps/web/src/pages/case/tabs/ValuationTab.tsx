@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from 'lucide-react';
-import type { Comparable, CurrencyCode, ReferenceData } from '@valytica/shared';
+import type { Comparable, CurrencyCode, ReferenceData } from '@realytica/shared';
 import {
   Badge,
   Callout,

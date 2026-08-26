@@ -1,20 +1,20 @@
 {
-  "name": "valytica",
+  "name": "realytica",
   "private": true,
   "version": "0.1.0",
-  "description": "Valytica \u2014 AI-powered Property Intelligence. Local-first MVP: Valytica Property Screen.",
+  "description": "Realytica \u2014 AI-powered Property Intelligence. Local-first MVP: Realytica Property Screen.",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20.10"
   },
   "scripts": {
-    "dev": "concurrently -k -n api,web -c cyan,magenta \"pnpm -F @valytica/api dev\" \"pnpm -F @valytica/web dev\"",
-    "dev:api": "pnpm -F @valytica/api dev",
-    "dev:web": "pnpm -F @valytica/web dev",
-    "build": "corepack enable && pnpm -F @valytica/web build",
+    "dev": "concurrently -k -n api,web -c cyan,magenta \"pnpm -F @realytica/api dev\" \"pnpm -F @realytica/web dev\"",
+    "dev:api": "pnpm -F @realytica/api dev",
+    "dev:web": "pnpm -F @realytica/web dev",
+    "build": "corepack enable && pnpm -F @realytica/web build",
     "build:vercel": "pnpm build && node scripts/build-vercel-output.mjs",
-    "preview": "pnpm -F @valytica/web preview",
-    "start": "pnpm -F @valytica/api start",
+    "preview": "pnpm -F @realytica/web preview",
+    "start": "pnpm -F @realytica/api start",
     "typecheck": "tsc -p packages/shared && tsc -p packages/agents && tsc -p apps/api && tsc -p apps/web",
     "test": "tsx --test \"test/**/*.test.ts\"",
     "check": "pnpm typecheck && pnpm test",
@@ -25,6 +25,7 @@
   "devDependencies": {
     "concurrently": "^9.1.2",
     "esbuild": "^0.24.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }
 }

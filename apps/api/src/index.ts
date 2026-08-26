@@ -15,15 +15,15 @@ async function main(): Promise<void> {
   await initApp();
 
   const server = app.listen(PORT, () => {
-    console.log(`[valytica-api] listening on port ${PORT} (${store.data.cases.length} case(s) loaded)`);
+    console.log(`[realytica-api] listening on port ${PORT} (${store.data.cases.length} case(s) loaded)`);
   });
 
   function shutdown(signal: string): void {
-    console.log(`[valytica-api] received ${signal}, flushing store and shutting down`);
+    console.log(`[realytica-api] received ${signal}, flushing store and shutting down`);
     store
       .flush()
       .catch((err: unknown) => {
-        console.error('[valytica-api] failed to flush store during shutdown:', err);
+        console.error('[realytica-api] failed to flush store during shutdown:', err);
       })
       .finally(() => {
         server.close(() => process.exit(0));
@@ -38,6 +38,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('[valytica-api] failed to start:', err);
+  console.error('[realytica-api] failed to start:', err);
   process.exit(1);
 });

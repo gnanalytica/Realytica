@@ -9,8 +9,8 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { REFERENCE_DATA } from '@valytica/shared';
-import { createCaseTools } from '@valytica/agents';
+import { REFERENCE_DATA } from '@realytica/shared';
+import { createCaseTools } from '@realytica/agents';
 import { caseFrom, documentsFor, preciseSiteContext, screenSeed, seedFor } from './fixtures';
 
 function toolsFor(match: string, withSiteContext = false) {

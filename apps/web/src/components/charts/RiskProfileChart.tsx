@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { RiskFlag, RiskSeverity } from '@valytica/shared';
+import type { RiskFlag, RiskSeverity } from '@realytica/shared';
 import {
   BaselineAxis,
   ChartContainer,

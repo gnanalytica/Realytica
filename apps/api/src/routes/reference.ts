@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { REFERENCE_DATA } from '@valytica/shared';
+import { REFERENCE_DATA } from '@realytica/shared';
 
 export const referenceRouter = Router();
 

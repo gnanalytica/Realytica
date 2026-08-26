@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { TransactionCostBreakdown } from '@valytica/shared';
+import type { TransactionCostBreakdown } from '@realytica/shared';
 import { money, pct } from '../../lib/format';
 import {
   BaselineAxis,

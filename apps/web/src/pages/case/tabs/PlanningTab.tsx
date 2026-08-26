@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Building2, Landmark, MapPin } from 'lucide-react';
-import type { PlanningPosition } from '@valytica/shared';
+import type { PlanningPosition } from '@realytica/shared';
 import type { TabProps } from '../tab-props';
 import { area, date, num, relativeTime, titleCase } from '../../../lib/format';
 import { formatArea, useAreaUnitFor } from '../../../lib/units';

@@ -35,8 +35,8 @@ import type {
   PropertyType,
   ReferenceData,
   Tenure,
-} from '@valytica/shared';
-import { COUNTRY_PACKS_META, PERSONAS, PROPERTY_TYPES } from '@valytica/shared';
+} from '@realytica/shared';
+import { COUNTRY_PACKS_META, PERSONAS, PROPERTY_TYPES } from '@realytica/shared';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { PROPERTY_TYPE_LABEL, money, pct } from '../lib/format';
@@ -78,7 +78,7 @@ const CURRENCY_BY_COUNTRY: Record<CountryCode, CurrencyCode> = { IN: 'INR', NL: 
 /* Karnataka option content                                            */
 /*                                                                      */
 /* Labels/notes are defined locally rather than imported from           */
-/* `@valytica/shared`: a parallel agent owns `packages/shared/src/`     */
+/* `@realytica/shared`: a parallel agent owns `packages/shared/src/`     */
 /* label maps (KHATA_TYPE_LABEL, JURISDICTION_LABEL, …) and they may     */
 /* not exist on disk yet. The *types* (`KhataType`, `KarnatakaJurisdiction`,   */
 /* etc.) are already in the shared contract, so this file only supplies */
@@ -915,7 +915,7 @@ export default function NewCase() {
               label={`Asking price (${currency})`}
               error={errors.askingPrice}
               htmlFor="askingPrice"
-              hint="Optional — Valytica screens fine without one. When given, it is treated as a claim to test against the evidence, not as evidence itself."
+              hint="Optional — Realytica screens fine without one. When given, it is treated as a claim to test against the evidence, not as evidence itself."
             >
               <NumberField id="askingPrice" value={form.askingPrice} onChange={(v) => set('askingPrice', v)} />
             </Field>

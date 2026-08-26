@@ -2,7 +2,7 @@ import {
   DOCUMENT_KIND_LABEL,
   KARNATAKA_PLAYBOOKS,
   runScreen,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import type {
   CaseDocument,
   DocumentKind,
@@ -14,7 +14,7 @@ import type {
   LocalityReference,
   ReferenceData,
   ScreenResult,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { INTAKE_FIELDS, draftIdentity, valueOf } from './fields';
 
 /**

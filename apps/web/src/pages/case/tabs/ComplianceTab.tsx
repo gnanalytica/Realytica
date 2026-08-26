@@ -11,7 +11,7 @@ import {
   ScrollText,
   XCircle,
 } from 'lucide-react';
-import type { ComplianceCheck, ComplianceVerdict, EvidenceItem, TransactionCostBreakdown } from '@valytica/shared';
+import type { ComplianceCheck, ComplianceVerdict, EvidenceItem, TransactionCostBreakdown } from '@realytica/shared';
 import { CostWaterfallChart } from '../../../components/charts';
 import type { TabProps } from '../tab-props';
 import { WaterExposureCard } from '../../../components/WaterExposureCard';
@@ -227,7 +227,7 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
             title={`No State Pack covers ${stateName} yet`}
             description={
               <>
-                Valytica&rsquo;s state-specific title and compliance checks — khata classification, land conversion,
+                Realytica&rsquo;s state-specific title and compliance checks — khata classification, land conversion,
                 buffer distances, stamp duty — are built state by state. <strong className="text-ink">Karnataka /
                 Bengaluru</strong> is the covered State / Municipality Pack in this release; {stateName} does not yet
                 have one. The general risk, valuation, planning and completeness checks in the other tabs still apply

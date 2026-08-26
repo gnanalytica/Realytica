@@ -14,7 +14,16 @@ import type { StorageAdapter } from './types';
  * that `deleteCaseDocuments` can list-by-prefix and delete.
  */
 
-const STORE_PATHNAME = 'store/valytica.json';
+const STORE_PATHNAME = 'store/realytica.json';
+/**
+ * The pre-rename store pathname. A Blob store written before the Realytica
+ * rename holds every case here, so reads fall back to it when the current
+ * pathname resolves to nothing. Writes always go to `STORE_PATHNAME`, so the
+ * first save after this deploy migrates the data; the old blob is left
+ * untouched rather than deleted, so nothing is lost if the migration needs
+ * to be reversed.
+ */
+const LEGACY_STORE_PATHNAME = 'store/valytica.json';
 const UPLOADS_PREFIX = 'uploads/';
 
 function documentPathname(caseId: string, key: string): string {
@@ -98,16 +107,29 @@ async function fetchFresh(resolved: ResolvedBlob): Promise<Response> {
   return fetch(url);
 }
 
+async function readPathname(pathname: string, token: string): Promise<StoreData | null> {
+  const resolved = await resolveBlob(pathname, token);
+  if (!resolved) return null;
+  const res = await fetchFresh(resolved);
+  if (!res.ok) return null;
+  const text = await res.text();
+  if (!text.trim()) return null;
+  return JSON.parse(text) as StoreData;
+}
+
 async function readStore(): Promise<StoreData | null> {
   const token = requireToken();
   try {
-    const resolved = await resolveBlob(STORE_PATHNAME, token);
-    if (!resolved) return null;
-    const res = await fetchFresh(resolved);
-    if (!res.ok) return null;
-    const text = await res.text();
-    if (!text.trim()) return null;
-    return JSON.parse(text) as StoreData;
+    const current = await readPathname(STORE_PATHNAME, token);
+    if (current) return current;
+    const legacy = await readPathname(LEGACY_STORE_PATHNAME, token);
+    if (legacy) {
+      console.info(
+        `[storage/blob] read the pre-rename store at ${LEGACY_STORE_PATHNAME}; ` +
+          `the next save will write ${STORE_PATHNAME} and leave the original in place.`,
+      );
+    }
+    return legacy;
   } catch (err) {
     console.warn(`[storage/blob] failed to read the store, starting from an empty store: ${(err as Error).message}`);
     return null;

@@ -1,5 +1,5 @@
 import { Coins, TrendingDown } from 'lucide-react';
-import type { CaseCostSummary, ModelTier } from '@valytica/shared';
+import type { CaseCostSummary, ModelTier } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader, cn, type Tone } from './ui/kit';
 
 /**

@@ -15,8 +15,8 @@ import {
   classifyDocument,
   extractFields,
   runScreen,
-} from '@valytica/shared';
-import type { CaseDocument, PropertyCase, PropertyIdentity, ScreenResult, SiteContext } from '@valytica/shared';
+} from '@realytica/shared';
+import type { CaseDocument, PropertyCase, PropertyIdentity, ScreenResult, SiteContext } from '@realytica/shared';
 
 /**
  * A fixed instant, so nothing in the suite depends on the day it runs.

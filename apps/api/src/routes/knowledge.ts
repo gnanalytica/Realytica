@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import type { SuppliedFile } from '@valytica/agents';
+import type { SuppliedFile } from '@realytica/agents';
 import {
   allDescriptors,
   applicableSources,
   extractFactsFromCase,
   recallForCase,
   runIngestionDetailed,
-} from '@valytica/agents';
+} from '@realytica/agents';
 import { store } from '../store';
 import { memoryStore } from '../memory';
 import { findCase } from './cases';

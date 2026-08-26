@@ -1,4 +1,4 @@
-import type { AgentCapability, AgentKind, AgentRoute, CapabilityGap, ModelTier, ProviderId } from '@valytica/shared';
+import type { AgentCapability, AgentKind, AgentRoute, CapabilityGap, ModelTier, ProviderId } from '@realytica/shared';
 import { AGENT_TIERS, agentCapability, tierFor, warnOnce } from './client';
 
 /**
@@ -24,7 +24,7 @@ import { AGENT_TIERS, agentCapability, tierFor, warnOnce } from './client';
  * A route is written `provider:model`, or bare `model` for Anthropic.
  *
  * The bare form is what every existing deployment already has in
- * `VALYTICA_MODEL_REASONING` and friends, so those keep working untouched and
+ * `REALYTICA_MODEL_REASONING` and friends, so those keep working untouched and
  * mean exactly what they meant before.
  *
  *   claude-opus-5
@@ -57,9 +57,9 @@ export function formatRoute(provider: ProviderId, model: string): string {
 /* ==================================================================== */
 
 const TIER_ROUTE_ENV: Record<ModelTier, string> = {
-  extraction: 'VALYTICA_MODEL_EXTRACTION',
-  reasoning: 'VALYTICA_MODEL_REASONING',
-  judgment: 'VALYTICA_MODEL_JUDGMENT',
+  extraction: 'REALYTICA_MODEL_EXTRACTION',
+  reasoning: 'REALYTICA_MODEL_REASONING',
+  judgment: 'REALYTICA_MODEL_JUDGMENT',
 };
 
 const TIER_DEFAULT_ROUTES: Record<ModelTier, string> = {
@@ -88,12 +88,12 @@ function readRoute(name: string): { provider: ProviderId; model: string } | null
 /**
  * The route for one agent, most specific override first.
  *
- *   1. `VALYTICA_ROUTE_<AGENT>`   — this one agent, anywhere
- *   2. `VALYTICA_AGENT_MODEL`     — collapses the whole roster onto one route
- *   3. `VALYTICA_MODEL_<TIER>`    — every agent on that tier
+ *   1. `REALYTICA_ROUTE_<AGENT>`   — this one agent, anywhere
+ *   2. `REALYTICA_AGENT_MODEL`     — collapses the whole roster onto one route
+ *   3. `REALYTICA_MODEL_<TIER>`    — every agent on that tier
  *   4. the built-in default for the tier
  *
- * `VALYTICA_AGENT_MODEL` sits above the tier variables rather than below them
+ * `REALYTICA_AGENT_MODEL` sits above the tier variables rather than below them
  * because that is what it already meant: the switch an operator throws to pin
  * everything during an incident. Demoting it would silently un-pin two thirds
  * of the roster on deployments that rely on it. The per-agent override sits
@@ -102,10 +102,10 @@ function readRoute(name: string): { provider: ProviderId; model: string } | null
 export function routeFor(agent: AgentKind): AgentRoute {
   const tier = tierFor(agent);
 
-  const perAgent = readRoute(`VALYTICA_ROUTE_${agent.toUpperCase()}`);
+  const perAgent = readRoute(`REALYTICA_ROUTE_${agent.toUpperCase()}`);
   if (perAgent) return { agent, tier, ...perAgent, source: 'agent_env', expectedGaps: [] };
 
-  const global = readRoute('VALYTICA_AGENT_MODEL');
+  const global = readRoute('REALYTICA_AGENT_MODEL');
   if (global) return { agent, tier, ...global, source: 'global_env', expectedGaps: [] };
 
   const perTier = readRoute(TIER_ROUTE_ENV[tier]);

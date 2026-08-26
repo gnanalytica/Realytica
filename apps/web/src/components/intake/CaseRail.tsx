@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import type { CaseSummary } from '@valytica/shared';
+import type { CaseSummary } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader, LIFT, cn } from '../ui/kit';
 import { money, relativeTime } from '../../lib/format';
 

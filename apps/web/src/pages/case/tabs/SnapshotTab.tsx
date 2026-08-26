@@ -12,7 +12,7 @@ import type {
   RiskSeverity,
   ScreenResult,
   Tenure,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import {
   Badge,
   Button,

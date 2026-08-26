@@ -1,4 +1,4 @@
-import type { CreateCaseRequest, IntakeField, IntakeSession, PersonaKey, ReferenceData } from '@valytica/shared';
+import type { CreateCaseRequest, IntakeField, IntakeSession, PersonaKey, ReferenceData } from '@realytica/shared';
 import { draftIdentity } from './fields';
 import { readDraft } from './readout';
 

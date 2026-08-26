@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Brain, CircleSlash, Database, GraduationCap, Lock, ScanSearch, Upload } from 'lucide-react';
-import type { DataSourceDescriptor, IngestionReport, MemoryRecall, SourceAccess } from '@valytica/shared';
+import type { DataSourceDescriptor, IngestionReport, MemoryRecall, SourceAccess } from '@realytica/shared';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, cn, type Tone } from './ui/kit';
 import { relativeTime } from '../lib/format';
 

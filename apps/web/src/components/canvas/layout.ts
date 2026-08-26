@@ -1,4 +1,4 @@
-import type { RunGraph, RunGraphEdge, RunGraphEdgeKind, RunGraphNode } from '@valytica/shared';
+import type { RunGraph, RunGraphEdge, RunGraphEdgeKind, RunGraphNode } from '@realytica/shared';
 
 /**
  * `RunGraph` → pixel geometry. Pure, deterministic, and deliberately free of

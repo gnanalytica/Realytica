@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeftRight, GitCompareArrows } from 'lucide-react';
-import type { PromptDescriptor, PromptVersion } from '@valytica/shared';
+import type { PromptDescriptor, PromptVersion } from '@realytica/shared';
 import { Badge, Button, Select, Toggle, cn } from '../ui/kit';
 import { activeVersion, builtInVersion, versionsNewestFirst } from './InvariantList';
 

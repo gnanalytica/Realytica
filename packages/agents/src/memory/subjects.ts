@@ -49,7 +49,7 @@
  *   shows up honestly as a consulted subject with no history.
  */
 
-import type { MemoryScope } from '@valytica/shared';
+import type { MemoryScope } from '@realytica/shared';
 
 /* ==================================================================== */
 /* Kinds                                                                */
@@ -423,7 +423,7 @@ export function procedureSubject(raw: string): NormalisedSubject | null {
  * The person running the case (`PropertyCase.ownerName` — the case owner, not
  * the registered owner of the property).
  *
- * Valytica has no accounts yet, so a blank name collapses to `user:default`
+ * Realytica has no accounts yet, so a blank name collapses to `user:default`
  * rather than being dropped: single-user installs still deserve a preference
  * history, and the key can be swapped for a real account id later without
  * changing anything that reads it.

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Database, FileText, Link2, MapPinned, Search, Sparkles, User, X } from 'lucide-react';
-import type { ConfidenceBand, EvidenceItem, EvidenceSourceType } from '@valytica/shared';
+import type { ConfidenceBand, EvidenceItem, EvidenceSourceType } from '@realytica/shared';
 import { ProvenanceBar } from '../../../components/charts';
 import type { TabProps } from '../tab-props';
 import { confidenceTone, date } from '../../../lib/format';

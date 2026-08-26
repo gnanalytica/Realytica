@@ -17,8 +17,8 @@ import type {
   SiteLocation,
   StreetViewImage,
   GeoPoint,
-} from '@valytica/shared';
-import { bearingDegrees, haversineMetres, isSiteAccurate, siteContextQuery } from '@valytica/shared';
+} from '@realytica/shared';
+import { bearingDegrees, haversineMetres, isSiteAccurate, siteContextQuery } from '@realytica/shared';
 import type { PlaceProvider } from './types';
 
 /**
@@ -63,7 +63,7 @@ export interface BuildSiteContextInput {
 
 /**
  * The string handed to the geocoder is assembled by
- * `siteContextQuery` in `@valytica/shared`, not here.
+ * `siteContextQuery` in `@realytica/shared`, not here.
  *
  * It lives there because the staleness check needs it too — to tell whether
  * a cached location was built from the address the case still holds — and

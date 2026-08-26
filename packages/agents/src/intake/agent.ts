@@ -10,7 +10,7 @@ import type {
   PromptUsage,
   ReferenceData,
   CapabilityGap,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
 import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { capabilityBlocksRoute, missingCredentialsReason, providerFor, resolveRoute } from '../providers';

@@ -1,4 +1,4 @@
-import type { EvalRanking, EvalRunResult } from '@valytica/shared';
+import type { EvalRanking, EvalRunResult } from '@realytica/shared';
 import { formatRoute } from '../routing';
 
 /**

@@ -7,7 +7,7 @@
  */
 
 import { Router } from 'express';
-import { REFERENCE_DATA, buildStaleness } from '@valytica/shared';
+import { REFERENCE_DATA, buildStaleness } from '@realytica/shared';
 import { findCase } from './cases';
 
 export const stalenessRouter = Router({ mergeParams: true });

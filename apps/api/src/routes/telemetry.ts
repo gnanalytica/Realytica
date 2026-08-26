@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import type { AgentKind, LlmCallOutcome, ProviderId } from '@valytica/shared';
-import { summariseTelemetry } from '@valytica/agents';
+import type { AgentKind, LlmCallOutcome, ProviderId } from '@realytica/shared';
+import { summariseTelemetry } from '@realytica/agents';
 import { telemetrySink } from '../telemetry';
 
 /**

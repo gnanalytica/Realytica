@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Response } from 'express';
 import { z } from 'zod';
-import type { PromptDescriptor } from '@valytica/shared';
+import type { PromptDescriptor } from '@realytica/shared';
 import { promptStore } from '../prompts';
 
 /**

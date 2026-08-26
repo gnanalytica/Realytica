@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Landmark, Save } from 'lucide-react';
-import type { ComplianceCheck, PropertyCase, SiteConstraintDeclaration, SiteConstraintKey, ConstraintPresence } from '@valytica/shared';
-import { DECLARABLE_SITE_CONSTRAINTS } from '@valytica/shared';
+import type { ComplianceCheck, PropertyCase, SiteConstraintDeclaration, SiteConstraintKey, ConstraintPresence } from '@realytica/shared';
+import { DECLARABLE_SITE_CONSTRAINTS } from '@realytica/shared';
 import { api } from '../lib/api';
 import { Button, Card, CardBody, CardHeader, Input, useToast } from './ui/kit';
 

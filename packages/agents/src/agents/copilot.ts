@@ -35,8 +35,8 @@ import type {
   PropertyCase,
   ReferenceData,
   RetrievalSelection,
-} from '@valytica/shared';
-import { buildTitleGraph } from '@valytica/shared';
+} from '@realytica/shared';
+import { buildTitleGraph } from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
 import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { retrieveCaseContext } from '../retrieval';

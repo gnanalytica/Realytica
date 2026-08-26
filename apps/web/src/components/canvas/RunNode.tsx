@@ -16,7 +16,7 @@ import type {
   ProviderId,
   RunGraphNode,
   RunGraphNodeKind,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { Badge, cn, type Tone } from '../ui/kit';
 import type { PositionedNode } from './layout';
 

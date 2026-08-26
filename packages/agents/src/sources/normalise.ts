@@ -33,7 +33,7 @@
  * produces byte-identical records.
  */
 
-import type { IngestedRecord, IngestedRecordType } from '@valytica/shared';
+import type { IngestedRecord, IngestedRecordType } from '@realytica/shared';
 
 /* ------------------------------------------------------------------ */
 /* Units of area                                                       */

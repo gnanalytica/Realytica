@@ -18,7 +18,7 @@
  * surface.
  */
 
-import type { GeocodePrecision, GeoPoint } from '@valytica/shared';
+import type { GeocodePrecision, GeoPoint } from '@realytica/shared';
 import {
   placeGap,
   placeOk,
@@ -34,6 +34,7 @@ import {
   type StreetViewLookup,
   type StreetViewPanorama,
 } from './types';
+import { readEnv } from '../env';
 
 /**
  * Where the six Google endpoints live.
@@ -156,7 +157,7 @@ function statusProblem(status: string, errorMessage: string | undefined): string
 
 export interface GoogleMapsConfig {
   apiKey: string;
-  /** Defaults to Google's own hosts. Overridden via VALYTICA_GOOGLE_MAPS_BASE_URL. */
+  /** Defaults to Google's own hosts. Overridden via REALYTICA_GOOGLE_MAPS_BASE_URL. */
   endpoints: GoogleEndpoints;
 }
 
@@ -165,13 +166,13 @@ export interface GoogleMapsConfig {
  *
  * Two names are accepted because `GOOGLE_MAPS_API_KEY` is what every Google
  * sample calls it and is what an operator will reach for first, while the
- * `VALYTICA_` prefix is this project's own convention and wins where both are
+ * `REALYTICA_` prefix is this project's own convention and wins where both are
  * set.
  */
 export function readGoogleMapsConfig(env: NodeJS.ProcessEnv = process.env): GoogleMapsConfig | null {
-  const apiKey = (env.VALYTICA_GOOGLE_MAPS_API_KEY ?? env.GOOGLE_MAPS_API_KEY ?? '').trim();
+  const apiKey = (readEnv('GOOGLE_MAPS_API_KEY', env) ?? env.GOOGLE_MAPS_API_KEY ?? '').trim();
   if (apiKey.length === 0) return null;
-  const base = (env.VALYTICA_GOOGLE_MAPS_BASE_URL ?? '').trim().replace(/\/$/, '');
+  const base = (readEnv('GOOGLE_MAPS_BASE_URL', env) ?? '').trim().replace(/\/$/, '');
   // One override for all six, keeping the paths, so a proxy or a stand-in
   // only has to mirror Google's own URL shape.
   const endpoints: GoogleEndpoints = base

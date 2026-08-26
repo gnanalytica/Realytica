@@ -6,7 +6,7 @@
  *
  * The obvious way to write this file is to intersect the vendors: keep system,
  * messages, tools and max tokens, drop everything else, and every provider
- * becomes interchangeable. That would cost Valytica the feature its grounding
+ * becomes interchangeable. That would cost Realytica the feature its grounding
  * actually rests on. Anthropic's server-verified document citations
  * (`citations: { enabled: true }` on a `document` block, answered with a
  * `page_location`) are what separate "the khata number is on page 3, and the
@@ -34,7 +34,7 @@
  * Anthropic already runs server-side better than we can.
  */
 
-import type { AgentKind, AgentUsage, CapabilityGap, ProviderDescriptor, ProviderId } from '@valytica/shared';
+import type { AgentKind, AgentUsage, CapabilityGap, ProviderDescriptor, ProviderId } from '@realytica/shared';
 
 /* ==================================================================== */
 /* Request                                                               */

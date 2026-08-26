@@ -8,7 +8,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { DECLARABLE_SITE_CONSTRAINTS, SITE_CONSTRAINT_KEYS } from '@valytica/shared';
+import { DECLARABLE_SITE_CONSTRAINTS, SITE_CONSTRAINT_KEYS } from '@realytica/shared';
 import { screenSeed, preciseSiteContext } from './fixtures';
 
 const CONSTRAINT_KEYS = new Set<string>(SITE_CONSTRAINT_KEYS);

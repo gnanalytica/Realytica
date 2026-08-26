@@ -27,8 +27,8 @@
  */
 
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
-import { buildStaleness } from '@valytica/shared';
-import type { Comparable, LocalityReference, PropertyCase, ReferenceData } from '@valytica/shared';
+import { buildStaleness } from '@realytica/shared';
+import type { Comparable, LocalityReference, PropertyCase, ReferenceData } from '@realytica/shared';
 
 /**
  * Tools are declared with `betaTool` and raw JSON Schema rather than

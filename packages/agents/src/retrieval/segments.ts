@@ -5,7 +5,7 @@ import type {
   ReferenceData,
   StatePack,
   TitleGraph,
-} from '@valytica/shared';
+} from '@realytica/shared';
 
 /**
  * A case, cut into addressable pieces.

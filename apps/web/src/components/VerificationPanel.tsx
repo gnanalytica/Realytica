@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AlertOctagon, ChevronDown, ChevronUp, Gauge, Quote, ShieldQuestion } from 'lucide-react';
-import type { CriticFinding, CriticVerdict, VerificationSummary } from '@valytica/shared';
+import type { CriticFinding, CriticVerdict, VerificationSummary } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader, EmptyState, ProgressBar, cn, type Tone } from './ui/kit';
 
 /**

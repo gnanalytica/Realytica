@@ -5,8 +5,8 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { REFERENCE_DATA, analyseTitleGraph } from '@valytica/shared';
-import type { CaseDocument, DocumentKind } from '@valytica/shared';
+import { REFERENCE_DATA, analyseTitleGraph } from '@realytica/shared';
+import type { CaseDocument, DocumentKind } from '@realytica/shared';
 import { NOW, caseFrom, documentsFor, seedFor, screenSeed } from './fixtures';
 
 function analyse(documents: CaseDocument[]) {

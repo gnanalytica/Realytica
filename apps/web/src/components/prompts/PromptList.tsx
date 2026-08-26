@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Bot, ChevronRight, ShieldAlert } from 'lucide-react';
-import type { AgentKind, PromptDescriptor, PromptRole } from '@valytica/shared';
+import type { AgentKind, PromptDescriptor, PromptRole } from '@realytica/shared';
 import { Badge, EmptyState, Select, cn } from '../ui/kit';
 import { activeVersion, brokenChecks } from './InvariantList';
 

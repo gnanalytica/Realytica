@@ -49,7 +49,7 @@ import type {
   IngestionReport,
   IngestedRecord,
   PropertyCase,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import type { ParsedTable, SuppliedFile } from './adapters/file';
 import { ingestSuppliedFile } from './adapters/file';
 import type { FetchLike } from './adapters/http';

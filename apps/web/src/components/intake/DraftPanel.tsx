@@ -1,5 +1,5 @@
 import { Check, FileText, Sparkles, Trash2, X } from 'lucide-react';
-import type { IntakeField, IntakeReadout } from '@valytica/shared';
+import type { IntakeField, IntakeReadout } from '@realytica/shared';
 import { Badge, Button, Card, CardBody, CardHeader, Stat, cn } from '../ui/kit';
 import { VERDICT_LABEL, money } from '../../lib/format';
 import { formatArea, useAreaUnitFor } from '../../lib/units';

@@ -1,5 +1,5 @@
 import { Droplets, Waves } from 'lucide-react';
-import type { FloodExposure, WaterExposureReference } from '@valytica/shared';
+import type { FloodExposure, WaterExposureReference } from '@realytica/shared';
 import { Badge, Callout, Card, CardBody, CardHeader } from './ui/kit';
 import type { Tone } from './ui/kit';
 

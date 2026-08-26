@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
-import { ENGINE_VERSION, KARNATAKA_PACK, REFERENCE_DATA, SITE_CONSTRAINT_KEYS } from '@valytica/shared';
+import { ENGINE_VERSION, KARNATAKA_PACK, REFERENCE_DATA, SITE_CONSTRAINT_KEYS } from '@realytica/shared';
 import { useInView } from '../lib/useReveal';
 import { SectionBand, Tile, cn } from '../components/ui/kit';
 
@@ -17,7 +17,7 @@ import { SectionBand, Tile, cn } from '../components/ui/kit';
  * together they produce a page that could have belonged to any company in any
  * category. It described the product accurately and looked like nothing.
  *
- * This one argues the same case by *being* the artefact instead. Valytica's
+ * This one argues the same case by *being* the artefact instead. Realytica's
  * output is a numbered, hairline-ruled diligence report with statutes set in
  * monospace and an `as of` line in the margin under every figure that has
  * one. So: the page is left-aligned to a document measure and never centred;
@@ -246,7 +246,7 @@ export default function Landing() {
       <header className="border-b border-ink/20">
         <div className="mx-auto flex max-w-5xl items-baseline justify-between gap-4 px-6 py-4">
           <span className="flex items-baseline gap-3">
-            <span className="font-display text-[17px] tracking-tight text-ink">Valytica</span>
+            <span className="font-display text-[17px] tracking-tight text-ink">Realytica</span>
             <span className="hidden font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted sm:inline">
               Property screen · Karnataka
             </span>
@@ -306,7 +306,7 @@ export default function Landing() {
           </h1>
 
           <p className="m-0 mt-8 max-w-[58ch] animate-fade-in text-[16px] leading-[1.65] text-ink-secondary" style={{ animationDelay: '340ms' }}>
-            Upload the deeds. Valytica reconstructs the chain of title, reconciles every extent the documents claim,
+            Upload the deeds. Realytica reconstructs the chain of title, reconciles every extent the documents claim,
             runs the Karnataka statutory checks and tells you what to offer — with a source behind each figure, and a
             plain sentence wherever there is not one.
           </p>
@@ -478,7 +478,7 @@ export default function Landing() {
       {/* --------------------------------------------------------- Colophon */}
       <footer className="border-t border-ink/20">
         <div className="mx-auto flex max-w-5xl flex-col gap-1 px-6 py-8 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between">
-          <span>Valytica · Engine v{ENGINE_VERSION}</span>
+          <span>Realytica · Engine v{ENGINE_VERSION}</span>
           <span>A screen, not a legal opinion</span>
         </div>
       </footer>

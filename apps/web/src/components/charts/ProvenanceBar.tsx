@@ -1,4 +1,4 @@
-import type { EvidenceItem, EvidenceSourceType } from '@valytica/shared';
+import type { EvidenceItem, EvidenceSourceType } from '@realytica/shared';
 import { cn } from '../ui/kit';
 
 export interface ProvenanceBarProps {

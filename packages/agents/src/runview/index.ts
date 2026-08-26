@@ -4,7 +4,7 @@
  * `buildRunGraph(caseData, now)` is the whole surface anyone outside this
  * folder needs. It takes a `PropertyCase` whose `intelligence` holds a
  * completed orchestration and returns the frozen `RunGraph` from
- * `@valytica/shared` — lanes, nodes, edges and totals — with no clock read, no
+ * `@realytica/shared` — lanes, nodes, edges and totals — with no clock read, no
  * randomness, and node ids stable enough that a selection survives a refresh.
  *
  * The rest is exported because the parts are individually useful to whoever

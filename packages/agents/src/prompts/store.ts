@@ -17,7 +17,7 @@
  * `PersistedPromptStore` copies `PersistedMemoryStore` deliberately, down to
  * the write queue: it writes through to its port on every mutation and does
  * not resolve until that write has. No debouncing, no timers, no background
- * flush. Valytica runs on serverless, where the process can be frozen the
+ * flush. Realytica runs on serverless, where the process can be frozen the
  * instant the response is sent, and a scheduled write there is a write that
  * never happens. Concurrent writes are chained through a single queue so two
  * requests resolving together cannot interleave their saves — an interleaved
@@ -50,7 +50,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { PromptDescriptor, PromptVersion } from '@valytica/shared';
+import type { PromptDescriptor, PromptVersion } from '@realytica/shared';
 import { BUILT_IN_PROMPTS, builtInPrompt, type BuiltInPrompt } from './registry';
 import { checkInvariants, invariantsFor } from './invariants';
 

@@ -16,7 +16,7 @@ import type {
   ProviderId,
   ProviderPerformance,
   TelemetrySummary,
-} from '@valytica/shared';
+} from '@realytica/shared';
 
 /**
  * What a cost total leaves out.
@@ -478,7 +478,7 @@ export default function Observability() {
                     {r}{' '}
                   </span>
                 ))}
-                in <span className="font-mono">VALYTICA_PRICING</span> to make this total complete.
+                in <span className="font-mono">REALYTICA_PRICING</span> to make this total complete.
               </p>
             )}
           </div>

@@ -18,7 +18,7 @@ import type {
   RiskSeverity,
   TitleChain,
   TitleGraphSummary,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { TitleChainDiagram } from '../../../components/charts';
 import { ScheduleOfProperty } from '../../../components/ScheduleOfProperty';
 import { api } from '../../../lib/api';

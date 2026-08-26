@@ -23,7 +23,7 @@
  * produces is allowed to overwrite a figure a document states.
  */
 
-import type { GeoPoint, GeocodePrecision, AmenityKind, SiteContextGap } from '@valytica/shared';
+import type { GeoPoint, GeocodePrecision, AmenityKind, SiteContextGap } from '@realytica/shared';
 
 /**
  * What a given place provider can actually do.
@@ -160,6 +160,6 @@ export interface PlaceProvider {
  * package because the valuation engine needs them and cannot depend on this
  * one. They are surfaced here so a caller working with the port has them to
  * hand without a second import — but there is one definition of each, in
- * `@valytica/shared/site`, and this is not it.
+ * `@realytica/shared/site`, and this is not it.
  */
-export { haversineMetres, bearingDegrees, isSiteAccurate } from '@valytica/shared';
+export { haversineMetres, bearingDegrees, isSiteAccurate } from '@realytica/shared';

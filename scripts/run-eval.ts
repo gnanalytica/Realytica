@@ -24,8 +24,8 @@ import {
   runEvalComparison,
   summariseRanking,
   tierFor,
-} from '@valytica/agents';
-import type { EvalCase, EvalTaskKind } from '@valytica/shared';
+} from '@realytica/agents';
+import type { EvalCase, EvalTaskKind } from '@realytica/shared';
 
 const TASKS: EvalTaskKind[] = ['document_extraction', 'grounding', 'proof_routing', 'title_reasoning'];
 

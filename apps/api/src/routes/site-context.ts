@@ -17,7 +17,7 @@
  */
 
 import { Router } from 'express';
-import { readGoogleMapsConfig, staticMapUrl, streetViewImageUrl } from '@valytica/agents';
+import { readGoogleMapsConfig, staticMapUrl, streetViewImageUrl } from '@realytica/agents';
 import { store } from '../store';
 import { ensureSiteContext } from '../site-context';
 import { findCase } from './cases';

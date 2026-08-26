@@ -33,7 +33,7 @@ import type {
   LlmCallRecord,
   ModelTier,
   ProviderId,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { warnOnce } from '../client';
 import { formatRoute } from '../routing';
 import { priceTokens, type TokenCounts } from './pricing';

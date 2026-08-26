@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertOctagon, MapPin, MoreVertical } from 'lucide-react';
-import type { CaseSummary } from '@valytica/shared';
+import type { CaseSummary } from '@realytica/shared';
 import {
   CASE_STATUS_LABEL,
   PROPERTY_TYPE_LABEL,

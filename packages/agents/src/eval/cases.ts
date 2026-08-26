@@ -7,8 +7,8 @@ import type {
   EvalTaskKind,
   ExtractedField,
   PropertyIdentity,
-} from '@valytica/shared';
-import { SEED_CASES, SEED_DOCUMENT_FILENAMES, classifyDocument, extractFields } from '@valytica/shared';
+} from '@realytica/shared';
+import { SEED_CASES, SEED_DOCUMENT_FILENAMES, classifyDocument, extractFields } from '@realytica/shared';
 import type { EvalAnswer } from './score';
 
 /**

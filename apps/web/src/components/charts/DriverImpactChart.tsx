@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ValueDriver } from '@valytica/shared';
+import type { ValueDriver } from '@realytica/shared';
 import { pct, titleCase } from '../../lib/format';
 import {
   BaselineAxis,

@@ -24,7 +24,7 @@
  *
  * `PersistedMemoryStore` writes through to its port on every mutation and does
  * not resolve until that write has. No debouncing, no timers, no background
- * flush: Valytica runs on serverless, where the process can be frozen the
+ * flush: Realytica runs on serverless, where the process can be frozen the
  * instant the response is sent, and a scheduled write there is a write that
  * never happens. Concurrent writes are chained through a single queue, exactly
  * as `apps/api/src/storage/filesystem.ts` chains its temp-file-then-rename, so
@@ -35,7 +35,7 @@
  * is structural rather than stylistic.
  */
 
-import type { MemoryFact, MemoryScope } from '@valytica/shared';
+import type { MemoryFact, MemoryScope } from '@realytica/shared';
 import type {
   CardinalityResolver,
   MemoryAssertion,

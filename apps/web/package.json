@@ -1,5 +1,5 @@
 {
-  "name": "@valytica/web",
+  "name": "@realytica/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@valytica/shared": "workspace:*",
+    "@realytica/shared": "workspace:*",
     "clsx": "^2.1.1",
     "lucide-react": "^0.469.0",
     "react": "^18.3.1",

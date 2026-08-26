@@ -57,7 +57,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
             </svg>
           </span>
           <span className={cn('truncate text-[13px] font-semibold tracking-tight text-ink', collapsed && 'lg:hidden')}>
-            Valytica
+            Realytica
           </span>
           <button
             type="button"

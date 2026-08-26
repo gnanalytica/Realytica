@@ -1,5 +1,5 @@
 /**
- * Valytica domain contract.
+ * Realytica domain contract.
  *
  * This file is the single source of truth shared by the API and the web client.
  * Every screen in the product maps onto one of the structures below, and every

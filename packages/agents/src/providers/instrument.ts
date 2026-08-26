@@ -1,4 +1,4 @@
-import type { AgentKind, ProviderId } from '@valytica/shared';
+import type { AgentKind, ProviderId } from '@realytica/shared';
 import { withCall } from '../telemetry/recorder';
 import type { TelemetrySink } from '../telemetry/types';
 import { routeFor } from '../routing';

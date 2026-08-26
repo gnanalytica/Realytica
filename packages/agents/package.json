@@ -1,5 +1,5 @@
 {
-  "name": "@valytica/agents",
+  "name": "@realytica/agents",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
-    "@valytica/shared": "workspace:*",
+    "@realytica/shared": "workspace:*",
     "zod": "^3.24.1"
   },
   "devDependencies": {

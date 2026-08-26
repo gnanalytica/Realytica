@@ -2,7 +2,7 @@
  * Telemetry — contracts.
  *
  * One record type underpins every view in this layer. `LlmCallRecord` (frozen,
- * in `@valytica/shared`) is what a provider adapter emits per call; everything
+ * in `@realytica/shared`) is what a provider adapter emits per call; everything
  * else here is either the port that stores those records or the filter that
  * reads them back.
  *
@@ -17,7 +17,7 @@
  *   any of it. No pure function in this package reads a global clock.
  */
 
-import type { AgentKind, LlmCallOutcome, LlmCallRecord, ProviderId } from '@valytica/shared';
+import type { AgentKind, LlmCallOutcome, LlmCallRecord, ProviderId } from '@realytica/shared';
 import type { PriceConfidence } from './pricing';
 
 /* ==================================================================== */

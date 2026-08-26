@@ -6,8 +6,8 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { REFERENCE_DATA, buildStaleness, siteContextQuery } from '@valytica/shared';
-import type { CaseDocument, PropertyCase } from '@valytica/shared';
+import { REFERENCE_DATA, buildStaleness, siteContextQuery } from '@realytica/shared';
+import type { CaseDocument, PropertyCase } from '@realytica/shared';
 import { NOW, caseFrom, documentsFor, screenSeed, seedFor, preciseSiteContext } from './fixtures';
 
 function report(caseData: PropertyCase) {

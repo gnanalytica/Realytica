@@ -38,8 +38,8 @@ import type {
   RecommendedAction,
   ResearchFinding,
   RetrievalSelection,
-} from '@valytica/shared';
-import { buildTitleGraph } from '@valytica/shared';
+} from '@realytica/shared';
+import { buildTitleGraph } from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
 import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { retrieveCaseContext } from '../retrieval';
@@ -75,7 +75,7 @@ export interface RunDiligencePlannerResult {
 }
 
 const DRAFT_DISCLAIMER =
-  '\n\n— Drafted by Valytica’s diligence planner for your review. Nothing is sent automatically; read it, edit it, and send it yourself if you agree with it.';
+  '\n\n— Drafted by Realytica’s diligence planner for your review. Nothing is sent automatically; read it, edit it, and send it yourself if you agree with it.';
 
 /**
  * This agent's system prompt comes from the prompt registry
@@ -389,7 +389,7 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
     prompts: promptUsages,
     steps,
     summary:
-      `${insights.length} insight(s), ${actions.length} new action(s), ${drafts.length} draft message(s) for review — Valytica does not send these automatically.` +
+      `${insights.length} insight(s), ${actions.length} new action(s), ${drafts.length} draft message(s) for review — Realytica does not send these automatically.` +
       (capabilityGaps.length > 0 ? ` Route ${route.provider} degraded: ${capabilityGaps.join(', ')}.` : ''),
     usage,
     producedEvidenceIds: evidence.map(e => e.id),

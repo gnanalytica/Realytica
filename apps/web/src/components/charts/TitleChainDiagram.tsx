@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { TitleEdge, TitleGraph, TitleGraphSummary, TitleNode, TitleNodeKind } from '@valytica/shared';
+import type { TitleEdge, TitleGraph, TitleGraphSummary, TitleNode, TitleNodeKind } from '@realytica/shared';
 import { Badge, cn } from '../ui/kit';
 import { date } from '../../lib/format';
 

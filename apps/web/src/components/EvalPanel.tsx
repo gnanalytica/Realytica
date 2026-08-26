@@ -6,7 +6,7 @@ import type {
   EvalRunResult,
   EvalTaskKind,
   ProviderId,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ProgressBar, Select, cn, useToast } from './ui/kit';
 
 /**

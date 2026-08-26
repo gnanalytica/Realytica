@@ -90,7 +90,7 @@
  * existed.
  */
 
-import type { PromptInvariantCheck } from '@valytica/shared';
+import type { PromptInvariantCheck } from '@realytica/shared';
 
 /* ==================================================================== */
 /* Declaration                                                           */

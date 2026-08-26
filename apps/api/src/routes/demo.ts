@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import type { CaseDocument, PropertyCase } from '@valytica/shared';
-import { SEED_CASES, SEED_DOCUMENT_FILENAMES, classifyDocument, extractFields, runScreen, REFERENCE_DATA } from '@valytica/shared';
+import type { CaseDocument, PropertyCase } from '@realytica/shared';
+import { SEED_CASES, SEED_DOCUMENT_FILENAMES, classifyDocument, extractFields, runScreen, REFERENCE_DATA } from '@realytica/shared';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 

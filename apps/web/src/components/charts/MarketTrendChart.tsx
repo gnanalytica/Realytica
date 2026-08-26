@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import type { CurrencyCode } from '@valytica/shared';
+import type { CurrencyCode } from '@realytica/shared';
 import { perSqm } from '../../lib/format';
 import { formatRate, useAreaUnitForCurrency } from '../../lib/units';
 import {

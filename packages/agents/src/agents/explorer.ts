@@ -61,7 +61,7 @@ import type {
   PropertyCase,
   ReferenceData,
   SourceReachability,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { agentCapability, describeError, sumUsage } from '../client';
 import { renderCaseContext } from '../context';
 import { PROMPT_KEYS, resolvePrompt } from '../prompts';
@@ -521,7 +521,7 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
     return { run: buildRun('failed', reason), session: buildSession(0, 'error') };
   }
   if (!capability.webSearchEnabled) {
-    const reason = 'Web search is disabled for this deployment (set VALYTICA_AGENT_WEB_SEARCH=1 to enable) — exploration was skipped rather than run without it.';
+    const reason = 'Web search is disabled for this deployment (set REALYTICA_AGENT_WEB_SEARCH=1 to enable) — exploration was skipped rather than run without it.';
     emit({ kind: 'plan', label: 'Skipped — web search disabled', detail: reason });
     return { run: buildRun('cancelled', reason), session: buildSession(0, 'error') };
   }

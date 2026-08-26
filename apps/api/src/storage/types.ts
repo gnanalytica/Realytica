@@ -1,7 +1,7 @@
 import type { StoreData } from '../store';
 
 /**
- * Where Valytica keeps its state.
+ * Where Realytica keeps its state.
  *
  * The app was built filesystem-first, which is right for a local-first tool and
  * wrong for serverless: on Vercel the filesystem is read-only apart from /tmp,

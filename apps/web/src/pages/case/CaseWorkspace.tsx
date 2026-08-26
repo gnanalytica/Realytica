@@ -44,7 +44,7 @@ import {
   type TabDef,
   type Tone,
 } from '../../components/ui/kit';
-import type { RunGraph } from '@valytica/shared';
+import type { RunGraph } from '@realytica/shared';
 import { AnimatedNumber } from '../../components/ui/AnimatedNumber';
 import type { TabProps } from './tab-props';
 import { CASE_GROUPS, NEEDS_SCREEN, LEGACY_TAB_REDIRECT, findGroup } from './groups';

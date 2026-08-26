@@ -32,7 +32,7 @@
  * client, so the filter is built as FE 2.0 XML and nothing else.
  */
 
-import type { IngestedRecord, PropertyIdentity } from '@valytica/shared';
+import type { IngestedRecord, PropertyIdentity } from '@realytica/shared';
 import type { RejectedRow } from '../normalise';
 import { normaliseRows } from '../normalise';
 import type { CaseDerivedKey, RegisteredSource, WfsEndpointSpec } from '../registry';
@@ -76,7 +76,7 @@ export interface FetchLikeResponse {
  * more doors and is exactly the behaviour that gets a whole class of tool
  * blocked; a server operator who wants to refuse this client should be able to.
  */
-export const USER_AGENT = 'Valytica/0.1.0 (property-diligence tool; one bounded request per source per case; no crawling)';
+export const USER_AGENT = 'Realytica/0.1.0 (property-diligence tool; one bounded request per source per case; no crawling)';
 
 export const DEFAULT_TIMEOUT_MS = 10_000;
 

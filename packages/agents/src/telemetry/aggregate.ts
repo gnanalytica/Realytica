@@ -40,7 +40,7 @@ import type {
   ProviderId,
   ProviderPerformance,
   TelemetrySummary,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { modelForTier, sumUsage, warnOnce } from '../client';
 import { formatRoute, parseRoute } from '../routing';
 import {
@@ -463,7 +463,7 @@ export function summariseCaseCost(
   if (!comparisonPriceable) {
     warnOnce(
       `case-cost-comparison:${judgmentRoute}`,
-      `No rate on file for the judgment route "${judgmentRoute}", so the single-tier comparison cannot be computed — the saving is reported as zero rather than guessed. Declare the rate in VALYTICA_PRICING to restore it.`,
+      `No rate on file for the judgment route "${judgmentRoute}", so the single-tier comparison cannot be computed — the saving is reported as zero rather than guessed. Declare the rate in REALYTICA_PRICING to restore it.`,
     );
     return {
       perAgent,
@@ -490,7 +490,7 @@ export function summariseCaseCost(
  * Where the judgment tier currently points.
  *
  * Read through `modelForTier` and `parseRoute` rather than restated, so this
- * honours `VALYTICA_AGENT_MODEL`, `VALYTICA_MODEL_JUDGMENT` and the
+ * honours `REALYTICA_AGENT_MODEL`, `REALYTICA_MODEL_JUDGMENT` and the
  * `provider:model` route syntax with no second implementation to keep in step.
  */
 function defaultJudgmentRoute(): { provider: ProviderId; model: string } {

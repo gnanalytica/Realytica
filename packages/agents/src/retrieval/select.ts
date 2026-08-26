@@ -1,4 +1,4 @@
-import type { AgentKind, RetrievalSection, RetrievalSelection, TitleGraph } from '@valytica/shared';
+import type { AgentKind, RetrievalSection, RetrievalSelection, TitleGraph } from '@realytica/shared';
 import type { Segment } from './segments';
 import { termsOf } from './segments';
 

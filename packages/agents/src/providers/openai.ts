@@ -11,7 +11,7 @@
  * --- What this provider genuinely cannot do, and what that costs ----------
  *
  * This is the file where the port earns its keep, because almost everything
- * Valytica leans on beyond plain text is missing here:
+ * Realytica leans on beyond plain text is missing here:
  *
  *   documentCitations  no. There is no server-verified quotation in this
  *                      format. The provider therefore returns citations that
@@ -42,7 +42,7 @@
  *                      silently ignore it, and a capability that is true only
  *                      when the vendor happens to comply is worse than one
  *                      that is honestly false. Opt in with
- *                      VALYTICA_OPENAI_STRICT_TOOLS=1 for an endpoint known
+ *                      REALYTICA_OPENAI_STRICT_TOOLS=1 for an endpoint known
  *                      to enforce it.
  *
  * None of these are defects to be hidden. Each is recorded as a
@@ -51,7 +51,7 @@
  */
 
 import { inflateSync } from 'node:zlib';
-import type { CapabilityGap, ProviderDescriptor } from '@valytica/shared';
+import type { CapabilityGap, ProviderDescriptor } from '@realytica/shared';
 import { warnOnce } from '../client';
 /*
  * Priced through the cross-provider table, NOT through `client.ts`'s
@@ -85,6 +85,7 @@ import type {
   LlmStopReason,
   LlmToolRequest,
 } from './types';
+import { readEnv } from '../env';
 
 /* ==================================================================== */
 /* Configuration                                                         */
@@ -118,7 +119,7 @@ const MAX_RETRY_AFTER_MS = 30_000;
 export const DEFAULT_MAX_TOOL_ITERATIONS = 8;
 
 function readHeaders(): Record<string, string> {
-  const raw = process.env.VALYTICA_OPENAI_HEADERS;
+  const raw = readEnv('OPENAI_HEADERS');
   if (!raw) return {};
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -134,7 +135,7 @@ function readHeaders(): Record<string, string> {
     // down, and the warning names what was dropped so it is findable.
     warnOnce(
       'openai:headers',
-      `Ignoring VALYTICA_OPENAI_HEADERS — expected a JSON object of string headers (${e instanceof Error ? e.message : String(e)}).`,
+      `Ignoring REALYTICA_OPENAI_HEADERS — expected a JSON object of string headers (${e instanceof Error ? e.message : String(e)}).`,
     );
     return {};
   }
@@ -162,19 +163,19 @@ function readPositiveInt(name: string, fallback: number): number {
  * send.
  */
 export function readConfig(): OpenAiCompatibleConfig | null {
-  const baseUrl = process.env.VALYTICA_OPENAI_BASE_URL?.trim();
+  const baseUrl = readEnv('OPENAI_BASE_URL')?.trim();
   if (!baseUrl) return null;
-  const models = process.env.VALYTICA_OPENAI_MODELS?.split(',')
+  const models = readEnv('OPENAI_MODELS')?.split(',')
     .map(m => m.trim())
     .filter(Boolean);
   return {
     baseUrl: baseUrl.replace(/\/+$/, ''),
-    apiKey: process.env.VALYTICA_OPENAI_API_KEY?.trim() ?? '',
+    apiKey: readEnv('OPENAI_API_KEY')?.trim() ?? '',
     headers: readHeaders(),
-    timeoutMs: readPositiveInt('VALYTICA_OPENAI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS),
-    maxRetries: readPositiveInt('VALYTICA_OPENAI_MAX_RETRIES', DEFAULT_MAX_RETRIES),
-    retryBaseMs: readPositiveInt('VALYTICA_OPENAI_RETRY_BASE_MS', DEFAULT_RETRY_BASE_MS),
-    strictTools: process.env.VALYTICA_OPENAI_STRICT_TOOLS === '1',
+    timeoutMs: readPositiveInt('REALYTICA_OPENAI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS),
+    maxRetries: readPositiveInt('REALYTICA_OPENAI_MAX_RETRIES', DEFAULT_MAX_RETRIES),
+    retryBaseMs: readPositiveInt('REALYTICA_OPENAI_RETRY_BASE_MS', DEFAULT_RETRY_BASE_MS),
+    strictTools: readEnv('OPENAI_STRICT_TOOLS') === '1',
     ...(models && models.length > 0 ? { models } : {}),
   };
 }
@@ -828,7 +829,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
       } catch (e) {
         if (controller.signal.aborted) {
           throw new ProviderCallError(
-            `The request to ${url} timed out after ${config.timeoutMs}ms. Raise VALYTICA_OPENAI_TIMEOUT_MS if this endpoint is legitimately slow.`,
+            `The request to ${url} timed out after ${config.timeoutMs}ms. Raise REALYTICA_OPENAI_TIMEOUT_MS if this endpoint is legitimately slow.`,
             { retries: attempt },
           );
         }
@@ -876,7 +877,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
     const config = readConfig();
     if (!config) {
       throw new ProviderCallError(
-        'No OpenAI-compatible endpoint is configured — set VALYTICA_OPENAI_BASE_URL (and VALYTICA_OPENAI_API_KEY where the endpoint needs one).',
+        'No OpenAI-compatible endpoint is configured — set REALYTICA_OPENAI_BASE_URL (and REALYTICA_OPENAI_API_KEY where the endpoint needs one).',
       );
     }
     return config;

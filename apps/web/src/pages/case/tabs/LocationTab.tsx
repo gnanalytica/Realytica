@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, Camera, ExternalLink, MapPin, Navigation, RefreshCw } from 'lucide-react';
-import type { AmenityKind, NearbyAmenity, SiteContext } from '@valytica/shared';
+import type { AmenityKind, NearbyAmenity, SiteContext } from '@realytica/shared';
 import type { TabProps } from '../tab-props';
 import { api } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';

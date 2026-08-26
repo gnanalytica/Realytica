@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
-import type { CaseDocument } from '@valytica/shared';
-import { classifyDocument, extractFields } from '@valytica/shared';
+import type { CaseDocument } from '@realytica/shared';
+import { classifyDocument, extractFields } from '@realytica/shared';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';

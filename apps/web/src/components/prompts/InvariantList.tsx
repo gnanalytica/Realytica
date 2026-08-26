@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Check, CircleHelp, ShieldAlert, XCircle } from 'lucide-react';
-import type { PromptDescriptor, PromptInvariantCheck, PromptVersion } from '@valytica/shared';
+import type { PromptDescriptor, PromptInvariantCheck, PromptVersion } from '@realytica/shared';
 import { Button, Checkbox, Field, Input, Modal, cn } from '../ui/kit';
 
 /**

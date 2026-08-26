@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { AlertTriangle, Check, ClipboardCheck, Gauge, Info, Zap } from 'lucide-react';
-import type { CompletenessItem, ConfidenceFactor } from '@valytica/shared';
+import type { CompletenessItem, ConfidenceFactor } from '@realytica/shared';
 import type { TabProps } from '../tab-props';
 import { DOCUMENT_KIND_LABEL } from '../../../lib/format';
 import { Button, Callout, Card, CardBody, CardHeader, EmptyState, SectionTitle, cn } from '../../../components/ui/kit';

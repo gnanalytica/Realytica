@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, ChevronDown, ChevronRight, Send, Sparkles, Workflow } from 'lucide-react';
-import type { RunGraph } from '@valytica/shared';
+import type { RunGraph } from '@realytica/shared';
 import { api } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
 import { Badge, Button, Callout, Input, Spinner, cn, useToast } from '../../../components/ui/kit';

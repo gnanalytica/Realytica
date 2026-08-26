@@ -35,7 +35,7 @@ import type {
   ResearchFinding,
   ScreenResult,
   IngestionReport,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import type { TabProps } from '../tab-props';
 import { api, streamAgentRun } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
@@ -48,7 +48,7 @@ import { CostBreakdown } from '../../../components/CostBreakdown';
 import { MemoryCard, SourcesCard } from '../../../components/KnowledgePanel';
 import { CriticFlagBanner, VerificationPanel, findFlaggedCriticFinding } from '../../../components/VerificationPanel';
 import { ExplorationTrail } from '../../../components/ExplorationTrail';
-import type { VerificationSummary } from '@valytica/shared';
+import type { VerificationSummary } from '@realytica/shared';
 import {
   Badge,
   Button,
@@ -191,7 +191,7 @@ function CapabilityExplainer({ capability }: { capability: AgentCapability }) {
           </p>
         ) : null}
         <p className="font-medium text-ink">
-          Valytica&rsquo;s screening engine — valuation, risk, compliance, planning, every other tab — works fully without
+          Realytica&rsquo;s screening engine — valuation, risk, compliance, planning, every other tab — works fully without
           this. Agents are an optional addition layered on top of the deterministic screen, never a requirement for it.
         </p>
       </div>
@@ -738,7 +738,7 @@ function ExploreControl({
       <CardBody className="flex flex-col gap-3">
         {disabled ? (
           <Callout tone="neutral" title="Exploration needs Anthropic credentials">
-            {disabledReason} The rest of Valytica works fully without it.
+            {disabledReason} The rest of Realytica works fully without it.
           </Callout>
         ) : null}
         <div className="flex flex-col gap-2.5 sm:flex-row sm:items-end">

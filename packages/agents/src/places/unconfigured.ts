@@ -25,7 +25,7 @@ import {
 } from './types';
 
 const SETUP =
-  'no mapping provider is configured for this deployment (set VALYTICA_GOOGLE_MAPS_API_KEY, on a Google Cloud project with ' +
+  'no mapping provider is configured for this deployment (set REALYTICA_GOOGLE_MAPS_API_KEY, on a Google Cloud project with ' +
   'the Geocoding, Places, Distance Matrix and Street View Static APIs enabled and billing active)';
 
 export const unconfiguredPlaceProvider: PlaceProvider = {

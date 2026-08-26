@@ -10,7 +10,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import type { CaseSummary, ComparisonResult, ComparisonRow, CurrencyCode, PropertyCase } from '@valytica/shared';
+import type { CaseSummary, ComparisonResult, ComparisonRow, CurrencyCode, PropertyCase } from '@realytica/shared';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { PROPERTY_TYPE_LABEL, money, num, perSqm, pct } from '../lib/format';

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertOctagon, ClipboardCheck, Coins, FolderSearch, Layers, Plus, RotateCw, ScatterChart, Sparkles } from 'lucide-react';
-import type { CaseStatus, CaseSummary, CountryCode, CurrencyCode, PropertyType } from '@valytica/shared';
+import type { CaseStatus, CaseSummary, CountryCode, CurrencyCode, PropertyType } from '@realytica/shared';
 import { PortfolioScatter } from '../components/charts';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';

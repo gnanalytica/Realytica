@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { CaseSummary, ScreenVerdict } from '@valytica/shared';
+import type { CaseSummary, ScreenVerdict } from '@realytica/shared';
 import { money } from '../../lib/format';
 import {
   BaselineAxis,

@@ -1,5 +1,5 @@
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
-import type { EvalCase } from '@valytica/shared';
+import type { EvalCase } from '@realytica/shared';
 import { providerFor } from '../providers/registry';
 import { clientToolFromRunnable } from '../providers/anthropic';
 import type { LlmClientTool } from '../providers/types';

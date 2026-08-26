@@ -8,10 +8,10 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { bearingDegrees, haversineMetres, isSiteAccurate, siteContextQuery } from '@valytica/shared';
-import type { GeocodePrecision } from '@valytica/shared';
-import { buildSiteContext, placeGap, placeOk, unconfiguredPlaceProvider } from '@valytica/agents';
-import type { NearbyPlace, PlaceProvider, RouteLeg, StreetViewPanorama } from '@valytica/agents';
+import { bearingDegrees, haversineMetres, isSiteAccurate, siteContextQuery } from '@realytica/shared';
+import type { GeocodePrecision } from '@realytica/shared';
+import { buildSiteContext, placeGap, placeOk, unconfiguredPlaceProvider } from '@realytica/agents';
+import type { NearbyPlace, PlaceProvider, RouteLeg, StreetViewPanorama } from '@realytica/agents';
 import { NOW, seedFor } from './fixtures';
 
 const SITE = { lat: 13.2437, lng: 77.7126 };
@@ -190,6 +190,6 @@ describe('the unconfigured provider', () => {
     assert.equal(context.location, null);
     assert.equal(context.provider, 'unconfigured');
     const gap = context.gaps.find(g => g.code === 'no_provider_key')!;
-    assert.match(gap.consequence, /VALYTICA_GOOGLE_MAPS_API_KEY/);
+    assert.match(gap.consequence, /REALYTICA_GOOGLE_MAPS_API_KEY/);
   });
 });

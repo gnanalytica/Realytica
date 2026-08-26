@@ -1,11 +1,11 @@
-# Valytica Property Intelligence — source specification
+# Realytica Property Intelligence — source specification
 
-Transcribed from `Valytica_Property_Intelligence.pdf` (v0.1, Product Definition Draft).
+Transcribed from `Realytica_Property_Intelligence.pdf` (v0.1, Product Definition Draft).
 This file is the requirements source of truth for the application in this repository.
 
 ## Summary
 
-Valytica is an AI-powered Property Intelligence platform designed to help users understand a
+Realytica is an AI-powered Property Intelligence platform designed to help users understand a
 property **before** they commit significant money, professional effort, financing, or acquisition
 resources.
 
@@ -16,10 +16,10 @@ resources.
 | Version | 0.1 |
 | Status | Product Definition Draft |
 | Owner | Gnanalytica |
-| Product | Valytica |
+| Product | Realytica |
 | Initial markets | India and Netherlands |
-| Initial release | Valytica Property Screen |
-| Future products | Valytica Diligence, Project Intelligence, Portfolio Intelligence |
+| Initial release | Realytica Property Screen |
+| Future products | Realytica Diligence, Project Intelligence, Portfolio Intelligence |
 
 ## Product vision
 
@@ -31,10 +31,10 @@ Make property decisions clearer, faster and evidence-driven.
 
 | Product | Question it answers |
 | --- | --- |
-| Valytica Property Screen | Should I pursue this property? |
-| Valytica Diligence | What exactly am I getting into? |
-| Valytica Project Intelligence | Does this acquisition or development opportunity make commercial sense? |
-| Valytica Portfolio Intelligence | Where are the risks and opportunities across our properties? |
+| Realytica Property Screen | Should I pursue this property? |
+| Realytica Diligence | What exactly am I getting into? |
+| Realytica Project Intelligence | Does this acquisition or development opportunity make commercial sense? |
+| Realytica Portfolio Intelligence | Where are the risks and opportunities across our properties? |
 
 ## Product principles
 
@@ -91,6 +91,6 @@ automated purchase recommendation without explanation; nationwide support for ev
 
 ## North star
 
-> Valytica succeeds when the customer can go from "I have this property. I don't know what to make
+> Realytica succeeds when the customer can go from "I have this property. I don't know what to make
 > of it." to "I understand what it is likely worth, why, what I need to worry about, what evidence
 > supports that conclusion, and exactly what I need to do next."

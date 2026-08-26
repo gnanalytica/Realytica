@@ -1,5 +1,5 @@
 import { CalendarClock, RefreshCw } from 'lucide-react';
-import type { StalenessReport, StaleItem, RiskSeverity } from '@valytica/shared';
+import type { StalenessReport, StaleItem, RiskSeverity } from '@realytica/shared';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { relativeTime } from '../lib/format';

@@ -14,8 +14,8 @@ function pageTitle(pathname: string): string {
   if (pathname.startsWith('/cases/new')) return 'New property case';
   if (pathname.startsWith('/cases/')) return 'Case workspace';
   if (pathname.startsWith('/compare')) return 'Compare cases';
-  if (pathname.startsWith('/about')) return 'About Valytica';
-  return 'Valytica';
+  if (pathname.startsWith('/about')) return 'About Realytica';
+  return 'Realytica';
 }
 
 const THEME_ORDER: ThemeMode[] = ['light', 'dark', 'system'];

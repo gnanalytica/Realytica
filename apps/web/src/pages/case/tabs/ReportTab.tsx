@@ -24,8 +24,8 @@ import type {
   RiskStatus,
   ValueAnchor,
   ValueDriver,
-} from '@valytica/shared';
-import { SITE_CONSTRAINT_KEYS } from '@valytica/shared';
+} from '@realytica/shared';
+import { SITE_CONSTRAINT_KEYS } from '@realytica/shared';
 import {
   area,
   confidenceTone,
@@ -279,7 +279,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
 
   function copySummary() {
     const lines: (string | null)[] = [
-      `VALYTICA PROPERTY SCREEN — ${caseData.reference}`,
+      `REALYTICA PROPERTY SCREEN — ${caseData.reference}`,
       identity.label,
       `${identity.addressLine}, ${identity.locality}, ${identity.city}, ${identity.state} ${identity.postalCode}`,
       '',
@@ -434,7 +434,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         {/* Cover */}
         <Section n={nextSection()} title="Cover">
           <div className="text-center">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-muted">Valytica Property Screen</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-muted">Realytica Property Screen</div>
             <h2 className="mt-2 text-xl font-semibold tracking-tight text-ink">{identity.label}</h2>
             <p className="mt-1 text-[13px] text-ink-secondary">
               {identity.addressLine}, {identity.locality}, {identity.city}, {identity.state} {identity.postalCode}

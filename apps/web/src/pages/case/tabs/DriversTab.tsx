@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { ArrowDownRight, ArrowUpRight, Building2, ClipboardList, LineChart as LineChartIcon, MapPin, Minus, Scale, Users } from 'lucide-react';
-import type { DriverCategory, EvidenceItem, ValueDriver } from '@valytica/shared';
+import type { DriverCategory, EvidenceItem, ValueDriver } from '@realytica/shared';
 import { Badge, Callout, Card, CardBody, CardHeader, EmptyState, cn } from '../../../components/ui/kit';
 import { DriverImpactChart } from '../../../components/charts';
 import { EvidenceLink } from '../../../components/EvidenceLink';

@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from 'lucide-react';
-import type { PromptDescriptor, PromptVersion } from '@valytica/shared';
+import type { PromptDescriptor, PromptVersion } from '@realytica/shared';
 import { api as appApi } from '../lib/api';
 import {
   Badge,

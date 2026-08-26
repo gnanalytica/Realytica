@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Compass } from 'lucide-react';
-import type { TitleGraph } from '@valytica/shared';
+import type { TitleGraph } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader } from './ui/kit';
 
 /**

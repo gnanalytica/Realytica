@@ -8,13 +8,14 @@ import type {
   CostBreakdownEntry,
   ModelTier,
   ModelTierAssignment,
-} from '@valytica/shared';
+} from '@realytica/shared';
+import { readEnv } from './env';
 
 /**
  * The single place the Anthropic client, the model tiering and the pricing
  * table live.
  *
- * Valytica runs local-first and must keep working with no credentials at all —
+ * Realytica runs local-first and must keep working with no credentials at all —
  * the deterministic engine is the product's floor, and the agent layer is an
  * addition on top of it. So nothing here throws on a missing key: callers ask
  * `agentCapability()` first and the UI degrades honestly.
@@ -56,7 +57,7 @@ import type {
  *     rather than once per case. Tiering it is most of the saving; leaving it
  *     on the frontier model would make the rest of this change cosmetic.
  *
- * That is a trade, not a certainty. `VALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment`
+ * That is a trade, not a certainty. `REALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment`
  * reverses it for a deployment whose documents are worse than ours, and the
  * per-agent cost breakdown makes the price of reversing it visible.
  */
@@ -67,7 +68,7 @@ export const AGENT_TIERS: Record<AgentKind, ModelTier> = {
   // and the highest-frequency agent here — one call per chat turn — so the
   // tier that fits the work is also the one that keeps a conversation from
   // costing more than the diligence. Move it with
-  // VALYTICA_TIER_INTAKE_CONCIERGE if a deployment finds it reads thin.
+  // REALYTICA_TIER_INTAKE_CONCIERGE if a deployment finds it reads thin.
   intake_concierge: 'extraction',
 
   /** Reads a case's shape and emits a task list. Structured, bounded, and its failure is already survivable — the orchestrator falls back to the fixed pipeline. */
@@ -102,9 +103,9 @@ const TIER_DEFAULT_MODELS: Record<ModelTier, string> = {
 };
 
 const TIER_ENV_VARS: Record<ModelTier, string> = {
-  extraction: 'VALYTICA_MODEL_EXTRACTION',
-  reasoning: 'VALYTICA_MODEL_REASONING',
-  judgment: 'VALYTICA_MODEL_JUDGMENT',
+  extraction: 'REALYTICA_MODEL_EXTRACTION',
+  reasoning: 'REALYTICA_MODEL_REASONING',
+  judgment: 'REALYTICA_MODEL_JUDGMENT',
 };
 
 /**
@@ -114,14 +115,14 @@ const TIER_ENV_VARS: Record<ModelTier, string> = {
  * load, so a process that sets these late — a script, a test harness, a
  * serverless handler that reads config before invoking — sees what it set.
  *
- * `VALYTICA_AGENT_MODEL` outranks the per-tier variables and collapses every
+ * `REALYTICA_AGENT_MODEL` outranks the per-tier variables and collapses every
  * tier onto one model. It predates tiering, is documented in the README, and
  * is what an operator reaches for to pin the whole roster during an incident;
  * a change that quietly reduced it to "the judgment model" would silently
  * un-pin two thirds of the roster on an existing deployment.
  */
 export function modelForTier(tier: ModelTier): string {
-  const globalOverride = process.env.VALYTICA_AGENT_MODEL;
+  const globalOverride = readEnv('AGENT_MODEL');
   if (globalOverride) return globalOverride;
   return process.env[TIER_ENV_VARS[tier]] || TIER_DEFAULT_MODELS[tier];
 }
@@ -129,18 +130,18 @@ export function modelForTier(tier: ModelTier): string {
 /**
  * The tier an agent runs on, after any per-agent override.
  *
- * `VALYTICA_TIER_<AGENT>` (e.g. `VALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment`)
+ * `REALYTICA_TIER_<AGENT>` (e.g. `REALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment`)
  * moves a single agent between tiers. An unrecognised value is ignored rather
  * than throwing: a typo in a deployment env var must not take the agent layer
  * down, and the warning says exactly what was ignored.
  */
 export function tierFor(agent: AgentKind): ModelTier {
-  const raw = process.env[`VALYTICA_TIER_${agent.toUpperCase()}`];
+  const raw = readEnv(`TIER_${agent.toUpperCase()}`);
   if (raw === 'extraction' || raw === 'reasoning' || raw === 'judgment') return raw;
   if (raw !== undefined && raw !== '') {
     warnOnce(
       `tier:${agent}:${raw}`,
-      `Ignoring VALYTICA_TIER_${agent.toUpperCase()}="${raw}" — not one of extraction/reasoning/judgment. Using ${AGENT_TIERS[agent]}.`,
+      `Ignoring REALYTICA_TIER_${agent.toUpperCase()}="${raw}" — not one of extraction/reasoning/judgment. Using ${AGENT_TIERS[agent]}.`,
     );
   }
   return AGENT_TIERS[agent];
@@ -237,7 +238,7 @@ const warned = new Set<string>();
 export function warnOnce(key: string, message: string): void {
   if (warned.has(key)) return;
   warned.add(key);
-  console.warn(`[valytica/agents] ${message}`);
+  console.warn(`[realytica/agents] ${message}`);
 }
 
 /**
@@ -489,7 +490,7 @@ let cached: Anthropic | null = null;
  */
 export function getClient(): Anthropic | null {
   if (cached) return cached;
-  if (process.env.VALYTICA_AGENTS_DISABLED === '1') return null;
+  if (readEnv('AGENTS_DISABLED') === '1') return null;
   try {
     cached = new Anthropic();
     return cached;
@@ -501,7 +502,7 @@ export function getClient(): Anthropic | null {
 function hasCredentials(): boolean {
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) return true;
   // An `ant auth login` profile lives on disk; the SDK finds it without an env var.
-  return process.env.ANTHROPIC_PROFILE !== undefined || process.env.VALYTICA_AGENTS_ASSUME_AUTH === '1';
+  return process.env.ANTHROPIC_PROFILE !== undefined || readEnv('AGENTS_ASSUME_AUTH') === '1';
 }
 
 export function agentCapability(): AgentCapability {
@@ -509,7 +510,7 @@ export function agentCapability(): AgentCapability {
   // is exactly what an operator staring at a disabled deployment wants to see.
   const tiers = modelTierAssignments();
   const model = modelForTier('judgment');
-  if (process.env.VALYTICA_AGENTS_DISABLED === '1') {
+  if (readEnv('AGENTS_DISABLED') === '1') {
     return { available: false, reason: 'disabled', model, webSearchEnabled: false, enabledAgents: [], tiers };
   }
   if (!hasCredentials()) {
@@ -517,7 +518,7 @@ export function agentCapability(): AgentCapability {
   }
   // Web search sends locality and market terms to an external service, so it is
   // opt-in rather than on by default. Document contents never go near it.
-  const webSearchEnabled = process.env.VALYTICA_AGENT_WEB_SEARCH === '1';
+  const webSearchEnabled = readEnv('AGENT_WEB_SEARCH') === '1';
   return {
     available: true,
     reason: 'ok',

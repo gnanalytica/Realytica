@@ -61,7 +61,7 @@ import type {
   RunGraphEdgeKind,
   RunGraphNode,
   RunGraphNodeKind,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { formatRoute } from '../routing';
 import { priceTokens, type TokenCounts } from '../telemetry/pricing';
 import {

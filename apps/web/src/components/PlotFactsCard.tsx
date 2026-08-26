@@ -1,5 +1,5 @@
 import { Compass, LandPlot } from 'lucide-react';
-import type { LayoutApproval, PlotFacing, PropertyIdentity, PropertyType, ReferenceData } from '@valytica/shared';
+import type { LayoutApproval, PlotFacing, PropertyIdentity, PropertyType, ReferenceData } from '@realytica/shared';
 import { Badge, Callout, Card, CardBody, CardHeader, KeyValue, type Tone } from './ui/kit';
 import { SQM_PER_SQFT, formatArea } from '../lib/units';
 
@@ -7,7 +7,7 @@ import { SQM_PER_SQFT, formatArea } from '../lib/units';
  * Land property types — a site is priced per sq ft of land, not per sq ft of
  * built-up area, so these are the two types that carry `PropertyIdentity.plot`
  * and get compared against a locality's land rate rather than its built-up
- * price. Kept here (rather than in `@valytica/shared`) because a parallel
+ * price. Kept here (rather than in `@realytica/shared`) because a parallel
  * agent owns `packages/shared/src/constants.ts` and this list may not exist
  * there yet — see the contract note in `packages/shared/src/types.ts`.
  */

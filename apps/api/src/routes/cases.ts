@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import type { CaseSummary, PropertyCase } from '@valytica/shared';
+import type { CaseSummary, PropertyCase } from '@realytica/shared';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { createCaseSchema, updateCaseSchema } from '../schemas';

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Comparable, CurrencyCode } from '@valytica/shared';
+import type { Comparable, CurrencyCode } from '@realytica/shared';
 import { area, date, perSqm, pct } from '../../lib/format';
 import { formatArea, formatRate, useAreaUnitForCurrency } from '../../lib/units';
 import {

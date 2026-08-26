@@ -1,11 +1,11 @@
-import type { MemoryFact } from '@valytica/shared';
-import { PersistedMemoryStore, type MemoryPersistence } from '@valytica/agents';
+import type { MemoryFact } from '@realytica/shared';
+import { PersistedMemoryStore, type MemoryPersistence } from '@realytica/agents';
 import { store } from './store';
 
 /**
  * Cross-case memory, persisted through the app's own store.
  *
- * `@valytica/agents` deliberately does not know how this deployment persists
+ * `@realytica/agents` deliberately does not know how this deployment persists
  * anything — it takes a port with `load`/`save` and leaves the backend to the
  * caller. This is that port, implemented over the same `StorageAdapter` the
  * cases use (filesystem locally, Vercel Blob in a deployment), so memory

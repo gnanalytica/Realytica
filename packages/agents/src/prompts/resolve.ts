@@ -38,7 +38,7 @@
  *
  * Which version is in force follows the same discipline as `../routing.ts`:
  *
- *   1. `VALYTICA_PROMPT_<KEY>`  — this one prompt, anywhere
+ *   1. `REALYTICA_PROMPT_<KEY>`  — this one prompt, anywhere
  *   2. the store's active selection
  *   3. the built-in
  *
@@ -48,7 +48,7 @@
  * an unrecognised override lands on the shipped text.
  */
 
-import type { AgentKind, PromptDescriptor, PromptUsage, PromptVersion } from '@valytica/shared';
+import type { AgentKind, PromptDescriptor, PromptUsage, PromptVersion } from '@realytica/shared';
 import { warnOnce } from '../client';
 import { brokenInvariantIds, SHARED_GROUNDING_KEY } from './invariants';
 import { promptKeyFor } from './registry';
@@ -144,9 +144,9 @@ export function renderPromptTemplate(
 /* Selection                                                             */
 /* ==================================================================== */
 
-/** `document_intelligence.system` -> `VALYTICA_PROMPT_DOCUMENT_INTELLIGENCE_SYSTEM`. */
+/** `document_intelligence.system` -> `REALYTICA_PROMPT_DOCUMENT_INTELLIGENCE_SYSTEM`. */
 export function promptEnvVar(key: string): string {
-  return `VALYTICA_PROMPT_${key.replace(/\./g, '_').toUpperCase()}`;
+  return `REALYTICA_PROMPT_${key.replace(/\./g, '_').toUpperCase()}`;
 }
 
 export type PromptSelectionSource = 'prompt_env' | 'store' | 'built_in';

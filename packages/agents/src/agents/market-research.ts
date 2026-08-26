@@ -28,7 +28,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { AgentRun, AgentRunStatus, AgentStep, CapabilityGap, EvidenceItem, PromptUsage, PropertyCase, ReferenceData, ResearchFinding } from '@valytica/shared';
+import type { AgentRun, AgentRunStatus, AgentStep, CapabilityGap, EvidenceItem, PromptUsage, PropertyCase, ReferenceData, ResearchFinding } from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
 import { renderCaseContext } from '../context';
 import { PROMPT_KEYS, resolvePrompt } from '../prompts';
@@ -175,7 +175,7 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
     return finish('failed', reason);
   }
   if (!capability.webSearchEnabled) {
-    const reason = 'Web search is disabled for this deployment (set VALYTICA_AGENT_WEB_SEARCH=1 to enable) — market research was skipped rather than run without it.';
+    const reason = 'Web search is disabled for this deployment (set REALYTICA_AGENT_WEB_SEARCH=1 to enable) — market research was skipped rather than run without it.';
     emit({ kind: 'plan', label: 'Skipped — web search disabled', detail: reason });
     return finish('cancelled', reason);
   }

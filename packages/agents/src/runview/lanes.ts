@@ -48,7 +48,7 @@ import type {
   AgentRun,
   CaseIntelligence,
   PlannedTask,
-} from '@valytica/shared';
+} from '@realytica/shared';
 
 /* ==================================================================== */
 /* Vocabulary                                                            */

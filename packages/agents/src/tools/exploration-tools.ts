@@ -24,7 +24,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import { betaMemoryTool } from '@anthropic-ai/sdk/helpers/beta/memory';
-import type { SourceReachability } from '@valytica/shared';
+import type { SourceReachability } from '@realytica/shared';
 
 /* ------------------------------------------------------------------ */
 /* Known-unreachable authoritative sources                             */

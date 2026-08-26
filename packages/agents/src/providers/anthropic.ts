@@ -22,7 +22,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { ProviderDescriptor } from '@valytica/shared';
+import type { ProviderDescriptor } from '@realytica/shared';
 import { agentCapability, baseRequestFor, estimateUsage, getClient } from '../client';
 import { ProviderCallError } from './types';
 import type {

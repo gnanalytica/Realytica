@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /*
- * Valytica design tokens.
+ * Realytica design tokens.
  * Light values live on bare :root; dark values are redefined under both the OS
  * media query and the [data-theme="dark"] scope so the in-app toggle wins both ways.
  * Categorical series order is fixed (blue, orange, aqua, yellow, magenta, green,

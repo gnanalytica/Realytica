@@ -31,7 +31,7 @@ import type {
   PropertyCase,
   ReferenceData,
   TaskDepth,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { describeError } from '../client';
 import { PROMPT_KEYS, resolvePrompt, type ResolvedPrompt } from '../prompts';
 import { describeGap } from '../routing';

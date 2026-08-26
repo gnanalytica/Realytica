@@ -3,13 +3,13 @@
  *
  * ## What this is, and what it deliberately is not
  *
- * Every case in Valytica currently starts from nothing. The same promoter, the
+ * Every case in Realytica currently starts from nothing. The same promoter, the
  * same locality, the same registry counter and the same unreachable portal recur
  * across cases and none of it is retained. This module is the store that retains
  * it.
  *
  * It is a **separate structure from the title graph** (`TitleNode` / `TitleEdge`
- * in `@valytica/shared`), and that separation is the single most important
+ * in `@realytica/shared`), and that separation is the single most important
  * property of the design — not an implementation detail that could be tidied
  * away later.
  *
@@ -53,7 +53,7 @@
  * fields.
  */
 
-import type { MemoryFact, MemoryScope } from '@valytica/shared';
+import type { MemoryFact, MemoryScope } from '@realytica/shared';
 
 /* ==================================================================== */
 /* Facts in, facts out                                                  */
@@ -215,7 +215,7 @@ export interface MemoryQueryResult {
  * are a few hundred bytes and a busy install accumulates thousands, not
  * millions), so rewriting the set is honest and cheap.
  *
- * `save` **must be durable by the time it resolves**. Valytica deploys to
+ * `save` **must be durable by the time it resolves**. Realytica deploys to
  * serverless, where the process can be frozen the instant the HTTP response is
  * sent: a scheduled write is a write that never happens. That rules out
  * debouncing, `setTimeout` flushes and fire-and-forget background saves, and it

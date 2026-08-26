@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { CircleSlash2, ClipboardList, MinusCircle, ShieldCheck } from 'lucide-react';
-import type { AgentKind, AgentPlan, PlannedTask, TaskDepth } from '@valytica/shared';
+import type { AgentKind, AgentPlan, PlannedTask, TaskDepth } from '@realytica/shared';
 import { formatUsd } from './AgentRunTimeline';
 import { Badge, Card, CardBody, CardHeader, EmptyState, Stat, cn } from './ui/kit';
 

@@ -1,4 +1,4 @@
-import type { IntakeField, IntakeGap, IntakeReadout, ReferenceData } from '@valytica/shared';
+import type { IntakeField, IntakeGap, IntakeReadout, ReferenceData } from '@realytica/shared';
 import { INTAKE_FIELDS, SQFT_PER_SQM } from './fields';
 import { resolveLocality } from './readout';
 import type { CaptureInput } from './fields';

@@ -33,7 +33,7 @@
  * enforces that gate itself.
  */
 
-import type { CurrencyCode, DocumentKind, ProofRouteKind } from '@valytica/shared';
+import type { CurrencyCode, DocumentKind, ProofRouteKind } from '@realytica/shared';
 
 /** One concrete, costed, sequenced way to obtain a proof — the template a model route is grounded in. */
 export interface ProofRouteTemplate {

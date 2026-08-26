@@ -1,5 +1,5 @@
 /**
- * The data-source registry: every external source Valytica knows about, and —
+ * The data-source registry: every external source Realytica knows about, and —
  * for the ones it cannot reach — an explicit statement of what was therefore
  * not checked.
  *
@@ -62,7 +62,7 @@ import type {
   PropertyType,
   SourceAccess,
   SourceKind,
-} from '@valytica/shared';
+} from '@realytica/shared';
 
 /* ------------------------------------------------------------------ */
 /* Registry-internal extensions to the contract type                   */
@@ -278,7 +278,7 @@ const KAVERI_GUIDANCE_VALUE: RegisteredSource = {
   whatItWouldHaveAnswered:
     'The notified guidance value for this property\'s village and classification, per unit area — the statutory floor for stamp duty and registration, which is charged on the higher of consideration and guidance value. Without it the transaction-cost estimate rests on the pack\'s reference table rather than on the rate actually notified for this village.',
   manualRoute:
-    'Open the guidance-value search on Kaveri Online Services, pass the CAPTCHA, and step through district -> taluk -> hobli -> village -> property classification to the rate table for the property. Export or screenshot the resulting rate table and supply it to Valytica as a file (source `in.ka.igr.guidance_value.file`). The jurisdictional Sub-Registrar office also holds the current notified table and will read it out against a property schedule.',
+    'Open the guidance-value search on Kaveri Online Services, pass the CAPTCHA, and step through district -> taluk -> hobli -> village -> property classification to the rate table for the property. Export or screenshot the resulting rate table and supply it to Realytica as a file (source `in.ka.igr.guidance_value.file`). The jurisdictional Sub-Registrar office also holds the current notified table and will read it out against a property schedule.',
   produces: ['guidance_value'],
   applicability: {
     countries: ['IN'],
@@ -425,7 +425,7 @@ const BBMP_PROPERTY_TAX: RegisteredSource = {
   whatItWouldHaveAnswered:
     'Whether property tax is paid up to the current year against this PID, the assessed unit area value and zone the demand is computed on, and any arrears or interest outstanding. Arrears transfer with the property in practice, and the assessed area on the tax record is an independent statement of extent to reconcile against the deed.',
   manualRoute:
-    'Look the property up on the BBMP property tax portal using the SAS base application number or PID from an earlier receipt, or visit the jurisdictional BBMP ward Revenue office or a BangaloreOne centre with a previous tax receipt. Ask for the paid-status statement covering the last several years, not just the current year, and supply it to Valytica as a file (source `in.ka.bbmp.tax.file`).',
+    'Look the property up on the BBMP property tax portal using the SAS base application number or PID from an earlier receipt, or visit the jurisdictional BBMP ward Revenue office or a BangaloreOne centre with a previous tax receipt. Ask for the paid-status statement covering the last several years, not just the current year, and supply it to Realytica as a file (source `in.ka.bbmp.tax.file`).',
   produces: ['parcel'],
   packDatasets: ['BBMP Sakala / property tax roll'],
   applicability: {
@@ -485,7 +485,7 @@ const KRERA: RegisteredSource = {
   whatItWouldHaveAnswered:
     'Whether the project is registered with K-RERA and under what number, the promoter, the declared completion date, the sanctioned unit and block count, and the quarterly progress reports filed against it. A project that should be registered and is not is itself a serious finding, and the declared completion date is the one a buyer can hold the promoter to.',
   manualRoute:
-    'Search the K-RERA project register by project name, promoter or district, open the project page, and download the registration certificate and the most recent quarterly progress report. Supply those to Valytica — the PDFs go through the document pipeline; a transcribed CSV of the registration fields can be supplied against this source directly. Where the project does not appear, record that as the finding: check with the K-RERA office rather than assuming the search simply missed it.',
+    'Search the K-RERA project register by project name, promoter or district, open the project page, and download the registration certificate and the most recent quarterly progress report. Supply those to Realytica — the PDFs go through the document pipeline; a transcribed CSV of the registration fields can be supplied against this source directly. Where the project does not appear, record that as the finding: check with the K-RERA office rather than assuming the search simply missed it.',
   produces: ['approval'],
   packDatasets: ['K-RERA project registry'],
   fileIntake: {
@@ -588,7 +588,7 @@ const LANDEED: RegisteredSource = {
   whatItWouldHaveAnswered:
     'A packaged encumbrance and registration search assembled from the same state registries, typically returned faster and in a more machine-readable form than the government portals manage. It is a convenience layer over the registry, not an independent authority — a discrepancy between an aggregator result and the SRO record is resolved in favour of the SRO.',
   manualRoute:
-    'Open a commercial account with the aggregator and run the search there, or request an API key if programmatic access is wanted; then supply the returned extract to Valytica as a file. Treat the output as a lead to verify against the Sub-Registrar record, not as a substitute for it.',
+    'Open a commercial account with the aggregator and run the search there, or request an API key if programmatic access is wanted; then supply the returned extract to Realytica as a file. Treat the output as a lead to verify against the Sub-Registrar record, not as a substitute for it.',
   produces: ['encumbrance', 'instrument'],
   applicability: {
     countries: ['IN'],

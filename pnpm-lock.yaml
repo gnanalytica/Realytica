@@ -14,16 +14,19 @@ importers:
       esbuild:
         specifier: ^0.24.2
         version: 0.24.2
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.12
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
 
   apps/api:
     dependencies:
-      '@valytica/agents':
+      '@realytica/agents':
         specifier: workspace:*
         version: link:../../packages/agents
-      '@valytica/shared':
+      '@realytica/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@vercel/blob':
@@ -63,7 +66,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@valytica/shared':
+      '@realytica/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       clsx:
@@ -112,7 +115,7 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.120.0
         version: 0.120.0(zod@3.25.76)
-      '@valytica/shared':
+      '@realytica/shared':
         specifier: workspace:*
         version: link:../shared
       zod:

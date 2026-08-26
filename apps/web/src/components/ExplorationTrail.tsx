@@ -10,7 +10,7 @@ import {
   Lock,
   Search,
 } from 'lucide-react';
-import type { ExplorationLead, ExplorationSession, SourceReachability } from '@valytica/shared';
+import type { ExplorationLead, ExplorationSession, SourceReachability } from '@realytica/shared';
 import { formatUsd } from './AgentRunTimeline';
 import { relativeTime } from '../lib/format';
 import { Badge, Card, CardBody, CardHeader, EmptyState, cn, type Tone } from './ui/kit';

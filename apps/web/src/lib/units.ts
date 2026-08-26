@@ -9,7 +9,8 @@
  * canonical number in m² everywhere else.
  */
 
-import type { CountryCode } from '@valytica/shared';
+import type { CountryCode } from '@realytica/shared';
+import { readPref, writePref } from './prefs';
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -36,24 +37,16 @@ export function defaultAreaUnit(country: CountryCode): AreaUnit {
 /* Preference store                                                    */
 /* ------------------------------------------------------------------ */
 
-const STORAGE_KEY = 'valytica.areaUnit';
+const STORAGE_KEY = 'areaUnit';
 
 function readStoredUnit(): AreaUnit | null {
-  try {
-    const v = localStorage.getItem(STORAGE_KEY);
-    if (v === 'sqft' || v === 'sqm') return v;
-  } catch {
-    /* storage blocked — no persisted preference */
-  }
+  const v = readPref(STORAGE_KEY);
+  if (v === 'sqft' || v === 'sqm') return v;
   return null;
 }
 
 function writeStoredUnit(unit: AreaUnit): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, unit);
-  } catch {
-    /* storage blocked — preference still applies for this page view */
-  }
+  writePref(STORAGE_KEY, unit);
 }
 
 interface AreaUnitContextValue {
@@ -178,7 +171,7 @@ export function ratePerSqftToPerSqm(perSqft: number): number {
 /* ------------------------------------------------------------------ */
 
 /**
- * Local copy of `AreaBasis` shaped to match `@valytica/shared`'s type so this
+ * Local copy of `AreaBasis` shaped to match `@realytica/shared`'s type so this
  * module has no hard dependency on the Karnataka pack landing first — see the
  * contract note in `packages/shared/src/types.ts`. Structurally identical to
  * the shared `AreaBasis` union, so it is a drop-in whichever lands.

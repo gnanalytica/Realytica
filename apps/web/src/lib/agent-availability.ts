@@ -1,4 +1,4 @@
-import type { AgentCapability, AgentKind } from '@valytica/shared';
+import type { AgentCapability, AgentKind } from '@realytica/shared';
 
 /**
  * Can this agent actually run on this deployment?

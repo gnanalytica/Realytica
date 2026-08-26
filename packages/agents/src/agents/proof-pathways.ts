@@ -59,9 +59,9 @@ import type {
   ScreenResult,
   RetrievalSelection,
   TitleGraph,
-} from '@valytica/shared';
+} from '@realytica/shared';
 import { describeError, sumUsage } from '../client';
-import { buildTitleGraph } from '@valytica/shared';
+import { buildTitleGraph } from '@realytica/shared';
 import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { retrieveCaseContext } from '../retrieval';
 import { KARNATAKA_PROOF_ROUTES_VERIFY_BANNER, renderKarnatakaProofRoutesCorpus } from '../knowledge/karnataka-proof-routes';

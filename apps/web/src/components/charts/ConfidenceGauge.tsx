@@ -1,4 +1,4 @@
-import type { ConfidenceBand } from '@valytica/shared';
+import type { ConfidenceBand } from '@realytica/shared';
 import { confidenceTone, titleCase } from '../../lib/format';
 import { STATUS_FILL, STATUS_TEXT, arcPath, polarToCartesian, type StatusKey } from './primitives';
 

@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowRight, Ban, CheckCircle2, HandCoins, Scale, TrendingDown } from 'lucide-react';
-import type { ForcedSaleValue, OfferAdvice, OfferStance } from '@valytica/shared';
+import type { ForcedSaleValue, OfferAdvice, OfferStance } from '@realytica/shared';
 import type { TabProps } from '../tab-props';
 import { money } from '../../../lib/format';
 import { Badge, Callout, Card, CardBody, CardHeader, EmptyState, Stat, cn } from '../../../components/ui/kit';
