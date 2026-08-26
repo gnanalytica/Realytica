@@ -3,6 +3,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   Check,
+  ChevronDown,
   ClipboardCopy,
   Download,
   FileText,
@@ -11,6 +12,8 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import { LENS_PROFILES } from '@realytica/shared';
+import type { LensKey, LensSection } from '@realytica/shared';
 import type {
   ActionPriority,
   Comparable,
@@ -169,38 +172,169 @@ const PRINT_STYLE = `
     box-shadow: none !important;
     break-inside: avoid;
   }
+  /*
+   * A collapsed section still prints. The lens decides what a reader opens
+   * with on screen; it must not decide what a lender receives — a report is
+   * only a report if it is complete.
+   */
+  .vly-report-print details.report-section > :not(summary) {
+    display: block !important;
+  }
+  .vly-report-print summary {
+    list-style: none;
+  }
   @page {
     margin: 14mm;
   }
 }
+
+/* Chrome/Safari still draw their own disclosure marker without this. */
+details.report-section > summary::-webkit-details-marker {
+  display: none;
+}
 `;
 
+/**
+ * How many report sections open by default, over and above the ones that
+ * always do.
+ *
+ * Counted in *report* sections rather than lens sections, which is the fix
+ * for a rule that looked right and was not: "open the lens's first four
+ * sections" opened eleven of seventeen for a developer, because six report
+ * sections — the range, the offer, the forced sale, the basis, the
+ * comparables, the drivers — all map to `value`. Ranking the report's own
+ * sections by where their lens section falls, then taking the top few, keeps
+ * the promise the rule was making.
+ */
+const REPORT_LEAD_SECTIONS = 5;
+
+/**
+ * Sections that open under every lens.
+ *
+ * The cover and the recommendation because a folded verdict is not a report,
+ * and the scope note because a reader must not have to click to find out what
+ * this document is not.
+ */
+/**
+ * Every section of the report, in the order it is printed, tagged with the
+ * lens section it answers.
+ *
+ * Declared as a list rather than inferred from the JSX so the ranking below
+ * can be computed once, before anything renders. The two must agree — a
+ * section tagged here but not rendered simply never opens; a section rendered
+ * without a tag falls through to `'evidence'`, the least-privileged rank, and
+ * starts folded, which is the safe direction to fail in.
+ */
+const REPORT_SECTION_ORDER: { id: string; section: LensSection | 'always' }[] = [
+  { id: 'cover', section: 'always' },
+  { id: 'recommendation', section: 'always' },
+  { id: 'value', section: 'value' },
+  { id: 'offer', section: 'offer' },
+  { id: 'forcedSale', section: 'value' },
+  { id: 'basis', section: 'value' },
+  { id: 'comparables', section: 'value' },
+  { id: 'drivers', section: 'value' },
+  { id: 'risks', section: 'risks' },
+  { id: 'compliance', section: 'compliance' },
+  { id: 'costs', section: 'costs' },
+  { id: 'constraints', section: 'constraints' },
+  { id: 'planning', section: 'planning' },
+  { id: 'completeness', section: 'documents' },
+  { id: 'confidence', section: 'evidence' },
+  { id: 'actions', section: 'actions' },
+  { id: 'appendix', section: 'evidence' },
+  { id: 'scope', section: 'always' },
+];
+
+/**
+ * At most this many report sections per lens section may open.
+ *
+ * Without it a developer opened five sections and every one of them was
+ * `value` — the range, the forced sale, the basis, the comparables and the
+ * drivers — while "What to offer", the thing a developer opens the report
+ * for, stayed folded behind them. One lens section must not be able to spend
+ * the whole budget.
+ */
+const MAX_OPEN_PER_SECTION = 2;
+
+/**
+ * Decide which sections a reader opens with.
+ *
+ * Walk this reader's lens sections in their order, take up to two report
+ * sections from each in document order, and stop once the budget is spent.
+ * `always` sections are outside the count.
+ */
+function makeOpenFor(lens: LensKey, expandAll: boolean): (id: string) => boolean {
+  if (expandAll) return () => true;
+  const open = new Set<string>(REPORT_SECTION_ORDER.filter(r => r.section === 'always').map(r => r.id));
+  let budget = REPORT_LEAD_SECTIONS;
+  for (const lensSection of LENS_PROFILES[lens].sections) {
+    if (budget <= 0) break;
+    const inSection = REPORT_SECTION_ORDER.filter(r => r.section === lensSection);
+    for (const report of inSection.slice(0, MAX_OPEN_PER_SECTION)) {
+      if (budget <= 0) break;
+      open.add(report.id);
+      budget -= 1;
+    }
+  }
+  return (id: string) => open.has(id);
+}
+
+/**
+ * One numbered section of the report.
+ *
+ * Collapsible on screen, never in print. The report reproduces every section
+ * of a screen — nineteen of them, most of a metre of scroll — because a
+ * report has to be complete: a section left out of a document someone sends
+ * to a lender is a section that does not exist. But complete is not the same
+ * as all-open, and which sections a reader opens with depends on which reader
+ * they are, so `open` comes from the lens.
+ *
+ * The collapse is a `<details>` rather than conditional rendering, for one
+ * reason that matters more than it looks: the browser's own find-in-page and
+ * the print stylesheet can both reach inside a closed `<details>`, and cannot
+ * reach content React never rendered. A collapsed section is still in the
+ * document, still printed, still findable — folded, not filtered, which is
+ * the same rule the lenses follow everywhere else.
+ */
 function Section({
   n,
   title,
   subtitle,
   action,
+  open,
   children,
 }: {
   n: number;
   title: string;
   subtitle?: ReactNode;
   action?: ReactNode;
+  /** Whether this section starts expanded. The reader can still open any of them. */
+  open?: boolean;
   children: ReactNode;
 }) {
   return (
     <Card>
-      <CardHeader
-        title={
-          <span>
-            <span className="mr-2 text-ink-muted">{String(n).padStart(2, '0')}</span>
-            {title}
-          </span>
-        }
-        subtitle={subtitle}
-        action={action}
-      />
-      <CardBody className="space-y-3">{children}</CardBody>
+      <details open={open !== false} className="report-section group">
+        <summary className="cursor-pointer list-none">
+          <CardHeader
+            title={
+              <span className="flex items-center gap-2">
+                <span className="text-ink-muted">{String(n).padStart(2, '0')}</span>
+                {title}
+                <ChevronDown
+                  size={14}
+                  aria-hidden="true"
+                  className="no-print text-ink-faint transition-transform duration-base group-open:rotate-180"
+                />
+              </span>
+            }
+            subtitle={subtitle}
+            action={action}
+          />
+        </summary>
+        <CardBody className="space-y-3">{children}</CardBody>
+      </details>
     </Card>
   );
 }
@@ -246,11 +380,24 @@ function ComplianceCheckRow({ check }: { check: ComplianceCheck }) {
 /* Report                                                              */
 /* ------------------------------------------------------------------ */
 
-export default function ReportTab({ caseData, result, runScreen, running, goToTab }: TabProps) {
+export default function ReportTab({ caseData, result, runScreen, running, goToTab, lens }: TabProps) {
   const toast = useToast();
   const areaUnit = useAreaUnitFor(caseData.identity.country);
   const unitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
   const [showAppendix, setShowAppendix] = useState(false);
+  const [expandAll, setExpandAll] = useState(false);
+
+  /*
+   * Which sections this reader opens with.
+   *
+   * The report carries all nineteen — that is what makes it a report — but a
+   * developer opening it to nineteen expanded sections has to scroll past the
+   * planning envelope to reach the offer, and an architect has to scroll past
+   * the offer to reach the envelope. The lens's leading sections start open;
+   * the rest start folded, one click and a find-in-page away, and always
+   * printed.
+   */
+  const openFor = makeOpenFor(lens, expandAll);
 
   if (!result) {
     return (
@@ -415,8 +562,14 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         <div>
           <h1 className="text-[15px] font-semibold text-ink">Property Screen report</h1>
           <p className="text-xs text-ink-secondary">{caseData.reference} · generated {date(result.generatedAt, 'long')}</p>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            Opened for the <span className="font-medium text-ink-secondary">{LENS_PROFILES[lens].label.toLowerCase()}</span>:{' '}
+            {LENS_PROFILES[lens].question} Every section is in the document and every section prints — the folded ones are
+            the ones another reader came for.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Toggle checked={expandAll} onChange={setExpandAll} label="Expand every section" size="sm" />
           <Toggle checked={showAppendix} onChange={setShowAppendix} label="Include evidence appendix" size="sm" />
           <Button variant="secondary" size="sm" icon={<ClipboardCopy size={13} />} onClick={copySummary}>
             Copy summary
@@ -432,7 +585,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
 
       <div className="space-y-4">
         {/* Cover */}
-        <Section n={nextSection()} title="Cover">
+        <Section n={nextSection()} title="Cover" open={openFor('cover')}>
           <div className="text-center">
             <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-muted">Realytica Property Screen</div>
             <h2 className="mt-2 text-xl font-semibold tracking-tight text-ink">{identity.label}</h2>
@@ -449,7 +602,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         </Section>
 
         {/* Recommendation */}
-        <Section n={nextSection()} title="Recommendation">
+        <Section n={nextSection()} title="Recommendation" open={openFor('recommendation')}>
           <div className="flex items-center gap-3">
             <span className={toneText(verdictColor)}>
               <VerdictIcon size={26} />
@@ -483,7 +636,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         </Section>
 
         {/* Indicative value */}
-        <Section n={nextSection()} title="Indicative value" subtitle="A range, never a point — uncertainty is the point">
+        <Section n={nextSection()} title="Indicative value" subtitle="A range, never a point — uncertainty is the point" open={openFor('value')}>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <KeyValue label="Range" value={`${money(result.indicativeValue.low, currency)} – ${money(result.indicativeValue.high, currency)}`} />
             <KeyValue label="Mid" value={money(result.indicativeValue.mid, currency)} mono />
@@ -519,6 +672,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <Section
             n={nextSection()}
             title="What to offer"
+          open={openFor('offer')}
             subtitle="Three prices, and the argument for each"
             action={
               <Badge tone={result.offer.stance === 'do_not_offer' ? 'critical' : result.offer.stance === 'offer_conditionally' ? 'warning' : 'good'}>
@@ -593,6 +747,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <Section
             n={nextSection()}
             title="Value under a forced sale"
+          open={openFor('forcedSale')}
             subtitle={`What this would realise inside ${result.forcedSale.marketingPeriodDays} days`}
             action={<Badge tone={result.forcedSale.lendable ? 'neutral' : 'critical'}>{result.forcedSale.lendable ? `−${result.forcedSale.discountPct}%` : 'Not a lending figure'}</Badge>}
           >
@@ -626,7 +781,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         )}
 
         {/* Basis of the range */}
-        <Section n={nextSection()} title="Basis of the range">
+        <Section n={nextSection()} title="Basis of the range" open={openFor('basis')}>
           <TableWrap>
             <table className="w-full min-w-[560px] border-collapse text-[13px]">
               <thead>
@@ -660,7 +815,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         </Section>
 
         {/* Market comparables */}
-        <Section n={nextSection()} title="Market comparables" subtitle={`${result.comparables.length} used in this range`}>
+        <Section n={nextSection()} title="Market comparables" subtitle={`${result.comparables.length} used in this range`} open={openFor('comparables')}>
           <TableWrap>
             <table className="w-full min-w-[720px] border-collapse text-[13px]">
               <thead>
@@ -702,7 +857,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         </Section>
 
         {/* Value drivers */}
-        <Section n={nextSection()} title="Value drivers">
+        <Section n={nextSection()} title="Value drivers" open={openFor('drivers')}>
           <DriverImpactChart drivers={result.drivers} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {Array.from(driversByCategory.entries()).map(([category, drivers]) => (
@@ -733,6 +888,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         <Section
           n={nextSection()}
           title="Material risks"
+          open={openFor('risks')}
 
           action={<Badge tone={openRisksCount > 0 ? 'critical' : 'good'}>{openRisksCount} open</Badge>}
         >
@@ -770,6 +926,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <Section
             n={nextSection()}
             title={`State compliance (${stateCompliance.state})`}
+          open={openFor('compliance')}
             subtitle="Title and municipal checks specific to this state — not a legal opinion or certified title report"
             action={<Badge tone={complianceBlockers.length > 0 ? 'critical' : 'good'}>{complianceBlockers.length} blocker{complianceBlockers.length === 1 ? '' : 's'}</Badge>}
           >
@@ -843,6 +1000,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <Section
             n={nextSection()}
             title="Indicative acquisition costs"
+          open={openFor('costs')}
             subtitle="Stamp duty, cess, surcharge and registration on top of the price"
           >
             <Callout tone="info" title="Duty is charged on the higher of price and guidance value">
@@ -909,6 +1067,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <Section
             n={nextSection()}
             title="Restrictions beyond title"
+          open={openFor('constraints')}
             subtitle="Flooding, and the statutory constraints no deed will mention"
             action={
               uncheckedConstraints > 0 ? <Badge tone="neutral">{uncheckedConstraints} unchecked</Badge> : undefined
@@ -944,7 +1103,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         )}
 
         {/* Planning position */}
-        <Section n={nextSection()} title="Planning position">
+        <Section n={nextSection()} title="Planning position" open={openFor('planning')}>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <KeyValue label="Zoning" value={result.planning.zoning} />
             <KeyValue label="Development potential" value={titleCase(result.planning.developmentPotential)} />
@@ -992,6 +1151,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         <Section
           n={nextSection()}
           title="Document completeness"
+          open={openFor('completeness')}
           action={
             <Button variant="ghost" size="sm" onClick={() => goToTab('documents')}>
               Go to Documents
@@ -1043,7 +1203,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         </Section>
 
         {/* Confidence */}
-        <Section n={nextSection()} title="Confidence" subtitle="Stated as arithmetic, not a black box">
+        <Section n={nextSection()} title="Confidence" subtitle="Stated as arithmetic, not a black box" open={openFor('confidence')}>
           <div className="flex flex-wrap items-center gap-6">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Score</div>
@@ -1078,7 +1238,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         </Section>
 
         {/* Recommended actions */}
-        <Section n={nextSection()} title="Recommended actions">
+        <Section n={nextSection()} title="Recommended actions" open={openFor('actions')}>
           <div className="space-y-4">
             {PRIORITY_ORDER.map((priority) => {
               const list = actionsByPriority.get(priority) ?? [];
@@ -1113,7 +1273,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
 
         {/* Evidence appendix */}
         {showAppendix ? (
-          <Section n={nextSection()} title="Evidence appendix" subtitle={`Full ledger — ${result.evidence.length} items`}>
+          <Section n={nextSection()} title="Evidence appendix" subtitle={`Full ledger — ${result.evidence.length} items`} open={openFor('appendix')}>
             <TableWrap>
               <table className="w-full min-w-[640px] border-collapse text-[13px]">
                 <thead>
@@ -1153,7 +1313,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         )}
 
         {/* Scope and limitations */}
-        <Section n={nextSection()} title="Scope and limitations">
+        <Section n={nextSection()} title="Scope and limitations" open={openFor('scope')}>
           <p className="text-[13px] leading-relaxed text-ink-secondary">This Property Screen report is an evidence-based indicative screen. It is not:</p>
           <ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink-secondary">
             {OUT_OF_SCOPE.map((item, i) => (

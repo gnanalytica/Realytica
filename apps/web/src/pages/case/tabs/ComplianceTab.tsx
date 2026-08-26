@@ -3,6 +3,7 @@ import type { ChangeEvent, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
+  ChevronDown,
   Filter,
   HelpCircle,
   Library,
@@ -11,7 +12,8 @@ import {
   ScrollText,
   XCircle,
 } from 'lucide-react';
-import type { ComplianceCheck, ComplianceVerdict, EvidenceItem, TransactionCostBreakdown } from '@realytica/shared';
+import { SITE_CONSTRAINT_KEYS } from '@realytica/shared';
+import type { ComplianceCheck, ComplianceVerdict, EvidenceItem } from '@realytica/shared';
 import { CostWaterfallChart } from '../../../components/charts';
 import type { TabProps } from '../tab-props';
 import { WaterExposureCard } from '../../../components/WaterExposureCard';
@@ -59,6 +61,8 @@ const VERDICT_RANK: Record<ComplianceVerdict, number> = { blocker: 0, attention:
 
 type RestFilter = 'all' | 'attention' | 'unknown' | 'clear';
 
+
+
 function complianceBand(score: number, blockerCount: number): { label: string; tone: Tone } {
   if (blockerCount > 0) {
     return { label: `${blockerCount} blocker${blockerCount === 1 ? '' : 's'} — do not proceed yet`, tone: 'critical' };
@@ -78,6 +82,18 @@ function InfoBlock({ title, children }: { title: string; children: ReactNode }) 
   );
 }
 
+/**
+ * One check, with its finding always visible and its working behind a click.
+ *
+ * The finding is the answer and is never collapsed. The consequence, the next
+ * step and the evidence trail are what a reader opens when this particular
+ * check is the one they care about — and reading all of them for all fourteen
+ * checks is not a thing anyone does, which is what made this view ten
+ * thousand pixels long.
+ *
+ * A blocker ignores all of that and renders open. Somebody scrolling past a
+ * collapsed blocker has been failed by the interface.
+ */
 function ComplianceCheckCard({
   check,
   emphasize,
@@ -93,9 +109,12 @@ function ComplianceCheckCard({
 }) {
   const tone = VERDICT_TONE[check.verdict];
   const Icon = TONE_ICON[tone];
+  const alwaysOpen = check.verdict === 'blocker';
+  const [open, setOpen] = useState(alwaysOpen);
+  const expanded = alwaysOpen || open;
   return (
     <Card className={cn(emphasize && 'ring-2 ring-critical/50')}>
-      <CardBody className="flex flex-col gap-3">
+      <CardBody className="flex flex-col gap-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge tone={tone} icon={<Icon size={11} />}>
             {VERDICT_TEXT[check.verdict]}
@@ -109,47 +128,36 @@ function ComplianceCheckCard({
           </span>
         </div>
         <p className="text-[13px] leading-relaxed text-ink">{check.finding}</p>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <InfoBlock title="Consequence">{check.consequence}</InfoBlock>
-          <InfoBlock title="Next step">{check.nextStep}</InfoBlock>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-hairline pt-2.5">
-          <EvidenceLink ids={check.evidenceIds} evidence={evidence} onOpen={onOpenEvidence} />
-          {check.relatedRiskIds.length > 0 ? (
-            <Button variant="ghost" size="sm" icon={<ArrowRight size={13} />} onClick={onJumpToRisks}>
-              {check.relatedRiskIds.length} related risk{check.relatedRiskIds.length === 1 ? '' : 's'}
-            </Button>
-          ) : null}
-        </div>
+
+        {expanded ? (
+          <>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <InfoBlock title="Consequence">{check.consequence}</InfoBlock>
+              <InfoBlock title="Next step">{check.nextStep}</InfoBlock>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-hairline pt-2.5">
+              <EvidenceLink ids={check.evidenceIds} evidence={evidence} onOpen={onOpenEvidence} />
+              {check.relatedRiskIds.length > 0 ? (
+                <Button variant="ghost" size="sm" icon={<ArrowRight size={13} />} onClick={onJumpToRisks}>
+                  {check.relatedRiskIds.length} related risk{check.relatedRiskIds.length === 1 ? '' : 's'}
+                </Button>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+
+        {!alwaysOpen && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="flex items-center gap-1 self-start text-[12px] font-medium text-brand hover:underline"
+          >
+            {open ? 'Less' : 'Consequence, next step and evidence'}
+            <ChevronDown size={12} className={cn('transition-transform duration-base', open && 'rotate-180')} />
+          </button>
+        )}
       </CardBody>
     </Card>
-  );
-}
-
-function CostTable({ lines, currency }: { lines: TransactionCostBreakdown['lines']; currency: TransactionCostBreakdown['currency'] }) {
-  return (
-    <div className="overflow-x-auto rounded-lg ring-1 ring-[var(--ring)]">
-      <table className="w-full min-w-[520px] border-collapse text-[13px]">
-        <thead>
-          <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-[0.05em] text-ink-muted">
-            <th className="px-3 py-2">Line item</th>
-            <th className="px-3 py-2">Rate</th>
-            <th className="px-3 py-2">Note</th>
-            <th className="px-3 py-2 text-right">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((line) => (
-            <tr key={line.key} className="border-b border-hairline last:border-0 align-top">
-              <td className="px-3 py-2 font-medium text-ink">{line.label}</td>
-              <td className="px-3 py-2 tabular text-ink-secondary">{line.pct != null ? pct(line.pct, 2) : '—'}</td>
-              <td className="px-3 py-2 text-ink-secondary">{line.note}</td>
-              <td className="px-3 py-2 text-right tabular font-medium text-ink">{money(line.amount, currency, { compact: false })}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
 
@@ -247,19 +255,15 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
   // can I not yet ask" — which is what a user opening this tab actually wants
   // to know first.
   const playbooks = result.playbooks ?? [];
+  // Site constraints live in their own view now; the count of unanswered ones
+  // still belongs here, because this is where a reader meets the findings
+  // that answering them would resolve.
+  const unansweredConstraints = compliance.checks.filter(
+    (c) => c.verdict === 'unknown' && (SITE_CONSTRAINT_KEYS as string[]).includes(c.key),
+  ).length;
 
   return (
     <div className="flex flex-col gap-4">
-      {/*
-        * Water sits here, above the statutory checks, rather than in its own
-        * place. The buffer check below asks whether this parcel abuts a drain
-        * or a lake; this asks what happens to the water once it does. They
-        * are the same question at two scales, and separating them across the
-        * app would let a reader clear the first without ever meeting the
-        * second.
-        */}
-      {result.waterExposure && <WaterExposureCard water={result.waterExposure} locality={caseData.identity.locality} />}
-
       {/* Header */}
       <Card>
         <CardHeader
@@ -321,13 +325,22 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
       </Card>
 
       {/*
-        * The declaration form sits directly under the header, above the
-        * checks it feeds. A reader who has just met five findings saying
-        * "nobody has looked at this" is exactly the person who can answer
-        * them, and a form on another tab behind an Edit button is a form
-        * nobody fills in.
+        * The declaration form moved to its own view. A reader who has just
+        * met five findings saying "nobody has looked at this" is exactly the
+        * person who can answer them, so the link stays here and stays loud —
+        * a form nobody can find is a form nobody fills in.
         */}
-      <SiteConstraintsCard caseData={caseData} checks={compliance.checks} refresh={refresh} />
+      {unansweredConstraints > 0 && (
+        <Callout tone="warning" title={`${unansweredConstraints} site constraint${unansweredConstraints === 1 ? '' : 's'} nobody has answered`}>
+          <p>
+            Drain and lake buffers, tank beds, high-tension lines, heritage and aerodrome height are not in any deed.
+            Until someone answers them they are reported as unknown, which is what they are — not as clear.
+          </p>
+          <Button variant="secondary" size="sm" className="mt-2" icon={<ArrowRight size={13} />} onClick={() => goToTab('legal?view=constraints')}>
+            Answer them
+          </Button>
+        </Callout>
+      )}
 
       {playbooks.length > 0 && <PlaybookPanel runs={playbooks} />}
 
@@ -455,79 +468,6 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
         </>
       ) : null}
 
-      {/* Acquisition costs */}
-      {costs ? <AcquisitionCostCard costs={costs} askingPrice={caseData.identity.askingPrice} /> : null}
     </div>
-  );
-}
-
-function AcquisitionCostCard({
-  costs,
-  askingPrice,
-}: {
-  costs: TransactionCostBreakdown;
-  askingPrice: number | undefined;
-}) {
-  const onGuidanceValue = costs.dutiableBasis === 'statutory_guidance_value';
-  const upliftPct = onGuidanceValue && askingPrice ? ((costs.dutiableValue - askingPrice) / askingPrice) * 100 : null;
-
-  return (
-    <Card>
-      <CardHeader
-        title="Indicative acquisition costs"
-        subtitle="Stamp duty, cess, surcharge and registration on top of the price"
-        icon={<Receipt size={16} />}
-      />
-      <CardBody className="flex flex-col gap-4">
-        {/*
-         * The chart leads and the table follows. Four line items are a thing
-         * nobody adds up, and the total is the question — the table is still
-         * there underneath for anyone checking a figure against a receipt.
-         */}
-        <CostWaterfallChart costs={costs} askingPrice={askingPrice} />
-        <Callout tone="info" title="Duty is charged on the higher of price and guidance value">
-          Karnataka computes stamp duty and registration fees on whichever is higher: the agreed sale consideration or
-          the government&rsquo;s guidance value for the locality — never on the lower figure, even if the negotiated
-          price is lower. Most buyers only discover this at the sub-registrar&rsquo;s office.
-        </Callout>
-
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Stat label="Dutiable value" value={money(costs.dutiableValue, costs.currency)} />
-          <Stat
-            label="Basis used"
-            value={onGuidanceValue ? 'Guidance value' : 'Sale consideration'}
-            tone={onGuidanceValue ? 'warning' : 'neutral'}
-          />
-          <Stat label="Total cost" value={money(costs.total, costs.currency)} />
-          <Stat label="As % of price" value={pct(costs.totalPctOfPrice, 1)} />
-        </div>
-
-        {onGuidanceValue ? (
-          <Callout tone="warning" title="Guidance value exceeds the agreed price">
-            This property&rsquo;s statutory guidance value is higher than the price used for this screen, so duty is
-            charged on the guidance value of {money(costs.dutiableValue, costs.currency, { compact: false })}
-            {upliftPct != null ? ` — ${pct(upliftPct, 1, true)} above the price` : ''}, not the lower agreed
-            consideration.
-          </Callout>
-        ) : (
-          <p className="text-xs leading-relaxed text-ink-secondary">
-            The agreed price is at or above the guidance value here, so duty is charged on the sale consideration of{' '}
-            {money(costs.dutiableValue, costs.currency, { compact: false })}.
-          </p>
-        )}
-
-        <CostTable lines={costs.lines} currency={costs.currency} />
-
-        <div className="flex items-baseline justify-between border-t border-hairline pt-2.5 text-[13px] font-semibold text-ink">
-          <span>Total indicative cost</span>
-          <span className="tabular">
-            {money(costs.total, costs.currency, { compact: false })}{' '}
-            <span className="font-normal text-ink-secondary">({pct(costs.totalPctOfPrice, 1)} of price)</span>
-          </span>
-        </div>
-
-        <StatutoryProvenance asOf={costs.asOf} source={costs.source} verifyNote={costs.verifyNote} />
-      </CardBody>
-    </Card>
   );
 }

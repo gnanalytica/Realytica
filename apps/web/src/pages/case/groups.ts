@@ -16,6 +16,8 @@ import CompletenessTab from './tabs/CompletenessTab';
 import EvidenceTab from './tabs/EvidenceTab';
 import ActionsTab from './tabs/ActionsTab';
 import ReportTab from './tabs/ReportTab';
+import ConstraintsTab from './tabs/ConstraintsTab';
+import CostsTab from './tabs/CostsTab';
 
 /**
  * Five places instead of fourteen.
@@ -72,6 +74,10 @@ export const CASE_GROUPS: CaseGroup[] = [
       // decision and this is the decision; burying it behind the drivers
       // would put the working above the answer.
       { key: 'offer', label: 'What to offer', component: OfferTab },
+      // Acquisition costs used to sit at the bottom of the compliance view,
+      // thirteen thousand pixels of title checks below the fold. A reader
+      // asking what this costs all-in is asking a money question.
+      { key: 'costs', label: 'Costs to buy', component: CostsTab },
       { key: 'movers', label: 'What moves it', component: DriversTab },
     ],
   },
@@ -82,6 +88,11 @@ export const CASE_GROUPS: CaseGroup[] = [
     views: [
       { key: 'title', label: 'Title', component: TitleTab },
       { key: 'compliance', label: 'Compliance', component: ComplianceTab },
+      // Answering the constraint declarations and reading the findings they
+      // produce are two different activities. Stacked in one view, a reader
+      // browsing findings scrolled through a form and a reader filling in the
+      // form scrolled through findings.
+      { key: 'constraints', label: 'Site constraints', component: ConstraintsTab },
       { key: 'planning', label: 'Planning', component: PlanningTab },
     ],
   },
@@ -106,7 +117,7 @@ export const CASE_GROUPS: CaseGroup[] = [
 ];
 
 /** Views whose content is meaningless before the case has been screened once. */
-export const NEEDS_SCREEN = new Set(['risks', 'missing', 'range', 'offer', 'movers', 'title', 'compliance', 'planning', 'evidence', 'report', 'actions']);
+export const NEEDS_SCREEN = new Set(['risks', 'missing', 'range', 'offer', 'costs', 'movers', 'title', 'compliance', 'constraints', 'planning', 'evidence', 'report', 'actions']);
 
 export function findGroup(key: string | undefined): CaseGroup | undefined {
   return CASE_GROUPS.find(g => g.key === key);
@@ -170,6 +181,10 @@ export const LEGACY_TAB_REDIRECT: Record<string, { group: string; view: string }
   drivers: { group: 'value', view: 'movers' },
   title: { group: 'legal', view: 'title' },
   compliance: { group: 'legal', view: 'compliance' },
+  // Split out of Compliance; the bare keys are what in-app links pass to
+  // `goToTab`, and they resolve here rather than 404ing to the overview.
+  constraints: { group: 'legal', view: 'constraints' },
+  costs: { group: 'value', view: 'costs' },
   planning: { group: 'legal', view: 'planning' },
   documents: { group: 'documents', view: 'files' },
   evidence: { group: 'documents', view: 'evidence' },
