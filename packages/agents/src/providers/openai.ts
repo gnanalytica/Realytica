@@ -52,7 +52,29 @@
 
 import { inflateSync } from 'node:zlib';
 import type { CapabilityGap, ProviderDescriptor } from '@valytica/shared';
-import { estimateUsage, warnOnce } from '../client';
+import { warnOnce } from '../client';
+/*
+ * Priced through the cross-provider table, NOT through `client.ts`'s
+ * `estimateUsage`.
+ *
+ * That function resolves against Anthropic's rate card and falls back to the
+ * most expensive Anthropic model for an id it does not recognise — a
+ * deliberate, bounded ceiling *within one vendor's price list*. Carried across
+ * the provider boundary it stops being conservative and becomes wrong by two
+ * orders of magnitude: measured, a llama route priced at $1.25 for tokens
+ * worth about $0.13.
+ *
+ * And it does not merely overstate, it inverts the answer. The whole point of
+ * routing a tier to a cheaper vendor is that it is cheaper; a cost view that
+ * reports the cheap route as the expensive one would argue against the change
+ * that just saved the money — and `savedUsd` on the case summary would come
+ * out negative.
+ *
+ * The cross-provider table prices what it knows and reports the rest as
+ * unpriced rather than guessing, which is the honest answer for a model whose
+ * rates this deployment has not been told.
+ */
+import { pricedUsage } from '../telemetry/pricing';
 import { ProviderCallError, mergeGaps } from './types';
 import type {
   LlmClientTool,
@@ -629,11 +651,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
       model: req.model,
       content: parsed.content,
       stopReason: parsed.stopReason,
-      usage: estimateUsage(req.model, {
-        input_tokens: parsed.tokens.inputTokens,
-        output_tokens: parsed.tokens.outputTokens,
-        cache_read_input_tokens: parsed.tokens.cacheReadTokens,
-      }),
+      usage: pricedUsage('openai_compatible', req.model, parsed.tokens),
       capabilityGaps: mergeGaps(mapped.gaps, parsed.gaps),
       durationMs: Date.now() - startedAt,
       // Not streamed. `/chat/completions` streaming is SSE and its
@@ -717,11 +735,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
       model: req.model,
       content: last.content,
       stopReason: last.stopReason,
-      usage: estimateUsage(req.model, {
-        input_tokens: tokens.inputTokens,
-        output_tokens: tokens.outputTokens,
-        cache_read_input_tokens: tokens.cacheReadTokens,
-      }),
+      usage: pricedUsage('openai_compatible', req.model, tokens),
       capabilityGaps: mergeGaps(gaps),
       durationMs: Date.now() - startedAt,
       timeToFirstTokenMs: undefined,
