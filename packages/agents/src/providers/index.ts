@@ -18,3 +18,5 @@ export {
   type OpenAiCompatibleConfig,
   type OpenAiCompatibleOverrides,
 } from './openai';
+
+export { setTelemetrySink, telemetrySinkInstalled } from './instrument';

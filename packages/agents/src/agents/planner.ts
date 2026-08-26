@@ -429,6 +429,7 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
   try {
     result = await provider.complete({
       agent: 'planner',
+      caseId,
       model,
       maxTokens: 6000,
       effort: 'medium',

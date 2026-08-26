@@ -1,4 +1,4 @@
-import type { LlmCallRecord, MemoryFact, PropertyCase } from '@valytica/shared';
+import type { IntakeSession, LlmCallRecord, MemoryFact, PropertyCase } from '@valytica/shared';
 import type { PromptStoreData } from '@valytica/agents';
 import { storageAdapter } from './storage';
 
@@ -54,6 +54,17 @@ export interface StoreData {
    * Optional so a store written before the prompt registry existed still loads.
    */
   prompts?: PromptStoreData;
+  /**
+   * In-flight intake conversations (see `@valytica/agents`'s `intake/`).
+   *
+   * Kept here rather than in their own document for the same reason memory is:
+   * one document means one durability path. A session is small — a handful of
+   * turns and a flat field list — and is pruned once it has produced a case,
+   * so this does not grow without bound.
+   *
+   * Optional so a store written before the intake existed still loads.
+   */
+  intakeSessions?: IntakeSession[];
 }
 
 // Re-exported for the routes that still build upload paths directly against
@@ -104,6 +115,7 @@ function normalizeStoreData(loaded: StoreData | null): StoreData {
       loaded.prompts && typeof loaded.prompts === 'object' && !Array.isArray(loaded.prompts)
         ? loaded.prompts
         : undefined,
+    intakeSessions: Array.isArray(loaded.intakeSessions) ? loaded.intakeSessions : undefined,
   };
 }
 

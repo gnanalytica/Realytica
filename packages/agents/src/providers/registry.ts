@@ -19,6 +19,7 @@
 import type { AgentKind, AgentRoute, CapabilityGap, ProviderCapabilities, ProviderDescriptor, ProviderId } from '@valytica/shared';
 import { AGENT_CAPABILITY_NEEDS, formatRoute, routeFor } from '../routing';
 import { anthropicProvider } from './anthropic';
+import { instrument } from './instrument';
 import { openAiCompatibleProvider } from './openai';
 import type { LlmProvider } from './types';
 
@@ -27,8 +28,30 @@ const PROVIDERS: Record<ProviderId, LlmProvider> = {
   openai_compatible: openAiCompatibleProvider,
 };
 
+/**
+ * Instrumented once, at module load.
+ *
+ * `providerFor` is the single point every agent reaches a provider through, so
+ * wrapping here means a new agent is recorded by existing rather than by
+ * remembering to opt in. Built eagerly rather than per call so the wrapper is
+ * not re-allocated on every model request.
+ */
+const INSTRUMENTED: Record<ProviderId, LlmProvider> = {
+  anthropic: instrument(PROVIDERS.anthropic, 'anthropic'),
+  openai_compatible: instrument(PROVIDERS.openai_compatible, 'openai_compatible'),
+};
+
 /** The provider object for an id. Total over `ProviderId`, so a new id is a compile error here. */
 export function providerFor(id: ProviderId): LlmProvider {
+  return INSTRUMENTED[id];
+}
+
+/**
+ * The provider without telemetry, for the capability probe and anything else
+ * that must not appear in the cost view. Kept separate rather than adding a
+ * flag to `providerFor`, so an unrecorded call is a deliberate import.
+ */
+export function rawProviderFor(id: ProviderId): LlmProvider {
   return PROVIDERS[id];
 }
 

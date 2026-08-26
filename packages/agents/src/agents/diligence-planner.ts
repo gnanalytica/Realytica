@@ -286,6 +286,7 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
   try {
     result = await provider.complete({
       agent: 'diligence_planner',
+      caseId,
       model,
       maxTokens: 16000,
       system: [{ text: systemPrompt.content, cacheBreakpoint: true }],

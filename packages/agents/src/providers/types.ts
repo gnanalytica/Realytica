@@ -170,6 +170,16 @@ export type LlmToolChoice = { type: 'auto' } | { type: 'tool'; name: string };
 export interface LlmRequest {
   /** Whose call this is. Selects the base request and names the run in telemetry. */
   agent: AgentKind;
+  /**
+   * The case this call is made on behalf of, where there is one.
+   *
+   * Carried purely so telemetry can attribute spend to a case. Absent for work
+   * that is not case-scoped — an evaluation run, a capability probe, and the
+   * intake conversation, which happens before a case exists. Without it the
+   * telemetry view's per-case filter matches nothing, which is how it behaved
+   * until this field existed.
+   */
+  caseId?: string;
   /** The model id, exactly as the endpoint expects it (an OpenRouter id keeps its `vendor/model` slash). */
   model: string;
   maxTokens: number;

@@ -217,6 +217,7 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
   try {
     result = await provider.runTools({
       agent: 'market_research',
+      caseId,
       model,
       maxTokens: 8000,
       system: [{ text: systemPrompt.content, cacheBreakpoint: true }],

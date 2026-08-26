@@ -552,6 +552,7 @@ async function runGapPathway(provider: LlmProvider, model: string, systemText: s
   try {
     const outcome = await provider.complete({
       agent: 'proof_pathways',
+      caseId: caseData.id,
       model,
       maxTokens: GAP_MAX_TOKENS,
       effort: 'high',

@@ -615,6 +615,7 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
     try {
       result = await provider.runTools({
         agent: 'explorer',
+      caseId,
         model,
         maxTokens: MAX_TOKENS_PER_ITERATION,
         system: systemBlocks,

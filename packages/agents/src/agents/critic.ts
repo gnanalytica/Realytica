@@ -432,9 +432,11 @@ async function verifyPathwayRoutes(
   model: string,
   systemText: string,
   pathway: DocumentPathway,
+  caseId: string,
 ): Promise<{ findings: CriticFinding[]; usage: AgentUsage; capabilityGaps: CapabilityGap[] }> {
   const result = await provider.complete({
     agent: 'critic',
+    caseId,
     model,
     maxTokens: 8000,
     effort: 'high',
@@ -492,9 +494,11 @@ async function verifyResearchFindings(
   model: string,
   systemText: string,
   findings: ResearchFinding[],
+  caseId: string,
 ): Promise<{ findings: CriticFinding[]; usage: AgentUsage; capabilityGaps: CapabilityGap[] }> {
   const result = await provider.complete({
     agent: 'critic',
+    caseId,
     model,
     maxTokens: 8000,
     effort: 'high',
@@ -671,7 +675,9 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
       emit({ kind: 'tool_call', label: `Verifying ${label}.`, toolName: item.kind === 'pathway' ? ROUTE_TOOL_NAME : RESEARCH_TOOL_NAME });
       try {
         const result =
-          item.kind === 'pathway' ? await verifyPathwayRoutes(provider, model, systemText, item.pathway) : await verifyResearchFindings(provider, model, systemText, item.findings);
+          item.kind === 'pathway'
+            ? await verifyPathwayRoutes(provider, model, systemText, item.pathway, caseId)
+            : await verifyResearchFindings(provider, model, systemText, item.findings, caseId);
         emit({ kind: 'tool_result', label: `Verified ${label} — ${result.findings.length} finding(s).` });
         return { findings: result.findings, usage: result.usage as AgentUsage | undefined, gaps: result.capabilityGaps, failed: false };
       } catch (e) {

@@ -8,6 +8,7 @@ import multer from 'multer';
 import { ENGINE_VERSION, compareCases } from '@valytica/shared';
 import { store, initStore } from './store';
 import { initPrompts } from './prompts';
+import { initTelemetry } from './telemetry';
 import { casesRouter } from './routes/cases';
 import { documentsRouter, UPLOAD_LIMITS } from './routes/documents';
 import { screenRouter, risksRouter, actionsRouter } from './routes/screen';
@@ -18,6 +19,7 @@ import { caseKnowledgeRouter, sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
 import { promptsRouter } from './routes/prompts';
 import { flowRouter } from './routes/flow';
+import { intakeRouter } from './routes/intake';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { compareBodySchema } from './schemas';
@@ -64,6 +66,7 @@ app.use('/api/agents', agentsCapabilityRouter);
 app.use('/api/sources', sourcesRouter);
 app.use('/api/telemetry', telemetryRouter);
 app.use('/api/prompts', promptsRouter);
+app.use('/api/intake', intakeRouter);
 
 // Mounted before the generic /api/cases router so nested case sub-resources
 // resolve here first; :id is captured via mergeParams on each sub-router.
@@ -168,6 +171,8 @@ export async function initApp(): Promise<void> {
   // built-in, so an operator's edit would be silently ignored rather than
   // reported as unavailable.
   await initPrompts();
+  // Must run before the first model call, or that call goes unrecorded.
+  initTelemetry();
   if (store.data.cases.length === 0) {
     const created = await seedDemoData();
     console.log(`[boot] store was empty — auto-seeded ${created} demo case(s)`);

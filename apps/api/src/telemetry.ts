@@ -1,5 +1,5 @@
 import type { LlmCallRecord } from '@valytica/shared';
-import { PersistedTelemetrySink, type TelemetryPersistence } from '@valytica/agents';
+import { setTelemetrySink, PersistedTelemetrySink, type TelemetryPersistence } from '@valytica/agents';
 import { store } from './store';
 
 /**
@@ -36,3 +36,18 @@ const persistence: TelemetryPersistence = {
  * each hold a partial view and the last writer would drop the other's records.
  */
 export const telemetrySink = new PersistedTelemetrySink(persistence);
+
+/**
+ * Point the agent layer's provider wrapper at this sink.
+ *
+ * Until this runs, every model call in the app is unrecorded and the Model ops
+ * page reports zero spend on a deployment that is spending — which is exactly
+ * how it behaved before the wrapper existed, because the sink and the route
+ * were built and nothing ever fed them.
+ *
+ * Called from `initApp`, so it is in force before the first request on a
+ * server and on a cold serverless invocation alike.
+ */
+export function initTelemetry(): void {
+  setTelemetrySink(telemetrySink);
+}

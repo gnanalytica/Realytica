@@ -293,6 +293,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
   try {
     result = await provider.runTools({
       agent: 'analyst_copilot',
+      caseId,
       model,
       maxTokens: 8000,
       system: [{ text: systemPrompt.content, cacheBreakpoint: true }],
