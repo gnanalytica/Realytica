@@ -10,3 +10,8 @@ apps/api/data/
 .vite/
 coverage/
 *.tsbuildinfo
+
+# The bundled Vercel serverless function. Built from apps/api/src/vercel.ts by
+# `pnpm build`; see scripts/build-function.mjs.
+api/index.mjs
+api/index.mjs.map

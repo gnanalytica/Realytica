@@ -1,4 +1,6 @@
 import fsp from 'node:fs/promises';
+import { accessSync, constants, mkdirSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { StoreData } from '../store';
@@ -21,9 +23,52 @@ import type { StorageAdapter } from './types';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-export const DATA_DIR = process.env.VALYTICA_DATA_DIR
-  ? path.resolve(process.env.VALYTICA_DATA_DIR)
-  : path.resolve(here, '../../data');
+/** Can we create this directory and write into it? */
+function isWritable(dir: string): boolean {
+  try {
+    mkdirSync(dir, { recursive: true });
+    accessSync(dir, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Where this adapter keeps its data.
+ *
+ * `VALYTICA_DATA_DIR` always wins — an operator naming a directory means it,
+ * and silently writing somewhere else would hide a misconfiguration rather
+ * than surface it.
+ *
+ * Otherwise the default is `apps/api/data`, the layout Valytica has always
+ * used. That default assumes a writable checkout, which is true on a laptop
+ * and false in a read-only container — a serverless deployment with no Blob
+ * store attached being the case that prompted this. There the write would
+ * fail with EROFS during boot-time seeding, so every request 500s and the
+ * app never serves at all. Falling back to the OS temp directory keeps it
+ * running on the one path that is writable in those environments.
+ *
+ * That fallback trades durability for availability, so it is deliberately
+ * loud: temp storage is typically wiped between instances, which means data
+ * entered in one session can be gone in the next. It is a way to keep a
+ * demo working, not a way to run the app — attaching a Blob store (which
+ * sets `BLOB_READ_WRITE_TOKEN` and selects the Blob adapter instead) is.
+ */
+function resolveDataDir(): string {
+  if (process.env.VALYTICA_DATA_DIR) return path.resolve(process.env.VALYTICA_DATA_DIR);
+  const preferred = path.resolve(here, '../../data');
+  if (isWritable(preferred)) return preferred;
+  const fallback = path.join(os.tmpdir(), 'valytica-data');
+  console.warn(
+    `[storage/filesystem] ${preferred} is not writable — falling back to ${fallback}. ` +
+      'This storage is temporary and data will not survive a restart. ' +
+      'Set BLOB_READ_WRITE_TOKEN (attach a Vercel Blob store) or VALYTICA_DATA_DIR for durable storage.',
+  );
+  return fallback;
+}
+
+export const DATA_DIR = resolveDataDir();
 
 export const DATA_FILE = path.join(DATA_DIR, 'valytica.json');
 export const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
