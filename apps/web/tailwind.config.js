@@ -54,13 +54,45 @@ export default {
         card: '0 1px 2px rgba(11,11,11,0.04), 0 1px 1px rgba(11,11,11,0.03)',
         pop: '0 8px 28px rgba(11,11,11,0.14)',
       },
+      /*
+       * Three durations and two curves, and nothing else.
+       *
+       * Before this the app had three duration declarations in total and no
+       * easing vocabulary, so every transition that existed was whatever
+       * Tailwind's default happened to be and every one that did not exist
+       * simply snapped. A scale this small is deliberate: motion in a
+       * diligence tool is there to make a change legible, and four people
+       * picking four durations for the same gesture is what makes an interface
+       * feel assembled rather than designed.
+       *
+       *   quick  — state you already expected: hover, press, focus.
+       *   base   — something appearing or moving: a card, a panel, a row.
+       *   slow   — something travelling far enough to need following.
+       */
+      transitionDuration: {
+        quick: '120ms',
+        base: '200ms',
+        slow: '320ms',
+      },
+      transitionTimingFunction: {
+        /* Decelerate. For anything arriving — it should settle, not stop dead. */
+        enter: 'cubic-bezier(0.16, 1, 0.3, 1)',
+        /* Symmetric. For a state flipping back and forth, where a bounce reads as indecision. */
+        state: 'cubic-bezier(0.4, 0, 0.2, 1)',
+      },
       keyframes: {
         'fade-in': { from: { opacity: '0', transform: 'translateY(4px)' }, to: { opacity: '1', transform: 'none' } },
         shimmer: { '100%': { transform: 'translateX(100%)' } },
+        /* A message arriving in a conversation: from below, because that is where it came from. */
+        'rise-in': { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'none' } },
+        /* A panel or disclosure opening in place. */
+        'scale-in': { from: { opacity: '0', transform: 'scale(0.97)' }, to: { opacity: '1', transform: 'none' } },
       },
       animation: {
         'fade-in': 'fade-in 180ms ease-out both',
         shimmer: 'shimmer 1.4s infinite',
+        'rise-in': 'rise-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'scale-in': 'scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both',
       },
     },
   },

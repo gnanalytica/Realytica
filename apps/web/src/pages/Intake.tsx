@@ -169,7 +169,7 @@ export default function Intake() {
             >
               <div
                 className={cn(
-                  'max-w-[42rem] rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
+                  'max-w-[42rem] animate-rise-in rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
                   turn.role === 'user' ? 'bg-brand text-ink-inverse' : 'bg-surface text-ink ring-1 ring-inset ring-[var(--ring)]',
                 )}
               >

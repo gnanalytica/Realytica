@@ -12,7 +12,7 @@ import {
   verdictTone,
 } from '../lib/format';
 import { api } from '../lib/api';
-import { Badge, Button, Card, Checkbox, Modal, ProgressBar, TONE_ICON, cn, useToast } from './ui/kit';
+import { Badge, Button, Card, Checkbox, Modal, ProgressBar, TONE_ICON, cn, useToast, LIFT } from './ui/kit';
 
 export interface CaseCardProps {
   data: CaseSummary;
@@ -74,7 +74,7 @@ export default function CaseCard({ data, selected, onToggleSelect, onDeleted }: 
 
   return (
     <>
-      <Card className={cn('relative flex flex-col gap-3 p-4 transition-shadow hover:shadow-pop', selected && 'ring-2 ring-brand')}>
+      <Card className={cn('relative flex flex-col gap-3 p-4', LIFT, selected && 'ring-2 ring-brand')}>
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-start gap-2">
             <Checkbox

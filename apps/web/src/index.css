@@ -187,3 +187,88 @@
     break-inside: avoid;
   }
 }
+
+/*
+ * Interactive elements settle rather than snap.
+ *
+ * The audit found 26 of 32 hover-bearing class strings carried no transition,
+ * spread across ten files — so most of the app's hover states changed
+ * instantly, which reads as a flicker rather than a response. Fixing that one
+ * `className` at a time would have meant twenty edits and a twenty-first the
+ * next time somebody adds a button.
+ *
+ * Scoped to colour and shadow only, deliberately. A blanket `transition: all`
+ * would catch `transform` too, and the pan-and-zoom canvas moves by transform
+ * on every pointer event — animating that would make dragging feel like it was
+ * fighting back. Anything wanting transform motion opts in explicitly with the
+ * LIFT vocabulary in the kit.
+ *
+ * Duration and easing are the tokens from the design system, so a hover here
+ * and a hover on a Button agree without either knowing about the other.
+ */
+@layer base {
+  a,
+  button,
+  summary,
+  [role='button'],
+  [role='tab'],
+  [role='option'] {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, box-shadow, opacity;
+    transition-duration: 120ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* A pointer on anything that acts like a control, without twenty utilities. */
+  button:not(:disabled),
+  summary,
+  [role='button']:not([aria-disabled='true']),
+  [role='tab'] {
+    cursor: pointer;
+  }
+}
+
+/*
+ * Honour a stated preference for less motion.
+ *
+ * This is not a polish setting. Vestibular disorders are common enough that
+ * every major platform exposes this preference, and animation that ignores it
+ * can cause genuine nausea and dizziness — the app honoured it in exactly zero
+ * places before this rule existed, while shipping spinners, pulses, fades and
+ * now transitions throughout.
+ *
+ * Reduced, not removed. Everything still *changes* — a hover still highlights,
+ * a panel still opens — it just arrives at its final state almost immediately
+ * rather than travelling there. Setting `animation: none` outright is the
+ * common version of this rule and it is worse: it strips `both` fill modes, so
+ * an element that animates in from `opacity: 0` never becomes visible at all.
+ * A 1ms duration with the animation intact keeps the end state and removes the
+ * journey.
+ *
+ * `scroll-behavior` is included because a smooth-scrolled jump is motion the
+ * user did not initiate, which is the kind this preference is most about.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /*
+   * The two exceptions, both indeterminate progress.
+   *
+   * A spinner and a skeleton shimmer say "still working". Frozen, they say
+   * "finished, with nothing to show" — which is a worse answer than a little
+   * motion, and is information the user actively needs while a screen runs or
+   * an agent thinks. Slowed rather than left at full speed.
+   */
+  .animate-spin,
+  .animate-pulse,
+  .animate-shimmer {
+    animation-duration: 1.8s !important;
+    animation-iteration-count: infinite !important;
+  }
+}

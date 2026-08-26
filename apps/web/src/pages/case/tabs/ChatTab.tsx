@@ -156,7 +156,7 @@ export default function ChatTab({ caseData, result, refresh, runScreen, running,
             <div key={t.id} data-role={t.role} className={cn('flex', t.role === 'user' ? 'justify-end' : 'justify-start')}>
               <div
                 className={cn(
-                  'max-w-[40rem] rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
+                  'max-w-[40rem] animate-rise-in rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
                   t.role === 'user'
                     ? 'bg-brand text-ink-inverse'
                     : 'bg-surface text-ink ring-1 ring-inset ring-[var(--ring)]',
@@ -263,7 +263,7 @@ function Disclosure({
         {label}
         {badge ? <span className="ml-auto">{badge}</span> : null}
       </button>
-      {open ? <div className="border-t border-hairline p-3">{children}</div> : null}
+      {open ? <div className="animate-scale-in border-t border-hairline p-3">{children}</div> : null}
     </div>
   );
 }

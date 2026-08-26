@@ -118,14 +118,50 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
+/**
+ * What an interactive thing does when you touch it.
+ *
+ * Three states, defined once. Before this the app had 73 hover declarations
+ * against 35 transitions — so most hovers snapped — two `active:` states in
+ * the entire codebase, meaning almost nothing acknowledged being pressed, and
+ * one `focus-visible`, meaning a keyboard user could not see where they were.
+ *
+ * `focus-visible` rather than `focus` deliberately: a mouse user clicking a
+ * button should not be left with a ring on it, but a keyboard user tabbing
+ * through must be able to see what they are on. The browser knows the
+ * difference and this is how you ask it.
+ *
+ * The press is a scale rather than a colour shift because colour is already
+ * carrying meaning everywhere in this product — verdicts, severities,
+ * provenance — and borrowing it for "you are pressing this" would be one more
+ * thing competing with a critical risk badge for the same signal.
+ */
+export const INTERACTIVE =
+  'transition-[color,background-color,border-color,box-shadow,transform] duration-quick ease-state ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-page ' +
+  'active:scale-[0.98] disabled:active:scale-100';
+
+/**
+ * A surface that rises to meet the pointer.
+ *
+ * Only for things that genuinely go somewhere when clicked. A lift on a
+ * non-interactive card is a promise the interface does not keep, and users
+ * learn very quickly to stop trusting the cue.
+ */
+export const LIFT =
+  'transition-[transform,box-shadow,border-color] duration-base ease-enter ' +
+  'hover:-translate-y-0.5 hover:shadow-pop active:translate-y-0 active:shadow-none ' +
+  'motion-reduce:hover:translate-y-0';
+
 export function Button({ variant = 'secondary', size = 'md', icon, loading, className, children, disabled, ...rest }: ButtonProps) {
   return (
     <button
       {...rest}
       disabled={disabled || loading}
       className={cn(
-        'inline-flex select-none items-center justify-center gap-1.5 rounded-lg font-medium transition-colors',
-        'disabled:cursor-not-allowed disabled:opacity-50',
+        'inline-flex select-none items-center justify-center gap-1.5 rounded-lg font-medium',
+        INTERACTIVE,
+        'cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
         size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-9 px-3.5 text-[13px]',
         variant === 'primary' && 'bg-brand text-[var(--brand-ink)] hover:bg-brand-strong',
         variant === 'secondary' &&
@@ -282,9 +318,16 @@ export function Field({
   );
 }
 
+/*
+ * `focus:` and not `focus-visible:` here, unlike buttons — a text field should
+ * show it has the caret however you got to it, because the ring is telling you
+ * where your typing will go rather than where the keyboard is.
+ */
 const CONTROL =
   'w-full rounded-lg bg-surface px-2.5 text-[13px] text-ink ring-1 ring-inset ring-[var(--ring)] ' +
-  'placeholder:text-ink-muted focus:ring-2 focus:ring-brand disabled:opacity-60';
+  'transition-[box-shadow,border-color] duration-quick ease-state ' +
+  'hover:ring-[var(--text-muted)] ' +
+  'placeholder:text-ink-muted focus:ring-2 focus:ring-brand disabled:opacity-60 disabled:hover:ring-[var(--ring)]';
 
 export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...rest} className={cn(CONTROL, 'h-9', className)} />;
@@ -392,7 +435,11 @@ export function Tabs({ tabs, active, onChange, className }: { tabs: TabDef[]; ac
             aria-selected={on}
             onClick={() => onChange(t.key)}
             className={cn(
-              '-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium transition-colors',
+              '-mb-px flex shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium',
+              // No `active:scale` on a tab: the underline is the feedback, and
+              // a shrinking tab in a fixed row nudges its neighbours.
+              'transition-[color,border-color] duration-quick ease-state',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset',
               on ? 'border-brand text-ink' : 'border-transparent text-ink-secondary hover:border-[var(--axis)] hover:text-ink',
             )}
           >

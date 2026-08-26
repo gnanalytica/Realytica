@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { CaseSummary } from '@valytica/shared';
-import { Badge, Card, CardBody, CardHeader, cn } from '../ui/kit';
+import { Badge, Card, CardBody, CardHeader, LIFT, cn } from '../ui/kit';
 import { money, relativeTime } from '../../lib/format';
 
 const VERDICT_TONE: Record<string, 'good' | 'warning' | 'critical' | 'neutral'> = {
@@ -35,7 +35,8 @@ export function CaseRail({ cases, highlight }: { cases: CaseSummary[]; highlight
               to={`/cases/${c.id}`}
               data-case={c.reference}
               className={cn(
-                'rounded-lg p-2.5 ring-1 ring-inset transition-colors',
+                'block rounded-lg p-2.5 ring-1 ring-inset',
+                LIFT,
                 marked.has(c.id) ? 'bg-brand-soft ring-brand/40' : 'bg-surface ring-[var(--ring)] hover:bg-sunken',
               )}
             >

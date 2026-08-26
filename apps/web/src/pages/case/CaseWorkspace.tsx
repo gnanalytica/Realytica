@@ -44,6 +44,7 @@ import {
   type TabDef,
 } from '../../components/ui/kit';
 import type { RunGraph } from '@valytica/shared';
+import { AnimatedNumber } from '../../components/ui/AnimatedNumber';
 import type { TabProps } from './tab-props';
 import { CASE_GROUPS, NEEDS_SCREEN, LEGACY_TAB_REDIRECT, findGroup } from './groups';
 
@@ -352,13 +353,31 @@ export default function CaseWorkspace() {
                 <Badge tone="neutral">Not screened</Badge>
               )}
             </div>
-            <div className="text-right text-[17px] font-semibold leading-tight tracking-tight text-ink">
-              {result
-                ? `${money(result.indicativeValue.low, result.indicativeValue.currency)} – ${money(
-                    result.indicativeValue.high,
-                    result.indicativeValue.currency,
-                  )}`
-                : '—'}
+            {/*
+              * The headline range counts to a new value rather than jumping.
+              *
+              * Re-running a screen after a document lands is the moment this
+              * number is most likely to move and least likely to be watched —
+              * the eye is on the button that was just pressed. `tabular` keeps
+              * the digits fixed-width so counting does not shove the header
+              * around.
+              */}
+            <div className="tabular text-right text-[17px] font-semibold leading-tight tracking-tight text-ink">
+              {result ? (
+                <>
+                  <AnimatedNumber
+                    value={result.indicativeValue.low}
+                    format={(v) => money(v, result.indicativeValue.currency)}
+                  />
+                  {' – '}
+                  <AnimatedNumber
+                    value={result.indicativeValue.high}
+                    format={(v) => money(v, result.indicativeValue.currency)}
+                  />
+                </>
+              ) : (
+                '—'
+              )}
             </div>
             <div className="flex items-center gap-2">
               {result ? (
