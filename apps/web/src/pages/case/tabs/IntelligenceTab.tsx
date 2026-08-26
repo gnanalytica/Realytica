@@ -972,6 +972,7 @@ export default function IntelligenceTab({ caseData, result, refresh }: TabProps)
             busy={asking}
             disabled={!capability.available}
             disabledReason={capability.available ? undefined : capabilityReasonText(capability.reason)}
+            verification={intel.verification}
           />
         </CardBody>
       </Card>

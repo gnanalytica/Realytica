@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import { ArrowUp, MessageCircle, SearchX, Sparkles, Trash2 } from 'lucide-react';
-import type { CopilotTurn, EvidenceItem } from '@valytica/shared';
+import type { CopilotTurn, EvidenceItem, VerificationSummary } from '@valytica/shared';
+import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
 import { Badge, Button, Callout, Input, cn } from './ui/kit';
 import { relativeTime } from '../lib/format';
@@ -14,7 +15,19 @@ function AgentTag({ at }: { at: string }) {
   );
 }
 
-function TurnBubble({ turn, evidence }: { turn: CopilotTurn; evidence: EvidenceItem[] }) {
+function TurnBubble({
+  turn,
+  evidence,
+  verification,
+}: {
+  turn: CopilotTurn;
+  evidence: EvidenceItem[];
+  verification?: VerificationSummary;
+}) {
+  // A critic flag has to travel with the claim it concerns. Surfacing it only
+  // in the verification panel would let someone read an unsupported answer
+  // cleanly here and never see the warning sitting on another screen.
+  const flagged = findFlaggedCriticFinding(verification, 'copilot_answer', turn.id);
   if (turn.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -56,6 +69,11 @@ function TurnBubble({ turn, evidence }: { turn: CopilotTurn; evidence: EvidenceI
                 {t.summary}
               </Badge>
             ))}
+          </div>
+        ) : null}
+        {flagged ? (
+          <div className="mt-2">
+            <CriticFlagBanner finding={flagged} compact />
           </div>
         ) : null}
         {turn.citedEvidenceIds.length > 0 ? (
@@ -113,6 +131,7 @@ export function CopilotPanel({
   busy,
   disabled,
   disabledReason,
+  verification,
 }: {
   conversation: CopilotTurn[];
   evidence: EvidenceItem[];
@@ -122,6 +141,7 @@ export function CopilotPanel({
   busy?: boolean;
   disabled?: boolean;
   disabledReason?: string;
+  verification?: VerificationSummary;
 }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -186,7 +206,7 @@ export function CopilotPanel({
         ) : (
           <>
             {conversation.map((turn) => (
-              <TurnBubble key={turn.id} turn={turn} evidence={evidence} />
+              <TurnBubble verification={verification} key={turn.id} turn={turn} evidence={evidence} />
             ))}
             {busy ? <TypingIndicator /> : null}
           </>
