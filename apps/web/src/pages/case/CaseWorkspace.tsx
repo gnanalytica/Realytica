@@ -47,7 +47,7 @@ import {
 import type { RunGraph } from '@realytica/shared';
 import { AnimatedNumber } from '../../components/ui/AnimatedNumber';
 import type { TabProps } from './tab-props';
-import { CASE_GROUPS, NEEDS_SCREEN, LEGACY_TAB_REDIRECT, findGroup, groupsForLens } from './groups';
+import { CASE_GROUPS, NEEDS_SCREEN, LEGACY_TAB_REDIRECT, findGroup, groupsForLens, viewState } from './groups';
 import { LensBar } from '../../components/LensBar';
 import { resolveLens } from '@realytica/shared';
 import type { LensKey } from '@realytica/shared';
@@ -140,6 +140,14 @@ export default function CaseWorkspace() {
     if (!legacy || !caseId) return;
     navigate(`/cases/${caseId}/${legacy.group}?view=${legacy.view}`, { replace: true });
   }, [legacy, caseId, navigate]);
+
+  /** Chip colours for a view's state, matched to the tones used everywhere else. */
+  const VIEW_STATE_CHIP: Record<string, string> = {
+    critical: 'bg-critical/12 text-critical',
+    warning: 'bg-warning/20 text-ink',
+    brand: 'bg-brand-soft text-brand',
+    neutral: 'bg-surface-2 text-ink-secondary',
+  };
 
   const goToTab = useCallback(
     (key: string) => {
@@ -344,21 +352,58 @@ export default function CaseWorkspace() {
     return (
       <>
         {group.views.length > 1 ? (
-          <div className="mx-auto mb-4 flex max-w-5xl flex-wrap gap-1.5" role="tablist" aria-label={group.label}>
-            {group.views.map((v) => (
-              <button
-                key={v.key}
-                role="tab"
-                aria-selected={v.key === view.key}
-                onClick={() => setSearchParams(v.key === group.views[0].key ? {} : { view: v.key }, { replace: true })}
-                className={cn(
-                  'rounded-full px-3 py-1 text-[13px] font-medium transition-colors',
-                  v.key === view.key ? 'bg-brand text-ink-inverse' : 'bg-sunken text-ink-secondary hover:text-ink',
-                )}
-              >
-                {v.label}
-              </button>
-            ))}
+          <div className="mx-auto mb-4 max-w-5xl">
+            {/*
+              * The group's own question, above its views.
+              *
+              * The five groups are named after the questions a reader asks;
+              * the names had to fit in a tab, so they lost the question. It
+              * belongs here, where the reader has already committed to the
+              * group and is choosing which part of the answer to read.
+              */}
+            <p className="mb-2 text-[12.5px] text-ink-muted">{group.question}</p>
+            <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={group.label}>
+              {group.views.map((v) => {
+                const state = viewState(v.key, caseData, result);
+                const active = v.key === view.key;
+                return (
+                  <button
+                    key={v.key}
+                    role="tab"
+                    aria-selected={active}
+                    title={state.note}
+                    onClick={() => setSearchParams(v.key === group.views[0].key ? {} : { view: v.key }, { replace: true })}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] font-medium transition-colors',
+                      active ? 'bg-brand text-ink-inverse' : 'bg-sunken text-ink-secondary hover:text-ink',
+                    )}
+                  >
+                    {v.label}
+                    {state.count !== undefined && (
+                      <span
+                        className={cn(
+                          'rounded-full px-1.5 text-[11px] tabular-nums',
+                          active ? 'bg-white/25 text-ink-inverse' : VIEW_STATE_CHIP[state.tone ?? 'neutral'],
+                        )}
+                      >
+                        {state.count}
+                      </span>
+                    )}
+                    {/* An empty view says so with a hollow dot, because "nothing
+                        here" and "nothing wrong" look identical from a tab. */}
+                    {state.empty && (
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'h-1.5 w-1.5 rounded-full border',
+                          active ? 'border-white/60' : 'border-ink-faint',
+                        )}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         ) : null}
         <View {...tabProps} />
