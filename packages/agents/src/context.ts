@@ -1,4 +1,5 @@
-import type { PropertyCase, ReferenceData, StatePack } from '@realytica/shared';
+import { disclosureAllows, resolveDisclosure } from '@realytica/shared';
+import type { DisclosureLevel, PropertyCase, ReferenceData, StatePack } from '@realytica/shared';
 
 /**
  * The case, rendered for a model.
@@ -35,8 +36,22 @@ import type { PropertyCase, ReferenceData, StatePack } from '@realytica/shared';
 export * from './prompts';
 
 export interface CaseContextOptions {
-  /** Omit document contents and personal details — for agents that talk to external services. */
+  /**
+   * Omit document contents and personal details — for agents that talk to
+   * external services.
+   *
+   * Kept as the on/off switch it always was. What it *means* is now graded by
+   * `disclosure`: on its own it still yields the locality-only view that the
+   * research and explorer agents were built against, so every existing call
+   * site behaves exactly as before.
+   */
   externalSafe?: boolean;
+  /**
+   * How much about this property may leave the system, when `externalSafe`
+   * is on. Omitted, it resolves to `locality_only` — the permissive levels
+   * must never be reachable by forgetting to pass this.
+   */
+  disclosure?: DisclosureLevel;
   includeEvidence?: boolean;
   includeCompliance?: boolean;
 }
@@ -57,24 +72,47 @@ export function renderCaseContext(
   );
 
   if (opts.externalSafe) {
-    // Market terms only. No owner, no address, no document contents, no price.
-    return JSON.stringify(
-      {
-        country: identity.country,
-        state: identity.state,
-        city: identity.city,
-        locality: identity.locality,
-        propertyType: identity.propertyType,
-        builtUpAreaSqm: identity.builtUpAreaSqm,
-        plotAreaSqm: identity.plotAreaSqm,
-        localityMedianPricePerSqm: locality?.medianPricePerSqm,
-        localityMedianLandRatePerSqm: locality?.medianLandRatePerSqm,
-        localityYoyChangePct: locality?.yoyChangePct,
-        localitySampleSize: locality?.sampleSize,
-      },
-      null,
-      1,
-    );
+    const disclosure = resolveDisclosure(opts.disclosure);
+
+    // The floor, and the only thing sent at `locality_only`. Market terms:
+    // no owner, no address, no identifiers, no document contents, no price.
+    const body: Record<string, unknown> = {
+      disclosureLevel: disclosure,
+      country: identity.country,
+      state: identity.state,
+      city: identity.city,
+      locality: identity.locality,
+      propertyType: identity.propertyType,
+      builtUpAreaSqm: identity.builtUpAreaSqm,
+      plotAreaSqm: identity.plotAreaSqm,
+      localityMedianPricePerSqm: locality?.medianPricePerSqm,
+      localityMedianLandRatePerSqm: locality?.medianLandRatePerSqm,
+      localityYoyChangePct: locality?.yoyChangePct,
+      localitySampleSize: locality?.sampleSize,
+    };
+
+    // Public records that identify the parcel. Added only on an explicit
+    // choice, because a search for a survey number is visible to whoever runs
+    // the index — see `disclosure.ts` for what each level costs.
+    if (disclosureAllows(disclosure, 'property_identifiers')) {
+      body.parcelId = identity.parcelId || undefined;
+      body.caseLabel = identity.label || undefined;
+      if (identity.karnataka) {
+        body.khataType = identity.karnataka.khataType;
+        body.jurisdiction = identity.karnataka.jurisdiction;
+        body.landConversionStatus = identity.karnataka.landConversionStatus;
+      }
+    }
+
+    if (disclosureAllows(disclosure, 'full_address')) {
+      body.addressLine = identity.addressLine || undefined;
+      body.postalCode = identity.postalCode || undefined;
+    }
+
+    // Withheld at every level, restated here so a future edit to this block
+    // has to delete the comment before it can leak them: owner name, asking
+    // price, and anything extracted from a document.
+    return JSON.stringify(body, null, 1);
   }
 
   const body: Record<string, unknown> = {

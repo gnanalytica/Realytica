@@ -97,6 +97,11 @@ casesRouter.patch('/:id', async (req, res) => {
   // the case found. If choosing a reader could move a number, the numbers
   // would be presentation rather than analysis.
   if (body.lens) found.lens = body.lens;
+  // Widening disclosure changes what may leave the system on the *next*
+  // search. It never retroactively re-runs anything: findings already on the
+  // case were produced under the level in force when they were found, and
+  // each one records which that was.
+  if (body.disclosure) found.disclosure = body.disclosure;
   if (body.ownerName !== undefined) found.ownerName = body.ownerName;
   if (body.notes !== undefined) found.notes = body.notes;
   found.updatedAt = new Date().toISOString();

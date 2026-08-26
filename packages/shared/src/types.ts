@@ -7,6 +7,8 @@
  * `EvidenceItem` (principle 1: Evidence Before Assertion).
  */
 
+import type { DisclosureLevel } from './disclosure';
+
 /* ------------------------------------------------------------------ */
 /* Geography & country packs                                           */
 /* ------------------------------------------------------------------ */
@@ -1479,6 +1481,13 @@ export interface PropertyCase {
    * assessment profile's default, which is chosen from the project kind.
    */
   lens?: LensKey;
+  /**
+   * How much about this property may be said to something outside Realytica.
+   * Absent means nobody has chosen, which resolves to the safe default — see
+   * `resolveDisclosure`. A permissive setting must never be reachable by
+   * omission.
+   */
+  disclosure?: DisclosureLevel;
   /**
    * What is being done with the site, and how that was decided. Absent on
    * cases created before the project model existed — the engine infers a

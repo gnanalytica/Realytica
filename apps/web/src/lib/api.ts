@@ -24,6 +24,7 @@ import type {
   SiteContext,
   StalenessReport,
   TitleGraph,
+  DisclosureLevel,
   LensKey,
   ProjectIntent,
   ProjectKind,
@@ -135,6 +136,13 @@ export const api = {
   /** Change who the case is written for. Does not re-screen — see the route. */
   setLens: (id: string, lens: LensKey) =>
     request<PropertyCase>(`/cases/${id}`, { method: 'PATCH', body: JSON.stringify({ lens }) }),
+
+  /**
+   * Set how much about this property may leave the system. Does not re-run
+   * anything — it governs the next search, not the last one.
+   */
+  setDisclosure: (id: string, disclosure: DisclosureLevel) =>
+    request<PropertyCase>(`/cases/${id}`, { method: 'PATCH', body: JSON.stringify({ disclosure }) }),
 
   runScreen: (id: string) => request<ScreenResult>(`/cases/${id}/screen`, { method: 'POST' }),
 

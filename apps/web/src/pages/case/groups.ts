@@ -18,6 +18,7 @@ import ActionsTab from './tabs/ActionsTab';
 import ReportTab from './tabs/ReportTab';
 import ConstraintsTab from './tabs/ConstraintsTab';
 import CostsTab from './tabs/CostsTab';
+import ResearchTab from './tabs/ResearchTab';
 
 /**
  * Five places instead of fourteen.
@@ -62,6 +63,10 @@ export const CASE_GROUPS: CaseGroup[] = [
       // address can be placed on a map before anything has been run against
       // it, so it is deliberately absent from NEEDS_SCREEN below.
       { key: 'location', label: 'Location', component: LocationTab },
+      // What has been looked for outside Realytica, and what we are allowed
+      // to look for. Under Overview because "is this worth pursuing" is
+      // exactly the question an outside record answers or ruins.
+      { key: 'research', label: 'Outside record', component: ResearchTab },
     ],
   },
   {
@@ -264,6 +269,7 @@ export const LEGACY_TAB_REDIRECT: Record<string, { group: string; view: string }
   drivers: { group: 'value', view: 'movers' },
   title: { group: 'legal', view: 'title' },
   compliance: { group: 'legal', view: 'compliance' },
+  research: { group: 'overview', view: 'research' },
   // Split out of Compliance; the bare keys are what in-app links pass to
   // `goToTab`, and they resolve here rather than 404ing to the overview.
   constraints: { group: 'legal', view: 'constraints' },

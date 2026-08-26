@@ -203,7 +203,11 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
   // externalSafe: no documents, no owner, no address, no price. See the file
   // header — this is the one line in the whole package that is allowed to
   // build a prompt for an agent that talks to an outside service.
-  const contextBlock = renderCaseContext(caseData, refData, { externalSafe: true });
+  // externalSafe, at whatever disclosure level the case carries. Market
+  // research is a question about the locality, so it neither needs nor uses
+  // the wider levels; passing the case's setting rather than hard-coding the
+  // default keeps one rule for what may leave, in one place.
+  const contextBlock = renderCaseContext(caseData, refData, { externalSafe: true, disclosure: caseData.disclosure });
 
   // Resolved per run rather than at module load, because the active version
   // can change under a running process. Deterministic for a given version, so

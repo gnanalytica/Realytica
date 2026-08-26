@@ -546,7 +546,12 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
   // externalSafe: no documents, no owner, no address, no price. See the file
   // header — this is the one context render this file is allowed to build a
   // prompt from.
-  const contextBlock = renderCaseContext(caseData, refData, { externalSafe: true });
+  // externalSafe, at whatever disclosure level the case carries. The
+  // explorer's objective is the locality and the market, so the default
+  // (`locality_only`) is the right one for it and is what it gets unless a
+  // person has deliberately widened the case — the property-discovery sweep
+  // is the agent built to use the wider levels, not this one.
+  const contextBlock = renderCaseContext(caseData, refData, { externalSafe: true, disclosure: caseData.disclosure });
 
   const memory = createExplorationMemoryTool();
 
