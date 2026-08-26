@@ -33,9 +33,32 @@
  * find its real page. Only a field whose quote actually lands in a citation
  * gets a `sourcePage` — everything else is dropped or kept at low confidence
  * with no page, per the brief.
+ *
+ * --- What happens on a route that cannot do any of that -------------------
+ *
+ * This agent now goes through the provider port (`../providers`), and the port
+ * declares capabilities rather than assuming them. On an OpenAI-compatible
+ * route two of them are missing at once, and both matter here more than
+ * anywhere else in the codebase:
+ *
+ *   pdf_input_unavailable  the PDF is extracted to text in-process and sent as
+ *                          text. Layout, tables and page boundaries are gone,
+ *                          and a scan with no text layer fails the call
+ *                          outright rather than being sent as an empty
+ *                          document for the model to fill in from imagination.
+ *   citations_unavailable  there is no server-verified quotation, so there is
+ *                          no page to attach to anything. `sourcePage` is
+ *                          `undefined` on every field — never a guess, never
+ *                          the model's own claim promoted to a fact.
+ *
+ * A field extracted this way is not the same evidence as one whose quote the
+ * API located on page 3, so it must not look the same. Every field's
+ * confidence is discounted and capped (see `discountUnverified`), the gaps go
+ * onto `AgentRun.capabilityGaps`, and `describeGap`'s plain-language
+ * consequence is appended to the notes a user actually reads. Degrading is
+ * allowed. Degrading quietly is not.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type {
@@ -43,6 +66,7 @@ import type {
   AgentRunStatus,
   AgentStep,
   CaseDocument,
+  CapabilityGap,
   DocumentKind,
   EvidenceItem,
   ExtractedField,
@@ -50,9 +74,12 @@ import type {
   PropertyIdentity,
 } from '@valytica/shared';
 import { KHATA_TYPE_LABEL } from '@valytica/shared';
-import { baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
+import { describeError } from '../client';
 import { GROUNDING_RULES } from '../context';
+import { describeGap } from '../routing';
 import { loadPdfForExtraction, MAX_PDF_BYTES } from '../pdf';
+import { missingCredentialsReason, resolveRoute, toolUseOf } from '../providers';
+import type { LlmContentBlock, LlmContentPart, LlmSchemaTool } from '../providers';
 
 export interface DocumentIntelligenceResult {
   run: AgentRun;
@@ -156,13 +183,14 @@ const EXTRACTION_TOOL_NAME = 'record_document_extraction';
  * to loop over here; a single `create`/`.stream()` call is simpler and is
  * exactly what the SDK docs recommend for a one-shot structured-output ask.
  */
-function buildExtractionTool(): Anthropic.Beta.BetaTool {
+function buildExtractionTool(): LlmSchemaTool {
   return {
+    kind: 'schema',
     name: EXTRACTION_TOOL_NAME,
     description:
       'Record the document classification and every field extracted from it. Every field must carry a verbatim supporting quote so its page can be verified against the source.',
     strict: true,
-    input_schema: {
+    parameters: {
       type: 'object',
       additionalProperties: false,
       required: ['kind', 'kindConfidence', 'fields', 'notes'],
@@ -273,19 +301,26 @@ interface CitationSpan {
   startPage?: number;
 }
 
-/** Pulls every citation off every text block in the response. */
-function collectCitations(content: Anthropic.Beta.BetaContentBlock[]): CitationSpan[] {
+/**
+ * Pulls every citation off every text block in the response — and only the
+ * ones the provider itself verified.
+ *
+ * `LlmCitation.verified` is the gate. A provider without `documentCitations`
+ * may only ever return unverified citations, and an unverified citation is the
+ * model repeating itself, not the document speaking. Skipping them here is
+ * what guarantees `matchPageForQuote` can never return a page that nobody
+ * checked, whatever route the call took.
+ */
+function collectCitations(content: LlmContentBlock[]): CitationSpan[] {
   const spans: CitationSpan[] = [];
   for (const block of content) {
     if (block.type !== 'text' || !block.citations) continue;
     for (const citation of block.citations) {
-      if (citation.type === 'page_location') {
-        spans.push({ citedText: citation.cited_text, startPage: citation.start_page_number });
-      } else if ('cited_text' in citation) {
-        // char_location / content_block_location — no page number, but keep
-        // for completeness; matchPageForQuote skips spans with no startPage.
-        spans.push({ citedText: citation.cited_text });
-      }
+      if (!citation.verified) continue;
+      // A verified citation with no page (a char_location on a text source) is
+      // still kept: matchPageForQuote skips spans with no startPage, and
+      // dropping them here would silently change which spans it considers.
+      spans.push({ citedText: citation.quote, startPage: citation.page });
     }
   }
   return spans;
@@ -393,6 +428,32 @@ interface Disagreement {
   cappedConfidence: number;
 }
 
+/* ==================================================================== */
+/* Degradation: what a field is worth when nothing verified it           */
+/* ==================================================================== */
+
+/**
+ * How far a confidence falls when the route could not verify a single page.
+ *
+ * Two numbers rather than one because either alone leaves a hole. A bare
+ * ceiling would leave a field the model already reported at 0.4 completely
+ * untouched, which is the opposite of "visibly lower"; a bare multiplier would
+ * let a 0.99 self-report land at 0.79 and still read as near-certain. Together
+ * they guarantee that every field drops AND that none can present as better
+ * than "worth checking" — which is exactly what an unverified extraction is.
+ *
+ * The values are deliberately harsher than the 0.35 cap applied to a single
+ * unmatched quote on a verified route. That case is one field the citation
+ * engine could not place in a document it did read; this one is a whole
+ * document nothing checked at all.
+ */
+const UNVERIFIED_ROUTE_CONFIDENCE_FACTOR = 0.6;
+const UNVERIFIED_ROUTE_CONFIDENCE_CEILING = 0.45;
+
+function discountUnverified(confidence: number): number {
+  return Math.round(Math.min(confidence * UNVERIFIED_ROUTE_CONFIDENCE_FACTOR, UNVERIFIED_ROUTE_CONFIDENCE_CEILING) * 100) / 100;
+}
+
 /**
  * Compares one extracted field against what the user already recorded on the
  * case identity. This is deliberately scoped to what a *single* document call
@@ -494,9 +555,13 @@ const ExtractionOutputSchema = z.object({
 /* Image support                                                         */
 /* ==================================================================== */
 
+/**
+ * The media types this agent will send. Checked here rather than trusted from
+ * the upload, and narrowed to the same set every provider accepts — the port
+ * carries the media type through as a string, so this is the only place that
+ * decides what is legitimate.
+ */
 const SUPPORTED_IMAGE_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
-
-type SupportedImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 
 async function loadImageForExtraction(
   buffer: Buffer,
@@ -529,9 +594,14 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   // Resolved once, at the top, so the model recorded on the run is the model
   // the request was built with and the model the usage was priced against.
   // This is the extraction tier by default — see AGENT_TIERS in client.ts for
-  // why, and for the env var that moves it.
-  const tier = tierFor('document_intelligence');
-  const model = modelFor('document_intelligence');
+  // why, and for the env var that moves it. The route adds the other half of
+  // the answer: which provider serves that model, and what it cannot do.
+  const { route, provider, descriptor } = resolveRoute('document_intelligence');
+  const tier = route.tier;
+  const model = route.model;
+
+  /** Gaps this run actually hit, recorded on every return path including the failures. */
+  let capabilityGaps: CapabilityGap[] = [];
 
   // Every early-exit path returns through here so the caller always gets a
   // well-formed AgentRun and never an exception — this must be safe to call
@@ -549,6 +619,8 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       finishedAt,
       model,
       tier,
+      provider: route.provider,
+      capabilityGaps,
       steps,
       error,
       usage,
@@ -584,14 +656,25 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     return finishFailure('failed', reason);
   }
 
-  const client = getClient();
-  if (!client) {
-    const reason = 'Anthropic credentials are not configured — document intelligence is unavailable.';
+  if (!descriptor.configured) {
+    const reason = missingCredentialsReason(route, 'document intelligence is unavailable.');
     emit({ kind: 'error', label: 'No credentials', detail: reason });
     return finishFailure('failed', reason);
   }
 
-  let documentBlock: Anthropic.Beta.BetaContentBlockParam;
+  /**
+   * Whether a page reference from this run can be trusted at all.
+   *
+   * Two independent conditions, and both must hold. Citations are a
+   * document-only feature, so an image never produces one on any provider —
+   * that was already true before the port and is why the pre-port code read
+   * `isPdf ? matchPageForQuote(...) : undefined`. The provider condition is
+   * the new half: an OpenAI-compatible endpoint cannot verify a quotation
+   * against a file under any circumstances.
+   */
+  const pageVerificationAvailable = isPdf && descriptor.capabilities.documentCitations;
+
+  let documentPart: LlmContentPart;
   if (isPdf) {
     const loaded = await loadPdfForExtraction(fileBytes);
     if (!loaded.ok) {
@@ -602,12 +685,26 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       kind: 'tool_result',
       label: `Loaded PDF — ${loaded.pdf.pageCount} page(s), ${(loaded.pdf.sizeBytes / 1024).toFixed(0)}KB`,
     });
-    documentBlock = {
+    documentPart = {
       type: 'document',
-      source: { type: 'base64', media_type: 'application/pdf', data: loaded.pdf.base64 },
-      citations: { enabled: true },
-      title: document.fileName,
+      document: {
+        base64: loaded.pdf.base64,
+        mediaType: 'application/pdf',
+        title: document.fileName,
+        // Asked for unconditionally. A provider that can serve it does; one
+        // that cannot records `citations_unavailable` rather than quietly
+        // dropping the request, which is the entire difference between this
+        // port and a lowest-common-denominator one.
+        wantCitations: true,
+      },
     };
+    if (!descriptor.capabilities.pdfInput) {
+      emit({
+        kind: 'message',
+        label: `Route ${route.provider} cannot accept a PDF — sending extracted text instead`,
+        detail: describeGap('pdf_input_unavailable'),
+      });
+    }
   } else {
     const loaded = await loadImageForExtraction(fileBytes);
     if (!loaded.ok) {
@@ -615,15 +712,12 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       return finishFailure('failed', loaded.message);
     }
     emit({ kind: 'tool_result', label: 'Loaded image' });
-    documentBlock = {
-      type: 'image',
-      source: { type: 'base64', media_type: document.mimeType as SupportedImageMediaType, data: loaded.base64 },
-    };
-    // Note: the Anthropic image content block has no `citations` option —
+    documentPart = { type: 'image', image: { base64: loaded.base64, mediaType: document.mimeType } };
+    // Note: an image content block has no `citations` option on any provider —
     // citations are a document (PDF/text)-only feature. Fields extracted from
-    // an image therefore never get a sourcePage; the field-building loop below
-    // reflects that honestly by leaving sourcePage undefined for every field
-    // when the source isn't a PDF (see the `isPdf ? matchPageForQuote(...) : undefined` line).
+    // an image therefore never get a sourcePage; `pageVerificationAvailable`
+    // above is false for exactly this reason, and the field-building loop
+    // below reflects it honestly by leaving sourcePage undefined.
   }
 
   const tool = buildExtractionTool();
@@ -632,49 +726,50 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
 
   emit({ kind: 'tool_call', label: `Requesting classification & extraction from ${model} (${tier} tier)`, toolName: EXTRACTION_TOOL_NAME });
 
-  const requestParams = {
-    ...baseRequestFor('document_intelligence'),
-    max_tokens: 8000,
-    system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
+  // Built once and handed to the port. Everything provider-specific — the
+  // `cache_control` marker, `citations: { enabled: true }`, the base64
+  // document block, adaptive thinking, the refusal fallback — is the
+  // provider's job to express in its own dialect, and the Anthropic provider
+  // reproduces the pre-port request exactly.
+  const request = {
+    agent: 'document_intelligence' as const,
+    model,
+    maxTokens: 8000,
+    system: [{ text: systemPrompt, cacheBreakpoint: true }],
     tools: [tool],
-    messages: [{ role: 'user' as const, content: [documentBlock, { type: 'text' as const, text: userPrompt }] }],
+    messages: [{ role: 'user' as const, content: [documentPart, { type: 'text' as const, text: userPrompt }] }],
   };
 
-  let message: Anthropic.Beta.BetaMessage;
+  let result;
   try {
-    // The installed @anthropic-ai/sdk's shipped .d.ts predates Claude Opus 5's
-    // adaptive-thinking API (`thinking: { type: "adaptive" }` in baseRequestFor,
-    // from client.ts) — its BetaThinkingConfigParam type still only knows
-    // "enabled"/"disabled". The live API accepts "adaptive" regardless; this
-    // cast unblocks the compiler against a stale type union without touching
-    // the request body itself (no `any` involved — `unknown` is a type-only
-    // detour, not a runtime one).
-    const stream = client.beta.messages.stream(requestParams);
-    message = await stream.finalMessage();
+    result = await provider.complete(request);
   } catch (e) {
     const reason = describeError(e);
-    emit({ kind: 'error', label: 'Anthropic request failed', detail: reason });
+    emit({ kind: 'error', label: 'Model request failed', detail: reason });
     return finishFailure('failed', reason);
   }
 
-  if (message.stop_reason === 'refusal') {
+  capabilityGaps = result.capabilityGaps;
+  for (const gap of capabilityGaps) {
+    emit({ kind: 'message', label: `Degraded on route ${route.provider}: ${gap}`, detail: describeGap(gap) });
+  }
+
+  if (result.stopReason === 'refusal') {
     const reason = 'Claude declined to process this document (safety filtering).';
     emit({ kind: 'error', label: 'Request refused', detail: reason });
-    return finishFailure('failed', reason, estimateUsage(model, message.usage));
+    return finishFailure('failed', reason, result.usage);
   }
-  if (message.stop_reason === 'model_context_window_exceeded') {
+  if (result.stopReason === 'model_context_window_exceeded') {
     const reason = 'The document was too large for the model context window.';
     emit({ kind: 'error', label: 'Context window exceeded', detail: reason });
-    return finishFailure('failed', reason, estimateUsage(model, message.usage));
+    return finishFailure('failed', reason, result.usage);
   }
 
-  const usage = estimateUsage(model, message.usage);
+  const usage = result.usage;
 
-  const toolUse = message.content.find(
-    (block): block is Anthropic.Beta.BetaToolUseBlock => block.type === 'tool_use' && block.name === EXTRACTION_TOOL_NAME,
-  );
+  const toolUse = toolUseOf(result, EXTRACTION_TOOL_NAME);
   if (!toolUse) {
-    const reason = `The model did not return structured extraction output (stop_reason=${message.stop_reason ?? 'unknown'}).`;
+    const reason = `The model did not return structured extraction output (stop_reason=${result.stopReason ?? 'unknown'}).`;
     emit({ kind: 'error', label: 'No extraction returned', detail: reason });
     return finishFailure('failed', reason, usage);
   }
@@ -692,12 +787,15 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   }
 
   const kind = parsed.data.kind;
-  const kindConfidence = parsed.data.kindConfidence;
+  // The classification is a self-report about the same unverified input the
+  // fields came from, so it takes the same discount rather than standing
+  // alone as the one confident number on a degraded run.
+  const kindConfidence = pageVerificationAvailable ? parsed.data.kindConfidence : discountUnverified(parsed.data.kindConfidence);
 
-  // Citations are PDF-only (see the image branch above); for an image source
-  // this is simply an empty list, and every field below correctly ends up
-  // with no sourcePage rather than a fabricated one.
-  const citationSpans = collectCitations(message.content);
+  // Citations are PDF-only AND provider-dependent (see `pageVerificationAvailable`);
+  // where either condition fails this is simply an empty list, and every field
+  // below correctly ends up with no sourcePage rather than a fabricated one.
+  const citationSpans = pageVerificationAvailable ? collectCitations(result.content) : [];
 
   emit({
     kind: 'tool_result',
@@ -710,16 +808,34 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   let evidenceSeq = 0;
 
   for (const raw of parsed.data.fields) {
-    const sourcePage = isPdf ? matchPageForQuote(raw.quote, citationSpans) : undefined;
+    // `sourcePage` is undefined unless a verified citation actually placed
+    // this field's quote on a page. There is no other way for a number to get
+    // here — not from the tool input, not from the model's prose, not from a
+    // heuristic. On a route without citations `citationSpans` is empty, so
+    // this is undefined for every field, which is the required outcome.
+    const sourcePage = pageVerificationAvailable ? matchPageForQuote(raw.quote, citationSpans) : undefined;
     let confidence = Math.max(0, Math.min(1, raw.confidence));
 
-    // Honesty rule: a page only ever gets attached when the API's own
-    // citation engine actually located the quoted text in the source. When
-    // it didn't, the field survives at reduced confidence and with no page —
-    // never with a guessed one.
-    if (isPdf && sourcePage === undefined) {
-      confidence = Math.min(confidence, 0.35);
-      if (confidence < 0.4) continue; // not worth surfacing as "extracted"
+    if (pageVerificationAvailable) {
+      // Honesty rule, unchanged from before the port: a page only ever gets
+      // attached when the API's own citation engine actually located the
+      // quoted text in the source. When it didn't, the field survives at
+      // reduced confidence and with no page — never with a guessed one.
+      if (sourcePage === undefined) {
+        confidence = Math.min(confidence, 0.35);
+        if (confidence < 0.4) continue; // not worth surfacing as "extracted"
+      }
+    } else if (!descriptor.capabilities.documentCitations) {
+      // The route itself cannot verify anything. Every field is discounted
+      // rather than dropped: dropping them would leave the run looking like a
+      // document with no readable fields, which is a different and equally
+      // wrong story. Discounted-and-present says what actually happened —
+      // these values were read by a model that nothing checked.
+      //
+      // Note this branch is entered only for a citation-less *provider*. An
+      // image on a full-capability route falls through untouched, exactly as
+      // it did before the port: an image never had a page to lose.
+      confidence = discountUnverified(confidence);
     }
 
     const disagreement = checkDisagreement(raw, identity, kind);
@@ -752,7 +868,12 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     });
   }
 
-  const notes = [parsed.data.notes, ...disagreementNotes].filter(s => s.trim().length > 0).join(' ');
+  // The gap consequences go into the notes a person reads, not only into the
+  // telemetry a person might read. `describeGap` states them in this
+  // product's terms ("page references are self-reported...") rather than
+  // naming a feature flag at someone who never chose the route.
+  const degradationNotes = capabilityGaps.map(describeGap);
+  const notes = [parsed.data.notes, ...disagreementNotes, ...degradationNotes].filter(s => s.trim().length > 0).join(' ');
 
   emit({
     kind: 'message',
@@ -760,7 +881,10 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     detail: notes || undefined,
   });
 
-  const summary = `Classified as ${kind} (${Math.round(kindConfidence * 100)}% confidence); extracted ${fields.length} field(s)${disagreementNotes.length > 0 ? `; ${disagreementNotes.length} disagreement(s) flagged` : ''}.`;
+  const summary =
+    `Classified as ${kind} (${Math.round(kindConfidence * 100)}% confidence); extracted ${fields.length} field(s)` +
+    `${disagreementNotes.length > 0 ? `; ${disagreementNotes.length} disagreement(s) flagged` : ''}` +
+    `${capabilityGaps.length > 0 ? `; run degraded on the ${route.provider} route (${capabilityGaps.join(', ')}) so no page reference is verified` : ''}.`;
 
   const run: AgentRun = {
     id: runId,
@@ -771,6 +895,8 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     finishedAt: new Date().toISOString(),
     model,
     tier,
+    provider: route.provider,
+    capabilityGaps,
     steps,
     summary,
     usage,

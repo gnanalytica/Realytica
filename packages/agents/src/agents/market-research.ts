@@ -13,14 +13,27 @@
  * Gated behind `agentCapability().webSearchEnabled` (opt-in — see client.ts):
  * with it off, this returns a `cancelled` run immediately rather than
  * silently doing nothing.
+ *
+ * The same gate now applies to the *route*. Web search here is a server-run
+ * Anthropic tool, and a provider without `serverWebSearch` cannot substitute
+ * anything for it — this agent's only source of facts would be gone, leaving a
+ * model asked for "recent transaction signal" with nothing but its own
+ * recollection to answer from. That is the one degradation this file must not
+ * accept: a fabricated market finding with a fabricated source URL is exactly
+ * what its prompt spends four paragraphs forbidding. So a route without server
+ * web search cancels the run and says so, with the gap recorded, rather than
+ * running blind and calling the output research.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { AgentRun, AgentRunStatus, AgentStep, EvidenceItem, PropertyCase, ReferenceData, ResearchFinding } from '@valytica/shared';
-import { agentCapability, baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
+import type { AgentRun, AgentRunStatus, AgentStep, CapabilityGap, EvidenceItem, PropertyCase, ReferenceData, ResearchFinding } from '@valytica/shared';
+import { agentCapability, describeError } from '../client';
 import { GROUNDING_RULES, renderCaseContext } from '../context';
+import { describeGap } from '../routing';
+import { capabilityBlocksRoute, missingCredentialsReason, resolveRoute, textOf } from '../providers';
+import type { LlmServerTool } from '../providers';
 
 export interface RunMarketResearchParams {
   caseId: string;
@@ -74,6 +87,22 @@ interface WebSearchTool20260209 {
 }
 const WEB_SEARCH_TOOL: WebSearchTool20260209 = { type: 'web_search_20260209', name: 'web_search', max_uses: MAX_SEARCHES };
 
+/**
+ * The same tool, declared to the port.
+ *
+ * `native` is passed through verbatim by a provider that hosts server tools,
+ * so the request on the wire is unchanged. `gap` is what a provider that does
+ * not host them must record instead — there is no portable substitute for a
+ * search the vendor runs, and pretending otherwise is how an agent ends up
+ * inventing its sources.
+ */
+const WEB_SEARCH_PORT_TOOL: LlmServerTool = {
+  kind: 'server',
+  name: 'web_search',
+  gap: 'server_web_search_unavailable',
+  native: WEB_SEARCH_TOOL,
+};
+
 const FindingInputSchema = z.object({
   claim: z.string(),
   sourceUrl: z.string().optional(),
@@ -111,8 +140,12 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
 
   // Resolved once, at the top, so the model recorded on the run is the model
   // the request was built with and the model the usage was priced against.
-  const tier = tierFor('market_research');
-  const model = modelFor('market_research');
+  const { route, provider, descriptor } = resolveRoute('market_research');
+  const tier = route.tier;
+  const model = route.model;
+
+  /** What this run asked the provider for and did not get. */
+  let capabilityGaps: CapabilityGap[] = [];
 
   const finish = (status: AgentRunStatus, error: string | undefined, usage?: AgentRun['usage']): RunMarketResearchResult => {
     const run: AgentRun = {
@@ -124,6 +157,8 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
       finishedAt: new Date().toISOString(),
       model,
       tier,
+      provider: route.provider,
+      capabilityGaps,
       steps,
       error,
       usage,
@@ -134,8 +169,10 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
 
   emit({ kind: 'plan', label: `Researching market signal for ${caseData.identity.locality}, ${caseData.identity.city}` });
 
+  // The credential half of `agentCapability()` only speaks for an Anthropic
+  // route; the kill switch speaks for all of them. See `capabilityBlocksRoute`.
   const capability = agentCapability();
-  if (!capability.available) {
+  if (capabilityBlocksRoute(route, capability)) {
     const reason = `Market research is unavailable (${capability.reason}) — Anthropic credentials are not configured.`;
     emit({ kind: 'error', label: 'Agent unavailable', detail: reason });
     return finish('failed', reason);
@@ -145,10 +182,23 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
     emit({ kind: 'plan', label: 'Skipped — web search disabled', detail: reason });
     return finish('cancelled', reason);
   }
+  // Cancelled, not degraded. Every other agent can produce a thinner but real
+  // answer without its missing capability; this one cannot. Its entire job is
+  // to bring in facts from outside the case file, and without a provider-run
+  // search there is no outside. Running anyway would hand a user a set of
+  // "findings" whose only source is the model, which is worse than no findings
+  // at all — see the file header.
+  if (!descriptor.capabilities.serverWebSearch) {
+    capabilityGaps = ['server_web_search_unavailable'];
+    const reason =
+      `Route ${route.provider} does not host a server-run web search — market research was skipped rather than run without it. ` +
+      describeGap('server_web_search_unavailable');
+    emit({ kind: 'plan', label: 'Skipped — no server web search on this route', detail: reason });
+    return finish('cancelled', reason);
+  }
 
-  const client = getClient();
-  if (!client) {
-    const reason = 'Anthropic credentials are not configured — market research is unavailable.';
+  if (!descriptor.configured) {
+    const reason = missingCredentialsReason(route, 'market research is unavailable.');
     emit({ kind: 'error', label: 'No credentials', detail: reason });
     return finish('failed', reason);
   }
@@ -158,72 +208,71 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
   // build a prompt for an agent that talks to an outside service.
   const contextBlock = renderCaseContext(caseData, refData, { externalSafe: true });
 
-  const requestParams = {
-    ...baseRequestFor('market_research'),
-    max_tokens: 8000,
-    system: [{ type: 'text' as const, text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' as const } }],
-    tools: [WEB_SEARCH_TOOL],
-    messages: [{ role: 'user' as const, content: `Locality market terms (this is all you are given — do not ask for more):\n${contextBlock}` }],
-  };
-
   emit({ kind: 'tool_call', label: 'Searching the web for locality signal', toolName: 'web_search' });
 
-  // See the file-level cast comment on WEB_SEARCH_TOOL: same SDK/API version
-  // gap, same `unknown`-only workaround. The toolRunner's own parameter type
-  // isn't re-exported anywhere convenient, so it is derived from the client
-  // method itself rather than duplicated by hand.
-  type ToolRunnerParams = Parameters<typeof client.beta.messages.toolRunner>[0];
-  type NonStreamingToolRunnerParams = ToolRunnerParams & { stream?: false };
-
-  let final: Anthropic.Beta.BetaMessage;
+  let result;
   try {
-    const runner = client.beta.messages.toolRunner(requestParams);
-    // web_search is a server-side tool: a long research turn can come back
-    // with stop_reason "pause_turn" after the server's own iteration limit.
-    // The runner does not auto-resume that — it would otherwise silently
-    // truncate the research here — so it is handled explicitly.
-    for await (const message of runner) {
-      if (message.stop_reason === 'pause_turn') {
-        runner.pushMessages({ role: 'assistant', content: message.content });
-      }
-      for (const block of message.content) {
-        if (block.type === 'server_tool_use' && block.name === 'web_search') {
-          const query = typeof block.input.query === 'string' ? block.input.query : undefined;
-          emit({ kind: 'tool_call', label: query ? `Searching: "${query}"` : 'Searching the web', toolName: 'web_search' });
-        }
-        if (block.type === 'web_search_tool_result') {
-          const content = block.content;
-          if (Array.isArray(content)) {
-            emit({ kind: 'tool_result', label: `Found ${content.length} result(s)` });
-          } else {
-            emit({ kind: 'error', label: 'Web search error', detail: content.error_code });
+    result = await provider.runTools({
+      agent: 'market_research',
+      model,
+      maxTokens: 8000,
+      system: [{ text: SYSTEM_PROMPT, cacheBreakpoint: true }],
+      tools: [WEB_SEARCH_PORT_TOOL],
+      messages: [{ role: 'user', content: `Locality market terms (this is all you are given — do not ask for more):\n${contextBlock}` }],
+      // Server-tool telemetry is Anthropic-shaped by construction: this agent
+      // cancels above on any route without server web search, so `native` is
+      // always a BetaMessage by the time this runs. Reading it directly keeps
+      // every search/result step exactly as it was, rather than routing rich
+      // tool results through a lossy normalised description.
+      //
+      // `pause_turn` resumption moved into the provider — it is a protocol
+      // detail of the server-run tool, not of this agent — and behaves
+      // identically: the assistant turn is pushed back and the runner
+      // continues.
+      onMessage: message => {
+        const native = message.native as Anthropic.Beta.BetaMessage | undefined;
+        if (!native) return;
+        for (const block of native.content) {
+          if (block.type === 'server_tool_use' && block.name === 'web_search') {
+            const query = typeof block.input.query === 'string' ? block.input.query : undefined;
+            emit({ kind: 'tool_call', label: query ? `Searching: "${query}"` : 'Searching the web', toolName: 'web_search' });
+          }
+          if (block.type === 'web_search_tool_result') {
+            const content = block.content;
+            if (Array.isArray(content)) {
+              emit({ kind: 'tool_result', label: `Found ${content.length} result(s)` });
+            } else {
+              emit({ kind: 'error', label: 'Web search error', detail: content.error_code });
+            }
           }
         }
-      }
-    }
-    final = await runner.done();
+      },
+    });
   } catch (e) {
     const reason = describeError(e);
-    emit({ kind: 'error', label: 'Anthropic request failed', detail: reason });
+    emit({ kind: 'error', label: 'Model request failed', detail: reason });
     return finish('failed', reason);
   }
 
-  const usage = estimateUsage(model, final.usage);
+  capabilityGaps = result.capabilityGaps;
+  for (const gap of capabilityGaps) {
+    emit({ kind: 'message', label: `Degraded on route ${route.provider}: ${gap}`, detail: describeGap(gap) });
+  }
 
-  if (final.stop_reason === 'refusal') {
+  const usage = result.usage;
+
+  if (result.stopReason === 'refusal') {
     const reason = 'Claude declined to perform this research (safety filtering).';
     emit({ kind: 'error', label: 'Request refused', detail: reason });
     return finish('failed', reason, usage);
   }
-  if (final.stop_reason === 'pause_turn') {
+  if (result.stopReason === 'pause_turn') {
     const reason = 'Research paused repeatedly without concluding — treating the run as incomplete rather than guessing at partial results.';
     emit({ kind: 'error', label: 'Research did not conclude', detail: reason });
     return finish('failed', reason, usage);
   }
 
-  const textBlocks = final.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text');
-  const rawText = textBlocks.map(b => b.text).join('\n\n');
-  const parsed = FindingsArraySchema.safeParse(extractJson(rawText));
+  const parsed = FindingsArraySchema.safeParse(extractJson(textOf(result)));
 
   if (!parsed.success) {
     const reason = `Research completed but did not return valid structured findings: ${parsed.error.message}`;
@@ -272,6 +321,8 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
     finishedAt: new Date().toISOString(),
     model,
     tier,
+    provider: route.provider,
+    capabilityGaps,
     steps,
     summary: `${findings.length} market finding(s) for ${caseData.identity.locality}${contradictions > 0 ? ` (${contradictions} contradicting engine data)` : ''}.`,
     usage,

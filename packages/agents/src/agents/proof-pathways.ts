@@ -41,11 +41,11 @@
  */
 
 import { z } from 'zod';
-import type Anthropic from '@anthropic-ai/sdk';
 import type {
   AgentRun,
   AgentStep,
   AgentUsage,
+  CapabilityGap,
   ComplianceVerdict,
   CurrencyCode,
   DocumentKind,
@@ -59,11 +59,14 @@ import type {
   RetrievalSelection,
   TitleGraph,
 } from '@valytica/shared';
-import { baseRequestFor, describeError, estimateUsage, getClient, modelFor, sumUsage, tierFor } from '../client';
+import { describeError, sumUsage } from '../client';
 import { buildTitleGraph } from '@valytica/shared';
 import { GROUNDING_RULES } from '../context';
 import { retrieveCaseContext } from '../retrieval';
 import { KARNATAKA_PROOF_ROUTES_VERIFY_BANNER, renderKarnatakaProofRoutesCorpus } from '../knowledge/karnataka-proof-routes';
+import { describeGap } from '../routing';
+import { mergeGaps, missingCredentialsDetail, resolveRoute, toolUseOf } from '../providers';
+import type { LlmProvider } from '../providers';
 
 const TOOL_NAME = 'emit_document_pathway';
 
@@ -553,6 +556,8 @@ interface GapCallOutcome {
   validated?: ValidatedPathway;
   usage?: AgentUsage;
   error?: string;
+  /** What this one call asked for and did not get. Unioned across the fan-out onto the run. */
+  capabilityGaps?: CapabilityGap[];
 }
 
 /**
@@ -562,44 +567,47 @@ interface GapCallOutcome {
  * `buildPathwayFromValidated`'s existing "no route analysis was produced"
  * path for this gap alone, without disturbing any other gap's call.
  */
-async function runGapPathway(client: Anthropic, model: string, systemText: string, caseData: PropertyCase, refData: ReferenceData, result: ScreenResult, gap: Gap, graph: TitleGraph | undefined): Promise<GapCallOutcome> {
+async function runGapPathway(provider: LlmProvider, model: string, systemText: string, caseData: PropertyCase, refData: ReferenceData, result: ScreenResult, gap: Gap, graph: TitleGraph | undefined): Promise<GapCallOutcome> {
   const { text: userText } = buildGapUserText(caseData, refData, result, gap, graph);
   try {
-    const stream = client.beta.messages.stream({
-      ...baseRequestFor('proof_pathways'),
-      max_tokens: GAP_MAX_TOKENS,
-      output_config: { effort: 'high' },
+    const outcome = await provider.complete({
+      agent: 'proof_pathways',
+      model,
+      maxTokens: GAP_MAX_TOKENS,
+      effort: 'high',
       // Byte-identical across every gap's call — this is what lets the fan-out's
       // concurrent requests share one cached prompt prefix instead of each
-      // paying full price for the grounding rules, role and corpus text.
-      system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
+      // paying full price for the grounding rules, role and corpus text. The
+      // breakpoint is a request: a provider without prompt caching drops it
+      // and records `prompt_caching_unavailable`, which costs money and
+      // changes nothing about the answer.
+      system: [{ text: systemText, cacheBreakpoint: true }],
       messages: [{ role: 'user', content: userText }],
       tools: [
         {
+          kind: 'schema',
           name: TOOL_NAME,
           description: 'Emit the ranked, costed proof-sourcing pathway for the one gap given.',
           strict: true,
-          input_schema: PATHWAY_JSON_SCHEMA,
+          parameters: PATHWAY_JSON_SCHEMA,
         },
       ],
-      tool_choice: { type: 'tool', name: TOOL_NAME },
+      toolChoice: { type: 'tool', name: TOOL_NAME },
     });
-    const finalMessage = await stream.finalMessage();
+    const capabilityGaps = outcome.capabilityGaps;
 
-    if (finalMessage.stop_reason === 'refusal') {
-      return { error: 'The model declined to answer (safety refusal) for this gap.', usage: estimateUsage(model, finalMessage.usage) };
+    if (outcome.stopReason === 'refusal') {
+      return { error: 'The model declined to answer (safety refusal) for this gap.', usage: outcome.usage, capabilityGaps };
     }
-    const toolUse = finalMessage.content.find(
-      (block): block is Anthropic.Beta.Messages.BetaToolUseBlock => block.type === 'tool_use' && block.name === TOOL_NAME,
-    );
+    const toolUse = toolUseOf(outcome, TOOL_NAME);
     if (!toolUse) {
-      return { error: 'The model did not return the expected tool call for this gap.', usage: estimateUsage(model, finalMessage.usage) };
+      return { error: 'The model did not return the expected tool call for this gap.', usage: outcome.usage, capabilityGaps };
     }
     const parsed = PathwaySchema.safeParse(toolUse.input);
     if (!parsed.success) {
-      return { error: `Model output did not match the expected schema: ${parsed.error.message}`, usage: estimateUsage(model, finalMessage.usage) };
+      return { error: `Model output did not match the expected schema: ${parsed.error.message}`, usage: outcome.usage, capabilityGaps };
     }
-    return { validated: parsed.data, usage: estimateUsage(model, finalMessage.usage) };
+    return { validated: parsed.data, usage: outcome.usage, capabilityGaps };
   } catch (e) {
     return { error: describeError(e) };
   }
@@ -627,9 +635,14 @@ export async function runProofPathways(input: {
   };
 
   // Resolved once, at the top, so the model recorded on the run is the model
-  // every gap call was built with and the model their usage was priced against.
-  const tier = tierFor('proof_pathways');
-  const model = modelFor('proof_pathways');
+  // every gap call was built with and the model their usage was priced
+  // against — and so every gap call in the fan-out goes to the same provider.
+  const { route, provider, descriptor } = resolveRoute('proof_pathways');
+  const tier = route.tier;
+  const model = route.model;
+
+  /** Unioned across the fan-out: one gap's call degrading is the run degrading. */
+  let capabilityGaps: CapabilityGap[] = [];
 
   const fail = (error: string): { run: AgentRun; pathways: DocumentPathway[]; evidence: EvidenceItem[] } => {
     emit('error', 'Proof-pathways run failed', error);
@@ -643,6 +656,8 @@ export async function runProofPathways(input: {
         finishedAt: new Date().toISOString(),
         model,
         tier,
+        provider: route.provider,
+        capabilityGaps,
         steps,
         error,
         producedEvidenceIds: [],
@@ -665,6 +680,8 @@ export async function runProofPathways(input: {
         finishedAt: new Date().toISOString(),
         model,
         tier,
+        provider: route.provider,
+        capabilityGaps,
         steps,
         summary: 'No screen result is available for this case yet, so there is no gap list to build pathways for.',
         producedEvidenceIds: [],
@@ -689,6 +706,8 @@ export async function runProofPathways(input: {
         finishedAt: new Date().toISOString(),
         model,
         tier,
+        provider: route.provider,
+        capabilityGaps,
         steps,
         summary: 'No evidence gaps found on this case — no proof pathways were needed.',
         producedEvidenceIds: [],
@@ -699,9 +718,8 @@ export async function runProofPathways(input: {
   }
   emit('message', `${gaps.length} gap(s) found.`, gaps.map(g => g.targetKey).join(', '));
 
-  const client = getClient();
-  if (!client) {
-    return fail('Anthropic credentials are not configured for this deployment (no ANTHROPIC_API_KEY, auth token, or `ant auth login` profile was found).');
+  if (!descriptor.configured) {
+    return fail(missingCredentialsDetail(route));
   }
 
   const statePack = refData.statePacks.find(
@@ -731,8 +749,9 @@ export async function runProofPathways(input: {
     const pathwayId = `pathway-${caseId}-${n}`;
     const evidenceId = `ev-pathway-${caseId}-${n}`;
     emit('tool_call', `Requesting route analysis for gap "${gap.targetKey}".`, undefined, TOOL_NAME);
-    const outcome = await runGapPathway(client, model, systemText, caseData, refData, result, gap, graph);
+    const outcome = await runGapPathway(provider, model, systemText, caseData, refData, result, gap, graph);
     if (outcome.usage) usageList.push(outcome.usage);
+    if (outcome.capabilityGaps) capabilityGaps = mergeGaps(capabilityGaps, outcome.capabilityGaps);
     if (outcome.error) {
       failedGaps += 1;
       emit('error', `Route analysis failed for gap "${gap.targetKey}" — recorded as unresolved.`, outcome.error);
@@ -754,6 +773,10 @@ export async function runProofPathways(input: {
 
   const usage = sumUsage(usageList);
 
+  for (const gap of capabilityGaps) {
+    emit('message', `Degraded on route ${route.provider}: ${gap}`, describeGap(gap));
+  }
+
   return {
     run: {
       id: `run-${caseId}-proof_pathways-${Date.parse(startedAt)}`,
@@ -764,8 +787,13 @@ export async function runProofPathways(input: {
       finishedAt: new Date().toISOString(),
       model,
       tier,
+      provider: route.provider,
+      capabilityGaps,
       steps,
-      summary: `Built ${pathways.length} proof pathway(s) for ${gaps.length} evidence gap(s) as of ${now}${failedGaps > 0 ? ` (${failedGaps} could not be analysed and are marked unresolved)` : ''}.`,
+      summary:
+        `Built ${pathways.length} proof pathway(s) for ${gaps.length} evidence gap(s) as of ${now}` +
+        `${failedGaps > 0 ? ` (${failedGaps} could not be analysed and are marked unresolved)` : ''}` +
+        `${capabilityGaps.length > 0 ? ` (route ${route.provider} degraded: ${capabilityGaps.join(', ')})` : ''}.`,
       usage,
       producedEvidenceIds: evidence.map(e => e.id),
     },

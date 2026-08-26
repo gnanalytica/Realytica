@@ -18,21 +18,23 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import type {
   AgentKind,
   AgentPlan,
   AgentRun,
   AgentStep,
+  CapabilityGap,
   CaseDocument,
   PlannedTask,
   PropertyCase,
   ReferenceData,
   TaskDepth,
 } from '@valytica/shared';
-import { baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
+import { describeError } from '../client';
 import { GROUNDING_RULES } from '../context';
+import { describeGap } from '../routing';
+import { missingCredentialsDetail, resolveRoute, toolUseOf } from '../providers';
 
 const TOOL_NAME = 'emit_agent_plan';
 
@@ -369,8 +371,12 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
 
   // Resolved once, at the top, so the model recorded on the run is the model
   // the request was built with and the model the usage was priced against.
-  const tier = tierFor('planner');
-  const model = modelFor('planner');
+  const { route, provider, descriptor } = resolveRoute('planner');
+  const tier = route.tier;
+  const model = route.model;
+
+  /** What this run asked the provider for and did not get. */
+  let capabilityGaps: CapabilityGap[] = [];
 
   const succeed = (plan: AgentPlan, summary: string, usage?: AgentRun['usage']): RunPlannerResult => ({
     run: {
@@ -382,6 +388,8 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
       finishedAt: new Date().toISOString(),
       model,
       tier,
+      provider: route.provider,
+      capabilityGaps,
       steps,
       summary,
       usage,
@@ -403,6 +411,8 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
         finishedAt: new Date().toISOString(),
         model,
         tier,
+        provider: route.provider,
+        capabilityGaps,
         steps,
         error: reason,
         usage,
@@ -422,9 +432,8 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
 
   emit({ kind: 'plan', label: `Assessing case shape to plan across ${available.length} agent(s): ${available.join(', ')}.` });
 
-  const client = getClient();
-  if (!client) {
-    return fallback('Anthropic credentials are not configured for this deployment (no ANTHROPIC_API_KEY, auth token, or `ant auth login` profile was found).');
+  if (!descriptor.configured) {
+    return fallback(missingCredentialsDetail(route));
   }
 
   const systemText = buildSystemText();
@@ -432,42 +441,46 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
 
   emit({ kind: 'tool_call', label: `Requesting a plan from ${model} (${tier} tier).`, toolName: TOOL_NAME });
 
-  let finalMessage: Anthropic.Beta.BetaMessage;
+  let result;
   try {
-    const stream = client.beta.messages.stream({
-      ...baseRequestFor('planner'),
-      max_tokens: 6000,
-      output_config: { effort: 'medium' },
-      system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
+    result = await provider.complete({
+      agent: 'planner',
+      model,
+      maxTokens: 6000,
+      effort: 'medium',
+      system: [{ text: systemText, cacheBreakpoint: true }],
       messages: [{ role: 'user', content: userText }],
       tools: [
         {
+          kind: 'schema',
           name: TOOL_NAME,
           description: 'Emit the plan for this case: one task per available agent, with depth, rationale, order and focus, plus the case assessment, deliberate omissions and an estimated cost.',
           strict: true,
-          input_schema: buildOutputJsonSchema(available),
+          parameters: buildOutputJsonSchema(available),
         },
       ],
-      tool_choice: { type: 'tool', name: TOOL_NAME },
+      toolChoice: { type: 'tool', name: TOOL_NAME },
     });
-    finalMessage = await stream.finalMessage();
   } catch (e) {
     return fallback(describeError(e));
   }
 
-  emit({ kind: 'tool_result', label: `Received response (stop_reason: ${finalMessage.stop_reason ?? 'unknown'}).`, toolName: TOOL_NAME });
+  capabilityGaps = result.capabilityGaps;
+  for (const gap of capabilityGaps) {
+    emit({ kind: 'message', label: `Degraded on route ${route.provider}: ${gap}`, detail: describeGap(gap) });
+  }
 
-  const usage = estimateUsage(model, finalMessage.usage);
+  emit({ kind: 'tool_result', label: `Received response (stop_reason: ${result.stopReason ?? 'unknown'}).`, toolName: TOOL_NAME });
 
-  if (finalMessage.stop_reason === 'refusal') {
+  const usage = result.usage;
+
+  if (result.stopReason === 'refusal') {
     return fallback('The model declined to plan this case (safety refusal) and no fallback produced a usable response.', usage);
   }
 
-  const toolUse = finalMessage.content.find(
-    (block): block is Anthropic.Beta.BetaToolUseBlock => block.type === 'tool_use' && block.name === TOOL_NAME,
-  );
+  const toolUse = toolUseOf(result, TOOL_NAME);
   if (!toolUse) {
-    return fallback(`The model did not return the expected tool call (stop_reason=${finalMessage.stop_reason ?? 'unknown'}).`, usage);
+    return fallback(`The model did not return the expected tool call (stop_reason=${result.stopReason ?? 'unknown'}).`, usage);
   }
 
   const parsed = buildValidationSchema(available).safeParse(toolUse.input);

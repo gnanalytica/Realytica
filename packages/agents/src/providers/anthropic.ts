@@ -27,6 +27,7 @@ import { agentCapability, baseRequestFor, estimateUsage, getClient } from '../cl
 import { ProviderCallError } from './types';
 import type {
   LlmCitation,
+  LlmClientTool,
   LlmContentBlock,
   LlmMessage,
   LlmProvider,
@@ -124,6 +125,48 @@ function toTool(tool: LlmTool): unknown {
     description: tool.description,
     ...(tool.strict ? { strict: true } : {}),
     input_schema: tool.parameters,
+  };
+}
+
+/**
+ * Wraps an SDK runnable tool — what `betaTool()` and `betaMemoryTool()` return
+ * — as a port `client` tool.
+ *
+ * `native` keeps the original object, so Anthropic's own tool runner receives
+ * the `run`/`parse` pair it needs and executes the loop server-side exactly as
+ * it did before the port. `execute` reaches the *same* closure through that
+ * pair, so a provider with `toolLoop: false` can drive it from an in-app loop.
+ * The two are one implementation reached two ways, not a copy and an original
+ * that can drift.
+ *
+ * The `unknown` detour is unavoidable rather than lazy. `BetaRunnableTool` is
+ * a union of a dozen tool shapes, each with its own `run` argument type, so
+ * the union's `run` is callable only with `never` and its `name` and
+ * `input_schema` exist on some members and not others. Reading them
+ * defensively at runtime is the honest way through — and every tool this
+ * codebase passes is a `betaTool()` or `betaMemoryTool()`, both of which
+ * carry what is needed.
+ */
+export function clientToolFromRunnable(tool: unknown): LlmClientTool {
+  const runnable = tool as {
+    name?: string;
+    type?: string;
+    description?: string;
+    input_schema?: Record<string, unknown>;
+    run: (args: unknown, context?: unknown) => unknown;
+    parse?: (content: unknown) => unknown;
+  };
+  return {
+    kind: 'client',
+    name: runnable.name ?? runnable.type ?? 'unnamed_tool',
+    description: runnable.description ?? '',
+    parameters: runnable.input_schema ?? { type: 'object', properties: {} },
+    execute: async (input: unknown) => {
+      const parsed = runnable.parse ? runnable.parse(input) : input;
+      const out = await runnable.run(parsed);
+      return typeof out === 'string' ? out : JSON.stringify(out);
+    },
+    native: tool,
   };
 }
 
@@ -240,6 +283,24 @@ function toStopReason(reason: string | null | undefined): LlmStopReason | null {
 /* The provider                                                          */
 /* ==================================================================== */
 
+/**
+ * The SDK's shipped .d.ts predates Claude Opus 5's adaptive-thinking API
+ * (`thinking: { type: 'adaptive' }`, from `baseRequestFor`) and the
+ * `web_search_20260209` / `web_fetch_20260209` server tools this codebase
+ * uses, so its parameter unions reject requests the live API accepts. These
+ * two aliases are the only concession made to that: the request object handed
+ * to the SDK is never altered, the detour is type-only, and it is `unknown`
+ * rather than `any` so nothing downstream is silently widened.
+ *
+ * `toolRunner`'s `stream?: false` half is named explicitly because
+ * `Parameters<>` resolves an overloaded method to its LAST signature, which is
+ * the `BetaToolRunner<boolean>` one — and a `boolean`-generic runner yields
+ * `BetaMessage | BetaMessageStream`, which has neither `.content` nor
+ * `.stop_reason`.
+ */
+type StreamParams = Parameters<Anthropic['beta']['messages']['stream']>[0];
+type ToolRunnerParams = Parameters<Anthropic['beta']['messages']['toolRunner']>[0] & { stream?: false };
+
 class AnthropicProvider implements LlmProvider {
   readonly id = 'anthropic' as const;
 
@@ -263,12 +324,7 @@ class AnthropicProvider implements LlmProvider {
     const startedAt = Date.now();
     let firstTokenAt: number | undefined;
 
-    // The SDK's shipped .d.ts predates Claude Opus 5's adaptive-thinking API
-    // (`thinking: { type: 'adaptive' }`, from baseRequestFor) and the newer
-    // server-tool versions this codebase uses, so its parameter union rejects
-    // a request the live API accepts. The `unknown` detour is type-only — the
-    // object handed to the SDK is untouched — and it is never `any`.
-    const stream = client.beta.messages.stream(params as unknown as Anthropic.Beta.MessageCreateParamsBase);
+    const stream = client.beta.messages.stream(params as unknown as StreamParams);
     stream.on('streamEvent', event => {
       if (firstTokenAt === undefined && event.type === 'content_block_delta') firstTokenAt = Date.now();
     });
@@ -293,9 +349,7 @@ class AnthropicProvider implements LlmProvider {
     const params = buildToolRunnerParams(req);
     const startedAt = Date.now();
 
-    const runner = client.beta.messages.toolRunner(
-      params as unknown as Parameters<typeof client.beta.messages.toolRunner>[0],
-    );
+    const runner = client.beta.messages.toolRunner(params as unknown as ToolRunnerParams);
 
     for await (const message of runner) {
       // A server-side tool (web search, web fetch) can end a turn with

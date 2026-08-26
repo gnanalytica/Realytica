@@ -241,12 +241,13 @@ function readRateCard(value: unknown): RateCard | null {
   const input = num(v.input);
   const output = num(v.output);
   if (input === null || output === null) return null;
-  const cacheRead = v.cacheRead === undefined ? undefined : num(v.cacheRead);
   // An explicitly supplied but unusable cacheRead is a mistake worth rejecting
   // the whole entry over: silently falling back to the default would price at
   // a rate the operator explicitly tried to replace.
-  if (v.cacheRead !== undefined && cacheRead === null) return null;
-  return cacheRead === undefined ? { input, output } : { input, output, cacheRead };
+  if (v.cacheRead === undefined) return { input, output };
+  const cacheRead = num(v.cacheRead);
+  if (cacheRead === null) return null;
+  return { input, output, cacheRead };
 }
 
 /**

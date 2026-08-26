@@ -23,15 +23,27 @@
  * changed would be worse than useless.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
-import type { AgentRun, AgentRunStatus, AgentStep, CopilotTurn, MemoryRecall, PropertyCase, ReferenceData, RetrievalSelection } from '@valytica/shared';
+import type {
+  AgentRun,
+  AgentRunStatus,
+  AgentStep,
+  CapabilityGap,
+  CopilotTurn,
+  MemoryRecall,
+  PropertyCase,
+  ReferenceData,
+  RetrievalSelection,
+} from '@valytica/shared';
 import { buildTitleGraph } from '@valytica/shared';
-import { agentCapability, baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
+import { agentCapability, describeError } from '../client';
 import { GROUNDING_RULES } from '../context';
 import { retrieveCaseContext } from '../retrieval';
 import { renderMemoryForPrompt } from '../memory';
 import { createCaseTools } from '../tools/case-tools';
+import { describeGap } from '../routing';
+import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute, textOf } from '../providers';
+import type { LlmClientTool, LlmMessage } from '../providers';
 
 export interface RunCopilotParams {
   caseId: string;
@@ -132,8 +144,12 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
 
   // Resolved once, at the top, so the model recorded on the run is the model
   // the request was built with and the model the usage was priced against.
-  const tier = tierFor('analyst_copilot');
-  const model = modelFor('analyst_copilot');
+  const { route, provider, descriptor } = resolveRoute('analyst_copilot');
+  const tier = route.tier;
+  const model = route.model;
+
+  /** What this run asked the provider for and did not get. */
+  let capabilityGaps: CapabilityGap[] = [];
 
   /** Set once retrieval runs; recorded on the run so the context is auditable. */
   let retrievalSelection: RetrievalSelection | undefined;
@@ -153,6 +169,8 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
       finishedAt: new Date().toISOString(),
       model,
       tier,
+      provider: route.provider,
+      capabilityGaps,
       steps,
       retrieval: retrievalSelection,
       summary: status === 'succeeded' ? turnText.slice(0, 240) : undefined,
@@ -173,24 +191,36 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
 
   emit({ kind: 'plan', label: `Answering: "${question.length > 80 ? `${question.slice(0, 80)}…` : question}"` });
 
+  // The credential half of `agentCapability()` only speaks for an Anthropic
+  // route; the kill switch speaks for all of them. See `capabilityBlocksRoute`.
   const capability = agentCapability();
-  if (!capability.available) {
+  if (capabilityBlocksRoute(route, capability)) {
     const reason = `The analyst copilot is unavailable (${capability.reason}) — Anthropic credentials are not configured.`;
     emit({ kind: 'error', label: 'Agent unavailable', detail: reason });
     return finish('failed', reason, reason);
   }
 
-  const client = getClient();
-  if (!client) {
-    const reason = 'Anthropic credentials are not configured — the analyst copilot is unavailable.';
+  if (!descriptor.configured) {
+    const reason = missingCredentialsReason(route, 'the analyst copilot is unavailable.');
     emit({ kind: 'error', label: 'No credentials', detail: reason });
     return finish('failed', reason, reason);
   }
 
   const validEvidenceIds = new Set((caseData.result?.evidence ?? []).map(e => e.id));
 
-  const tools = createCaseTools(caseData, refData);
-  const messages: Anthropic.Beta.BetaMessageParam[] = [];
+  /**
+   * The case tools, described to the port twice over.
+   *
+   * Each one keeps its SDK-native definition (`native`) so Anthropic's own
+   * tool runner gets the `run`/`parse` pair it needs and executes the loop
+   * server-side exactly as before. `execute` is the same tool expressed
+   * portably, for a provider with `toolLoop: false` where this app has to run
+   * the loop itself. Neither is a re-implementation of the other: they are the
+   * same closure reached two ways.
+   */
+  const tools: LlmClientTool[] = createCaseTools(caseData, refData).map(clientToolFromRunnable);
+
+  const messages: LlmMessage[] = [];
   for (const turn of history) {
     messages.push({ role: turn.role, content: turn.text });
   }
@@ -251,59 +281,56 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
     ].join('\n'),
   });
 
-  const requestParams = {
-    ...baseRequestFor('analyst_copilot'),
-    max_tokens: 8000,
-    system: [{ type: 'text' as const, text: COPILOT_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' as const } }],
-    tools,
-    messages,
-    max_iterations: MAX_TOOL_ITERATIONS,
-  };
-
   emit({ kind: 'tool_call', label: 'Consulting the case ledger', detail: `${tools.length} read-only tool(s) available` });
 
-  // The installed @anthropic-ai/sdk's shipped .d.ts predates Claude Opus 5's
-  // adaptive-thinking API (`thinking: { type: "adaptive" }`, from client.ts's
-  // baseRequestFor) and the toolRunner's parameter type isn't re-exported under
-  // Anthropic.Beta — so this cast, and the `unknown` detour (never `any`),
-  // unblocks the compiler against a stale/incomplete type surface without
-  // changing anything about the request body actually sent.
-  type ToolRunnerParams = Parameters<typeof client.beta.messages.toolRunner>[0];
-  type NonStreamingToolRunnerParams = ToolRunnerParams & { stream?: false };
-
-  let final: Anthropic.Beta.BetaMessage;
+  let result;
   try {
-    const runner = client.beta.messages.toolRunner(requestParams);
-    for await (const message of runner) {
-      for (const block of message.content) {
-        if (block.type === 'tool_use') {
-          emit({ kind: 'tool_call', label: `Looking up ${block.name.replace(/_/g, ' ')}`, toolName: block.name });
+    result = await provider.runTools({
+      agent: 'analyst_copilot',
+      model,
+      maxTokens: 8000,
+      system: [{ text: COPILOT_SYSTEM_PROMPT, cacheBreakpoint: true }],
+      tools,
+      messages,
+      maxIterations: MAX_TOOL_ITERATIONS,
+      // Emitted per turn as the loop runs, not reconstructed at the end, so
+      // the step log stays a live account of what the copilot looked up. The
+      // normalised blocks are enough here — a case tool is a client tool on
+      // every provider, so nothing provider-specific is needed.
+      onMessage: message => {
+        for (const block of message.content) {
+          if (block.type === 'tool_use') {
+            emit({ kind: 'tool_call', label: `Looking up ${block.name.replace(/_/g, ' ')}`, toolName: block.name });
+          }
         }
-      }
-    }
-    final = await runner.done();
+      },
+    });
   } catch (e) {
     const reason = describeError(e);
-    emit({ kind: 'error', label: 'Anthropic request failed', detail: reason });
+    emit({ kind: 'error', label: 'Model request failed', detail: reason });
     return finish('failed', reason, `The analyst copilot hit an error and could not answer: ${reason}`);
   }
 
-  const usage = estimateUsage(model, final.usage);
+  capabilityGaps = result.capabilityGaps;
+  for (const gap of capabilityGaps) {
+    emit({ kind: 'message', label: `Degraded on route ${route.provider}: ${gap}`, detail: describeGap(gap) });
+  }
 
-  if (final.stop_reason === 'refusal') {
+  const usage = result.usage;
+
+  if (result.stopReason === 'refusal') {
     const reason = 'Claude declined to answer this question (safety filtering).';
     emit({ kind: 'error', label: 'Request refused', detail: reason });
     return finish('failed', reason, 'The analyst copilot declined to answer this question.', { usage });
   }
 
-  const textBlocks = final.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text');
-  if (textBlocks.length === 0) {
-    const reason = `The model did not return a text answer (stop_reason=${final.stop_reason ?? 'unknown'}).`;
+  const rawText = textOf(result);
+  if (result.content.every(b => b.type !== 'text')) {
+    const reason = `The model did not return a text answer (stop_reason=${result.stopReason ?? 'unknown'}).`;
     emit({ kind: 'error', label: 'No answer returned', detail: reason });
     return finish('failed', reason, 'The analyst copilot did not produce an answer.', { usage });
   }
 
-  const rawText = textBlocks.map(b => b.text).join('\n\n');
   const { text, citedEvidenceIds, refusedForLackOfEvidence } = processAnswer(rawText, validEvidenceIds);
 
   emit({
@@ -320,6 +347,8 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
     finishedAt: new Date().toISOString(),
     model,
     tier,
+    provider: route.provider,
+    capabilityGaps,
     steps,
     retrieval: retrievalSelection,
     summary: text.slice(0, 240),

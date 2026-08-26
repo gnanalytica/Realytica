@@ -46,13 +46,13 @@
 
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type Anthropic from '@anthropic-ai/sdk';
 import type {
   AgentInsight,
   AgentRun,
   AgentRunStatus,
   AgentStep,
   AgentUsage,
+  CapabilityGap,
   CriticFinding,
   CriticVerdict,
   DocumentPathway,
@@ -60,9 +60,12 @@ import type {
   ResearchFinding,
   VerificationSummary,
 } from '@valytica/shared';
-import { baseRequestFor, describeError, estimateUsage, getClient, modelFor, sumUsage, tierFor } from '../client';
+import { describeError, sumUsage } from '../client';
 import { GROUNDING_RULES } from '../context';
 import { KARNATAKA_PROOF_ROUTES_VERIFY_BANNER, renderKarnatakaProofRoutesCorpus } from '../knowledge/karnataka-proof-routes';
+import { describeGap } from '../routing';
+import { mergeGaps, missingCredentialsDetail, resolveRoute, toolUseOf } from '../providers';
+import type { LlmProvider } from '../providers';
 
 export interface RunCriticParams {
   caseId: string;
@@ -409,35 +412,34 @@ function missingRouteFinding(pathway: DocumentPathway, route: ProofRoute): Criti
 
 /** One model call verifying every route on one pathway, plus a deterministic pathway-level rollup. Throws on any failure — the caller decides what that means. */
 async function verifyPathwayRoutes(
-  client: Anthropic,
+  provider: LlmProvider,
   model: string,
   systemText: string,
   pathway: DocumentPathway,
-): Promise<{ findings: CriticFinding[]; usage: AgentUsage }> {
-  const stream = client.beta.messages.stream({
-    ...baseRequestFor('critic'),
-    max_tokens: 8000,
-    output_config: { effort: 'high' },
-    system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
+): Promise<{ findings: CriticFinding[]; usage: AgentUsage; capabilityGaps: CapabilityGap[] }> {
+  const result = await provider.complete({
+    agent: 'critic',
+    model,
+    maxTokens: 8000,
+    effort: 'high',
+    system: [{ text: systemText, cacheBreakpoint: true }],
     messages: [{ role: 'user', content: buildPathwayUserText(pathway) }],
     tools: [
       {
+        kind: 'schema',
         name: ROUTE_TOOL_NAME,
         description: 'Emit one adversarial verdict per proof route given, checked against the grounding in the system prompt.',
         strict: true,
-        input_schema: ROUTE_VERIFICATION_JSON_SCHEMA,
+        parameters: ROUTE_VERIFICATION_JSON_SCHEMA,
       },
     ],
-    tool_choice: { type: 'tool', name: ROUTE_TOOL_NAME },
+    toolChoice: { type: 'tool', name: ROUTE_TOOL_NAME },
   });
-  const finalMessage = await stream.finalMessage();
 
-  if (finalMessage.stop_reason === 'refusal') {
+  if (result.stopReason === 'refusal') {
     throw new Error('The model declined to verify this pathway (safety refusal).');
   }
-  const toolUse = finalMessage.content.find(
-    (b): b is Anthropic.Beta.Messages.BetaToolUseBlock => b.type === 'tool_use' && b.name === ROUTE_TOOL_NAME,
-  );
+  const toolUse = toolUseOf(result, ROUTE_TOOL_NAME);
   if (!toolUse) {
     throw new Error('The model did not return the expected verification tool call.');
   }
@@ -465,40 +467,39 @@ async function verifyPathwayRoutes(
     confidence: routeFindings.length > 0 ? routeFindings.reduce((s, f) => s + f.confidence, 0) / routeFindings.length : 0,
   };
 
-  return { findings: [...routeFindings, pathwayFinding], usage: estimateUsage(model, finalMessage.usage) };
+  return { findings: [...routeFindings, pathwayFinding], usage: result.usage, capabilityGaps: result.capabilityGaps };
 }
 
 /** One model call verifying every research finding together. Throws on any failure — the caller decides what that means. */
 async function verifyResearchFindings(
-  client: Anthropic,
+  provider: LlmProvider,
   model: string,
   systemText: string,
   findings: ResearchFinding[],
-): Promise<{ findings: CriticFinding[]; usage: AgentUsage }> {
-  const stream = client.beta.messages.stream({
-    ...baseRequestFor('critic'),
-    max_tokens: 8000,
-    output_config: { effort: 'high' },
-    system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
+): Promise<{ findings: CriticFinding[]; usage: AgentUsage; capabilityGaps: CapabilityGap[] }> {
+  const result = await provider.complete({
+    agent: 'critic',
+    model,
+    maxTokens: 8000,
+    effort: 'high',
+    system: [{ text: systemText, cacheBreakpoint: true }],
     messages: [{ role: 'user', content: buildResearchUserText(findings) }],
     tools: [
       {
+        kind: 'schema',
         name: RESEARCH_TOOL_NAME,
         description: 'Emit one adversarial verdict per research finding given, judging whether its cited source actually supports its claim.',
         strict: true,
-        input_schema: RESEARCH_VERIFICATION_JSON_SCHEMA,
+        parameters: RESEARCH_VERIFICATION_JSON_SCHEMA,
       },
     ],
-    tool_choice: { type: 'tool', name: RESEARCH_TOOL_NAME },
+    toolChoice: { type: 'tool', name: RESEARCH_TOOL_NAME },
   });
-  const finalMessage = await stream.finalMessage();
 
-  if (finalMessage.stop_reason === 'refusal') {
+  if (result.stopReason === 'refusal') {
     throw new Error('The model declined to verify these research findings (safety refusal).');
   }
-  const toolUse = finalMessage.content.find(
-    (b): b is Anthropic.Beta.Messages.BetaToolUseBlock => b.type === 'tool_use' && b.name === RESEARCH_TOOL_NAME,
-  );
+  const toolUse = toolUseOf(result, RESEARCH_TOOL_NAME);
   if (!toolUse) {
     throw new Error('The model did not return the expected verification tool call.');
   }
@@ -538,7 +539,7 @@ async function verifyResearchFindings(
     };
   });
 
-  return { findings: out, usage: estimateUsage(model, finalMessage.usage) };
+  return { findings: out, usage: result.usage, capabilityGaps: result.capabilityGaps };
 }
 
 /* ------------------------------------------------------------------ */
@@ -560,8 +561,12 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
   // Resolved once, at the top, so the model recorded on the run is the model
   // every verification call was built with and the model their usage was
   // priced against.
-  const tier = tierFor('critic');
-  const model = modelFor('critic');
+  const { route, provider, descriptor } = resolveRoute('critic');
+  const tier = route.tier;
+  const model = route.model;
+
+  /** Unioned across the verification fan-out. */
+  let capabilityGaps: CapabilityGap[] = [];
 
   const finish = (
     status: AgentRunStatus,
@@ -576,6 +581,8 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
       finishedAt: new Date().toISOString(),
       model,
       tier,
+      provider: route.provider,
+      capabilityGaps,
       steps,
       summary: opts.summary,
       error: opts.error,
@@ -606,10 +613,8 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
     emit({ kind: 'message', label: `${deterministicFindings.length} claim(s) checked without a model call (evidence-citation and empty-route checks).` });
   }
 
-  const client = getClient();
-  if (!client) {
-    const reason =
-      'Anthropic credentials are not configured for this deployment (no ANTHROPIC_API_KEY, auth token, or `ant auth login` profile was found) — proof-route and research-finding verification could not run.';
+  if (!descriptor.configured) {
+    const reason = missingCredentialsDetail(route, 'proof-route and research-finding verification could not run.');
     emit({ kind: 'error', label: 'Model-based verification unavailable', detail: reason });
     return finish('failed', {
       error: reason,
@@ -640,19 +645,23 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
       emit({ kind: 'tool_call', label: `Verifying ${label}.`, toolName: item.kind === 'pathway' ? ROUTE_TOOL_NAME : RESEARCH_TOOL_NAME });
       try {
         const result =
-          item.kind === 'pathway' ? await verifyPathwayRoutes(client, model, systemText, item.pathway) : await verifyResearchFindings(client, model, systemText, item.findings);
+          item.kind === 'pathway' ? await verifyPathwayRoutes(provider, model, systemText, item.pathway) : await verifyResearchFindings(provider, model, systemText, item.findings);
         emit({ kind: 'tool_result', label: `Verified ${label} — ${result.findings.length} finding(s).` });
-        return { findings: result.findings, usage: result.usage as AgentUsage | undefined, failed: false };
+        return { findings: result.findings, usage: result.usage as AgentUsage | undefined, gaps: result.capabilityGaps, failed: false };
       } catch (e) {
         const reason = describeError(e);
         emit({ kind: 'error', label: `Verification failed for ${label}`, detail: reason });
-        return { findings: [] as CriticFinding[], usage: undefined as AgentUsage | undefined, failed: true };
+        return { findings: [] as CriticFinding[], usage: undefined as AgentUsage | undefined, gaps: [] as CapabilityGap[], failed: true };
       }
     });
     for (const o of outcomes) {
       modelFindings.push(...o.findings);
       if (o.usage) usageList.push(o.usage);
+      capabilityGaps = mergeGaps(capabilityGaps, o.gaps);
       if (o.failed) failedItems += 1;
+    }
+    for (const gap of capabilityGaps) {
+      emit({ kind: 'message', label: `Degraded on route ${route.provider}: ${gap}`, detail: describeGap(gap) });
     }
   }
 
@@ -667,7 +676,8 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
   const summary =
     `Checked ${verification.checkedCount} claim(s) as of ${now} — ${verification.flaggedIds.length} flagged as unsupported or contradicted ` +
     `(grounding score ${verification.groundingScore}).` +
-    (failedItems > 0 ? ` ${failedItems} of ${workItems.length} verification call(s) could not be completed and were skipped.` : '');
+    (failedItems > 0 ? ` ${failedItems} of ${workItems.length} verification call(s) could not be completed and were skipped.` : '') +
+    (capabilityGaps.length > 0 ? ` Route ${route.provider} degraded: ${capabilityGaps.join(', ')}.` : '');
   emit({ kind: 'message', label: summary });
 
   return finish(status, { summary, error, usage, verification });

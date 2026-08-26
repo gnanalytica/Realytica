@@ -37,9 +37,16 @@
  * decides whether to continue. Two hard ceilings bound it: `maxIterations`
  * and `maxCostUsd`, both checked before every iteration starts, so an
  * open-ended agent can never become an open-ended bill.
+ *
+ * Route: like market research, this agent runs on server-hosted web search and
+ * web fetch. A provider without `serverWebSearch` leaves it with an objective
+ * about a locality and no way to look at anything, and an "exploration" whose
+ * only source is the model's recollection would be a report of leads that were
+ * never followed. So a route without server web search cancels the run, with
+ * the gap recorded, rather than producing one.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type {
@@ -47,14 +54,25 @@ import type {
   AgentRunStatus,
   AgentStep,
   AgentUsage,
+  CapabilityGap,
   ExplorationLead,
   ExplorationSession,
   PropertyCase,
   ReferenceData,
   SourceReachability,
 } from '@valytica/shared';
-import { agentCapability, baseRequestFor, describeError, estimateUsage, getClient, modelFor, sumUsage, tierFor } from '../client';
+import { agentCapability, describeError, sumUsage } from '../client';
 import { GROUNDING_RULES, renderCaseContext } from '../context';
+import { describeGap } from '../routing';
+import {
+  capabilityBlocksRoute,
+  clientToolFromRunnable,
+  mergeGaps,
+  missingCredentialsReason,
+  resolveRoute,
+  textOf,
+} from '../providers';
+import type { LlmServerTool, LlmTool } from '../providers';
 import {
   KNOWN_UNREACHABLE_SOURCES,
   classifyFetchError,
@@ -464,8 +482,12 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
   // every iteration was built with and the model their usage was priced
   // against — this agent's budget check reads that cost, so a mispriced
   // iteration would move the stopping point, not just the report.
-  const tier = tierFor('explorer');
-  const model = modelFor('explorer');
+  const { route, provider, descriptor } = resolveRoute('explorer');
+  const tier = route.tier;
+  const model = route.model;
+
+  /** Unioned across every iteration: one degraded iteration degrades the run. */
+  let capabilityGaps: CapabilityGap[] = [];
 
   const leads: ExplorationLead[] = [];
   const unreachable: ExplorationSession['unreachable'] = seedKnownUnreachable();
@@ -495,10 +517,13 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
     finishedAt: new Date().toISOString(),
     model,
     tier,
+    provider: route.provider,
+    capabilityGaps,
     steps,
     summary:
       status === 'succeeded'
-        ? `${leads.length} lead(s) explored, ${unreachable.length} source(s) unreachable, ${openQuestions.length} open question(s).`
+        ? `${leads.length} lead(s) explored, ${unreachable.length} source(s) unreachable, ${openQuestions.length} open question(s).` +
+          (capabilityGaps.length > 0 ? ` Route ${route.provider} degraded: ${capabilityGaps.join(', ')}.` : '')
         : undefined,
     error,
     usage,
@@ -510,8 +535,10 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
     emit({ kind: 'message', label: `Known unreachable: ${src.source}`, detail: src.whatItWouldHaveAnswered });
   }
 
+  // The credential half of `agentCapability()` only speaks for an Anthropic
+  // route; the kill switch speaks for all of them. See `capabilityBlocksRoute`.
   const capability = agentCapability();
-  if (!capability.available) {
+  if (capabilityBlocksRoute(route, capability)) {
     const reason = `The explorer is unavailable (${capability.reason}) — Anthropic credentials are not configured.`;
     emit({ kind: 'error', label: 'Agent unavailable', detail: reason });
     return { run: buildRun('failed', reason), session: buildSession(0, 'error') };
@@ -521,9 +548,20 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
     emit({ kind: 'plan', label: 'Skipped — web search disabled', detail: reason });
     return { run: buildRun('cancelled', reason), session: buildSession(0, 'error') };
   }
-  const client = getClient();
-  if (!client) {
-    const reason = 'Anthropic credentials are not configured — the explorer is unavailable.';
+  // Cancelled rather than degraded, for the reason in the file header: with no
+  // provider-run search and fetch there is nothing for an exploration agent to
+  // explore, and a lead list assembled from recollection would misrepresent
+  // itself as investigation.
+  if (!descriptor.capabilities.serverWebSearch) {
+    capabilityGaps = ['server_web_search_unavailable'];
+    const reason =
+      `Route ${route.provider} does not host server-run web search and fetch — exploration was skipped rather than run without them. ` +
+      describeGap('server_web_search_unavailable');
+    emit({ kind: 'plan', label: 'Skipped — no server web search on this route', detail: reason });
+    return { run: buildRun('cancelled', reason), session: buildSession(0, 'error') };
+  }
+  if (!descriptor.configured) {
+    const reason = missingCredentialsReason(route, 'the explorer is unavailable.');
     emit({ kind: 'error', label: 'No credentials', detail: reason });
     return { run: buildRun('failed', reason), session: buildSession(0, 'error') };
   }
@@ -533,16 +571,31 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
   // prompt from.
   const contextBlock = renderCaseContext(caseData, refData, { externalSafe: true });
 
-  const searchTool = createWebSearchTool(SEARCH_USES_PER_ITERATION);
-  const fetchTool = createWebFetchTool(FETCH_USES_PER_ITERATION);
   const memory = createExplorationMemoryTool();
 
+  /**
+   * Two provider-run tools and one client-run one, declared to the port.
+   *
+   * The server tools carry their native definitions so the request on the wire
+   * is unchanged, and carry the gap they cost so a provider that cannot host
+   * them says so. The memory tool is client-run: `clientToolFromRunnable`
+   * keeps the SDK object for Anthropic's own runner and exposes the same
+   * closure portably for a provider that has to drive the loop in-app.
+   */
+  const tools: LlmTool[] = [
+    { kind: 'server', name: 'web_search', gap: 'server_web_search_unavailable', native: createWebSearchTool(SEARCH_USES_PER_ITERATION) } satisfies LlmServerTool,
+    { kind: 'server', name: 'web_fetch', gap: 'server_web_search_unavailable', native: createWebFetchTool(FETCH_USES_PER_ITERATION) } satisfies LlmServerTool,
+    clientToolFromRunnable(memory.tool),
+  ];
+
+  // Two blocks with a breakpoint on each: the static role text, then the
+  // per-run objective. Collapsing them would move the cache boundary and
+  // re-bill the role text on every iteration.
   const systemBlocks = [
-    { type: 'text' as const, text: EXPLORER_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' as const } },
+    { text: EXPLORER_SYSTEM_PROMPT, cacheBreakpoint: true },
     {
-      type: 'text' as const,
       text: `Objective:\n${objective}\n\nLocality market terms (all you are given about this case — do not ask for more):\n${contextBlock}`,
-      cache_control: { type: 'ephemeral' as const },
+      cacheBreakpoint: true,
     },
   ];
 
@@ -571,95 +624,96 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
       budgetRemainingUsd: Math.max(0, maxCostUsd - usage.estimatedCostUsd),
     });
 
-    const requestParams = {
-      ...baseRequestFor('explorer'),
-      max_tokens: MAX_TOKENS_PER_ITERATION,
-      system: systemBlocks,
-      tools: [searchTool, fetchTool, memory.tool],
-      messages: [{ role: 'user' as const, content: userMessage }],
-      max_iterations: MAX_TOOL_ROUND_TRIPS_PER_ITERATION,
-    };
-
     const fetchUrlByToolUseId = new Map<string, string>();
     const fetchTelemetry = new Map<string, FetchTelemetry>();
 
-    let final: Anthropic.Beta.BetaMessage;
+    let result;
     try {
-      const runner = client.beta.messages.toolRunner(requestParams);
-      // web_search/web_fetch are server-side tools: a long turn can come back
-      // with stop_reason "pause_turn" after the server's own iteration limit.
-      // The runner does not auto-resume that — it would otherwise silently
-      // truncate this iteration — so it is handled explicitly, matching
-      // market-research.ts.
-      for await (const message of runner) {
-        if (message.stop_reason === 'pause_turn') {
-          runner.pushMessages({ role: 'assistant', content: message.content });
-        }
-        for (const block of message.content) {
-          if (block.type === 'server_tool_use' && block.name === 'web_search') {
-            const query = typeof block.input.query === 'string' ? block.input.query : undefined;
-            emit({ kind: 'tool_call', label: query ? `Searching: "${query}"` : 'Searching the web', toolName: 'web_search' });
-          }
-          if (block.type === 'server_tool_use' && block.name === 'web_fetch') {
-            const url = typeof block.input.url === 'string' ? block.input.url : undefined;
-            if (url) fetchUrlByToolUseId.set(block.id, url);
-            emit({ kind: 'tool_call', label: url ? `Fetching ${url}` : 'Fetching a page', toolName: 'web_fetch' });
-          }
-          if (block.type === 'web_search_tool_result') {
-            const content = block.content;
-            if (Array.isArray(content)) {
-              emit({ kind: 'tool_result', label: `Found ${content.length} result(s)` });
-            } else {
-              emit({ kind: 'error', label: 'Web search error', detail: content.error_code });
+      result = await provider.runTools({
+        agent: 'explorer',
+        model,
+        maxTokens: MAX_TOKENS_PER_ITERATION,
+        system: systemBlocks,
+        tools,
+        messages: [{ role: 'user', content: userMessage }],
+        maxIterations: MAX_TOOL_ROUND_TRIPS_PER_ITERATION,
+        // Reachability is classified from real tool telemetry, never from the
+        // model's say-so, and that telemetry lives in Anthropic's own
+        // `web_fetch_tool_result` blocks. This agent cancels above on any
+        // route without server web search, so `native` is always a
+        // BetaMessage here — reading it directly preserves every classification
+        // exactly rather than pushing rich tool results through a lossy
+        // normalised description.
+        //
+        // `pause_turn` resumption moved into the provider — it is a protocol
+        // detail of the server-run tools — and behaves identically.
+        onMessage: message => {
+          const native = message.native as Anthropic.Beta.BetaMessage | undefined;
+          if (!native) return;
+          for (const block of native.content) {
+            if (block.type === 'server_tool_use' && block.name === 'web_search') {
+              const query = typeof block.input.query === 'string' ? block.input.query : undefined;
+              emit({ kind: 'tool_call', label: query ? `Searching: "${query}"` : 'Searching the web', toolName: 'web_search' });
             }
-          }
-          if (block.type === 'web_fetch_tool_result') {
-            const content = block.content;
-            if (content.type === 'web_fetch_tool_result_error') {
-              const url = fetchUrlByToolUseId.get(block.tool_use_id);
-              if (url) {
-                const { reachability, note } = classifyFetchError(content.error_code, url);
-                fetchTelemetry.set(url, { reachability, note });
-                emit({ kind: 'tool_result', label: `Fetch blocked: ${url}`, detail: note ?? content.error_code });
+            if (block.type === 'server_tool_use' && block.name === 'web_fetch') {
+              const url = typeof block.input.url === 'string' ? block.input.url : undefined;
+              if (url) fetchUrlByToolUseId.set(block.id, url);
+              emit({ kind: 'tool_call', label: url ? `Fetching ${url}` : 'Fetching a page', toolName: 'web_fetch' });
+            }
+            if (block.type === 'web_search_tool_result') {
+              const content = block.content;
+              if (Array.isArray(content)) {
+                emit({ kind: 'tool_result', label: `Found ${content.length} result(s)` });
               } else {
-                emit({ kind: 'error', label: 'Web fetch error', detail: content.error_code });
+                emit({ kind: 'error', label: 'Web search error', detail: content.error_code });
               }
-            } else {
-              const url = content.url;
-              const text = extractFetchedText(content);
-              const { reachability, note } = classifyFetchedContent(text);
-              fetchTelemetry.set(url, { reachability, note, title: content.content.title ?? undefined });
-              emit({ kind: 'tool_result', label: `Fetched ${url}`, detail: reachability === 'fetched' ? undefined : note });
+            }
+            if (block.type === 'web_fetch_tool_result') {
+              const content = block.content;
+              if (content.type === 'web_fetch_tool_result_error') {
+                const url = fetchUrlByToolUseId.get(block.tool_use_id);
+                if (url) {
+                  const { reachability, note } = classifyFetchError(content.error_code, url);
+                  fetchTelemetry.set(url, { reachability, note });
+                  emit({ kind: 'tool_result', label: `Fetch blocked: ${url}`, detail: note ?? content.error_code });
+                } else {
+                  emit({ kind: 'error', label: 'Web fetch error', detail: content.error_code });
+                }
+              } else {
+                const url = content.url;
+                const text = extractFetchedText(content);
+                const { reachability, note } = classifyFetchedContent(text);
+                fetchTelemetry.set(url, { reachability, note, title: content.content.title ?? undefined });
+                emit({ kind: 'tool_result', label: `Fetched ${url}`, detail: reachability === 'fetched' ? undefined : note });
+              }
             }
           }
-        }
-      }
-      final = await runner.done();
+        },
+      });
     } catch (e) {
       hardError = describeError(e);
-      emit({ kind: 'error', label: 'Anthropic request failed', detail: hardError });
+      emit({ kind: 'error', label: 'Model request failed', detail: hardError });
       stoppedBecause = 'error';
       break;
     }
 
-    usage = sumUsage([usage, estimateUsage(model, final.usage)]);
+    capabilityGaps = mergeGaps(capabilityGaps, result.capabilityGaps);
+    usage = sumUsage([usage, result.usage]);
 
-    if (final.stop_reason === 'refusal') {
+    if (result.stopReason === 'refusal') {
       hardError = 'Claude declined to continue this iteration (safety filtering).';
       emit({ kind: 'error', label: 'Request refused', detail: hardError });
       stoppedBecause = 'error';
       break;
     }
-    if (final.stop_reason === 'pause_turn') {
+    if (result.stopReason === 'pause_turn') {
       hardError = `Iteration ${i} paused repeatedly without concluding — treating the run as stopped rather than guessing at a partial iteration.`;
       emit({ kind: 'error', label: 'Iteration did not conclude', detail: hardError });
       stoppedBecause = 'error';
       break;
     }
 
-    const textBlocks = final.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text');
-    const rawText = textBlocks.map(b => b.text).join('\n\n');
-    const parsed = IterationUpdateSchema.safeParse(extractJson(rawText));
+    const parsed = IterationUpdateSchema.safeParse(extractJson(textOf(result)));
     if (!parsed.success) {
       hardError = `Iteration ${i} did not return a valid structured update: ${parsed.error.message}`;
       emit({ kind: 'error', label: 'Invalid iteration output', detail: hardError });

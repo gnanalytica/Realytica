@@ -22,7 +22,6 @@
  * themselves. This file never sends anything, and says so in every draft.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type {
@@ -30,6 +29,7 @@ import type {
   AgentRun,
   AgentRunStatus,
   AgentStep,
+  CapabilityGap,
   DocumentPathway,
   EvidenceItem,
   PropertyCase,
@@ -39,9 +39,11 @@ import type {
   RetrievalSelection,
 } from '@valytica/shared';
 import { buildTitleGraph } from '@valytica/shared';
-import { agentCapability, baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
+import { agentCapability, describeError } from '../client';
 import { GROUNDING_RULES } from '../context';
 import { retrieveCaseContext } from '../retrieval';
+import { describeGap } from '../routing';
+import { capabilityBlocksRoute, missingCredentialsReason, resolveRoute, textOf } from '../providers';
 
 export interface DiligenceDraft {
   id: string;
@@ -184,8 +186,12 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
 
   // Resolved once, at the top, so the model recorded on the run is the model
   // the request was built with and the model the usage was priced against.
-  const tier = tierFor('diligence_planner');
-  const model = modelFor('diligence_planner');
+  const { route, provider, descriptor } = resolveRoute('diligence_planner');
+  const tier = route.tier;
+  const model = route.model;
+
+  /** What this run asked the provider for and did not get. */
+  let capabilityGaps: CapabilityGap[] = [];
 
   const finish = (status: AgentRunStatus, error: string | undefined, usage?: AgentRun['usage']): RunDiligencePlannerResult => {
     const run: AgentRun = {
@@ -197,6 +203,8 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
       finishedAt: new Date().toISOString(),
       model,
       tier,
+      provider: route.provider,
+      capabilityGaps,
       steps,
       retrieval: retrievalSelection,
       error,
@@ -208,16 +216,20 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
 
   emit({ kind: 'plan', label: `Planning next steps from ${pathways.length} pathway(s) and ${findings.length} research finding(s)` });
 
+  // `agentCapability()` answers two questions at once: is the agent layer
+  // switched on, and does this deployment hold Anthropic credentials. Only the
+  // first applies to every route — see `capabilityBlocksRoute`. Blocking an
+  // OpenAI-compatible route for want of an ANTHROPIC_API_KEY would make the
+  // port unusable on exactly the deployments it exists for.
   const capability = agentCapability();
-  if (!capability.available) {
+  if (capabilityBlocksRoute(route, capability)) {
     const reason = `The diligence planner is unavailable (${capability.reason}) — Anthropic credentials are not configured.`;
     emit({ kind: 'error', label: 'Agent unavailable', detail: reason });
     return finish('failed', reason);
   }
 
-  const client = getClient();
-  if (!client) {
-    const reason = 'Anthropic credentials are not configured — the diligence planner is unavailable.';
+  if (!descriptor.configured) {
+    const reason = missingCredentialsReason(route, 'the diligence planner is unavailable.');
     emit({ kind: 'error', label: 'No credentials', detail: reason });
     return finish('failed', reason);
   }
@@ -284,39 +296,37 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
     `Market research findings (${findings.length}):\n${findingsSummary}`,
   ].join('\n\n');
 
-  const requestParams = {
-    ...baseRequestFor('diligence_planner'),
-    max_tokens: 16000,
-    system: [{ type: 'text' as const, text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' as const } }],
-    messages: [{ role: 'user' as const, content: userMessage }],
-  };
-
   emit({ kind: 'message', label: 'Synthesising insights and additional actions' });
 
-  // See client.ts's baseRequestFor / the SDK-version note in market-research.ts
-  // and copilot.ts: the installed @anthropic-ai/sdk's shipped .d.ts predates
-  // adaptive thinking, hence the cast below (`unknown` only — never `any`).
-  let final: Anthropic.Beta.BetaMessage;
+  let result;
   try {
-    const stream = client.beta.messages.stream(requestParams);
-    final = await stream.finalMessage();
+    result = await provider.complete({
+      agent: 'diligence_planner',
+      model,
+      maxTokens: 16000,
+      system: [{ text: SYSTEM_PROMPT, cacheBreakpoint: true }],
+      messages: [{ role: 'user', content: userMessage }],
+    });
   } catch (e) {
     const reason = describeError(e);
-    emit({ kind: 'error', label: 'Anthropic request failed', detail: reason });
+    emit({ kind: 'error', label: 'Model request failed', detail: reason });
     return finish('failed', reason);
   }
 
-  const usage = estimateUsage(model, final.usage);
+  capabilityGaps = result.capabilityGaps;
+  for (const gap of capabilityGaps) {
+    emit({ kind: 'message', label: `Degraded on route ${route.provider}: ${gap}`, detail: describeGap(gap) });
+  }
 
-  if (final.stop_reason === 'refusal') {
+  const usage = result.usage;
+
+  if (result.stopReason === 'refusal') {
     const reason = 'Claude declined to produce a diligence plan (safety filtering).';
     emit({ kind: 'error', label: 'Request refused', detail: reason });
     return finish('failed', reason, usage);
   }
 
-  const textBlocks = final.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text');
-  const rawText = textBlocks.map(b => b.text).join('\n\n');
-  const parsed = OutputSchema.safeParse(extractJson(rawText));
+  const parsed = OutputSchema.safeParse(extractJson(textOf(result)));
 
   if (!parsed.success) {
     const reason = `The model did not return a valid diligence plan: ${parsed.error.message}`;
@@ -389,8 +399,12 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
     finishedAt: new Date().toISOString(),
     model,
     tier,
+    provider: route.provider,
+    capabilityGaps,
     steps,
-    summary: `${insights.length} insight(s), ${actions.length} new action(s), ${drafts.length} draft message(s) for review — Valytica does not send these automatically.`,
+    summary:
+      `${insights.length} insight(s), ${actions.length} new action(s), ${drafts.length} draft message(s) for review — Valytica does not send these automatically.` +
+      (capabilityGaps.length > 0 ? ` Route ${route.provider} degraded: ${capabilityGaps.join(', ')}.` : ''),
     usage,
     producedEvidenceIds: evidence.map(e => e.id),
   };

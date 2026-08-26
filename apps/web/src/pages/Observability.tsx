@@ -17,6 +17,30 @@ import type {
   ProviderPerformance,
   TelemetrySummary,
 } from '@valytica/shared';
+
+/**
+ * What a cost total leaves out.
+ *
+ * Shipped alongside every total by the telemetry layer, on the rule that
+ * nothing there reports a cost without also reporting what it excluded. This
+ * page honours the same rule: a route whose rates this deployment does not
+ * know contributes zero to the sum, and a total silently missing a third of
+ * the spend is a number a reader would trust and should not.
+ *
+ * Declared structurally rather than imported because it belongs to the
+ * telemetry module's view type, not to the frozen domain contract.
+ */
+interface PricingCoverage {
+  confidence: 'exact' | 'upper_bound' | 'unavailable';
+  pricedCalls: number;
+  upperBoundCalls: number;
+  unpricedCalls: number;
+  upperBoundRoutes: string[];
+  unpricedRoutes: string[];
+  note: string;
+}
+
+type TelemetryView = TelemetrySummary & { pricing?: PricingCoverage };
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { relativeTime } from '../lib/format';
@@ -386,7 +410,7 @@ export default function Observability() {
 
   const routes = capability?.routes ?? [];
   const providers = capability?.providers ?? [];
-  const summary: TelemetrySummary | null = telemetry ?? null;
+  const summary: TelemetryView | null = telemetry ?? null;
   const degradedCalls = summary?.recentCalls.filter((c) => c.capabilityGaps.length > 0).length ?? 0;
   const groundingDegraded =
     summary?.recentCalls.filter((c) => c.capabilityGaps.some((g) => GROUNDING_GAPS.has(g))).length ?? 0;
@@ -404,7 +428,16 @@ export default function Observability() {
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Calls" value={String(summary?.callCount ?? 0)} hint="in this window" tone="neutral" />
-        <Stat label="Spend" value={usd(summary?.totalCostUsd ?? 0)} hint="across all routes" tone="neutral" />
+        <Stat
+          label="Spend"
+          value={usd(summary?.totalCostUsd ?? 0)}
+          hint={
+            summary?.pricing && summary.pricing.unpricedCalls > 0
+              ? `lower bound — ${summary.pricing.unpricedCalls} call(s) unpriced`
+              : 'across all routes'
+          }
+          tone={summary?.pricing && summary.pricing.unpricedCalls > 0 ? 'warning' : 'neutral'}
+        />
         <Stat
           label="Routes"
           value={String(summary?.byProvider.length ?? 0)}
@@ -428,6 +461,26 @@ export default function Observability() {
             self-reported rather than checked against the document. Findings from those calls should be treated as
             unverified until confirmed against the source.
           </p>
+        </div>
+      )}
+
+      {summary?.pricing && summary.pricing.confidence !== 'exact' && (
+        <div className="flex items-start gap-2.5 rounded-lg bg-warning-soft p-3 ring-1 ring-warning">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0 text-warning" />
+          <div className="min-w-0">
+            <p className="text-xs leading-relaxed text-ink">{summary.pricing.note}</p>
+            {summary.pricing.unpricedRoutes.length > 0 && (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-secondary">
+                Declare rates for{' '}
+                {summary.pricing.unpricedRoutes.map((r) => (
+                  <span key={r} className="font-mono">
+                    {r}{' '}
+                  </span>
+                ))}
+                in <span className="font-mono">VALYTICA_PRICING</span> to make this total complete.
+              </p>
+            )}
+          </div>
         </div>
       )}
 

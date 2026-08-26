@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase } from '@valytica/shared';
 import { REFERENCE_DATA } from '@valytica/shared';
-import { agentCapability, capabilityWithRoutes, describeError, recallForCase, runCopilot, runExplorer, runOrchestration, type RunOrchestrationResult } from '@valytica/agents';
+import { agentCapability, capabilityWithRoutes, describeError, describeProviders, recallForCase, resolveRoute, runCopilot, runExplorer, runOrchestration, type RunOrchestrationResult } from '@valytica/agents';
 import { memoryStore } from '../memory';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
@@ -100,7 +100,18 @@ function applyOrchestrationResult(found: PropertyCase, result: RunOrchestrationR
 export const agentsCapabilityRouter = Router();
 
 agentsCapabilityRouter.get('/capability', (_req, res) => {
-  res.json(capabilityWithRoutes());
+  // Routes come back from `capabilityWithRoutes` with `expectedGaps` empty:
+  // resolving them needs a constructed provider, and the capability probe
+  // must stay answerable on a deployment that has none. Filling them is this
+  // layer's job, and it is worth doing here rather than in the client —
+  // "no gaps" and "gaps not computed" are indistinguishable in the data, and
+  // rendering the second as the first would claim a guarantee nobody checked.
+  const capability = capabilityWithRoutes();
+  res.json({
+    ...capability,
+    routes: (capability.routes ?? []).map(r => resolveRoute(r.agent).route),
+    providers: describeProviders(),
+  });
 });
 
 /** Mounted at `/api/cases/:id/agents`, before the generic `/api/cases` router. */
