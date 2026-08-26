@@ -197,6 +197,9 @@ export const compareBodySchema = z.object({
 // packages/shared/src/types.ts — the same convention used above.
 export const agentKindSchema = z.enum([
   'orchestrator',
+  'planner',
+  'critic',
+  'explorer',
   'document_intelligence',
   'proof_pathways',
   'analyst_copilot',

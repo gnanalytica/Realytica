@@ -65,13 +65,29 @@ function applyOrchestrationResult(found: PropertyCase, result: RunOrchestrationR
     runs: [...prev.runs, ...result.runs],
     plan: result.intelligence.plan ?? prev.plan,
     verification: result.intelligence.verification ?? prev.verification,
-    explorations: prev.explorations ?? [],
+    explorations: [...(prev.explorations ?? []), ...(result.intelligence.explorations ?? [])],
     pathways: result.intelligence.pathways ?? prev.pathways,
     research: result.intelligence.research ?? prev.research,
     insights: result.intelligence.insights ?? prev.insights,
     conversation: prev.conversation,
     lastRunAt: result.intelligence.lastRunAt ?? prev.lastRunAt,
   };
+
+  // The feedback loop only exists if its output survives the request.
+  //
+  // Document intelligence merges newly extracted fields onto the documents and
+  // the orchestrator re-runs the deterministic screen against them. Persisting
+  // the runs but not `documents`/`screenResult` would leave the case holding a
+  // stale screen and unextracted documents — the loop would run, cost money,
+  // and change nothing a user can see.
+  if (result.documents) {
+    found.documents = result.documents;
+  }
+  if (result.screenResult) {
+    found.result = result.screenResult;
+    found.status = 'screened';
+  }
+
   if (result.evidence.length > 0 && found.result) {
     const existingIds = new Set(found.result.evidence.map((e) => e.id));
     const fresh = result.evidence.filter((e) => !existingIds.has(e.id));

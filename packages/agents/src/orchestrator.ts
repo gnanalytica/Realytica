@@ -239,17 +239,26 @@ function failedRun(caseId: string, agent: AgentKind, error: string): AgentRun {
  * (which itself gates `market_research` on `webSearchEnabled`); plus
  * `critic`, which needs no capability beyond overall availability (already
  * true by the time this runs — see the early return below) since it makes
- * no outbound call of its own; plus `explorer`, gated on `webSearchEnabled`
- * the same way `market_research` is, since open-ended exploration is itself
- * an outbound-research agent. `client.ts`'s `ALL_AGENTS` does not yet list
+ * no outbound call of its own. `explorer` is deliberately NOT included by
+ * default: see the comment inside. `client.ts`'s `ALL_AGENTS` does not yet list
  * `critic`/`explorer` (see the file header of `client.ts`), so they are
  * added here rather than read off `capability.enabledAgents`.
  */
-function resolvePlanningRoster(capability: ReturnType<typeof agentCapability>, requested: AgentKind[]): AgentKind[] {
+function resolvePlanningRoster(
+  capability: ReturnType<typeof agentCapability>,
+  requested: AgentKind[],
+  explicitlyRequested: boolean,
+): AgentKind[] {
   const capabilityEnabled: AgentKind[] = [
     ...capability.enabledAgents.filter(a => ORCHESTRABLE_AGENTS.includes(a)),
     'critic',
-    ...(capability.webSearchEnabled ? (['explorer'] as AgentKind[]) : []),
+    // The explorer is the only agent that is both open-ended in cost and
+    // outbound to the wider web, so it is never scheduled by a default run —
+    // a user pressing "run agents" should not silently start an unbounded
+    // web exploration. It joins the roster only when the caller names it, or
+    // through the dedicated /explore endpoint. Web search being enabled is a
+    // permission, not an instruction.
+    ...(capability.webSearchEnabled && explicitlyRequested ? (['explorer'] as AgentKind[]) : []),
   ];
   return ORCHESTRABLE_AGENTS.filter(a => requested.includes(a) && capabilityEnabled.includes(a));
 }
@@ -307,8 +316,11 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
     return { runs: [run], intelligence: {}, usage: emptyUsage(), evidence: [], proposedActions: [], drafts: [], explorations: [], documents: caseData.documents };
   }
 
+  // `params.agents` present means the caller chose a roster deliberately; its
+  // absence is a default run, which must not pull in the explorer.
+  const explicitlyRequested = params.agents !== undefined && params.agents.includes('explorer');
   const requested = params.agents ?? ORCHESTRABLE_AGENTS;
-  const available = resolvePlanningRoster(capability, requested);
+  const available = resolvePlanningRoster(capability, requested, explicitlyRequested);
 
   const allRuns: AgentRun[] = [];
   const allEvidence: EvidenceItem[] = [];

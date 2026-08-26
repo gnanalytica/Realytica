@@ -17,5 +17,7 @@ export * from './agents/copilot';
 export * from './agents/market-research';
 export * from './agents/diligence-planner';
 export * from './agents/explorer';
+export * from './agents/planner';
+export * from './agents/critic';
 
 export * from './orchestrator';

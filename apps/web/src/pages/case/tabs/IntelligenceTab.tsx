@@ -633,7 +633,7 @@ function PathwaysCard({
 /* Research findings                                                   */
 /* ------------------------------------------------------------------ */
 
-function ResearchCard({ findings }: { findings: ResearchFinding[] }) {
+function ResearchCard({ findings, verification }: { findings: ResearchFinding[]; verification: VerificationSummary | undefined }) {
   return (
     <Card>
       <CardHeader title="Research findings" subtitle="External web research — verify before relying on it" icon={<Globe size={16} />} />
@@ -646,41 +646,130 @@ function ResearchCard({ findings }: { findings: ResearchFinding[] }) {
           />
         ) : (
           <ul className="flex flex-col gap-3">
-            {findings.map((f) => (
-              <li key={f.id} className={cn('rounded-lg p-3', f.contradictsEngine ? 'bg-critical/5 ring-1 ring-inset ring-critical/30' : 'bg-sunken')}>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge tone="neutral" icon={<Globe size={10} />}>
-                    External research
-                  </Badge>
-                  <Badge tone={CORROBORATION_TONE[f.corroboration]}>{CORROBORATION_LABEL[f.corroboration]}</Badge>
-                  {f.contradictsEngine ? (
-                    <Badge tone="critical" icon={<AlertTriangle size={10} />}>
-                      Contradicts the engine
+            {findings.map((f) => {
+              const flagged = findFlaggedCriticFinding(verification, 'research_finding', f.id);
+              return (
+                <li key={f.id} className={cn('rounded-lg p-3', f.contradictsEngine ? 'bg-critical/5 ring-1 ring-inset ring-critical/30' : 'bg-sunken')}>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone="neutral" icon={<Globe size={10} />}>
+                      External research
                     </Badge>
+                    <Badge tone={CORROBORATION_TONE[f.corroboration]}>{CORROBORATION_LABEL[f.corroboration]}</Badge>
+                    {f.contradictsEngine ? (
+                      <Badge tone="critical" icon={<AlertTriangle size={10} />}>
+                        Contradicts the engine
+                      </Badge>
+                    ) : null}
+                    <span className="ml-auto shrink-0 text-[11px] text-ink-muted">{relativeTime(f.retrievedAt)}</span>
+                  </div>
+                  <p className="mt-1.5 text-[13px] leading-relaxed text-ink">{f.claim}</p>
+                  <p className="mt-1 text-xs text-ink-secondary">{f.relevance}</p>
+                  <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+                    {f.sourceUrl ? (
+                      <a
+                        href={f.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex min-w-0 items-center gap-1 truncate text-xs text-brand hover:underline"
+                      >
+                        <span className="truncate">{f.sourceTitle ?? f.sourceUrl}</span> <ExternalLink size={11} className="shrink-0" />
+                      </a>
+                    ) : (
+                      <span className="text-xs italic text-ink-muted">No source link recorded</span>
+                    )}
+                    <span className="shrink-0 text-[11px] text-ink-muted">Confidence {Math.round(f.confidence * 100)}%</span>
+                  </div>
+                  {flagged ? (
+                    <div className="mt-2">
+                      <CriticFlagBanner finding={flagged} compact />
+                    </div>
                   ) : null}
-                  <span className="ml-auto shrink-0 text-[11px] text-ink-muted">{relativeTime(f.retrievedAt)}</span>
-                </div>
-                <p className="mt-1.5 text-[13px] leading-relaxed text-ink">{f.claim}</p>
-                <p className="mt-1 text-xs text-ink-secondary">{f.relevance}</p>
-                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
-                  {f.sourceUrl ? (
-                    <a
-                      href={f.sourceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex min-w-0 items-center gap-1 truncate text-xs text-brand hover:underline"
-                    >
-                      <span className="truncate">{f.sourceTitle ?? f.sourceUrl}</span> <ExternalLink size={11} className="shrink-0" />
-                    </a>
-                  ) : (
-                    <span className="text-xs italic text-ink-muted">No source link recorded</span>
-                  )}
-                  <span className="shrink-0 text-[11px] text-ink-muted">Confidence {Math.round(f.confidence * 100)}%</span>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
+      </CardBody>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Explore control                                                     */
+/* ------------------------------------------------------------------ */
+
+function ExploreControl({
+  disabled,
+  disabledReason,
+  exploring,
+  objective,
+  onObjectiveChange,
+  maxIterations,
+  onMaxIterationsChange,
+  maxCostUsd,
+  onMaxCostUsdChange,
+  onExplore,
+  error,
+}: {
+  disabled: boolean;
+  disabledReason?: string;
+  exploring: boolean;
+  objective: string;
+  onObjectiveChange: (value: string) => void;
+  maxIterations: number;
+  onMaxIterationsChange: (value: number) => void;
+  maxCostUsd: number;
+  onMaxCostUsdChange: (value: number) => void;
+  onExplore: () => void;
+  error: string | null;
+}) {
+  return (
+    <Card>
+      <CardHeader
+        title="Start an exploration"
+        subtitle="Give it an objective and a budget — it decides for itself what to look at from there"
+        icon={<Compass size={16} />}
+      />
+      <CardBody className="flex flex-col gap-3">
+        {disabled ? (
+          <Callout tone="neutral" title="Exploration needs Anthropic credentials">
+            {disabledReason} The rest of Valytica works fully without it.
+          </Callout>
+        ) : null}
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-end">
+          <Field label="Objective" className="min-w-0 flex-1" hint="Leave blank for a general locality and market sweep.">
+            <Input
+              placeholder="e.g. Any lake, drain or land-acquisition notices near this locality?"
+              value={objective}
+              disabled={disabled || exploring}
+              onChange={(e) => onObjectiveChange(e.target.value)}
+            />
+          </Field>
+          <Field label="Max iterations" className="w-full sm:w-28">
+            <Input
+              type="number"
+              min={1}
+              max={20}
+              value={maxIterations}
+              disabled={disabled || exploring}
+              onChange={(e) => onMaxIterationsChange(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+            />
+          </Field>
+          <Field label="Budget (USD)" className="w-full sm:w-28">
+            <Input
+              type="number"
+              min={0.1}
+              step={0.1}
+              value={maxCostUsd}
+              disabled={disabled || exploring}
+              onChange={(e) => onMaxCostUsdChange(Math.max(0.1, Number(e.target.value) || 0.1))}
+            />
+          </Field>
+          <Button variant="primary" icon={<Compass size={14} />} loading={exploring} disabled={disabled} onClick={onExplore} className="shrink-0">
+            {exploring ? 'Exploring…' : 'Explore'}
+          </Button>
+        </div>
+        {error ? <p className="text-xs text-critical">{error}</p> : null}
       </CardBody>
     </Card>
   );
@@ -702,6 +791,12 @@ export default function IntelligenceTab({ caseData, result, refresh }: TabProps)
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedAgents, setSelectedAgents] = useState<AgentKind[]>([]);
   const [asking, setAsking] = useState(false);
+  const [exploring, setExploring] = useState(false);
+  const [exploreError, setExploreError] = useState<string | null>(null);
+  const [exploreObjective, setExploreObjective] = useState('');
+  const [exploreMaxIterations, setExploreMaxIterations] = useState(6);
+  const [exploreMaxCostUsd, setExploreMaxCostUsd] = useState(1);
+  const [requestedBudgets, setRequestedBudgets] = useState<Record<string, { maxIterations: number; maxCostUsd: number }>>({});
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -783,6 +878,32 @@ export default function IntelligenceTab({ caseData, result, refresh }: TabProps)
     }
   }, [caseData.id, refresh, toast]);
 
+  const handleExplore = useCallback(async () => {
+    setExploring(true);
+    setExploreError(null);
+    const requested = { maxIterations: exploreMaxIterations, maxCostUsd: exploreMaxCostUsd };
+    try {
+      const priorIds = new Set((caseData.intelligence?.explorations ?? []).map((s) => s.id));
+      const updated = await api.exploreCase(caseData.id, {
+        objective: exploreObjective.trim() || undefined,
+        maxIterations: requested.maxIterations,
+        maxCostUsd: requested.maxCostUsd,
+      });
+      const newSession = (updated.intelligence?.explorations ?? []).find((s) => !priorIds.has(s.id));
+      if (newSession) {
+        setRequestedBudgets((prev) => ({ ...prev, [newSession.id]: requested }));
+      }
+      await refresh();
+      toast('Exploration complete.', 'good');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Exploration failed.';
+      setExploreError(message);
+      toast(message, 'critical');
+    } finally {
+      setExploring(false);
+    }
+  }, [caseData.id, caseData.intelligence, exploreMaxCostUsd, exploreMaxIterations, exploreObjective, refresh, toast]);
+
   const suggestions = useMemo(() => buildSuggestions(caseData, result, intel), [caseData, result, intel]);
 
   if (capLoading && !capability) {
@@ -855,11 +976,31 @@ export default function IntelligenceTab({ caseData, result, refresh }: TabProps)
         </CardBody>
       </Card>
 
-      <InsightsCard insights={intel.insights} evidence={evidence} onOpenEvidence={openEvidence} />
+      <AgentPlanCard plan={intel.plan} actualSpendUsd={totalCost} />
 
-      <PathwaysCard pathways={intel.pathways} evidence={evidence} onOpenEvidence={openEvidence} />
+      <InsightsCard insights={intel.insights} evidence={evidence} onOpenEvidence={openEvidence} verification={intel.verification} />
 
-      <ResearchCard findings={intel.research} />
+      <PathwaysCard pathways={intel.pathways} evidence={evidence} onOpenEvidence={openEvidence} verification={intel.verification} />
+
+      <ResearchCard findings={intel.research} verification={intel.verification} />
+
+      <VerificationPanel verification={intel.verification} />
+
+      <ExploreControl
+        disabled={!capability.available}
+        disabledReason={capability.available ? undefined : capabilityReasonText(capability.reason)}
+        exploring={exploring}
+        objective={exploreObjective}
+        onObjectiveChange={setExploreObjective}
+        maxIterations={exploreMaxIterations}
+        onMaxIterationsChange={setExploreMaxIterations}
+        maxCostUsd={exploreMaxCostUsd}
+        onMaxCostUsdChange={setExploreMaxCostUsd}
+        onExplore={() => void handleExplore()}
+        error={exploreError}
+      />
+
+      <ExplorationTrail explorations={intel.explorations ?? []} requestedBudgetBySessionId={requestedBudgets} />
 
       <Card>
         <CardHeader title="Agent runs" subtitle="What each agent did, and what it cost" icon={<Bot size={16} />} />
