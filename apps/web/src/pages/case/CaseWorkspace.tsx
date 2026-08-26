@@ -7,6 +7,7 @@ import {
   FileBarChart2,
   Files,
   FolderSearch,
+  GitBranch,
   Landmark,
   LayoutDashboard,
   ListChecks,
@@ -47,6 +48,7 @@ import ValuationTab from './tabs/ValuationTab';
 import DriversTab from './tabs/DriversTab';
 import RisksTab from './tabs/RisksTab';
 import ComplianceTab from './tabs/ComplianceTab';
+import TitleTab from './tabs/TitleTab';
 import PlanningTab from './tabs/PlanningTab';
 import CompletenessTab from './tabs/CompletenessTab';
 import EvidenceTab from './tabs/EvidenceTab';
@@ -60,6 +62,7 @@ const TAB_KEYS = [
   'valuation',
   'drivers',
   'risks',
+  'title',
   'compliance',
   'planning',
   'completeness',
@@ -76,6 +79,7 @@ const ANALYSIS_TABS = new Set<TabKey>([
   'valuation',
   'drivers',
   'risks',
+  'title',
   'compliance',
   'planning',
   'completeness',
@@ -157,6 +161,12 @@ export default function CaseWorkspace() {
     // screened, hide it when no State Pack covers this property's state.
     const showCompliance = !result || Boolean(result.stateCompliance);
     const blockerCount = result?.stateCompliance?.checks.filter((c) => c.verdict === 'blocker').length ?? 0;
+    // Chain breaks and contradictions together: both are title defects, and a
+    // user deciding whether to open the tab does not care which kind they are.
+    const titleFindings = result?.titleGraph
+      ? result.titleGraph.contradictions.length
+        + result.titleGraph.chains.reduce((n, c) => n + c.breaks.length, 0)
+      : 0;
     return [
       { key: 'snapshot', label: 'Snapshot', icon: <LayoutDashboard size={13} /> },
       {
@@ -172,6 +182,12 @@ export default function CaseWorkspace() {
         label: 'Risks',
         icon: <ShieldAlert size={13} />,
         badge: openCriticalRisks > 0 ? <Badge tone="critical">{openCriticalRisks}</Badge> : undefined,
+      },
+      {
+        key: 'title',
+        label: 'Title',
+        icon: <GitBranch size={13} />,
+        badge: titleFindings > 0 ? <Badge tone="warning">{titleFindings}</Badge> : undefined,
       },
       ...(showCompliance
         ? [
@@ -263,6 +279,8 @@ export default function CaseWorkspace() {
         return <DriversTab {...tabProps} />;
       case 'risks':
         return <RisksTab {...tabProps} />;
+      case 'title':
+        return <TitleTab {...tabProps} />;
       case 'compliance':
         return <ComplianceTab {...tabProps} />;
       case 'planning':

@@ -37,7 +37,7 @@ import type {
   RecommendedAction,
   ResearchFinding,
 } from '@valytica/shared';
-import { AGENT_MODEL, BASE_REQUEST, agentCapability, describeError, estimateUsage, getClient } from '../client';
+import { agentCapability, baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
 import { GROUNDING_RULES, renderCaseContext } from '../context';
 
 export interface DiligenceDraft {
@@ -179,6 +179,11 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
     params.onStep?.(full);
   };
 
+  // Resolved once, at the top, so the model recorded on the run is the model
+  // the request was built with and the model the usage was priced against.
+  const tier = tierFor('diligence_planner');
+  const model = modelFor('diligence_planner');
+
   const finish = (status: AgentRunStatus, error: string | undefined, usage?: AgentRun['usage']): RunDiligencePlannerResult => {
     const run: AgentRun = {
       id: runId,
@@ -187,7 +192,8 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
       status,
       startedAt,
       finishedAt: new Date().toISOString(),
-      model: AGENT_MODEL,
+      model,
+      tier,
       steps,
       error,
       usage,
@@ -258,7 +264,7 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
   ].join('\n\n');
 
   const requestParams = {
-    ...BASE_REQUEST,
+    ...baseRequestFor('diligence_planner'),
     max_tokens: 16000,
     system: [{ type: 'text' as const, text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' as const } }],
     messages: [{ role: 'user' as const, content: userMessage }],
@@ -266,7 +272,7 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
 
   emit({ kind: 'message', label: 'Synthesising insights and additional actions' });
 
-  // See client.ts's BASE_REQUEST / the SDK-version note in market-research.ts
+  // See client.ts's baseRequestFor / the SDK-version note in market-research.ts
   // and copilot.ts: the installed @anthropic-ai/sdk's shipped .d.ts predates
   // adaptive thinking, hence the cast below (`unknown` only — never `any`).
   let final: Anthropic.Beta.BetaMessage;
@@ -279,7 +285,7 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
     return finish('failed', reason);
   }
 
-  const usage = estimateUsage(final.usage);
+  const usage = estimateUsage(model, final.usage);
 
   if (final.stop_reason === 'refusal') {
     const reason = 'Claude declined to produce a diligence plan (safety filtering).';
@@ -359,7 +365,8 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
     status: 'succeeded',
     startedAt,
     finishedAt: new Date().toISOString(),
-    model: AGENT_MODEL,
+    model,
+    tier,
     steps,
     summary: `${insights.length} insight(s), ${actions.length} new action(s), ${drafts.length} draft message(s) for review — Valytica does not send these automatically.`,
     usage,

@@ -210,8 +210,31 @@ pnpm dev
 | **Diligence planner** | Ranks insights and drafts the actual document-request messages for a human to send. |
 | **Orchestrator** | Plans and sequences the rest; one agent failing does not sink the run. |
 
-Configuration: `VALYTICA_AGENT_MODEL` (defaults to `claude-opus-5`),
-`VALYTICA_AGENTS_DISABLED=1` to turn the layer off entirely.
+**The roster is tiered.** Not every agent needs the same model, and running
+all of them on a frontier model makes cost-per-case — not accuracy — the
+variable that decides what this can be priced at. Extraction and
+classification are mechanical; judgment, adversarial checking and title-chain
+reasoning are not. Measured on a representative run, tiering cuts the bill
+about 66%.
+
+| Tier | Default model | Agents |
+| --- | --- | --- |
+| `extraction` | `claude-haiku-4-5-20251001` | Document intelligence |
+| `reasoning` | `claude-sonnet-5` | Planner, proof pathways, market research, diligence planner, explorer, orchestrator |
+| `judgment` | `claude-opus-5` | Critic, analyst copilot, title graph |
+
+Configuration:
+
+| Variable | Effect |
+| --- | --- |
+| `VALYTICA_MODEL_EXTRACTION` / `_REASONING` / `_JUDGMENT` | Override one tier's model. |
+| `VALYTICA_TIER_<AGENT>` | Move one agent between tiers, e.g. `VALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment` for a deployment whose scans are poor. |
+| `VALYTICA_AGENT_MODEL` | Outranks all of the above and collapses every tier onto one model. What you reach for to pin the roster during an incident. |
+| `VALYTICA_AGENTS_DISABLED=1` | Turn the agent layer off entirely. |
+
+Every run records the model and tier it actually used, and `CaseIntelligence.cost`
+carries the per-agent breakdown alongside what the same tokens would have cost
+on the judgment model — so the saving is a measurement, not a claim.
 
 **Three boundaries are enforced in code, not just prompted:**
 

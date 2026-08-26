@@ -75,7 +75,7 @@ import type {
   VerificationSummary,
 } from '@valytica/shared';
 import { runScreen } from '@valytica/shared';
-import { AGENT_MODEL, agentCapability, describeError, sumUsage } from './client';
+import { agentCapability, describeError, modelFor, summariseCost, sumUsage, tierFor } from './client';
 import { runPlanner } from './agents/planner';
 import { runDocumentIntelligence } from './agents/document-intelligence';
 import { runProofPathways } from './agents/proof-pathways';
@@ -230,7 +230,7 @@ function emptyUsage(): AgentUsage {
 
 function failedRun(caseId: string, agent: AgentKind, error: string): AgentRun {
   const at = new Date().toISOString();
-  return { id: randomUUID(), caseId, agent, status: 'failed', startedAt: at, finishedAt: at, model: AGENT_MODEL, steps: [], error, producedEvidenceIds: [] };
+  return { id: randomUUID(), caseId, agent, status: 'failed', startedAt: at, finishedAt: at, model: modelFor(agent), tier: tierFor(agent), steps: [], error, producedEvidenceIds: [] };
 }
 
 /**
@@ -240,9 +240,12 @@ function failedRun(caseId: string, agent: AgentKind, error: string): AgentRun {
  * `critic`, which needs no capability beyond overall availability (already
  * true by the time this runs — see the early return below) since it makes
  * no outbound call of its own. `explorer` is deliberately NOT included by
- * default: see the comment inside. `client.ts`'s `ALL_AGENTS` does not yet list
- * `critic`/`explorer` (see the file header of `client.ts`), so they are
- * added here rather than read off `capability.enabledAgents`.
+ * default: see the comment inside. `client.ts`'s `ALL_AGENTS` now covers
+ * every `AgentKind`, but `critic`, `explorer`, `planner` and `title_graph`
+ * are classified there as orchestrator-scheduled and deliberately kept out
+ * of `capability.enabledAgents` — advertising `explorer` would make a
+ * default "run agents" press start unbounded outbound web exploration — so
+ * they are still added here rather than read off that list.
  */
 function resolvePlanningRoster(
   capability: ReturnType<typeof agentCapability>,
@@ -307,7 +310,8 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
       status: 'failed',
       startedAt: orchestratorStartedAt,
       finishedAt: new Date().toISOString(),
-      model: AGENT_MODEL,
+      model: modelFor('orchestrator'),
+      tier: tierFor('orchestrator'),
       steps: orchestratorSteps,
       error: reason,
       producedEvidenceIds: [],
@@ -594,7 +598,8 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
     status: overallStatus,
     startedAt: orchestratorStartedAt,
     finishedAt: new Date().toISOString(),
-    model: AGENT_MODEL,
+    model: modelFor('orchestrator'),
+    tier: tierFor('orchestrator'),
     steps: orchestratorSteps,
     summary: `${ranAgents.join(', ') || 'no phases'} — ${allRuns.filter(r => r.status === 'succeeded').length}/${allRuns.length} succeeded, ${pathways.length} pathway(s), ${findings.length} research finding(s), ${insights.length} insight(s), ${proposedActions.length} proposed action(s)${verification ? `, grounding score ${verification.groundingScore}` : ''}.`,
     usage,
@@ -611,6 +616,11 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
     pathways,
     research: findings,
     insights,
+    // Per-agent spend, with what the same tokens would have cost on the
+    // judgment model. Attached here rather than computed in the UI so the
+    // figure travels with the run that produced it and cannot drift from the
+    // rates that priced it.
+    cost: summariseCost(runs),
     lastRunAt: new Date().toISOString(),
   };
 

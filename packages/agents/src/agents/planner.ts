@@ -31,7 +31,7 @@ import type {
   ReferenceData,
   TaskDepth,
 } from '@valytica/shared';
-import { AGENT_MODEL, BASE_REQUEST, describeError, estimateUsage, getClient } from '../client';
+import { baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
 import { GROUNDING_RULES } from '../context';
 
 const TOOL_NAME = 'emit_agent_plan';
@@ -367,6 +367,11 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
     input.onStep?.(full);
   };
 
+  // Resolved once, at the top, so the model recorded on the run is the model
+  // the request was built with and the model the usage was priced against.
+  const tier = tierFor('planner');
+  const model = modelFor('planner');
+
   const succeed = (plan: AgentPlan, summary: string, usage?: AgentRun['usage']): RunPlannerResult => ({
     run: {
       id: runId,
@@ -375,7 +380,8 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
       status: 'succeeded',
       startedAt,
       finishedAt: new Date().toISOString(),
-      model: AGENT_MODEL,
+      model,
+      tier,
       steps,
       summary,
       usage,
@@ -395,7 +401,8 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
         status: 'failed',
         startedAt,
         finishedAt: new Date().toISOString(),
-        model: AGENT_MODEL,
+        model,
+        tier,
         steps,
         error: reason,
         usage,
@@ -423,12 +430,12 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
   const systemText = buildSystemText();
   const userText = buildUserText(caseData, refData, available, now);
 
-  emit({ kind: 'tool_call', label: `Requesting a plan from ${AGENT_MODEL}.`, toolName: TOOL_NAME });
+  emit({ kind: 'tool_call', label: `Requesting a plan from ${model} (${tier} tier).`, toolName: TOOL_NAME });
 
   let finalMessage: Anthropic.Beta.BetaMessage;
   try {
     const stream = client.beta.messages.stream({
-      ...BASE_REQUEST,
+      ...baseRequestFor('planner'),
       max_tokens: 6000,
       output_config: { effort: 'medium' },
       system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
@@ -450,7 +457,7 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
 
   emit({ kind: 'tool_result', label: `Received response (stop_reason: ${finalMessage.stop_reason ?? 'unknown'}).`, toolName: TOOL_NAME });
 
-  const usage = estimateUsage(finalMessage.usage);
+  const usage = estimateUsage(model, finalMessage.usage);
 
   if (finalMessage.stop_reason === 'refusal') {
     return fallback('The model declined to plan this case (safety refusal) and no fallback produced a usable response.', usage);

@@ -50,7 +50,7 @@ import type {
   PropertyIdentity,
 } from '@valytica/shared';
 import { KHATA_TYPE_LABEL } from '@valytica/shared';
-import { AGENT_MODEL, BASE_REQUEST, describeError, estimateUsage, getClient } from '../client';
+import { baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
 import { GROUNDING_RULES } from '../context';
 import { loadPdfForExtraction, MAX_PDF_BYTES } from '../pdf';
 
@@ -526,6 +526,13 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     input.onStep?.(full);
   };
 
+  // Resolved once, at the top, so the model recorded on the run is the model
+  // the request was built with and the model the usage was priced against.
+  // This is the extraction tier by default — see AGENT_TIERS in client.ts for
+  // why, and for the env var that moves it.
+  const tier = tierFor('document_intelligence');
+  const model = modelFor('document_intelligence');
+
   // Every early-exit path returns through here so the caller always gets a
   // well-formed AgentRun and never an exception — this must be safe to call
   // with no credentials, no file, or an unsupported file, per the brief.
@@ -540,7 +547,8 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       status,
       startedAt,
       finishedAt,
-      model: AGENT_MODEL,
+      model,
+      tier,
       steps,
       error,
       usage,
@@ -622,10 +630,10 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   const systemPrompt = buildSystemPrompt();
   const userPrompt = buildUserPrompt(document, identity);
 
-  emit({ kind: 'tool_call', label: 'Requesting classification & extraction from Claude', toolName: EXTRACTION_TOOL_NAME });
+  emit({ kind: 'tool_call', label: `Requesting classification & extraction from ${model} (${tier} tier)`, toolName: EXTRACTION_TOOL_NAME });
 
   const requestParams = {
-    ...BASE_REQUEST,
+    ...baseRequestFor('document_intelligence'),
     max_tokens: 8000,
     system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
     tools: [tool],
@@ -635,7 +643,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   let message: Anthropic.Beta.BetaMessage;
   try {
     // The installed @anthropic-ai/sdk's shipped .d.ts predates Claude Opus 5's
-    // adaptive-thinking API (`thinking: { type: "adaptive" }` in BASE_REQUEST,
+    // adaptive-thinking API (`thinking: { type: "adaptive" }` in baseRequestFor,
     // from client.ts) — its BetaThinkingConfigParam type still only knows
     // "enabled"/"disabled". The live API accepts "adaptive" regardless; this
     // cast unblocks the compiler against a stale type union without touching
@@ -652,15 +660,15 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   if (message.stop_reason === 'refusal') {
     const reason = 'Claude declined to process this document (safety filtering).';
     emit({ kind: 'error', label: 'Request refused', detail: reason });
-    return finishFailure('failed', reason, estimateUsage(message.usage));
+    return finishFailure('failed', reason, estimateUsage(model, message.usage));
   }
   if (message.stop_reason === 'model_context_window_exceeded') {
     const reason = 'The document was too large for the model context window.';
     emit({ kind: 'error', label: 'Context window exceeded', detail: reason });
-    return finishFailure('failed', reason, estimateUsage(message.usage));
+    return finishFailure('failed', reason, estimateUsage(model, message.usage));
   }
 
-  const usage = estimateUsage(message.usage);
+  const usage = estimateUsage(model, message.usage);
 
   const toolUse = message.content.find(
     (block): block is Anthropic.Beta.BetaToolUseBlock => block.type === 'tool_use' && block.name === EXTRACTION_TOOL_NAME,
@@ -761,7 +769,8 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     status: 'succeeded',
     startedAt,
     finishedAt: new Date().toISOString(),
-    model: AGENT_MODEL,
+    model,
+    tier,
     steps,
     summary,
     usage,

@@ -53,7 +53,7 @@ import type {
   ReferenceData,
   SourceReachability,
 } from '@valytica/shared';
-import { AGENT_MODEL, BASE_REQUEST, agentCapability, describeError, estimateUsage, getClient, sumUsage } from '../client';
+import { agentCapability, baseRequestFor, describeError, estimateUsage, getClient, modelFor, sumUsage, tierFor } from '../client';
 import { GROUNDING_RULES, renderCaseContext } from '../context';
 import {
   KNOWN_UNREACHABLE_SOURCES,
@@ -460,6 +460,13 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
     input.onStep?.(full);
   };
 
+  // Resolved once, at the top, so the model recorded on the run is the model
+  // every iteration was built with and the model their usage was priced
+  // against — this agent's budget check reads that cost, so a mispriced
+  // iteration would move the stopping point, not just the report.
+  const tier = tierFor('explorer');
+  const model = modelFor('explorer');
+
   const leads: ExplorationLead[] = [];
   const unreachable: ExplorationSession['unreachable'] = seedKnownUnreachable();
   let openQuestions: string[] = [];
@@ -486,7 +493,8 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
     status,
     startedAt,
     finishedAt: new Date().toISOString(),
-    model: AGENT_MODEL,
+    model,
+    tier,
     steps,
     summary:
       status === 'succeeded'
@@ -564,7 +572,7 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
     });
 
     const requestParams = {
-      ...BASE_REQUEST,
+      ...baseRequestFor('explorer'),
       max_tokens: MAX_TOKENS_PER_ITERATION,
       system: systemBlocks,
       tools: [searchTool, fetchTool, memory.tool],
@@ -634,7 +642,7 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
       break;
     }
 
-    usage = sumUsage([usage, estimateUsage(final.usage)]);
+    usage = sumUsage([usage, estimateUsage(model, final.usage)]);
 
     if (final.stop_reason === 'refusal') {
       hardError = 'Claude declined to continue this iteration (safety filtering).';

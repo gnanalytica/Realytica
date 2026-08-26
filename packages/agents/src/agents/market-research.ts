@@ -19,7 +19,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentRun, AgentRunStatus, AgentStep, EvidenceItem, PropertyCase, ReferenceData, ResearchFinding } from '@valytica/shared';
-import { AGENT_MODEL, BASE_REQUEST, agentCapability, describeError, estimateUsage, getClient } from '../client';
+import { agentCapability, baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
 import { GROUNDING_RULES, renderCaseContext } from '../context';
 
 export interface RunMarketResearchParams {
@@ -109,6 +109,11 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
     params.onStep?.(full);
   };
 
+  // Resolved once, at the top, so the model recorded on the run is the model
+  // the request was built with and the model the usage was priced against.
+  const tier = tierFor('market_research');
+  const model = modelFor('market_research');
+
   const finish = (status: AgentRunStatus, error: string | undefined, usage?: AgentRun['usage']): RunMarketResearchResult => {
     const run: AgentRun = {
       id: runId,
@@ -117,7 +122,8 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
       status,
       startedAt,
       finishedAt: new Date().toISOString(),
-      model: AGENT_MODEL,
+      model,
+      tier,
       steps,
       error,
       usage,
@@ -153,7 +159,7 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
   const contextBlock = renderCaseContext(caseData, refData, { externalSafe: true });
 
   const requestParams = {
-    ...BASE_REQUEST,
+    ...baseRequestFor('market_research'),
     max_tokens: 8000,
     system: [{ type: 'text' as const, text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' as const } }],
     tools: [WEB_SEARCH_TOOL],
@@ -202,7 +208,7 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
     return finish('failed', reason);
   }
 
-  const usage = estimateUsage(final.usage);
+  const usage = estimateUsage(model, final.usage);
 
   if (final.stop_reason === 'refusal') {
     const reason = 'Claude declined to perform this research (safety filtering).';
@@ -264,7 +270,8 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
     status: 'succeeded',
     startedAt,
     finishedAt: new Date().toISOString(),
-    model: AGENT_MODEL,
+    model,
+    tier,
     steps,
     summary: `${findings.length} market finding(s) for ${caseData.identity.locality}${contradictions > 0 ? ` (${contradictions} contradicting engine data)` : ''}.`,
     usage,

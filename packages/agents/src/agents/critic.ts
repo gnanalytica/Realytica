@@ -60,7 +60,7 @@ import type {
   ResearchFinding,
   VerificationSummary,
 } from '@valytica/shared';
-import { AGENT_MODEL, BASE_REQUEST, describeError, estimateUsage, getClient, sumUsage } from '../client';
+import { baseRequestFor, describeError, estimateUsage, getClient, modelFor, sumUsage, tierFor } from '../client';
 import { GROUNDING_RULES } from '../context';
 import { KARNATAKA_PROOF_ROUTES_VERIFY_BANNER, renderKarnatakaProofRoutesCorpus } from '../knowledge/karnataka-proof-routes';
 
@@ -410,11 +410,12 @@ function missingRouteFinding(pathway: DocumentPathway, route: ProofRoute): Criti
 /** One model call verifying every route on one pathway, plus a deterministic pathway-level rollup. Throws on any failure — the caller decides what that means. */
 async function verifyPathwayRoutes(
   client: Anthropic,
+  model: string,
   systemText: string,
   pathway: DocumentPathway,
 ): Promise<{ findings: CriticFinding[]; usage: AgentUsage }> {
   const stream = client.beta.messages.stream({
-    ...BASE_REQUEST,
+    ...baseRequestFor('critic'),
     max_tokens: 8000,
     output_config: { effort: 'high' },
     system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
@@ -464,17 +465,18 @@ async function verifyPathwayRoutes(
     confidence: routeFindings.length > 0 ? routeFindings.reduce((s, f) => s + f.confidence, 0) / routeFindings.length : 0,
   };
 
-  return { findings: [...routeFindings, pathwayFinding], usage: estimateUsage(finalMessage.usage) };
+  return { findings: [...routeFindings, pathwayFinding], usage: estimateUsage(model, finalMessage.usage) };
 }
 
 /** One model call verifying every research finding together. Throws on any failure — the caller decides what that means. */
 async function verifyResearchFindings(
   client: Anthropic,
+  model: string,
   systemText: string,
   findings: ResearchFinding[],
 ): Promise<{ findings: CriticFinding[]; usage: AgentUsage }> {
   const stream = client.beta.messages.stream({
-    ...BASE_REQUEST,
+    ...baseRequestFor('critic'),
     max_tokens: 8000,
     output_config: { effort: 'high' },
     system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
@@ -536,7 +538,7 @@ async function verifyResearchFindings(
     };
   });
 
-  return { findings: out, usage: estimateUsage(finalMessage.usage) };
+  return { findings: out, usage: estimateUsage(model, finalMessage.usage) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -555,6 +557,12 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
     onStep?.(full);
   };
 
+  // Resolved once, at the top, so the model recorded on the run is the model
+  // every verification call was built with and the model their usage was
+  // priced against.
+  const tier = tierFor('critic');
+  const model = modelFor('critic');
+
   const finish = (
     status: AgentRunStatus,
     opts: { summary?: string; error?: string; usage?: AgentUsage; verification: VerificationSummary },
@@ -566,7 +574,8 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
       status,
       startedAt,
       finishedAt: new Date().toISOString(),
-      model: AGENT_MODEL,
+      model,
+      tier,
       steps,
       summary: opts.summary,
       error: opts.error,
@@ -631,7 +640,7 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
       emit({ kind: 'tool_call', label: `Verifying ${label}.`, toolName: item.kind === 'pathway' ? ROUTE_TOOL_NAME : RESEARCH_TOOL_NAME });
       try {
         const result =
-          item.kind === 'pathway' ? await verifyPathwayRoutes(client, systemText, item.pathway) : await verifyResearchFindings(client, systemText, item.findings);
+          item.kind === 'pathway' ? await verifyPathwayRoutes(client, model, systemText, item.pathway) : await verifyResearchFindings(client, model, systemText, item.findings);
         emit({ kind: 'tool_result', label: `Verified ${label} — ${result.findings.length} finding(s).` });
         return { findings: result.findings, usage: result.usage as AgentUsage | undefined, failed: false };
       } catch (e) {

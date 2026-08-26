@@ -57,7 +57,7 @@ import type {
   ReferenceData,
   ScreenResult,
 } from '@valytica/shared';
-import { AGENT_MODEL, BASE_REQUEST, describeError, estimateUsage, getClient, sumUsage } from '../client';
+import { baseRequestFor, describeError, estimateUsage, getClient, modelFor, sumUsage, tierFor } from '../client';
 import { GROUNDING_RULES, renderCaseContext } from '../context';
 import { KARNATAKA_PROOF_ROUTES_VERIFY_BANNER, renderKarnatakaProofRoutesCorpus } from '../knowledge/karnataka-proof-routes';
 
@@ -539,11 +539,11 @@ interface GapCallOutcome {
  * `buildPathwayFromValidated`'s existing "no route analysis was produced"
  * path for this gap alone, without disturbing any other gap's call.
  */
-async function runGapPathway(client: Anthropic, systemText: string, caseData: PropertyCase, refData: ReferenceData, result: ScreenResult, gap: Gap): Promise<GapCallOutcome> {
+async function runGapPathway(client: Anthropic, model: string, systemText: string, caseData: PropertyCase, refData: ReferenceData, result: ScreenResult, gap: Gap): Promise<GapCallOutcome> {
   const userText = buildGapUserText(caseData, refData, result, gap);
   try {
     const stream = client.beta.messages.stream({
-      ...BASE_REQUEST,
+      ...baseRequestFor('proof_pathways'),
       max_tokens: GAP_MAX_TOKENS,
       output_config: { effort: 'high' },
       // Byte-identical across every gap's call — this is what lets the fan-out's
@@ -564,19 +564,19 @@ async function runGapPathway(client: Anthropic, systemText: string, caseData: Pr
     const finalMessage = await stream.finalMessage();
 
     if (finalMessage.stop_reason === 'refusal') {
-      return { error: 'The model declined to answer (safety refusal) for this gap.', usage: estimateUsage(finalMessage.usage) };
+      return { error: 'The model declined to answer (safety refusal) for this gap.', usage: estimateUsage(model, finalMessage.usage) };
     }
     const toolUse = finalMessage.content.find(
       (block): block is Anthropic.Beta.Messages.BetaToolUseBlock => block.type === 'tool_use' && block.name === TOOL_NAME,
     );
     if (!toolUse) {
-      return { error: 'The model did not return the expected tool call for this gap.', usage: estimateUsage(finalMessage.usage) };
+      return { error: 'The model did not return the expected tool call for this gap.', usage: estimateUsage(model, finalMessage.usage) };
     }
     const parsed = PathwaySchema.safeParse(toolUse.input);
     if (!parsed.success) {
-      return { error: `Model output did not match the expected schema: ${parsed.error.message}`, usage: estimateUsage(finalMessage.usage) };
+      return { error: `Model output did not match the expected schema: ${parsed.error.message}`, usage: estimateUsage(model, finalMessage.usage) };
     }
-    return { validated: parsed.data, usage: estimateUsage(finalMessage.usage) };
+    return { validated: parsed.data, usage: estimateUsage(model, finalMessage.usage) };
   } catch (e) {
     return { error: describeError(e) };
   }
@@ -603,6 +603,11 @@ export async function runProofPathways(input: {
     onStep?.(step);
   };
 
+  // Resolved once, at the top, so the model recorded on the run is the model
+  // every gap call was built with and the model their usage was priced against.
+  const tier = tierFor('proof_pathways');
+  const model = modelFor('proof_pathways');
+
   const fail = (error: string): { run: AgentRun; pathways: DocumentPathway[]; evidence: EvidenceItem[] } => {
     emit('error', 'Proof-pathways run failed', error);
     return {
@@ -613,7 +618,8 @@ export async function runProofPathways(input: {
         status: 'failed',
         startedAt,
         finishedAt: new Date().toISOString(),
-        model: AGENT_MODEL,
+        model,
+        tier,
         steps,
         error,
         producedEvidenceIds: [],
@@ -634,7 +640,8 @@ export async function runProofPathways(input: {
         status: 'succeeded',
         startedAt,
         finishedAt: new Date().toISOString(),
-        model: AGENT_MODEL,
+        model,
+        tier,
         steps,
         summary: 'No screen result is available for this case yet, so there is no gap list to build pathways for.',
         producedEvidenceIds: [],
@@ -657,7 +664,8 @@ export async function runProofPathways(input: {
         status: 'succeeded',
         startedAt,
         finishedAt: new Date().toISOString(),
-        model: AGENT_MODEL,
+        model,
+        tier,
         steps,
         summary: 'No evidence gaps found on this case — no proof pathways were needed.',
         producedEvidenceIds: [],
@@ -684,7 +692,7 @@ export async function runProofPathways(input: {
 
   const systemText = buildSystemText(caseData, karnatakaApplies);
 
-  emit('plan', `Fanning out ${gaps.length} gap(s) to ${AGENT_MODEL}, one call per gap, concurrency ${GAP_FANOUT_CONCURRENCY}.`);
+  emit('plan', `Fanning out ${gaps.length} gap(s) to ${model} (${tier} tier), one call per gap, concurrency ${GAP_FANOUT_CONCURRENCY}.`);
 
   const currency = caseData.identity.currency;
   const usageList: AgentUsage[] = [];
@@ -695,7 +703,7 @@ export async function runProofPathways(input: {
     const pathwayId = `pathway-${caseId}-${n}`;
     const evidenceId = `ev-pathway-${caseId}-${n}`;
     emit('tool_call', `Requesting route analysis for gap "${gap.targetKey}".`, undefined, TOOL_NAME);
-    const outcome = await runGapPathway(client, systemText, caseData, refData, result, gap);
+    const outcome = await runGapPathway(client, model, systemText, caseData, refData, result, gap);
     if (outcome.usage) usageList.push(outcome.usage);
     if (outcome.error) {
       failedGaps += 1;
@@ -726,7 +734,8 @@ export async function runProofPathways(input: {
       status: 'succeeded',
       startedAt,
       finishedAt: new Date().toISOString(),
-      model: AGENT_MODEL,
+      model,
+      tier,
       steps,
       summary: `Built ${pathways.length} proof pathway(s) for ${gaps.length} evidence gap(s) as of ${now}${failedGaps > 0 ? ` (${failedGaps} could not be analysed and are marked unresolved)` : ''}.`,
       usage,

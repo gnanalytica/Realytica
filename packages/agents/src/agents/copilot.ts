@@ -26,7 +26,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
 import type { AgentRun, AgentRunStatus, AgentStep, CopilotTurn, PropertyCase, ReferenceData } from '@valytica/shared';
-import { AGENT_MODEL, BASE_REQUEST, agentCapability, describeError, estimateUsage, getClient } from '../client';
+import { agentCapability, baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
 import { GROUNDING_RULES, renderCaseContext } from '../context';
 import { createCaseTools } from '../tools/case-tools';
 
@@ -117,6 +117,11 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
     params.onStep?.(full);
   };
 
+  // Resolved once, at the top, so the model recorded on the run is the model
+  // the request was built with and the model the usage was priced against.
+  const tier = tierFor('analyst_copilot');
+  const model = modelFor('analyst_copilot');
+
   const finish = (
     status: AgentRunStatus,
     error: string | undefined,
@@ -130,7 +135,8 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
       status,
       startedAt,
       finishedAt: new Date().toISOString(),
-      model: AGENT_MODEL,
+      model,
+      tier,
       steps,
       summary: status === 'succeeded' ? turnText.slice(0, 240) : undefined,
       error,
@@ -178,7 +184,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
   });
 
   const requestParams = {
-    ...BASE_REQUEST,
+    ...baseRequestFor('analyst_copilot'),
     max_tokens: 8000,
     system: [{ type: 'text' as const, text: COPILOT_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' as const } }],
     tools,
@@ -190,7 +196,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
 
   // The installed @anthropic-ai/sdk's shipped .d.ts predates Claude Opus 5's
   // adaptive-thinking API (`thinking: { type: "adaptive" }`, from client.ts's
-  // BASE_REQUEST) and the toolRunner's parameter type isn't re-exported under
+  // baseRequestFor) and the toolRunner's parameter type isn't re-exported under
   // Anthropic.Beta — so this cast, and the `unknown` detour (never `any`),
   // unblocks the compiler against a stale/incomplete type surface without
   // changing anything about the request body actually sent.
@@ -214,7 +220,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
     return finish('failed', reason, `The analyst copilot hit an error and could not answer: ${reason}`);
   }
 
-  const usage = estimateUsage(final.usage);
+  const usage = estimateUsage(model, final.usage);
 
   if (final.stop_reason === 'refusal') {
     const reason = 'Claude declined to answer this question (safety filtering).';
@@ -244,7 +250,8 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
     status: 'succeeded',
     startedAt,
     finishedAt: new Date().toISOString(),
-    model: AGENT_MODEL,
+    model,
+    tier,
     steps,
     summary: text.slice(0, 240),
     usage,
