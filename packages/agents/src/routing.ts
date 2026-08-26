@@ -148,6 +148,11 @@ export const AGENT_CAPABILITY_NEEDS: Record<AgentKind, CapabilityGap[]> = {
   critic: ['adaptive_thinking_unavailable', 'strict_tools_unavailable'],
   planner: ['adaptive_thinking_unavailable', 'strict_tools_unavailable'],
   diligence_planner: ['prompt_caching_unavailable', 'strict_tools_unavailable'],
+  // Caching matters most here of anywhere: the system prompt is identical on
+  // every turn of a conversation, so without it the whole prefix is re-billed
+  // per message. Strict tools keep a capture inside the declared field table
+  // at the provider rather than only at our own validator.
+  intake_concierge: ['prompt_caching_unavailable', 'strict_tools_unavailable'],
   title_graph: ['adaptive_thinking_unavailable', 'strict_tools_unavailable'],
   orchestrator: [],
 };

@@ -30,6 +30,7 @@ const AGENT_LABEL: Record<AgentKind, string> = {
   market_research: 'Market research',
   diligence_planner: 'Diligence planner',
   title_graph: 'Title graph',
+  intake_concierge: 'Intake concierge',
 };
 
 /** Fixed reading order: shared plumbing first, then the agents that produce user-facing findings. */

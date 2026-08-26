@@ -827,7 +827,19 @@ export type AgentKind =
    * Proposes title-graph edges the deterministic builder then accepts or
    * rejects. It never writes to the graph itself — see `EdgeProposal`.
    */
-  | 'title_graph';
+  | 'title_graph'
+  /**
+   * Conducts the intake conversation that produces a case.
+   *
+   * Unlike every other agent it runs *before* a case exists, and it is the
+   * only one whose output is a proposal for the user to accept rather than an
+   * addition to a ledger. It decides nothing: which particular to ask for
+   * next, which documents bear on the property and whether the draft is ready
+   * are all settled deterministically (see `intake/readout.ts`). Its job is
+   * language — reading what a person said into typed particulars, and asking
+   * the next question like a person would.
+   */
+  | 'intake_concierge';
 
 export type AgentRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 

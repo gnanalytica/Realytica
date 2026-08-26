@@ -63,6 +63,12 @@ import type {
 export const AGENT_TIERS: Record<AgentKind, ModelTier> = {
   /** Reads scanned deeds and khata extracts and returns typed fields. See the note above. */
   document_intelligence: 'extraction',
+  // Reads prose into typed particulars and writes a short reply. Mechanical,
+  // and the highest-frequency agent here — one call per chat turn — so the
+  // tier that fits the work is also the one that keeps a conversation from
+  // costing more than the diligence. Move it with
+  // VALYTICA_TIER_INTAKE_CONCIERGE if a deployment finds it reads thin.
+  intake_concierge: 'extraction',
 
   /** Reads a case's shape and emits a task list. Structured, bounded, and its failure is already survivable — the orchestrator falls back to the fixed pipeline. */
   planner: 'reasoning',
@@ -402,7 +408,17 @@ type RosterPolicy =
   /** Offered only when web search is switched on — it reaches an external service. */
   | 'offered_with_web_search'
   /** Exists and is tiered, but is not something a caller picks: the orchestrator schedules it under its own rules. */
-  | 'scheduled_by_orchestrator';
+  | 'scheduled_by_orchestrator'
+  /**
+   * Runs outside a case entirely, so it is neither offered on a case nor
+   * scheduled by the orchestrator.
+   *
+   * Added rather than filing the intake concierge under
+   * `scheduled_by_orchestrator`, which would have compiled and been a lie: the
+   * orchestrator never schedules it and there is no case for it to be
+   * scheduled against. It runs before one exists.
+   */
+  | 'not_case_scoped';
 
 /**
  * Deliberately reproduces today's effective roster rather than the roster a
@@ -438,6 +454,7 @@ const ROSTER_POLICY: Record<AgentKind, RosterPolicy> = {
   title_graph: 'scheduled_by_orchestrator',
   critic: 'scheduled_by_orchestrator',
   explorer: 'scheduled_by_orchestrator',
+  intake_concierge: 'not_case_scoped',
 };
 
 /**

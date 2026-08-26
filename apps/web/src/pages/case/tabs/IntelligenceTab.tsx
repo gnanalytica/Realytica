@@ -83,6 +83,7 @@ const AGENT_LABEL: Record<AgentKind, string> = {
   market_research: 'Market Research',
   diligence_planner: 'Diligence Planner',
   title_graph: 'Title Graph',
+  intake_concierge: 'Intake concierge',
 };
 
 const PROOF_ROUTE_KIND_LABEL: Record<ProofRouteKind, string> = {

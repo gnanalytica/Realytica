@@ -43,11 +43,16 @@ const AGENT_REQUIRED_SECTIONS: Partial<Record<AgentKind, string[]>> = {
   critic: ['titleGraph'],
   title_graph: ['titleGraph'],
   analyst_copilot: ['screen.anchors'],
+  // Runs before a case exists, so there is nothing to retrieve. Present
+  // because the map is exhaustive, empty because the alternative would be
+  // pretending it reads a ledger it cannot reach.
+  intake_concierge: [],
 };
 
 /** Per-agent focus terms, layered on top of whatever the caller asks for. */
 const AGENT_FOCUS: Record<AgentKind, string[]> = {
   orchestrator: [],
+  intake_concierge: [],
   planner: ['completeness', 'missing', 'confidence', 'risk', 'verdict'],
   critic: ['evidence', 'claim', 'source', 'citation'],
   explorer: ['locality', 'market', 'source', 'registry'],

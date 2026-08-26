@@ -33,3 +33,7 @@ export * from './orchestrator';
 // The orchestration replayed as a drawable graph. Placed after
 // './orchestrator' because it describes what that module produced.
 export * from './runview';
+
+// The conversational front door. Placed last because it depends on the
+// engine, the playbooks and the provider port, and nothing depends on it.
+export * from './intake';

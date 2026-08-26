@@ -113,8 +113,14 @@ export function documentRequests(
     });
 }
 
-/** Particulars still wanted, blocking ones first, then by how much they buy. */
-export function gapsFor(fields: IntakeField[]): IntakeGap[] {
+/**
+ * Particulars still wanted, blocking ones first, then by how much they buy.
+ *
+ * Named for particulars rather than the shorter `gapsFor`, which the provider
+ * layer already uses for capability gaps. Two different kinds of gap in one
+ * namespace is a name worth spending four extra characters on.
+ */
+export function particularGaps(fields: IntakeField[]): IntakeGap[] {
   const known = new Set(
     fields.filter(f => f.value !== null && f.value !== '' && f.value !== 'unknown').map(f => f.path),
   );
@@ -180,7 +186,7 @@ export function previewScreen(
  *
  * `orienting` means nothing has been captured yet — stated as "no fields"
  * rather than derived from a gap count, which was the first version and was
- * wrong: `gapsFor` already drops the area field that does not apply to the
+ * wrong: `particularGaps` already drops the area field that does not apply to the
  * property type, so an untouched draft never had as many gaps as the table has
  * rows and the branch could not fire.
  */
@@ -202,7 +208,7 @@ export function readDraft(
   now: string,
 ): IntakeReadout {
   const preview = previewScreen(session.fields, session.documents, refData, now);
-  const gaps = gapsFor(session.fields);
+  const gaps = particularGaps(session.fields);
   const documents = documentRequests(session.fields, session.documents, preview);
   const screenable = preview !== undefined;
   return {

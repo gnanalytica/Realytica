@@ -24,6 +24,7 @@ const AGENT_LABEL: Record<AgentKind, string> = {
   market_research: 'Market Research',
   diligence_planner: 'Diligence Planner',
   title_graph: 'Title Graph',
+  intake_concierge: 'Intake concierge',
 };
 
 const DEPTH_LABEL: Record<TaskDepth, string> = { skip: 'Skipped', light: 'Light', standard: 'Standard', deep: 'Deep' };
