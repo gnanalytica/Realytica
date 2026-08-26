@@ -177,7 +177,7 @@ export function DraftPanel({ readout, fields, onConfirm, onClear, onBuild, build
         <Card>
           <CardHeader
             title="Documents"
-            subtitle="Drawn from the Karnataka diligence playbooks — each one is asked for because a step in a real procedure needs it."
+
             icon={<FileText size={15} />}
           />
           <CardBody className="flex flex-col gap-2">

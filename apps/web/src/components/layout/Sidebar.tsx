@@ -17,14 +17,14 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/', label: 'Cases', icon: LayoutDashboard, end: true },
   // Above the form deliberately: three answers here reach a real screen,
   // where the form asks for six required fields before it accepts anything.
   { to: '/start', label: 'Start a case', icon: MessageSquare, end: false },
   { to: '/cases/new', label: 'New case (form)', icon: FilePlus2, end: false },
   { to: '/compare', label: 'Compare', icon: GitCompare, end: false },
-  { to: '/observability', label: 'Model ops', icon: Gauge, end: false },
-  { to: '/prompts', label: 'Prompts', icon: ScrollText, end: false },
+  { to: '/observability', label: 'AI activity', icon: Gauge, end: false },
+  { to: '/prompts', label: 'AI instructions', icon: ScrollText, end: false },
   { to: '/about', label: 'About', icon: Info, end: false },
 ];
 

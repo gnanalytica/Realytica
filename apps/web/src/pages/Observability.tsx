@@ -165,7 +165,7 @@ function RoutingCard({ routes, providers }: { routes: AgentRoute[]; providers: P
     <Card>
       <CardHeader
         title="Routing"
-        subtitle="Which provider and model each agent runs on, and where the decision came from"
+
         icon={<ServerCog size={16} />}
         action={badge}
       />
@@ -420,7 +420,7 @@ export default function Observability() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
       <div>
-        <h1 className="text-lg font-semibold text-ink">Model operations</h1>
+        <h1 className="text-lg font-semibold text-ink">AI activity</h1>
         <p className="mt-0.5 text-sm text-ink-secondary">
           Where every model call went, what it cost, and what it could not do.
         </p>

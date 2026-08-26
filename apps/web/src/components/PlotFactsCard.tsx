@@ -99,7 +99,7 @@ export function PlotFactsCard({ identity }: { identity: PropertyIdentity }) {
 
   return (
     <Card>
-      <CardHeader title="Site facts" subtitle="Land attributes that move a Bengaluru site's rate" icon={<LandPlot size={16} />} />
+      <CardHeader title="Site facts" icon={<LandPlot size={16} />} />
       <CardBody>
         <dl>
           {/* Dimensions gets its own row (not `KeyValue`) because its value —

@@ -60,7 +60,7 @@ export function CostBreakdown({ cost }: { cost: CaseCostSummary }) {
     <Card>
       <CardHeader
         title="What this run cost"
-        subtitle="Per agent, at the model each one actually ran on"
+
         icon={<Coins size={16} />}
         action={<Badge tone={overspent ? 'warning' : 'good'}>{usd(cost.total.estimatedCostUsd)}</Badge>}
       />

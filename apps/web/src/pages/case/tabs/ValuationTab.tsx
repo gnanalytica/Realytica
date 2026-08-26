@@ -117,7 +117,7 @@ export default function ValuationTab({ caseData, result }: TabProps) {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5">
       <Card>
-        <CardHeader title="Indicative value range" subtitle="Blended across all value anchors, each shown beneath the blended band" />
+        <CardHeader title="Indicative value range" />
         <CardBody>
           <ValueRangeChart
             low={iv.low}
@@ -136,7 +136,7 @@ export default function ValuationTab({ caseData, result }: TabProps) {
       </Callout>
 
       <Card>
-        <CardHeader title="Value anchors" subtitle="How the blended range is built" />
+        <CardHeader title="Value anchors" />
         <CardBody className="flex flex-col gap-4">
           <p className="text-[13px] leading-relaxed text-ink-secondary">
             The blended mid of <span className="font-semibold text-ink">{money(iv.mid, currency)}</span> is a weighted combination of{' '}

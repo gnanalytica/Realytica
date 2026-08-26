@@ -49,7 +49,7 @@ export default function DriversTab({ result }: TabProps) {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5">
       <Card>
-        <CardHeader title="Value drivers" subtitle="Signed impact on the mid value, sorted by magnitude" />
+        <CardHeader title="Value drivers" />
         <CardBody className="flex flex-col gap-3">
           <DriverImpactChart drivers={sortedForChart} />
           <p className="text-[13px] leading-relaxed text-ink-secondary">

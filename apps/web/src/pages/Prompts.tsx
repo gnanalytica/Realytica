@@ -681,7 +681,7 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
 function PageHeading() {
   return (
     <div>
-      <h1 className="text-lg font-semibold text-ink">Prompts</h1>
+      <h1 className="text-lg font-semibold text-ink">AI instructions</h1>
       <p className="mt-0.5 text-sm text-ink-secondary">
         Every prompt the agent layer runs, every version of it, and which text is in force. Editing is allowed; editing
         invisibly is not.

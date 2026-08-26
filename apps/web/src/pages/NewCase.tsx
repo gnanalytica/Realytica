@@ -732,7 +732,7 @@ export default function NewCase() {
 
       {step === 0 ? (
         <Card>
-          <CardHeader title="Market & intent" subtitle="Which country pack applies, who this screen is for, and who owns the case." />
+          <CardHeader title="Market & intent" />
           <CardBody className="space-y-5">
             <Field label="Country" required>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -788,7 +788,7 @@ export default function NewCase() {
         <Card>
           <CardHeader
             title="Property identification"
-            subtitle="What the property is and where it sits."
+
             icon={<Building2 size={16} />}
             action={<UnitToggle value={areaUnit} onChange={setAreaUnit} />}
           />
@@ -959,7 +959,7 @@ export default function NewCase() {
         <Card>
           <CardHeader
             title="Site details"
-            subtitle="Land-specific facts that move a site's rate and financeability — this is priced per sq ft of land, not built-up area."
+
             icon={<LandPlot size={16} />}
           />
           <CardBody className="space-y-6">
@@ -1098,7 +1098,7 @@ export default function NewCase() {
         <Card>
           <CardHeader
             title="Karnataka details"
-            subtitle="Title, jurisdiction and land-status facts that drive the Bengaluru compliance checks."
+
             icon={<Scale size={16} />}
           />
           <CardBody className="space-y-6">
@@ -1299,7 +1299,7 @@ export default function NewCase() {
       {step === reviewStepIndex ? (
         <div className="space-y-4">
           <Card>
-            <CardHeader title="Review" subtitle="Check the details before creating the case." />
+            <CardHeader title="Review" />
             <CardBody>
               <dl>
                 <KeyValue label="Country" value={form.country === 'IN' ? 'India' : 'Netherlands'} />
@@ -1335,7 +1335,7 @@ export default function NewCase() {
 
           {isLandType ? (
             <Card>
-              <CardHeader title="Site details" subtitle="Land-specific facts captured for this plot." icon={<LandPlot size={16} />} />
+              <CardHeader title="Site details" icon={<LandPlot size={16} />} />
               <CardBody>
                 <dl>
                   <KeyValue
@@ -1386,7 +1386,7 @@ export default function NewCase() {
 
           {isKarnataka ? (
             <Card>
-              <CardHeader title="Karnataka details" subtitle="Title, jurisdiction and land-status facts captured for this case." icon={<Scale size={16} />} />
+              <CardHeader title="Karnataka details" icon={<Scale size={16} />} />
               <CardBody>
                 <dl>
                   <KeyValue label="Jurisdiction" value={jurisdictionLabel(form.karnataka.jurisdiction)} />
@@ -1430,7 +1430,7 @@ export default function NewCase() {
           ) : null}
 
           <Card>
-            <CardHeader title="Notes" subtitle="Optional — anything you already know that should inform the screen." />
+            <CardHeader title="Notes" />
             <CardBody>
               <Textarea
                 value={form.notes}

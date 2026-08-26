@@ -472,7 +472,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         </Section>
 
         {/* 4. Basis of the range */}
-        <Section n={4} title="Basis of the range" subtitle="Every anchor method, its weight and its confidence">
+        <Section n={4} title="Basis of the range">
           <TableWrap>
             <table className="w-full min-w-[560px] border-collapse text-[13px]">
               <thead>
@@ -579,7 +579,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         <Section
           n={7}
           title="Material risks"
-          subtitle="Open risks first"
+
           action={<Badge tone={openRisksCount > 0 ? 'critical' : 'good'}>{openRisksCount} open</Badge>}
         >
           <RiskProfileChart risks={result.risks} />

@@ -148,7 +148,7 @@ export function EvalPanel({
     <Card>
       <CardHeader
         title="Route evaluation"
-        subtitle="The same task on every route, ranked by score against cost"
+
         icon={<FlaskConical size={16} />}
         action={
           onRun ? (

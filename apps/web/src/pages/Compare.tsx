@@ -430,7 +430,7 @@ function CompareScreen({ caseIds }: { caseIds: string[] }) {
           {/* mini value-range charts, only when currencies match and cases are screened */}
           {sameCurrency && fullCases && fullCases.some((c) => c.result) ? (
             <Card>
-              <CardHeader title="Indicative value ranges" subtitle="Side by side, same currency" />
+              <CardHeader title="Indicative value ranges" />
               <CardBody className="overflow-x-auto">
                 <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${result.cases.length}, minmax(180px, 1fr))` }}>
                   {result.cases.map((c) => {
