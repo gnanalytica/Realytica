@@ -189,6 +189,52 @@ findings that should stop someone before they spend money on lawyers.
 Areas display in **square feet** and rates in **₹/sq ft** for Indian cases, with a toggle. The domain
 model stores square metres throughout; a Dutch case keeps m² and €/m².
 
+### Starting a case: the conversation
+
+**Start a case** in the sidebar is a chat. It asks where the property is,
+what it is, and roughly how big — and on the third answer puts a real
+indicative range, a verdict and the list of documents that decide the rest in
+front of you. Everything after that sharpens the answer rather than gating it.
+
+That is not a shortcut. It is what the screening engine actually needs: with a
+locality, a property type and an area it returns a range, six risks,
+twenty-one evidence items and the critical-document list. The form at **New
+case (form)** demands six required fields first, three of which (address,
+postal code, survey number) the engine does not read at that stage. Both are
+in the nav; the form is still there for anyone who would rather fill one in.
+
+The draft sits beside the conversation at all times, and every particular
+shows where it came from. Something you said is marked as such. Something the
+concierge worked out is tinted, labelled **Inferred**, carries the basis it was
+derived from, says plainly that it is counting toward the numbers above, and
+offers *That's right* and *No* side by side. Anything still inferred when you
+build is written onto the case notes by name, because an inference nobody can
+see is a fact to whoever reads the case next week.
+
+**The concierge decides very little.** What to ask next, which documents bear
+on this property and whether the draft can be screened are computed from the
+field table, the Karnataka playbooks and the engine before the model is called,
+and handed to it as state it may not contradict. Document requests come from
+the playbook steps whose `needs` name them, so each one traces to a real
+procedure and the sentence explaining what it settles is that step's own. The
+model's job is language: reading what you wrote into typed particulars, and
+asking the next question like a person would.
+
+It is forbidden from inferring a khata type, jurisdiction, land-conversion
+status or survey number — those are matters of record and the exact things the
+product exists to check. And because the deciding half is deterministic, none
+of this depends on the model obeying: a guess it makes anyway is captured as an
+inference you must confirm, never as fact.
+
+With no credentials configured the conversation still works. It cannot read
+free text, so it answers the question it just asked — buttons for a choice, a
+typed answer for anything else, with Indian quantities understood (`1200 sqft`,
+`30x40`, `85L`, `1.15 cr`). It says so in as many words rather than implying a
+model is present.
+
+Nothing is created until you press build. Opening the page, typing, and leaving
+creates nothing to clean up.
+
 ### Agentic layer (optional)
 
 Ten agents sit on top of the deterministic screen. **They are an addition, not a
