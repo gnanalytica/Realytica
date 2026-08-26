@@ -28,35 +28,48 @@ Then open **http://localhost:5173**.
 | `@valytica/web` | 5173 | Vite + React UI |
 | `@valytica/api` | 5174 | Express API, JSON-file store, screening engine |
 
-The API auto-seeds four demo cases (two Indian, two Dutch) on first boot, so the app is populated
-the moment it opens. Wipe them from **About → Reset demo data**.
+The API auto-seeds six demo cases (four Bengaluru, two Amsterdam) on first boot, so the app is
+populated the moment it opens. Wipe them from **About → Reset demo data**.
 
 **Requirements:** Node 20.10+ and pnpm 10+. Nothing else — no database, no cloud account, no API key.
 Everything runs on your machine and all state lives in `apps/api/data/`.
 
 ### Deploying it for someone to try
 
-The API serves the built web app from the same process, so this is **one
-service on one port** — no second host, no CORS setup.
+**On one server.** The API serves the built web app from the same process, so
+this is one service on one port — no second host, no CORS setup:
 
 ```bash
 pnpm install && pnpm build && pnpm start   # http://localhost:5174
 ```
 
-`render.yaml` in the repo root deploys exactly that. Point Render at the repo,
-accept the blueprint, and set `ANTHROPIC_API_KEY` in the dashboard if you want
-the agent layer (everything else works without it).
+Attach a persistent disk and point `VALYTICA_DATA_DIR` at it, and that is a
+complete deployment.
 
-**The one thing to decide is whether state has to survive.** Valytica keeps
-cases, screens and uploaded documents on the filesystem under
-`VALYTICA_DATA_DIR`. With a persistent disk attached, your client's work is
-still there tomorrow. Without one — on a free tier, or anywhere serverless —
-the store resets on restart: the app still runs and re-seeds its demo cases, so
-it demos fine, but anything they create disappears. Fine for a look; not fine
-for a trial.
+**On Vercel.** `vercel.json` builds the repo root. Push it, and you get the web
+build on the CDN and the whole Express API as one function.
 
-Serverless hosts are the wrong shape for this build for the same reason
-(ephemeral filesystem), unless you first move the store to a database.
+Serverless has no writable disk, so persistence goes through a
+`StorageAdapter` (`apps/api/src/storage/`) instead. Attach a Vercel Blob store
+— that sets `BLOB_READ_WRITE_TOKEN`, which is what selects the Blob adapter —
+and cases, screens and uploaded documents survive. **Without it the app still
+runs**, on temporary storage that is wiped between instances: fine for a look
+at the demo cases, not fine for a trial where someone enters real work.
+
+The deployment is assembled by `scripts/build-vercel-output.mjs` rather than by
+Vercel's `api/` directory convention. That file explains why; the short version
+is that this codebase is written for a bundler and Vercel does not bundle
+function sources.
+
+**Environment variables**, all optional — the screening engine is deterministic
+and needs none of them:
+
+| Variable | Effect |
+| --- | --- |
+| `BLOB_READ_WRITE_TOKEN` | Set automatically by attaching a Vercel Blob store. Switches storage from the filesystem to Blob, which is what makes a serverless deployment durable. |
+| `ANTHROPIC_API_KEY` | Turns on the agent layer. Without it every agent route answers `503 no_credentials` and the rest of the app is unaffected. |
+| `VALYTICA_AGENT_WEB_SEARCH=1` | Lets the research and explorer agents reach the public web. Off by default: enabling it is a permission, and only external-safe case context is ever sent. |
+| `VALYTICA_DATA_DIR` | Filesystem adapter only. Where the JSON store and uploaded documents live. |
 
 ### Other commands
 
