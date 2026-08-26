@@ -36,9 +36,12 @@ import type {
   ReferenceData,
   RecommendedAction,
   ResearchFinding,
+  RetrievalSelection,
 } from '@valytica/shared';
+import { buildTitleGraph } from '@valytica/shared';
 import { agentCapability, baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
-import { GROUNDING_RULES, renderCaseContext } from '../context';
+import { GROUNDING_RULES } from '../context';
+import { retrieveCaseContext } from '../retrieval';
 
 export interface DiligenceDraft {
   id: string;
@@ -195,6 +198,7 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
       model,
       tier,
       steps,
+      retrieval: retrievalSelection,
       error,
       usage,
       producedEvidenceIds: [],
@@ -224,11 +228,28 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
     return finish('cancelled', reason);
   }
 
+  /** Set once retrieval runs; recorded on the run so the context is auditable. */
+  let retrievalSelection: RetrievalSelection | undefined;
+
   const existingActions = caseData.result.actions;
   const validEvidenceIds = new Set(caseData.result.evidence.map(e => e.id));
   const validRiskIds = new Set(caseData.result.risks.map(r => r.id));
 
-  const caseContext = renderCaseContext(caseData, refData);
+  // Focused on what this agent is for: the open risks and gaps it must turn
+  // into actions. It does not need the comparable-by-comparable market
+  // detail, and on a large case that detail is most of the prompt.
+  const retrieved = retrieveCaseContext({
+    caseData,
+    refData,
+    agent: 'diligence_planner',
+    graph: buildTitleGraph(caseData, now),
+    focus: [
+      ...caseData.result.risks.filter(r => r.status === 'open').map(r => r.title),
+      ...caseData.result.completeness.missingCritical,
+    ],
+  });
+  retrievalSelection = retrieved.selection;
+  const caseContext = retrieved.text;
   const pathwaysSummary = JSON.stringify(
     pathways.map(p => ({
       id: p.id,
@@ -360,6 +381,7 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
 
   const run: AgentRun = {
     id: runId,
+    retrieval: retrievalSelection,
     caseId,
     agent: 'diligence_planner',
     status: 'succeeded',

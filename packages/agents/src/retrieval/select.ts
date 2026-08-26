@@ -93,15 +93,50 @@ function expandOneHop(graph: TitleGraph | undefined, seed: string[]): Set<string
   return out;
 }
 
-/** Focus terms resolved to graph nodes by label and merge key. */
-function resolveFocusNodes(graph: TitleGraph | undefined, terms: string[]): string[] {
+/**
+ * Focus terms resolved to graph nodes.
+ *
+ * Matching node labels alone does not work, and the reason is structural
+ * rather than a tuning problem. A khata extract does not become a node — the
+ * ontology has no kind for a register record, so it enters as the authority
+ * that issued it, with the document on the assertion. Ask "is the khata in
+ * the seller's name?" and no node label contains the word "khata", so
+ * label-only matching resolved nothing and graph adjacency contributed
+ * nothing to any real question.
+ *
+ * So a term reaches nodes three ways: the node's own label and merge key, its
+ * attributes, and — the one that actually fires on a question phrased the way
+ * a user phrases it — the documents that assert it. "Khata" matches the khata
+ * extract, and the khata extract asserts the parcel and the authority.
+ */
+function resolveFocusNodes(
+  graph: TitleGraph | undefined,
+  terms: string[],
+  segments: Segment[],
+): string[] {
   if (!graph || terms.length === 0) return [];
-  const hits: string[] = [];
+  const matches = (haystack: string): boolean =>
+    terms.some(t => t.length > 2 && haystack.includes(t));
+
+  const hits = new Set<string>();
   for (const node of graph.nodes) {
-    const haystack = `${node.label} ${node.mergeKey}`.toLowerCase();
-    if (terms.some(t => t.length > 2 && haystack.includes(t))) hits.push(node.id);
+    const haystack = [node.label, node.mergeKey, ...Object.values(node.attributes).map(String)]
+      .join(' ')
+      .toLowerCase();
+    if (matches(haystack)) hits.add(node.id);
   }
-  return hits;
+
+  // Via the documents that assert them. A document segment already carries the
+  // node ids its source asserts, and its terms cover the filename, the
+  // document kind and every extracted field — which is where the domain
+  // vocabulary of a user's question actually lives.
+  for (const seg of segments) {
+    if (seg.nodeIds.length === 0) continue;
+    if (matches(seg.terms.join(' '))) {
+      for (const id of seg.nodeIds) hits.add(id);
+    }
+  }
+  return [...hits];
 }
 
 /**
@@ -132,7 +167,7 @@ export function selectSegments(params: SelectParams): Selection {
   const callerTerms = termsOf(...(params.focus ?? []));
   const terms = [...new Set([...callerTerms, ...AGENT_FOCUS[agent]])].filter(Boolean);
 
-  const seedNodes = [...(params.focusNodeIds ?? []), ...resolveFocusNodes(graph, callerTerms)];
+  const seedNodes = [...(params.focusNodeIds ?? []), ...resolveFocusNodes(graph, callerTerms, segments)];
   const focusNodes = expandOneHop(graph, seedNodes);
 
   const kept: Segment[] = [];

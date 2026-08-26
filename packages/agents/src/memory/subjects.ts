@@ -40,6 +40,13 @@
  * - Transliteration folding covers the Kannada/Indic romanisation variants that
  *   are common and cheap (aspirates, the -aiah/-ayya ending, doubled
  *   consonants). It is not a phonetic algorithm and does not pretend to be.
+ * - A source named by URL and the same source named by label agree only when the
+ *   distinctive word survives both routes. `kaverionline.karnataka.gov.in` and
+ *   "Kaveri Online Services" do meet at `source:kaveri`; `bbmp.gov.in` and "BBMP
+ *   Property Tax Portal" do not, because the label names a specific service the
+ *   host does not. Closing that would need a source registry rather than a
+ *   string fold, which is the right fix and a larger one — until then the miss
+ *   shows up honestly as a consulted subject with no history.
  */
 
 import type { MemoryScope } from '@valytica/shared';

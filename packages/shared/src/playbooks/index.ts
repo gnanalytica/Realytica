@@ -28,7 +28,10 @@ export { runPlaybooks, playbooksApplyTo, KARNATAKA_PLAYBOOKS } from './run';
 export { KARNATAKA_TITLE_CHAIN_PLAYBOOK } from './karnataka-title-chain';
 export { KARNATAKA_LAND_USE_PLAYBOOK } from './karnataka-land-use';
 export { KARNATAKA_KHATA_AREA_PLAYBOOK } from './karnataka-khata-area';
-export { compareAreas, formatSqm, isoYear, normaliseSurveyNumber, numericValue } from './types';
+// Deliberately narrow. `compareAreas` and `formatSqm` are part of the area-basis
+// contract and worth exposing; the date and number parsers are internal plumbing
+// whose generic names would collide the moment another module wants them.
+export { compareAreas, formatSqm, normaliseSurveyNumber } from './types';
 export type {
   AreaComparison,
   AreaFigure,

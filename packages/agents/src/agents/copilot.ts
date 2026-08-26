@@ -25,9 +25,11 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
-import type { AgentRun, AgentRunStatus, AgentStep, CopilotTurn, PropertyCase, ReferenceData } from '@valytica/shared';
+import type { AgentRun, AgentRunStatus, AgentStep, CopilotTurn, PropertyCase, ReferenceData, RetrievalSelection } from '@valytica/shared';
+import { buildTitleGraph } from '@valytica/shared';
 import { agentCapability, baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
-import { GROUNDING_RULES, renderCaseContext } from '../context';
+import { GROUNDING_RULES } from '../context';
+import { retrieveCaseContext } from '../retrieval';
 import { createCaseTools } from '../tools/case-tools';
 
 export interface RunCopilotParams {
@@ -122,6 +124,9 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
   const tier = tierFor('analyst_copilot');
   const model = modelFor('analyst_copilot');
 
+  /** Set once retrieval runs; recorded on the run so the context is auditable. */
+  let retrievalSelection: RetrievalSelection | undefined;
+
   const finish = (
     status: AgentRunStatus,
     error: string | undefined,
@@ -138,6 +143,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
       model,
       tier,
       steps,
+      retrieval: retrievalSelection,
       summary: status === 'succeeded' ? turnText.slice(0, 240) : undefined,
       error,
       usage: opts.usage,
@@ -177,10 +183,42 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
   for (const turn of history) {
     messages.push({ role: turn.role, content: turn.text });
   }
-  const contextBlock = renderCaseContext(caseData, refData);
+  /*
+   * Retrieved against the question, not dumped.
+   *
+   * The copilot is the best-placed agent for this: it is the only one handed
+   * an explicit statement of what the user wants to know, so the question
+   * itself is the focus. A question about the khata pulls the khata extract,
+   * the register evidence and the parcel's graph neighbourhood; it does not
+   * need every comparable transaction in the locality.
+   *
+   * The selection travels onto the run, so a thin answer can be traced to a
+   * thin context instead of being read as a confident one.
+   */
+  // Rebuilt rather than read off the result: `ScreenResult` carries the graph's
+  // findings (`TitleGraphSummary`), not its nodes and edges, and adjacency is
+  // what makes retrieval structural rather than a string match. Rebuilding is
+  // deterministic and measured at 0.08 ms per case, which against a model call
+  // is free.
+  const graph = buildTitleGraph(caseData, now);
+  const retrieved = retrieveCaseContext({
+    caseData,
+    refData,
+    agent: 'analyst_copilot',
+    graph,
+    focus: [question, ...history.slice(-2).map(t => t.text)],
+  });
+  retrievalSelection = retrieved.selection;
+  emit({
+    kind: 'message',
+    label: `Context retrieved — ${retrieved.selection.included.length} section(s), ${retrieved.selection.approxTokens} tokens`,
+    detail: retrieved.selection.omitted.length > 0
+      ? `${retrieved.selection.omitted.length} section(s) left out for budget; the model is told which kinds.`
+      : 'Whole case fitted within budget.',
+  });
   messages.push({
     role: 'user',
-    content: `Case context (fetched fresh for this turn — treat it as more current than anything said earlier in this conversation):\n${contextBlock}\n\nQuestion: ${question}`,
+    content: `Case context (fetched fresh for this turn — treat it as more current than anything said earlier in this conversation):\n${retrieved.text}\n\nQuestion: ${question}`,
   });
 
   const requestParams = {
@@ -253,6 +291,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
     model,
     tier,
     steps,
+    retrieval: retrievalSelection,
     summary: text.slice(0, 240),
     usage,
     producedEvidenceIds: [],

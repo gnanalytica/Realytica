@@ -56,9 +56,13 @@ import type {
   PropertyCase,
   ReferenceData,
   ScreenResult,
+  RetrievalSelection,
+  TitleGraph,
 } from '@valytica/shared';
 import { baseRequestFor, describeError, estimateUsage, getClient, modelFor, sumUsage, tierFor } from '../client';
-import { GROUNDING_RULES, renderCaseContext } from '../context';
+import { buildTitleGraph } from '@valytica/shared';
+import { GROUNDING_RULES } from '../context';
+import { retrieveCaseContext } from '../retrieval';
 import { KARNATAKA_PROOF_ROUTES_VERIFY_BANNER, renderKarnatakaProofRoutesCorpus } from '../knowledge/karnataka-proof-routes';
 
 const TOOL_NAME = 'emit_document_pathway';
@@ -344,24 +348,41 @@ function buildSystemText(caseData: PropertyCase, karnatakaApplies: boolean): str
 }
 
 /**
- * The case-level context (case JSON, confidence factors, open risks) is
- * identical for every gap on a case, so in principle it could be hoisted out
- * and shared across the fan-out the same way `buildSystemText`'s output is.
- * It stays in the *user* message rather than the cached system prefix
- * deliberately: `renderCaseContext` embeds the live screen result, which is
- * exactly the kind of case-specific content the system prefix must NOT vary
- * with turn to turn for caching to stay valid — keeping it here is what lets
+ * The case context stays in the *user* message rather than the cached system
+ * prefix deliberately: it embeds the live screen result, which is exactly the
+ * kind of case-specific content the system prefix must NOT vary with, turn to
+ * turn, for caching to stay valid. Keeping it here is what lets
  * `buildSystemText`'s output stay a fixed, gap-independent string.
+ *
+ * It is no longer identical across the fan-out, and that is the point. This
+ * agent renders a context per gap, so a whole-case render was paid once per
+ * gap — the most expensive context in the system. Retrieval focuses each one
+ * on the gap it is actually about: the khata gap gets the register evidence
+ * and the parcel's graph neighbourhood, not every comparable in the locality.
  */
-function buildGapUserText(caseData: PropertyCase, refData: ReferenceData, result: ScreenResult, gap: Gap): string {
+function buildGapUserText(
+  caseData: PropertyCase,
+  refData: ReferenceData,
+  result: ScreenResult,
+  gap: Gap,
+  graph: TitleGraph | undefined,
+): { text: string; selection: RetrievalSelection } {
   const confidenceFactors = result.confidence.factors.map(f => ({ key: f.key, label: f.label }));
   const openRisks = result.risks
     .filter(r => r.status === 'open')
     .map(r => ({ id: r.id, title: r.title, severity: r.severity, category: r.category }));
 
-  return [
+  const retrieved = retrieveCaseContext({
+    caseData,
+    refData,
+    agent: 'proof_pathways',
+    graph,
+    focus: [gap.targetLabel, gap.targetKey, gap.whyItMatters].filter((x): x is string => Boolean(x)),
+  });
+
+  const text = [
     'CASE CONTEXT (JSON) — for jurisdiction, property-type and khata/conversion facts:',
-    renderCaseContext(caseData, refData, { includeEvidence: false, includeCompliance: true }),
+    retrieved.text,
     '',
     'CONFIDENCE FACTORS — cite by "key" in wouldResolve where this pathway would move one of these:',
     JSON.stringify(confidenceFactors, null, 1),
@@ -372,6 +393,8 @@ function buildGapUserText(caseData: PropertyCase, refData: ReferenceData, result
     'THE GAP TO ADDRESS — produce exactly one pathway for this gap, matching targetKey exactly:',
     JSON.stringify(gap, null, 1),
   ].join('\n');
+
+  return { text, selection: retrieved.selection };
 }
 
 /* ------------------------------------------------------------------ */
@@ -539,8 +562,8 @@ interface GapCallOutcome {
  * `buildPathwayFromValidated`'s existing "no route analysis was produced"
  * path for this gap alone, without disturbing any other gap's call.
  */
-async function runGapPathway(client: Anthropic, model: string, systemText: string, caseData: PropertyCase, refData: ReferenceData, result: ScreenResult, gap: Gap): Promise<GapCallOutcome> {
-  const userText = buildGapUserText(caseData, refData, result, gap);
+async function runGapPathway(client: Anthropic, model: string, systemText: string, caseData: PropertyCase, refData: ReferenceData, result: ScreenResult, gap: Gap, graph: TitleGraph | undefined): Promise<GapCallOutcome> {
+  const { text: userText } = buildGapUserText(caseData, refData, result, gap, graph);
   try {
     const stream = client.beta.messages.stream({
       ...baseRequestFor('proof_pathways'),
@@ -698,12 +721,17 @@ export async function runProofPathways(input: {
   const usageList: AgentUsage[] = [];
   let failedGaps = 0;
 
+  // Built once and shared across the fan-out: it is the same graph for every
+  // gap, and rebuilding it per call would repeat identical work N times for
+  // no benefit.
+  const graph = buildTitleGraph(caseData, now);
+
   const built = await mapWithConcurrency(gaps, GAP_FANOUT_CONCURRENCY, async (gap, i) => {
     const n = i + 1;
     const pathwayId = `pathway-${caseId}-${n}`;
     const evidenceId = `ev-pathway-${caseId}-${n}`;
     emit('tool_call', `Requesting route analysis for gap "${gap.targetKey}".`, undefined, TOOL_NAME);
-    const outcome = await runGapPathway(client, model, systemText, caseData, refData, result, gap);
+    const outcome = await runGapPathway(client, model, systemText, caseData, refData, result, gap, graph);
     if (outcome.usage) usageList.push(outcome.usage);
     if (outcome.error) {
       failedGaps += 1;
