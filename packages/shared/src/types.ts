@@ -544,6 +544,14 @@ export interface ScreenResult {
   stateCompliance?: StateComplianceSummary;
   /** Present when the state pack can compute acquisition costs. */
   transactionCosts?: TransactionCostBreakdown;
+  /**
+   * The title graph reduced to findings. Optional so that adding it did not
+   * force a change on every existing construction site — the same reason
+   * `explorations` is optional on `CaseIntelligence`.
+   */
+  titleGraph?: TitleGraphSummary;
+  /** Diligence procedures evaluated for this case's jurisdiction. */
+  playbooks?: PlaybookRun[];
   recommendation: {
     verdict: ScreenVerdict;
     headline: string;
@@ -814,7 +822,12 @@ export type AgentKind =
   | 'proof_pathways'
   | 'analyst_copilot'
   | 'market_research'
-  | 'diligence_planner';
+  | 'diligence_planner'
+  /**
+   * Proposes title-graph edges the deterministic builder then accepts or
+   * rejects. It never writes to the graph itself — see `EdgeProposal`.
+   */
+  | 'title_graph';
 
 export type AgentRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -843,8 +856,12 @@ export interface AgentRun {
   startedAt: string;
   finishedAt?: string;
   model: string;
+  /** The tier that chose `model`. Absent on runs recorded before tiering. */
+  tier?: ModelTier;
   steps: AgentStep[];
   summary?: string;
+  /** What was actually put in front of the model, when retrieval selected it. */
+  retrieval?: RetrievalSelection;
   error?: string;
   usage?: AgentUsage;
   /** Evidence this run contributed to the case ledger. */
@@ -955,6 +972,12 @@ export interface CaseIntelligence {
   insights: AgentInsight[];
   conversation: CopilotTurn[];
   lastRunAt?: string;
+  /** Per-agent model and spend for the last run. Optional — older cases have none. */
+  cost?: CaseCostSummary;
+  /** External data pulled into this case, including the sources that could not be reached. */
+  ingestions?: IngestionReport[];
+  /** What cross-case memory was consulted for this case, and what it returned. */
+  memory?: MemoryRecall;
 }
 
 /** Reported to the UI so it can degrade honestly when no key is configured. */
@@ -966,6 +989,8 @@ export interface AgentCapability {
   webSearchEnabled: boolean;
   /** Agents the deployment permits, in run order. */
   enabledAgents: AgentKind[];
+  /** Which model each agent will actually use. Absent on older API versions. */
+  tiers?: ModelTierAssignment[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -1074,4 +1099,549 @@ export interface ExplorationSession {
   iterations: number;
   stoppedBecause: 'objective_met' | 'budget_exhausted' | 'no_new_leads' | 'error';
   usage?: AgentUsage;
+}
+
+/* ==================================================================== */
+/* Title graph                                                          */
+/* ==================================================================== */
+
+/**
+ * Chain of title is a directed, temporal graph, so it is modelled as one.
+ *
+ * A flat evidence ledger can record that a mother deed exists; it cannot
+ * represent the *chain* — who conveyed what to whom, when, and whether the
+ * links actually join up. Every real title defect lives in that structure:
+ * a gap between two owners, an extent that grows between one deed and the
+ * next, a khata that names someone the deeds never mention.
+ *
+ * Two properties are load-bearing.
+ *
+ * **Strict.** Unlike the agent-memory graph (see `MemoryFact`), this is a
+ * legal object. A wrong edge here is a liability, so the ontology is closed
+ * — the kinds below and no others — and construction is deterministic. A
+ * model may *propose* an edge (see `EdgeProposal`); only the builder decides
+ * whether it enters the graph, and a rejected proposal stays visible with
+ * its reason rather than disappearing.
+ *
+ * **Bi-temporal.** Every assertion carries both when the fact was true in
+ * the world (`validFrom`/`validTo`) and when we came to know it
+ * (`assertedAt`). Property facts are inherently bi-temporal — "X owned this
+ * from 1998 to 2007" and "we learned that on 2026-08-26, from the EC" are
+ * different statements, and conflating them loses the ability to say which
+ * document is out of date.
+ */
+
+export type TitleNodeKind =
+  | 'party'
+  /** A parcel: survey number, khata number, kadastrale aanduiding. */
+  | 'parcel'
+  /** A registered or executed document that does legal work: deed, agreement, JDA. */
+  | 'instrument'
+  | 'authority'
+  | 'encumbrance'
+  /** A permission: OC, CC, sanctioned plan, DC conversion order, RERA registration. */
+  | 'approval';
+
+export type TitleEdgeKind =
+  /** instrument → party. The party receiving the interest. */
+  | 'conveyed_to'
+  /** instrument → party. The party parting with it. */
+  | 'conveyed_by'
+  /** instrument | approval | encumbrance → parcel. */
+  | 'affects'
+  /** instrument → instrument, or parcel → parcel (subdivision / amalgamation). */
+  | 'derives_from'
+  | 'encumbers'
+  | 'issued_by'
+  /** A later instrument replacing an earlier one (rectification, cancellation). */
+  | 'supersedes'
+  /** Any node → parcel, carrying a claimed area. The edge that makes area conflicts findable. */
+  | 'asserts_area'
+  /** Two nodes the builder judged to be the same real-world thing. */
+  | 'identifies';
+
+/**
+ * Who says so, and when they said it.
+ *
+ * Separate from the node/edge itself because the same fact is often asserted
+ * by several documents at different confidences, and a conflict between two
+ * assertions is information rather than a problem to average away.
+ */
+export interface TitleAssertion {
+  /** Document id, dataset id, or `identity` for the case record itself. */
+  sourceRef: string;
+  sourceLabel: string;
+  sourceType: EvidenceSourceType;
+  /** Knowledge time: when this became known to the case. */
+  assertedAt: string;
+  /** 0..1 */
+  confidence: number;
+  /** The extraction field key this came from, where it came from one. */
+  fieldKey?: string;
+}
+
+export interface TitleNode {
+  id: string;
+  kind: TitleNodeKind;
+  label: string;
+  /**
+   * Normalised identity used to merge the same real-world thing mentioned
+   * across several documents ("Sy. No. 118/2" and "Survey Number 118/2").
+   * Two nodes of the same kind with the same merge key are one node.
+   */
+  mergeKey: string;
+  attributes: Record<string, string | number | boolean>;
+  assertedBy: TitleAssertion[];
+}
+
+export interface TitleEdge {
+  id: string;
+  kind: TitleEdgeKind;
+  fromNodeId: string;
+  toNodeId: string;
+  label: string;
+  /** World time. Undefined means the document did not date it. */
+  validFrom?: string;
+  validTo?: string;
+  assertedBy: TitleAssertion[];
+  /** 0..1, the strongest assertion behind this edge. */
+  confidence: number;
+  attributes?: Record<string, string | number | boolean>;
+}
+
+export interface TitleGraph {
+  caseId: string;
+  builtAt: string;
+  nodes: TitleNode[];
+  edges: TitleEdge[];
+}
+
+/* --- Chain reconstruction -------------------------------------------- */
+
+export interface ChainLink {
+  id: string;
+  instrumentNodeId: string;
+  label: string;
+  /** Instrument date, where the document carried one. */
+  at?: string;
+  fromPartyNodeId?: string;
+  toPartyNodeId?: string;
+  fromPartyLabel?: string;
+  toPartyLabel?: string;
+  documentId?: string;
+  /** Area this instrument claims to convey, in sqm, where stated. */
+  extentSqm?: number;
+}
+
+export type ChainBreakKind =
+  /** An instrument with no antecedent — nothing explains how the grantor came to own it. */
+  | 'missing_predecessor'
+  /** Consecutive links where the grantor is not the previous grantee. */
+  | 'party_discontinuity'
+  /** An instrument the documents never dated, so it cannot be placed in sequence. */
+  | 'undated_instrument'
+  /** No instrument at all establishes the root of title. */
+  | 'no_root'
+  /** The chain is continuous but shallower than the jurisdiction expects. */
+  | 'insufficient_depth';
+
+export interface ChainBreak {
+  id: string;
+  kind: ChainBreakKind;
+  /** The finding in words, naming the parties and dates involved. */
+  statement: string;
+  afterLinkId?: string;
+  beforeLinkId?: string;
+  severity: RiskSeverity;
+  /** Plain descriptions of what would close this gap. */
+  resolvedBy: string[];
+}
+
+export interface TitleChain {
+  parcelNodeId: string;
+  parcelLabel: string;
+  /** Ordered oldest-first. Undated instruments sort last and raise a break. */
+  links: ChainLink[];
+  breaks: ChainBreak[];
+  /** Date of the earliest instrument found. The chain is only as deep as the documents allow. */
+  rootAt?: string;
+  /** Span in years between the earliest and latest instrument. */
+  yearsEstablished?: number;
+  /** What the jurisdiction expects — 30 in Karnataka practice. */
+  yearsExpected?: number;
+}
+
+/* --- Contradiction detection ----------------------------------------- */
+
+export type ContradictionKind =
+  | 'area_mismatch'
+  | 'party_mismatch'
+  | 'date_impossible'
+  | 'identifier_mismatch'
+  | 'status_conflict';
+
+export interface ContradictionClaim {
+  sourceRef: string;
+  sourceLabel: string;
+  fieldKey: string;
+  value: string;
+  unit?: string;
+  confidence: number;
+}
+
+/**
+ * Two or more sources that cannot both be right.
+ *
+ * Kept distinct from `RiskFlag`: a risk is a judgement about the property, a
+ * contradiction is an observation about the paperwork. It becomes a risk only
+ * once the engine decides it matters.
+ */
+export interface GraphContradiction {
+  id: string;
+  kind: ContradictionKind;
+  /** What the sources disagree about, e.g. "Extent of Sy. No. 118/2". */
+  subject: string;
+  statement: string;
+  claims: ContradictionClaim[];
+  /** For numeric conflicts: spread as a fraction of the largest value, 0..1. */
+  divergence?: number;
+  severity: RiskSeverity;
+  resolvedBy: string[];
+}
+
+/* --- Counterfactual resolution --------------------------------------- */
+
+/**
+ * What one missing document would fix.
+ *
+ * Evidence dependency is itself a graph, which makes "obtain this and four
+ * risks collapse" computable rather than hand-written per case.
+ */
+export interface ResolutionPath {
+  id: string;
+  /** The document or fact to obtain, stated as an instruction. */
+  obtain: string;
+  documentKind?: DocumentKind;
+  /** Ids of the `ChainBreak`s and `GraphContradiction`s this would close. */
+  resolves: string[];
+  /** Share of open finding weight this clears, 0..1. */
+  impact: number;
+  rationale: string;
+}
+
+/* --- Model-proposed edges -------------------------------------------- */
+
+export type EdgeProposalOutcome =
+  | 'accepted'
+  | 'rejected_unknown_node'
+  | 'rejected_low_confidence'
+  | 'rejected_uncited'
+  | 'rejected_invalid_kind'
+  | 'duplicate';
+
+/**
+ * An edge a model suggested. The builder decides.
+ *
+ * This is the seam between "the model reads the deed and sees that Ramaiah
+ * conveyed to the society" and "the graph now asserts that". Rejections stay
+ * in the record with their reason, because a model repeatedly proposing an
+ * edge the builder will not accept is itself a finding.
+ */
+export interface EdgeProposal {
+  id: string;
+  kind: TitleEdgeKind;
+  fromMergeKey: string;
+  toMergeKey: string;
+  validFrom?: string;
+  validTo?: string;
+  rationale: string;
+  citedDocumentIds: string[];
+  confidence: number;
+  outcome: EdgeProposalOutcome;
+  rejectionReason?: string;
+}
+
+/** The graph reduced to what a screen needs to show. Carried on `ScreenResult`. */
+export interface TitleGraphSummary {
+  builtAt: string;
+  nodeCount: number;
+  edgeCount: number;
+  chains: TitleChain[];
+  contradictions: GraphContradiction[];
+  resolutionPaths: ResolutionPath[];
+  /** 0..100. How much of the title story the documents on file actually establish. */
+  integrityScore: number;
+  headline: string;
+  /** Present when a model contributed edges this build. */
+  proposals?: EdgeProposal[];
+}
+
+/* ==================================================================== */
+/* Workflow playbooks                                                   */
+/* ==================================================================== */
+
+/**
+ * A diligence procedure, encoded.
+ *
+ * A title lawyer doing Bengaluru diligence follows a defined sequence with
+ * gates: establishing the chain comes before reconciling areas, because
+ * reconciling areas against a chain you have not established is a number
+ * without a meaning. A generic planner will happily do step four first.
+ *
+ * So the gates are explicit and the engine refuses to guess past them: a step
+ * whose prerequisite is not `clear` reports `blocked`, naming what blocks it,
+ * rather than producing a finding it cannot support.
+ */
+export type PlaybookStepState =
+  | 'clear'
+  | 'attention'
+  /** A prerequisite step is not clear, so this one cannot be evaluated yet. */
+  | 'blocked'
+  /** Evaluable, but the documents needed have not been supplied. */
+  | 'not_started'
+  | 'not_applicable';
+
+export interface PlaybookStepResult {
+  key: string;
+  label: string;
+  /** The question a practitioner would actually ask at this step. */
+  question: string;
+  state: PlaybookStepState;
+  /** Why it is in that state. Never empty — a state without a reason is not usable. */
+  finding: string;
+  requires: string[];
+  /** Set when `state` is 'blocked': the prerequisite keys that are not clear. */
+  blockedBy?: string[];
+  evidenceIds: string[];
+  /** Documents that would move this step forward. */
+  needs: DocumentKind[];
+  /** Statute, rule or circular this step tests against. */
+  citation?: string;
+}
+
+export interface PlaybookRun {
+  playbookId: string;
+  label: string;
+  /** The authority whose procedure this is — BBMP, DC office, Sub-Registrar. */
+  authorityContext: string;
+  steps: PlaybookStepResult[];
+  /** 0..100 across steps that could be evaluated. Blocked steps are not counted as failures. */
+  progressPct: number;
+  /** Where the user should look first. */
+  nextStepKey?: string;
+  verdict: ComplianceVerdict;
+}
+
+/* ==================================================================== */
+/* Model tiering & cost                                                 */
+/* ==================================================================== */
+
+/**
+ * Not every agent needs the same model.
+ *
+ * Extraction, classification and field normalisation are mechanical; judgment,
+ * adversarial checking and title-chain reasoning are not. Running the whole
+ * roster on one frontier model makes cost-per-case the variable that decides
+ * what this product can be priced at, for no gain on the steps where quality
+ * is not the binding constraint.
+ */
+export type ModelTier =
+  /** Mechanical: read a document, pull fields, normalise them. */
+  | 'extraction'
+  /** Structured reasoning over supplied facts: pathways, planning, research. */
+  | 'reasoning'
+  /** Where being wrong is expensive: critic, title chain, the copilot's answers. */
+  | 'judgment';
+
+export interface ModelTierAssignment {
+  agent: AgentKind;
+  tier: ModelTier;
+  model: string;
+}
+
+export interface CostBreakdownEntry {
+  agent: AgentKind;
+  model: string;
+  tier: ModelTier;
+  usage: AgentUsage;
+}
+
+export interface CaseCostSummary {
+  perAgent: CostBreakdownEntry[];
+  total: AgentUsage;
+  /** What this run would have cost with every agent on the judgment-tier model. */
+  singleTierComparisonUsd: number;
+  /** The difference. Shown because cost per case decides what this can be sold for. */
+  savedUsd: number;
+}
+
+/* ==================================================================== */
+/* Data acquisition                                                     */
+/* ==================================================================== */
+
+export type SourceKind =
+  | 'registry'
+  | 'guidance_value'
+  | 'comparables'
+  | 'planning'
+  | 'tax'
+  | 'rera'
+  | 'cadastral';
+
+export type SourceAccess =
+  /** Reachable without credentials. */
+  | 'open'
+  | 'auth_required'
+  | 'captcha'
+  /** Exists only across a counter. */
+  | 'offline_only'
+  /** Reachable, but only as a file the user obtains and supplies. */
+  | 'file_upload';
+
+/**
+ * A source of real data, and — when it cannot be reached — an honest account
+ * of what was therefore not checked.
+ *
+ * `whatItWouldHaveAnswered` is required rather than optional on purpose. A
+ * source list that silently omits the unreachable ones tells the user the
+ * diligence was more complete than it was.
+ */
+export interface DataSourceDescriptor {
+  id: string;
+  label: string;
+  authority: string;
+  kind: SourceKind;
+  country: CountryCode;
+  state?: string;
+  access: SourceAccess;
+  url?: string;
+  whatItWouldHaveAnswered: string;
+  /** How to obtain it by hand when the machine cannot. */
+  manualRoute?: string;
+}
+
+export type IngestedRecordType =
+  | 'guidance_value'
+  | 'comparable'
+  | 'encumbrance'
+  | 'instrument'
+  | 'parcel'
+  | 'approval';
+
+export interface IngestedRecord {
+  id: string;
+  sourceId: string;
+  recordType: IngestedRecordType;
+  fields: Record<string, string | number | boolean>;
+  /** When the source observed this, not when we read it. */
+  observedAt: string;
+  confidence: number;
+}
+
+export type IngestionOutcome = 'ingested' | 'unreachable' | 'no_match' | 'skipped';
+
+export interface IngestionAttempt {
+  sourceId: string;
+  sourceLabel: string;
+  access: SourceAccess;
+  outcome: IngestionOutcome;
+  note: string;
+  recordCount: number;
+}
+
+export interface IngestionReport {
+  id: string;
+  caseId: string;
+  startedAt: string;
+  finishedAt?: string;
+  attempted: IngestionAttempt[];
+  records: IngestedRecord[];
+  /** Graph nodes and edges this ingestion contributed. */
+  addedNodeIds: string[];
+  addedEdgeIds: string[];
+}
+
+/* ==================================================================== */
+/* Agent memory                                                         */
+/* ==================================================================== */
+
+/**
+ * What the system has learned across cases.
+ *
+ * Deliberately a *separate* structure from the title graph, not a section of
+ * it. The title graph is a legal object built deterministically from
+ * documents; memory is loose, accretive and allowed to be wrong. Mixing them
+ * would let "we think this promoter is unreliable" sit alongside "this deed
+ * conveys 2,400 sqft" with the same apparent standing, which is precisely the
+ * confusion that makes AI output unusable in a diligence context.
+ *
+ * Bi-temporal for the same reason the title graph is: a fact that was true
+ * and has since changed is different from a fact we have just corrected.
+ */
+export type MemoryScope =
+  | 'party'
+  | 'locality'
+  /** Whether a given source actually answered last time it was tried. */
+  | 'source_reliability'
+  /** A procedure that worked: the counter that issued the certificate, the form that was accepted. */
+  | 'procedure'
+  | 'user_preference';
+
+export interface MemoryFact {
+  id: string;
+  scope: MemoryScope;
+  /** Normalised entity key, e.g. `party:ramaiah-s` or `locality:whitefield`. */
+  subject: string;
+  subjectLabel: string;
+  predicate: string;
+  object: string;
+  /** World time. */
+  validFrom: string;
+  validTo?: string;
+  /** Knowledge time. */
+  assertedAt: string;
+  sourceCaseId: string;
+  sourceRef?: string;
+  confidence: number;
+  /** Set when a later fact replaced this one; superseded facts are kept, not deleted. */
+  supersededById?: string;
+}
+
+export interface MemoryRecall {
+  facts: MemoryFact[];
+  /** Subjects looked up — shown even when nothing came back, so "no history" is visible. */
+  consultedSubjects: string[];
+  /** Facts held back because they were superseded or had expired. */
+  excludedCount: number;
+}
+
+/* ==================================================================== */
+/* Graph-backed retrieval                                               */
+/* ==================================================================== */
+
+/**
+ * What was actually put in front of the model, and what was left out.
+ *
+ * Dumping the whole case into a prompt has a ceiling that real diligence
+ * (40+ documents, hundreds of pages) passes immediately. Retrieval keeps the
+ * context bounded, but a bounded context that hides its own omissions is
+ * worse than an oversized one — so the sections dropped for budget are
+ * recorded here and surfaced.
+ */
+export interface RetrievalSection {
+  key: string;
+  label: string;
+  approxTokens: number;
+  /** Why this was selected, or why it was dropped. */
+  reason: string;
+}
+
+export interface RetrievalSelection {
+  /** Graph nodes the focus resolved to. */
+  focusNodeIds: string[];
+  focusLabels: string[];
+  included: RetrievalSection[];
+  omitted: RetrievalSection[];
+  approxTokens: number;
+  budgetTokens: number;
 }

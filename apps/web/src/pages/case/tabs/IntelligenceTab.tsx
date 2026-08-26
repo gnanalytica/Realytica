@@ -79,6 +79,7 @@ const AGENT_LABEL: Record<AgentKind, string> = {
   analyst_copilot: 'Analyst Copilot',
   market_research: 'Market Research',
   diligence_planner: 'Diligence Planner',
+  title_graph: 'Title Graph',
 };
 
 const PROOF_ROUTE_KIND_LABEL: Record<ProofRouteKind, string> = {
