@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FolderSearch, Plus, RotateCw, Sparkles } from 'lucide-react';
+import { FolderSearch, Plus, RotateCw, ScatterChart, Sparkles } from 'lucide-react';
 import type { CaseStatus, CaseSummary, CountryCode, CurrencyCode, PropertyType } from '@valytica/shared';
+import { PortfolioScatter } from '../components/charts';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { CASE_STATUS_LABEL, PROPERTY_TYPE_LABEL, money } from '../lib/format';
-import { Button, Callout, Card, EmptyState, Input, Select, Skeleton, Stat, useToast } from '../components/ui/kit';
+import { Button, Callout, Card, CardBody, CardHeader, EmptyState, Input, Select, Skeleton, Stat, useToast } from '../components/ui/kit';
 import CaseCard from '../components/CaseCard';
 
 type SortKey = 'updated' | 'confidence' | 'value';
@@ -179,6 +180,24 @@ export default function Dashboard() {
           />
         </Card>
       </div>
+
+      {/*
+       * Where to spend attention, before the list of what you have.
+       *
+       * The tiles above total a portfolio and the table below lists it;
+       * neither says which case needs someone today. Value against open
+       * critical risk does, and in a table sorted by date the expensive
+       * three-risk case and the cheap clean one sit next to each other looking
+       * identical.
+       */}
+      {(cases?.length ?? 0) > 1 ? (
+        <Card>
+          <CardHeader title="Where the risk sits" icon={<ScatterChart size={16} />} />
+          <CardBody>
+            <PortfolioScatter cases={cases ?? []} />
+          </CardBody>
+        </Card>
+      ) : null}
 
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">

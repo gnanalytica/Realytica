@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Lock, MinusCircl
 import type { ComplianceVerdict, PlaybookRun, PlaybookStepResult, PlaybookStepState } from '@valytica/shared';
 import { DOCUMENT_KIND_LABEL } from '../lib/format';
 import { Badge, Card, CardBody, CardHeader, ProgressBar, cn, type Tone } from './ui/kit';
+import { PlaybookTrack } from './charts';
 
 /**
  * A diligence procedure, shown as the practitioner walks it.
@@ -149,6 +150,17 @@ export function PlaybookCard({ run }: { run: PlaybookRun }) {
             {Math.round(run.progressPct)}% of {evaluable} checkable step{evaluable === 1 ? '' : 's'}
             {blocked > 0 && ` · ${blocked} gated`}
           </span>
+        </div>
+        {/*
+         * The sequence before the detail.
+         *
+         * A percentage says how far through; it does not say where it stopped
+         * or why the four steps after that are empty. The track shows the
+         * gate — which is the part of this product that is actually hard to
+         * copy — and the rows below stay for the finding on each step.
+         */}
+        <div className="mb-3">
+          <PlaybookTrack run={run} />
         </div>
         {run.steps.map((s) => (
           <StepRow key={s.key} step={s} stepsByKey={stepsByKey} isNext={s.key === run.nextStepKey} />

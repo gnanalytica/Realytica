@@ -32,3 +32,12 @@ export type { ProvenanceBarProps } from './ProvenanceBar';
 
 export { default as TitleChainDiagram } from './TitleChainDiagram';
 export type { TitleChainDiagramProps } from './TitleChainDiagram';
+
+export { default as PortfolioScatter } from './PortfolioScatter';
+export type { PortfolioScatterProps } from './PortfolioScatter';
+
+export { default as PlaybookTrack } from './PlaybookTrack';
+export type { PlaybookTrackProps } from './PlaybookTrack';
+
+export { default as LatencySpreadChart } from './LatencySpreadChart';
+export type { LatencySpreadChartProps } from './LatencySpreadChart';

@@ -41,6 +41,7 @@ interface PricingCoverage {
 }
 
 type TelemetryView = TelemetrySummary & { pricing?: PricingCoverage };
+import { LatencySpreadChart } from '../components/charts';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { relativeTime } from '../lib/format';
@@ -510,6 +511,16 @@ export default function Observability() {
         </Card>
       ) : (
         <>
+          {/*
+           * The spread first, the figures below.
+           *
+           * Median and p95 in separate columns leaves the relationship between
+           * them for the reader to compute, and that relationship is the whole
+           * signal: 800ms/12s and 1.2s/1.5s are completely different routes.
+           */}
+          <div className="mb-4">
+            <LatencySpreadChart rows={summary?.byProvider ?? []} />
+          </div>
           <PerformanceTable rows={summary?.byProvider ?? []} />
           <CallLog calls={summary?.recentCalls ?? []} />
         </>
