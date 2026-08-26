@@ -3,6 +3,7 @@ import type { ChangeEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Database, FileText, Link2, MapPinned, Search, Sparkles, User, X } from 'lucide-react';
 import type { ConfidenceBand, EvidenceItem, EvidenceSourceType } from '@valytica/shared';
+import { ProvenanceBar } from '../../../components/charts';
 import type { TabProps } from '../tab-props';
 import { confidenceTone, date } from '../../../lib/format';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Input, ProgressBar, Select, cn } from '../../../components/ui/kit';
@@ -143,7 +144,20 @@ export default function EvidenceTab({ caseData, result, runScreen, running, goTo
         </Callout>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
+      {/*
+          * What the ledger is standing on, before anyone starts browsing it.
+          *
+          * The counts already existed for the filter below; the proportion did
+          * not, and the proportion is the point — four inferences out of
+          * forty-three and twenty-four out of forty-three are the same list
+          * and completely different answers.
+          */}
+        <ProvenanceBar
+          evidence={result?.evidence ?? []}
+          selected={sourceFilter}
+          onSelect={(sourceType) => setSourceFilter(sourceType === sourceFilter ? 'all' : sourceType)}
+        />
+        <div className="flex flex-wrap items-center gap-2">
         <div className="w-full max-w-xs">
           <Input
             aria-label="Search evidence"

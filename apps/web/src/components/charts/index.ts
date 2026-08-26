@@ -23,3 +23,9 @@ export { default as AnchorWeightChart } from './AnchorWeightChart';
 export type { AnchorWeightChartProps } from './AnchorWeightChart';
 
 export * from './primitives';
+export { default as CostWaterfallChart } from './CostWaterfallChart';
+export type { CostWaterfallChartProps } from './CostWaterfallChart';
+
+
+export { default as ProvenanceBar } from './ProvenanceBar';
+export type { ProvenanceBarProps } from './ProvenanceBar';

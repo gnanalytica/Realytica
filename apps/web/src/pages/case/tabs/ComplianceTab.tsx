@@ -11,6 +11,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { ComplianceCheck, ComplianceVerdict, EvidenceItem, TransactionCostBreakdown } from '@valytica/shared';
+import { CostWaterfallChart } from '../../../components/charts';
 import type { TabProps } from '../tab-props';
 import { StatutoryProvenance } from '../../../components/StatutoryProvenance';
 import { EvidenceLink } from '../../../components/EvidenceLink';
@@ -426,6 +427,12 @@ function AcquisitionCostCard({
         icon={<Receipt size={16} />}
       />
       <CardBody className="flex flex-col gap-4">
+        {/*
+         * The chart leads and the table follows. Four line items are a thing
+         * nobody adds up, and the total is the question — the table is still
+         * there underneath for anyone checking a figure against a receipt.
+         */}
+        <CostWaterfallChart costs={costs} askingPrice={askingPrice} />
         <Callout tone="info" title="Duty is charged on the higher of price and guidance value">
           Karnataka computes stamp duty and registration fees on whichever is higher: the agreed sale consideration or
           the government&rsquo;s guidance value for the locality — never on the lower figure, even if the negotiated
