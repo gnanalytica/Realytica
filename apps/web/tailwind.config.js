@@ -48,6 +48,17 @@ export default {
       fontFamily: {
         sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'sans-serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        /*
+         * A serif, for display type only.
+         *
+         * The app itself is sans throughout and stays that way — this exists
+         * so the front door can shift register into the one this product
+         * belongs to: registries, statutes, title opinions. A system stack
+         * rather than a webfont because nothing in this app makes an external
+         * request, and Georgia is on effectively every machine that will open
+         * it.
+         */
+        display: ['ui-serif', 'Georgia', 'Iowan Old Style', 'Times New Roman', 'serif'],
       },
       borderRadius: { xl: '0.75rem', '2xl': '1rem' },
       boxShadow: {
@@ -87,12 +98,25 @@ export default {
         'rise-in': { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'none' } },
         /* A panel or disclosure opening in place. */
         'scale-in': { from: { opacity: '0', transform: 'scale(0.97)' }, to: { opacity: '1', transform: 'none' } },
+        /*
+         * A rule being drawn, and a line of type being set.
+         *
+         * Both belong to the front door, where the conceit is a document
+         * being typeset rather than an interface appearing. They are declared
+         * here rather than inline so they inherit the same reduced-motion
+         * guard as everything else — a page with its own bespoke animation
+         * system is a page that quietly opts out of that guard.
+         */
+        'draw-rule': { from: { transform: 'scaleX(0)' }, to: { transform: 'scaleX(1)' } },
+        'set-line': { from: { transform: 'translateY(105%)' }, to: { transform: 'translateY(0)' } },
       },
       animation: {
         'fade-in': 'fade-in 180ms ease-out both',
         shimmer: 'shimmer 1.4s infinite',
         'rise-in': 'rise-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both',
         'scale-in': 'scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'draw-rule': 'draw-rule 640ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'set-line': 'set-line 620ms cubic-bezier(0.16, 1, 0.3, 1) both',
       },
     },
   },

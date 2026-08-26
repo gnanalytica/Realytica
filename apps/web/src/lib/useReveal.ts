@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type React from 'react';
 
 /**
  * Reveal an element the first time it scrolls into view.
@@ -18,8 +19,20 @@ import { useEffect, useRef, useState } from 'react';
  * transition to 1ms anyway, but that still means a frame of invisible content
  * and a needless observer per element.
  */
+/**
+ * The same observer, without the opinionated fade.
+ *
+ * Returned as a `MutableRefObject` so it satisfies React's `ref` prop under
+ * this project's React types — `RefObject<T | null>` does not, and casting at
+ * each of a dozen call sites would be worse than saying it once here.
+ */
+export function useInView<T extends HTMLElement = HTMLDivElement>(): { ref: React.MutableRefObject<T | null>; inView: boolean } {
+  const { ref, revealed } = useReveal<T>();
+  return { ref, inView: revealed };
+}
+
 export function useReveal<T extends HTMLElement = HTMLDivElement>(options: { delayMs?: number } = {}) {
-  const ref = useRef<T | null>(null);
+  const ref = useRef<T | null>(null) as React.MutableRefObject<T | null>;
   // Revealed until proven otherwise — see above.
   const [revealed, setRevealed] = useState(true);
 
