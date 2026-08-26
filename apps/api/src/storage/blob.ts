@@ -63,7 +63,12 @@ async function resolveBlob(pathname: string, token: string): Promise<ResolvedBlo
       knownUrls.delete(pathname);
     }
   }
-  const { blobs } = await list({ prefix: pathname, token, limit: 1 });
+  // `list()` matches by prefix, not exact pathname, so this could in principle
+  // come back with more than one entry if something else's pathname happened
+  // to start with this exact string — nothing in this adapter ever creates
+  // such a name, but the explicit `.find` below (rather than trusting
+  // `blobs[0]`) means that assumption isn't load-bearing.
+  const { blobs } = await list({ prefix: pathname, token, limit: 10 });
   const match: ListBlobResultBlob | undefined = blobs.find((b) => b.pathname === pathname);
   if (!match) return null;
   knownUrls.set(pathname, match.url);
@@ -111,20 +116,20 @@ async function readStore(): Promise<StoreData | null> {
 
 async function writeStore(data: StoreData): Promise<void> {
   const token = requireToken();
-  // `addRandomSuffix: false` is what makes this a stable pathname we can read
-  // back — the default behaviour appends a random suffix to every write,
-  // which would change the store's address on every save and make it
-  // unrecoverable on the next read. The installed SDK version (0.27.3) has no
-  // separate `allowOverwrite` flag to also pass — its `PutCommandOptions`
-  // doesn't declare one, and the client sends nothing but
-  // `x-add-random-suffix: 0` to the API either way, so whether a second write
-  // to the same pathname is accepted is entirely a server-side decision this
-  // client has no lever over. This was not exercised against a real token
-  // (none is configured in this workspace), so confirm on the first real
-  // deploy that overwriting actually succeeds rather than erroring.
+  // Two flags, both load-bearing.
+  //
+  // `addRandomSuffix: false` keeps the store at a stable pathname — the default
+  // appends a random suffix, which would move the store's address on every save
+  // and make the previous one unfindable.
+  //
+  // `allowOverwrite: true` is what lets the second and every later save succeed.
+  // Blob rejects a write to an existing pathname without it, so omitting it
+  // would produce an app that works exactly once and then fails to persist
+  // anything — the kind of fault that only appears after the first real edit.
   const result = await put(STORE_PATHNAME, JSON.stringify(data, null, 2), {
     access: 'public',
     addRandomSuffix: false,
+    allowOverwrite: true,
     contentType: 'application/json',
     token,
   });
@@ -134,12 +139,13 @@ async function writeStore(data: StoreData): Promise<void> {
 async function putDocument(caseId: string, key: string, bytes: Buffer, contentType: string): Promise<void> {
   const token = requireToken();
   const pathname = documentPathname(caseId, key);
-  // See the matching comment in `writeStore` — same stable-pathname rationale,
-  // same caveat about overwrite behaviour being server-side and unverified
-  // here.
+  // Same rationale as `writeStore`: a stable pathname so the bytes can be found
+  // again, and overwrite allowed so re-uploading over an existing document id
+  // does not error.
   const result = await put(pathname, bytes, {
     access: 'public',
     addRandomSuffix: false,
+    allowOverwrite: true,
     contentType,
     token,
   });

@@ -122,6 +122,12 @@ export interface AgentStreamHandlers {
   onRun?: (run: AgentRun) => void;
   onDone?: (updated: PropertyCase) => void;
   onError?: (message: string) => void;
+  /**
+   * The connection opened but nothing came through — the stream is being
+   * buffered by something in between. The run itself is still going server
+   * side, so the caller should poll for the result rather than retry.
+   */
+  onStreamUnavailable?: () => void;
 }
 
 /**
@@ -129,11 +135,38 @@ export interface AgentStreamHandlers {
  * each agent is doing instead of a bare spinner. Returns an unsubscribe
  * function — call it on unmount or before starting a new run.
  */
+/**
+ * How long to wait for the server's immediate "connected" event before deciding
+ * the stream is being buffered somewhere in between.
+ *
+ * The server sends that event before it does any work, so its absence means the
+ * connection is open but nothing is getting through — the failure mode on
+ * proxies and serverless edges that buffer `text/event-stream`. It is
+ * deliberately not a timeout on the *run*, which can legitimately take minutes.
+ */
+const STREAM_OPEN_TIMEOUT_MS = 20_000;
+
 export function streamAgentRun(id: string, agents: AgentKind[] | undefined, handlers: AgentStreamHandlers): () => void {
   const query = agents && agents.length > 0 ? `?agents=${agents.map(encodeURIComponent).join(',')}` : '';
   const source = new EventSource(`${BASE}/cases/${id}/agents/stream${query}`);
 
+  let sawAnyEvent = false;
+  const bufferedCheck = setTimeout(() => {
+    if (sawAnyEvent) return;
+    // The run is already under way server-side — the GET started it — so this
+    // must never retry it. Hand back to the caller to poll for the result
+    // instead; starting a second orchestration would double the bill.
+    handlers.onStreamUnavailable?.();
+    source.close();
+  }, STREAM_OPEN_TIMEOUT_MS);
+
+  const markAlive = (): void => {
+    sawAnyEvent = true;
+    clearTimeout(bufferedCheck);
+  };
+
   source.addEventListener('step', (event) => {
+    markAlive();
     try {
       handlers.onStep?.(JSON.parse((event as MessageEvent<string>).data) as AgentStep);
     } catch {
@@ -142,6 +175,7 @@ export function streamAgentRun(id: string, agents: AgentKind[] | undefined, hand
   });
 
   source.addEventListener('run', (event) => {
+    markAlive();
     try {
       handlers.onRun?.(JSON.parse((event as MessageEvent<string>).data) as AgentRun);
     } catch {
@@ -150,6 +184,7 @@ export function streamAgentRun(id: string, agents: AgentKind[] | undefined, hand
   });
 
   source.addEventListener('done', (event) => {
+    markAlive();
     try {
       handlers.onDone?.(JSON.parse((event as MessageEvent<string>).data) as PropertyCase);
     } catch {
@@ -162,6 +197,7 @@ export function streamAgentRun(id: string, agents: AgentKind[] | undefined, hand
   // A server-sent `event: error` and the browser's native connection-error
   // event both land in the 'error' listener; only the former carries `.data`.
   source.addEventListener('error', (event) => {
+    markAlive();
     const raw = (event as MessageEvent<string>).data;
     if (raw) {
       try {
@@ -176,5 +212,8 @@ export function streamAgentRun(id: string, agents: AgentKind[] | undefined, hand
     source.close();
   });
 
-  return () => source.close();
+  return () => {
+    clearTimeout(bufferedCheck);
+    source.close();
+  };
 }

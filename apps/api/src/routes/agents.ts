@@ -160,6 +160,9 @@ caseAgentsRouter.get<{ id: string }>('/stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  // Proxies and CDNs buffer event streams unless told not to; without this the
+  // client sees an open connection delivering nothing until the run ends.
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
   let closed = false;
@@ -171,6 +174,22 @@ caseAgentsRouter.get<{ id: string }>('/stream', async (req, res) => {
   const heartbeat = setInterval(() => {
     if (!closed) res.write(': heartbeat\n\n');
   }, 15000);
+
+  /*
+   * Emit one event immediately, before any model call.
+   *
+   * This is what lets the client tell "connected and flowing" apart from
+   * "connected but buffered somewhere in between". Without it, a stream held
+   * by a proxy is indistinguishable from an agent that is simply thinking, and
+   * the UI has no honest basis for falling back — it would either spin forever
+   * or risk starting a second, expensive run.
+   */
+  send('step', {
+    id: 'stream-open',
+    at: new Date().toISOString(),
+    kind: 'plan',
+    label: 'Connected to the agent run.',
+  });
 
   req.on('close', () => {
     closed = true;

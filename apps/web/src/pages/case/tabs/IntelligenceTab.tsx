@@ -826,10 +826,15 @@ export default function IntelligenceTab({ caseData, result, refresh }: TabProps)
     [caseData.id, navigate],
   );
 
+  const [streamBuffered, setStreamBuffered] = useState(false);
+  const lastRunAtRef = useRef<string | undefined>(undefined);
+
   const startRun = useCallback(
     (agents?: AgentKind[]) => {
       unsubscribeRef.current?.();
+      lastRunAtRef.current = caseData.intelligence?.lastRunAt;
       setRunning(true);
+      setStreamBuffered(false);
       setRunError(null);
       setLiveSteps([]);
       setStreamRuns([]);
@@ -851,9 +856,38 @@ export default function IntelligenceTab({ caseData, result, refresh }: TabProps)
           setRunError(message);
           toast(message, 'critical');
         },
+        onStreamUnavailable: () => {
+          // The run is already under way on the server — the stream request
+          // started it. Never retry here; poll for the result instead, or the
+          // user pays for two orchestrations.
+          setLiveSteps([]);
+          setStreamRuns([]);
+          setStreamBuffered(true);
+          toast('Live progress is unavailable on this deployment — the run is still going.', 'warning');
+          const started = Date.now();
+          const poll = window.setInterval(() => {
+            if (Date.now() - started > 15 * 60 * 1000) {
+              window.clearInterval(poll);
+              setRunning(false);
+              setStreamBuffered(false);
+              setRunError('The agent run did not report back in time. Reload to see whether it completed.');
+              return;
+            }
+            void api.getCase(caseData.id).then((updated) => {
+              const latest = updated.intelligence?.lastRunAt;
+              if (latest && latest !== lastRunAtRef.current) {
+                window.clearInterval(poll);
+                setRunning(false);
+                setStreamBuffered(false);
+                void refresh();
+                toast('Agent run complete.', 'good');
+              }
+            });
+          }, 5000);
+        },
       });
     },
-    [caseData.id, refresh, toast],
+    [caseData.id, caseData.intelligence?.lastRunAt, refresh, toast],
   );
 
   const handleAsk = useCallback(
@@ -1005,8 +1039,16 @@ export default function IntelligenceTab({ caseData, result, refresh }: TabProps)
 
       <Card>
         <CardHeader title="Agent runs" subtitle="What each agent did, and what it cost" icon={<Bot size={16} />} />
-        <CardBody>
-          <AgentRunTimeline runs={allRuns} live={running ? liveSteps : undefined} />
+        <CardBody className="space-y-3">
+          {streamBuffered ? (
+            <Callout tone="warning" title="Live progress unavailable on this deployment">
+              The run is still going on the server — this page is checking for the result every few
+              seconds and will update when it lands. Step-by-step progress is not being delivered,
+              which usually means something between the browser and the server is buffering the
+              event stream.
+            </Callout>
+          ) : null}
+          <AgentRunTimeline runs={allRuns} live={running && !streamBuffered ? liveSteps : undefined} />
         </CardBody>
       </Card>
     </div>
