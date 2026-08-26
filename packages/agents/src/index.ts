@@ -20,6 +20,7 @@ export * from './agents/explorer';
 export * from './agents/planner';
 export * from './agents/critic';
 
+export * from './routing';
 export * from './retrieval';
 export * from './memory';
 export * from './sources';

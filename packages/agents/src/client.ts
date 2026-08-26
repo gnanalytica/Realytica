@@ -228,7 +228,7 @@ const warned = new Set<string>();
  * prices once per gap, so an unpriced model would otherwise emit a warning
  * per concurrent call and bury itself in its own noise.
  */
-function warnOnce(key: string, message: string): void {
+export function warnOnce(key: string, message: string): void {
   if (warned.has(key)) return;
   warned.add(key);
   console.warn(`[valytica/agents] ${message}`);

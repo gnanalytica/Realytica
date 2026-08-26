@@ -858,6 +858,10 @@ export interface AgentRun {
   model: string;
   /** The tier that chose `model`. Absent on runs recorded before tiering. */
   tier?: ModelTier;
+  /** Which provider served this run. Absent on runs predating the provider port. */
+  provider?: ProviderId;
+  /** Capabilities this run asked for and did not get. */
+  capabilityGaps?: CapabilityGap[];
   steps: AgentStep[];
   summary?: string;
   /** What was actually put in front of the model, when retrieval selected it. */
@@ -991,6 +995,10 @@ export interface AgentCapability {
   enabledAgents: AgentKind[];
   /** Which model each agent will actually use. Absent on older API versions. */
   tiers?: ModelTierAssignment[];
+  /** Fully resolved routing: provider, model and where the decision came from. */
+  routes?: AgentRoute[];
+  /** Providers this deployment knows about, and what each can do. */
+  providers?: ProviderDescriptor[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -1463,6 +1471,8 @@ export interface CostBreakdownEntry {
   agent: AgentKind;
   model: string;
   tier: ModelTier;
+  /** Absent on runs recorded before the provider port existed. */
+  provider?: ProviderId;
   usage: AgentUsage;
 }
 
@@ -1644,4 +1654,280 @@ export interface RetrievalSelection {
   omitted: RetrievalSection[];
   approxTokens: number;
   budgetTokens: number;
+}
+
+/* ==================================================================== */
+/* Provider abstraction                                                 */
+/* ==================================================================== */
+
+/**
+ * Which LLM provider a call goes to.
+ *
+ * The point of this abstraction is NOT to reduce every provider to what they
+ * all share. A lowest-common-denominator port would cost this product the
+ * features its guarantees rest on — document citations with verified page
+ * locations are what separate "the khata number is on page 3" from a model
+ * asserting a page number it may have invented.
+ *
+ * So the port declares capabilities instead of assuming them. A provider
+ * says what it can do; a call that wanted something unavailable degrades
+ * explicitly and records the gap (`CapabilityGap`), which then travels into
+ * the evidence and the telemetry rather than disappearing. Losing a feature
+ * is allowed. Losing it silently is not.
+ */
+export type ProviderId =
+  | 'anthropic'
+  /**
+   * Any endpoint speaking the OpenAI Chat Completions shape: OpenRouter,
+   * LiteLLM, Together, Groq, vLLM, Ollama. One implementation covers them
+   * because the wire format is the same; they differ only in base URL,
+   * credentials and which models they expose.
+   */
+  | 'openai_compatible';
+
+/**
+ * What a provider can actually do.
+ *
+ * Every flag here is something at least one agent asks for. A `false` is not
+ * a defect — it is a fact the caller has to handle, and the reason each
+ * degradation is named in `CapabilityGap` rather than inferred.
+ */
+export interface ProviderCapabilities {
+  /**
+   * Server-verified quotations from a supplied document, carrying the page
+   * they came from. The extraction pipeline's grounding depends on this: a
+   * self-reported page number is a claim, a citation is a location.
+   */
+  documentCitations: boolean;
+  /** Explicit prompt-cache breakpoints. Absence costs money, not correctness. */
+  promptCaching: boolean;
+  /** Adaptive thinking / reasoning effort control. */
+  adaptiveThinking: boolean;
+  /** Search run by the provider, with results returned inline. */
+  serverWebSearch: boolean;
+  /** Server-side re-run on a safety decline, so one refusal cannot end a run. */
+  refusalFallback: boolean;
+  /** PDFs accepted as input without client-side rasterisation or text extraction. */
+  pdfInput: boolean;
+  /** A provider-run tool loop, as opposed to one this app drives itself. */
+  toolLoop: boolean;
+  /** Tool arguments guaranteed to validate against the declared schema. */
+  strictTools: boolean;
+}
+
+export interface ProviderDescriptor {
+  id: ProviderId;
+  label: string;
+  /** Recorded so a surprising response can be traced back to an endpoint. */
+  baseUrl?: string;
+  /** False when the provider has no credentials configured. */
+  configured: boolean;
+  capabilities: ProviderCapabilities;
+  /** Models this deployment has declared for the provider, where it enumerates them. */
+  models?: string[];
+}
+
+/** Where a routing decision came from. A surprising route must be explicable. */
+export type RouteSource =
+  | 'default'
+  | 'tier_env'
+  | 'agent_env'
+  | 'global_env'
+  | 'request';
+
+/** One resolved decision: which provider and model this agent runs on. */
+export interface AgentRoute {
+  agent: AgentKind;
+  tier: ModelTier;
+  provider: ProviderId;
+  model: string;
+  source: RouteSource;
+  /** Capabilities the provider lacks that this agent would otherwise use. */
+  expectedGaps: CapabilityGap[];
+}
+
+/* ==================================================================== */
+/* Telemetry: cost, performance, observability                          */
+/* ==================================================================== */
+
+/**
+ * A feature a call wanted and did not get.
+ *
+ * Recorded per call rather than per provider, because the same provider can
+ * supply a feature on one model and not another, and because the question a
+ * user actually asks is "was THIS finding fully grounded", not "does this
+ * vendor support citations in general".
+ */
+export type CapabilityGap =
+  | 'citations_unavailable'
+  | 'prompt_caching_unavailable'
+  | 'adaptive_thinking_unavailable'
+  | 'server_web_search_unavailable'
+  | 'refusal_fallback_unavailable'
+  | 'pdf_input_unavailable'
+  | 'strict_tools_unavailable';
+
+export type LlmCallOutcome = 'succeeded' | 'refused' | 'failed';
+
+/**
+ * One model call, as it actually happened.
+ *
+ * This is the unit every other view is built from: cost per case, provider
+ * comparison, the latency profile, and the evaluation harness all aggregate
+ * these. Kept flat and provider-neutral so records from different vendors sit
+ * in one table and can be compared without a translation step.
+ */
+export interface LlmCallRecord {
+  id: string;
+  /** Absent for calls not made on behalf of a case, e.g. an evaluation run. */
+  caseId?: string;
+  agent: AgentKind;
+  tier: ModelTier;
+  provider: ProviderId;
+  model: string;
+  startedAt: string;
+  /** Wall clock, including retries. What a user waited. */
+  durationMs: number;
+  /** Time to first streamed token. Absent when the call did not stream. */
+  timeToFirstTokenMs?: number;
+  usage: AgentUsage;
+  outcome: LlmCallOutcome;
+  error?: string;
+  capabilityGaps: CapabilityGap[];
+  /** Transport-level retries. A high count is a provider health signal. */
+  retries: number;
+}
+
+export interface ProviderPerformance {
+  provider: ProviderId;
+  model: string;
+  calls: number;
+  failures: number;
+  refusals: number;
+  totalUsage: AgentUsage;
+  /** Median rather than mean: one 90-second outlier should not define the profile. */
+  medianDurationMs: number;
+  p95DurationMs: number;
+  /** Input tokens served from cache, as a fraction of all input tokens. */
+  cacheHitRate: number;
+  /** Fraction of calls that hit at least one capability gap. */
+  degradedCallRate: number;
+}
+
+export interface TelemetrySummary {
+  windowStartedAt: string;
+  windowEndedAt: string;
+  callCount: number;
+  totalCostUsd: number;
+  byProvider: ProviderPerformance[];
+  /** Most recent calls, newest first. Bounded — this is a view, not the log. */
+  recentCalls: LlmCallRecord[];
+}
+
+/* ==================================================================== */
+/* Evaluation across providers and models                               */
+/* ==================================================================== */
+
+/**
+ * What is being measured.
+ *
+ * Deliberately task-shaped rather than benchmark-shaped. "Which model is
+ * better" is not answerable; "which model reads a Karnataka khata extract
+ * without inventing a survey number" is, and it is the question that decides
+ * whether a cheaper tier assignment is safe.
+ */
+export type EvalTaskKind =
+  /** Fields pulled from a document, against known-correct values. */
+  | 'document_extraction'
+  /** Whether claims made are supported by the evidence supplied. */
+  | 'grounding'
+  /** Whether a proof route names a real authority, form and procedure. */
+  | 'proof_routing'
+  /** Whether title-chain reasoning reaches the right finding. */
+  | 'title_reasoning';
+
+export interface EvalExpectation {
+  key: string;
+  /** The correct value, or a regular expression source when a family is acceptable. */
+  expected: string;
+  match: 'exact' | 'numeric' | 'regex' | 'contains';
+  /** Numeric matches only: fractional tolerance, e.g. 0.02 for 2%. */
+  tolerance?: number;
+  /**
+   * A field whose absence is correct — the document does not contain it.
+   * Scoring counts a confident wrong answer here as worse than no answer,
+   * because inventing a survey number is the failure this product cannot
+   * afford.
+   */
+  mustBeAbsent?: boolean;
+}
+
+export interface EvalCase {
+  id: string;
+  kind: EvalTaskKind;
+  label: string;
+  /** What the model is given. Interpretation depends on `kind`. */
+  input: Record<string, unknown>;
+  expectations: EvalExpectation[];
+}
+
+export interface EvalFieldResult {
+  key: string;
+  expected: string;
+  actual: string;
+  correct: boolean;
+  /** Set when the model asserted a value for something that should be absent. */
+  fabricated?: boolean;
+}
+
+export interface EvalScore {
+  /** 0..1 across expectations. */
+  score: number;
+  /** Fabrications, counted separately: they are not just a lower score. */
+  fabrications: number;
+  fields: EvalFieldResult[];
+}
+
+export interface EvalRunResult {
+  evalCaseId: string;
+  provider: ProviderId;
+  model: string;
+  tier: ModelTier;
+  score?: EvalScore;
+  usage: AgentUsage;
+  durationMs: number;
+  capabilityGaps: CapabilityGap[];
+  /** Set when the call failed outright; `score` is then absent. */
+  error?: string;
+}
+
+export interface EvalRanking {
+  provider: ProviderId;
+  model: string;
+  meanScore: number;
+  fabrications: number;
+  totalCostUsd: number;
+  meanDurationMs: number;
+  /**
+   * Mean score per dollar spent.
+   *
+   * The number that actually settles a tier assignment: a model scoring 0.94
+   * at a fifth of the cost of one scoring 0.97 is the right choice for
+   * mechanical work and the wrong one where a mistake is expensive. Ranking
+   * on score alone hides that trade; this surfaces it.
+   */
+  scorePerUsd: number;
+}
+
+export interface EvalComparison {
+  id: string;
+  taskKind: EvalTaskKind;
+  startedAt: string;
+  finishedAt?: string;
+  /** Routes compared, in the order they were run. */
+  routes: { provider: ProviderId; model: string }[];
+  results: EvalRunResult[];
+  ranking: EvalRanking[];
+  /** Cases that could not be run at all, and why — never silently dropped. */
+  skipped: { evalCaseId: string; reason: string }[];
 }
