@@ -1,16 +1,16 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { PropertyCase } from '@valytica/shared';
+import { storageAdapter } from './storage';
 
 /**
- * JSON-file backed store.
+ * The in-memory case store, durably backed by whichever `StorageAdapter` is
+ * active (see `./storage/index.ts`) — the filesystem locally, Vercel Blob in
+ * a deployment with a Blob store attached.
  *
- * The whole dataset is small (a handful of property cases), so we keep it
- * entirely in memory and mirror it to disk. Writes are debounced so a burst
- * of PATCHes (e.g. ticking off several actions) collapses into one disk
- * write, and every write is atomic (write to a temp file, then rename) so a
- * crash mid-write can never leave `valytica.json` truncated or corrupt.
+ * The whole dataset is small (a handful of property cases), so it is kept
+ * entirely in memory and mirrored to the adapter on every mutation. There is
+ * no more debouncing: on serverless the instance can be frozen the moment a
+ * response is sent, so a write that hasn't fired yet by then is a write that
+ * never happens. Every mutation site now awaits `store.save()` directly.
  */
 
 export interface StoreData {
@@ -19,50 +19,39 @@ export interface StoreData {
   nextReferenceSeq: number;
 }
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-
-export const DATA_DIR = process.env.VALYTICA_DATA_DIR
-  ? path.resolve(process.env.VALYTICA_DATA_DIR)
-  : path.resolve(here, '../data');
-
-export const DATA_FILE = path.join(DATA_DIR, 'valytica.json');
-export const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
-
-const WRITE_DEBOUNCE_MS = 150;
+// Re-exported for the routes that still build upload paths directly against
+// the filesystem (case document upload/download/delete) rather than going
+// through a `StorageAdapter` themselves. Those paths are only meaningful
+// when the filesystem adapter is the active one — under Vercel Blob,
+// documents live in Blob storage instead, and these three exports describe
+// nothing that is actually persisted. See the top-level report for exactly
+// which callers still depend on them.
+export { DATA_DIR, UPLOADS_DIR, caseUploadDir } from './storage/filesystem';
 
 function emptyStore(): StoreData {
   return { cases: [], nextReferenceSeq: 1 };
 }
 
-function loadStore(): StoreData {
-  try {
-    if (!fs.existsSync(DATA_FILE)) return emptyStore();
-    const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-    if (!raw.trim()) return emptyStore();
-    const parsed = JSON.parse(raw) as Partial<StoreData>;
-    return {
-      cases: Array.isArray(parsed.cases) ? parsed.cases : [],
-      nextReferenceSeq:
-        typeof parsed.nextReferenceSeq === 'number' && Number.isFinite(parsed.nextReferenceSeq)
-          ? parsed.nextReferenceSeq
-          : 1,
-    };
-  } catch (err) {
-    console.warn(
-      `[store] failed to load ${DATA_FILE}, starting from an empty store: ${(err as Error).message}`,
-    );
-    return emptyStore();
-  }
+function normalizeStoreData(loaded: StoreData | null): StoreData {
+  if (!loaded) return emptyStore();
+  return {
+    cases: Array.isArray(loaded.cases) ? loaded.cases : [],
+    nextReferenceSeq:
+      typeof loaded.nextReferenceSeq === 'number' && Number.isFinite(loaded.nextReferenceSeq)
+        ? loaded.nextReferenceSeq
+        : 1,
+  };
 }
 
 class Store {
-  data: StoreData;
-  private writeTimer: ReturnType<typeof setTimeout> | null = null;
+  data: StoreData = emptyStore();
 
-  constructor() {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-    this.data = loadStore();
+  /** Load persisted state via the active adapter. Must be awaited once at
+   * boot, before any route handler runs — after that, `data` is
+   * synchronously readable exactly as it always was. */
+  async init(): Promise<void> {
+    const loaded = await storageAdapter.readStore();
+    this.data = normalizeStoreData(loaded);
   }
 
   /** Mint the next human-readable case reference, e.g. "VPS-0001". */
@@ -72,31 +61,30 @@ class Store {
     return `VPS-${String(seq).padStart(4, '0')}`;
   }
 
-  /** Debounced persist — call after every mutation of `store.data`. */
-  scheduleSave(): void {
-    if (this.writeTimer) clearTimeout(this.writeTimer);
-    this.writeTimer = setTimeout(() => {
-      this.writeTimer = null;
-      this.flush();
-    }, WRITE_DEBOUNCE_MS);
+  /**
+   * Persist the current state, resolving only once it is durable.
+   *
+   * Call this after every mutation of `store.data` and await it before the
+   * response is sent — this replaces the old 150ms debounce, which is
+   * actively dangerous on serverless (see the module comment above).
+   */
+  async save(): Promise<void> {
+    await storageAdapter.writeStore(this.data);
   }
 
-  /** Synchronously write the current state to disk right now. */
-  flush(): void {
-    if (this.writeTimer) {
-      clearTimeout(this.writeTimer);
-      this.writeTimer = null;
-    }
-    const tmpFile = `${DATA_FILE}.tmp`;
-    fs.writeFileSync(tmpFile, JSON.stringify(this.data, null, 2), 'utf-8');
-    fs.renameSync(tmpFile, DATA_FILE);
+  /** Alias for `save()`, kept for the SIGINT/SIGTERM shutdown path. */
+  async flush(): Promise<void> {
+    await this.save();
   }
 }
 
 export const store = new Store();
 
-/** Directory that holds uploaded files for one case. Always built from a
- * case id we already found in the store — never from a raw path param. */
-export function caseUploadDir(caseId: string): string {
-  return path.join(UPLOADS_DIR, caseId);
+/**
+ * Load the store at boot. `apps/api/src/index.ts` must `await` this before
+ * serving any request (and before the empty-store auto-seed check), so that
+ * `store.data` is populated by the time a route handler reads it.
+ */
+export async function initStore(): Promise<void> {
+  await store.init();
 }

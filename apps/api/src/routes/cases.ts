@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
 import type { CaseSummary, PropertyCase } from '@valytica/shared';
-import { store, caseUploadDir } from '../store';
+import { store } from '../store';
+import { storageAdapter } from '../storage';
 import { createCaseSchema, updateCaseSchema } from '../schemas';
 
 export function toCaseSummary(c: PropertyCase): CaseSummary {
@@ -45,7 +45,7 @@ casesRouter.get('/', (_req, res) => {
   res.json(summaries);
 });
 
-casesRouter.post('/', (req, res) => {
+casesRouter.post('/', async (req, res) => {
   const parsed = createCaseSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
@@ -65,7 +65,7 @@ casesRouter.post('/', (req, res) => {
     notes: parsed.data.notes ?? '',
   };
   store.data.cases.push(newCase);
-  store.scheduleSave();
+  await store.save();
   res.status(201).json(newCase);
 });
 
@@ -78,7 +78,7 @@ casesRouter.get('/:id', (req, res) => {
   res.json(found);
 });
 
-casesRouter.patch('/:id', (req, res) => {
+casesRouter.patch('/:id', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
     res.status(404).json({ error: 'Case not found' });
@@ -96,20 +96,24 @@ casesRouter.patch('/:id', (req, res) => {
   if (body.ownerName !== undefined) found.ownerName = body.ownerName;
   if (body.notes !== undefined) found.notes = body.notes;
   found.updatedAt = new Date().toISOString();
-  store.scheduleSave();
+  await store.save();
   res.json(found);
 });
 
-casesRouter.delete('/:id', (req, res) => {
+casesRouter.delete('/:id', async (req, res) => {
   const idx = store.data.cases.findIndex((c) => c.id === req.params.id);
   if (idx === -1) {
     res.status(404).json({ error: 'Case not found' });
     return;
   }
   const [removed] = store.data.cases.splice(idx, 1);
-  store.scheduleSave();
-  // removed.id is the id of an entity we actually found in the store, never
-  // the raw (unvalidated) path param.
-  fs.rmSync(caseUploadDir(removed.id), { recursive: true, force: true });
+  try {
+    // removed.id is the id of an entity we actually found in the store, never
+    // the raw (unvalidated) path param.
+    await storageAdapter.deleteCaseDocuments(removed.id);
+  } catch {
+    /* a case with no stored documents (e.g. demo-seeded) has nothing to remove */
+  }
+  await store.save();
   res.status(204).end();
 });

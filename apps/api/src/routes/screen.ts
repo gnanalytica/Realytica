@@ -8,7 +8,7 @@ export const screenRouter = Router({ mergeParams: true });
 
 // mergeParams sub-routers only get the parent :id typed when we say so
 // explicitly — Express infers req.params purely from this route's own path.
-screenRouter.post<{ id: string }>('/', (req, res) => {
+screenRouter.post<{ id: string }>('/', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
     res.status(404).json({ error: 'Case not found' });
@@ -27,13 +27,13 @@ screenRouter.post<{ id: string }>('/', (req, res) => {
   found.result = result;
   found.status = 'screened';
   found.updatedAt = now;
-  store.scheduleSave();
+  await store.save();
   res.json(result);
 });
 
 export const risksRouter = Router({ mergeParams: true });
 
-risksRouter.patch<{ id: string; riskId: string }>('/:riskId', (req, res) => {
+risksRouter.patch<{ id: string; riskId: string }>('/:riskId', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
     res.status(404).json({ error: 'Case not found' });
@@ -55,13 +55,13 @@ risksRouter.patch<{ id: string; riskId: string }>('/:riskId', (req, res) => {
   }
   risk.status = parsed.data.status;
   found.updatedAt = new Date().toISOString();
-  store.scheduleSave();
+  await store.save();
   res.json(found.result);
 });
 
 export const actionsRouter = Router({ mergeParams: true });
 
-actionsRouter.patch<{ id: string; actionId: string }>('/:actionId', (req, res) => {
+actionsRouter.patch<{ id: string; actionId: string }>('/:actionId', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
     res.status(404).json({ error: 'Case not found' });
@@ -83,6 +83,6 @@ actionsRouter.patch<{ id: string; actionId: string }>('/:actionId', (req, res) =
   }
   action.done = parsed.data.done;
   found.updatedAt = new Date().toISOString();
-  store.scheduleSave();
+  await store.save();
   res.json(found.result);
 });

@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { CaseDocument, PropertyCase } from '@valytica/shared';
 import { SEED_CASES, SEED_DOCUMENT_FILENAMES, classifyDocument, extractFields, runScreen, REFERENCE_DATA } from '@valytica/shared';
-import { store, UPLOADS_DIR } from '../store';
+import { store } from '../store';
+import { storageAdapter } from '../storage';
 
 function guessMimeType(fileName: string): string {
   const ext = fileName.split('.').pop()?.toLowerCase();
@@ -33,8 +33,12 @@ function guessMimeType(fileName: string): string {
  * (matched by `identity.label`), with SEED_DOCUMENT_FILENAMES[label]
  * materialised as CaseDocument records that carry no real file on disk.
  * Returns the number of cases actually created.
+ *
+ * Async because persisting the seeded cases is now an awaited `store.save()`
+ * rather than a fire-and-forget debounce — every caller (this file's `/seed`
+ * route, and the boot-time auto-seed in `index.ts`) must await it.
  */
-export function seedDemoData(): number {
+export async function seedDemoData(): Promise<number> {
   const existingLabels = new Set(store.data.cases.map((c) => c.identity.label));
   let created = 0;
 
@@ -97,21 +101,24 @@ export function seedDemoData(): number {
     created += 1;
   }
 
-  if (created > 0) store.scheduleSave();
+  if (created > 0) await store.save();
   return created;
 }
 
 export const demoRouter = Router();
 
-demoRouter.post('/seed', (_req, res) => {
-  const created = seedDemoData();
+demoRouter.post('/seed', async (_req, res) => {
+  const created = await seedDemoData();
   res.json({ created });
 });
 
-demoRouter.post('/reset', (_req, res) => {
+demoRouter.post('/reset', async (_req, res) => {
   store.data.cases = [];
-  store.scheduleSave();
-  fs.rmSync(UPLOADS_DIR, { recursive: true, force: true });
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  try {
+    await storageAdapter.deleteAllDocuments();
+  } catch {
+    /* nothing stored yet — reset still succeeds */
+  }
+  await store.save();
   res.json({ ok: true });
 });

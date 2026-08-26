@@ -94,13 +94,13 @@ export interface RunOrchestrationParams {
   onStep?: (step: AgentStep) => void;
   onRun?: (run: AgentRun) => void;
   /**
-   * Resolves a document to its file on disk, for document intelligence to
-   * read. Defaults to `() => null`, in which case each document's run
+   * Resolves a document to its stored bytes, for document intelligence to
+   * read. Defaults to `async () => null`, in which case each document's run
    * completes with a clear "no file available" failure rather than being
-   * skipped silently — the caller (which owns upload storage) is expected to
-   * supply this in real use.
+   * skipped silently — the caller (which owns upload storage, via a
+   * `StorageAdapter`) is expected to supply this in real use.
    */
-  resolveDocumentPath?: (document: CaseDocument) => string | null;
+  resolveDocumentBytes?: (document: CaseDocument) => Promise<Buffer | null>;
 }
 
 export interface RunOrchestrationResult {
@@ -364,7 +364,7 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
   let freshScreenResult: ScreenResult | undefined;
   let finalDocuments: CaseDocument[] = caseData.documents;
 
-  const resolveDocumentPath = params.resolveDocumentPath ?? (() => null);
+  const resolveDocumentBytes = params.resolveDocumentBytes ?? (async () => null);
 
   /* -------------------------------------------------------------- */
   /* Phase A — document intelligence, one per unprocessed document,   */
@@ -389,7 +389,7 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
           const result = await runDocumentIntelligence({
             caseId: caseData.id,
             document,
-            filePath: resolveDocumentPath(document),
+            fileBytes: await resolveDocumentBytes(document),
             identity: caseData.identity,
             now,
             onStep: params.onStep,

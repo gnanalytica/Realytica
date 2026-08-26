@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import { z } from 'zod';
 import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase } from '@valytica/shared';
 import { REFERENCE_DATA } from '@valytica/shared';
 import { agentCapability, describeError, runCopilot, runExplorer, runOrchestration, type RunOrchestrationResult } from '@valytica/agents';
-import { store, caseUploadDir } from '../store';
+import { store } from '../store';
+import { storageAdapter } from '../storage';
+import { documentKey } from '../storage/types';
 import { findCase } from './cases';
 import { agentKindSchema, copilotBodySchema, runAgentsBodySchema } from '../schemas';
 
@@ -32,14 +32,13 @@ function isAgentKind(value: string): value is AgentKind {
 }
 
 /**
- * Where an uploaded document's bytes live on disk, mirroring the convention
- * `routes/documents.ts` writes to. Demo-seeded documents carry no real file,
- * so a missing file resolves to `null` rather than a path document
- * intelligence would fail to read.
+ * Fetches an uploaded document's bytes via the storage adapter, mirroring the
+ * convention `routes/documents.ts` writes under. Demo-seeded documents carry
+ * no real file, so a missing document resolves to `null` (`getDocument`'s own
+ * contract) rather than bytes document intelligence would fail to read.
  */
-function resolveDocumentPath(caseId: string, document: CaseDocument): string | null {
-  const filePath = path.join(caseUploadDir(caseId), `${document.id}${path.extname(document.fileName)}`);
-  return fs.existsSync(filePath) ? filePath : null;
+async function resolveDocumentBytes(caseId: string, document: CaseDocument): Promise<Buffer | null> {
+  return storageAdapter.getDocument(caseId, documentKey(document));
 }
 
 /**
@@ -129,10 +128,10 @@ caseAgentsRouter.post<{ id: string }>('/run', async (req, res) => {
       refData: REFERENCE_DATA,
       agents: parsed.data.agents,
       now,
-      resolveDocumentPath: (document) => resolveDocumentPath(found.id, document),
+      resolveDocumentBytes: (document) => resolveDocumentBytes(found.id, document),
     });
     applyOrchestrationResult(found, result, now);
-    store.scheduleSave();
+    await store.save();
     res.json(found);
   } catch (e) {
     res.status(502).json({ error: describeError(e) });
@@ -185,13 +184,13 @@ caseAgentsRouter.get<{ id: string }>('/stream', async (req, res) => {
       refData: REFERENCE_DATA,
       agents,
       now,
-      resolveDocumentPath: (document) => resolveDocumentPath(found.id, document),
+      resolveDocumentBytes: (document) => resolveDocumentBytes(found.id, document),
       onStep: (step: AgentStep) => send('step', step),
       onRun: (run: AgentRun) => send('run', run),
     });
     if (!closed) {
       applyOrchestrationResult(found, result, new Date().toISOString());
-      store.scheduleSave();
+      await store.save();
       send('done', found);
     }
   } catch (e) {
@@ -245,14 +244,14 @@ caseAgentsRouter.post<{ id: string }>('/copilot', async (req, res) => {
     found.intelligence.conversation = [...found.intelligence.conversation, userTurn, assistantTurn];
     found.intelligence.runs = [...found.intelligence.runs, run];
     found.updatedAt = new Date().toISOString();
-    store.scheduleSave();
+    await store.save();
     res.json({ userTurn, assistantTurn });
   } catch (e) {
     res.status(502).json({ error: describeError(e) });
   }
 });
 
-caseAgentsRouter.delete<{ id: string }>('/conversation', (req, res) => {
+caseAgentsRouter.delete<{ id: string }>('/conversation', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
     res.status(404).json({ error: 'Case not found' });
@@ -265,7 +264,7 @@ caseAgentsRouter.delete<{ id: string }>('/conversation', (req, res) => {
   }
   if (found.intelligence) found.intelligence.conversation = [];
   found.updatedAt = new Date().toISOString();
-  store.scheduleSave();
+  await store.save();
   res.status(204).end();
 });
 
@@ -311,7 +310,7 @@ caseAgentsRouter.post<{ id: string }>('/explore', async (req, res) => {
     found.intelligence.runs = [...found.intelligence.runs, run];
     found.intelligence.explorations = [...(found.intelligence.explorations ?? []), session];
     found.updatedAt = new Date().toISOString();
-    store.scheduleSave();
+    await store.save();
     res.json(found);
   } catch (e) {
     res.status(502).json({ error: describeError(e) });

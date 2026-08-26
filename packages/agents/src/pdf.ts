@@ -10,9 +10,12 @@
  * "assume 1 page" rather than block a case on a file we can't introspect.
  * This is a guard against the API's request-size/page limits, not a claim of
  * exact pagination.
+ *
+ * The caller hands this module bytes already in memory (read from disk, a
+ * blob store, or an upload buffer — this module doesn't know or care which)
+ * rather than a filesystem path, so it works the same regardless of which
+ * `StorageAdapter` backend produced them.
  */
-
-import { readFile } from 'node:fs/promises';
 
 /** Anthropic's documented request-body ceiling for a `document` content block. */
 export const MAX_PDF_BYTES = 32 * 1024 * 1024;
@@ -34,31 +37,21 @@ export interface LoadedPdf {
   pageCount: number;
 }
 
-export type PdfLoadFailureReason = 'unreadable' | 'empty' | 'too_large' | 'too_many_pages';
+export type PdfLoadFailureReason = 'empty' | 'too_large' | 'too_many_pages';
 
 export type PdfLoadResult =
   | { ok: true; pdf: LoadedPdf }
   | { ok: false; reason: PdfLoadFailureReason; message: string };
 
 /**
- * Reads a PDF from disk, base64-encodes it, and applies the API's size/page
- * guards. Never throws — every failure mode comes back as `{ ok: false }` so
- * the caller can fail the agent run cleanly instead of crashing it.
+ * Base64-encodes a PDF already held in memory and applies the API's
+ * size/page guards. Never throws — every failure mode comes back as
+ * `{ ok: false }` so the caller can fail the agent run cleanly instead of
+ * crashing it.
  */
-export async function loadPdfForExtraction(filePath: string): Promise<PdfLoadResult> {
-  let buffer: Buffer;
-  try {
-    buffer = await readFile(filePath);
-  } catch (e) {
-    return {
-      ok: false,
-      reason: 'unreadable',
-      message: `Could not read "${filePath}": ${e instanceof Error ? e.message : String(e)}`,
-    };
-  }
-
+export async function loadPdfForExtraction(buffer: Buffer): Promise<PdfLoadResult> {
   if (buffer.byteLength === 0) {
-    return { ok: false, reason: 'empty', message: `"${filePath}" is empty.` };
+    return { ok: false, reason: 'empty', message: 'The PDF file is empty.' };
   }
 
   const pageCount = countPdfPages(buffer);

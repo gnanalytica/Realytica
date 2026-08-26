@@ -37,7 +37,6 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type {
   AgentRun,
@@ -67,8 +66,13 @@ export interface DocumentIntelligenceResult {
 export interface RunDocumentIntelligenceInput {
   caseId: string;
   document: CaseDocument;
-  /** Path to the uploaded file on disk, or null when it is not (yet) available. */
-  filePath: string | null;
+  /**
+   * The uploaded file's bytes, or null when they are not (yet) available.
+   * Filename and mime type are read off `document` itself, which already
+   * carries them. Bytes rather than a path so this works the same whether
+   * they came from the filesystem or a blob store — see `StorageAdapter`.
+   */
+  fileBytes: Buffer | null;
   identity: PropertyIdentity;
   /** Case-reference timestamp (see engine.ts) — used to date evidence, not wall-clock. */
   now: string;
@@ -495,15 +499,9 @@ const SUPPORTED_IMAGE_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/g
 type SupportedImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 
 async function loadImageForExtraction(
-  filePath: string,
+  buffer: Buffer,
 ): Promise<{ ok: true; base64: string } | { ok: false; message: string }> {
-  let buffer: Buffer;
-  try {
-    buffer = await readFile(filePath);
-  } catch (e) {
-    return { ok: false, message: `Could not read "${filePath}": ${e instanceof Error ? e.message : String(e)}` };
-  }
-  if (buffer.byteLength === 0) return { ok: false, message: `"${filePath}" is empty.` };
+  if (buffer.byteLength === 0) return { ok: false, message: 'The uploaded image file is empty.' };
   const base64 = buffer.toString('base64').replace(/\r?\n/g, '');
   // Same 32MB request-body ceiling documented for PDFs applies to any content block.
   if (base64.length > MAX_PDF_BYTES) {
@@ -517,7 +515,7 @@ async function loadImageForExtraction(
 /* ==================================================================== */
 
 export async function runDocumentIntelligence(input: RunDocumentIntelligenceInput): Promise<DocumentIntelligenceResult> {
-  const { caseId, document, filePath, identity, now } = input;
+  const { caseId, document, fileBytes, identity, now } = input;
   const runId = randomUUID();
   const startedAt = new Date().toISOString();
   const steps: AgentStep[] = [];
@@ -572,8 +570,8 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     return finishFailure('cancelled', reason);
   }
 
-  if (!filePath) {
-    const reason = 'No file is available on disk for this document — cannot run extraction.';
+  if (!fileBytes) {
+    const reason = 'No file is available for this document — cannot run extraction.';
     emit({ kind: 'error', label: 'No file to read', detail: reason });
     return finishFailure('failed', reason);
   }
@@ -587,7 +585,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
 
   let documentBlock: Anthropic.Beta.BetaContentBlockParam;
   if (isPdf) {
-    const loaded = await loadPdfForExtraction(filePath);
+    const loaded = await loadPdfForExtraction(fileBytes);
     if (!loaded.ok) {
       emit({ kind: 'error', label: 'PDF rejected before sending', detail: loaded.message });
       return finishFailure('failed', loaded.message);
@@ -603,7 +601,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       title: document.fileName,
     };
   } else {
-    const loaded = await loadImageForExtraction(filePath);
+    const loaded = await loadImageForExtraction(fileBytes);
     if (!loaded.ok) {
       emit({ kind: 'error', label: 'Image rejected before sending', detail: loaded.message });
       return finishFailure('failed', loaded.message);

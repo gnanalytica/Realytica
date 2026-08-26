@@ -11,7 +11,7 @@
     "dev": "concurrently -k -n api,web -c cyan,magenta \"pnpm -F @valytica/api dev\" \"pnpm -F @valytica/web dev\"",
     "dev:api": "pnpm -F @valytica/api dev",
     "dev:web": "pnpm -F @valytica/web dev",
-    "build": "pnpm -F @valytica/web build",
+    "build": "corepack enable && pnpm -F @valytica/web build",
     "preview": "pnpm -F @valytica/web preview",
     "start": "pnpm -F @valytica/api start",
     "typecheck": "tsc -p packages/shared && tsc -p packages/agents && tsc -p apps/api && tsc -p apps/web",

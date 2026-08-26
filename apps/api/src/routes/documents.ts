@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import multer from 'multer';
-import fs from 'node:fs';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { CaseDocument } from '@valytica/shared';
 import { classifyDocument, extractFields } from '@valytica/shared';
-import { store, caseUploadDir } from '../store';
+import { store } from '../store';
+import { storageAdapter } from '../storage';
+import { documentKey } from '../storage/types';
 import { updateDocumentSchema } from '../schemas';
 import { findCase } from './cases';
 
@@ -14,16 +14,11 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024, files: 10 },
 });
 
-/** Where an uploaded document's bytes live on disk for a given (found) case. */
-function storedFilePath(caseId: string, doc: CaseDocument): string {
-  return path.join(caseUploadDir(caseId), `${doc.id}${path.extname(doc.fileName)}`);
-}
-
 export const documentsRouter = Router({ mergeParams: true });
 
 // mergeParams sub-routers only get the parent :id typed when we say so
 // explicitly — Express infers req.params purely from this route's own path.
-documentsRouter.post<{ id: string }>('/', upload.array('files', 10), (req, res) => {
+documentsRouter.post<{ id: string }>('/', upload.array('files', 10), async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
     res.status(404).json({ error: 'Case not found' });
@@ -38,41 +33,42 @@ documentsRouter.post<{ id: string }>('/', upload.array('files', 10), (req, res) 
     return;
   }
 
-  const dir = caseUploadDir(found.id);
-  fs.mkdirSync(dir, { recursive: true });
+  try {
+    const now = new Date().toISOString();
+    const created: CaseDocument[] = [];
+    for (const file of files) {
+      const docId = randomUUID();
+      const classification = classifyDocument(file.originalname, file.mimetype);
+      const doc: CaseDocument = {
+        id: docId,
+        caseId: found.id,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+        uploadedAt: now,
+        kind: classification.kind,
+        classificationConfidence: classification.confidence,
+        kindConfirmedByUser: false,
+        pages: 1,
+        ocrStatus: 'complete',
+        extracted: [],
+      };
+      doc.extracted = extractFields(doc, found.identity, found.id);
+      await storageAdapter.putDocument(found.id, documentKey(doc), file.buffer, file.mimetype);
+      found.documents.push(doc);
+      created.push(doc);
+    }
 
-  const now = new Date().toISOString();
-  const created: CaseDocument[] = [];
-  for (const file of files) {
-    const docId = randomUUID();
-    const classification = classifyDocument(file.originalname, file.mimetype);
-    const doc: CaseDocument = {
-      id: docId,
-      caseId: found.id,
-      fileName: file.originalname,
-      mimeType: file.mimetype,
-      sizeBytes: file.size,
-      uploadedAt: now,
-      kind: classification.kind,
-      classificationConfidence: classification.confidence,
-      kindConfirmedByUser: false,
-      pages: 1,
-      ocrStatus: 'complete',
-      extracted: [],
-    };
-    doc.extracted = extractFields(doc, found.identity, found.id);
-    fs.writeFileSync(storedFilePath(found.id, doc), file.buffer);
-    found.documents.push(doc);
-    created.push(doc);
+    if (found.status === 'draft') found.status = 'collecting';
+    found.updatedAt = now;
+    await store.save();
+    res.status(201).json(created);
+  } catch (e) {
+    res.status(500).json({ error: `Failed to store uploaded file(s): ${e instanceof Error ? e.message : String(e)}` });
   }
-
-  if (found.status === 'draft') found.status = 'collecting';
-  found.updatedAt = now;
-  store.scheduleSave();
-  res.status(201).json(created);
 });
 
-documentsRouter.patch<{ id: string; docId: string }>('/:docId', (req, res) => {
+documentsRouter.patch<{ id: string; docId: string }>('/:docId', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
     res.status(404).json({ error: 'Case not found' });
@@ -96,11 +92,11 @@ documentsRouter.patch<{ id: string; docId: string }>('/:docId', (req, res) => {
   }
   if (parsed.data.notes !== undefined) doc.notes = parsed.data.notes;
   found.updatedAt = new Date().toISOString();
-  store.scheduleSave();
+  await store.save();
   res.json(doc);
 });
 
-documentsRouter.delete<{ id: string; docId: string }>('/:docId', (req, res) => {
+documentsRouter.delete<{ id: string; docId: string }>('/:docId', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
     res.status(404).json({ error: 'Case not found' });
@@ -113,11 +109,11 @@ documentsRouter.delete<{ id: string; docId: string }>('/:docId', (req, res) => {
   }
   const [doc] = found.documents.splice(idx, 1);
   try {
-    fs.unlinkSync(storedFilePath(found.id, doc));
+    await storageAdapter.deleteDocument(found.id, documentKey(doc));
   } catch {
-    /* demo-seeded documents (and any already-missing file) have nothing to unlink */
+    /* demo-seeded documents (and any already-missing file) have nothing to delete */
   }
   found.updatedAt = new Date().toISOString();
-  store.scheduleSave();
+  await store.save();
   res.status(204).end();
 });
