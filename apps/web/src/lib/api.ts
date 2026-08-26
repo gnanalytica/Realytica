@@ -11,10 +11,13 @@ import type {
   DataSourceDescriptor,
   DocumentKind,
   IngestionReport,
+  IntakeReadout,
+  IntakeSession,
   MemoryRecall,
   PromptDescriptor,
   PromptInvariantCheck,
   PropertyCase,
+  PersonaKey,
   ReferenceData,
   RiskStatus,
   RunGraph,
@@ -86,6 +89,12 @@ export interface PromptDraft {
   notes?: string;
   activate: boolean;
   invariants: PromptInvariantCheck[];
+}
+
+/** What every intake route returns: the stored half, and everything derived from it. */
+export interface IntakeEnvelope {
+  session: IntakeSession;
+  readout: IntakeReadout;
 }
 
 export const api = {
@@ -242,6 +251,66 @@ export const api = {
       `/prompts/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}`,
       { method: 'DELETE' },
     ),
+
+  /* --- Conversational intake --------------------------------------- */
+
+  /**
+   * A session is a draft and a transcript, not a case.
+   *
+   * Every one of these returns both the session and its readout, computed
+   * server-side on read. The page never derives what to ask next or whether
+   * the draft is ready — one place decides that, so the chat and the API
+   * cannot disagree about the same draft.
+   */
+  startIntake: () => request<IntakeEnvelope>('/intake', { method: 'POST' }),
+
+  getIntake: (id: string) => request<IntakeEnvelope>(`/intake/${id}`),
+
+  /** Send a message. Works with no model configured; the reply is then deterministic and says so. */
+  intakeTurn: (id: string, message: string) =>
+    request<IntakeEnvelope & { rejected: { path: string; reason: string }[] }>(`/intake/${id}/turns`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+
+  /**
+   * Answer one particular directly.
+   *
+   * What the option buttons use, and the only way to answer anything when no
+   * model is configured. Recorded as `stated`, because pressing a labelled
+   * button states a thing as plainly as typing it.
+   */
+  setIntakeField: (id: string, path: string, value: string | number | boolean | null, saidAs?: string) =>
+    request<IntakeEnvelope>(`/intake/${id}/fields`, {
+      method: 'POST',
+      body: JSON.stringify({ path, value, saidAs }),
+    }),
+
+  /** Accept an inference. The only thing that turns one into an answer. */
+  confirmIntakeField: (id: string, path: string) =>
+    request<IntakeEnvelope>(`/intake/${id}/fields/${encodeURIComponent(path)}/confirm`, { method: 'POST' }),
+
+  clearIntakeField: (id: string, path: string) =>
+    request<IntakeEnvelope>(`/intake/${id}/fields/${encodeURIComponent(path)}`, { method: 'DELETE' }),
+
+  uploadIntakeDocuments: (id: string, files: File[]) => {
+    const form = new FormData();
+    files.forEach((f) => form.append('files', f));
+    return request<IntakeEnvelope>(`/intake/${id}/documents`, { method: 'POST', body: form });
+  },
+
+  /**
+   * Build the case.
+   *
+   * The only call here that creates anything, and it is always an explicit
+   * press — never something a turn can trigger. Returns the screened case, so
+   * the figures the conversation showed are the figures that land.
+   */
+  commitIntake: (id: string, body: { ownerName?: string; persona?: PersonaKey } = {}) =>
+    request<IntakeEnvelope & { case: PropertyCase; unconfirmed: IntakeSession['fields'] }>(`/intake/${id}/commit`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   exploreCase: (id: string, body: { objective?: string; maxIterations?: number; maxCostUsd?: number }) =>
     request<PropertyCase>(`/cases/${id}/agents/explore`, {

@@ -19,7 +19,7 @@ import type { LlmClientTool, LlmMessage } from '../providers/types';
 import { applyCapture } from './fields';
 import { readDraft } from './readout';
 import { createIntakeTools, type IntakeToolBuffer } from './tools';
-import { describeState, fallbackReply } from './script';
+import { answerCurrentGap, describeState, fallbackReply } from './script';
 
 const MAX_TOOL_ITERATIONS = 4;
 
@@ -94,11 +94,30 @@ export async function runIntakeTurn(params: RunIntakeTurnParams): Promise<RunInt
     now,
   );
 
-  /** Deterministic turn — no model involved, and the result says so by carrying no run. */
-  const degrade = (text: string, fields = params.fields): RunIntakeTurnResult => {
+  /**
+   * Deterministic turn — no model involved, and the result says so by carrying
+   * no run.
+   *
+   * Before falling back to the script, the message is read as a direct answer
+   * to the question the conversation just asked. Without that step the input
+   * box silently discarded everything typed into it whenever no model was
+   * configured, which made the guided mode unusable for every free-text
+   * particular — locality, area, price — while looking like it worked.
+   */
+  const degrade = (make: (r: IntakeReadout) => string): RunIntakeTurnResult => {
+    const answer = answerCurrentGap(message, priorReadout.nextQuestion);
+    const { fields, captured } = answer
+      ? applyCapture(params.fields, [answer], now)
+      : { fields: params.fields, captured: [] as IntakeField[] };
     const readout = readDraft({ fields, documents: params.documents, caseId: params.caseId }, refData, now);
     return {
-      turn: { id: randomUUID(), role: 'assistant', text, at: now },
+      turn: {
+        id: randomUUID(),
+        role: 'assistant',
+        text: make(readout),
+        at: now,
+        captured: captured.length > 0 ? captured : undefined,
+      },
       fields,
       readout,
       rejected: [],
@@ -108,11 +127,11 @@ export async function runIntakeTurn(params: RunIntakeTurnParams): Promise<RunInt
   const route = resolveRoute('intake_concierge');
   const capability = agentCapability();
   if (capabilityBlocksRoute(route.route, capability)) {
-    return degrade(fallbackReply(priorReadout, message, 'no_agent_layer'));
+    return degrade(r => fallbackReply(r, message, 'no_agent_layer'));
   }
   if (!route.descriptor.configured) {
     void missingCredentialsReason(route.route, 'the intake concierge is unavailable.');
-    return degrade(fallbackReply(priorReadout, message, 'no_credentials'));
+    return degrade(r => fallbackReply(r, message, 'no_credentials'));
   }
 
   const runId = randomUUID();
@@ -167,10 +186,9 @@ export async function runIntakeTurn(params: RunIntakeTurnParams): Promise<RunInt
     // A failed turn still moves the conversation: the deterministic script
     // asks the same next question. The user is told the parser is down rather
     // than being left at a dead end.
-    const degraded = degrade(
-      `${fallbackReply(priorReadout, message, 'model_failed')}\n\n(I could not read that message automatically — ${reason})`,
+    return degrade(
+      r => `${fallbackReply(r, message, 'model_failed')}\n\n(I could not read that message automatically — ${reason})`,
     );
-    return { ...degraded, rejected: [] };
   }
 
   capabilityGaps = result.capabilityGaps;

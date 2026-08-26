@@ -7,6 +7,7 @@ import Compare from './pages/Compare';
 import About from './pages/About';
 import Observability from './pages/Observability';
 import Prompts from './pages/Prompts';
+import Intake from './pages/Intake';
 import CaseWorkspace from './pages/case/CaseWorkspace';
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
       <Routes>
         <Route element={<AppShell />}>
           <Route index element={<Dashboard />} />
+          <Route path="start" element={<Intake />} />
           <Route path="cases/new" element={<NewCase />} />
           <Route path="cases/:caseId" element={<CaseWorkspace />} />
           <Route path="cases/:caseId/:tab" element={<CaseWorkspace />} />

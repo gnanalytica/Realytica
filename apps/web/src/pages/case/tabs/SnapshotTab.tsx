@@ -58,6 +58,7 @@ export default function SnapshotTab({ caseData, result, refresh, runScreen, runn
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5">
+      <CaseNotes notes={caseData.notes} />
       {result ? (
         <>
           <Card>
@@ -670,5 +671,34 @@ function MarketStrip({ market, currency, identity }: { market: MarketContext; cu
         </div>
       </CardBody>
     </Card>
+  );
+}
+
+/**
+ * The case's own notes, which nothing rendered until now.
+ *
+ * They were captured by the new-case form and written by the intake on commit,
+ * and displayed nowhere — so a case built from a conversation carried a record
+ * of exactly which particulars nobody had confirmed, and no screen showed it.
+ * That is the failure this product is least able to afford: an inference that
+ * cannot be seen is indistinguishable from a fact to whoever reads the case a
+ * week later.
+ *
+ * Rendered with a warning tone when it names unconfirmed particulars, and
+ * plainly otherwise, because most notes are just notes.
+ */
+function CaseNotes({ notes }: { notes?: string }) {
+  const text = notes?.trim();
+  if (!text) return null;
+  const hasUnconfirmed = /not confirmed by the user/i.test(text);
+  return (
+    <Callout tone={hasUnconfirmed ? 'warning' : 'neutral'} title={hasUnconfirmed ? 'Some particulars here were inferred, not stated' : 'Case notes'}>
+      <p className="whitespace-pre-wrap text-[13px] leading-relaxed">{text}</p>
+      {hasUnconfirmed ? (
+        <p className="mt-2 text-[12px] leading-relaxed text-ink-secondary">
+          These fed the screen above. Confirm or correct them on the case before relying on the figures.
+        </p>
+      ) : null}
+    </Callout>
   );
 }

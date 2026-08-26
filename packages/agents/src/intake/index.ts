@@ -21,7 +21,7 @@ export type { CaptureInput, IntakeFieldSpec } from './fields';
 
 export { documentRequests, particularGaps, previewScreen, readDraft, resolveLocality } from './readout';
 
-export { describeState, fallbackReply, openingTurn } from './script';
+export { answerCurrentGap, describeState, fallbackReply, openingTurn, parseIndianQuantity } from './script';
 export type { FallbackReason } from './script';
 
 export { createIntakeTools } from './tools';

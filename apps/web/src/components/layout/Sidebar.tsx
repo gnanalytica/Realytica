@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { ChevronsLeft, ChevronsRight, FilePlus2, Gauge, GitCompare, Info, LayoutDashboard, ScrollText, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, FilePlus2, Gauge, GitCompare, Info, LayoutDashboard, MessageSquare, ScrollText, X } from 'lucide-react';
 import { cn } from '../ui/kit';
 
 export interface SidebarProps {
@@ -18,7 +18,10 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/cases/new', label: 'New case', icon: FilePlus2, end: false },
+  // Above the form deliberately: three answers here reach a real screen,
+  // where the form asks for six required fields before it accepts anything.
+  { to: '/start', label: 'Start a case', icon: MessageSquare, end: false },
+  { to: '/cases/new', label: 'New case (form)', icon: FilePlus2, end: false },
   { to: '/compare', label: 'Compare', icon: GitCompare, end: false },
   { to: '/observability', label: 'Model ops', icon: Gauge, end: false },
   { to: '/prompts', label: 'Prompts', icon: ScrollText, end: false },

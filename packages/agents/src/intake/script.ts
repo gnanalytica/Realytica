@@ -1,5 +1,6 @@
-import type { IntakeField, IntakeReadout } from '@valytica/shared';
-import { INTAKE_FIELDS } from './fields';
+import type { IntakeField, IntakeGap, IntakeReadout } from '@valytica/shared';
+import { INTAKE_FIELDS, SQFT_PER_SQM } from './fields';
+import type { CaptureInput } from './fields';
 
 /**
  * The conversation without a model.
@@ -180,4 +181,104 @@ export function openingTurn(hasModel: boolean): string {
   return hasModel
     ? OPENER
     : `${OPENER}\n\nI'm running without a language model configured, so answer each question directly rather than in a sentence — everything else works the same.`;
+}
+
+/* ==================================================================== */
+/* Answering the question that was actually asked                       */
+/* ==================================================================== */
+
+/**
+ * Read one message as a direct answer to one question.
+ *
+ * This is not free-text parsing and must not grow into it. It runs only when
+ * no model read the message, and it only ever considers the single gap the
+ * conversation just asked about — "what is the locality?" followed by
+ * "Whitefield" is an answer, and treating it as one is the difference between
+ * a guided intake that works and a chat box that silently discards everything
+ * typed into it.
+ *
+ * Returns nothing when the message does not read as an answer, which leaves
+ * the deterministic reply to ask again rather than storing a guess.
+ */
+export function answerCurrentGap(message: string, gap: IntakeGap | undefined): CaptureInput | undefined {
+  if (!gap) return undefined;
+  const spec = INTAKE_FIELDS.find(f => f.path === gap.path);
+  if (!spec) return undefined;
+  const text = message.trim();
+  if (!text) return undefined;
+
+  if (spec.kind === 'enum') {
+    const lower = text.toLowerCase();
+    /*
+     * Exact first, then the option named inside a phrase.
+     *
+     * The loose pass matches the value's own words ("residential_plot" ->
+     * "residential plot") and each half of a slashed label ("Residential plot
+     * / site"), because a whole-label match never fires: nobody types
+     * "Residential plot / site". Longest match wins, so "residential plot"
+     * beats a bare "plot" that another option might also contain.
+     */
+    const phrases = (o: { value: string; label: string }): string[] =>
+      [o.value.replace(/_/g, ' '), ...o.label.split('/').map(x => x.trim())]
+        .map(x => x.toLowerCase())
+        .filter(x => x.length >= 4);
+    const loose = (spec.options ?? [])
+      .map(o => ({ o, hit: phrases(o).filter(px => lower.includes(px)).sort((a, b) => b.length - a.length)[0] }))
+      .filter((x): x is { o: { value: string; label: string }; hit: string } => x.hit !== undefined)
+      .sort((a, b) => b.hit.length - a.hit.length)[0]?.o;
+    const hit =
+      spec.options?.find(o => o.label.toLowerCase() === lower) ??
+      spec.options?.find(o => o.value.toLowerCase() === lower) ??
+      loose;
+    return hit ? { path: gap.path, value: hit.value, provenance: 'stated', saidAs: text } : undefined;
+  }
+
+  if (spec.kind === 'number') {
+    const parsed = parseIndianQuantity(text);
+    return parsed === undefined ? undefined : { path: gap.path, value: parsed.value, provenance: 'stated', saidAs: text };
+  }
+
+  if (spec.kind === 'boolean') {
+    if (/^(yes|y|true)\b/i.test(text)) return { path: gap.path, value: true, provenance: 'stated', saidAs: text };
+    if (/^(no|n|false)\b/i.test(text)) return { path: gap.path, value: false, provenance: 'stated', saidAs: text };
+    return undefined;
+  }
+
+  // A string answer to a string question. Rejected when it reads as a
+  // sentence rather than a value — someone typing "actually can you tell me
+  // about stamp duty" into the locality question has not answered it, and
+  // storing that as their locality would be worse than not hearing them.
+  if (text.length > 60 || /\?$/.test(text)) return undefined;
+  return { path: gap.path, value: text, provenance: 'stated', saidAs: text };
+}
+
+/**
+ * Indian quantity notation, for the one field being asked about.
+ *
+ * Areas are quoted in square feet in Bengaluru and stored in square metres;
+ * prices are quoted in lakh and crore. Both conversions are stated back to the
+ * user through `saidAs`, so a misread is visible rather than silent.
+ */
+export function parseIndianQuantity(text: string): { value: number } | undefined {
+  const t = text.toLowerCase().replace(/,/g, '');
+
+  const dims = /(\d+(?:\.\d+)?)\s*(?:x|×|by)\s*(\d+(?:\.\d+)?)/.exec(t);
+  if (dims) {
+    // A "30x40 site" is feet, always — the phrase is never used in metres.
+    return { value: (parseFloat(dims[1]) * parseFloat(dims[2])) / SQFT_PER_SQM };
+  }
+
+  const num = /(\d+(?:\.\d+)?)/.exec(t);
+  if (!num) return undefined;
+  const n = parseFloat(num[1]);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+
+  if (/\bcr\b|crore/.test(t)) return { value: Math.round(n * 10_000_000) };
+  // `\bl\b` does not match the "l" in "85l" — digits and letters are both word
+  // characters, so there is no boundary between them. Matched against the
+  // digits instead, which is how people actually write it.
+  if (/\blakh?s?\b|\d\s*l\b/.test(t)) return { value: Math.round(n * 100_000) };
+  if (/sq\s*m|sqm|square met/.test(t)) return { value: n };
+  if (/sq\s*ft|sqft|square f(?:ee|oo)t|\bft\b/.test(t)) return { value: n / SQFT_PER_SQM };
+  return { value: n };
 }

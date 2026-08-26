@@ -2162,6 +2162,16 @@ export interface IntakeField {
   /** How this particular is named to a person. */
   label: string;
   value: string | number | boolean | null;
+  /**
+   * The value as a person reads it, where that differs from the stored form.
+   *
+   * Set for enums, whose stored values are identifiers — a panel rendering
+   * `residential_apartment` or `a_khata` back at the user is showing them the
+   * database, not their property. Decided here rather than in the UI because
+   * the option labels live with the field table; numbers are deliberately not
+   * given one, since their formatting depends on the reader's unit preference.
+   */
+  display?: string;
   /** What the user actually typed, when that differs from the parsed value. */
   saidAs?: string;
   provenance: IntakeProvenance;
