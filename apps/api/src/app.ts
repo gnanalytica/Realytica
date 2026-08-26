@@ -19,6 +19,7 @@ import { caseKnowledgeRouter, sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
 import { promptsRouter } from './routes/prompts';
 import { flowRouter } from './routes/flow';
+import { titleGraphRouter } from './routes/title-graph';
 import { intakeRouter } from './routes/intake';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -77,6 +78,7 @@ app.use('/api/cases/:id/actions', actionsRouter);
 app.use('/api/cases/:id/agents', caseAgentsRouter);
 app.use('/api/cases/:id/knowledge', caseKnowledgeRouter);
 app.use('/api/cases/:id/flow', flowRouter);
+app.use('/api/cases/:id/title-graph', titleGraphRouter);
 app.use('/api/cases', casesRouter);
 
 app.use('/api/demo', demoRouter);

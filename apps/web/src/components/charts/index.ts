@@ -29,3 +29,6 @@ export type { CostWaterfallChartProps } from './CostWaterfallChart';
 
 export { default as ProvenanceBar } from './ProvenanceBar';
 export type { ProvenanceBarProps } from './ProvenanceBar';
+
+export { default as TitleChainDiagram } from './TitleChainDiagram';
+export type { TitleChainDiagramProps } from './TitleChainDiagram';

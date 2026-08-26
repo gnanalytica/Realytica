@@ -21,6 +21,7 @@ import type {
   ReferenceData,
   RiskStatus,
   RunGraph,
+  TitleGraph,
   ScreenResult,
   TelemetrySummary,
   UpdateCaseRequest,
@@ -251,6 +252,15 @@ export const api = {
       `/prompts/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}`,
       { method: 'DELETE' },
     ),
+
+  /**
+   * The title graph's nodes and edges, for the chain diagram.
+   *
+   * Separate from the case because the screen result carries only the
+   * findings; this is the structure they are findings about. Derived on read,
+   * like the run graph.
+   */
+  caseTitleGraph: (id: string) => request<TitleGraph>(`/cases/${id}/title-graph`),
 
   /* --- Conversational intake --------------------------------------- */
 

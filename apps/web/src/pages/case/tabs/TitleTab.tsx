@@ -19,6 +19,9 @@ import type {
   TitleChain,
   TitleGraphSummary,
 } from '@valytica/shared';
+import { TitleChainDiagram } from '../../../components/charts';
+import { api } from '../../../lib/api';
+import { useAsync } from '../../../lib/useAsync';
 import type { TabProps } from '../tab-props';
 import { DOCUMENT_KIND_LABEL } from '../../../lib/format';
 import {
@@ -309,9 +312,18 @@ function ResolutionPathRow({ path, rank }: { path: ResolutionPath; rank: number 
 
 type Section = 'chain' | 'contradictions' | 'paths';
 
-export default function TitleTab({ result }: TabProps) {
+export default function TitleTab({ caseData, result }: TabProps) {
   const graph: TitleGraphSummary | undefined = result?.titleGraph;
   const [section, setSection] = useState<Section>('chain');
+
+  /*
+   * The nodes and edges, fetched separately.
+   *
+   * `result.titleGraph` is the findings; the structure they are about lives
+   * behind its own route so a screen result does not carry a graph only one
+   * view draws. Same split as the run graph.
+   */
+  const { data: full } = useAsync(() => api.caseTitleGraph(caseData.id), [caseData.id, result?.generatedAt]);
 
   if (!graph) {
     return (
@@ -392,6 +404,15 @@ export default function TitleTab({ result }: TabProps) {
 
       {section === 'chain' && (
         <div className="space-y-4">
+          {/*
+           * The structure first, the findings underneath.
+           *
+           * Every break in the list below is a statement about shape — a chain
+           * with no root, an instrument that cannot be placed — and a sentence
+           * describes shape worst of anything. Drawn before the prose so the
+           * prose has something to refer to.
+           */}
+          {full ? <TitleChainDiagram graph={full} summary={graph} /> : null}
           {graph.chains.length === 0 ? (
             <EmptyState
               icon={<Unlink size={24} />}
