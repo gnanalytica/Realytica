@@ -12,9 +12,12 @@ import type {
   DocumentKind,
   IngestionReport,
   MemoryRecall,
+  PromptDescriptor,
+  PromptInvariantCheck,
   PropertyCase,
   ReferenceData,
   RiskStatus,
+  RunGraph,
   ScreenResult,
   TelemetrySummary,
   UpdateCaseRequest,
@@ -65,6 +68,24 @@ export interface HealthResponse {
   version: string;
   cases: number;
   upload: UploadLimits;
+}
+
+/**
+ * What the prompt editor sends when saving.
+ *
+ * Structurally identical to `PromptDraft` in `pages/Prompts.tsx`, declared
+ * here rather than imported so the API client does not depend on a page.
+ * `invariants` is the editor's own live evaluation: it is sent so the two
+ * sides can be compared, and the server ignores it and recomputes — a
+ * client-supplied "all guardrails satisfied" is exactly the claim this system
+ * must never take on trust.
+ */
+export interface PromptDraft {
+  label: string;
+  content: string;
+  notes?: string;
+  activate: boolean;
+  invariants: PromptInvariantCheck[];
 }
 
 export const api = {
@@ -163,6 +184,63 @@ export const api = {
     request<{ report: IngestionReport; networkRequests: number; unknownFileSourceIds: string[] }>(
       `/cases/${id}/knowledge/ingest`,
       { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  /**
+   * The orchestration as a drawable graph.
+   *
+   * Derived server-side on every read rather than stored, so it can never
+   * disagree with the runs it describes. A case that has not been through the
+   * agents answers with the screen node alone, or with nothing — both are
+   * states the canvas draws rather than errors.
+   */
+  caseFlow: (id: string) => request<RunGraph>(`/cases/${id}/flow`),
+
+  /* --- Prompt registry ---------------------------------------------- */
+
+  /**
+   * Every prompt, its versions, and which is in force.
+   *
+   * These four methods are named exactly as `pages/Prompts.tsx` looks for them
+   * — it duck-types them off this object so it could be built before they
+   * existed. Renaming one here does not break the build; it silently drops the
+   * page back to an in-memory edit that reports "Saved" and is gone on reload.
+   * So: if you rename one, rename it there too.
+   */
+  prompts: () => request<PromptDescriptor[]>('/prompts'),
+
+  /** Save a new version. Returns the whole descriptor, because a create can move the active selection. */
+  createPromptVersion: (key: string, draft: PromptDraft) =>
+    request<PromptDescriptor>(`/prompts/${encodeURIComponent(key)}/versions`, {
+      method: 'POST',
+      body: JSON.stringify(draft),
+    }),
+
+  /**
+   * Edit a custom version in place.
+   *
+   * Rewrites history: the content hash is recomputed, so a run already
+   * recorded against this version id now points at text that is not what it
+   * saw. The editor states that before offering it. The built-in is refused by
+   * the server.
+   */
+  updatePromptVersion: (key: string, versionId: string, draft: PromptDraft) =>
+    request<PromptDescriptor>(
+      `/prompts/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}`,
+      { method: 'PATCH', body: JSON.stringify(draft) },
+    ),
+
+  activatePromptVersion: (key: string, versionId: string) =>
+    request<PromptDescriptor>(
+      `/prompts/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}/activate`,
+      { method: 'POST' },
+    ),
+
+  /** Delete a custom version. Deleting the one in force falls the prompt back to its built-in. */
+  deletePromptVersion: (key: string, versionId: string) =>
+    request<PromptDescriptor>(
+      `/prompts/${encodeURIComponent(key)}/versions/${encodeURIComponent(versionId)}`,
+      { method: 'DELETE' },
     ),
 
   exploreCase: (id: string, body: { objective?: string; maxIterations?: number; maxCostUsd?: number }) =>

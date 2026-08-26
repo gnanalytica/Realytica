@@ -31,13 +31,14 @@ import type {
   CapabilityGap,
   CopilotTurn,
   MemoryRecall,
+  PromptUsage,
   PropertyCase,
   ReferenceData,
   RetrievalSelection,
 } from '@valytica/shared';
 import { buildTitleGraph } from '@valytica/shared';
 import { agentCapability, describeError } from '../client';
-import { GROUNDING_RULES } from '../context';
+import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { retrieveCaseContext } from '../retrieval';
 import { renderMemoryForPrompt } from '../memory';
 import { createCaseTools } from '../tools/case-tools';
@@ -74,24 +75,16 @@ export interface RunCopilotResult {
 
 const MAX_TOOL_ITERATIONS = 8;
 
-const COPILOT_SYSTEM_PROMPT = `
-${GROUNDING_RULES}
-
-You are the analyst copilot: a grounded question-answering agent for ONE specific property case. Tools let you look up the case's evidence ledger, comparables, compliance checks, risks, value anchors, document fields and locality reference row. Use them to find the real answer — call list_evidence early so you know which evidence ids actually exist; never answer from the case summary alone when a tool can confirm it.
-
-Citation format — follow this exactly:
-- Immediately after any sentence or clause that rests on a specific piece of evidence, cite it inline as [ev:<evidenceId>], using only ids you obtained from a tool call. Never invent an id, and never cite an id you have not actually seen returned by list_evidence or get_evidence_by_id.
-- A claim with no evidence behind it must not be presented as settled fact — either look it up first, label it explicitly as inference, or refuse.
-
-Refusing is a correct, good outcome — not a failure:
-- When the case's evidence does not answer the question, say so plainly (e.g. "The documents on file do not answer this — none of the extracted fields or evidence cover it.") instead of guessing or extrapolating past what the evidence supports. That is exactly what "Uncertainty Must Be Visible" asks for, and it is far more useful to the user than a confident-sounding guess.
-
-Always end your entire response with exactly one final line, alone on that line with nothing after it:
-REFUSED_FOR_LACK_OF_EVIDENCE: true
-or
-REFUSED_FOR_LACK_OF_EVIDENCE: false
-Set it to true only when you are declining to give a substantive answer because the case's evidence does not support one.
-`.trim();
+/**
+ * This agent's system prompt now comes from the prompt registry
+ * (`../prompts/registry.ts`, key `analyst_copilot.system`) rather than from a
+ * constant here. Version 1 is byte-identical to the string that used to live
+ * on this line, and it still composes the shared grounding preamble the same
+ * way — the composition is now a `{{grounding}}` placeholder the resolver
+ * fills. `resolvePrompt` also returns the `PromptUsage` records that go onto
+ * `AgentRun.prompts`, so a turn can be traced to the exact text that produced
+ * it and is marked if that text dropped a guardrail.
+ */
 
 const REFUSAL_LINE_RE = /\n?REFUSED_FOR_LACK_OF_EVIDENCE:\s*(true|false)\s*$/i;
 const CITATION_RE = /\[ev:([^\]\s]+)\]/g;
@@ -151,6 +144,12 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
   /** What this run asked the provider for and did not get. */
   let capabilityGaps: CapabilityGap[] = [];
 
+  /**
+   * Which prompt versions this turn used. Empty until the prompt is resolved,
+   * so a run that failed before it got that far honestly reports none.
+   */
+  let promptUsages: PromptUsage[] = [];
+
   /** Set once retrieval runs; recorded on the run so the context is auditable. */
   let retrievalSelection: RetrievalSelection | undefined;
 
@@ -171,6 +170,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
       tier,
       provider: route.provider,
       capabilityGaps,
+      prompts: promptUsages,
       steps,
       retrieval: retrievalSelection,
       summary: status === 'succeeded' ? turnText.slice(0, 240) : undefined,
@@ -283,13 +283,19 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
 
   emit({ kind: 'tool_call', label: 'Consulting the case ledger', detail: `${tools.length} read-only tool(s) available` });
 
+  // Resolved per turn rather than at module load, because the active version
+  // can change under a running process. Deterministic for a given version, so
+  // the cache breakpoint below still lands on a byte-stable prefix.
+  const systemPrompt = await resolvePrompt(PROMPT_KEYS.analystCopilotSystem);
+  promptUsages = systemPrompt.usages;
+
   let result;
   try {
     result = await provider.runTools({
       agent: 'analyst_copilot',
       model,
       maxTokens: 8000,
-      system: [{ text: COPILOT_SYSTEM_PROMPT, cacheBreakpoint: true }],
+      system: [{ text: systemPrompt.content, cacheBreakpoint: true }],
       tools,
       messages,
       maxIterations: MAX_TOOL_ITERATIONS,
@@ -349,6 +355,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
     tier,
     provider: route.provider,
     capabilityGaps,
+    prompts: promptUsages,
     steps,
     retrieval: retrievalSelection,
     summary: text.slice(0, 240),

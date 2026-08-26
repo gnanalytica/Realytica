@@ -7,6 +7,7 @@ import cors from 'cors';
 import multer from 'multer';
 import { ENGINE_VERSION, compareCases } from '@valytica/shared';
 import { store, initStore } from './store';
+import { initPrompts } from './prompts';
 import { casesRouter } from './routes/cases';
 import { documentsRouter, UPLOAD_LIMITS } from './routes/documents';
 import { screenRouter, risksRouter, actionsRouter } from './routes/screen';
@@ -15,6 +16,8 @@ import { demoRouter, seedDemoData } from './routes/demo';
 import { agentsCapabilityRouter, caseAgentsRouter } from './routes/agents';
 import { caseKnowledgeRouter, sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
+import { promptsRouter } from './routes/prompts';
+import { flowRouter } from './routes/flow';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { compareBodySchema } from './schemas';
@@ -60,6 +63,7 @@ app.use('/api/reference', referenceRouter);
 app.use('/api/agents', agentsCapabilityRouter);
 app.use('/api/sources', sourcesRouter);
 app.use('/api/telemetry', telemetryRouter);
+app.use('/api/prompts', promptsRouter);
 
 // Mounted before the generic /api/cases router so nested case sub-resources
 // resolve here first; :id is captured via mergeParams on each sub-router.
@@ -69,6 +73,7 @@ app.use('/api/cases/:id/risks', risksRouter);
 app.use('/api/cases/:id/actions', actionsRouter);
 app.use('/api/cases/:id/agents', caseAgentsRouter);
 app.use('/api/cases/:id/knowledge', caseKnowledgeRouter);
+app.use('/api/cases/:id/flow', flowRouter);
 app.use('/api/cases', casesRouter);
 
 app.use('/api/demo', demoRouter);
@@ -158,6 +163,11 @@ app.use(errorHandler);
  */
 export async function initApp(): Promise<void> {
   await initStore();
+  // Before the first request, on a server and on a cold serverless invocation
+  // alike: until this runs the agent layer resolves every prompt to its
+  // built-in, so an operator's edit would be silently ignored rather than
+  // reported as unavailable.
+  await initPrompts();
   if (store.data.cases.length === 0) {
     const created = await seedDemoData();
     console.log(`[boot] store was empty — auto-seeded ${created} demo case(s)`);

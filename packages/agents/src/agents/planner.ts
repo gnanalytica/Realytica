@@ -27,12 +27,13 @@ import type {
   CapabilityGap,
   CaseDocument,
   PlannedTask,
+  PromptUsage,
   PropertyCase,
   ReferenceData,
   TaskDepth,
 } from '@valytica/shared';
 import { describeError } from '../client';
-import { GROUNDING_RULES } from '../context';
+import { PROMPT_KEYS, resolvePrompt, type ResolvedPrompt } from '../prompts';
 import { describeGap } from '../routing';
 import { missingCredentialsDetail, resolveRoute, toolUseOf } from '../providers';
 
@@ -232,55 +233,25 @@ function buildOutputJsonSchema(available: AgentKind[]) {
 /* Prompt assembly                                                     */
 /* ------------------------------------------------------------------ */
 
-const PLANNER_ROLE = `
-You are the planning agent inside Valytica. Before any other agent runs on a
-case, you look at what this specific case actually is — its verdict, its
-confidence, what is missing, what is blocked, how many documents it has,
-whether it has even been screened yet — and decide what THIS case needs, not
-what every case gets by default. Running every agent at full depth on every
-case is not planning; it is the fixed pipeline you exist to replace.
-
-You are given the exact roster of agents available for this run. Return
-exactly one task per agent in that roster — no more, no fewer — choosing a
-depth:
-- "skip" — do not run this agent at all for this case.
-- "light" — a quick, narrow pass.
-- "standard" — the normal amount of work.
-- "deep" — genuinely warranted extra effort (several serious blockers, many
-  open gaps, a case where getting this right matters more than usual).
-
-Justify every "skip" and every "deep" in that task's own rationale — a bare
-one with no case-specific reason is not acceptable. Legitimate reasons to
-skip, when they genuinely apply to this case:
-- market_research: no asking price to compare against, or no locality
-  reference data exists to check external signal against.
-- proof_pathways: zero open gaps — nothing missing, nothing unresolved.
-- diligence_planner: the case has not been screened yet, or proof_pathways
-  and market_research were both skipped and produced nothing to synthesise.
-- critic: nothing upstream is going to produce a checkable claim (e.g.
-  everything else is also skipped).
-- explorer: no genuinely open question exists that the fixed agents above
-  could not already answer — this is the most expensive agent here and
-  should be reserved for a real unresolved question worth chasing.
-- document_intelligence: every document is already fully processed.
-
-Rough indicative per-agent cost, so "estimatedCostUsd" means something:
-${PLANNABLE_AGENTS.map(a => COST_GUIDE[a]).filter((line): line is string => Boolean(line)).map(line => `- ${line}`).join('\n')}
-
-"deliberateOmissions" is where you name, in plain language for a person
-reading this plan (not just logged for a machine), what you chose not to do
-and why — this matters as much as what you chose to run. Restate every
-"skip" there in user-facing language; if everything included genuinely
-warrants standard depth or deeper with nothing worth skipping, say that
-explicitly rather than leaving the array empty without comment.
-
-Never invent a fact about the property itself. Your caseAssessment must
-stick to what the case shape you are given actually shows — if you are
-unsure of something, say so rather than guessing.
-`.trim();
-
-function buildSystemText(): string {
-  return [GROUNDING_RULES, PLANNER_ROLE].join('\n\n');
+/**
+ * The system prompt for this agent, from the registry.
+ *
+ * The role text lives in `../prompts/registry.ts` under the key
+ * `planner.system`; version 1 is byte-identical to the `GROUNDING_RULES` plus
+ * `PLANNER_ROLE` string this function used to join inline, with the shared
+ * preamble composed in through `{{grounding}}` exactly as before.
+ *
+ * The one thing that stays here is the cost guide. It is generated from
+ * `COST_GUIDE` so it cannot drift from the rates this build actually knows —
+ * a prompt editor that let somebody hand-type "explorer: ~$0.02" would make
+ * `estimatedCostUsd` confidently wrong, and a plan is chosen on that number.
+ */
+function buildSystemText(): Promise<ResolvedPrompt> {
+  const costGuide = PLANNABLE_AGENTS.map(a => COST_GUIDE[a])
+    .filter((line): line is string => Boolean(line))
+    .map(line => `- ${line}`)
+    .join('\n');
+  return resolvePrompt(PROMPT_KEYS.plannerSystem, { costGuide });
 }
 
 function buildUserText(caseData: PropertyCase, refData: ReferenceData, available: AgentKind[], now: string): string {
@@ -378,6 +349,13 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
   /** What this run asked the provider for and did not get. */
   let capabilityGaps: CapabilityGap[] = [];
 
+  /**
+   * Which prompt versions this run used. Empty on the fallback paths that
+   * never got as far as a model call — including the credential check, which
+   * is why the static fallback plan honestly reports no prompt at all.
+   */
+  let promptUsages: PromptUsage[] = [];
+
   const succeed = (plan: AgentPlan, summary: string, usage?: AgentRun['usage']): RunPlannerResult => ({
     run: {
       id: runId,
@@ -390,6 +368,7 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
       tier,
       provider: route.provider,
       capabilityGaps,
+      prompts: promptUsages,
       steps,
       summary,
       usage,
@@ -413,6 +392,7 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
         tier,
         provider: route.provider,
         capabilityGaps,
+        prompts: promptUsages,
         steps,
         error: reason,
         usage,
@@ -436,7 +416,11 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
     return fallback(missingCredentialsDetail(route));
   }
 
-  const systemText = buildSystemText();
+  // Resolved per run rather than at module load, because the active version
+  // can change under a running process. Deterministic for a given version, so
+  // the cache breakpoint below still lands on a byte-stable prefix.
+  const systemPrompt = await buildSystemText();
+  promptUsages = systemPrompt.usages;
   const userText = buildUserText(caseData, refData, available, now);
 
   emit({ kind: 'tool_call', label: `Requesting a plan from ${model} (${tier} tier).`, toolName: TOOL_NAME });
@@ -448,7 +432,7 @@ export async function runPlanner(input: RunPlannerInput): Promise<RunPlannerResu
       model,
       maxTokens: 6000,
       effort: 'medium',
-      system: [{ text: systemText, cacheBreakpoint: true }],
+      system: [{ text: systemPrompt.content, cacheBreakpoint: true }],
       messages: [{ role: 'user', content: userText }],
       tools: [
         {

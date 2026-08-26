@@ -32,6 +32,7 @@ import type {
   CapabilityGap,
   DocumentPathway,
   EvidenceItem,
+  PromptUsage,
   PropertyCase,
   ReferenceData,
   RecommendedAction,
@@ -40,7 +41,7 @@ import type {
 } from '@valytica/shared';
 import { buildTitleGraph } from '@valytica/shared';
 import { agentCapability, describeError } from '../client';
-import { GROUNDING_RULES } from '../context';
+import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { retrieveCaseContext } from '../retrieval';
 import { describeGap } from '../routing';
 import { capabilityBlocksRoute, missingCredentialsReason, resolveRoute, textOf } from '../providers';
@@ -76,40 +77,13 @@ export interface RunDiligencePlannerResult {
 const DRAFT_DISCLAIMER =
   '\n\n— Drafted by Valytica’s diligence planner for your review. Nothing is sent automatically; read it, edit it, and send it yourself if you agree with it.';
 
-const SYSTEM_PROMPT = `
-${GROUNDING_RULES}
-
-You are the diligence planner. You are given one case's full screen result, the proof pathways already generated for its gaps, and any market research findings. Synthesise all three into what a working analyst would actually do next — do not restate the screen, add to it.
-
-Insights:
-- Each insight is a short, specific observation that connects two or more of: the screen (drivers, risks, compliance, anchors), the proof pathways, and the research findings. A ranked list of generic restatements is not useful; a list that says what the pieces mean *together* is.
-- Set "inferred": true whenever the insight rests on your own reasoning rather than a fact already on the case's evidence ledger. Cite real evidence ids in "evidenceIds" only when you actually have them — never invent one.
-
-Additional actions:
-- Propose only actions the deterministic engine's own action list (given to you in the screen) does NOT already cover. Read that list carefully before proposing anything — a reworded version of an existing action is still a duplicate.
-- A good additional action usually comes directly from a proof pathway (obtaining a specific missing document or resolving a specific unresolved check) or from a research finding that contradicts the engine's data.
-- When an action is the kind of thing that starts with sending a message — a document request to the seller, an instruction to the buyer's advocate to proceed or hold, a query to BBMP or the sub-registrar — include a "draft" for it: a ready-to-send message a human can review and send themselves. Not every action needs one.
-
-You must respond with nothing but a single fenced JSON code block, matching exactly this shape, and nothing before or after it:
-\`\`\`json
-{
-  "insights": [
-    { "title": string, "body": string, "category": "valuation"|"risk"|"compliance"|"market"|"process", "importance": "high"|"medium"|"low", "evidenceIds": string[], "inferred": boolean }
-  ],
-  "actions": [
-    {
-      "title": string, "description": string,
-      "priority": "now"|"before_offer"|"before_completion",
-      "owner": "buyer"|"lawyer"|"valuer"|"lender"|"seller"|"surveyor",
-      "effort": "low"|"medium"|"high",
-      "unblocks": string[], "relatedRiskIds": string[],
-      "draft": { "to": string, "subject": string, "body": string } | null
-    }
-  ]
-}
-\`\`\`
-Omit "draft" (send null) for actions that are not a message to send. If there is genuinely nothing to add beyond the engine's own actions, return an empty "actions" array — do not pad it with restatements.
-`.trim();
+/**
+ * This agent's system prompt comes from the prompt registry
+ * (`../prompts/registry.ts`, key `diligence_planner.system`) rather than from
+ * a constant here. Version 1 is byte-identical to the string that used to live
+ * on this line, and it composes the shared grounding preamble through a
+ * `{{grounding}}` placeholder exactly as this file composed `GROUNDING_RULES`.
+ */
 
 const InsightSchema = z.object({
   title: z.string(),
@@ -193,6 +167,9 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
   /** What this run asked the provider for and did not get. */
   let capabilityGaps: CapabilityGap[] = [];
 
+  /** Which prompt versions this run used. Empty on the paths that fail before resolving one. */
+  let promptUsages: PromptUsage[] = [];
+
   const finish = (status: AgentRunStatus, error: string | undefined, usage?: AgentRun['usage']): RunDiligencePlannerResult => {
     const run: AgentRun = {
       id: runId,
@@ -205,6 +182,7 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
       tier,
       provider: route.provider,
       capabilityGaps,
+      prompts: promptUsages,
       steps,
       retrieval: retrievalSelection,
       error,
@@ -296,6 +274,12 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
     `Market research findings (${findings.length}):\n${findingsSummary}`,
   ].join('\n\n');
 
+  // Resolved per run rather than at module load, because the active version
+  // can change under a running process. Deterministic for a given version, so
+  // the cache breakpoint below still lands on a byte-stable prefix.
+  const systemPrompt = await resolvePrompt(PROMPT_KEYS.diligencePlannerSystem);
+  promptUsages = systemPrompt.usages;
+
   emit({ kind: 'message', label: 'Synthesising insights and additional actions' });
 
   let result;
@@ -304,7 +288,7 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
       agent: 'diligence_planner',
       model,
       maxTokens: 16000,
-      system: [{ text: SYSTEM_PROMPT, cacheBreakpoint: true }],
+      system: [{ text: systemPrompt.content, cacheBreakpoint: true }],
       messages: [{ role: 'user', content: userMessage }],
     });
   } catch (e) {
@@ -401,6 +385,7 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
     tier,
     provider: route.provider,
     capabilityGaps,
+    prompts: promptUsages,
     steps,
     summary:
       `${insights.length} insight(s), ${actions.length} new action(s), ${drafts.length} draft message(s) for review — Valytica does not send these automatically.` +

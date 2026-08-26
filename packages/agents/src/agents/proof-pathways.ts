@@ -51,6 +51,7 @@ import type {
   DocumentKind,
   DocumentPathway,
   EvidenceItem,
+  PromptUsage,
   ProofRoute,
   ProofRouteKind,
   PropertyCase,
@@ -61,7 +62,7 @@ import type {
 } from '@valytica/shared';
 import { describeError, sumUsage } from '../client';
 import { buildTitleGraph } from '@valytica/shared';
-import { GROUNDING_RULES } from '../context';
+import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { retrieveCaseContext } from '../retrieval';
 import { KARNATAKA_PROOF_ROUTES_VERIFY_BANNER, renderKarnatakaProofRoutesCorpus } from '../knowledge/karnataka-proof-routes';
 import { describeGap } from '../routing';
@@ -268,59 +269,24 @@ const PATHWAY_JSON_SCHEMA = {
 /* Prompt assembly                                                     */
 /* ------------------------------------------------------------------ */
 
-const PROOF_PATHWAYS_ROLE = `
-You are the proof-pathways agent inside Valytica. A deterministic engine has
-already identified evidence gaps on this case — required documents that are
-missing, and state-pack compliance checks that came back "unknown" or
-"blocker" — and you are handed exactly ONE of those gaps at a time. You do
-not decide what is missing; the gap is given to you and is final. Your job is
-to work out every realistic way to close this one gap, with your full
-attention on it rather than sharing it with a list of others.
-
-For the gap given, produce one pathway with every viable route you can
-respons­ibly name, ranked best-first:
-- Be concrete: a named authority, a named portal or office, ordered steps a
-  buyer could actually follow, prerequisites, an indicative cost range and an
-  indicative duration range — never a vague "contact the relevant authority".
-- Every cost and duration MUST be a range and MUST be described as
-  indicative, needing verification on the portal or with the office before
-  being relied on. Do not state a fee or timeline as settled fact.
-- Cover the different kinds of route where they genuinely exist for that
-  gap: an online portal, an in-person office visit, what a licensed
-  intermediary (documentation agent, advocate, liaison, surveyor) can do on
-  the buyer's behalf, what only the seller/developer/promoter can produce,
-  and — for a genuinely lost original — how to reconstruct from secondary
-  evidence (certified copies, an indemnity bond, a newspaper notice).
-- Be honest about routes that do not actually work. Some gaps have no good
-  route: a B-khata property cannot simply be converted to A-khata on
-  demand; DC conversion can only be applied for by the landowner, not a
-  prospective buyer; an occupancy certificate that was never applied for
-  cannot be obtained by a unit buyer; a genuinely unapproved/revenue layout
-  usually cannot be retroactively approved by filing a form. Where this is
-  so, set that route's feasibility to "blocked", explain why in its risks,
-  and make sure the pathway as a whole still gives the buyer the REAL
-  options: regularisation where one genuinely exists (name it, and hedge
-  that its current availability must be checked), a price/financing
-  adjustment that prices in the defect, or walking away. Never invent a
-  cheerful procedure for something that structurally cannot be done by a
-  buyer pre-purchase.
-- Not every gap is a document you can walk into an office and obtain — some
-  (e.g. a rajakaluve/lake buffer proximity finding, a PTCL granted-land
-  restriction) are facts about the land itself. For those, the "route" is
-  about getting authoritative confirmation or measurement (a licensed
-  surveyor's certificate against the BBMP/BDA drain map, a certified search
-  of grant records) and about the real remedies if the fact turns out
-  unfavourable — not a document-issuing office that will clear the finding
-  on request.
-- wouldResolve must name the SPECIFIC screen output that would change once
-  this pathway is completed: a named compliance-check key, a named risk id
-  or title, or a named confidence-factor key, all drawn from what you were
-  given in this prompt. Do not write generic statements like "improves the
-  screen".
-- Produce exactly one pathway for the gap given to you, with targetKey
-  matching it exactly.
-`.trim();
-
+/**
+ * This agent's role text lives in `../prompts/registry.ts` under the key
+ * `proof_pathways.system`; version 1 is byte-identical to the
+ * `GROUNDING_RULES` plus `PROOF_PATHWAYS_ROLE` plus jurisdiction-notice string
+ * this file used to join inline, with the shared preamble composed in through
+ * `{{grounding}}` as before.
+ *
+ * What stays here, deliberately:
+ *
+ * - The jurisdiction notice below. It is the sentence that tells this agent
+ *   whether it has a corpus at all, and for a non-Karnataka case it is what
+ *   stops it naming BBMP, Kaveri or Sakala for a property in a state where
+ *   none of those exist. That is derived from the case, not authored, and an
+ *   editable version of it would let somebody grant the agent grounding it
+ *   does not have. It arrives as `{{jurisdictionNotice}}`.
+ * - The Karnataka corpus itself, appended after the prompt. It is reference
+ *   data with its own file and its own verification banner, not prose.
+ */
 function buildJurisdictionNotice(caseData: PropertyCase, karnatakaApplies: boolean): string {
   if (karnatakaApplies) {
     return (
@@ -342,12 +308,26 @@ function buildJurisdictionNotice(caseData: PropertyCase, karnatakaApplies: boole
   );
 }
 
-function buildSystemText(caseData: PropertyCase, karnatakaApplies: boolean): string {
-  const parts = [GROUNDING_RULES, PROOF_PATHWAYS_ROLE, buildJurisdictionNotice(caseData, karnatakaApplies)];
+/**
+ * The full system text for one run's gap fan-out, and what it was built from.
+ *
+ * Resolved once and shared across every gap's call — byte-identical for all of
+ * them, which is what lets the concurrent requests share one cached prompt
+ * prefix instead of each paying full price for the grounding rules, role and
+ * corpus. Resolution is deterministic for a given version, so that stays true.
+ */
+async function buildSystemText(
+  caseData: PropertyCase,
+  karnatakaApplies: boolean,
+): Promise<{ text: string; usages: PromptUsage[] }> {
+  const prompt = await resolvePrompt(PROMPT_KEYS.proofPathwaysSystem, {
+    jurisdictionNotice: buildJurisdictionNotice(caseData, karnatakaApplies),
+  });
+  const parts = [prompt.content];
   if (karnatakaApplies) {
     parts.push(renderKarnatakaProofRoutesCorpus());
   }
-  return parts.join('\n\n');
+  return { text: parts.join('\n\n'), usages: prompt.usages };
 }
 
 /**
@@ -644,6 +624,9 @@ export async function runProofPathways(input: {
   /** Unioned across the fan-out: one gap's call degrading is the run degrading. */
   let capabilityGaps: CapabilityGap[] = [];
 
+  /** Which prompt versions this run used. Empty on the paths that fail before resolving one. */
+  let promptUsages: PromptUsage[] = [];
+
   const fail = (error: string): { run: AgentRun; pathways: DocumentPathway[]; evidence: EvidenceItem[] } => {
     emit('error', 'Proof-pathways run failed', error);
     return {
@@ -658,6 +641,7 @@ export async function runProofPathways(input: {
         tier,
         provider: route.provider,
         capabilityGaps,
+        prompts: promptUsages,
         steps,
         error,
         producedEvidenceIds: [],
@@ -682,6 +666,7 @@ export async function runProofPathways(input: {
         tier,
         provider: route.provider,
         capabilityGaps,
+        prompts: promptUsages,
         steps,
         summary: 'No screen result is available for this case yet, so there is no gap list to build pathways for.',
         producedEvidenceIds: [],
@@ -708,6 +693,7 @@ export async function runProofPathways(input: {
         tier,
         provider: route.provider,
         capabilityGaps,
+        prompts: promptUsages,
         steps,
         summary: 'No evidence gaps found on this case — no proof pathways were needed.',
         producedEvidenceIds: [],
@@ -731,7 +717,9 @@ export async function runProofPathways(input: {
     karnatakaApplies ? 'Karnataka proof-route corpus applies to this case — grounding the model with it.' : 'No jurisdiction-specific proof-route corpus applies to this case.',
   );
 
-  const systemText = buildSystemText(caseData, karnatakaApplies);
+  const systemPrompt = await buildSystemText(caseData, karnatakaApplies);
+  const systemText = systemPrompt.text;
+  promptUsages = systemPrompt.usages;
 
   emit('plan', `Fanning out ${gaps.length} gap(s) to ${model} (${tier} tier), one call per gap, concurrency ${GAP_FANOUT_CONCURRENCY}.`);
 
@@ -789,6 +777,7 @@ export async function runProofPathways(input: {
       tier,
       provider: route.provider,
       capabilityGaps,
+      prompts: promptUsages,
       steps,
       summary:
         `Built ${pathways.length} proof pathway(s) for ${gaps.length} evidence gap(s) as of ${now}` +

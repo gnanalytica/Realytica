@@ -57,12 +57,14 @@ import type {
   CapabilityGap,
   ExplorationLead,
   ExplorationSession,
+  PromptUsage,
   PropertyCase,
   ReferenceData,
   SourceReachability,
 } from '@valytica/shared';
 import { agentCapability, describeError, sumUsage } from '../client';
-import { GROUNDING_RULES, renderCaseContext } from '../context';
+import { renderCaseContext } from '../context';
+import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { describeGap } from '../routing';
 import {
   capabilityBlocksRoute,
@@ -136,51 +138,19 @@ function seedKnownUnreachable(): ExplorationSession['unreachable'] {
 /* System prompt                                                       */
 /* ------------------------------------------------------------------ */
 
-const EXPLORER_SYSTEM_PROMPT = `
-${GROUNDING_RULES}
-
-You are the open-ended exploration agent. Unlike other agents in this product you have no fixed output shape to fill — you are given an objective about one property's locality and market, and you decide what to look at, follow what you find, and stop when the marginal lead stops paying.
-
-You are given only locality-level market terms for this property — country, state, city, locality, property type, areas, and this app's own locality reference numbers. You are NEVER given the property's exact address, owner, price or documents — do not ask for them, and do not assume any exact address.
-
-THE AUTHORITATIVE-SOURCE HONESTY RULE — read this carefully:
-For Indian property, the authoritative sources — Kaveri (encumbrance/registration), Bhoomi (RTC/land records), and the BBMP khata and property-tax portals — sit behind logins, CAPTCHAs and session state that a web agent cannot pass. Their domains are already blocked from your search and fetch tools for exactly that reason — do not try to work around this, and never claim or imply you checked them. The harness has already logged them as unreachable with what each would have answered; you do not need to re-report those four. But if your own investigation surfaces a MORE SPECIFIC unreachable channel — e.g. "the mother deed's original registration needs in-person verification at the Sub-Registrar office", "the developer's MCA filings require a paid database" — report that too, in "unreachable", with what it would have answered.
-
-WHAT IS GENUINELY WORTH PURSUING:
-- Infrastructure and metro/road announcements for the locality
-- Municipal and planning news (BBMP, BDA, BMRDA notifications, zoning changes)
-- K-RERA public project pages (public, no login) for any named project
-- Listing portals for asking-price / inventory signal
-- Court and NGT orders affecting the area
-- Local news about lakes, storm-water drains (rajakaluve) and land-acquisition notices
-
-HOW YOU WORK, ONE ITERATION AT A TIME:
-Each turn you are given the objective, the locality terms, and the current state of the investigation (leads already open, already closed, how many sources are already logged unreachable, and open questions so far). Each iteration is a FRESH conversation — you will not see your own reasoning text from a previous iteration, only the structured state you are given and whatever you saved under /memories/ with the memory tool. Use web_search to find things and web_fetch to read a specific page — web_fetch can only fetch a URL that has already appeared in this conversation (e.g. one a search just returned), never a URL from nowhere. The memory tool is optional scratch space for detail that would not fit in the structured update below; check it at the start of an iteration if you wrote something there before.
-
-Only ever report a URL as "visited" if you actually called web_fetch on it THIS iteration — never list a search result you did not fetch; it will be dropped and flagged. Record a dead end honestly: "dead_end" is valuable information, not a failure to hide. A report that shows only wins is not trustworthy.
-
-WHEN YOU ARE DONE FOR THIS ITERATION, end your ENTIRE response with nothing but a single fenced JSON code block, no text before or after it, in exactly this shape:
-
-\`\`\`json
-{
-  "leadUpdates": [
-    { "id": "<id from the state you were given>", "status": "answered|partial|dead_end", "queriesUsed": ["..."], "visited": [{"url": "...", "title": "...", "note": "..."}], "finding": "...", "confidence": 0.0 }
-  ],
-  "newLeads": [
-    { "tempId": "L1", "question": "...", "motivation": "why this is worth following", "spawnedFromId": "<id of the lead that raised this — an existing id or another tempId from this same iteration; omit if none>", "status": "answered|partial|dead_end (omit if you have not investigated it yet this same iteration)", "queriesUsed": ["..."], "visited": [{"url": "...", "title": "...", "note": "..."}], "finding": "...", "confidence": 0.0 }
-  ],
-  "unreachable": [
-    { "source": "...", "reachability": "fetched|blocked_auth|blocked_captcha|not_found|rate_limited", "whatItWouldHaveAnswered": "..." }
-  ],
-  "openQuestions": ["your FULL current account of everything you still do not know at this point, restating still-true ones from before — not just what's new this iteration"],
-  "stop": "continue|objective_met|no_new_leads",
-  "stopReason": "one sentence, plain language",
-  "iterationSummary": "one or two sentences on what this iteration did"
-}
-\`\`\`
-
-"openQuestions" must never come back empty just because the run is short or partial — say plainly what remains unknown, however little you managed. Use "stop":"objective_met" only when the objective is genuinely answered, not merely attempted. Use "stop":"no_new_leads" when you have nothing left worth searching for. Otherwise "continue". On the very first iteration, propose 2-4 initial leads for the objective (as "newLeads" with no "spawnedFromId") and start on the highest-priority one(s) — there is no prior state to advance yet; a new lead can carry its own "visited"/"finding"/"status" right away if you already investigated it this same iteration, so you do not need to wait a full extra iteration just to record what you already found.
-`.trim();
+/**
+ * This agent's system prompt comes from the prompt registry
+ * (`../prompts/registry.ts`, key `explorer.system`) rather than from a
+ * constant here. Version 1 is byte-identical to the string that used to live
+ * on this line, and it composes the shared grounding preamble through a
+ * `{{grounding}}` placeholder exactly as this file composed `GROUNDING_RULES`.
+ *
+ * Note what is *not* delegated to the prompt: the authoritative-source
+ * blocking is enforced in `exploration-tools.ts`, which refuses the Kaveri,
+ * Bhoomi and BBMP domains outright, and the seeded `unreachable` list is built
+ * in code. An edited prompt cannot make this agent claim it checked them,
+ * because it cannot reach them.
+ */
 
 /* ------------------------------------------------------------------ */
 /* Per-iteration structured output                                     */
@@ -489,6 +459,12 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
   /** Unioned across every iteration: one degraded iteration degrades the run. */
   let capabilityGaps: CapabilityGap[] = [];
 
+  /**
+   * Which prompt versions this run used. Resolved once, before the loop, so
+   * every iteration is built from the same text — see `systemBlocks` below.
+   */
+  let promptUsages: PromptUsage[] = [];
+
   const leads: ExplorationLead[] = [];
   const unreachable: ExplorationSession['unreachable'] = seedKnownUnreachable();
   let openQuestions: string[] = [];
@@ -519,6 +495,7 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
     tier,
     provider: route.provider,
     capabilityGaps,
+    prompts: promptUsages,
     steps,
     summary:
       status === 'succeeded'
@@ -588,11 +565,18 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
     clientToolFromRunnable(memory.tool),
   ];
 
+  // Resolved once, before the loop, and reused across every iteration. That is
+  // what keeps the first block byte-identical turn to turn, which is what the
+  // cache breakpoint on it depends on — resolution is deterministic for a
+  // given version, so the bytes only move when somebody changes the version.
+  const systemPrompt = await resolvePrompt(PROMPT_KEYS.explorerSystem);
+  promptUsages = systemPrompt.usages;
+
   // Two blocks with a breakpoint on each: the static role text, then the
   // per-run objective. Collapsing them would move the cache boundary and
   // re-bill the role text on every iteration.
   const systemBlocks = [
-    { text: EXPLORER_SYSTEM_PROMPT, cacheBreakpoint: true },
+    { text: systemPrompt.content, cacheBreakpoint: true },
     {
       text: `Objective:\n${objective}\n\nLocality market terms (all you are given about this case — do not ask for more):\n${contextBlock}`,
       cacheBreakpoint: true,

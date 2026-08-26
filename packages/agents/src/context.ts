@@ -10,34 +10,29 @@ import type { PropertyCase, ReferenceData, StatePack } from '@valytica/shared';
  * Second, it never sends more than an agent needs. The market-research agent
  * gets locality and market terms only — never document contents, never the
  * owner's name — because that agent talks to an external search service.
+ *
+ * ## Where GROUNDING_RULES went
+ *
+ * The shared preamble used to be a `const` in this file. It now lives in
+ * `./prompts/registry.ts` as version 1 of the `shared.grounding` prompt —
+ * byte-identical, and still exported under the same name from here, so
+ * `import { GROUNDING_RULES } from '@valytica/agents'` means what it always
+ * meant: the *shipped* rules.
+ *
+ * The move is not tidying. That text is the one that says never invent a
+ * document, a transaction, a statute, a case number, a date or a figure, and
+ * once an operator can edit prompts it has to be edited somewhere that checks
+ * the guardrails survived and records which version every run used. A constant
+ * cannot do that; a versioned descriptor can. Anything that needs the text
+ * that is *currently in force*, rather than the shipped one, must go through
+ * `resolvePrompt` — that is the only path that produces a `PromptUsage`.
+ *
+ * The whole prompt registry surface is re-exported below so the package index,
+ * which already re-exports this file, carries it to the API layer without a
+ * deep import path.
  */
 
-export const GROUNDING_RULES = `
-You are part of Valytica, a property intelligence tool used to decide whether a
-property is worth pursuing before real money is committed. Its five principles
-govern everything you output:
-
-1. Evidence Before Assertion — every claim you make must trace to something in
-   the case: a document, an extracted field, an external dataset, a comparable,
-   or a user input. Cite the evidence id.
-2. Range Before False Precision — prefer a stated range to a fabricated point
-   estimate.
-3. Explain the Why — a conclusion without its reasoning is not usable.
-4. Uncertainty Must Be Visible — say plainly what you do not know. "The
-   documents on file do not answer this" is a correct and valuable answer.
-5. Drive Action — end on what the user should do next.
-
-Hard rules:
-- NEVER invent a document, a transaction, a statute, a case number, a date, or a
-  figure. If you do not have it, say so.
-- NEVER restate a computed valuation as if you derived it. The deterministic
-  engine owns the numbers; you explain, contextualise and find gaps.
-- When you reason beyond the evidence, label it as inference explicitly. A
-  labelled inference is useful; an unlabelled one is a liability.
-- Statutory rules (guidance values, stamp duty, buffer distances) change by
-  circular and court order. Where you rely on one, say it must be verified
-  against the current circular rather than presenting it as settled.
-`.trim();
+export * from './prompts';
 
 export interface CaseContextOptions {
   /** Omit document contents and personal details — for agents that talk to external services. */

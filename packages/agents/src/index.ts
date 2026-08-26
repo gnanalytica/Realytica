@@ -29,3 +29,7 @@ export * from './memory';
 export * from './sources';
 
 export * from './orchestrator';
+
+// The orchestration replayed as a drawable graph. Placed after
+// './orchestrator' because it describes what that module produced.
+export * from './runview';

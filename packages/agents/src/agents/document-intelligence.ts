@@ -71,11 +71,12 @@ import type {
   EvidenceItem,
   ExtractedField,
   KhataType,
+  PromptUsage,
   PropertyIdentity,
 } from '@valytica/shared';
 import { KHATA_TYPE_LABEL } from '@valytica/shared';
 import { describeError } from '../client';
-import { GROUNDING_RULES } from '../context';
+import { PROMPT_KEYS, resolvePrompt, type ResolvedPrompt } from '../prompts';
 import { describeGap } from '../routing';
 import { loadPdfForExtraction, MAX_PDF_BYTES } from '../pdf';
 import { missingCredentialsReason, resolveRoute, toolUseOf } from '../providers';
@@ -234,52 +235,35 @@ function buildExtractionTool(): LlmSchemaTool {
 /* ==================================================================== */
 
 /**
- * Fully static (no case-specific content) so it hits the prompt cache across
- * every document and every case — only `buildUserPrompt` varies per call.
+ * The system prompt for this agent, from the registry.
+ *
+ * The text itself lives in `../prompts/registry.ts` under the key
+ * `document_intelligence.system`; version 1 is byte-identical to the string
+ * this function used to build inline. What stays here is the *data* the
+ * template needs — the document-kind catalogue and the field guidance are
+ * generated from the tables above, and the tool name has to agree with the
+ * tool actually declared to the provider, so neither is something an operator
+ * edits in a prompt editor. They are passed in as template variables and
+ * checked as invariants: a version that drops `{{catalogue}}` renders a
+ * classification prompt with no kinds in it, which would look like the model
+ * suddenly forgetting how to classify.
+ *
+ * Still fully static per build (no case-specific content), so it hits the
+ * prompt cache across every document and every case — only `buildUserPrompt`
+ * varies per call. Resolution is deterministic for a given version, so that
+ * remains true.
  */
-function buildSystemPrompt(): string {
+function buildSystemPrompt(): Promise<ResolvedPrompt> {
   const catalogue = ALL_DOCUMENT_KINDS.map(k => `- ${k}: ${DOCUMENT_KIND_CATALOGUE[k]}`).join('\n');
   const guidance = (Object.keys(FIELD_GUIDANCE) as DocumentKind[])
     .map(k => `- ${k}: extract ${FIELD_GUIDANCE[k]}`)
     .join('\n');
 
-  return `${GROUNDING_RULES}
-
-You are the document intelligence agent. You are given one uploaded property
-document (a Karnataka/Bengaluru property case). Do the following:
-
-1. Classify the document into exactly one of these kinds:
-${catalogue}
-
-2. Extract every field genuinely present and legible in the document. Field
-   guidance for the kinds most common in a Karnataka case:
-${guidance}
-   For a kind not listed above, extract whatever discrete, checkable facts
-   the document states (names, numbers, dates, amounts, areas) rather than
-   free prose.
-
-3. Before you call the ${EXTRACTION_TOOL_NAME} tool, write one short sentence
-   per field in your visible response, restating the field and its value in
-   wording that closely echoes the document's own text — keep exact numbers,
-   names and dates verbatim in that sentence. This is not decorative: the API
-   attaches a page citation to your visible text based on what it actually
-   draws from the source PDF, and that citation is the only way the system
-   can trust which page a field came from.
-
-4. For EVERY field, include "quote" — a short (<=20 words) verbatim excerpt
-   copied exactly from the document that supports the value. This is
-   mandatory, not optional.
-
-5. Give each field an honest confidence (0-1). A value you are inferring or
-   guessing rather than reading directly must carry a low confidence, and if
-   you are not reasonably sure, omit the field rather than stating it as fact.
-
-6. Never invent a page number, a value, or a document kind. If the document
-   is illegible, is not a property document, or matches nothing in the
-   catalogue, classify it "unclassified" or "other" and return few or no
-   fields rather than guessing.
-
-Then call the ${EXTRACTION_TOOL_NAME} tool exactly once with your full result.`;
+  return resolvePrompt(PROMPT_KEYS.documentIntelligenceSystem, {
+    catalogue,
+    guidance,
+    toolName: EXTRACTION_TOOL_NAME,
+  });
 }
 
 function buildUserPrompt(document: CaseDocument, identity: PropertyIdentity): string {
@@ -616,6 +600,9 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   /** Gaps this run actually hit, recorded on every return path including the failures. */
   let capabilityGaps: CapabilityGap[] = [];
 
+  /** Which prompt versions this run used. Empty on the paths that fail before resolving one. */
+  let promptUsages: PromptUsage[] = [];
+
   // Every early-exit path returns through here so the caller always gets a
   // well-formed AgentRun and never an exception — this must be safe to call
   // with no credentials, no file, or an unsupported file, per the brief.
@@ -634,6 +621,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       tier,
       provider: route.provider,
       capabilityGaps,
+      prompts: promptUsages,
       steps,
       error,
       usage,
@@ -734,7 +722,8 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   }
 
   const tool = buildExtractionTool();
-  const systemPrompt = buildSystemPrompt();
+  const systemPrompt = await buildSystemPrompt();
+  promptUsages = systemPrompt.usages;
   const userPrompt = buildUserPrompt(document, identity);
 
   emit({ kind: 'tool_call', label: `Requesting classification & extraction from ${model} (${tier} tier)`, toolName: EXTRACTION_TOOL_NAME });
@@ -748,7 +737,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     agent: 'document_intelligence' as const,
     model,
     maxTokens: 8000,
-    system: [{ text: systemPrompt, cacheBreakpoint: true }],
+    system: [{ text: systemPrompt.content, cacheBreakpoint: true }],
     tools: [tool],
     messages: [{ role: 'user' as const, content: [documentPart, { type: 'text' as const, text: userPrompt }] }],
   };
@@ -918,6 +907,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     tier,
     provider: route.provider,
     capabilityGaps,
+    prompts: promptUsages,
     steps,
     summary,
     usage,

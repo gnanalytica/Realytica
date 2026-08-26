@@ -28,9 +28,10 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { AgentRun, AgentRunStatus, AgentStep, CapabilityGap, EvidenceItem, PropertyCase, ReferenceData, ResearchFinding } from '@valytica/shared';
+import type { AgentRun, AgentRunStatus, AgentStep, CapabilityGap, EvidenceItem, PromptUsage, PropertyCase, ReferenceData, ResearchFinding } from '@valytica/shared';
 import { agentCapability, describeError } from '../client';
-import { GROUNDING_RULES, renderCaseContext } from '../context';
+import { renderCaseContext } from '../context';
+import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { describeGap } from '../routing';
 import { capabilityBlocksRoute, missingCredentialsReason, resolveRoute, textOf } from '../providers';
 import type { LlmServerTool } from '../providers';
@@ -52,26 +53,18 @@ export interface RunMarketResearchResult {
 
 const MAX_SEARCHES = 8;
 
-const SYSTEM_PROMPT = `
-${GROUNDING_RULES}
-
-You are the market research agent. You are given only locality-level market terms for one property — country, state, city, locality, property type, areas, and this app's own locality reference numbers (median price/land rate per sqm, year-on-year change, sample size). You are never given the property's exact address, owner, price or documents — do not ask for them, and do not assume any exact address.
-
-Use web search to find recent, genuinely relevant signal for this locality: recent transaction or listing price signal, comparable inventory, and infrastructure or planning news (metro/road/zoning changes) that could move value. Prefer sources published within the last ~18 months and say when a source is older.
-
-Compare what you find against the locality reference numbers you were given. Agreement is fine to note briefly; a contradiction is the more valuable finding — surface it plainly rather than smoothing it over, and mark it as such.
-
-When you are done researching, end your ENTIRE response with nothing but a single fenced JSON code block containing an array of finding objects — no text before or after it. If you found nothing worth reporting, the array must still appear, empty: \`\`\`json\n[]\n\`\`\`. Each object has exactly these fields:
-- "claim": string — the finding, stated plainly.
-- "sourceUrl": string — omit the field entirely if you cannot cite a real URL for this claim.
-- "sourceTitle": string — the source's title/publication; omit if unknown.
-- "relevance": string — why this matters for this locality/property type.
-- "confidence": number 0..1 — your honest confidence in the claim.
-- "corroboration": "multiple_sources" | "single_source" | "uncorroborated".
-- "contradictsEngine": boolean — true only when this finding conflicts with the locality reference numbers you were given.
-
-Never invent a source URL. A claim with no real source behind it should have "corroboration": "uncorroborated" and a lower confidence, not a fabricated citation.
-`.trim();
+/**
+ * This agent's system prompt comes from the prompt registry
+ * (`../prompts/registry.ts`, key `market_research.system`) rather than from a
+ * constant here. Version 1 is byte-identical to the string that used to live
+ * on this line, and it composes the shared grounding preamble through a
+ * `{{grounding}}` placeholder exactly as this file composed `GROUNDING_RULES`.
+ *
+ * Note what is *not* in the registry: the privacy boundary this agent runs
+ * under is enforced by `renderCaseContext(..., { externalSafe: true })` below,
+ * in code, not by the prompt telling the model what it has not been given.
+ * Editing the prompt cannot widen what reaches a web search.
+ */
 
 /**
  * The API accepts `web_search_20260209` (dynamic filtering — the right
@@ -147,6 +140,9 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
   /** What this run asked the provider for and did not get. */
   let capabilityGaps: CapabilityGap[] = [];
 
+  /** Which prompt versions this run used. Empty on the paths that cancel before resolving one. */
+  let promptUsages: PromptUsage[] = [];
+
   const finish = (status: AgentRunStatus, error: string | undefined, usage?: AgentRun['usage']): RunMarketResearchResult => {
     const run: AgentRun = {
       id: runId,
@@ -159,6 +155,7 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
       tier,
       provider: route.provider,
       capabilityGaps,
+      prompts: promptUsages,
       steps,
       error,
       usage,
@@ -208,6 +205,12 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
   // build a prompt for an agent that talks to an outside service.
   const contextBlock = renderCaseContext(caseData, refData, { externalSafe: true });
 
+  // Resolved per run rather than at module load, because the active version
+  // can change under a running process. Deterministic for a given version, so
+  // the cache breakpoint below still lands on a byte-stable prefix.
+  const systemPrompt = await resolvePrompt(PROMPT_KEYS.marketResearchSystem);
+  promptUsages = systemPrompt.usages;
+
   emit({ kind: 'tool_call', label: 'Searching the web for locality signal', toolName: 'web_search' });
 
   let result;
@@ -216,7 +219,7 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
       agent: 'market_research',
       model,
       maxTokens: 8000,
-      system: [{ text: SYSTEM_PROMPT, cacheBreakpoint: true }],
+      system: [{ text: systemPrompt.content, cacheBreakpoint: true }],
       tools: [WEB_SEARCH_PORT_TOOL],
       messages: [{ role: 'user', content: `Locality market terms (this is all you are given — do not ask for more):\n${contextBlock}` }],
       // Server-tool telemetry is Anthropic-shaped by construction: this agent
@@ -323,6 +326,7 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
     tier,
     provider: route.provider,
     capabilityGaps,
+    prompts: promptUsages,
     steps,
     summary: `${findings.length} market finding(s) for ${caseData.identity.locality}${contradictions > 0 ? ` (${contradictions} contradicting engine data)` : ''}.`,
     usage,

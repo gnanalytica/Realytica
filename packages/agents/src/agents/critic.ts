@@ -14,7 +14,8 @@
  *   authority would do?". Finding nothing wrong is a failure of the check,
  *   not a success: a critic that rubber-stamps everything as "supported"
  *   manufactures confidence nobody earned, which is worse than not running
- *   the check at all. See CRITIC_ROLE below for how this is put to the model.
+ *   the check at all. See the `critic.system` prompt in
+ *   `../prompts/registry.ts` for how this is put to the model.
  *
  * What gets checked, and how:
  * - Every `ProofRoute` on every `DocumentPathway` is checked against the same
@@ -56,12 +57,13 @@ import type {
   CriticFinding,
   CriticVerdict,
   DocumentPathway,
+  PromptUsage,
   ProofRoute,
   ResearchFinding,
   VerificationSummary,
 } from '@valytica/shared';
 import { describeError, sumUsage } from '../client';
-import { GROUNDING_RULES } from '../context';
+import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { KARNATAKA_PROOF_ROUTES_VERIFY_BANNER, renderKarnatakaProofRoutesCorpus } from '../knowledge/karnataka-proof-routes';
 import { describeGap } from '../routing';
 import { mergeGaps, missingCredentialsDetail, resolveRoute, toolUseOf } from '../providers';
@@ -286,22 +288,25 @@ const RESEARCH_VERIFICATION_JSON_SCHEMA = {
 /* Prompt assembly                                                     */
 /* ------------------------------------------------------------------ */
 
-const CRITIC_ROLE = `
-You are the critic agent inside Valytica — an adversarial verification pass over another agent's already-produced output, not a second opinion writer and not a proofreader for tone. You did not write any of the claims you are given; your only job is to try to break them.
-
-Default posture: scepticism. For every claim, the question is narrow and literal — does the grounding you were given ACTUALLY CONTAIN this specific detail (this authority, this portal, this form or service code, this fee band, this timeline, this claim's cited source)? "This sounds plausible" or "this is the kind of thing that authority typically does" is NOT support. If the grounding does not contain the specific detail, the honest verdict is "unsupported" — it may well be true, but you were not given anything that lets you confirm it, and presenting it as settled is exactly the failure mode this check exists to catch.
-
-Finding nothing wrong is a failure of this check, not a success. If you verdict everything "supported" without being able to point to the specific place in your grounding that contains it, you have manufactured confidence nobody earned — which is worse than not running this check at all, because Valytica's whole premise is that an unearned "looks right" is a liability, not a convenience. Do not soften a verdict because a claim otherwise reads competently or because refusing to verify it feels unhelpful.
-
-Verdicts, exactly:
-- "supported": your grounding explicitly states this specific detail.
-- "partly_supported": the general mechanism or authority is grounded, but a specific figure (an exact fee, an exact form/service code, an exact timeline) goes beyond what your grounding actually states.
-- "unsupported": nothing in your grounding supports this specific claim — untestable from what you have, so it must not be presented as settled.
-- "contradicted": your grounding actively states something different from the claim.
-
-For every claim, populate "unsupportedSpecifics" with the exact invented or unverifiable detail(s) a reader would otherwise act on without realising it was never grounded — a specific Sakala code, a specific rupee figure, a specific portal name, a specific statutory citation. Leave it empty only for a fully "supported" verdict.
-`.trim();
-
+/**
+ * The critic's role text lives in `../prompts/registry.ts` under the key
+ * `critic.system`; version 1 is byte-identical to the `GROUNDING_RULES` plus
+ * `CRITIC_ROLE` plus jurisdiction-notice string this file used to join inline,
+ * with the shared preamble composed in through `{{grounding}}` as before.
+ *
+ * What is *not* in the registry, deliberately:
+ *
+ * - The jurisdiction notice below. It is a statement of fact about what
+ *   grounding this particular case has — "the Karnataka corpus is the only
+ *   thing you may check against" versus "you have no corpus at all, so treat
+ *   every specific as unsupported" — derived from the case's state pack.
+ *   Making it editable would let somebody tell the critic it has grounding it
+ *   does not have, which turns the one check that catches invented
+ *   authorities into a rubber stamp. It is passed in as
+ *   `{{jurisdictionNotice}}` instead.
+ * - The Karnataka corpus itself, appended after the prompt. It is reference
+ *   data with its own file and its own verification banner, not prose.
+ */
 function buildJurisdictionNotice(karnatakaApplies: boolean): string {
   if (karnatakaApplies) {
     return (
@@ -320,10 +325,21 @@ function buildJurisdictionNotice(karnatakaApplies: boolean): string {
   );
 }
 
-function buildSystemText(karnatakaApplies: boolean): string {
-  const parts = [GROUNDING_RULES, CRITIC_ROLE, buildJurisdictionNotice(karnatakaApplies)];
+/**
+ * The full system text for a verification call, and what it was built from.
+ *
+ * Resolved once per run and shared across the whole verification fan-out —
+ * byte-identical for every concurrent call, which is what lets them share one
+ * cached prompt prefix instead of each paying full price for the grounding
+ * rules, role and corpus.
+ */
+async function buildSystemText(karnatakaApplies: boolean): Promise<{ text: string; usages: PromptUsage[] }> {
+  const prompt = await resolvePrompt(PROMPT_KEYS.criticSystem, {
+    jurisdictionNotice: buildJurisdictionNotice(karnatakaApplies),
+  });
+  const parts = [prompt.content];
   if (karnatakaApplies) parts.push(renderKarnatakaProofRoutesCorpus());
-  return parts.join('\n\n');
+  return { text: parts.join('\n\n'), usages: prompt.usages };
 }
 
 function buildPathwayUserText(pathway: DocumentPathway): string {
@@ -568,6 +584,13 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
   /** Unioned across the verification fan-out. */
   let capabilityGaps: CapabilityGap[] = [];
 
+  /**
+   * Which prompt versions this run used. Empty on the paths that return before
+   * a model call — including the deterministic-checks-only path, which
+   * genuinely uses no prompt.
+   */
+  let promptUsages: PromptUsage[] = [];
+
   const finish = (
     status: AgentRunStatus,
     opts: { summary?: string; error?: string; usage?: AgentUsage; verification: VerificationSummary },
@@ -583,6 +606,7 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
       tier,
       provider: route.provider,
       capabilityGaps,
+      prompts: promptUsages,
       steps,
       summary: opts.summary,
       error: opts.error,
@@ -628,7 +652,9 @@ export async function runCritic(input: RunCriticParams): Promise<RunCriticResult
     kind: 'plan',
     label: karnatakaApplies ? 'Karnataka proof-route corpus is the grounding for route checks on this case.' : 'No jurisdiction-specific proof-route corpus applies to this case.',
   });
-  const systemText = buildSystemText(karnatakaApplies);
+  const systemPrompt = await buildSystemText(karnatakaApplies);
+  const systemText = systemPrompt.text;
+  promptUsages = systemPrompt.usages;
 
   type WorkItem = { kind: 'pathway'; pathway: DocumentPathway } | { kind: 'research'; findings: ResearchFinding[] };
   const workItems: WorkItem[] = pathways.filter(p => p.routes.length > 0).map(p => ({ kind: 'pathway', pathway: p }));

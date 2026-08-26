@@ -1,4 +1,5 @@
 import type { LlmCallRecord, MemoryFact, PropertyCase } from '@valytica/shared';
+import type { PromptStoreData } from '@valytica/agents';
 import { storageAdapter } from './storage';
 
 /**
@@ -41,6 +42,18 @@ export interface StoreData {
    * Optional so a store written before telemetry existed still loads.
    */
   telemetry?: LlmCallRecord[];
+  /**
+   * Custom prompt versions and which one is in force (see `@valytica/agents`'s
+   * `prompts/`).
+   *
+   * Built-in versions are never written here — they come from the build, and a
+   * persisted copy would shadow the shipped text after an upgrade. So a store
+   * with no `prompts` key and one where every prompt is on its built-in are
+   * the same state, which is the correct default: unedited.
+   *
+   * Optional so a store written before the prompt registry existed still loads.
+   */
+  prompts?: PromptStoreData;
 }
 
 // Re-exported for the routes that still build upload paths directly against
@@ -56,6 +69,23 @@ function emptyStore(): StoreData {
   return { cases: [], nextReferenceSeq: 1 };
 }
 
+/**
+ * Coerce whatever was on disk into a usable `StoreData`.
+ *
+ * This rebuilds the object field by field rather than spreading, so a
+ * malformed document cannot smuggle in a shape the app then trusts. That is
+ * the right default and it has one trap, which this comment exists to stop
+ * anyone falling into again: **a field not named here is silently discarded on
+ * load, however faithfully it was saved.** `memory` and `telemetry` were both
+ * added to `StoreData` and to the save path without being added here, which
+ * made them write-only — persisted on every mutation, gone on every restart,
+ * with nothing logged either way.
+ *
+ * So: adding a collection to `StoreData` means adding it here too. Each is
+ * carried through only when it is the right shape and left `undefined`
+ * otherwise, since absent and unusable should land in the same state — the
+ * one the owning component treats as "nothing stored yet".
+ */
 function normalizeStoreData(loaded: StoreData | null): StoreData {
   if (!loaded) return emptyStore();
   return {
@@ -64,6 +94,16 @@ function normalizeStoreData(loaded: StoreData | null): StoreData {
       typeof loaded.nextReferenceSeq === 'number' && Number.isFinite(loaded.nextReferenceSeq)
         ? loaded.nextReferenceSeq
         : 1,
+    memory: Array.isArray(loaded.memory) ? loaded.memory : undefined,
+    telemetry: Array.isArray(loaded.telemetry) ? loaded.telemetry : undefined,
+    // The prompt store does its own hydration — dropping unusable versions and
+    // clearing selections that point at nothing, loudly. Anything object-shaped
+    // is handed over so that repair happens there, where it can be reported,
+    // rather than here, where it would be a silent discard.
+    prompts:
+      loaded.prompts && typeof loaded.prompts === 'object' && !Array.isArray(loaded.prompts)
+        ? loaded.prompts
+        : undefined,
   };
 }
 
