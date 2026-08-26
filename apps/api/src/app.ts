@@ -14,6 +14,7 @@ import { referenceRouter } from './routes/reference';
 import { demoRouter, seedDemoData } from './routes/demo';
 import { agentsCapabilityRouter, caseAgentsRouter } from './routes/agents';
 import { caseKnowledgeRouter, sourcesRouter } from './routes/knowledge';
+import { telemetryRouter } from './routes/telemetry';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { compareBodySchema } from './schemas';
@@ -58,6 +59,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/reference', referenceRouter);
 app.use('/api/agents', agentsCapabilityRouter);
 app.use('/api/sources', sourcesRouter);
+app.use('/api/telemetry', telemetryRouter);
 
 // Mounted before the generic /api/cases router so nested case sub-resources
 // resolve here first; :id is captured via mergeParams on each sub-router.

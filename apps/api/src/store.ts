@@ -1,4 +1,4 @@
-import type { MemoryFact, PropertyCase } from '@valytica/shared';
+import type { LlmCallRecord, MemoryFact, PropertyCase } from '@valytica/shared';
 import { storageAdapter } from './storage';
 
 /**
@@ -31,6 +31,16 @@ export interface StoreData {
    * Optional so a store written before memory existed still loads.
    */
   memory?: MemoryFact[];
+  /**
+   * Model-call telemetry (see `@valytica/agents`'s `telemetry/`).
+   *
+   * Bounded by the sink's own retention rule rather than by anything here —
+   * this is the highest-volume collection in the store, and two components
+   * trimming it is how records go missing for reasons nobody can reconstruct.
+   *
+   * Optional so a store written before telemetry existed still loads.
+   */
+  telemetry?: LlmCallRecord[];
 }
 
 // Re-exported for the routes that still build upload paths directly against

@@ -21,6 +21,9 @@ export * from './agents/planner';
 export * from './agents/critic';
 
 export * from './routing';
+export * from './providers';
+export * from './telemetry';
+export * from './eval';
 export * from './retrieval';
 export * from './memory';
 export * from './sources';
