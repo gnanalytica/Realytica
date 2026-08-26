@@ -11,6 +11,12 @@
 
 import type {
   AreaRatios,
+  FarByRoadWidth,
+  GroundCoverageBand,
+  ParkingNorm,
+  ProjectKind,
+  SchematicYield,
+  SetbackBand,
   AssessmentProfile,
   MethodRole,
   ActionOwner,
@@ -795,8 +801,14 @@ function adjustComparable(comp: Comparable, identity: PropertyIdentity, locality
       adjustments.push({ key: 'corner_site', label: 'Corner site premium', pct: cornerPct });
     }
 
-    const facingPct = plot ? FACING_ADJUSTMENT_PCT[plot.facing] : 0;
-    if (facingPct !== 0 && plot) {
+    // `?? 0` is load-bearing despite `facing` being required on the type.
+    // A `PlotAttributes` reaches here off stored JSON, and a case written by
+    // an older build (or a hand-edited store) can carry a plot with no
+    // facing. Without the coalesce the lookup returns undefined, `!== 0`
+    // passes, and `.replace` throws — taking down the whole screen over a
+    // cosmetic adjustment worth a few percent.
+    const facingPct = plot?.facing ? (FACING_ADJUSTMENT_PCT[plot.facing] ?? 0) : 0;
+    if (facingPct !== 0 && plot?.facing) {
       adjustments.push({ key: 'facing', label: `Facing (${plot.facing.replace(/_/g, ' ')})`, pct: facingPct });
     }
 
@@ -4329,6 +4341,18 @@ export function runScreen(input: {
   });
   const profile = assessmentProfile(project.kind);
 
+  /*
+   * A first-pass sizing of the scheme, for the kinds of project that build
+   * one. `built_asset_purchase` and `land_acquisition` are deliberately
+   * excluded: a finished flat has nothing to size, and a land purchase with
+   * no scheme decided has nothing to size it against — computing a yield for
+   * either would be answering a question nobody asked, which is exactly what
+   * the project-kind model exists to stop.
+   */
+  const schematicYield = SCHEME_KINDS.includes(project.kind)
+    ? buildYield(identity, locality, statePack, countryPack.areaRatios, project.kind, evidence)
+    : undefined;
+
   const anchors = buildAnchors(
     caseId,
     identity,
@@ -4454,6 +4478,7 @@ export function runScreen(input: {
     snapshot,
     project,
     assessment: profile,
+    yield: schematicYield,
     indicativeValue,
     anchors,
     comparables,
@@ -4671,5 +4696,277 @@ export function compareCases(cases: PropertyCase[], now: string): ComparisonResu
     rows,
     shortlist,
     caveats,
+  };
+}
+
+/* ==================================================================== */
+/* Schematic yield — what this site can actually hold                    */
+/* ==================================================================== */
+
+/**
+ * Project kinds that actually build something, and therefore have a yield.
+ *
+ * `land_acquisition` is absent on purpose: with no scheme decided there is
+ * nothing to size, and producing a yield anyway would quietly pick one of the
+ * three schemes the inference explicitly refused to pick.
+ */
+const SCHEME_KINDS: ProjectKind[] = [
+  'plotted_development',
+  'villa_project',
+  'apartment_project',
+  'mixed_use_project',
+  'commercial_development',
+  'industrial_development',
+  'redevelopment',
+  'joint_development',
+];
+
+/** Feet to metres. Bengaluru quotes road widths in feet; the planning tables are metric. */
+const METRES_PER_FOOT = 0.3048;
+
+/**
+ * Smallest floor plate that is a building rather than a number.
+ *
+ * On a small plot the setbacks eat almost everything, and the arithmetic
+ * happily answers "nine floors on a twenty-one square metre footprint" —
+ * which is correct and describes nothing that can be built. Below this the
+ * yield stops reporting a scheme and reports that there isn't one.
+ */
+const MIN_VIABLE_FLOOR_PLATE_SQM = 150;
+
+/**
+ * Average saleable area per unit, by project kind.
+ *
+ * Only used to turn an area into a unit count, which is the number a
+ * developer actually holds in their head. Deliberately coarse and stated as
+ * such: the real mix is a decision, not a derivation, and the yield says so.
+ */
+const AVG_UNIT_SALEABLE_SQM: Partial<Record<ProjectKind, number>> = {
+  apartment_project: 120,
+  villa_project: 250,
+  mixed_use_project: 120,
+  redevelopment: 120,
+  joint_development: 120,
+};
+
+function farForRoadWidth(table: FarByRoadWidth[], roadWidthM: number): number | undefined {
+  const band = table.find(b => roadWidthM >= b.minRoadWidthM && (b.maxRoadWidthM === undefined || roadWidthM < b.maxRoadWidthM));
+  return band?.far;
+}
+
+function coverageForPlot(bands: GroundCoverageBand[], plotAreaSqm: number): number {
+  const band = bands.find(b => b.maxPlotAreaSqm === undefined || plotAreaSqm <= b.maxPlotAreaSqm);
+  return band?.coveragePct ?? 50;
+}
+
+function setbackForHeight(bands: SetbackBand[], heightM: number): number {
+  const band = bands.find(b => b.maxHeightM === undefined || heightM <= b.maxHeightM);
+  return band?.allRoundM ?? 9;
+}
+
+function parkingNormFor(norms: ParkingNorm[], projectKind: ProjectKind): ParkingNorm | undefined {
+  return norms.find(n => n.appliesTo.includes(projectKind));
+}
+
+/**
+ * Size a scheme against the pack's development-control norms.
+ *
+ * The whole point is the first three lines of the result: what FAR the zoning
+ * gives, what FAR the abutting road permits, and which of them binds. A
+ * developer who reads 3.25 off the zone, buys, and then discovers the plot
+ * abuts a 9m road capped at 2.25 has lost a third of the scheme between
+ * exchange and sanction — and nothing else this engine computes moves a
+ * number by that much.
+ *
+ * Everything after it is arithmetic on norms, and is reported as such. This
+ * is not a site plan: there is no geometry here, no block layout, no
+ * orientation. `setbackFootprintSqm` in particular assumes a *square* plot,
+ * which no plot is — it is a bound on the footprint, not a measurement of
+ * one, and the gap list says so whenever a real boundary is absent.
+ *
+ * Returns `undefined` rather than a zeroed result when the pack carries no
+ * development control or the plot area is unknown. A yield of nothing is a
+ * different statement from a yield of zero, and only one of them is true.
+ */
+function buildYield(
+  identity: PropertyIdentity,
+  locality: LocalityReference,
+  statePack: StatePack | undefined,
+  areaRatios: AreaRatios,
+  projectKind: ProjectKind,
+  evidence: EvidenceBuilder,
+): SchematicYield | undefined {
+  const control = statePack?.developmentControl;
+  if (!control) return undefined;
+  const plotAreaSqm = identity.plotAreaSqm;
+  if (plotAreaSqm <= 0) return undefined;
+
+  const dc = control.value;
+  const gaps: string[] = [];
+
+  /* -- What FAR actually applies ------------------------------------ */
+  const farFromZoning = locality.farAllowed;
+  const roadWidthFt = identity.plot?.roadWidthFt;
+  const roadWidthM = roadWidthFt !== undefined ? roadWidthFt * METRES_PER_FOOT : undefined;
+  const farFromRoadWidth = roadWidthM !== undefined ? farForRoadWidth(dc.farByRoadWidth, roadWidthM) : undefined;
+
+  let farApplied: number;
+  let bindingConstraint: SchematicYield['bindingConstraint'];
+  if (farFromRoadWidth === undefined) {
+    // The expensive assumption, made explicitly and flagged rather than
+    // buried: with no road width on file the zoning FAR is used, which is the
+    // optimistic reading.
+    farApplied = farFromZoning;
+    bindingConstraint = 'unknown';
+    gaps.push(
+      `The abutting road width is not on file, so this assumes the zoning FAR of ${farFromZoning} applies in full. ` +
+        `In Bengaluru the road width usually caps it: a plot on a 9m road is held to ${farForRoadWidth(dc.farByRoadWidth, 9) ?? '—'} however the zone reads. ` +
+        'Supplying the width in the BBMP/BDA road register is the single highest-value thing you can add to this screen.',
+    );
+  } else if (farFromRoadWidth < farFromZoning) {
+    farApplied = farFromRoadWidth;
+    bindingConstraint = 'road_width';
+  } else {
+    farApplied = farFromZoning;
+    bindingConstraint = 'zoning';
+  }
+
+  const permittedFarAreaSqm = farApplied * plotAreaSqm;
+
+  /* -- What survives coverage and setbacks -------------------------- */
+  const groundCoveragePct = coverageForPlot(dc.groundCoverage, plotAreaSqm);
+  const coverageFootprintSqm = plotAreaSqm * (groundCoveragePct / 100);
+
+  // Setback depends on height and height depends on how many floors the FAR
+  // area needs, which depends on the footprint the setback leaves. Solved by
+  // iterating rather than algebraically: three passes converge on every band
+  // in the table, and a fixed count cannot loop.
+  let setbackAllRoundM = dc.setbacks[0]?.allRoundM ?? 3;
+  let footprintSqm = coverageFootprintSqm;
+  let floorsImplied = 1;
+  let heightM = dc.floorToFloorM;
+  let setbackFootprintSqm = coverageFootprintSqm;
+  for (let pass = 0; pass < 3; pass += 1) {
+    // A square plot is the least-bad assumption without a boundary: it
+    // maximises area for a given perimeter, so the footprint this yields is
+    // an upper bound. A long thin plot loses far more to setbacks.
+    const sideM = Math.sqrt(plotAreaSqm);
+    const usableSideM = Math.max(sideM - 2 * setbackAllRoundM, 0);
+    setbackFootprintSqm = usableSideM * usableSideM;
+    footprintSqm = Math.min(coverageFootprintSqm, setbackFootprintSqm);
+    floorsImplied = footprintSqm > 0 ? Math.ceil(permittedFarAreaSqm / footprintSqm) : 0;
+    heightM = floorsImplied * dc.floorToFloorM;
+    setbackAllRoundM = setbackForHeight(dc.setbacks, heightM);
+  }
+
+  const achievableFarAreaSqm = Math.min(permittedFarAreaSqm, footprintSqm * floorsImplied);
+  const coverageBound = footprintSqm < coverageFootprintSqm - 0.5;
+  if (setbackFootprintSqm <= 0) {
+    gaps.push(
+      `At ${Math.round(plotAreaSqm).toLocaleString()} sqm the setbacks for a building of this height consume the entire plot. ` +
+        'Either the scheme is shorter than assumed here or the site cannot carry it — this needs an architect, not a screen.',
+    );
+  }
+  if (!identity.plot) {
+    gaps.push(
+      'No plot dimensions are on file, so the footprint assumes a square site. A long or irregular plot loses materially ' +
+        'more to setbacks than this shows.',
+    );
+  }
+  // The arithmetic will happily return nine floors on a twenty-one square
+  // metre footprint. It is correct and it describes nothing anyone can build,
+  // so it is called out rather than presented as a scheme.
+  const floorPlateViable = footprintSqm >= MIN_VIABLE_FLOOR_PLATE_SQM;
+  if (!floorPlateViable && footprintSqm > 0) {
+    gaps.push(
+      `After setbacks this site leaves a floor plate of ${Math.round(footprintSqm).toLocaleString()} sqm across ${floorsImplied} floors. ` +
+        `That is arithmetic, not a building — below roughly ${MIN_VIABLE_FLOOR_PLATE_SQM} sqm there is no usable plan on the floor. ` +
+        'Treat the figures below as an upper bound on a scheme this site cannot actually carry, and size it against a real plot shape ' +
+        'and a real setback ruling before doing anything with them.',
+    );
+  }
+
+  /* -- Units ---------------------------------------------------------- */
+  const saleableAreaSqm = achievableFarAreaSqm * areaRatios.saleableToFar;
+  const avgUnitSaleableSqm = AVG_UNIT_SALEABLE_SQM[projectKind];
+  const unitsIndicative = avgUnitSaleableSqm ? Math.floor(saleableAreaSqm / avgUnitSaleableSqm) : undefined;
+  if (avgUnitSaleableSqm) {
+    gaps.push(
+      `The unit count assumes an average of ${avgUnitSaleableSqm} sqm saleable per unit. The real mix is a decision you ` +
+        'make, not something this can derive — a smaller average raises the count and the sales rate per sqm with it.',
+    );
+  }
+
+  /* -- Parking -------------------------------------------------------- */
+  // Selected on what is being built, not on what is being bought. A
+  // `plotted_development` legitimately has no norm here: sites are sold and
+  // each buyer parks on their own plot, so there is no scheme parking to size.
+  const norm = parkingNormFor(dc.parking, projectKind);
+  const constructedSqm = achievableFarAreaSqm * areaRatios.constructedToFar;
+  let parkingSpacesRequired = 0;
+  let parkingSpacesPerBasement = 0;
+  let basementLevelsNeeded = 0;
+  if (norm) {
+    const occupantSpaces = Math.ceil(constructedSqm / norm.sqmPerSpace);
+    parkingSpacesRequired = occupantSpaces + Math.ceil(occupantSpaces * (norm.visitorPct / 100));
+    // A basement runs to the setback line, not the coverage line — it is
+    // below ground, so ground coverage does not restrict it.
+    parkingSpacesPerBasement = Math.floor(Math.max(setbackFootprintSqm, 0) / norm.sqmPerSpaceIncludingAisle);
+    basementLevelsNeeded = parkingSpacesPerBasement > 0 ? Math.ceil(parkingSpacesRequired / parkingSpacesPerBasement) : 0;
+    if (parkingSpacesPerBasement === 0) {
+      // Two different facts, and the earlier wording collapsed them into one
+      // that contradicted the figure shown beside it: the requirement is
+      // known, where to put it is not.
+      gaps.push(
+        `${parkingSpacesRequired} car space${parkingSpacesRequired === 1 ? '' : 's'} would be required, but the setbacks leave no footprint to put a basement under — ` +
+          'so where the parking goes is unresolved, not the number of spaces.',
+      );
+    }
+  } else {
+    gaps.push(
+      projectKind === 'plotted_development'
+        ? 'Parking is not sized for a plotted layout: the sites are sold and each buyer parks on their own plot. Visitor parking on the layout roads is a design decision, not a computed requirement.'
+        : `No parking norm covers a ${projectKind.replace(/_/g, ' ')} in this pack, so parking is not sized here.`,
+    );
+  }
+
+  const evId = evidence.add({
+    statement:
+      `FAR ${farApplied} applied (${bindingConstraint === 'road_width' ? `capped by a ${roadWidthFt}ft road against a zoning FAR of ${farFromZoning}` : bindingConstraint === 'zoning' ? 'zoning is the binding constraint' : 'road width unknown, zoning FAR assumed'}) ` +
+      `on ${Math.round(plotAreaSqm).toLocaleString()} sqm gives ${Math.round(permittedFarAreaSqm).toLocaleString()} sqm permitted, ` +
+      `${Math.round(achievableFarAreaSqm).toLocaleString()} sqm achievable within ${groundCoveragePct}% coverage and ${setbackAllRoundM}m setbacks.`,
+    sourceType: 'external_dataset',
+    sourceRef: 'statePack.developmentControl',
+    sourceLabel: control.source,
+    confidence: bindingConstraint === 'unknown' ? 0.4 : 0.65,
+  });
+
+  return {
+    farFromZoning,
+    farFromRoadWidth,
+    farApplied,
+    bindingConstraint,
+    permittedFarAreaSqm: Math.round(permittedFarAreaSqm),
+    groundCoveragePct,
+    coverageFootprintSqm: Math.round(coverageFootprintSqm),
+    setbackAllRoundM,
+    setbackFootprintSqm: Math.round(Math.max(setbackFootprintSqm, 0)),
+    footprintSqm: Math.round(footprintSqm),
+    floorsImplied,
+    heightM: Math.round(heightM),
+    coverageBound,
+    floorPlateViable,
+    achievableFarAreaSqm: Math.round(achievableFarAreaSqm),
+    saleableAreaSqm: Math.round(saleableAreaSqm),
+    unitsIndicative,
+    avgUnitSaleableSqm,
+    parkingSpacesRequired,
+    parkingSpacesPerBasement,
+    basementLevelsNeeded,
+    gaps,
+    asOf: control.asOf,
+    source: control.source,
+    verifyNote: control.verifyNote,
+    evidenceIds: [evId],
   };
 }

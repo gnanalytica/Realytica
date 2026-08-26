@@ -21,6 +21,7 @@
  */
 
 import type {
+  DevelopmentControl,
   AreaBasis,
   BufferRule,
   DutySlab,
@@ -376,6 +377,98 @@ const SITE_CONSTRAINTS: StatutoryRule<SiteConstraintRule[]> = {
 /* The pack                                                            */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Development control — what may actually be built here               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The tables a schematic yield is computed against.
+ *
+ * Every number here is a norm from the Bengaluru planning framework, not a
+ * measurement of any particular site, and the whole block carries one
+ * `asOf`/`verifyNote` for the same reason the buffer rules do: the RMP and
+ * the BBMP bye-laws are revised, the revisions matter, and a scheme sized
+ * against a stale table looks authoritative while being wrong.
+ *
+ * The road-width FAR table is the one that earns its place. A developer who
+ * reads a 3.25 FAR off the zone and buys accordingly, then discovers the plot
+ * abuts a 9m road and is capped at 2.25, has lost a third of the scheme
+ * between exchange and sanction. Nothing else in this pack changes a number
+ * by that much.
+ */
+const DEVELOPMENT_CONTROL: StatutoryRule<DevelopmentControl> = {
+  value: {
+    // RMP 2015 residential FAR by abutting road width. Bands are stated
+    // metric because the plan is; `PlotAttributes.roadWidthFt` is converted
+    // at the point of use rather than here, so the table matches its source.
+    farByRoadWidth: [
+      { minRoadWidthM: 0, maxRoadWidthM: 9, far: 1.75 },
+      { minRoadWidthM: 9, maxRoadWidthM: 12, far: 2.25 },
+      { minRoadWidthM: 12, maxRoadWidthM: 18, far: 2.5 },
+      { minRoadWidthM: 18, maxRoadWidthM: 24, far: 3.0 },
+      { minRoadWidthM: 24, maxRoadWidthM: 30, far: 3.25 },
+      { minRoadWidthM: 30, far: 3.35 },
+    ],
+    // Ground coverage falls as the plot grows — the intent is open space on
+    // larger sites, and it binds a villa or row-house scheme long before FAR
+    // does.
+    groundCoverage: [
+      { maxPlotAreaSqm: 240, coveragePct: 75 },
+      { maxPlotAreaSqm: 500, coveragePct: 65 },
+      { maxPlotAreaSqm: 1000, coveragePct: 60 },
+      { maxPlotAreaSqm: 4000, coveragePct: 55 },
+      { coveragePct: 50 },
+    ],
+    // All-round setback by building height. Stated as a single all-round
+    // figure rather than front/rear/side, because the per-side split varies
+    // with frontage and orientation and quoting four numbers would imply a
+    // precision this table does not have.
+    setbacks: [
+      { maxHeightM: 12, allRoundM: 3 },
+      { maxHeightM: 18, allRoundM: 5 },
+      { maxHeightM: 24, allRoundM: 6 },
+      { maxHeightM: 30, allRoundM: 7 },
+      { allRoundM: 9 },
+    ],
+    parking: [
+      {
+        appliesTo: ['apartment_project', 'villa_project', 'redevelopment', 'joint_development', 'mixed_use_project'],
+        sqmPerSpace: 100,
+        visitorPct: 15,
+        // A 2.5 x 5.0m bay is 12.5 sqm; the aisle, ramp and column grid
+        // roughly double it in a basement, which is why parking eats a
+        // scheme's economics rather than its FAR.
+        sqmPerSpaceIncludingAisle: 28,
+      },
+      {
+        appliesTo: ['commercial_development'],
+        sqmPerSpace: 75,
+        visitorPct: 20,
+        sqmPerSpaceIncludingAisle: 30,
+      },
+      {
+        appliesTo: ['industrial_development'],
+        sqmPerSpace: 200,
+        visitorPct: 10,
+        // Surface parking and truck standing, not a basement — cheaper per
+        // space in construction and far more demanding in area.
+        sqmPerSpaceIncludingAisle: 45,
+      },
+    ],
+    floorToFloorM: 3,
+  },
+  asOf: '2024-01-01',
+  source:
+    'Revised Master Plan 2015 (as revised) zoning regulations — FAR by abutting road width; BBMP Building Bye-laws — ground coverage, setbacks and parking provision',
+  verifyNote:
+    'These are the published Bengaluru norms, not a reading of any sanctioned plan. FAR bands, coverage and setbacks ' +
+    'differ by zone, by plot size, for corner and TDR-loaded sites, and under premium-FAR provisions; parking norms ' +
+    'differ for affordable and mixed-use schemes. The abutting road width that actually applies is the width in the ' +
+    'BBMP/BDA road register, which is frequently wider than the carriageway on the ground because it includes a ' +
+    'notified widening. Confirm every figure with the jurisdictional planning authority before sizing a scheme, and ' +
+    'treat a yield computed here as a first-pass sanity check on whether a site is worth a real feasibility study.',
+};
+
 export const KARNATAKA_PACK: StatePack = {
   id: 'karnataka',
   country: 'IN',
@@ -511,6 +604,8 @@ export const KARNATAKA_PACK: StatePack = {
   registrationFeePct: REGISTRATION_FEE_PCT,
   buffers: BUFFERS,
   siteConstraints: SITE_CONSTRAINTS,
+
+  developmentControl: DEVELOPMENT_CONTROL,
 
   titleChecks: [
     {

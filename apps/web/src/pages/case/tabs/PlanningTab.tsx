@@ -7,6 +7,7 @@ import { formatArea, useAreaUnitFor } from '../../../lib/units';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, KeyValue } from '../../../components/ui/kit';
 import type { Tone } from '../../../components/ui/kit';
 import { EvidenceLink } from '../../../components/EvidenceLink';
+import { SchematicYieldCard } from '../../../components/SchematicYieldCard';
 
 type DevelopmentPotential = PlanningPosition['developmentPotential'];
 
@@ -60,6 +61,16 @@ export default function PlanningTab({ caseData, result, runScreen, running, goTo
 
   return (
     <div className="flex flex-col gap-4">
+      {/*
+        * The yield leads, where there is one.
+        *
+        * "Development potential: significant" is a judgement; the yield is
+        * the arithmetic behind it, and it names the FAR that actually
+        * applies. A reader who sees the judgement first has formed a view
+        * before meeting the constraint that decides it.
+        */}
+      {result.yield && <SchematicYieldCard yieldResult={result.yield} country={caseData.identity.country} />}
+
       <Card>
         <CardHeader title="Development potential" icon={<Building2 size={16} />} />
         <CardBody className="flex flex-col gap-2">

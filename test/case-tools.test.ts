@@ -21,11 +21,32 @@ function toolsFor(match: string, withSiteContext = false) {
   return { tools: createCaseTools(caseData, REFERENCE_DATA), result };
 }
 
-async function call(match: string, name: string, withSiteContext = false) {
+/**
+ * The tool shape these tests actually exercise.
+ *
+ * `createCaseTools` returns the SDK's full tool union, most of whose members
+ * are server-hosted tools with no `description` and a differently-shaped
+ * `run`. Every tool this suite looks at is a plain custom tool, so it narrows
+ * once here rather than asserting non-null at each call site — which is what
+ * it did before the suite was typechecked, and which hid the fact that the
+ * union does not guarantee either field.
+ */
+interface CustomCaseTool {
+  name: string;
+  description?: string;
+  run: (args: never, context: never) => Promise<string> | string;
+}
+
+function findTool(match: string, name: string, withSiteContext = false): CustomCaseTool {
   const { tools } = toolsFor(match, withSiteContext);
-  const tool = tools.find(t => t.name === name);
+  const tool = (tools as unknown as CustomCaseTool[]).find(t => t.name === name);
   assert.ok(tool, `expected a ${name} tool`);
-  return JSON.parse(await tool.run({} as never, {} as never));
+  return tool;
+}
+
+async function call(match: string, name: string, withSiteContext = false) {
+  const tool = findTool(match, name, withSiteContext);
+  return JSON.parse(String(await tool.run({} as never, {} as never)));
 }
 
 describe('case tools', () => {
@@ -50,19 +71,19 @@ describe('case tools', () => {
   });
 
   test('the offer tool tells the model not to collapse the three prices', () => {
-    const tool = toolsFor('Devanahalli').tools.find(t => t.name === 'get_offer_advice')!;
+    const tool = findTool('Devanahalli', 'get_offer_advice');
     assert.match(tool.description!, /never average them into one/);
   });
 
   test('the forced-sale tool carries the lendability caveat', async () => {
-    const tool = toolsFor('Sri Ranga Layout').tools.find(t => t.name === 'get_forced_sale_value')!;
+    const tool = findTool('Sri Ranga Layout', 'get_forced_sale_value');
     assert.match(tool.description!, /If `lendable` is false you must say so/);
     const forced = await call('Sri Ranga Layout', 'get_forced_sale_value');
     assert.equal(forced.lendable, false);
   });
 
   test('the constraints tool refuses to let unknown read as clear', () => {
-    const tool = toolsFor('Devanahalli').tools.find(t => t.name === 'get_site_constraints')!;
+    const tool = findTool('Devanahalli', 'get_site_constraints');
     assert.match(tool.description!, /never report it as clear/);
   });
 

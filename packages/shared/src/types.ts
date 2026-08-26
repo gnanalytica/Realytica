@@ -502,6 +502,162 @@ export interface CaseDocument {
 }
 
 /* ------------------------------------------------------------------ */
+/* Development control                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * FAR permitted at a given abutting road width.
+ *
+ * The single most consequential fact about a Bengaluru development site, and
+ * the one most often assumed rather than checked: the zoning table gives a
+ * headline FAR, and the width of the road the plot actually abuts caps it.
+ * A 3.25-FAR zone reached by a 9m road is a 2.25-FAR site, and the 44%
+ * difference is the whole scheme.
+ */
+export interface FarByRoadWidth {
+  /** Inclusive lower bound of the band, in metres. */
+  minRoadWidthM: number;
+  /** Exclusive upper bound. Absent on the topmost band. */
+  maxRoadWidthM?: number;
+  far: number;
+}
+
+/** Maximum ground coverage, banded by plot size. Larger plots get less. */
+export interface GroundCoverageBand {
+  /** Inclusive upper bound of the band in sqm. Absent on the topmost band. */
+  maxPlotAreaSqm?: number;
+  coveragePct: number;
+}
+
+/** Minimum all-round setback, banded by building height. */
+export interface SetbackBand {
+  /** Inclusive upper bound of the band in metres of building height. Absent on the topmost band. */
+  maxHeightM?: number;
+  /** Minimum setback on every side, in metres. */
+  allRoundM: number;
+}
+
+/** Car parking a use has to provide, and what a space costs in area. */
+export interface ParkingNorm {
+  /**
+   * Which project kinds this norm covers.
+   *
+   * Keyed on what is being *built*, not on `PropertyType`, which is what is
+   * being *bought*. A development site's property type is `land_parcel` or
+   * `residential_plot` — so a norm keyed on property type matched nothing on
+   * every site a yield is ever computed for, and silently reported zero
+   * parking required.
+   */
+  appliesTo: ProjectKind[];
+  /** One car space per this many sqm of constructed area. */
+  sqmPerSpace: number;
+  /** Visitor parking, as a share of the resident/occupant spaces. */
+  visitorPct: number;
+  /** Area one space consumes including its share of aisle and ramp. */
+  sqmPerSpaceIncludingAisle: number;
+}
+
+/**
+ * What the statute lets you build here, as tables.
+ *
+ * Deliberately a `StatutoryRule` like every other figure in a pack: these are
+ * revised, they are revised often, and a yield computed against a stale table
+ * is worse than no yield because it looks authoritative.
+ */
+export interface DevelopmentControl {
+  farByRoadWidth: FarByRoadWidth[];
+  groundCoverage: GroundCoverageBand[];
+  setbacks: SetbackBand[];
+  parking: ParkingNorm[];
+  /** Typical floor-to-floor height, for turning a permitted area into floors. */
+  floorToFloorM: number;
+}
+
+/**
+ * A first-pass sizing of what this site can hold.
+ *
+ * Not a site plan and not a sanctioned scheme: no geometry, no block layout,
+ * no orientation. It answers the four questions a developer, an engineer and
+ * an architect all ask before anyone draws anything — what FAR actually
+ * applies, how much of that survives coverage and setbacks, roughly how many
+ * units that is, and whether the parking fits — and it says which of them it
+ * could not answer and why.
+ *
+ * The `gaps` field carries as much weight as the numbers. A yield computed
+ * without the abutting road width has assumed the zoning FAR applies, and
+ * that assumption is the single most expensive one on this screen, so it is
+ * never made silently.
+ */
+export interface SchematicYield {
+  /** FAR the zoning gives for this locality, before any site-specific cap. */
+  farFromZoning: number;
+  /** FAR the abutting road width permits. Absent when the road width is unknown. */
+  farFromRoadWidth?: number;
+  /** The lower of the two, which is what actually applies. */
+  farApplied: number;
+  /** Which one binds — and `unknown` when the road width was never supplied. */
+  bindingConstraint: 'road_width' | 'zoning' | 'unknown';
+  /** Permitted FAR area on this plot, before coverage and setbacks bite. */
+  permittedFarAreaSqm: number;
+
+  /** Maximum share of the plot that may be built on. */
+  groundCoveragePct: number;
+  /** Footprint permitted by ground coverage alone. */
+  coverageFootprintSqm: number;
+  /** Setback assumed, from the height band the FAR area implies. */
+  setbackAllRoundM: number;
+  /** Footprint left after setbacks, for a rectangular plot of this area. */
+  setbackFootprintSqm: number;
+  /** The smaller of the two footprints — what can actually be built on. */
+  footprintSqm: number;
+  /** Floors needed to fit the permitted FAR area on that footprint. */
+  floorsImplied: number;
+  /** Height those floors reach, which is what the setback band was read from. */
+  heightM: number;
+  /**
+   * True when the footprint cannot carry the permitted FAR area within a
+   * plausible height — the site is coverage-bound, not FAR-bound, and the
+   * headline FAR overstates what is achievable.
+   */
+  coverageBound: boolean;
+  /**
+   * False when the setbacks leave a floor plate too small to plan on. The
+   * numbers below still compute; they just do not describe a building, and
+   * the UI must not present them as if they did.
+   */
+  floorPlateViable: boolean;
+  /** FAR area actually achievable once coverage and setbacks are applied. */
+  achievableFarAreaSqm: number;
+
+  /** Saleable area that converts to, at the pack's loading convention. */
+  saleableAreaSqm: number;
+  /** Indicative unit count at the assumed average unit size. */
+  unitsIndicative?: number;
+  /** Average saleable area per unit the count was computed at. */
+  avgUnitSaleableSqm?: number;
+
+  /** Car spaces the norms require. */
+  parkingSpacesRequired: number;
+  /** Spaces one basement level under the footprint would hold. */
+  parkingSpacesPerBasement: number;
+  /** Basement levels needed to meet the requirement. */
+  basementLevelsNeeded: number;
+
+  /** What could not be computed, and what supplying it would settle. */
+  gaps: string[];
+  /**
+   * Provenance for every norm used. `asOf` carries because the whole point of
+   * a `StatutoryRule` is that a figure is only as current as its source — and
+   * a yield computed against a superseded FAR table is worse than no yield,
+   * since it looks authoritative.
+   */
+  asOf: string;
+  source: string;
+  verifyNote: string;
+  evidenceIds: string[];
+}
+
+/* ------------------------------------------------------------------ */
 /* Valuation                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -834,6 +990,13 @@ export interface ScreenResult {
   evidence: EvidenceItem[];
   actions: RecommendedAction[];
   marketContext: MarketContext;
+  /**
+   * A first-pass sizing of the scheme this site can hold. Present when a
+   * State Pack carries development-control norms and the project is a
+   * development rather than a purchase — a finished flat has no yield to
+   * compute.
+   */
+  yield?: SchematicYield;
   /** Present when a State Pack covers the property's state. */
   stateCompliance?: StateComplianceSummary;
   /** Present when the state pack can compute acquisition costs. */
@@ -1566,6 +1729,13 @@ export interface StatePack {
    * pack written before they existed still satisfies the type.
    */
   siteConstraints?: StatutoryRule<SiteConstraintRule[]>;
+  /**
+   * The development-control norms a schematic yield is computed against.
+   * Optional so a pack written before they existed still satisfies the type —
+   * and where a pack has none, the yield step reports that it could not be
+   * run rather than falling back to numbers from somewhere else.
+   */
+  developmentControl?: StatutoryRule<DevelopmentControl>;
   /** Named state-specific title checks surfaced in the compliance view. */
   titleChecks: { key: string; label: string; description: string; statute: string }[];
   datasets: string[];
