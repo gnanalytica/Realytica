@@ -11,6 +11,7 @@ import { initPrompts } from './prompts';
 import { initTelemetry } from './telemetry';
 import { casesRouter } from './routes/cases';
 import { documentsRouter, UPLOAD_LIMITS } from './routes/documents';
+import { recordsRouter } from './routes/records';
 import { screenRouter, projectRouter, risksRouter, actionsRouter } from './routes/screen';
 import { referenceRouter } from './routes/reference';
 import { demoRouter, seedDemoData } from './routes/demo';
@@ -75,6 +76,7 @@ app.use('/api/intake', intakeRouter);
 // Mounted before the generic /api/cases router so nested case sub-resources
 // resolve here first; :id is captured via mergeParams on each sub-router.
 app.use('/api/cases/:id/documents', documentsRouter);
+app.use('/api/cases/:id/records', recordsRouter);
 app.use('/api/cases/:id/screen', screenRouter);
 app.use('/api/cases/:id/project', projectRouter);
 app.use('/api/cases/:id/risks', risksRouter);

@@ -186,6 +186,23 @@ export const lensKeySchema = z.enum(['developer', 'engineering', 'architect', 'p
 
 export const disclosureLevelSchema = z.enum(['locality_only', 'property_identifiers', 'full_address']);
 
+export const recordKindSchema = z.enum([
+  'encumbrance_certificate',
+  'certified_instrument',
+  'record_of_rights',
+  'mutation',
+  'khata_extract',
+  'property_tax',
+  'survey_map',
+]);
+
+export const fetchRecordBodySchema = z.object({
+  kind: recordKindSchema,
+  period: z
+    .object({ fromYear: z.number().int().min(1800).max(2200), toYear: z.number().int().min(1800).max(2200) })
+    .optional(),
+});
+
 export const updateCaseSchema = z.object({
   identity: propertyIdentitySchema.partial().optional(),
   status: caseStatusSchema.optional(),

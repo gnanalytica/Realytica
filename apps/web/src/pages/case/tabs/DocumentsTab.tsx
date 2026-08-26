@@ -41,6 +41,7 @@ import type { UploadLimits } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
 import { DOCUMENT_KIND_LABEL, fileSize, relativeTime, titleCase } from '../../../lib/format';
 import type { TabProps } from '../tab-props';
+import { RecordFetchCard } from '../../../components/RecordFetchCard';
 
 const KIND_ICON: Record<DocumentKind, typeof FileText> = {
   title_deed: ScrollText,
@@ -266,6 +267,17 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
 
   return (
     <div className="flex flex-col gap-5">
+      {/*
+        * Fetching sits above uploading, not below it.
+        *
+        * A record you can pull is a record you do not have to go and get, and
+        * where no vendor is connected this panel is still the fastest route:
+        * it names what each record settles and exactly how to obtain it,
+        * which is more useful than a dropzone that assumes you already have
+        * the file.
+        */}
+      <RecordFetchCard caseData={caseData} onChanged={refresh} />
+
       <Card>
         <CardBody className="flex flex-col gap-3">
           <Dropzone onFiles={(files) => void handleFiles(files)} />

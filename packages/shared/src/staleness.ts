@@ -66,6 +66,14 @@ const THRESHOLDS = {
    */
   referenceWarn: 548,
   referenceSerious: 1095,
+  /**
+   * An encumbrance search is a snapshot of a register that anyone may add to
+   * the next morning. Thirty days is the point at which a lender or a
+   * purchaser's counsel will ask for a fresh one; ninety is where relying on
+   * it becomes a decision rather than an oversight.
+   */
+  registerSearchWarn: 30,
+  registerSearchSerious: 90,
   /** A planning position is a snapshot of a zoning regime that gets revised. */
   planningWarn: 180,
   /**
@@ -147,6 +155,37 @@ export function buildStaleness(caseData: PropertyCase, refData: ReferenceData, n
     items.push(item);
     asOfDates.push(item.asOf);
   };
+
+  /* -- Register searches ----------------------------------------------- */
+
+  /*
+   * This is the watch the staleness report was always missing something to
+   * watch. Until records could be fetched, the only encumbrance certificate
+   * on a case was one somebody uploaded, and its age was tracked as a
+   * document. A register *search* ages differently and for a different
+   * reason: a document ages because a counterparty stops accepting it, and a
+   * search ages because somebody may have registered a charge the morning
+   * after it ran. Thirty days of that is a real exposure, and it is invisible
+   * unless it is stated.
+   */
+  for (const search of caseData.registerSearches ?? []) {
+    const age = daysBetween(search.retrievedAt, now);
+    const severity = severityFor(age, THRESHOLDS.registerSearchWarn, THRESHOLDS.registerSearchSerious);
+    if (!severity) continue;
+    push({
+      key: `register:${search.kind}`,
+      kind: 'register_search',
+      label: search.label,
+      what:
+        `This register was searched ${age} days ago${search.nilResult ? ' and came back nil' : ''}. ` +
+        'A register search is a snapshot: anything registered against the title since that date does not appear in it, ' +
+        `and ${search.nilResult ? 'a nil result is only nil as at the search date' : 'the position may have moved'}.`,
+      asOf: search.retrievedAt,
+      ageDays: age,
+      severity,
+      refresh: search.refresh,
+    });
+  }
 
   /* -- The screen itself ---------------------------------------------- */
 

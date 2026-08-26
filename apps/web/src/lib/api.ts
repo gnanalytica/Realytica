@@ -150,6 +150,24 @@ export const api = {
    */
   discoverProperty: (id: string) => request<PropertyCase>(`/cases/${id}/agents/discover`, { method: 'POST' }),
 
+  /** What statutory records this deployment can fetch, and the manual route for the rest. */
+  recordCapability: (id: string) =>
+    request<{
+      provider: { id: string; label: string; configured: boolean; standing: string; capabilities: { kinds: string[]; regions: string[]; monitor: boolean } };
+      manualRoutes: Record<string, { label: string; leavesUnknown: string; manualRoute: string }>;
+    }>(`/cases/${id}/records`),
+
+  /**
+   * Fetch one statutory record from the configured vendor. A gap comes back
+   * as `ok: false` with a reason and a manual route — a real answer about the
+   * case, not a transport failure.
+   */
+  fetchRecord: (id: string, body: { kind: string; period?: { fromYear: number; toYear: number } }) =>
+    request<
+      | { ok: true; record: { kind: string; providerId: string; authority: string; nilResult?: boolean; coverageNote?: string; retrievedAt: string }; document?: CaseDocument; case: PropertyCase }
+      | { ok: false; gap: { reason: string; kind: string; leavesUnknown: string; manualRoute: string; detail?: string } }
+    >(`/cases/${id}/records`, { method: 'POST', body: JSON.stringify(body) }),
+
   runScreen: (id: string) => request<ScreenResult>(`/cases/${id}/screen`, { method: 'POST' }),
 
   /**

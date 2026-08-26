@@ -1245,7 +1245,39 @@ export type StaleKind =
   /** A planning position was last checked a while ago. */
   | 'planning'
   /** The map lookup was built from an address the case no longer holds. */
-  | 'site_context';
+  | 'site_context'
+  /**
+   * A register was searched, and the search is old enough that the answer may
+   * have changed since. Distinct from `document`: a document ages because a
+   * counterparty stops accepting it; a register search ages because somebody
+   * may have registered something the day after it ran.
+   */
+  | 'register_search';
+
+/**
+ * One search of a statutory register, and when it was run.
+ *
+ * `nilResult` is the field that has to survive: "the register holds nothing
+ * against this parcel as at this date" is a finding, and it decays. Recording
+ * it as an absent document would lose both halves — that something was
+ * searched, and that the answer has a date on it.
+ */
+export interface RegisterSearch {
+  /** Matches the record kind that produced it. */
+  kind: string;
+  label: string;
+  /** Who searched: a vendor id, or `manual` when a person did it themselves. */
+  by: string;
+  /** Whether the answer came from the register or a convenience layer over it. */
+  authority: 'primary_register' | 'secondary';
+  retrievedAt: string;
+  /** The register was searched and holds nothing for this parcel over this period. */
+  nilResult?: boolean;
+  /** Period covered, for a period-based search like an encumbrance certificate. */
+  period?: { fromYear: number; toYear: number };
+  /** What to do to bring it up to date. */
+  refresh: string;
+}
 
 export interface StaleItem {
   key: string;
@@ -1495,6 +1527,17 @@ export interface PropertyCase {
    * silently re-run a set of external searches.
    */
   discovery?: DiscoverySweep;
+  /**
+   * Register searches that have actually been run against this property.
+   *
+   * Separate from `documents` because they age for a different reason and
+   * refresh by a different action: a document ages because a counterparty
+   * stops accepting it, a register search ages because somebody may have
+   * registered a charge the morning after it ran. This is what the staleness
+   * watch monitors — and until records could be fetched or logged, it was a
+   * watch with nothing to watch.
+   */
+  registerSearches?: RegisterSearch[];
   /**
    * What is being done with the site, and how that was decided. Absent on
    * cases created before the project model existed — the engine infers a
