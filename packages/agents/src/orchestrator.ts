@@ -217,6 +217,67 @@ export function groupTasksByOrder(tasks: PlannedTask[]): PlannedTask[][] {
   return [...groups.keys()].sort((a, b) => a - b).map(k => groups.get(k) ?? []);
 }
 
+/**
+ * Which scheduled agents genuinely consume another's output.
+ *
+ * `runDiligencePlanner` is handed `pathways` and `findings` — the closure
+ * variables the two agents above assign when they finish. Read at call time,
+ * which for a concurrently-scheduled task is before either has assigned
+ * anything.
+ */
+const SCHEDULED_DEPENDENCIES: Partial<Record<AgentKind, AgentKind[]>> = {
+  diligence_planner: ['proof_pathways', 'market_research'],
+};
+
+export interface PlanOrderCorrection {
+  agent: AgentKind;
+  from: number;
+  to: number;
+  after: AgentKind[];
+}
+
+/**
+ * Enforce data dependencies that were, until now, only asked for.
+ *
+ * The planner's tool schema tells the model "diligence_planner must come after
+ * both" — and that is a request, not a constraint. Nothing checked it. A plan
+ * putting proof pathways and the diligence planner in the same `order` group
+ * runs them through one `Promise.all`, so the planner receives the empty
+ * arrays those variables still hold, reasons over no pathways and no research,
+ * and produces insights anyway. Nothing fails, nothing is logged, and the
+ * output looks exactly like a normal run.
+ *
+ * That is the worst shape a bug can take here, so the ordering is now derived
+ * rather than trusted: a dependent task is pushed strictly past everything it
+ * reads. Corrections are returned rather than applied silently, because a
+ * planner that keeps producing invalid orders is a prompt problem worth
+ * seeing, and a run whose schedule was rewritten should say so.
+ *
+ * Pure and exported so the rule can be verified without running an agent.
+ */
+export function enforceTaskDependencies(
+  tasks: PlannedTask[],
+): { tasks: PlannedTask[]; corrections: PlanOrderCorrection[] } {
+  const scheduled = new Map(tasks.map(t => [t.agent, t]));
+  const corrections: PlanOrderCorrection[] = [];
+  // One pass in dependency order is enough for the single-level table above.
+  // A deeper graph would need a topological sort; the assertion is that this
+  // table stays shallow, and a second dependent added below a dependent should
+  // come with that sort rather than a second pass bolted on here.
+  const out = tasks.map(task => {
+    const deps = (SCHEDULED_DEPENDENCIES[task.agent] ?? [])
+      .map(a => scheduled.get(a))
+      .filter((t): t is PlannedTask => t !== undefined && t.depth !== 'skip');
+    if (deps.length === 0 || task.depth === 'skip') return task;
+    const mustBeAfter = Math.max(...deps.map(d => d.order));
+    if (task.order > mustBeAfter) return task;
+    const to = mustBeAfter + 1;
+    corrections.push({ agent: task.agent, from: task.order, to, after: deps.map(d => d.agent) });
+    return { ...task, order: to };
+  });
+  return { tasks: out, corrections };
+}
+
 function rollupStatus(runs: AgentRun[]): AgentRunStatus {
   if (runs.length === 0) return 'cancelled';
   if (runs.some(r => r.status === 'succeeded')) return 'succeeded';
@@ -471,7 +532,15 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
   /* -------------------------------------------------------------- */
   for (const agent of SCHEDULABLE_AGENTS) emitSkip(agent);
 
-  const schedulableTasks = SCHEDULABLE_AGENTS.map(a => runnableTask(a)).filter((t): t is PlannedTask => t !== undefined);
+  const rawSchedulable = SCHEDULABLE_AGENTS.map(a => runnableTask(a)).filter((t): t is PlannedTask => t !== undefined);
+  const { tasks: schedulableTasks, corrections } = enforceTaskDependencies(rawSchedulable);
+  for (const c of corrections) {
+    emit({
+      kind: 'plan',
+      label: `Rescheduled ${c.agent} to order ${c.to}.`,
+      detail: `The plan put it at order ${c.from}, not after ${c.after.join(' and ')}, whose output it reads — as scheduled it would have received nothing from ${c.after.length === 1 ? 'that agent' : 'those agents'} and reasoned over an empty set.`,
+    });
+  }
   const orderedGroups = groupTasksByOrder(schedulableTasks);
 
   const runScheduledTask = async (task: PlannedTask): Promise<void> => {
