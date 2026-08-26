@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import type { TabProps } from './tab-props';
 import SnapshotTab from './tabs/SnapshotTab';
+import OfferTab from './tabs/OfferTab';
 import LocationTab from './tabs/LocationTab';
 import DocumentsTab from './tabs/DocumentsTab';
 import ValuationTab from './tabs/ValuationTab';
@@ -65,6 +66,10 @@ export const CASE_GROUPS: CaseGroup[] = [
     question: 'What is it worth, and what moves that?',
     views: [
       { key: 'range', label: 'Range', component: ValuationTab },
+      // "What to offer" sits second, not last. A range is the input to a
+      // decision and this is the decision; burying it behind the drivers
+      // would put the working above the answer.
+      { key: 'offer', label: 'What to offer', component: OfferTab },
       { key: 'movers', label: 'What moves it', component: DriversTab },
     ],
   },
@@ -99,7 +104,7 @@ export const CASE_GROUPS: CaseGroup[] = [
 ];
 
 /** Views whose content is meaningless before the case has been screened once. */
-export const NEEDS_SCREEN = new Set(['risks', 'missing', 'range', 'movers', 'title', 'compliance', 'planning', 'evidence', 'report', 'actions']);
+export const NEEDS_SCREEN = new Set(['risks', 'missing', 'range', 'offer', 'movers', 'title', 'compliance', 'planning', 'evidence', 'report', 'actions']);
 
 export function findGroup(key: string | undefined): CaseGroup | undefined {
   return CASE_GROUPS.find(g => g.key === key);

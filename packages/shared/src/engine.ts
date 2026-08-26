@@ -59,6 +59,12 @@ import type {
   ValueAnchor,
   ValueDriver,
   SiteContext,
+  BengaluruValley,
+  ForcedSaleValue,
+  ForcedSaleComponent,
+  OfferAdvice,
+  OfferArgument,
+  OfferStance,
 } from './types';
 import { amenityDistance, nearestTransit, sitePinIsAccurate } from './site';
 import { COMPASS_SIDES, analyseTitleGraph, type CompassSide } from './graph';
@@ -1778,6 +1784,21 @@ function makeRiskFactory(
   };
 }
 
+/**
+ * How each valley is named in prose. Bengaluru buyers, lawyers and
+ * architects all use these names, so the engine uses them too rather than
+ * printing an enum key.
+ */
+const VALLEY_LABEL: Record<BengaluruValley, string> = {
+  vrishabhavathi: 'Vrishabhavathi',
+  koramangala_challaghatta: 'Koramangala\u2013Challaghatta',
+  hebbal_nagavara: 'Hebbal\u2013Nagavara',
+};
+
+function capitalise(text: string): string {
+  return text.length === 0 ? text : text[0].toUpperCase() + text.slice(1);
+}
+
 function buildRisks(
   caseId: string,
   identity: PropertyIdentity,
@@ -2113,6 +2134,63 @@ function buildRisks(
         'Confirm the road-width-linked FAR band that actually applies to this survey number with the local planning authority before relying on the zoning FAR figure.',
         [evId],
       );
+    }
+  }
+
+  /* -- Flood and lake-network exposure ------------------------------- */
+
+  // A catchment fact, raised as a risk because a buyer will not go looking
+  // for it and it is expensive to learn late. Three things keep it honest:
+  // it never claims to describe the parcel, it fires as a real finding only
+  // where exposure is high or where a buffer flag compounds it, and its
+  // absence is reported as "not assessed" rather than passed over in
+  // silence — an unassessed locality and a safe one must not read the same.
+  {
+    const water = locality.waterExposure;
+    if (!water) {
+      // Deliberately no risk: an unclassified locality is a gap in this
+      // product's reference data, not a finding about the property. It is
+      // recorded as evidence so the absence is visible to anyone reading the
+      // ledger, and so the report can say what was not looked at.
+      evidence.add({
+        statement: `No flood or lake-catchment classification is carried for ${identity.locality}, so this property's exposure to the storm-water network has not been assessed.`,
+        sourceType: 'model_inference',
+        sourceRef: 'locality.waterExposure',
+        sourceLabel: 'Locality reference — water exposure',
+        confidence: 0.3,
+      });
+    } else {
+      const ka = identity.karnataka;
+      const bufferFlagged = ka?.nearRajakaluve === true || ka?.nearLake === true;
+      const points = water.knownInundationPoints.length > 0 ? ` Reported inundation in this locality clusters around ${water.knownInundationPoints.join(', ')}.` : '';
+      const evId = evidence.add({
+        statement:
+          `${identity.locality} drains through the ${VALLEY_LABEL[water.valley]} valley via the ${water.lakeChain}, and is graded ` +
+          `${water.floodExposure} flood exposure at locality level.${points}`,
+        sourceType: 'external_dataset',
+        sourceRef: 'locality.waterExposure',
+        sourceLabel: `${water.source} (as of ${water.asOf})`,
+        // Not high: the valley assignment is structural and firm, but the
+        // exposure grade is a compiled judgement, and the whole item is
+        // about a locality rather than this parcel.
+        confidence: 0.55,
+      });
+
+      if (water.floodExposure === 'high' || (bufferFlagged && water.floodExposure === 'moderate')) {
+        const compounded = bufferFlagged
+          ? ' This property is also flagged as abutting a storm-water drain or lake boundary, which puts the buffer question and the flooding question on the same piece of ground: the setback exists because the water needs the space.'
+          : '';
+        mk(
+          'flood_catchment_exposure',
+          `${capitalise(water.floodExposure)} flood exposure — ${VALLEY_LABEL[water.valley]} valley`,
+          water.floodExposure === 'high' && bufferFlagged ? 'critical' : water.floodExposure === 'high' ? 'serious' : 'warning',
+          'environmental',
+          `${water.note}${points}${compounded}`,
+          'Recurring inundation affects insurability, resale liquidity and — for a tenanted or commercial asset — business continuity. It is also the one property defect that cannot be cured at the property: the remedy is upstream, on a drain somebody else owns.',
+          'Obtain the BBMP ward storm-water drain map for this survey number, have a licensed surveyor take levels against the nearest drain invert, and ask neighbours and the RWA directly what happened in the last two monsoons. Check whether the layout has ever been inundated before relying on any rental or resale assumption.',
+          [evId],
+        );
+      }
     }
   }
 
@@ -3216,6 +3294,465 @@ function assertEvidenceIntegrity(result: ScreenResult): void {
 /* runScreen — the top-level entry point                                 */
 /* ==================================================================== */
 
+/**
+ * Money as a reader sees it, in the country pack's own locale.
+ *
+ * Used only in prose the engine writes for a person — never for a stored
+ * figure. Indian grouping puts the separators at lakh and crore rather than
+ * at thousands, and a Bengaluru buyer reading "4,200,000" has to stop and
+ * count digits before they know whether it is forty-two lakh.
+ */
+function formatCurrency(value: number, currency: CurrencyCode, locale: string): string {
+  try {
+    return new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0 }).format(value);
+  } catch {
+    // An unknown locale or currency must not take a screen down over a
+    // headline sentence.
+    return `${Math.round(value).toLocaleString()} ${currency}`;
+  }
+}
+
+/* ==================================================================== */
+/* Forced-sale value                                                     */
+/* ==================================================================== */
+
+/**
+ * The window a constrained sale is assumed to complete in.
+ *
+ * Ninety days is the convention Indian lending practice uses when it asks a
+ * registered valuer for a distress or forced-sale figure alongside market
+ * value. It is stated as a constant with its reasoning rather than buried in
+ * an expression because it is the assumption the whole figure hangs on: a
+ * different window is a different number, and a reader who disagrees with
+ * ninety days needs to be able to see that that is what they are disagreeing
+ * with.
+ */
+const FORCED_SALE_WINDOW_DAYS = 90;
+
+/**
+ * The floor discount on any compelled sale, before anything specific to this
+ * property.
+ *
+ * A buyer who knows the seller must transact inside a fixed window prices
+ * that knowledge in, whatever the asset. This is the part of the discount
+ * that has nothing to do with the property and everything to do with the
+ * circumstances of the sale.
+ */
+const COMPELLED_SELLER_PCT = 10;
+
+/** No compounding of components past this — beyond it the figure stops meaning anything. */
+const FORCED_SALE_MAX_DISCOUNT_PCT = 45;
+
+function buildForcedSale(
+  identity: PropertyIdentity,
+  indicativeValue: IndicativeValue,
+  locality: LocalityReference,
+  risks: RiskFlag[],
+  compliance: StateComplianceSummary | undefined,
+  completeness: CompletenessSummary,
+  evidence: EvidenceBuilder,
+): ForcedSaleValue {
+  const components: ForcedSaleComponent[] = [];
+  const evidenceIds: string[] = [];
+
+  const add = (key: string, label: string, pct: number, reason: string, evidenceId: string): void => {
+    if (pct <= 0) return;
+    components.push({ key, label, pct: round1(pct), reason, evidenceIds: [evidenceId] });
+    evidenceIds.push(evidenceId);
+  };
+
+  /* -- The sale itself ------------------------------------------------ */
+
+  add(
+    'compelled_seller',
+    'Sale inside a fixed window',
+    COMPELLED_SELLER_PCT,
+    `A buyer who knows the seller must complete within ${FORCED_SALE_WINDOW_DAYS} days prices that knowledge in. This part of the discount is about the circumstances of the sale, not about this property.`,
+    evidence.add({
+      statement: `Forced-sale figure assumes a ${FORCED_SALE_WINDOW_DAYS}-day marketing window rather than an open-ended one.`,
+      sourceType: 'model_inference',
+      sourceRef: 'forcedSale.window',
+      sourceLabel: 'Forced-sale basis',
+      confidence: 0.6,
+    }),
+  );
+
+  /* -- How long this locality normally takes -------------------------- */
+
+  // Only the excess over the assumed window is charged. A locality that
+  // already turns over inside ninety days gives up nothing extra for being
+  // asked to; one that takes a hundred and forty-five gives up a great deal.
+  const excessDays = Math.max(0, locality.liquidityDays - FORCED_SALE_WINDOW_DAYS);
+  if (excessDays > 0) {
+    add(
+      'illiquid_locality',
+      'Locality turns over slowly',
+      clamp((excessDays / FORCED_SALE_WINDOW_DAYS) * 12, 0, 15),
+      `Comparable properties in ${locality.locality} take a median ${locality.liquidityDays} days to transact — ${excessDays} days longer than the window assumed here. Compressing that gap is what the discount buys.`,
+      evidence.add({
+        statement: `Median time to transact in ${locality.locality} is ${locality.liquidityDays} days (${locality.source}).`,
+        sourceType: 'comparable',
+        sourceRef: 'locality.liquidityDays',
+        sourceLabel: locality.source,
+        confidence: 0.75,
+      }),
+    );
+  }
+
+  /* -- Whether a buyer can borrow against it -------------------------- */
+
+  // The largest single component, and the one most often left out of a flat
+  // haircut. A property no regulated lender will advance against is not
+  // slightly harder to sell — most of the buyer pool disappears, because most
+  // buyers need a loan.
+  const financeBlockers = (compliance?.checks ?? []).filter(
+    c => c.verdict === 'blocker' && (c.key === 'khata_classification' || c.key === 'dc_conversion' || c.key === 'layout_approval_status' || c.key === 'ptcl_restriction'),
+  );
+  if (financeBlockers.length > 0) {
+    add(
+      'finance_ineligible',
+      'Most buyers cannot get a loan on it',
+      14,
+      `${financeBlockers.map(c => c.label).join(' and ')} ${financeBlockers.length === 1 ? 'is' : 'are'} unresolved, so a regulated lender will not advance against this property. That removes most of the buyer pool, and the buyers who remain are paying cash and know it.`,
+      evidence.add({
+        statement: `Finance eligibility is blocked by: ${financeBlockers.map(c => `${c.label} — ${c.finding}`).join('; ')}`,
+        sourceType: 'model_inference',
+        sourceRef: 'stateCompliance.financeBlockers',
+        sourceLabel: 'State compliance checks',
+        confidence: 0.8,
+      }),
+    );
+  }
+
+  /* -- Unresolved title ----------------------------------------------- */
+
+  const openTitle = risks.filter(r => r.status === 'open' && r.category === 'title' && (r.severity === 'critical' || r.severity === 'serious'));
+  if (openTitle.length > 0) {
+    add(
+      'title_unresolved',
+      'Title questions still open',
+      clamp(openTitle.length * 4, 0, 12),
+      `${openTitle.length} unresolved title finding${openTitle.length === 1 ? '' : 's'} (${openTitle.map(r => r.title).join(', ')}). Under a compressed sale there is no time to clear these, so the buyer prices the risk of them instead.`,
+      evidence.add({
+        statement: `${openTitle.length} open title finding(s) at critical or serious severity: ${openTitle.map(r => r.title).join(', ')}.`,
+        sourceType: 'model_inference',
+        sourceRef: 'risks.openTitle',
+        sourceLabel: 'Risk register',
+        confidence: 0.8,
+      }),
+    );
+  }
+
+  /* -- Missing paperwork ---------------------------------------------- */
+
+  if (completeness.missingCritical.length > 0) {
+    add(
+      'documents_missing',
+      'Core documents not on file',
+      clamp(completeness.missingCritical.length * 1.5, 0, 8),
+      `${completeness.missingCritical.length} document${completeness.missingCritical.length === 1 ? '' : 's'} a purchaser's lawyer will ask for first ${completeness.missingCritical.length === 1 ? 'is' : 'are'} not available. In a compressed sale that converts directly into either a lower price or a failed transaction.`,
+      evidence.add({
+        statement: `Missing critical documents: ${completeness.missingCritical.join(', ')}.`,
+        sourceType: 'model_inference',
+        sourceRef: 'completeness.missingCritical',
+        sourceLabel: 'Document completeness',
+        confidence: 0.9,
+      }),
+    );
+  }
+
+  const rawPct = components.reduce((sum, c) => sum + c.pct, 0);
+  const discountPct = round1(Math.min(rawPct, FORCED_SALE_MAX_DISCOUNT_PCT));
+  const value = roundMoney(indicativeValue.mid * (1 - discountPct / 100), identity.currency);
+
+  // Lendability is a separate question from the number, and it changes what
+  // the number means. A blocker means no regulated lender advances at all —
+  // so this cannot be read as a recovery figure, and says so instead of
+  // sitting silently next to a lending decision.
+  const hasBlocker = (compliance?.checks ?? []).some(c => c.verdict === 'blocker');
+  const hasOpenCritical = risks.some(r => r.status === 'open' && r.severity === 'critical');
+  const lendable = !hasBlocker && !hasOpenCritical;
+
+  return {
+    value,
+    currency: identity.currency,
+    marketingPeriodDays: FORCED_SALE_WINDOW_DAYS,
+    discountPct,
+    components,
+    lendable,
+    basis: lendable
+      ? `What this property would realistically realise if it had to be sold within ${FORCED_SALE_WINDOW_DAYS} days, derived from the open-market mid by the named components above. This is the figure a lender sizes recovery against and an investor uses to size downside — it is not the market value, and quoting it as one understates the property.`
+      : `This is NOT a lending input. A blocker on this case means no regulated lender would advance against the property at all, so there is no recovery figure to quote. The number above is what a cash buyer who understood the defect might pay inside ${FORCED_SALE_WINDOW_DAYS} days, and it should be read that way or not at all.`,
+    evidenceIds,
+  };
+}
+
+/* ==================================================================== */
+/* Offer advice                                                          */
+/* ==================================================================== */
+
+/**
+ * How far below the mid to sit for each confidence band.
+ *
+ * Expressed as a fraction of the range's own half-width rather than as a
+ * flat percentage, because the range already encodes how much is not known:
+ * `widenForConfidence` widens it when the evidence is thin. Bidding a
+ * fraction of that widening below the mid is the same statement in money —
+ * pay nearer the bottom of a range you are less sure of.
+ */
+const CONFIDENCE_BID_FRACTION: Record<ConfidenceBand, number> = {
+  high: 0,
+  moderate: 0.25,
+  low: 0.5,
+};
+
+/** Per-finding negotiating room, in percent of mid, and the ceiling on it. */
+const RISK_ROOM_PCT: Record<'critical' | 'serious', number> = { critical: 4, serious: 2 };
+const RISK_ROOM_MAX_PCT = 15;
+
+function buildOffer(
+  identity: PropertyIdentity,
+  indicativeValue: IndicativeValue,
+  confidence: ConfidenceSummary,
+  drivers: ValueDriver[],
+  risks: RiskFlag[],
+  completeness: CompletenessSummary,
+  compliance: StateComplianceSummary | undefined,
+  statePack: StatePack | undefined,
+  locality: LocalityReference,
+  countryPack: CountryPack,
+  evidence: EvidenceBuilder,
+): OfferAdvice {
+  const currency = identity.currency;
+  const mid = indicativeValue.mid;
+  const offerArguments: OfferArgument[] = [];
+  const evidenceIds: string[] = [];
+
+  const openRisks = risks.filter(r => r.status === 'open');
+  const criticals = openRisks.filter(r => r.severity === 'critical');
+  const serious = openRisks.filter(r => r.severity === 'serious');
+  const blockers = (compliance?.checks ?? []).filter(c => c.verdict === 'blocker');
+
+  /* -- Where the evidence puts the price ------------------------------- */
+
+  const halfWidth = (indicativeValue.high - indicativeValue.low) / 2;
+  const confidenceCut = halfWidth * CONFIDENCE_BID_FRACTION[confidence.band];
+  const riskRoomPct = Math.min(criticals.length * RISK_ROOM_PCT.critical + serious.length * RISK_ROOM_PCT.serious, RISK_ROOM_MAX_PCT);
+  const riskCut = (mid * riskRoomPct) / 100;
+
+  const target = roundMoney(Math.max(mid - confidenceCut - riskCut, indicativeValue.low * 0.75), currency);
+  // Open at the bottom of the range that can actually be defended. Going
+  // below it is available to any buyer and costs credibility; the point of
+  // this product is that every number in the conversation has a source
+  // behind it.
+  const opening = roundMoney(Math.min(indicativeValue.low, target), currency);
+  // With a blocker there is no headroom to concede into: the answer is not a
+  // lower price, it is not yet.
+  const walkAway = roundMoney(blockers.length > 0 || criticals.length > 0 ? target : indicativeValue.high, currency);
+
+  if (confidenceCut > 0) {
+    const evId = evidence.add({
+      statement: `Confidence in the value range is ${confidence.band} (${Math.round(confidence.score)}/100), so the offer sits ${Math.round(CONFIDENCE_BID_FRACTION[confidence.band] * 100)}% of the range's half-width below the mid.`,
+      sourceType: 'model_inference',
+      sourceRef: 'offer.confidenceAdjustment',
+      sourceLabel: 'Confidence summary',
+      confidence: 0.7,
+    });
+    evidenceIds.push(evId);
+    offerArguments.push({
+      key: 'confidence',
+      label: 'The range is wide because the evidence is thin',
+      amount: -roundMoney(confidenceCut, currency),
+      argument: `Confidence here is ${confidence.band}: ${confidence.biggestLever} Until that changes, the honest bid sits in the lower half of the range rather than at its midpoint — and the seller can close the gap by supplying what is missing.`,
+      evidenceIds: [evId],
+    });
+  }
+
+  if (riskCut > 0) {
+    const named = [...criticals, ...serious].slice(0, 4).map(r => r.title);
+    const evId = evidence.add({
+      statement: `${criticals.length} critical and ${serious.length} serious findings are open, giving ${round1(riskRoomPct)}% of negotiating room against the mid.`,
+      sourceType: 'model_inference',
+      sourceRef: 'offer.riskRoom',
+      sourceLabel: 'Risk register',
+      confidence: 0.6,
+    });
+    evidenceIds.push(evId);
+    offerArguments.push({
+      key: 'open_findings',
+      label: `${criticals.length + serious.length} unresolved finding${criticals.length + serious.length === 1 ? '' : 's'}`,
+      amount: -roundMoney(riskCut, currency),
+      argument:
+        `${named.join('; ')}${criticals.length + serious.length > 4 ? `, and ${criticals.length + serious.length - 4} more` : ''}. ` +
+        'This is a negotiating position, not a cost estimate — nobody has priced what these cost to clear, and that is precisely the point to put to the seller: they can either clear them or price them.',
+      evidenceIds: [evId],
+    });
+  }
+
+  /* -- Arguments that are real but carry no number --------------------- */
+
+  // The negative value drivers are already inside the mid, so deducting them
+  // again would be double-counting. They are still the best material a buyer
+  // has for defending a lower number, so they appear as arguments with no
+  // money attached — which is exactly what they are.
+  const negatives = drivers.filter(d => d.direction === 'negative').sort((a, b) => a.impactPct - b.impactPct).slice(0, 3);
+  for (const driver of negatives) {
+    offerArguments.push({
+      key: `driver:${driver.id}`,
+      label: driver.label,
+      amount: null,
+      argument: `${driver.explanation} This is already reflected in the range above rather than deducted again — it is the reason the range sits where it does, and it is what to say when the seller asks how the number was reached.`,
+      evidenceIds: driver.evidenceIds,
+    });
+  }
+
+  // When the adjustments take the target below the bottom of the range, the
+  // bottom is no longer an opening — there is nothing to concede between
+  // them. Rather than manufacture a gap out of a round percentage, say what
+  // has happened: the findings have moved the price outside what the
+  // comparables alone would support, and the seller's route back up is to
+  // clear them.
+  if (target < indicativeValue.low) {
+    offerArguments.push({
+      key: 'below_range',
+      label: 'The findings put this below the comparable range',
+      amount: null,
+      argument:
+        'The open findings move the defensible price below the bottom of the range the comparables support, so there is no ' +
+        'negotiating room between an opening and a target here — the number is what it is until something on the list below ' +
+        'clears. That is the argument to make: the seller can raise the price by resolving items, not by discussion.',
+      evidenceIds: [],
+    });
+  }
+
+  const askingPrice = identity.askingPrice ?? null;
+  const gapToAsking = askingPrice !== null ? roundMoney(askingPrice - target, currency) : null;
+
+  // An ask far below what the comparables support is not a bargain, and
+  // presenting it as one is the most expensive mistake this whole view could
+  // make. The comparable pool is drawn from properties whose paperwork is in
+  // order; when the seller's own number sits well under it, the market has
+  // usually already priced something the file has not confirmed — and on a
+  // case that also carries blockers, the discount and the blockers are very
+  // likely the same fact seen twice.
+  if (askingPrice !== null && askingPrice < target * 0.85) {
+    const under = round1(((target - askingPrice) / target) * 100);
+    const evId = evidence.add({
+      statement: `The asking price sits ${under}% below the evidence-supported target, which is a discount the comparable pool does not explain.`,
+      sourceType: 'model_inference',
+      sourceRef: 'offer.askBelowEvidence',
+      sourceLabel: 'Offer advice',
+      confidence: 0.6,
+    });
+    evidenceIds.push(evId);
+    offerArguments.push({
+      key: 'ask_below_evidence',
+      label: 'The ask is well below the comparables — treat that as information',
+      amount: null,
+      argument:
+        `The seller is asking ${under}% less than comparable evidence supports. Comparables are drawn from properties whose ` +
+        `paperwork is in order, so a discount this size is usually the market pricing something the file has not established` +
+        `${blockers.length > 0 ? ` — and this case already carries ${blockers.length} statutory blocker${blockers.length === 1 ? '' : 's'}, which is the most likely explanation` : ''}. ` +
+        'Do not read it as headroom. Find out what the seller knows that the documents do not say, and assume the discount is smaller than it looks.',
+      evidenceIds: [evId],
+    });
+  }
+
+  /* -- What the price is not ------------------------------------------ */
+
+  const acquisitionCosts = statePack ? computeTransactionCosts({ ...identity, askingPrice: target }, statePack, locality) : undefined;
+  const acquisitionCostsAtTarget = acquisitionCosts?.total ?? 0;
+
+  if (acquisitionCosts) {
+    const evId = evidence.add({
+      statement: `Acquisition costs at an offer of ${target} come to ${acquisitionCosts.total} (${round1(acquisitionCosts.totalPctOfPrice)}% of the offer), computed on a dutiable value of ${acquisitionCosts.dutiableValue} (${acquisitionCosts.dutiableBasis === 'statutory_guidance_value' ? 'guidance value' : 'consideration'}).`,
+      sourceType: 'external_dataset',
+      sourceRef: 'offer.acquisitionCosts',
+      sourceLabel: `${acquisitionCosts.source} (as of ${acquisitionCosts.asOf})`,
+      confidence: 0.85,
+    });
+    evidenceIds.push(evId);
+    if (acquisitionCosts.dutiableBasis === 'statutory_guidance_value') {
+      offerArguments.push({
+        key: 'duty_floor',
+        label: 'A lower offer will not lower the stamp duty',
+        amount: null,
+        argument:
+          `Duty and registration are charged on the higher of the price and the guidance value, and here the guidance value is the higher figure. ` +
+          `Negotiating the price down below it saves nothing on duty — budget the full acquisition cost regardless of where the price lands.`,
+        evidenceIds: [evId],
+      });
+    }
+  }
+
+  /* -- Conditions, and what is deliberately not priced ----------------- */
+
+  const preconditions: string[] = [];
+  for (const check of blockers) {
+    preconditions.push(`${check.label}: ${check.nextStep}`);
+  }
+  for (const risk of criticals) {
+    preconditions.push(`${risk.title}: ${risk.mitigation}`);
+  }
+  for (const doc of completeness.missingCritical.slice(0, 6)) {
+    preconditions.push(`Obtain ${doc} and re-run this screen before exchanging anything in writing.`);
+  }
+
+  const unpriced: string[] = [];
+  for (const item of compliance?.unresolved.slice(0, 6) ?? []) {
+    unpriced.push(item);
+  }
+  if (serious.length > 0) {
+    unpriced.push(
+      `The cost of clearing ${serious.length} serious finding${serious.length === 1 ? '' : 's'} is not known and is not deducted above. An unpriced item is not a free one — establish the cost before treating the target as final.`,
+    );
+  }
+  if (!acquisitionCosts) {
+    unpriced.push('No state pack covers this property, so stamp duty, registration and cess are not computed. The all-in figure below is the offer alone and understates what completion actually costs.');
+  }
+
+  /* -- Stance ---------------------------------------------------------- */
+
+  const stance: OfferStance = blockers.length > 0 || criticals.length > 0 ? 'do_not_offer' : serious.length > 0 || completeness.missingCritical.length > 0 ? 'offer_conditionally' : 'offer';
+
+
+  // The headline is prose a person reads, so it carries formatted money
+  // rather than raw integers — using the country pack's own locale, which is
+  // what makes an Indian figure group as lakh and crore rather than as
+  // thousands.
+  const money = (n: number): string => formatCurrency(n, currency, countryPack.locale);
+
+  const headline =
+    stance === 'do_not_offer'
+      ? `Do not put a number in writing yet. ${blockers.length > 0 ? `${blockers.length} statutory blocker${blockers.length === 1 ? '' : 's'}` : `${criticals.length} critical finding${criticals.length === 1 ? '' : 's'}`} must clear first — a signed agreement before then commits you to a property nobody has established you can register, finance or resell.`
+      : stance === 'offer_conditionally'
+        ? `Offer ${money(target)}, conditional on the items below. Open at ${money(opening)}${askingPrice !== null && gapToAsking !== null && gapToAsking > 0 ? `, against an ask of ${money(askingPrice)} — a gap of ${money(gapToAsking)}` : ''}. Make every condition part of the written offer, not a conversation after it.`
+        : `Offer ${money(target)}, opening at ${money(opening)}${
+            askingPrice !== null && gapToAsking !== null && gapToAsking > 0
+              ? ` — the ask is ${money(askingPrice)}, so there is ${money(gapToAsking)} to argue for`
+              : askingPrice !== null && gapToAsking !== null && gapToAsking < 0
+                ? ` — the ask of ${money(askingPrice)} is already below this, which is worth understanding before moving`
+                : ''
+          }. Nothing outstanding argues for paying above ${money(walkAway)} on what is currently on file.`;
+
+  return {
+    currency,
+    opening,
+    target,
+    walkAway,
+    allInAtTarget: roundMoney(target + acquisitionCostsAtTarget, currency),
+    acquisitionCostsAtTarget,
+    askingPrice,
+    gapToAsking,
+    arguments: offerArguments,
+    preconditions,
+    unpriced,
+    stance,
+    headline,
+    evidenceIds,
+  };
+}
+
 export function runScreen(input: {
   caseId: string;
   reference: string;
@@ -3350,6 +3887,27 @@ export function runScreen(input: {
   const recommendation = buildRecommendation(risks, confidence, completeness, indicativeValue);
   const transactionCosts = statePack ? computeTransactionCosts(identity, statePack, locality) : undefined;
 
+  // Both read the finished parts of the screen and compute nothing new about
+  // value: the forced-sale figure is the mid discounted by named components,
+  // and the offer is the range plus the costs plus the findings, assembled.
+  // Running them here — after risks, compliance, confidence and drivers, and
+  // before the result is sealed — is what lets them cite the actual findings
+  // rather than recomputing their own version of them.
+  const forcedSale = buildForcedSale(identity, indicativeValue, locality, risks, stateComplianceResult?.compliance, completeness, evidence);
+  const offer = buildOffer(
+    identity,
+    indicativeValue,
+    confidence,
+    drivers,
+    risks,
+    completeness,
+    stateComplianceResult?.compliance,
+    statePack,
+    locality,
+    countryPack,
+    evidence,
+  );
+
   const marketContext: MarketContext = {
     medianPricePerSqm: locality.medianPricePerSqm,
     yoyChangePct: locality.yoyChangePct,
@@ -3377,6 +3935,9 @@ export function runScreen(input: {
     marketContext,
     stateCompliance: stateComplianceResult?.compliance,
     transactionCosts,
+    forcedSale,
+    offer,
+    waterExposure: locality.waterExposure,
     recommendation,
   };
 

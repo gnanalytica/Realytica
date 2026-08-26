@@ -34,6 +34,7 @@ import {
 } from '../../../components/ui/kit';
 import { CompletenessRing, ConfidenceGauge, MarketTrendChart, ValueRangeChart } from '../../../components/charts';
 import { EvidenceLink } from '../../../components/EvidenceLink';
+import { StalenessPanel } from '../../../components/StalenessPanel';
 import {
   FACING_LABEL,
   LAYOUT_APPROVAL_LABEL,
@@ -59,6 +60,14 @@ export default function SnapshotTab({ caseData, result, refresh, runScreen, runn
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5">
       <CaseNotes notes={caseData.notes} />
+      {/*
+        * Above the summary, not below it. Everything under this point is
+        * computed from documents and reference data carried from dates, and a
+        * reader who has taken the verdict on board before learning the screen
+        * is eight months old has already made the decision this panel exists
+        * to interrupt. It renders nothing when nothing has aged.
+        */}
+      <StalenessPanel caseId={caseData.id} />
       {result ? (
         <>
           <Card>

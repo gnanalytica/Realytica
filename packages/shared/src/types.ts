@@ -552,6 +552,22 @@ export interface ScreenResult {
   titleGraph?: TitleGraphSummary;
   /** Diligence procedures evaluated for this case's jurisdiction. */
   playbooks?: PlaybookRun[];
+  /**
+   * What the property would realise in a constrained sale. Present when the
+   * locality reference carries the liquidity figure it is derived from.
+   */
+  forcedSale?: ForcedSaleValue;
+  /**
+   * What to offer and the argument for it. Present whenever a range was
+   * produced — which is always — so this is optional only so that adding it
+   * did not invalidate every stored result.
+   */
+  offer?: OfferAdvice;
+  /**
+   * Flood and lake-network exposure of the locality this property sits in.
+   * Catchment-level, never parcel-level — see `WaterExposureReference`.
+   */
+  waterExposure?: WaterExposureReference;
   recommendation: {
     verdict: ScreenVerdict;
     headline: string;
@@ -559,6 +575,256 @@ export interface ScreenResult {
     /** Conditions that must clear before the verdict can improve. */
     conditions: string[];
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Water exposure (catchment, not parcel)                              */
+/* ------------------------------------------------------------------ */
+
+export type FloodExposure = 'low' | 'moderate' | 'high';
+
+/**
+ * Bengaluru's three primary storm-water valley systems.
+ *
+ * The city drains through three trunk valleys rather than a grid, and which
+ * one a locality sits in explains more about its flooding than any other
+ * single fact: the Koramangala–Challaghatta valley carries the Agara →
+ * Bellandur → Varthur lake chain and is where the tech corridor's repeated
+ * inundation happens, while the Vrishabhavathi valley drains the older,
+ * higher west and south-west.
+ *
+ * Named as a closed set because a locality belongs to exactly one, and
+ * because "which valley" is a question a Bengaluru buyer's lawyer and
+ * architect will both ask.
+ */
+export type BengaluruValley = 'vrishabhavathi' | 'koramangala_challaghatta' | 'hebbal_nagavara';
+
+/**
+ * A locality's exposure to flooding and to the lake/drain network.
+ *
+ * --- What this is, and the line it must not cross -------------------------
+ *
+ * This is a *catchment* classification, not a parcel one. A site on high
+ * ground in Bellandur does not flood because Bellandur floods; a site in a
+ * filled tank bed in "low-risk" Jayanagar may. The distinction is the whole
+ * reason this is carried as reference data attached to a locality rather
+ * than as a property attribute: it describes where the property sits in the
+ * city's drainage, and it is explicitly not a prediction about the parcel.
+ *
+ * It is also deliberately not derived from a map. `SiteContext` sets out why
+ * measuring to a blue line on a satellite tile measures something that is
+ * not the legal or hydrological feature. This is published, dated,
+ * attributed classification — the same standing as the stamp-duty slabs in
+ * the State Pack, and carried with the same `asOf` and `verifyNote` for the
+ * same reason.
+ */
+export interface WaterExposureReference {
+  floodExposure: FloodExposure;
+  valley: BengaluruValley;
+  /** The lake or tank chain this locality drains into or through. */
+  lakeChain: string;
+  /**
+   * Places within the locality with a reported history of inundation.
+   * Empty is a real answer and means "none recorded here" — not "safe".
+   */
+  knownInundationPoints: string[];
+  /** What the classification means for a buyer, in plain language. */
+  note: string;
+  source: string;
+  asOf: string;
+  /** What the reader must check for themselves before relying on this. */
+  verifyNote: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Forced-sale value                                                   */
+/* ------------------------------------------------------------------ */
+
+/** One named component of the forced-sale discount. */
+export interface ForcedSaleComponent {
+  key: string;
+  label: string;
+  /** Percentage points of discount this component contributes. Always positive. */
+  pct: number;
+  /** Why this property would sell for less under a constrained sale. */
+  reason: string;
+  evidenceIds: string[];
+}
+
+/**
+ * What the property would fetch in a constrained sale, and why that is less
+ * than the open-market range.
+ *
+ * A different question from `IndicativeValue`, asked by a different reader.
+ * The indicative range answers "what is it worth"; this answers "what would
+ * it realise if it had to be sold inside a fixed window" — the figure a
+ * lender underwrites recovery against, and the one an investor uses to size
+ * downside. Indian lending practice asks for it by name alongside market
+ * value, so it is a first-class output rather than a percentage a reader is
+ * left to apply themselves.
+ *
+ * The discount is built from named components rather than a flat haircut,
+ * because the components are the point: a B-khata site is not discounted
+ * because sites are discounted, it is discounted because no buyer in it can
+ * get a home loan, which removes most of the market. That sentence is worth
+ * more to a reader than the number.
+ *
+ * `lendable` is separate from the figure and gates how it may be read. Where
+ * a blocker means no regulated lender would advance against the property at
+ * all, a "forced sale value" that looks like a lending input would be
+ * actively misleading — the number is then what a cash buyer aware of the
+ * defect might pay, and it says so.
+ */
+export interface ForcedSaleValue {
+  value: number;
+  currency: CurrencyCode;
+  /** The constrained marketing window assumed, in days. */
+  marketingPeriodDays: number;
+  /** Total discount from the open-market mid, in percent. */
+  discountPct: number;
+  components: ForcedSaleComponent[];
+  /**
+   * False when a finding on this case means a regulated lender would not
+   * advance against the property at all — in which case this figure is not
+   * a lending input and must not be presented as one.
+   */
+  lendable: boolean;
+  /** Who this figure is for, and what it is not. */
+  basis: string;
+  evidenceIds: string[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Offer advice                                                        */
+/* ------------------------------------------------------------------ */
+
+/** One argument a buyer can put to a seller, with the money attached. */
+export interface OfferArgument {
+  key: string;
+  label: string;
+  /**
+   * Signed amount in major units, or null where the point is real but its
+   * size is genuinely not known yet.
+   *
+   * Null is not a failure to compute. This product's standing rule is that
+   * an unpriced item is not a zero, and an offer that quietly treated an
+   * unquantified defect as costing nothing would be the most expensive
+   * possible version of that mistake.
+   */
+  amount: number | null;
+  /** The point, phrased as the buyer would put it to the seller. */
+  argument: string;
+  evidenceIds: string[];
+}
+
+export type OfferStance = 'offer' | 'offer_conditionally' | 'do_not_offer';
+
+/**
+ * What to offer, and the argument for it.
+ *
+ * Every part of this already existed in the screen — the range, the
+ * confidence spread, the transaction costs, the unresolved findings, the
+ * negative value drivers — and the product stopped one step short of
+ * assembling them, to the point where a recommended action literally read
+ * "build a negotiation case from the anchor breakdown". This is that
+ * assembly, and nothing here computes a new valuation: every figure is
+ * derived from `IndicativeValue` and `TransactionCostBreakdown`, which
+ * remain the arithmetic authority.
+ *
+ * Three prices rather than one, because a single number is not how a
+ * negotiation works, and because the three carry different meanings:
+ * `opening` is defensible from the evidence, `target` is where the evidence
+ * says the deal sits, and `walkAway` is the point past which the buyer is
+ * paying for something nobody has shown them.
+ */
+export interface OfferAdvice {
+  currency: CurrencyCode;
+  /** Where to open. Defensible from the evidence without being the ask. */
+  opening: number;
+  /** Where the evidence says this settles. */
+  target: number;
+  /** Above this, the buyer is paying beyond what the evidence supports. */
+  walkAway: number;
+  /**
+   * Total cash required at `target`: the price plus every acquisition cost
+   * the state pack can compute, recalculated at the offer rather than at the
+   * asking price. Stamp duty in Karnataka is charged on the higher of
+   * consideration and guidance value, so a lower offer does not always lower
+   * the duty — and a buyer who budgeted as though it did is short on
+   * completion day.
+   */
+  allInAtTarget: number;
+  /** Acquisition costs at `target`, the difference between it and `allInAtTarget`. */
+  acquisitionCostsAtTarget: number;
+  /** The asking price this advice was written against, when there is one. */
+  askingPrice: number | null;
+  /** Gap between the ask and `target`, in major units. Null with no ask. */
+  gapToAsking: number | null;
+  arguments: OfferArgument[];
+  /** What must be true — not paid — before any offer is made. */
+  preconditions: string[];
+  /** Costs and risks deliberately not deducted, and why. */
+  unpriced: string[];
+  stance: OfferStance;
+  headline: string;
+  evidenceIds: string[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Staleness                                                           */
+/* ------------------------------------------------------------------ */
+
+export type StaleKind =
+  /** The screen itself was run a while ago. */
+  | 'screen'
+  /** A statutory figure the screen relied on is carried from an older date. */
+  | 'reference_data'
+  /** A document has aged past the point where a counterparty will accept it. */
+  | 'document'
+  /** A certificate or registration has expired, or is about to. */
+  | 'expiry'
+  /** A planning position was last checked a while ago. */
+  | 'planning'
+  /** The map lookup was built from an address the case no longer holds. */
+  | 'site_context';
+
+export interface StaleItem {
+  key: string;
+  kind: StaleKind;
+  label: string;
+  /** What has aged, in plain language. */
+  what: string;
+  /** The date it is carried from, ISO. */
+  asOf: string;
+  ageDays: number;
+  severity: RiskSeverity;
+  /** What refreshes it. */
+  refresh: string;
+}
+
+/**
+ * What has gone out of date on this case.
+ *
+ * Derived on read, never stored — the same decision as `RunGraph` and for a
+ * sharper reason. A staleness report frozen into a `ScreenResult` would be
+ * a statement about how old things were on the day the screen ran, which is
+ * the one thing a reader does not want to know. It has to be computed
+ * against the moment it is read or it is itself the stalest thing on the
+ * page.
+ *
+ * The material was already there and unread: every statutory figure in the
+ * State Pack carries an `asOf` precisely because those numbers move, an
+ * encumbrance certificate covers a period that ends, a K-RERA registration
+ * expires, and a khata extract older than a year gets sent back. The screen
+ * consumed all of it and never asked how old any of it was.
+ */
+export interface StalenessReport {
+  checkedAt: string;
+  items: StaleItem[];
+  /** The oldest date anything this result depends on is carried from. */
+  oldestAsOf: string | null;
+  /** How the reader should take this, in one sentence. */
+  headline: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -822,6 +1088,13 @@ export interface LocalityReference {
   /** Statutory guidance rate for land, per sqm of plot area. */
   statutoryLandRatePerSqm: number;
   infrastructureNote: string;
+  /**
+   * Flood and lake-network exposure for this locality. Present only where a
+   * classification has actually been carried — absent means not assessed,
+   * which is not the same as low, and the engine says so rather than
+   * defaulting.
+   */
+  waterExposure?: WaterExposureReference;
   source: string;
 }
 

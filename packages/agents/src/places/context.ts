@@ -18,7 +18,7 @@ import type {
   StreetViewImage,
   GeoPoint,
 } from '@valytica/shared';
-import { bearingDegrees, haversineMetres, isSiteAccurate } from '@valytica/shared';
+import { bearingDegrees, haversineMetres, isSiteAccurate, siteContextQuery } from '@valytica/shared';
 import type { PlaceProvider } from './types';
 
 /**
@@ -62,7 +62,14 @@ export interface BuildSiteContextInput {
 }
 
 /**
- * Assembles the string handed to the geocoder.
+ * The string handed to the geocoder is assembled by
+ * `siteContextQuery` in `@valytica/shared`, not here.
+ *
+ * It lives there because the staleness check needs it too — to tell whether
+ * a cached location was built from the address the case still holds — and
+ * the shared package cannot import this one. A second copy here would drift,
+ * and the drift would show up as a location that rebuilds on every read or
+ * never rebuilds at all.
  *
  * A survey number is deliberately never the whole query. "Sy. No. 118/2,
  * Varthur Hobli" is a perfectly good legal description of a parcel and a
@@ -71,10 +78,6 @@ export interface BuildSiteContextInput {
  * expose. The address line leads when there is one; when there is not, the
  * query is locality-level and the precision it comes back with will say so.
  */
-export function siteContextQuery(identity: PropertyIdentity): string {
-  const parts = [identity.addressLine, identity.locality, identity.city, identity.state, identity.postalCode].map(p => (p ?? '').trim()).filter(p => p.length > 0);
-  return parts.join(', ');
-}
 
 function caveatFor(precision: SiteLocation['precision'], resolvedAddress: string): string {
   switch (precision) {

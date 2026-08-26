@@ -12,7 +12,7 @@
  * address below is written as "<building>, <locality>, <city>, <state>".
  */
 
-import type { Comparable, CountryPack, LocalityReference, PropertyType, ReferenceData } from './types';
+import type { Comparable, CountryPack, LocalityReference, PropertyType, ReferenceData, WaterExposureReference } from './types';
 import { KARNATAKA_PACK } from './packs/karnataka';
 
 /* ------------------------------------------------------------------ */
@@ -179,7 +179,7 @@ function buildTrend(
  *  - The Netherlands localities use related but distinct reasoning per
  *    locality — see the comment above that section.
  */
-export const LOCALITIES: LocalityReference[] = [
+const LOCALITY_BASE: LocalityReference[] = [
   // --- India — Bengaluru --------------------------------------------------
   {
     id: 'in-blr-whitefield',
@@ -764,6 +764,201 @@ export const LOCALITIES: LocalityReference[] = [
     source: 'CBS/NVM transaction statistics — Utrecht',
   },
 ];
+
+/* ==================================================================== */
+/* Water exposure — catchment, not parcel                                */
+/* ==================================================================== */
+
+/**
+ * Which of Bengaluru's three storm-water valleys each locality drains
+ * through, and how exposed it is to flooding.
+ *
+ * --- On what this is sourced from ----------------------------------------
+ *
+ * The valley assignment and the lake chains are structural: the city drains
+ * through the Vrishabhavathi, Koramangala–Challaghatta and Hebbal–Nagavara
+ * systems, these are the systems the Revised Master Plan and the BBMP
+ * storm-water drain network are organised around, and a locality's place in
+ * one of them does not move. The exposure grade is a compiled judgement from
+ * reported inundation across recent monsoons, not a reading off a published
+ * hazard raster — which is exactly why it is carried with an `asOf`, a
+ * `source` that says what it actually is, and a `verifyNote` naming the
+ * authority a reader must go to.
+ *
+ * That is the same discipline the State Pack applies to stamp-duty slabs and
+ * buffer distances, and for the same reason: a figure whose provenance is
+ * overstated is worse than one that admits its limits, because a reader
+ * cannot tell the difference until it costs them.
+ *
+ * --- The line this must not cross ----------------------------------------
+ *
+ * Every entry here describes a *locality*. A site on high ground in
+ * Bellandur does not flood because Bellandur floods, and a site in a filled
+ * tank bed in low-exposure Jayanagar may flood every year. The engine states
+ * this as catchment exposure and never as a prediction about the parcel, and
+ * the consequence it draws — go and check the ward drain map and the
+ * property's own levels — is the same either way.
+ */
+
+const WATER_SOURCE =
+  'Compiled from the BBMP/BDA storm-water valley system in the Revised Master Plan and reported monsoon inundation; ' +
+  'exposure grade is a compiled judgement, not a published hazard classification';
+const WATER_AS_OF = '2025-01-01';
+const WATER_VERIFY =
+  'Confirm against the BBMP ward-level storm-water drain map and the ward flood-vulnerability list for the specific ' +
+  'survey number, and have a licensed surveyor take levels — a locality grade says nothing about where this parcel sits ' +
+  'within it.';
+
+const WATER_EXPOSURE: Record<string, Omit<WaterExposureReference, 'source' | 'asOf' | 'verifyNote'>> = {
+  'in-blr-whitefield': {
+    floodExposure: 'moderate',
+    valley: 'koramangala_challaghatta',
+    lakeChain: 'Varthur–Belandur lake chain (lower K&C valley)',
+    knownInundationPoints: ['Varthur Kodi', 'Gunjur', 'Siddapura junction'],
+    note:
+      'Whitefield sits at the lower end of the Koramangala–Challaghatta valley, downstream of the Bellandur–Varthur chain. ' +
+      'Flooding here concentrates in the low-lying pockets around the Varthur tank and along the drains feeding it, rather ' +
+      'than across the corridor generally.',
+  },
+  'in-blr-indiranagar': {
+    floodExposure: 'moderate',
+    valley: 'koramangala_challaghatta',
+    lakeChain: 'Upper K&C valley — Domlur/Challaghatta drain',
+    knownInundationPoints: ['Domlur underpass', '100ft Road low points'],
+    note:
+      'Upper reaches of the K&C valley on generally higher, older, fully built ground. Surface flooding is a drainage-capacity ' +
+      'problem at specific junctions rather than lake or valley inundation.',
+  },
+  'in-blr-sarjapur-road': {
+    floodExposure: 'high',
+    valley: 'koramangala_challaghatta',
+    lakeChain: 'Agara–Bellandur lake chain',
+    knownInundationPoints: ['Rainbow Drive layout', 'Sunny Brooks', 'Kasavanahalli', 'Halanayakanahalli'],
+    note:
+      'Among the most flood-affected corridors in the city. Layouts along this stretch were developed rapidly on and around ' +
+      'the Agara–Bellandur catchment, several of them across tank beds and rajakaluve alignments, and gated communities here ' +
+      'have been inundated to first-floor level in recent monsoons. Buffer encroachment and flooding are the same question on ' +
+      'this corridor.',
+  },
+  'in-blr-orr-bellandur': {
+    floodExposure: 'high',
+    valley: 'koramangala_challaghatta',
+    lakeChain: 'Bellandur–Varthur lake chain',
+    knownInundationPoints: ['Bellandur tank bed periphery', 'ORR service roads', 'Devarabisanahalli'],
+    note:
+      'The corridor sits on the Bellandur tank catchment — the largest in the city and the trunk of the K&C valley. ' +
+      'Office campuses along the ORR here have been cut off by flooding within the last few monsoons. For a commercial asset ' +
+      'this is a business-interruption and tenant-retention question as much as a physical one.',
+  },
+  'in-blr-hebbal': {
+    floodExposure: 'moderate',
+    valley: 'hebbal_nagavara',
+    lakeChain: 'Hebbal–Nagavara lake chain',
+    knownInundationPoints: ['Hebbal flyover underpasses', 'Nagavara tank periphery'],
+    note:
+      'Head of the Hebbal–Nagavara valley. The lakes here hold and release rather than back up the way the K&C chain does, so ' +
+      'exposure is concentrated at underpasses and immediate tank peripheries.',
+  },
+  'in-blr-koramangala': {
+    floodExposure: 'high',
+    valley: 'koramangala_challaghatta',
+    lakeChain: 'Koramangala valley trunk drain',
+    knownInundationPoints: ['Koramangala 3rd Block', 'Ejipura', 'Sony World junction'],
+    note:
+      'The valley is named after this locality for a reason: the primary storm-water trunk runs through it, and several blocks ' +
+      'sit below the drain level. Repeated inundation here is a drainage-capacity failure on a primary valley line, which is ' +
+      'the hardest kind to remedy at a single property.',
+  },
+  'in-blr-hsr-layout': {
+    floodExposure: 'high',
+    valley: 'koramangala_challaghatta',
+    lakeChain: 'Agara lake / Somasundarapalya tank',
+    knownInundationPoints: ['Somasundarapalya', 'Sector 2 low points', 'Agara lake periphery'],
+    note:
+      'Built across the Agara catchment with several sectors on former tank and drain alignments. Sector-level differences are ' +
+      'large here — two addresses a kilometre apart can have entirely different histories.',
+  },
+  'in-blr-jp-nagar': {
+    floodExposure: 'moderate',
+    valley: 'vrishabhavathi',
+    lakeChain: 'Puttenahalli–Sarakki tank chain',
+    knownInundationPoints: ['Sarakki tank periphery', 'Puttenahalli low points'],
+    note:
+      'Vrishabhavathi valley on generally higher ground, with exposure concentrated around the Sarakki and Puttenahalli tank ' +
+      'peripheries rather than across the locality.',
+  },
+  'in-blr-jayanagar': {
+    floodExposure: 'low',
+    valley: 'vrishabhavathi',
+    lakeChain: 'Upper Vrishabhavathi',
+    knownInundationPoints: [],
+    note:
+      'Old, planned, high-ground Bengaluru with a drainage network laid out with the layout itself. No recurring inundation is ' +
+      'recorded at locality level — which is a statement about the locality and not a guarantee about any parcel in it, ' +
+      'particularly one on a filled tank bed.',
+  },
+  'in-blr-yelahanka': {
+    floodExposure: 'low',
+    valley: 'hebbal_nagavara',
+    lakeChain: 'Yelahanka–Allalasandra tank chain',
+    knownInundationPoints: ['Allalasandra tank periphery'],
+    note:
+      'Upper catchment of the Hebbal–Nagavara valley, above most of the chain. Exposure is local to the tank peripheries.',
+  },
+  'in-blr-electronic-city': {
+    floodExposure: 'moderate',
+    valley: 'koramangala_challaghatta',
+    lakeChain: 'Begur–Hulimavu tank chain',
+    knownInundationPoints: ['Begur road low points', 'Hulimavu tank periphery'],
+    note:
+      'Sits across the Begur–Hulimavu chain at the southern edge of the K&C system. A tank breach on this chain has caused ' +
+      'sudden localised flooding, which is a different risk profile from the slow backing-up seen on the Bellandur trunk.',
+  },
+  'in-blr-devanahalli': {
+    floodExposure: 'low',
+    valley: 'hebbal_nagavara',
+    lakeChain: 'Upper Hebbal–Nagavara catchment',
+    knownInundationPoints: [],
+    note:
+      'High upper catchment near the airport, well above the lake chains that cause the city\'s recurring flooding. The water ' +
+      'question on this corridor is supply rather than inundation: much of it is outside the piped network and on borewells.',
+  },
+  'in-blr-kanakapura-road': {
+    floodExposure: 'moderate',
+    valley: 'vrishabhavathi',
+    lakeChain: 'Vrishabhavathi valley — Talaghattapura/Konanakunte tanks',
+    knownInundationPoints: ['Konanakunte cross', 'Vajarahalli'],
+    note:
+      'Vrishabhavathi valley on a corridor developing fast enough that drainage is being laid behind the building rather than ' +
+      'ahead of it. Exposure is concentrated on the tank alignments the new layouts sit across.',
+  },
+  'in-blr-thanisandra-hennur': {
+    floodExposure: 'moderate',
+    valley: 'hebbal_nagavara',
+    lakeChain: 'Rachenahalli–Nagavara tank chain',
+    knownInundationPoints: ['Rachenahalli tank periphery', 'Thanisandra main road low points'],
+    note:
+      'Built rapidly across the Rachenahalli and Nagavara catchment. Several layouts here sit on or beside tank alignments, so ' +
+      'the buffer question and the flooding question are closely linked on this corridor too.',
+  },
+};
+
+/**
+ * Localities with their water exposure attached.
+ *
+ * Joined here rather than written inline on each entry so the exposure table
+ * can be read, reviewed and re-dated as one thing — it has a single `asOf`
+ * and a single provenance, and scattering it through fourteen literals would
+ * make that impossible to see. A locality with no entry keeps
+ * `waterExposure` undefined, which the engine reports as "not assessed"
+ * rather than as low.
+ */
+export const LOCALITIES: LocalityReference[] = LOCALITY_BASE.map(locality => {
+  const exposure = WATER_EXPOSURE[locality.id];
+  return exposure
+    ? { ...locality, waterExposure: { ...exposure, source: WATER_SOURCE, asOf: WATER_AS_OF, verifyNote: WATER_VERIFY } }
+    : locality;
+});
 
 /* ------------------------------------------------------------------ */
 /* Comparable pool                                                     */

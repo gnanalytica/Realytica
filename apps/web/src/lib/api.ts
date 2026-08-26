@@ -22,6 +22,7 @@ import type {
   RiskStatus,
   RunGraph,
   SiteContext,
+  StalenessReport,
   TitleGraph,
   ScreenResult,
   TelemetrySummary,
@@ -222,6 +223,14 @@ export const api = {
   /** Rebuild from the provider. The only way to retry an address that failed. */
   refreshSiteContext: (id: string) =>
     request<SiteContext>(`/cases/${id}/site-context/refresh`, { method: 'POST' }),
+
+  /**
+   * What has gone out of date on this case.
+   *
+   * Computed server-side on every read, never stored. A cached answer to
+   * "how old is this?" is the one cache that is always wrong.
+   */
+  staleness: (id: string) => request<StalenessReport>(`/cases/${id}/staleness`),
 
   /* --- Prompt registry ---------------------------------------------- */
 

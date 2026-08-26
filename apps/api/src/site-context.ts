@@ -15,7 +15,8 @@
  */
 
 import type { PropertyCase, SiteContext } from '@valytica/shared';
-import { buildSiteContext, placeProviderConfigured, placeProviderFor, siteContextQuery } from '@valytica/agents';
+import { siteContextQuery } from '@valytica/shared';
+import { buildSiteContext, placeProviderConfigured, placeProviderFor } from '@valytica/agents';
 
 /**
  * Builds the URL the browser loads for one Street View frame.

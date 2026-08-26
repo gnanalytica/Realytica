@@ -13,6 +13,7 @@ import {
 import type { ComplianceCheck, ComplianceVerdict, EvidenceItem, TransactionCostBreakdown } from '@valytica/shared';
 import { CostWaterfallChart } from '../../../components/charts';
 import type { TabProps } from '../tab-props';
+import { WaterExposureCard } from '../../../components/WaterExposureCard';
 import { StatutoryProvenance } from '../../../components/StatutoryProvenance';
 import { EvidenceLink } from '../../../components/EvidenceLink';
 import { PlaybookPanel } from '../../../components/PlaybookPanel';
@@ -247,6 +248,16 @@ export default function ComplianceTab({ caseData, result, runScreen, running, go
 
   return (
     <div className="flex flex-col gap-4">
+      {/*
+        * Water sits here, above the statutory checks, rather than in its own
+        * place. The buffer check below asks whether this parcel abuts a drain
+        * or a lake; this asks what happens to the water once it does. They
+        * are the same question at two scales, and separating them across the
+        * app would let a reader clear the first without ever meeting the
+        * second.
+        */}
+      {result.waterExposure && <WaterExposureCard water={result.waterExposure} locality={caseData.identity.locality} />}
+
       {/* Header */}
       <Card>
         <CardHeader
