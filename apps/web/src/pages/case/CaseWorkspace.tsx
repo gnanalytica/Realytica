@@ -47,7 +47,10 @@ import {
 import type { RunGraph } from '@realytica/shared';
 import { AnimatedNumber } from '../../components/ui/AnimatedNumber';
 import type { TabProps } from './tab-props';
-import { CASE_GROUPS, NEEDS_SCREEN, LEGACY_TAB_REDIRECT, findGroup } from './groups';
+import { CASE_GROUPS, NEEDS_SCREEN, LEGACY_TAB_REDIRECT, findGroup, groupsForLens } from './groups';
+import { LensBar } from '../../components/LensBar';
+import { resolveLens } from '@realytica/shared';
+import type { LensKey } from '@realytica/shared';
 
 import ChatTab from './tabs/ChatTab';
 
@@ -205,6 +208,40 @@ export default function CaseWorkspace() {
   }, [wantsGraph, caseId, flowStamp]);
 
   /*
+   * Who this case is being read by.
+   *
+   * Held locally so the picker responds immediately rather than after a round
+   * trip, and written back through the API so it survives a reload. The
+   * fallback chain is in `resolveLens`: the reader's choice, then the
+   * assessment profile's default for this kind of project, then the legacy
+   * persona for cases that predate all of it.
+   */
+  const [lensOverride, setLensOverride] = useState<LensKey | null>(null);
+  const lens: LensKey = lensOverride ?? resolveLens({
+    lens: caseData?.lens,
+    defaultLens: result?.assessment?.defaultLens,
+    persona: caseData?.persona,
+  });
+  const [lensBusy, setLensBusy] = useState(false);
+
+  const chooseLens = useCallback(
+    async (next: LensKey) => {
+      setLensOverride(next);
+      if (!caseId) return;
+      setLensBusy(true);
+      try {
+        await api.setLens(caseId, next);
+      } catch {
+        /* the lens is a presentation choice — a failed save is not worth
+           interrupting the reader over, and it still applies for this view */
+      } finally {
+        setLensBusy(false);
+      }
+    },
+    [caseId],
+  );
+
+  /*
    * Five groups, badged with the number that would make someone open them.
    *
    * The badges are the same counts the fourteen tabs carried; they just moved
@@ -236,9 +273,9 @@ export default function CaseWorkspace() {
     };
     return [
       { key: 'chat', label: 'Chat', icon: <MessageSquare size={13} /> },
-      ...CASE_GROUPS.map((g) => ({ key: g.key, label: g.label, icon: icon[g.key], badge: badge[g.key] })),
+      ...groupsForLens(lens).map((g) => ({ key: g.key, label: g.label, icon: icon[g.key], badge: badge[g.key] })),
     ];
-  }, [caseData, result]);
+  }, [caseData, result, lens]);
 
   if (loading && !caseData) {
     return (
@@ -274,7 +311,7 @@ export default function CaseWorkspace() {
 
   const { identity } = caseData;
 
-  const tabProps: TabProps = { caseData, result, refresh, runScreen, running, goToTab };
+  const tabProps: TabProps = { caseData, result, refresh, runScreen, running, goToTab, lens };
 
   /*
    * Which view inside the group is showing.
@@ -428,6 +465,9 @@ export default function CaseWorkspace() {
               </Button>
             </div>
           </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 px-6 pb-2.5">
+          <LensBar lens={lens} onChange={chooseLens} busy={lensBusy} />
         </div>
         <Tabs tabs={tabDefs} active={activeTab} onChange={goToTab} className="px-6" />
       </div>

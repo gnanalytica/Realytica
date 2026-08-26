@@ -3,6 +3,7 @@ import {
   Banknote,
   Building2,
   CheckCircle2,
+  ChevronDown,
   Gavel,
   ListChecks,
   RefreshCw,
@@ -11,6 +12,8 @@ import {
   User,
 } from 'lucide-react';
 import type { ActionOwner, ActionPriority, RecommendedAction } from '@realytica/shared';
+import { partitionActionsByLens } from '@realytica/shared';
+import { LensQuestion } from '../../../components/LensBar';
 import type { TabProps } from '../tab-props';
 import { api } from '../../../lib/api';
 import { titleCase } from '../../../lib/format';
@@ -49,7 +52,7 @@ const OWNER_ICON: Record<ActionOwner, typeof User> = {
   surveyor: Building2,
 };
 
-export default function ActionsTab({ caseData, result, refresh, runScreen, running, goToTab }: TabProps) {
+export default function ActionsTab({ caseData, result, refresh, runScreen, running, goToTab, lens }: TabProps) {
   const toast = useToast();
   const [doneOverrides, setDoneOverrides] = useState<Record<string, boolean>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
@@ -110,6 +113,17 @@ export default function ActionsTab({ caseData, result, refresh, runScreen, runni
 
   const nowOpenCount = actions.filter((a) => a.priority === 'now' && !a.done).length;
 
+  /*
+   * Whose desk each action is on, for this reader.
+   *
+   * Split on owner *and* horizon: a project manager coordinates every owner
+   * but across the whole timeline, while a developer owns the buyer's work
+   * only up to the offer. Everything not this reader's is folded below with a
+   * count — an action nobody can see is an action nobody does.
+   */
+  const { mine, others } = useMemo(() => partitionActionsByLens(actions, lens), [actions, lens]);
+  const [showOthers, setShowOthers] = useState(false);
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2 rounded-xl bg-surface p-4 ring-1 ring-[var(--ring)]">
@@ -149,8 +163,14 @@ export default function ActionsTab({ caseData, result, refresh, runScreen, runni
         />
       ) : (
         <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <LensQuestion lens={lens} />
+            <span className="text-[11.5px] text-ink-faint">
+              {mine.length} yours · {others.length} someone else's
+            </span>
+          </div>
           {PRIORITIES.map((priority) => {
-            const group = actions.filter((a) => a.priority === priority);
+            const group = mine.filter((a) => a.priority === priority);
             if (group.length === 0) return null;
             const visible = hideCompleted ? group.filter((a) => !a.done) : group;
             if (visible.length === 0) return null;
@@ -180,6 +200,34 @@ export default function ActionsTab({ caseData, result, refresh, runScreen, runni
               </div>
             );
           })}
+
+          {others.length > 0 && (
+            <div className="rounded-xl bg-surface-2 ring-1 ring-[var(--ring)]">
+              <button
+                type="button"
+                onClick={() => setShowOthers((v) => !v)}
+                className="flex w-full items-center justify-between px-4 py-3 text-left"
+              >
+                <span className="text-[13px] font-medium text-ink-secondary">
+                  {others.length} action{others.length === 1 ? '' : 's'} on someone else's desk
+                </span>
+                <ChevronDown size={14} className={cn('text-ink-faint transition-transform duration-base', showOthers && 'rotate-180')} />
+              </button>
+              {showOthers && (
+                <ul className="border-t border-hairline">
+                  {(hideCompleted ? others.filter((a) => !a.done) : others).map((action) => (
+                    <ActionRow
+                      key={action.id}
+                      action={action}
+                      pending={Boolean(pending[action.id])}
+                      onToggleDone={(next) => void toggleDone(action, next)}
+                      onJumpToRisks={() => goToTab('risks')}
+                    />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

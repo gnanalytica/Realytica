@@ -182,10 +182,13 @@ export const createCaseSchema = z.object({
   notes: z.string().optional(),
 });
 
+export const lensKeySchema = z.enum(['developer', 'engineering', 'architect', 'project_manager']);
+
 export const updateCaseSchema = z.object({
   identity: propertyIdentitySchema.partial().optional(),
   status: caseStatusSchema.optional(),
   persona: personaKeySchema.optional(),
+  lens: lensKeySchema.optional(),
   ownerName: z.string().min(1).optional(),
   notes: z.string().optional(),
 });

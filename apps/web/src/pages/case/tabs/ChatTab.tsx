@@ -30,7 +30,7 @@ export interface ChatTabProps extends TabProps {
   onNeedGraph?: () => void;
 }
 
-export default function ChatTab({ caseData, result, refresh, runScreen, running, goToTab, graph, graphLoading, graphError, onNeedGraph }: ChatTabProps) {
+export default function ChatTab({ caseData, result, refresh, runScreen, running, goToTab, lens, graph, graphLoading, graphError, onNeedGraph }: ChatTabProps) {
   const toast = useToast();
   const [draft, setDraft] = useState('');
   const [asking, setAsking] = useState(false);
@@ -220,7 +220,7 @@ export default function ChatTab({ caseData, result, refresh, runScreen, running,
           icon={<Workflow size={14} />}
           label="How this was worked out"
         >
-          <FlowTab caseData={caseData} result={result} refresh={refresh} runScreen={runScreen} running={running} goToTab={goToTab} graph={graph} loading={graphLoading} error={graphError} />
+          <FlowTab caseData={caseData} result={result} refresh={refresh} runScreen={runScreen} running={running} goToTab={goToTab} lens={lens} graph={graph} loading={graphLoading} error={graphError} />
         </Disclosure>
         <Disclosure
           open={showActivity}
@@ -229,7 +229,7 @@ export default function ChatTab({ caseData, result, refresh, runScreen, running,
           label="What the AI did"
           badge={runCount > 0 ? <Badge tone="neutral">{runCount}</Badge> : undefined}
         >
-          <IntelligenceTab caseData={caseData} result={result} refresh={refresh} runScreen={runScreen} running={running} goToTab={goToTab} />
+          <IntelligenceTab caseData={caseData} result={result} refresh={refresh} runScreen={runScreen} running={running} goToTab={goToTab} lens={lens} />
         </Disclosure>
       </div>
     </div>

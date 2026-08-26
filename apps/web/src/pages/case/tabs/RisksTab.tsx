@@ -23,6 +23,8 @@ import {
 } from '../../../components/ui/kit';
 import { EvidenceLink } from '../../../components/EvidenceLink';
 import { RiskProfileChart } from '../../../components/charts';
+import { LensQuestion } from '../../../components/LensBar';
+import { partitionByLens } from '@realytica/shared';
 
 const SEVERITIES: RiskSeverity[] = ['critical', 'serious', 'warning', 'info'];
 const CATEGORIES: RiskCategory[] = [
@@ -40,7 +42,7 @@ const STATUSES: RiskStatus[] = ['open', 'mitigated', 'accepted'];
 const STATUS_RANK: Record<RiskStatus, number> = { open: 0, mitigated: 1, accepted: 2 };
 const SEVERITY_RANK: Record<RiskSeverity, number> = { critical: 0, serious: 1, warning: 2, info: 3 };
 
-export default function RisksTab({ caseData, result, refresh, runScreen, running, goToTab }: TabProps) {
+export default function RisksTab({ caseData, result, refresh, runScreen, running, goToTab, lens }: TabProps) {
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -81,6 +83,17 @@ export default function RisksTab({ caseData, result, refresh, runScreen, running
           STATUS_RANK[a.status] - STATUS_RANK[b.status] || SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
       );
   }, [risks, severityFilter, categoryFilter, statusFilter]);
+
+  /*
+   * Split by whose findings these are — not filtered by it.
+   *
+   * `others` is rendered below, collapsed, with a count. A lens that could
+   * remove a finding from a reader's view would make the reader's ignorance
+   * of it our doing; every critical severity is in `mine` for every lens for
+   * the same reason (see RESERVED_FOR_EVERYONE).
+   */
+  const { mine, others } = useMemo(() => partitionByLens(filtered, lens), [filtered, lens]);
+  const [showOthers, setShowOthers] = useState(false);
 
   async function doApply(risk: RiskFlag, status: RiskStatus): Promise<void> {
     const prev = risk.status;
@@ -237,7 +250,13 @@ export default function RisksTab({ caseData, result, refresh, runScreen, running
         />
       ) : (
         <div className="flex flex-col gap-3">
-          {filtered.map((risk) => {
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <LensQuestion lens={lens} />
+            <span className="text-[11.5px] text-ink-faint">
+              {mine.length} for you · {others.length} for other readers
+            </span>
+          </div>
+          {mine.map((risk) => {
             const relatedActions = result.actions.filter((a) => a.relatedRiskIds.includes(risk.id));
             return (
               <RiskCard
@@ -254,6 +273,43 @@ export default function RisksTab({ caseData, result, refresh, runScreen, running
               />
             );
           })}
+
+          {others.length > 0 && (
+            <div className="rounded-lg bg-surface-2 ring-1 ring-[var(--ring)]">
+              <button
+                type="button"
+                onClick={() => setShowOthers((v) => !v)}
+                className="flex w-full items-center justify-between px-4 py-2.5 text-left"
+              >
+                <span className="text-[13px] font-medium text-ink-secondary">
+                  {others.length} finding{others.length === 1 ? '' : 's'} another reader owns
+                </span>
+                <ChevronDown size={14} className={cn('text-ink-faint transition-transform duration-base', showOthers && 'rotate-180')} />
+              </button>
+              {showOthers && (
+                <div className="flex flex-col gap-3 border-t border-[var(--ring)] p-4">
+                  <p className="text-[12px] leading-relaxed text-ink-muted">
+                    Folded, not filtered. These are the same findings, categorised as someone else's to act on — nothing
+                    critical is ever down here.
+                  </p>
+                  {others.map((risk) => (
+                    <RiskCard
+                      key={risk.id}
+                      risk={risk}
+                      evidence={result.evidence}
+                      expanded={Boolean(expanded[risk.id])}
+                      onToggle={() => toggleExpanded(risk.id)}
+                      onApplyStatus={(status) => applyStatus(risk, status)}
+                      pending={Boolean(pending[risk.id])}
+                      relatedActionsCount={result.actions.filter((a) => a.relatedRiskIds.includes(risk.id)).length}
+                      onJumpToActions={() => goToTab('actions')}
+                      onOpenEvidence={openEvidence}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

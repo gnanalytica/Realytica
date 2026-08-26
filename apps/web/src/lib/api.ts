@@ -24,6 +24,7 @@ import type {
   SiteContext,
   StalenessReport,
   TitleGraph,
+  LensKey,
   ProjectIntent,
   ProjectKind,
   ScreenResult,
@@ -130,6 +131,10 @@ export const api = {
 
   deleteDocument: (id: string, docId: string) =>
     request<void>(`/cases/${id}/documents/${docId}`, { method: 'DELETE' }),
+
+  /** Change who the case is written for. Does not re-screen — see the route. */
+  setLens: (id: string, lens: LensKey) =>
+    request<PropertyCase>(`/cases/${id}`, { method: 'PATCH', body: JSON.stringify({ lens }) }),
 
   runScreen: (id: string) => request<ScreenResult>(`/cases/${id}/screen`, { method: 'POST' }),
 

@@ -1303,7 +1303,19 @@ export interface PropertyCase {
   reference: string;
   identity: PropertyIdentity;
   status: CaseStatus;
+  /**
+   * @deprecated Superseded by `lens`. Written for a demand-side buyer — an
+   * investor, an adviser, a valuation firm — when the product's audience is
+   * the supply side. Kept only so cases stored before lenses existed still
+   * parse and still open somewhere sensible; see `lensFromPersona`.
+   */
   persona: PersonaKey;
+  /**
+   * Who this case is being read by, which decides what leads and what folds
+   * away. Absent means nobody has chosen — `resolveLens` then takes the
+   * assessment profile's default, which is chosen from the project kind.
+   */
+  lens?: LensKey;
   /**
    * What is being done with the site, and how that was decided. Absent on
    * cases created before the project model existed — the engine infers a

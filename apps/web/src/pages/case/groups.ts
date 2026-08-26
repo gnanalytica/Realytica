@@ -1,4 +1,6 @@
 import type { ComponentType } from 'react';
+import { LENS_PROFILES } from '@realytica/shared';
+import type { LensKey, LensSection } from '@realytica/shared';
 import type { TabProps } from './tab-props';
 import SnapshotTab from './tabs/SnapshotTab';
 import OfferTab from './tabs/OfferTab';
@@ -108,6 +110,49 @@ export const NEEDS_SCREEN = new Set(['risks', 'missing', 'range', 'offer', 'move
 
 export function findGroup(key: string | undefined): CaseGroup | undefined {
   return CASE_GROUPS.find(g => g.key === key);
+}
+
+/**
+ * Which group answers each lens section, so a lens's section order becomes a
+ * group order. Several sections land in one group — that is expected: the
+ * first of a lens's sections to name a group is what pulls that group
+ * forward, and the rest are already there.
+ */
+const SECTION_GROUP: Record<LensSection, string> = {
+  value: 'value',
+  offer: 'value',
+  costs: 'value',
+  title: 'legal',
+  compliance: 'legal',
+  planning: 'legal',
+  site: 'overview',
+  constraints: 'legal',
+  documents: 'documents',
+  actions: 'report',
+  risks: 'overview',
+  evidence: 'documents',
+};
+
+/**
+ * The five groups, ordered for one reader.
+ *
+ * Chat always leads and Overview always comes second, whatever the lens: the
+ * conversation is the way into the case, and the overview is where a critical
+ * finding is visible to everyone regardless of whose category it falls in.
+ * Ordering those away would let a lens bury the one thing no lens may bury.
+ * Everything after them follows the lens.
+ */
+export function groupsForLens(lens: LensKey): CaseGroup[] {
+  const wanted = LENS_PROFILES[lens].sections.map(s => SECTION_GROUP[s]);
+  const rest = CASE_GROUPS.filter(g => g.key !== 'overview');
+  const ordered: CaseGroup[] = [];
+  for (const key of wanted) {
+    const group = rest.find(g => g.key === key);
+    if (group && !ordered.includes(group)) ordered.push(group);
+  }
+  for (const g of rest) if (!ordered.includes(g)) ordered.push(g);
+  const overview = CASE_GROUPS.find(g => g.key === 'overview');
+  return overview ? [overview, ...ordered] : ordered;
 }
 
 /**
