@@ -6,6 +6,7 @@ import NewCase from './pages/NewCase';
 import Compare from './pages/Compare';
 import About from './pages/About';
 import Observability from './pages/Observability';
+import Prompts from './pages/Prompts';
 import CaseWorkspace from './pages/case/CaseWorkspace';
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
           <Route path="cases/:caseId/:tab" element={<CaseWorkspace />} />
           <Route path="compare" element={<Compare />} />
           <Route path="observability" element={<Observability />} />
+          <Route path="prompts" element={<Prompts />} />
           <Route path="about" element={<About />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

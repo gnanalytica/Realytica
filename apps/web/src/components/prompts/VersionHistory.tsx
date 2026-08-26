@@ -32,6 +32,12 @@ export interface VersionHistoryProps {
   onDelete: (versionId: string) => void;
   /** Set while a mutation for this version is in flight, so the row that is changing is the row that shows it. */
   busyVersionId?: string | null;
+  /**
+   * The version a deep link arrived pointing at — the text some run actually
+   * used, which is usually not the one in force now. Marked rather than
+   * selected, because arriving from a run should not change what is running.
+   */
+  highlightVersionId?: string | null;
   className?: string;
 }
 
@@ -42,6 +48,7 @@ export function VersionHistory({
   onNewVersionFrom,
   onDelete,
   busyVersionId,
+  highlightVersionId,
   className,
 }: VersionHistoryProps) {
   const [pendingActivate, setPendingActivate] = useState<PromptVersion | null>(null);
@@ -63,6 +70,7 @@ export function VersionHistory({
       <ol className="flex flex-col gap-2">
         {versions.map((version) => {
           const isActive = version.id === prompt.activeVersionId;
+          const isLinked = highlightVersionId != null && version.id === highlightVersionId;
           const broken = brokenChecks(version);
           const busy = busyVersionId === version.id;
 
@@ -74,6 +82,14 @@ export function VersionHistory({
                 'rounded-lg p-3 ring-1 ring-inset',
                 broken.length > 0 ? 'bg-critical/5 ring-critical/40' : 'bg-surface ring-[var(--ring)]',
                 isActive && 'ring-2 ring-brand',
+                // Deliberately weaker than the active ring: this row is what a
+                // run used, not what is in force, and the two must not look
+                // like the same claim.
+                // ring-brand at reduced alpha: related to the active ring but plainly
+                // weaker. There is no `info` colour in the Tailwind palette — only
+                // the Badge maps that tone — so `ring-info` would compile to
+                // nothing and the highlight would silently not render.
+                isLinked && !isActive && 'ring-2 ring-brand/40',
               )}
             >
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -89,6 +105,7 @@ export function VersionHistory({
                     Built-in
                   </Badge>
                 ) : null}
+                {isLinked ? <Badge tone="info">Used by the run you came from</Badge> : null}
                 {broken.length > 0 ? (
                   <Badge tone="critical" icon={<ShieldAlert size={11} />}>
                     {broken.length} guardrail{broken.length > 1 ? 's' : ''} dropped

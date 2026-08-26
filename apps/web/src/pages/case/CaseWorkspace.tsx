@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import UnitToggle from '../../components/UnitToggle';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   Sparkles,
   Waypoints,
+  Workflow,
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
@@ -40,6 +41,7 @@ import {
   useToast,
   type TabDef,
 } from '../../components/ui/kit';
+import type { RunGraph } from '@valytica/shared';
 import type { TabProps } from './tab-props';
 
 import SnapshotTab from './tabs/SnapshotTab';
@@ -55,6 +57,7 @@ import EvidenceTab from './tabs/EvidenceTab';
 import ActionsTab from './tabs/ActionsTab';
 import ReportTab from './tabs/ReportTab';
 import IntelligenceTab from './tabs/IntelligenceTab';
+import FlowTab from './tabs/FlowTab';
 
 const TAB_KEYS = [
   'snapshot',
@@ -70,6 +73,7 @@ const TAB_KEYS = [
   'actions',
   'report',
   'intelligence',
+  'flow',
 ] as const;
 
 type TabKey = (typeof TAB_KEYS)[number];
@@ -154,6 +158,45 @@ export default function CaseWorkspace() {
 
   const result = caseData?.result ?? null;
 
+  /*
+   * The run graph, fetched only when its tab is open.
+   *
+   * Not folded into the case aggregate: the graph is derived server-side from
+   * the same runs the case already carries, so shipping it with every
+   * `getCase` would send the whole thing on every tab, every refresh, for the
+   * one tab that draws it.
+   *
+   * Keyed on `caseData.updatedAt` as well as the case id, so a graph fetched
+   * before an agent run does not stay on screen after it — a stale canvas is
+   * worse than a spinner here, because it looks like a finished answer.
+   * `null` graph and `loading` are kept distinct: "nothing has been
+   * orchestrated" and "we have not asked yet" need different words.
+   */
+  const [flow, setFlow] = useState<{ graph: RunGraph | null; loading: boolean; error: string | null }>({
+    graph: null,
+    loading: false,
+    error: null,
+  });
+  const flowStamp = caseData?.updatedAt;
+  useEffect(() => {
+    if (activeTab !== 'flow' || !caseId) return;
+    let live = true;
+    setFlow((f) => ({ ...f, loading: true, error: null }));
+    api
+      .caseFlow(caseId)
+      .then((graph) => {
+        if (live) setFlow({ graph, loading: false, error: null });
+      })
+      .catch((e: unknown) => {
+        if (live) {
+          setFlow({ graph: null, loading: false, error: e instanceof Error ? e.message : String(e) });
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [activeTab, caseId, flowStamp]);
+
   const tabDefs: TabDef[] = useMemo(() => {
     const openCriticalRisks = result?.risks.filter((r) => r.severity === 'critical' && r.status === 'open').length ?? 0;
     const openActions = result?.actions.filter((a) => !a.done).length ?? 0;
@@ -225,6 +268,7 @@ export default function CaseWorkspace() {
         icon: <Sparkles size={13} />,
         badge: caseData?.intelligence?.runs.length ? <Badge tone="neutral">{caseData.intelligence.runs.length}</Badge> : undefined,
       },
+      { key: 'flow', label: 'Run graph', icon: <Workflow size={13} /> },
     ];
   }, [caseData, result]);
 
@@ -295,6 +339,8 @@ export default function CaseWorkspace() {
         return <ReportTab {...tabProps} />;
       case 'intelligence':
         return <IntelligenceTab {...tabProps} />;
+      case 'flow':
+        return <FlowTab {...tabProps} graph={flow.graph} loading={flow.loading} error={flow.error} />;
       default:
         return null;
     }

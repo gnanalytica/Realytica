@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   BookOpen,
   FileDiff,
@@ -207,9 +208,31 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
   const [prompts, setPrompts] = useState<PromptDescriptor[] | null>(initialPrompts ?? null);
   const [loading, setLoading] = useState<boolean>(Boolean(port.list));
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selectedKey, setSelectedKey] = useState<string | null>(initialPrompts?.[0]?.key ?? null);
+  /*
+   * `?key=` and `?version=` open this page on a specific prompt.
+   *
+   * The run canvas links here from a node's `PromptUsage`, which is what makes
+   * that recording worth anything: "the extraction got worse last Tuesday" is
+   * only answerable if the exact text behind that run is one click away. Read
+   * once into state rather than driven from the URL, so selecting a different
+   * prompt afterwards does not have to rewrite the address bar and the back
+   * button still leaves the page.
+   */
+  const [searchParams] = useSearchParams();
+  const linkedKey = searchParams.get('key');
+  const linkedVersionId = searchParams.get('version');
+
+  const [selectedKey, setSelectedKey] = useState<string | null>(
+    linkedKey ?? initialPrompts?.[0]?.key ?? null,
+  );
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [tab, setTab] = useState<DetailTab>('versions');
+  /**
+   * A `?version=` in the link is the version a run actually used, which is
+   * rarely the one in force now. Held separately so the version history can
+   * mark it, rather than silently scrolling past it.
+   */
+  const highlightVersionId = linkedVersionId;
   const [saving, setSaving] = useState(false);
   const [busyVersionId, setBusyVersionId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -227,7 +250,11 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
       .then((next) => {
         if (!live) return;
         setPrompts(next);
-        setSelectedKey((current) => current ?? next[0]?.key ?? null);
+        // A `?key=` naming a prompt this build does not have falls through to
+        // the first one rather than leaving the page blank — a stale link
+        // should land somewhere usable, not on nothing.
+        const linkedExists = linkedKey !== null && next.some((p) => p.key === linkedKey);
+        setSelectedKey((current) => current ?? (linkedExists ? linkedKey : null) ?? next[0]?.key ?? null);
         setLoadError(null);
       })
       .catch((error: unknown) => {
@@ -589,6 +616,7 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
 
                   {tab === 'versions' ? (
                     <VersionHistory
+                      highlightVersionId={highlightVersionId}
                       prompt={selected}
                       busyVersionId={busyVersionId}
                       onActivate={(versionId) => void activate(selected, versionId)}
