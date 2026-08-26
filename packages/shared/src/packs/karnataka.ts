@@ -27,6 +27,8 @@ import type {
   KarnatakaJurisdiction,
   KhataType,
   LandConversionStatus,
+  SiteConstraintKey,
+  SiteConstraintRule,
   StatePack,
   StatutoryRule,
 } from '../types';
@@ -243,6 +245,133 @@ const BUFFERS: StatutoryRule<BufferRule[]> = {
     'These distances have been revised repeatedly by NGT orders, court directions and RMP revisions, and this pack cannot confirm which are currently in force. The distance that actually applies to a given parcel depends on how that specific drain is classified (primary/secondary/tertiary) in the current BBMP/BDA drain map — treat these figures as indicative only, and confirm the drain classification and current buffer for this parcel with BBMP/BDA before relying on them for a go/no-go decision.',
 };
 
+/* ==================================================================== */
+/* Statutory site constraints                                            */
+/* ==================================================================== */
+
+/**
+ * The restrictions on a Bengaluru parcel that come from somewhere other than
+ * its title, and that no deed will ever mention.
+ *
+ * --- Why none of these carries a distance ---------------------------------
+ *
+ * The drain buffers above carry metre figures and are hedged heavily for it,
+ * because the figure that actually binds depends on how a specific drain is
+ * classified. Every entry here is worse on that axis:
+ *
+ *   - An aerodrome height cap is computed by the authority from obstacle
+ *     limitation surfaces that vary with distance, bearing from the runway
+ *     and intervening terrain. There is no radius inside which a single
+ *     height applies.
+ *   - A transmission clearance is set by the voltage class of that specific
+ *     line, and a 66kV line and a 400kV line are not the same restriction.
+ *   - A highway control line depends on the road's classification and on
+ *     whether a widening notification is currently in force — the second of
+ *     which changes without the first changing.
+ *
+ * So each rule names what is restricted, who decides, and which document
+ * settles it, and leaves the number to the authority that computes it. A
+ * confident metre figure here would be the same mistake this pack already
+ * spent a paragraph apologising for once.
+ */
+/**
+ * Every constraint key, in the order they are checked and shown.
+ *
+ * Exported so the UI can iterate them without importing the whole pack, and
+ * so there is one ordering rather than one per surface.
+ */
+export const SITE_CONSTRAINT_KEYS: SiteConstraintKey[] = [
+  'airport_height',
+  'high_tension_line',
+  'highway_control_line',
+  'railway_boundary',
+  'burial_ground',
+  'quarry_lease',
+];
+
+/**
+ * The constraints a person can answer, as opposed to the one the engine
+ * answers for itself.
+ *
+ * `airport_height` is absent because it is computed from the property's
+ * location — putting it in a form would invite a user to overrule a measured
+ * distance with a guess, and the check already accepts a declared *absence*
+ * where somebody has actually applied for the NOC and been told it does not
+ * apply.
+ */
+export const DECLARABLE_SITE_CONSTRAINTS: SiteConstraintKey[] = SITE_CONSTRAINT_KEYS.filter(k => k !== 'airport_height');
+
+const SITE_CONSTRAINTS: StatutoryRule<SiteConstraintRule[]> = {
+  value: [
+    {
+      key: 'airport_height',
+      label: 'Aerodrome height restriction (AAI NOC)',
+      restriction:
+        'Construction within an aerodrome\'s notified vicinity is capped in height by the obstacle limitation surfaces around the runway, and a No Objection Certificate from the Airports Authority of India is a precondition of building-plan sanction. The cap is computed by AAI from the site coordinates, not from a radius, and can be far below the FAR the zoning otherwise permits.',
+      authority: 'Airports Authority of India, through the NOCAS application system; the sanctioning authority will not release a plan without it',
+      statute: 'Aircraft Act 1934; Aircraft (Demolition of Obstructions caused by Buildings and Trees etc.) Rules 1994; GSR 751(E) Ministry of Civil Aviation height-restriction rules',
+      obtain: 'Apply for an AAI height clearance NOC for the exact site coordinates through NOCAS before relying on any development or FAR assumption, and before agreeing a price that prices in the permitted envelope.',
+      severityWhenPresent: 'serious',
+    },
+    {
+      key: 'high_tension_line',
+      label: 'Overhead transmission line clearance',
+      restriction:
+        'Statutory vertical and horizontal clearances must be maintained from the conductors of an overhead line, and the corridor beneath a high-tension line is effectively unbuildable. The clearance depends on the voltage class of the specific line. Land under or beside a corridor transacts at a substantial discount and is harder to finance and resell, and none of this appears in the title documents.',
+      authority: 'KPTCL or PGCIL for the line itself; the Electrical Inspectorate for clearance confirmation',
+      statute: 'Electricity Act 2003; Central Electricity Authority (Measures relating to Safety and Electric Supply) Regulations 2010',
+      obtain: 'Obtain written confirmation of the line\'s voltage class and the applicable clearance from KPTCL/PGCIL, and have a licensed surveyor plot the corridor against the site boundary.',
+      severityWhenPresent: 'serious',
+    },
+    {
+      key: 'highway_control_line',
+      label: 'Highway building line / control line',
+      restriction:
+        'Land fronting a national or state highway is subject to a building line and a control line measured from the road, inside which construction is restricted or prohibited. Where a widening notification is in force, the setback is larger than the current road edge suggests and the affected strip is liable to acquisition — so a site that measures correctly today can lose its frontage.',
+      authority: 'National Highways Authority of India for a national highway; the State PWD or the relevant highway authority for a state highway',
+      statute: 'Control of National Highways (Land and Traffic) Act 2002; Karnataka Highways Act 1964',
+      obtain: 'Obtain the current building-line and control-line distances for this stretch from the highway authority, together with confirmation of whether a widening or land-acquisition notification is in force.',
+      severityWhenPresent: 'serious',
+    },
+    {
+      key: 'railway_boundary',
+      label: 'Railway boundary setback',
+      restriction:
+        'Construction adjoining a railway boundary requires the zone railway\'s clearance and is set back from the boundary. Where a line is being doubled, electrified or converted, the railway\'s land requirement can extend beyond the present boundary.',
+      authority: 'The zone railway (South Western Railway for Bengaluru), through its engineering department',
+      statute: 'Railways Act 1989; the zone railway\'s standing instructions on construction adjoining railway land',
+      obtain: 'Obtain the railway boundary alignment for this stretch and written clearance for any construction, and check whether a doubling or electrification project affects the land requirement.',
+      severityWhenPresent: 'warning',
+    },
+    {
+      key: 'burial_ground',
+      label: 'Burial ground or crematorium proximity',
+      restriction:
+        'A notified burial ground or crematorium carries a statutory separation from residential construction, and the land itself cannot be alienated. Beyond the legal position this materially affects resale demand in the Bengaluru market, which is worth knowing before rather than after.',
+      authority: 'BBMP or the relevant local body, which maintains the notified list',
+      statute: 'Karnataka Municipal Corporations Act 1976; BBMP building bye-laws on separation from notified burial grounds',
+      obtain: 'Check the BBMP notified burial-ground list for this ward and confirm the separation the bye-laws require for the intended use.',
+      severityWhenPresent: 'warning',
+    },
+    {
+      key: 'quarry_lease',
+      label: 'Quarrying or mining lease area',
+      restriction:
+        'Land within or adjoining a granted quarrying lease carries restrictions on construction and a real risk of ground instability, blasting damage and dust. On the northern and eastern peripheries a granted lease can sit over land also being sold for residential development, and the two rights are irreconcilable.',
+      authority: 'Department of Mines and Geology, Karnataka',
+      statute: 'Karnataka Minor Mineral Concession Rules 1994; Mines and Minerals (Development and Regulation) Act 1957',
+      obtain: 'Search the Department of Mines and Geology records for granted leases over and adjoining this survey number.',
+      severityWhenPresent: 'serious',
+    },
+  ],
+  asOf: '2024-01-01',
+  source:
+    'Aircraft (Demolition of Obstructions) Rules 1994 and AAI NOCAS procedure; CEA (Measures relating to Safety and Electric Supply) Regulations 2010; Control of National Highways Act 2002 and Karnataka Highways Act 1964; Railways Act 1989; BBMP building bye-laws; Karnataka Minor Mineral Concession Rules 1994',
+  verifyNote:
+    'These entries describe what each restriction is and who decides it — none of them carries a distance, because in every case the binding figure is computed by the authority from facts about the specific site (aerodrome surfaces, line voltage, road classification and any notification in force). Do not infer a clearance from this pack; obtain the named document.',
+};
+
+
 /* ------------------------------------------------------------------ */
 /* The pack                                                            */
 /* ------------------------------------------------------------------ */
@@ -381,6 +510,7 @@ export const KARNATAKA_PACK: StatePack = {
   stampDutySurchargePct: STAMP_DUTY_SURCHARGE_PCT,
   registrationFeePct: REGISTRATION_FEE_PCT,
   buffers: BUFFERS,
+  siteConstraints: SITE_CONSTRAINTS,
 
   titleChecks: [
     {

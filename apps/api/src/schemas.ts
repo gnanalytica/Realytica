@@ -4,6 +4,8 @@ import type {
   AreaBasis,
   DocumentKind,
   KarnatakaAttributes,
+  SiteConstraintDeclaration,
+  SiteConstraintKey,
   KarnatakaJurisdiction,
   KhataType,
   LandConversionStatus,
@@ -88,6 +90,21 @@ export const areaBasisSchema = z.enum(['carpet', 'built_up', 'super_built_up', '
 
 export const bbmpTaxZoneSchema = z.enum(['A', 'B', 'C', 'D', 'E', 'F']);
 
+export const siteConstraintKeySchema = z.enum([
+  'airport_height',
+  'high_tension_line',
+  'highway_control_line',
+  'railway_boundary',
+  'burial_ground',
+  'quarry_lease',
+]) satisfies z.ZodType<SiteConstraintKey>;
+
+export const siteConstraintDeclarationSchema = z.object({
+  key: siteConstraintKeySchema,
+  presence: z.enum(['present', 'absent', 'unknown']),
+  note: z.string().max(500).optional(),
+}) satisfies z.ZodType<SiteConstraintDeclaration>;
+
 export const karnatakaAttributesSchema = z.object({
   jurisdiction: karnatakaJurisdictionSchema,
   khataType: khataTypeSchema,
@@ -99,6 +116,7 @@ export const karnatakaAttributesSchema = z.object({
   nearRajakaluve: z.boolean().optional(),
   nearLake: z.boolean().optional(),
   grantedLandPtcl: z.boolean().optional(),
+  siteConstraints: z.array(siteConstraintDeclarationSchema).max(12).optional(),
 }) satisfies z.ZodType<KarnatakaAttributes>;
 
 // Plot/site attributes, carried on `PropertyIdentity.plot`. Present for land

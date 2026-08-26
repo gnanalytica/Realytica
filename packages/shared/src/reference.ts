@@ -12,7 +12,7 @@
  * address below is written as "<building>, <locality>, <city>, <state>".
  */
 
-import type { Comparable, CountryPack, LocalityReference, PropertyType, ReferenceData, WaterExposureReference } from './types';
+import type { AerodromeReference, Comparable, CountryPack, LocalityReference, PropertyType, ReferenceData, WaterExposureReference } from './types';
 import { KARNATAKA_PACK } from './packs/karnataka';
 
 /* ------------------------------------------------------------------ */
@@ -943,6 +943,68 @@ const WATER_EXPOSURE: Record<string, Omit<WaterExposureReference, 'source' | 'as
   },
 };
 
+/* ==================================================================== */
+/* Aerodrome proximity                                                   */
+/* ==================================================================== */
+
+/**
+ * Which aerodrome is near enough to a locality that its height restrictions
+ * may reach it, and roughly how far.
+ *
+ * Two aerodromes matter in Bengaluru and they do different things. Kempegowda
+ * International in the north is a live international airport with the full
+ * obstacle-limitation apparatus around it, and the growth corridors selling
+ * hardest on FAR headroom — Devanahalli, Yelahanka, the airport road — sit
+ * inside its notified vicinity. HAL in the east is a working defence and
+ * general-aviation aerodrome whose approach funnel crosses the older eastern
+ * suburbs, and a great many buyers there have no idea it constrains anything.
+ *
+ * --- What the distance is, and is not ------------------------------------
+ *
+ * `approxKm` is an indicative locality-to-aerodrome figure whose only job is
+ * to raise the question on a case that has no map lookup. It is not the input
+ * to any height calculation and the engine never treats it as one: the cap is
+ * computed by AAI from the site's own coordinates against surfaces that vary
+ * with bearing and terrain, which is exactly why the check tells the reader to
+ * apply for the NOC rather than quoting them a number.
+ *
+ * Where a site context has actually measured the distance to an airport, the
+ * engine prefers the measurement — the same estimated-versus-measured split
+ * the transit driver uses.
+ */
+const AERODROMES: Record<string, AerodromeReference> = {
+  'in-blr-devanahalli': {
+    name: 'Kempegowda International Airport (BLR)',
+    approxKm: 5,
+    note: 'The locality adjoins the airport. Height restriction is not a background consideration here — it is the first question to ask about any development plan.',
+  },
+  'in-blr-yelahanka': {
+    name: 'Kempegowda International Airport (BLR)',
+    approxKm: 18,
+    note: 'Inside the airport\'s notified vicinity, and additionally near the Yelahanka Air Force Station, which carries its own restrictions.',
+  },
+  'in-blr-thanisandra-hennur': {
+    name: 'Kempegowda International Airport (BLR)',
+    approxKm: 22,
+    note: 'On the airport corridor. Whether a specific site falls inside the restricted vicinity depends on where it sits along the corridor.',
+  },
+  'in-blr-hebbal': {
+    name: 'Kempegowda International Airport (BLR)',
+    approxKm: 26,
+    note: 'At the city end of the airport corridor, generally outside the tightest surfaces but close enough that a tall proposal should be checked.',
+  },
+  'in-blr-indiranagar': {
+    name: 'HAL Airport (VOBG)',
+    approxKm: 4,
+    note: 'Close to the HAL aerodrome, which is a working defence and general-aviation airfield. Its approach funnel constrains height across the older eastern suburbs, and most buyers here do not know it exists as a planning constraint.',
+  },
+  'in-blr-whitefield': {
+    name: 'HAL Airport (VOBG)',
+    approxKm: 11,
+    note: 'Within reach of the HAL aerodrome\'s surfaces along parts of the corridor. Worth confirming for any proposal above a few floors.',
+  },
+};
+
 /**
  * Localities with their water exposure attached.
  *
@@ -955,9 +1017,12 @@ const WATER_EXPOSURE: Record<string, Omit<WaterExposureReference, 'source' | 'as
  */
 export const LOCALITIES: LocalityReference[] = LOCALITY_BASE.map(locality => {
   const exposure = WATER_EXPOSURE[locality.id];
-  return exposure
-    ? { ...locality, waterExposure: { ...exposure, source: WATER_SOURCE, asOf: WATER_AS_OF, verifyNote: WATER_VERIFY } }
-    : locality;
+  const aerodrome = AERODROMES[locality.id];
+  return {
+    ...locality,
+    ...(exposure ? { waterExposure: { ...exposure, source: WATER_SOURCE, asOf: WATER_AS_OF, verifyNote: WATER_VERIFY } } : {}),
+    ...(aerodrome ? { aerodrome } : {}),
+  };
 });
 
 /* ------------------------------------------------------------------ */

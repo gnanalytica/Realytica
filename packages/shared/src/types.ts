@@ -169,6 +169,109 @@ export interface KarnatakaAttributes {
   nearLake?: boolean;
   /** Granted land under the PTCL Act carries transfer restrictions. */
   grantedLandPtcl?: boolean;
+  /**
+   * Restrictions on the parcel that come from something other than its title
+   * — an aerodrome height cap, a transmission corridor, a highway control
+   * line. Absent means nobody has looked; the engine reports that as its own
+   * finding rather than as an all-clear.
+   */
+  siteConstraints?: SiteConstraintDeclaration[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Statutory site constraints                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Restrictions on a parcel that come from something other than its title.
+ *
+ * A title screen answers "can this be transferred to me". These answer the
+ * separate question "and once it is, what may I do with it" — and they are
+ * the class of defect most likely to be discovered after money has changed
+ * hands, because none of them appears in any deed. A high-tension line
+ * crossing a site is not in the sale deed. Neither is a height cap imposed
+ * because the site sits under an approach funnel, nor a highway control line
+ * that will take the front twelve metres when the road is widened.
+ *
+ * The drain and lake buffers already in the pack are members of this family;
+ * these six are the rest of it for a Bengaluru parcel.
+ */
+export type SiteConstraintKey =
+  /** Height capped by an aerodrome's obstacle-limitation surfaces; needs an AAI NOC. */
+  | 'airport_height'
+  /** Statutory clearance from an overhead transmission line's conductors. */
+  | 'high_tension_line'
+  /** Building line / control line setback from a national or state highway. */
+  | 'highway_control_line'
+  /** Setback from a railway boundary. */
+  | 'railway_boundary'
+  /** Setback from a burial ground or crematorium. */
+  | 'burial_ground'
+  /** Within or adjoining a granted quarrying or mining lease area. */
+  | 'quarry_lease';
+
+/**
+ * Whether a constraint applies, does not apply, or has not been looked at.
+ *
+ * Three states rather than a boolean, because the third is the common one and
+ * the whole product turns on not letting it read as the second. "Nobody has
+ * checked whether a transmission line crosses this site" and "no transmission
+ * line crosses this site" are different facts with different consequences,
+ * and a `boolean | undefined` invites a call site to conflate them.
+ */
+export type ConstraintPresence = 'present' | 'absent' | 'unknown';
+
+/** What a case records about one constraint. */
+export interface SiteConstraintDeclaration {
+  key: SiteConstraintKey;
+  presence: ConstraintPresence;
+  /** Which line, which highway, how far — whatever the person who checked knows. */
+  note?: string;
+}
+
+/**
+ * What a State Pack knows about one constraint: what it restricts, who
+ * decides, and what document settles it.
+ *
+ * Deliberately carries no metre figure. The drain buffers next door do carry
+ * one and are hedged heavily for it; these are worse. An aerodrome height cap
+ * is a function of distance and bearing from the runway and of the terrain
+ * between, computed by the authority from its own surfaces. A transmission
+ * clearance depends on the voltage class of that specific line. A highway
+ * control line depends on the road's classification and on whether a
+ * widening notification is in force. Printing a single number for any of them
+ * would assert a precision none of them has, and this codebase has been down
+ * that road once already with the rajakaluve buffers.
+ */
+export interface SiteConstraintRule {
+  key: SiteConstraintKey;
+  label: string;
+  /** What the restriction actually does to the property. */
+  restriction: string;
+  /** Who decides, and what they issue. */
+  authority: string;
+  statute: string;
+  /** What to obtain to settle it either way. */
+  obtain: string;
+  /** How bad it is when it is present and unresolved. */
+  severityWhenPresent: RiskSeverity;
+}
+
+/**
+ * An aerodrome near enough to a locality that its height restrictions may
+ * reach it.
+ *
+ * Distance is indicative and locality-level: it exists so a case with no map
+ * lookup still gets the question raised. Where a site context has actually
+ * measured the distance, the engine prefers the measurement — the same
+ * estimate-versus-measured split the transit driver uses, and for the same
+ * reason.
+ */
+export interface AerodromeReference {
+  name: string;
+  /** Indicative straight-line kilometres from the locality to the aerodrome. */
+  approxKm: number;
+  note: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -504,6 +607,15 @@ export interface StateComplianceSummary {
   checks: ComplianceCheck[];
   /** Checks that cannot be answered from what the user has supplied. */
   unresolved: string[];
+  /**
+   * The registries and datasets this pack's checks are written against.
+   *
+   * Carried onto the summary so the reader can see what was consulted and, by
+   * omission, what was not. It was already on the State Pack and reached only
+   * the agent layer, which meant the one audience it was written for — the
+   * person deciding whether to trust the output — never saw it.
+   */
+  datasets?: string[];
   /** Provenance banner: statutory values are only as current as their source. */
   rulesAsOf: string;
   verifyNote: string;
@@ -1095,6 +1207,11 @@ export interface LocalityReference {
    * defaulting.
    */
   waterExposure?: WaterExposureReference;
+  /**
+   * An aerodrome close enough to this locality that its obstacle-limitation
+   * surfaces may reach it. Present only where one does.
+   */
+  aerodrome?: AerodromeReference;
   source: string;
 }
 
@@ -1193,6 +1310,11 @@ export interface StatePack {
   stampDutySurchargePct: StatutoryRule<number>;
   registrationFeePct: StatutoryRule<number>;
   buffers: StatutoryRule<BufferRule[]>;
+  /**
+   * Restrictions that are not about title and not about water. Optional so a
+   * pack written before they existed still satisfies the type.
+   */
+  siteConstraints?: StatutoryRule<SiteConstraintRule[]>;
   /** Named state-specific title checks surfaced in the compliance view. */
   titleChecks: { key: string; label: string; description: string; statute: string }[];
   datasets: string[];

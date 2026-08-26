@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Filter,
   HelpCircle,
+  Library,
   MapPinned,
   Receipt,
   ScrollText,
@@ -14,6 +15,7 @@ import type { ComplianceCheck, ComplianceVerdict, EvidenceItem, TransactionCostB
 import { CostWaterfallChart } from '../../../components/charts';
 import type { TabProps } from '../tab-props';
 import { WaterExposureCard } from '../../../components/WaterExposureCard';
+import { SiteConstraintsCard } from '../../../components/SiteConstraintsCard';
 import { StatutoryProvenance } from '../../../components/StatutoryProvenance';
 import { EvidenceLink } from '../../../components/EvidenceLink';
 import { PlaybookPanel } from '../../../components/PlaybookPanel';
@@ -155,7 +157,7 @@ function CostTable({ lines, currency }: { lines: TransactionCostBreakdown['lines
 /* Tab                                                                 */
 /* ------------------------------------------------------------------ */
 
-export default function ComplianceTab({ caseData, result, runScreen, running, goToTab }: TabProps) {
+export default function ComplianceTab({ caseData, result, refresh, runScreen, running, goToTab }: TabProps) {
   const navigate = useNavigate();
   const [restFilter, setRestFilter] = useState<RestFilter>('all');
   const [hideClear, setHideClear] = useState(false);
@@ -285,8 +287,47 @@ export default function ComplianceTab({ caseData, result, runScreen, running, go
             source={`${compliance.state} State Pack — ${compliance.statePackId}`}
             verifyNote={compliance.verifyNote}
           />
+
+          {/*
+            * The registries these checks are written against.
+            *
+            * This list existed on the State Pack from the start and reached
+            * only the agent layer — the one audience it was written for, the
+            * person deciding whether to trust the output, never saw it. It
+            * earns its place by what it excludes as much as by what it names:
+            * a reader who knows the checks are written against Kaveri, Bhoomi
+            * and the BBMP roll also knows what is not in them.
+            */}
+          {compliance.datasets && compliance.datasets.length > 0 && (
+            <div className="rounded-lg bg-sunken p-3">
+              <p className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                <Library size={12} /> Registries these checks are written against
+              </p>
+              <ul className="m-0 mt-1.5 grid list-none gap-x-4 gap-y-1 p-0 sm:grid-cols-2">
+                {compliance.datasets.map((dataset) => (
+                  <li key={dataset} className="text-[12px] leading-snug text-ink-secondary">
+                    {dataset}
+                  </li>
+                ))}
+              </ul>
+              <p className="m-0 mt-2 text-[12px] leading-relaxed text-ink-muted">
+                These are the records the checks above are written against, not records this screen has queried live. A
+                check reported as clear is clear on what you supplied — it is not the result of a search of these
+                registries.
+              </p>
+            </div>
+          )}
         </CardBody>
       </Card>
+
+      {/*
+        * The declaration form sits directly under the header, above the
+        * checks it feeds. A reader who has just met five findings saying
+        * "nobody has looked at this" is exactly the person who can answer
+        * them, and a form on another tab behind an Edit button is a form
+        * nobody fills in.
+        */}
+      <SiteConstraintsCard caseData={caseData} checks={compliance.checks} refresh={refresh} />
 
       {playbooks.length > 0 && <PlaybookPanel runs={playbooks} />}
 

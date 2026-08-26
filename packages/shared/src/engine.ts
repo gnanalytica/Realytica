@@ -2234,6 +2234,43 @@ function buildRisks(
  * covered by a country-level risk (the encumbrance certificate), the check
  * links to that existing `RiskFlag` instead of minting a duplicate.
  */
+/**
+ * The radius at which an aerodrome's height restrictions ordinarily start to
+ * matter.
+ *
+ * Twenty kilometres is the outer bound of the notified vicinity used in the
+ * Indian height-clearance regime, and it is used here for one purpose only:
+ * deciding whether to raise the question. It is not a boundary inside which
+ * some particular height applies. The obstacle limitation surfaces are not
+ * circular — they extend much further along an approach path than they do to
+ * the sides — so this over-includes to the sides and under-includes along the
+ * approach, which is the right direction to be wrong in for a check whose
+ * output is "go and apply for the NOC".
+ */
+const AERODROME_VICINITY_KM = 20;
+
+/**
+ * Distance to the nearest airport the site context actually measured, in
+ * kilometres.
+ *
+ * Only from a pin precise enough to describe this property — the same gate
+ * the transit driver uses. A locality-centre pin would produce a locality
+ * distance, and this check already has a locality distance in the reference
+ * data that admits what it is.
+ */
+function airportDistanceKm(siteContext: SiteContext | undefined): number | undefined {
+  if (!sitePinIsAccurate(siteContext)) return undefined;
+  const airport = (siteContext?.amenities ?? []).filter(a => a.kind === 'airport').sort((a, b) => a.straightLineMetres - b.straightLineMetres)[0];
+  // Straight line, not road distance: an obstacle limitation surface is
+  // geometry over the ground, and how long the drive takes is irrelevant to
+  // it.
+  return airport ? airport.straightLineMetres / 1000 : undefined;
+}
+
+function nearestAirportName(siteContext: SiteContext | undefined): string | undefined {
+  return (siteContext?.amenities ?? []).filter(a => a.kind === 'airport').sort((a, b) => a.straightLineMetres - b.straightLineMetres)[0]?.name;
+}
+
 export function buildStateCompliance(
   caseId: string,
   identity: PropertyIdentity,
@@ -2242,6 +2279,8 @@ export function buildStateCompliance(
   countryLevelRisks: RiskFlag[],
   previousResult: ScreenResult | undefined,
   evidence: EvidenceBuilder,
+  locality: LocalityReference,
+  siteContext: SiteContext | undefined,
 ): { compliance: StateComplianceSummary; risks: RiskFlag[] } {
   const ka = identity.karnataka;
   const findDoc = (kind: DocumentKind): CaseDocument | undefined => documents.find(d => d.kind === kind);
@@ -2789,6 +2828,171 @@ export function buildStateCompliance(
     pushCheck('layout_approval_status', 'Layout approval status', verdict, finding, consequence, nextStep, statuteFor('layout_approval_status', 'Karnataka Town and Country Planning Act 1961, ss.17 & 32'), evIds, relatedRiskIds);
   }
 
+  /* -- Statutory site constraints ------------------------------------- */
+
+  // Twelve through seventeen: what restricts the parcel other than its title.
+  //
+  // Every one of these is invisible in the deeds — a transmission corridor,
+  // an aerodrome height cap and a highway control line are all somebody
+  // else's rights over land whose title is otherwise perfect. That is exactly
+  // why they are worth checking, and why an unchecked one reports as
+  // unchecked rather than as clear.
+  //
+  // The aerodrome check differs from the other five: it can be answered from
+  // data the case already holds, so it is, rather than being put to the user.
+  if (statePack.siteConstraints) {
+    const declared = new Map((ka?.siteConstraints ?? []).map(d => [d.key, d]));
+
+    for (const rule of statePack.siteConstraints.value) {
+      const declaration = declared.get(rule.key);
+      const evIds: string[] = [];
+      let verdict: ComplianceVerdict;
+      let finding: string;
+      let consequence: string;
+      let nextStep: string;
+      let relatedRiskIds: string[] = [];
+
+      /* -- Aerodrome: computed, not asked --------------------------- */
+
+      if (rule.key === 'airport_height') {
+        // A measured distance from a located pin beats the locality figure,
+        // and the locality figure beats nothing — but neither produces a
+        // height. Both only establish that the question applies.
+        const measuredKm = airportDistanceKm(siteContext);
+        const localityAerodrome = locality.aerodrome;
+        const km = measuredKm ?? localityAerodrome?.approxKm;
+        const name = measuredKm !== undefined ? nearestAirportName(siteContext) ?? localityAerodrome?.name ?? 'the nearest aerodrome' : localityAerodrome?.name;
+
+        // Declared 'absent' means somebody actually applied and was told the
+        // site is unrestricted. That is a real answer and it outranks a
+        // proximity inference.
+        if (declaration?.presence === 'absent') {
+          verdict = 'clear';
+          finding = `An aerodrome height clearance has been confirmed as not applying to this site${declaration.note ? ` — ${declaration.note}` : ''}.`;
+          consequence = 'The permitted building envelope is not additionally capped by aerodrome obstacle limitation surfaces.';
+          nextStep = 'No action needed on this point, provided the confirmation is on file and names this survey number.';
+          evIds.push(
+            evidence.add({
+              statement: `Aerodrome height restriction recorded as not applying${declaration.note ? `: ${declaration.note}` : ''}.`,
+              sourceType: 'user_input',
+              sourceRef: 'identity.karnataka.siteConstraints.airport_height',
+              sourceLabel: 'Case identity — site constraints',
+              confidence: 0.8,
+            }),
+          );
+        } else if (km === undefined) {
+          verdict = 'unknown';
+          finding =
+            'Whether this parcel falls inside an aerodrome\'s notified vicinity has not been established. No location is on file for it and no aerodrome is recorded for this locality.';
+          consequence =
+            'If it does, the building envelope is capped by the aerodrome\'s obstacle limitation surfaces regardless of the FAR the zoning permits, and no plan will be sanctioned without an AAI NOC. Any development or resale figure that prices in the zoning envelope is unsafe until this is known.';
+          nextStep = rule.obtain;
+        } else {
+          const inside = km <= AERODROME_VICINITY_KM;
+          const basis =
+            measuredKm !== undefined
+              ? `${km.toFixed(1)} km from ${name}, measured from this property's located position`
+              : `approximately ${km} km from ${name} at locality level — this property's own distance has not been measured`;
+          if (inside || declaration?.presence === 'present') {
+            verdict = 'attention';
+            finding =
+              `This property sits ${basis}, inside the vicinity where the Aircraft (Demolition of Obstructions) Rules apply. ` +
+              `${localityAerodrome?.note ?? ''} The height that may actually be built here is set by the aerodrome's obstacle ` +
+              'limitation surfaces, computed by AAI from the site coordinates — it is not a function of distance alone, and it can be well below what the zoning FAR implies.';
+            consequence = rule.restriction;
+            nextStep = rule.obtain;
+            const evId = evidence.add({
+              statement: `Property is ${basis}, within the ${AERODROME_VICINITY_KM} km aerodrome vicinity at which height clearance applies.`,
+              sourceType: measuredKm !== undefined ? 'external_dataset' : 'model_inference',
+              sourceRef: 'locality.aerodrome',
+              sourceLabel: measuredKm !== undefined ? `${siteContext?.provider ?? 'mapping'} measured distance` : 'Locality reference — aerodrome proximity',
+              confidence: measuredKm !== undefined ? 0.8 : 0.5,
+            });
+            evIds.push(evId);
+            relatedRiskIds = [
+              addRisk(
+                'karnataka_aerodrome_height_restriction',
+                `Height capped by ${name} — AAI clearance needed`,
+                rule.severityWhenPresent,
+                'planning',
+                finding,
+                'A site bought on its permitted FAR and then capped by an aerodrome surface has been bought on an envelope that cannot be built. On a plot sold for development this is the assumption most likely to be wrong and least likely to be checked.',
+                rule.obtain,
+                evIds,
+              ),
+            ];
+          } else {
+            verdict = 'clear';
+            finding = `This property sits ${basis}, outside the ${AERODROME_VICINITY_KM} km vicinity at which aerodrome height restrictions ordinarily bite.`;
+            consequence =
+              'No aerodrome height cap is indicated by distance. This is a negative from a distance figure, not from an authority — a tall proposal should still be confirmed, because the surfaces extend further along the approach path than they do to the sides.';
+            nextStep =
+              measuredKm !== undefined
+                ? 'No action needed unless the proposal is tall, in which case confirm with an AAI NOC application.'
+                : 'Add a street address and rebuild the location so the distance is measured from this property rather than from the locality, or confirm with an AAI NOC application.';
+            evIds.push(
+              evidence.add({
+                statement: `Property is ${basis}, outside the ${AERODROME_VICINITY_KM} km aerodrome vicinity.`,
+                sourceType: measuredKm !== undefined ? 'external_dataset' : 'model_inference',
+                sourceRef: 'locality.aerodrome',
+                sourceLabel: measuredKm !== undefined ? `${siteContext?.provider ?? 'mapping'} measured distance` : 'Locality reference — aerodrome proximity',
+                confidence: measuredKm !== undefined ? 0.7 : 0.4,
+              }),
+            );
+          }
+        }
+      } else if (declaration === undefined || declaration.presence === 'unknown') {
+        /* -- The five that need a human ------------------------------ */
+
+        verdict = 'unknown';
+        finding = `MISSING: any record of whether ${rule.label.toLowerCase()} affects this parcel. Nothing on file says either way, and nothing in the title documents ever will.`;
+        consequence = rule.restriction;
+        nextStep = rule.obtain;
+      } else if (declaration.presence === 'absent') {
+        verdict = 'clear';
+        finding = `${rule.label} is recorded as not affecting this parcel${declaration.note ? ` — ${declaration.note}` : ''}.`;
+        consequence = 'This restriction does not bear on what may be built or on the value of the site.';
+        nextStep = `This is a negative recorded on the case rather than a search result. If it came from anything less than ${rule.authority.toLowerCase()}, treat it as provisional.`;
+        evIds.push(
+          evidence.add({
+            statement: `${rule.label} recorded as not applying${declaration.note ? `: ${declaration.note}` : ''}.`,
+            sourceType: 'user_input',
+            sourceRef: `identity.karnataka.siteConstraints.${rule.key}`,
+            sourceLabel: 'Case identity — site constraints',
+            confidence: 0.7,
+          }),
+        );
+      } else {
+        verdict = 'attention';
+        finding = `${rule.label} affects this parcel${declaration.note ? ` — ${declaration.note}` : ''}. ${rule.restriction}`;
+        consequence = `${rule.authority} decides what actually applies here, and the figure is computed from facts about this specific site rather than read off a table.`;
+        nextStep = rule.obtain;
+        const evId = evidence.add({
+          statement: `${rule.label} recorded as affecting this parcel${declaration.note ? `: ${declaration.note}` : ''}.`,
+          sourceType: 'user_input',
+          sourceRef: `identity.karnataka.siteConstraints.${rule.key}`,
+          sourceLabel: 'Case identity — site constraints',
+          confidence: 0.8,
+        });
+        evIds.push(evId);
+        relatedRiskIds = [
+          addRisk(
+            `karnataka_constraint_${rule.key}`,
+            rule.label,
+            rule.severityWhenPresent,
+            'planning',
+            finding,
+            'A restriction that does not appear in any deed and is not discovered until after completion is the most expensive kind: the title is perfect and the land still cannot be used as intended.',
+            rule.obtain,
+            evIds,
+          ),
+        ];
+      }
+
+      pushCheck(rule.key, rule.label, verdict, finding, consequence, nextStep, rule.statute, evIds, relatedRiskIds);
+    }
+  }
+
   const applicable = checks.filter(c => c.verdict !== 'unknown');
   const clearCount = applicable.filter(c => c.verdict === 'clear').length;
   const score = applicable.length > 0 ? Math.round((clearCount / applicable.length) * 100) : 0;
@@ -2805,6 +3009,7 @@ export function buildStateCompliance(
     // provenance banner shown across the whole compliance view.
     rulesAsOf: statePack.buffers.asOf,
     verifyNote: statePack.buffers.verifyNote,
+    datasets: statePack.datasets,
   };
 
   return { compliance, risks };
@@ -3076,7 +3281,26 @@ function buildConfidence(
  * same logical action keeps the same id across re-screens — which is what
  * lets `done` be carried over from `previousResult` by matching `id`.
  */
-function buildActions(caseId: string, completeness: CompletenessSummary, risks: RiskFlag[], previousResult: ScreenResult | undefined): RecommendedAction[] {
+/**
+ * Below this, the gap between guidance value and price is not worth a
+ * reference application.
+ *
+ * A s.45B reference is a real process with a real cost in time and
+ * professional fees, and it can go the other way — the Deputy Commissioner
+ * may confirm the guidance value or set it higher. Raising it over a two per
+ * cent gap would cost the buyer more than it saves and would teach them to
+ * ignore the suggestion the one time it is worth acting on.
+ */
+const GUIDANCE_GAP_FLOOR_PCT = 10;
+
+function buildActions(
+  caseId: string,
+  completeness: CompletenessSummary,
+  risks: RiskFlag[],
+  previousResult: ScreenResult | undefined,
+  transactionCosts: TransactionCostBreakdown | undefined,
+  identity: PropertyIdentity,
+): RecommendedAction[] {
   const actions: RecommendedAction[] = [];
 
   const mk = (
@@ -3098,6 +3322,41 @@ function buildActions(caseId: string, completeness: CompletenessSummary, risks: 
   mk('verify-parcel', 'Verify parcel identity against the registry', 'Cross-check the parcel/survey identifier against the land registry to confirm the physical parcel matches the documents on file.', 'before_offer', 'lawyer', 'low', ['Confirms parcel/address match'], []);
   mk('confirm-possession', 'Confirm vacant possession / tenancy status', 'Confirm whether the property will be delivered vacant or subject to an existing tenancy, and align the offer accordingly.', 'before_offer', 'buyer', 'low', ['Clarifies handover basis'], []);
   mk('lender-check', 'Sense-check the indicative value with a lender', 'Share the indicative value range with a prospective lender early to confirm financing feasibility at the likely price.', 'before_offer', 'lender', 'low', ['Confirms financing feasibility'], []);
+
+  // The guidance value is above the price, so duty is being charged on money
+  // that is not changing hands.
+  //
+  // The engine has known this the whole time — `dutiableBasis` says so — and
+  // has been reporting the higher bill without mentioning that the higher
+  // basis can be challenged. Karnataka provides for a reference to the Deputy
+  // Commissioner under s.45B of the Stamp Act where the guidance value does
+  // not reflect the property's actual market value, which is a common enough
+  // position on a parcel with a defect the guidance table cannot see: the
+  // table is set by locality and use, not by whether this particular site is
+  // B-khata, unconverted or under a transmission line.
+  if (transactionCosts && transactionCosts.dutiableBasis === 'statutory_guidance_value' && identity.askingPrice !== undefined && identity.askingPrice > 0) {
+    const gap = transactionCosts.dutiableValue - identity.askingPrice;
+    const gapPct = (gap / identity.askingPrice) * 100;
+    if (gapPct >= GUIDANCE_GAP_FLOOR_PCT) {
+      // What the gap alone costs, at the marginal rate the total implies.
+      const effectivePct = transactionCosts.totalPctOfPrice / 100;
+      const overpay = Math.round(gap * effectivePct);
+      mk(
+        'guidance-value-reference',
+        'Consider contesting the guidance value before registering',
+        `Stamp duty and registration here are computed on the guidance value of ${identity.currency} ${transactionCosts.dutiableValue.toLocaleString()}, not on the ` +
+          `${identity.currency} ${Math.round(identity.askingPrice).toLocaleString()} actually being paid — a gap of ${round1(gapPct)}%, which costs roughly ` +
+          `${identity.currency} ${overpay.toLocaleString()} in duty on money that is not changing hands. Where the guidance value does not reflect the property's real market ` +
+          'value, s.45B of the Karnataka Stamp Act provides for a reference to the Deputy Commissioner. It is worth weighing against the professional fees and the delay, and it ' +
+          'can go the other way — the Deputy Commissioner may confirm the figure or raise it. Take advice before applying rather than after registering.',
+        'before_completion',
+        'lawyer',
+        'medium',
+        ['May reduce the duty payable at registration'],
+        [],
+      );
+    }
+  }
 
   for (const item of completeness.items) {
     if (item.required && !item.present) {
@@ -3151,9 +3410,25 @@ function buildActions(caseId: string, completeness: CompletenessSummary, risks: 
 
   mk('final-review', 'Commission an independent valuation before completion', 'A Property Screen supports the decision to pursue but is not a certified valuation — commission one before completion.', 'before_completion', 'valuer', 'medium', ['Provides a certified value for financing/completion'], []);
 
+  // Sorted by when each has to happen, and NOT truncated.
+  //
+  // This used to end `.slice(0, 10)`, which was a display judgement enforced
+  // in the data — and it did real damage, because the sort is by *time* and
+  // the cut was by *count*. On the two demo cases with genuine problems the
+  // list filled with `now` and `before_offer` items and every
+  // `before_completion` action fell off the end, including the baseline
+  // "commission an independent valuation before completion" that is supposed
+  // to appear on every case. A guidance-value reference worth several lakh
+  // went the same way.
+  //
+  // A product whose entire proposition is naming what is missing cannot
+  // silently drop three of the thirteen things that are missing, and the
+  // cases where it dropped the most were the cases that needed them most.
+  // Capping how much is shown is a job for the view, which can group and
+  // collapse; it is not a job for the engine, which can only delete.
   const priorityRank: Record<ActionPriority, number> = { now: 0, before_offer: 1, before_completion: 2 };
   actions.sort((a, b) => priorityRank[a.priority] - priorityRank[b.priority]);
-  return actions.slice(0, 10);
+  return actions;
 }
 
 /* ==================================================================== */
@@ -3679,7 +3954,9 @@ function buildOffer(
         amount: null,
         argument:
           `Duty and registration are charged on the higher of the price and the guidance value, and here the guidance value is the higher figure. ` +
-          `Negotiating the price down below it saves nothing on duty — budget the full acquisition cost regardless of where the price lands.`,
+          `Negotiating the price down below it saves nothing on duty — budget the full acquisition cost regardless of where the price lands. ` +
+          `Where the guidance value overstates what this specific parcel is worth, s.45B of the Karnataka Stamp Act provides for a reference to the ` +
+          `Deputy Commissioner; that is a separate conversation from the price, and it is with the state rather than with the seller.`,
         evidenceIds: [evId],
       });
     }
@@ -3846,7 +4123,7 @@ export function runScreen(input: {
   // A State Pack's title checks run after the country-level risks so that
   // checks like "Encumbrance continuity" can link to an existing risk (e.g.
   // `no_encumbrance_certificate`) instead of minting a duplicate.
-  const stateComplianceResult = statePack ? buildStateCompliance(caseId, identity, documentsWithExtraction, statePack, baseRisks, previousResult, evidence) : undefined;
+  const stateComplianceResult = statePack ? buildStateCompliance(caseId, identity, documentsWithExtraction, statePack, baseRisks, previousResult, evidence, locality, siteContext) : undefined;
   const risks = stateComplianceResult ? [...baseRisks, ...stateComplianceResult.risks] : baseRisks;
 
   const confidence = buildConfidence(
@@ -3882,10 +4159,13 @@ export function runScreen(input: {
   };
 
   const drivers = buildDrivers(caseId, identity, locality, planning, documentsWithExtraction, baseMidPerSqm, now, evidence, siteContext);
-  const actions = buildActions(caseId, completeness, risks, previousResult);
+  // Costs are computed before the actions, because one of the actions exists
+  // only when the duty is being charged on a guidance value above the price —
+  // which is a fact about the costs.
+  const transactionCosts = statePack ? computeTransactionCosts(identity, statePack, locality) : undefined;
+  const actions = buildActions(caseId, completeness, risks, previousResult, transactionCosts, identity);
   const snapshot = buildSnapshot(identity, indicativeValue, confidence, risks, completeness, countryPack);
   const recommendation = buildRecommendation(risks, confidence, completeness, indicativeValue);
-  const transactionCosts = statePack ? computeTransactionCosts(identity, statePack, locality) : undefined;
 
   // Both read the finished parts of the screen and compute nothing new about
   // value: the forced-sale figure is the mid discounted by named components,
