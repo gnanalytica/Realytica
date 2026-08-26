@@ -92,7 +92,9 @@ export async function seedDemoData(): Promise<number> {
       documents: newCase.documents,
       refData: REFERENCE_DATA,
       now,
+      project: newCase.project,
     });
+    newCase.project = newCase.result.project;
     newCase.status = 'screened';
     newCase.updatedAt = now;
 

@@ -24,6 +24,8 @@ import type {
   SiteContext,
   StalenessReport,
   TitleGraph,
+  ProjectIntent,
+  ProjectKind,
   ScreenResult,
   TelemetrySummary,
   UpdateCaseRequest,
@@ -130,6 +132,13 @@ export const api = {
     request<void>(`/cases/${id}/documents/${docId}`, { method: 'DELETE' }),
 
   runScreen: (id: string) => request<ScreenResult>(`/cases/${id}/screen`, { method: 'POST' }),
+
+  /**
+   * State what kind of project this is and re-screen against it. Returns the
+   * new result, because the whole point is that the numbers change.
+   */
+  setProjectKind: (id: string, body: { kind: ProjectKind; intent?: ProjectIntent; unitsPlanned?: number }) =>
+    request<ScreenResult>(`/cases/${id}/project`, { method: 'PUT', body: JSON.stringify(body) }),
 
   setRiskStatus: (id: string, riskId: string, status: RiskStatus) =>
     request<ScreenResult>(`/cases/${id}/risks/${riskId}`, {

@@ -203,6 +203,31 @@ export const actionDoneBodySchema = z.object({
   done: z.boolean(),
 });
 
+/**
+ * Setting the project kind by hand. Only the kind and the intent are
+ * accepted: `source`, `inference` and `decidedAt` are the server's to write,
+ * because a client that could post its own `source: 'user'` inference could
+ * make an inferred brief look confirmed.
+ */
+export const projectBriefBodySchema = z.object({
+  kind: z.enum([
+    'land_acquisition',
+    'plotted_development',
+    'villa_project',
+    'apartment_project',
+    'mixed_use_project',
+    'commercial_development',
+    'industrial_development',
+    'redevelopment',
+    'joint_development',
+    'built_asset_purchase',
+  ]),
+  intent: z
+    .enum(['buy_and_hold', 'buy_and_build', 'subdivide_and_sell', 'partner_with_landowner', 'redevelop_existing', 'unknown'])
+    .optional(),
+  unitsPlanned: z.number().int().positive().max(100000).optional(),
+});
+
 export const compareBodySchema = z.object({
   caseIds: z.array(z.string().min(1)).min(2).max(4),
 });

@@ -322,7 +322,9 @@ intakeRouter.post<{ id: string }>('/:id/commit', async (req, res) => {
     refData: REFERENCE_DATA,
     now,
     siteContext,
+    project: newCase.project,
   });
+  newCase.project = newCase.result.project;
   newCase.status = 'screened';
 
   store.data.cases.push(newCase);

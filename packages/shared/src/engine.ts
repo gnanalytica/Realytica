@@ -10,6 +10,8 @@
  */
 
 import type {
+  AssessmentProfile,
+  MethodRole,
   ActionOwner,
   ActionPriority,
   BufferRule,
@@ -43,6 +45,7 @@ import type {
   PlotAttributes,
   PlotFacing,
   PropertyCase,
+  ProjectBrief,
   PropertyIdentity,
   PropertySnapshot,
   PropertyType,
@@ -67,6 +70,7 @@ import type {
   OfferStance,
 } from './types';
 import { amenityDistance, nearestTransit, sitePinIsAccurate } from './site';
+import { assessmentProfile, methodStance, resolveProjectBrief } from './assessment';
 import { COMPASS_SIDES, analyseTitleGraph, type CompassSide } from './graph';
 import { runPlaybooks } from './playbooks';
 import { ENGINE_VERSION } from './constants';
@@ -893,6 +897,32 @@ type PlanningForAnchors = Pick<PlanningPosition, 'farAllowed' | 'farUsed' | 'bui
 const RESIDUAL_DEVELOPMENT_PERIOD_YEARS = 2;
 const RESIDUAL_DEVELOPER_MARGIN_PCT = 0.2;
 const RESIDUAL_DISCOUNT_RATE_PCT = 0.12;
+/**
+ * Demolition and site clearance, as a share of what the building cost to
+ * build. Only reaches the residual on a redevelopment, where the existing
+ * structure has to come down before the unused envelope can be built — a
+ * cost that is real, routinely left out of back-of-envelope redevelopment
+ * maths, and large enough to change the answer.
+ */
+const DEMOLITION_COST_PCT_OF_REPLACEMENT = 0.08;
+
+/**
+ * Share of a layout's gross area that cannot be sold.
+ *
+ * Karnataka's layout rules take roads, parks and civic amenity sites out of
+ * the gross before anything is saleable — broadly 40-45% across BDA/BMRDA
+ * approvals. A subdivision residual that values the whole parcel as saleable
+ * overstates the yield by two thirds, which is the single most common error
+ * in back-of-envelope plotted-development maths.
+ */
+const LAYOUT_SURRENDER_PCT = 0.42;
+
+/**
+ * Layout infrastructure — roads, drains, water, electricals, STP, compound —
+ * as a share of the developed sites' gross sale value. Expressed as a
+ * proportion rather than a rate per sqm so it stays meaningful outside INR.
+ */
+const LAYOUT_INFRASTRUCTURE_PCT_OF_GDV = 0.18;
 
 /**
  * How much a comparable set disagrees with itself, as a coefficient of
@@ -942,6 +972,12 @@ function buildAnchors(
    */
   statutoryRateLabel: string,
   documents: CaseDocument[],
+  /**
+   * The assessment method in force for this project kind. It decides which
+   * anchors lead, which are demoted to a sense check and which do not apply
+   * at all — see `applyProfileToAnchors` at the end of this function.
+   */
+  profile: AssessmentProfile,
   now: string,
   evidence: EvidenceBuilder,
 ): ValueAnchor[] {
@@ -1265,12 +1301,63 @@ function buildAnchors(
   // whenever the maths comes out non-positive (the development would destroy
   // value, not create it) — either way this is never fabricated to look like
   // a viable scheme it is not.
-  if (isLand && (planning.developmentPotential === 'moderate' || planning.developmentPotential === 'significant')) {
+  //
+  // Normally land-only. The one exception is a project kind whose whole
+  // proposition is the envelope that has *not* been built — a redevelopment —
+  // where the profile marks the residual primary. `buildablePotentialSqm` is
+  // already net of what stands (it is the FAR headroom), so the residual there
+  // values exactly the unused envelope, less the cost of clearing the
+  // building in the way of it.
+  //
+  // Subdivision is a different product entirely and gets its own branch
+  // below: a plotted layout sells *sites*, not built area, so valuing its FAR
+  // envelope as apartments would answer a question nobody asked — and, with
+  // the residual leading that profile's blend, would do it at 45% weight.
+  const residualIsPrimary = methodStance(profile, 'residual_development')?.role === 'primary';
+  const residualApplies = isLand || residualIsPrimary;
+  if (profile.kind === 'plotted_development' && isLand) {
+    const grossSqm = identity.plotAreaSqm;
+    const netSaleableSqm = grossSqm * (1 - LAYOUT_SURRENDER_PCT);
+    // The locality's land-rate median is the rate *developed layout sites*
+    // transact at — which is the product being sold here, not the raw parcel
+    // being bought. That is the whole margin, so it must not be taken from
+    // the raw-land rate.
+    const siteRate = locality.medianLandRatePerSqm;
+    const gdv = netSaleableSqm * siteRate;
+    const infrastructureCost = gdv * LAYOUT_INFRASTRUCTURE_PCT_OF_GDV;
+    const developerMargin = gdv * RESIDUAL_DEVELOPER_MARGIN_PCT;
+    const residualToday =
+      (gdv - infrastructureCost - developerMargin) / Math.pow(1 + RESIDUAL_DISCOUNT_RATE_PCT, RESIDUAL_DEVELOPMENT_PERIOD_YEARS);
+    if (residualToday > 0) {
+      const plotEvId = evidence.add({
+        statement: `${Math.round(grossSqm).toLocaleString()} sqm gross, less ${round1(LAYOUT_SURRENDER_PCT * 100)}% surrendered to roads, parks and civic amenity, leaves ${Math.round(netSaleableSqm).toLocaleString()} sqm saleable at the locality's developed-site rate of ${Math.round(siteRate).toLocaleString()}/sqm, less ${round1(LAYOUT_INFRASTRUCTURE_PCT_OF_GDV * 100)}% infrastructure and a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% margin, discounted over ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS} years.`,
+        sourceType: 'model_inference',
+        sourceRef: 'residual_development.plotted',
+        sourceLabel: locality.source,
+        confidence: 0.45,
+      });
+      const band = 0.2;
+      anchors.push({
+        id: `anchor-${caseId}-residual_development`,
+        method: 'residual_development',
+        label: 'Plotted layout residual',
+        low: roundMoney(residualToday * (1 - band), currency),
+        mid: roundMoney(residualToday, currency),
+        high: roundMoney(residualToday * (1 + band), currency),
+        weight: 0.4,
+        confidence: 0.45,
+        rationale: `Values the layout as what it actually sells — sites, not built area. ${Math.round(netSaleableSqm).toLocaleString()} sqm remains saleable after the ${round1(LAYOUT_SURRENDER_PCT * 100)}% statutory surrender to roads, parks and civic amenity; at the locality's developed-site rate that grosses ${Math.round(gdv).toLocaleString()} ${currency}, from which ${round1(LAYOUT_INFRASTRUCTURE_PCT_OF_GDV * 100)}% infrastructure and a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin are netted and the result discounted back at ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS} years. The surrender ratio and infrastructure share are planning-norm assumptions, not measurements from an approved layout plan — a sanctioned plan would replace both.`,
+        evidenceIds: [plotEvId],
+      });
+    }
+  } else if (residualApplies && (planning.developmentPotential === 'moderate' || planning.developmentPotential === 'significant')) {
     const buildableSqm = planning.buildablePotentialSqm;
     const gdv = buildableSqm * locality.medianPricePerSqm;
     const constructionCost = buildableSqm * locality.replacementCostPerSqm;
+    const demolitionCost = isLand ? 0 : identity.builtUpAreaSqm * locality.replacementCostPerSqm * DEMOLITION_COST_PCT_OF_REPLACEMENT;
     const developerMargin = gdv * RESIDUAL_DEVELOPER_MARGIN_PCT;
-    const residualToday = (gdv - constructionCost - developerMargin) / Math.pow(1 + RESIDUAL_DISCOUNT_RATE_PCT, RESIDUAL_DEVELOPMENT_PERIOD_YEARS);
+    const residualToday =
+      (gdv - constructionCost - demolitionCost - developerMargin) / Math.pow(1 + RESIDUAL_DISCOUNT_RATE_PCT, RESIDUAL_DEVELOPMENT_PERIOD_YEARS);
     if (residualToday > 0) {
       const rdEvId = evidence.add({
         statement: `Permitted envelope of ${Math.round(buildableSqm).toLocaleString()} sqm at FAR ${locality.farAllowed}, built at ${locality.replacementCostPerSqm.toLocaleString()}/sqm and sold at the locality's built median of ${locality.medianPricePerSqm.toLocaleString()}/sqm, less a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, discounted ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year build-and-sell period.`,
@@ -1289,14 +1376,102 @@ function buildAnchors(
         high: roundMoney(residualToday * (1 + band), currency),
         weight: 0.08,
         confidence: planning.developmentPotential === 'significant' ? 0.45 : 0.35,
-        rationale: `A sense-check on development potential, not a market price: values the FAR-${locality.farAllowed} permitted envelope as built product at the locality's median sale rate, nets off construction cost and a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, and discounts the result back to today at ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year timeline. It depends on construction-cost, margin and absorption assumptions this screen cannot independently verify, so it carries lower weight and lower confidence than the direct land-rate anchor.`,
+        rationale: `Values the FAR-${locality.farAllowed} ${isLand ? 'permitted envelope' : 'unused envelope above what already stands'} as built product at the locality's median sale rate, nets off construction cost${
+          demolitionCost > 0
+            ? `, ${Math.round(demolitionCost).toLocaleString()} ${currency} of demolition and site clearance (${round1(DEMOLITION_COST_PCT_OF_REPLACEMENT * 100)}% of what the existing ${Math.round(identity.builtUpAreaSqm).toLocaleString()} sqm cost to build)`
+            : ''
+        } and a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, and discounts the result back to today at ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year timeline. It depends on construction-cost, margin and absorption assumptions this screen cannot independently verify.`,
         evidenceIds: [rdEvId],
       });
     }
   }
 
-  return anchors;
+  return applyProfileToAnchors(anchors, profile);
 }
+
+/**
+ * How much of the blend each role commands.
+ *
+ * This is what makes "primary" mean something. Multiplying a base weight by
+ * a factor did not: the residual anchor's base weight is 0.08 and the land
+ * anchor's is 0.5, so doubling the residual on a plotted development still
+ * left the land rate leading a blend it was explicitly not supposed to lead.
+ * A role has to set the share, not nudge it.
+ *
+ * Read it as a sentence: the method this project turns on carries 45% of the
+ * blend, the methods that corroborate it share another 45% between them, and
+ * the sense checks — the ones that are worth showing but not worth betting
+ * on — share the last 10%.
+ */
+const ROLE_BUDGET: Record<Exclude<MethodRole, 'not_applicable'>, number> = {
+  primary: 0.45,
+  supporting: 0.45,
+  sense_check: 0.1,
+};
+
+/** Where an empty band's budget goes: down the list, never up. */
+const BUDGET_FALLBACK: Record<Exclude<MethodRole, 'not_applicable'>, Exclude<MethodRole, 'not_applicable'>[]> = {
+  primary: ['supporting', 'sense_check'],
+  supporting: ['primary', 'sense_check'],
+  sense_check: ['supporting', 'primary'],
+};
+
+/**
+ * Re-weight the anchors according to the project's assessment profile.
+ *
+ * Four things happen here, and the last two are the point:
+ *
+ * 1. Every anchor gets a role from the profile. One the profile takes no
+ *    position on is `supporting` — a default the engine holds, not a claim
+ *    the profile made.
+ * 2. An anchor the profile marks `not_applicable` is *removed*, not shown at
+ *    zero weight. A method that does not apply must not look like it ran and
+ *    was overruled.
+ * 3. Each role's budget is divided among the anchors that hold it, in
+ *    proportion to `baseWeight x weightFactor` — so the engine's own view of
+ *    evidential strength still orders anchors within a band, while the
+ *    profile decides which band they are in. A band with no anchors passes
+ *    its budget down rather than shrinking the blend.
+ * 4. Every surviving anchor carries the profile's reason for its standing, so
+ *    a reader can see why the number was reached this way instead of being
+ *    asked to trust a blend they cannot inspect.
+ */
+function applyProfileToAnchors(anchors: ValueAnchor[], profile: AssessmentProfile): ValueAnchor[] {
+  type Roled = { anchor: ValueAnchor; role: Exclude<MethodRole, 'not_applicable'>; share: number; note?: string };
+  const kept: Roled[] = [];
+  for (const anchor of anchors) {
+    const stance = methodStance(profile, anchor.method);
+    if (stance?.role === 'not_applicable') continue;
+    const role = stance ? (stance.role as Exclude<MethodRole, 'not_applicable'>) : 'supporting';
+    const factor = stance ? stance.weightFactor : 1;
+    kept.push({ anchor, role, share: Math.max(anchor.weight * factor, 0.0001), note: stance?.why });
+  }
+  if (kept.length === 0) return [];
+
+  // Give each populated band its budget, plus any budget inherited from bands
+  // that produced no anchors at all.
+  const budget: Record<string, number> = { primary: 0, supporting: 0, sense_check: 0 };
+  for (const role of Object.keys(ROLE_BUDGET) as (keyof typeof ROLE_BUDGET)[]) {
+    const populated = kept.some(k => k.role === role);
+    if (populated) {
+      budget[role] += ROLE_BUDGET[role];
+      continue;
+    }
+    const heir = BUDGET_FALLBACK[role].find(candidate => kept.some(k => k.role === candidate));
+    if (heir) budget[heir] += ROLE_BUDGET[role];
+  }
+
+  return kept.map(({ anchor, role, share, note }) => {
+    const bandTotal = kept.filter(k => k.role === role).reduce((sum, k) => sum + k.share, 0);
+    return {
+      ...anchor,
+      weight: round2((share / bandTotal) * budget[role]),
+      role,
+      roleNote: note,
+    };
+  });
+}
+
 
 /** Blends anchors into a single low/mid/high, normalising by each anchor's relative weight. */
 function blendIndicativeValue(anchors: ValueAnchor[], currency: CurrencyCode): { low: number; mid: number; high: number } {
@@ -4076,6 +4251,13 @@ export function runScreen(input: {
    * boundary or a setback; see `SiteContext` for why.
    */
   siteContext?: SiteContext;
+  /**
+   * What is being done with the site. Optional because a case created before
+   * the project model existed does not carry one — in that case the engine
+   * infers a brief here rather than falling back to an unstated method, so
+   * every screen has a named, visible assessment approach.
+   */
+  project?: ProjectBrief;
 }): ScreenResult {
   const { caseId, identity, documents, refData, now, previousResult, siteContext } = input;
   const evidence = new EvidenceBuilder(caseId, now);
@@ -4120,7 +4302,32 @@ export function runScreen(input: {
   // identity/locality/now, never on anchors or comparables, so reordering it
   // changes no value, only the sequence evidence ids are minted in.
   const planning = buildPlanning(identity, locality, now, evidence);
-  const anchors = buildAnchors(caseId, identity, comparables, locality, matchLevel, compMatchLevel, planning, statutoryRateLabel, documentsWithExtraction, now, evidence);
+
+  // What kind of undertaking this is decides how it gets assessed. Resolved
+  // before anchors because the profile re-weights them — see
+  // `applyProfileToAnchors`. A user-set brief is taken at its word; anything
+  // else is inferred fresh from the identity and the documents now on file,
+  // so a case that gains a JDA between runs is re-read correctly.
+  const project = resolveProjectBrief(identity, now, input.project, {
+    documentKinds: documents.map(d => d.kind),
+    intent: input.project?.intent,
+  });
+  const profile = assessmentProfile(project.kind);
+
+  const anchors = buildAnchors(
+    caseId,
+    identity,
+    comparables,
+    locality,
+    matchLevel,
+    compMatchLevel,
+    planning,
+    statutoryRateLabel,
+    documentsWithExtraction,
+    profile,
+    now,
+    evidence,
+  );
 
   const baseBlend = blendIndicativeValue(anchors, identity.currency);
   const baseMidPerSqm = baseBlend.mid / subjectComparisonAreaSqm(identity);
@@ -4229,6 +4436,8 @@ export function runScreen(input: {
     generatedAt: now,
     engineVersion: ENGINE_VERSION,
     snapshot,
+    project,
+    assessment: profile,
     indicativeValue,
     anchors,
     comparables,

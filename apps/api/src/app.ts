@@ -11,7 +11,7 @@ import { initPrompts } from './prompts';
 import { initTelemetry } from './telemetry';
 import { casesRouter } from './routes/cases';
 import { documentsRouter, UPLOAD_LIMITS } from './routes/documents';
-import { screenRouter, risksRouter, actionsRouter } from './routes/screen';
+import { screenRouter, projectRouter, risksRouter, actionsRouter } from './routes/screen';
 import { referenceRouter } from './routes/reference';
 import { demoRouter, seedDemoData } from './routes/demo';
 import { agentsCapabilityRouter, caseAgentsRouter } from './routes/agents';
@@ -76,6 +76,7 @@ app.use('/api/intake', intakeRouter);
 // resolve here first; :id is captured via mergeParams on each sub-router.
 app.use('/api/cases/:id/documents', documentsRouter);
 app.use('/api/cases/:id/screen', screenRouter);
+app.use('/api/cases/:id/project', projectRouter);
 app.use('/api/cases/:id/risks', risksRouter);
 app.use('/api/cases/:id/actions', actionsRouter);
 app.use('/api/cases/:id/agents', caseAgentsRouter);

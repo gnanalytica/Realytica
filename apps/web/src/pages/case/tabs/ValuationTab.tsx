@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from 'lucide-react';
-import type { Comparable, CurrencyCode, ReferenceData } from '@realytica/shared';
+import type { Comparable, CurrencyCode, MethodRole, ProjectKind, ReferenceData } from '@realytica/shared';
 import {
   Badge,
   Callout,
@@ -15,6 +15,7 @@ import {
 } from '../../../components/ui/kit';
 import { AnchorWeightChart, ComparablesChart, ValueRangeChart } from '../../../components/charts';
 import { EvidenceLink } from '../../../components/EvidenceLink';
+import { AssessmentMethodCard } from '../../../components/AssessmentMethodCard';
 import { isLandPropertyType, localityBenchmarkPerSqm } from '../../../components/PlotFactsCard';
 import { api } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
@@ -33,6 +34,21 @@ const SORT_COLUMNS: { key: SortKey; label: string }[] = [
   { key: 'similarity', label: 'Similarity' },
 ];
 
+/** Mirrors `AssessmentMethodCard`, so an anchor reads the same in both places. */
+const ANCHOR_ROLE_TONE: Record<MethodRole, 'brand' | 'good' | 'neutral' | 'warning'> = {
+  primary: 'brand',
+  supporting: 'good',
+  sense_check: 'neutral',
+  not_applicable: 'warning',
+};
+
+const ANCHOR_ROLE_LABEL: Record<MethodRole, string> = {
+  primary: 'Leads this assessment',
+  supporting: 'Supporting',
+  sense_check: 'Sense check',
+  not_applicable: 'Not used',
+};
+
 function confidenceTone(c: number): 'good' | 'warning' | 'critical' {
   if (c >= 0.7) return 'good';
   if (c >= 0.4) return 'warning';
@@ -44,7 +60,7 @@ function sortValue(c: Comparable, key: SortKey): number {
   return c[key];
 }
 
-export default function ValuationTab({ caseData, result }: TabProps) {
+export default function ValuationTab({ caseData, result, refresh, running }: TabProps) {
   const areaUnit = useAreaUnitFor(caseData.identity.country);
   const unitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
   const isLand = isLandPropertyType(caseData.identity.propertyType);
@@ -57,6 +73,20 @@ export default function ValuationTab({ caseData, result }: TabProps) {
   const [expandedComparableIds, setExpandedComparableIds] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>('similarity');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [settingKind, setSettingKind] = useState(false);
+
+  const setProjectKind = async (kind: ProjectKind) => {
+    setSettingKind(true);
+    try {
+      // The screen re-runs server-side, so the case has to be re-read — the
+      // whole point of stating the kind is that the numbers on this page
+      // change, and a stale `result` would hide exactly that.
+      await api.setProjectKind(caseData.id, { kind });
+      await refresh();
+    } finally {
+      setSettingKind(false);
+    }
+  };
 
   const sortedComparables = useMemo(() => {
     if (!result) return [];
@@ -116,6 +146,19 @@ export default function ValuationTab({ caseData, result }: TabProps) {
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5">
+      {/* Placed above the range, not below it: what kind of project this is
+          decides which methods produced the range, so reading the number
+          before the method is reading it out of order. */}
+      {result.project && result.assessment && (
+        <AssessmentMethodCard
+          project={result.project}
+          profile={result.assessment}
+          anchors={anchors}
+          onChangeKind={setProjectKind}
+          busy={settingKind || running}
+        />
+      )}
+
       <Card>
         <CardHeader title="Indicative value range" />
         <CardBody>
@@ -150,9 +193,10 @@ export default function ValuationTab({ caseData, result }: TabProps) {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <div className="text-[13px] font-semibold text-ink">{a.label}</div>
-                      <Badge tone="neutral" className="mt-1">
-                        {titleCase(a.method)}
-                      </Badge>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <Badge tone="neutral">{titleCase(a.method)}</Badge>
+                        {a.role && <Badge tone={ANCHOR_ROLE_TONE[a.role]}>{ANCHOR_ROLE_LABEL[a.role]}</Badge>}
+                      </div>
                     </div>
                     <EvidenceLink ids={a.evidenceIds} evidence={result.evidence} />
                   </div>
@@ -172,6 +216,12 @@ export default function ValuationTab({ caseData, result }: TabProps) {
                     <ProgressBar value={a.confidence * 100} tone={confidenceTone(a.confidence)} label="Confidence" />
                   </div>
                   <p className="text-[13px] leading-relaxed text-ink-secondary">{a.rationale}</p>
+                  {a.roleNote && (
+                    <p className="border-l-2 border-[var(--ring)] pl-3 text-[12.5px] leading-relaxed text-ink-muted">
+                      <span className="font-medium text-ink-secondary">Why it {a.role === 'primary' ? 'leads' : a.role === 'sense_check' ? 'is only a check' : 'supports'} here:</span>{' '}
+                      {a.roleNote}
+                    </p>
+                  )}
                 </CardBody>
               </Card>
             ))}

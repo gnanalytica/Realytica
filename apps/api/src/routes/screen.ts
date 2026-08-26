@@ -1,14 +1,76 @@
 import { Router } from 'express';
-import { runScreen, REFERENCE_DATA } from '@realytica/shared';
+import { runScreen, REFERENCE_DATA, inferProjectKind, assessmentFitCaution } from '@realytica/shared';
 import { store } from '../store';
-import { riskStatusBodySchema, actionDoneBodySchema } from '../schemas';
+import { riskStatusBodySchema, actionDoneBodySchema, projectBriefBodySchema } from '../schemas';
 import { findCase } from './cases';
 import { ensureSiteContext } from '../site-context';
 
 export const screenRouter = Router({ mergeParams: true });
+export const projectRouter = Router({ mergeParams: true });
 
 // mergeParams sub-routers only get the parent :id typed when we say so
 // explicitly — Express infers req.params purely from this route's own path.
+/**
+ * Set the project kind by hand and re-screen against it.
+ *
+ * This is the correction half of the inference: the engine concludes what
+ * kind of project this is and says so, and this is how a person who knows
+ * better overrules it. The brief is stored with `source: 'user'`, which
+ * `resolveProjectBrief` treats as final — no later document, and no later
+ * run, silently reverts it.
+ *
+ * The screen re-runs immediately rather than leaving the case showing
+ * numbers produced under the previous method. A stated kind that has not
+ * changed the figures on screen is worse than not asking.
+ */
+projectRouter.put<{ id: string }>('/', async (req, res) => {
+  const found = findCase(req.params.id);
+  if (!found) {
+    res.status(404).json({ error: 'Case not found' });
+    return;
+  }
+  const parsed = projectBriefBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid project brief', details: parsed.error.flatten() });
+    return;
+  }
+  const now = new Date().toISOString();
+  const { kind, intent, unitsPlanned } = parsed.data;
+  // The inference is kept alongside the user's choice rather than discarded,
+  // so the case still records what the evidence pointed at and how far the
+  // person's answer moved it.
+  const inference = inferProjectKind(found.identity, {
+    documentKinds: found.documents.map(d => d.kind),
+    intent,
+  });
+  found.project = {
+    kind,
+    source: 'user',
+    intent: intent ?? found.project?.intent ?? 'unknown',
+    inference,
+    unitsPlanned: unitsPlanned ?? found.project?.unitsPlanned,
+    fitCaution: assessmentFitCaution(found.identity, kind),
+    decidedAt: now,
+  };
+
+  const siteContext = await ensureSiteContext(found, now);
+  found.result = runScreen({
+    caseId: found.id,
+    reference: found.reference,
+    identity: found.identity,
+    documents: found.documents,
+    refData: REFERENCE_DATA,
+    now,
+    previousResult: found.result,
+    siteContext,
+    project: found.project,
+  });
+  found.status = 'screened';
+  found.updatedAt = now;
+  await store.save();
+  res.json(found.result);
+});
+
 screenRouter.post<{ id: string }>('/', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
@@ -30,8 +92,15 @@ screenRouter.post<{ id: string }>('/', async (req, res) => {
     now,
     previousResult: found.result,
     siteContext,
+    project: found.project,
   });
   found.result = result;
+  // Persist the brief the engine settled on, so the next run starts from it
+  // and the case carries a project kind even if it was never stated. An
+  // inferred brief is stored as inferred — it is a working assumption until
+  // someone confirms it, and overwriting a user-set one is what
+  // `resolveProjectBrief` refuses to do.
+  found.project = result.project;
   found.status = 'screened';
   found.updatedAt = now;
   await store.save();

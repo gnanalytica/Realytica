@@ -16,7 +16,7 @@ import {
   extractFields,
   runScreen,
 } from '@realytica/shared';
-import type { CaseDocument, PropertyCase, PropertyIdentity, ScreenResult, SiteContext } from '@realytica/shared';
+import type { CaseDocument, ProjectBrief, PropertyCase, PropertyIdentity, ScreenResult, SiteContext } from '@realytica/shared';
 
 /**
  * A fixed instant, so nothing in the suite depends on the day it runs.
@@ -63,6 +63,8 @@ export interface ScreenFixtureOptions {
   siteContext?: SiteContext;
   documents?: CaseDocument[];
   now?: string;
+  /** Pass a stated brief; omitted, the engine infers one as it does in production. */
+  project?: ProjectBrief;
 }
 
 export function screenSeed(match: string, options: ScreenFixtureOptions = {}): { result: ScreenResult; identity: PropertyIdentity; documents: CaseDocument[] } {
@@ -81,6 +83,7 @@ export function screenSeed(match: string, options: ScreenFixtureOptions = {}): {
     refData: REFERENCE_DATA,
     now: options.now ?? NOW,
     siteContext: options.siteContext,
+    project: options.project,
   });
   return { result, identity, documents };
 }

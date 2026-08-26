@@ -2,6 +2,7 @@ export * from './types';
 export * from './constants';
 export * from './reference';
 export * from './site';
+export * from './assessment';
 export * from './staleness';
 export * from './engine';
 export * from './seed';

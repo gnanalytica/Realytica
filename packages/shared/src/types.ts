@@ -38,6 +38,167 @@ export type PersonaKey =
   | 'property_adviser'
   | 'valuation_firm';
 
+/* ------------------------------------------------------------------ */
+/* Project kind & assessment profile                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What is actually being done with the site.
+ *
+ * `PropertyType` describes the *thing* — an apartment, a plot, a warehouse.
+ * This describes the *undertaking*, and it is the undertaking that decides
+ * how the thing should be assessed. The same 2-acre converted parcel is a
+ * land-rate question to someone flipping it, a residual-value question to
+ * someone building 120 flats on it, and an area-share question to someone
+ * signing a JDA over it. One property type, three different assessments.
+ *
+ * Kept deliberately small and mutually exclusive: each value has to select a
+ * materially different set of methods and checks, or it does not earn a slot.
+ */
+export type ProjectKind =
+  /** Acquiring land with no scheme decided yet. Valued as land. */
+  | 'land_acquisition'
+  /** Subdividing land into sites and selling them. Valued on saleable site yield. */
+  | 'plotted_development'
+  /** Villas or row houses built for sale on a layout. */
+  | 'villa_project'
+  /** Multi-storey residential built for sale. */
+  | 'apartment_project'
+  /** Residential and commercial in one scheme. */
+  | 'mixed_use_project'
+  /** Office or retail built to lease or sell. Valued on income. */
+  | 'commercial_development'
+  /** Warehousing, logistics or manufacturing. */
+  | 'industrial_development'
+  /** Demolishing an existing building and rebuilding to a higher envelope. */
+  | 'redevelopment'
+  /** Developing someone else's land under a JDA for a revenue or area share. */
+  | 'joint_development'
+  /** Buying something already built — a unit, a floor, a whole building. */
+  | 'built_asset_purchase';
+
+/**
+ * What the user says they mean to do. Distinct from `ProjectKind`: the intent
+ * is what they told us, the kind is what we concluded. Keeping them separate
+ * is what lets the product show its reasoning instead of asserting it.
+ */
+export type ProjectIntent =
+  | 'buy_and_hold'
+  | 'buy_and_build'
+  | 'subdivide_and_sell'
+  | 'partner_with_landowner'
+  | 'redevelop_existing'
+  | 'unknown';
+
+/**
+ * Who the assessment is written for. Four readers with genuinely different
+ * questions, not four skins on one page:
+ *
+ * - `developer` decides whether to buy and at what number.
+ * - `engineering` decides whether it can be built and what it costs to build.
+ * - `architect` decides what envelope the statute actually permits.
+ * - `project_manager` decides the sequence, the approvals and the dates.
+ */
+export type LensKey = 'developer' | 'engineering' | 'architect' | 'project_manager';
+
+/** How a valuation method is being used on this project kind. */
+export type MethodRole = 'primary' | 'supporting' | 'sense_check' | 'not_applicable';
+
+export interface MethodStance {
+  method: ValuationMethod;
+  role: MethodRole;
+  /**
+   * Relative emphasis *within* this method's role band. The role decides the
+   * band's share of the blend; this orders the methods inside it, on top of
+   * the engine's own base weight. `0` is reserved for `not_applicable` and
+   * suppresses the anchor entirely — the method is not merely down-weighted,
+   * it does not apply and is not shown as if it did.
+   */
+  weightFactor: number;
+  /** Why this method leads or does not, for this kind of project. */
+  why: string;
+}
+
+/**
+ * The assessment method for one project kind: which valuations lead, which
+ * checks cannot be skipped, which documents the conclusion depends on, and
+ * the single question the reader is really asking.
+ *
+ * This is a stated method, not a hidden one. Everything here is rendered to
+ * the user, because a user who cannot see why a number was reached that way
+ * has no basis for trusting it.
+ */
+export interface AssessmentProfile {
+  kind: ProjectKind;
+  label: string;
+  /** One line: what this kind of project is. */
+  summary: string;
+  /** The single question the assessment exists to answer. */
+  headlineQuestion: string;
+  /** What the decision actually turns on, in the reader's own terms. */
+  decisionBasis: string[];
+  methodStances: MethodStance[];
+  /**
+   * Compliance/title check keys that are load-bearing for this kind. An
+   * unresolved check on this list is escalated rather than listed quietly.
+   */
+  criticalChecks: string[];
+  /** Documents the conclusion is not credible without. */
+  requiredDocuments: DocumentKind[];
+  /** Who the report addresses unless the reader picks otherwise. */
+  defaultLens: LensKey;
+}
+
+/**
+ * How the project kind was arrived at.
+ *
+ * `alternatives` being non-empty is the important case: it means the evidence
+ * narrows the kind but does not settle it, so the profile in force is a
+ * working assumption. The UI says exactly that and offers `settledBy` as the
+ * one question that would resolve it. Silently picking the most likely kind
+ * and presenting its numbers as findings is the failure mode this type
+ * exists to prevent.
+ */
+export interface ProjectKindInference {
+  kind: ProjectKind;
+  /** 0..1 */
+  confidence: number;
+  /** Each fact that pushed the conclusion, in plain language. */
+  basis: string[];
+  /** Kinds this same evidence is also consistent with. */
+  alternatives: ProjectKind[];
+  /** The one answer that would settle it. Absent when the inference is decisive. */
+  settledBy?: string;
+}
+
+/**
+ * The project kind in force on a case, and where it came from.
+ *
+ * `source` matters: `'user'` means someone stated it and the engine must not
+ * second-guess it; `'inferred'` means the engine concluded it and should keep
+ * showing its reasoning until a human confirms.
+ */
+export interface ProjectBrief {
+  kind: ProjectKind;
+  source: 'user' | 'inferred';
+  intent: ProjectIntent;
+  inference: ProjectKindInference;
+  /** Units planned, when the user has said. Sharpens the residual anchor. */
+  unitsPlanned?: number;
+  /**
+   * Present when the kind in force does not fit the subject — a subdivision
+   * on a site too small to subdivide, a redevelopment with nothing standing.
+   *
+   * A caution, not a refusal: someone assembling adjacent parcels, or
+   * screening a site before the neighbour's is bought, has a real reason to
+   * ask the question this way. But the figures underneath are then answering
+   * a hypothetical, and the reader has to be told which.
+   */
+  fitCaution?: string;
+  /** ISO date the kind was last set or confirmed. */
+  decidedAt: string;
+}
+
 export interface PropertyIdentity {
   /** Human label used across the UI, e.g. "3BHK — Prestige Lakeside, Whitefield". */
   label: string;
@@ -369,6 +530,13 @@ export interface ValueAnchor {
   confidence: number;
   rationale: string;
   evidenceIds: string[];
+  /**
+   * How the project's assessment profile is using this method, and why.
+   * Present once a `ProjectBrief` is in force — which is always, since the
+   * engine infers one when the case does not carry it.
+   */
+  role?: MethodRole;
+  roleNote?: string;
 }
 
 export interface ComparableAdjustment {
@@ -641,6 +809,20 @@ export interface ScreenResult {
   /** Version of the scoring engine that produced this result. */
   engineVersion: string;
   snapshot: PropertySnapshot;
+  /**
+   * What kind of undertaking this is, and how that was decided. Always
+   * present on a fresh result — the engine infers one when the case does not
+   * carry it — but optional on the type so results stored before the project
+   * model existed still parse.
+   */
+  project?: ProjectBrief;
+  /**
+   * The assessment method that selection put in force: which valuations
+   * lead, which checks cannot be skipped, what the reader is really asking.
+   * Carried on the result rather than looked up by the UI so a stored result
+   * still explains itself if the profile is later revised.
+   */
+  assessment?: AssessmentProfile;
   indicativeValue: IndicativeValue;
   anchors: ValueAnchor[];
   comparables: Comparable[];
@@ -1122,6 +1304,12 @@ export interface PropertyCase {
   identity: PropertyIdentity;
   status: CaseStatus;
   persona: PersonaKey;
+  /**
+   * What is being done with the site, and how that was decided. Absent on
+   * cases created before the project model existed — the engine infers a
+   * brief for those on every run rather than treating the gap as a blocker.
+   */
+  project?: ProjectBrief;
   ownerName: string;
   createdAt: string;
   updatedAt: string;
