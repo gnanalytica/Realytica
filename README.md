@@ -34,6 +34,30 @@ the moment it opens. Wipe them from **About → Reset demo data**.
 **Requirements:** Node 20.10+ and pnpm 10+. Nothing else — no database, no cloud account, no API key.
 Everything runs on your machine and all state lives in `apps/api/data/`.
 
+### Deploying it for someone to try
+
+The API serves the built web app from the same process, so this is **one
+service on one port** — no second host, no CORS setup.
+
+```bash
+pnpm install && pnpm build && pnpm start   # http://localhost:5174
+```
+
+`render.yaml` in the repo root deploys exactly that. Point Render at the repo,
+accept the blueprint, and set `ANTHROPIC_API_KEY` in the dashboard if you want
+the agent layer (everything else works without it).
+
+**The one thing to decide is whether state has to survive.** Valytica keeps
+cases, screens and uploaded documents on the filesystem under
+`VALYTICA_DATA_DIR`. With a persistent disk attached, your client's work is
+still there tomorrow. Without one — on a free tier, or anywhere serverless —
+the store resets on restart: the app still runs and re-seeds its demo cases, so
+it demos fine, but anything they create disappears. Fine for a look; not fine
+for a trial.
+
+Serverless hosts are the wrong shape for this build for the same reason
+(ephemeral filesystem), unless you first move the store to a database.
+
 ### Other commands
 
 ```bash

@@ -1,4 +1,7 @@
 import express from 'express';
+import path from 'node:path';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { ErrorRequestHandler, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -10,6 +13,8 @@ import { screenRouter, risksRouter, actionsRouter } from './routes/screen';
 import { referenceRouter } from './routes/reference';
 import { demoRouter, seedDemoData } from './routes/demo';
 import { agentsCapabilityRouter, caseAgentsRouter } from './routes/agents';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 import { compareBodySchema } from './schemas';
 
 const PORT = Number(process.env.PORT) || 5174;
@@ -68,6 +73,35 @@ app.post('/api/compare', (req, res) => {
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
+
+/*
+ * Serve the built web app from this same process, when it exists.
+ *
+ * In development Vite serves the UI on its own port and proxies /api here. For
+ * a deployment that split means two services to host and a CORS story to get
+ * right; serving the build from here makes Valytica a single process on a
+ * single port, which is the difference between a one-click deploy and an
+ * afternoon of wiring.
+ *
+ * Mounted after the /api routes and their 404 so it can never shadow the API,
+ * and skipped entirely when there is no build — a dev process keeps behaving
+ * exactly as before.
+ */
+const WEB_DIST = process.env.VALYTICA_WEB_DIST
+  ? path.resolve(process.env.VALYTICA_WEB_DIST)
+  : path.resolve(here, '../../web/dist');
+
+if (existsSync(path.join(WEB_DIST, 'index.html'))) {
+  app.use(express.static(WEB_DIST, { index: false, maxAge: '1h' }));
+  // SPA fallback: client-side routes like /cases/:id/valuation are not files,
+  // so anything that is not an API call and not a real asset gets index.html.
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(WEB_DIST, 'index.html'));
+  });
+  console.log(`[boot] serving web build from ${WEB_DIST}`);
+} else {
+  console.log('[boot] no web build found — API only (run `pnpm build` to serve the UI from this process)');
+}
 
 // Global error handler — must be declared with 4 params for Express to treat
 // it as error-handling middleware.
