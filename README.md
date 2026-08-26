@@ -82,6 +82,25 @@ pnpm typecheck    # strict typecheck across the whole workspace
 pnpm clean        # remove node_modules and build output
 ```
 
+**Evaluating a route before you tier it:**
+
+```bash
+pnpm eval --routes anthropic:claude-haiku-4-5-20251001,anthropic:claude-sonnet-5 --dry-run
+pnpm eval --routes openai_compatible:llama-3.3-70b --task document_extraction
+```
+
+Runs the 43-case corpus against one or more routes and ranks them. `--dry-run`
+reports the corpus, what each task stands in for, and how many model calls a
+real run would make, without spending anything — use it first, because a sweep
+costs routes x cases.
+
+It is a CLI rather than a page for that reason. The ranking gates on
+fabrication rather than weighting it: a route that invents a value the source
+does not contain ranks below every clean route regardless of price, because
+that is the one failure this product cannot ship. Evaluations run against the
+shipped grounding preamble, so editing it in **Prompts** and re-running is the
+way to check those rules are doing anything.
+
 ---
 
 ## What Property Screen does
