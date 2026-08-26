@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Brain, CircleSlash, Database, Lock, ScanSearch, Upload } from 'lucide-react';
+import { Brain, CircleSlash, Database, GraduationCap, Lock, ScanSearch, Upload } from 'lucide-react';
 import type { DataSourceDescriptor, IngestionReport, MemoryRecall, SourceAccess } from '@valytica/shared';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, cn, type Tone } from './ui/kit';
 import { relativeTime } from '../lib/format';
@@ -121,9 +121,33 @@ export function SourcesCard({
   );
 }
 
-export function MemoryCard({ recall }: { recall: MemoryRecall }) {
+export interface MemoryCardProps {
+  recall: MemoryRecall;
+  /**
+   * Teach memory what this case establishes.
+   *
+   * Offered rather than automatic, and that is deliberate: memory carries
+   * party names across case boundaries, which for a diligence tool is a
+   * confidentiality decision and not a convenience. What was wrong until now
+   * was that it was offered nowhere at all, so the store stayed empty forever
+   * while every copilot turn and every orchestration consulted it.
+   */
+  onTeach?: () => void;
+  teaching?: boolean;
+}
+
+export function MemoryCard({ recall, onTeach, teaching }: MemoryCardProps) {
   const byScope = new Map<string, typeof recall.facts>();
   for (const f of recall.facts) byScope.set(f.scope, [...(byScope.get(f.scope) ?? []), f]);
+
+  /*
+   * `storedFactCount` is optional on the contract, for recalls recorded before
+   * it existed. Absent is treated as "cannot tell", which falls to the
+   * ordinary empty state rather than claiming the store is empty — the same
+   * rule as everywhere else here: never assert the stronger statement from
+   * missing data.
+   */
+  const nothingEverTaught = recall.storedFactCount === 0;
 
   return (
     <Card>
@@ -135,11 +159,35 @@ export function MemoryCard({ recall }: { recall: MemoryRecall }) {
       />
       <CardBody>
         {recall.facts.length === 0 ? (
-          <EmptyState
-            icon={<CircleSlash size={22} />}
-            title="No earlier history"
-            description={`Looked up ${recall.consultedSubjects.length} subject(s) — ${recall.consultedSubjects.join(', ')} — and found nothing from previous cases. Treat these as unknown, not as clean.`}
-          />
+          /*
+           * Two different empty states, because they mean different things.
+           *
+           * An empty store is a fact about the deployment: nothing has ever
+           * been taught, so this will be empty for every case until something
+           * is. "Looked and found nothing" is a finding about this property.
+           * Reporting the first as the second tells the reader this property
+           * has a clean history when nobody has ever checked one.
+           */
+          nothingEverTaught ? (
+            <EmptyState
+              icon={<Brain size={22} />}
+              title="Memory is empty"
+              description="Nothing has been taught to cross-case memory yet, so there is nothing to recall — for this property or any other. This is not a finding about this property."
+              action={
+                onTeach ? (
+                  <Button variant="secondary" size="sm" icon={<GraduationCap size={13} />} loading={teaching} onClick={onTeach}>
+                    Teach from this case
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={<CircleSlash size={22} />}
+              title="No earlier history"
+              description={`Looked up ${recall.consultedSubjects.length} subject(s) — ${recall.consultedSubjects.join(', ')} — against ${recall.storedFactCount} remembered fact(s) and found nothing from previous cases. Treat these as unknown, not as clean.`}
+            />
+          )
         ) : (
           <>
             {[...byScope].map(([scope, facts]) => (
@@ -161,6 +209,11 @@ export function MemoryCard({ recall }: { recall: MemoryRecall }) {
                 ))}
               </div>
             ))}
+            {onTeach ? (
+              <Button variant="ghost" size="sm" icon={<GraduationCap size={13} />} loading={teaching} onClick={onTeach} className="mt-2">
+                Teach from this case
+              </Button>
+            ) : null}
             <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
               Consulted {recall.consultedSubjects.length} subject(s).
               {recall.excludedCount > 0 &&

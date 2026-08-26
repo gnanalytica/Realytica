@@ -1644,6 +1644,19 @@ export interface MemoryRecall {
   consultedSubjects: string[];
   /** Facts held back because they were superseded or had expired. */
   excludedCount: number;
+  /**
+   * How many facts memory holds in total, for any case.
+   *
+   * Present so that "we looked and this property has no history" can be told
+   * apart from "nothing has ever been taught to memory". Those two read
+   * identically without it — both are an empty `facts` array — and they mean
+   * completely different things: the first is a finding about the property,
+   * the second is a fact about the deployment. Reporting the second as the
+   * first is the same error as pricing an unknown route at zero.
+   *
+   * Optional so a recall recorded before this existed still loads.
+   */
+  storedFactCount?: number;
 }
 
 /* ==================================================================== */

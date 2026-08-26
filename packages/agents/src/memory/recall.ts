@@ -178,7 +178,7 @@ export async function recallForCase(
   // subject list would otherwise be read by the store as "match everything",
   // which is the one wrong answer available.
   if (consultedSubjects.length === 0) {
-    return { facts: [], consultedSubjects: [], excludedCount: 0 };
+    return { facts: [], consultedSubjects: [], excludedCount: 0, storedFactCount: await storedCount(store) };
   }
 
   const result = await store.query({
@@ -197,7 +197,28 @@ export async function recallForCase(
     facts: result.facts,
     consultedSubjects,
     excludedCount: result.excludedCount,
+    storedFactCount: await storedCount(store),
   };
+}
+
+/**
+ * How much memory holds in total.
+ *
+ * Counted from `snapshot()` rather than from the query result, because the
+ * query is filtered by subject and by case — a store full of facts about other
+ * properties would report zero if this counted matches, which is exactly the
+ * confusion the field exists to remove.
+ *
+ * `snapshot()` and not `size()`: the ledger has a `size()` but the
+ * `MemoryStore` interface does not expose it, so reaching for it through a
+ * duck-typed cast compiled and would have returned 0 forever — the same silent
+ * wrong answer this field was added to prevent. Allocating the array is
+ * acceptable here for the reason the store itself gives for holding everything
+ * in memory: the dataset is small. If memory ever outgrows that, `size()`
+ * belongs on the interface and this should call it.
+ */
+async function storedCount(store: MemoryStore): Promise<number> {
+  return (await store.snapshot()).length;
 }
 
 /* ==================================================================== */

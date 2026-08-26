@@ -1076,6 +1076,38 @@ function KnowledgeSection({ caseId, ingestions }: { caseId: string; ingestions: 
   const { data: sources } = useAsync(() => api.caseSources(caseId), [caseId]);
   const { data: memory, refresh: refreshMemory } = useAsync(() => api.caseMemory(caseId), [caseId]);
   const [ingesting, setIngesting] = useState(false);
+  const [teaching, setTeaching] = useState(false);
+
+  /**
+   * Teach memory what this case establishes.
+   *
+   * Explicit, because memory carries party names across case boundaries and
+   * that is a confidentiality decision. Until this existed nothing wrote to
+   * memory at all, so `recallForCase` — which runs before every copilot turn
+   * and every orchestration — consulted an empty store on every case, forever.
+   */
+  const handleTeach = async () => {
+    setTeaching(true);
+    try {
+      const { learned, superseded, deduplicated } = await api.learnFromCase(caseId);
+      /*
+       * `learned` counts assertions made, not facts that were new — re-teaching
+       * the same case reports learned=8 and deduplicated=8, and saying "8 facts
+       * learned; 8 already known" in one breath reads as a contradiction. The
+       * number worth telling someone is what actually changed.
+       */
+      const fresh = Math.max(0, learned - deduplicated);
+      const parts =
+        fresh > 0 ? [`${fresh} new fact(s) remembered`] : ['Nothing new — this case was already remembered'];
+      if (superseded > 0) parts.push(`${superseded} earlier fact(s) superseded by it`);
+      toast(parts.join('; ') + '.', fresh > 0 || superseded > 0 ? 'good' : 'neutral');
+      await refreshMemory();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not teach from this case.', 'critical');
+    } finally {
+      setTeaching(false);
+    }
+  };
 
   const handleIngest = async () => {
     setIngesting(true);
@@ -1100,7 +1132,7 @@ function KnowledgeSection({ caseId, ingestions }: { caseId: string; ingestions: 
       {sources && (
         <SourcesCard sources={sources} ingestions={ingestions} onIngest={() => void handleIngest()} ingesting={ingesting} />
       )}
-      {memory && <MemoryCard recall={memory} />}
+      {memory && <MemoryCard recall={memory} onTeach={handleTeach} teaching={teaching} />}
     </div>
   );
 }
