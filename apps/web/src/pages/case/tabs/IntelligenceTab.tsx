@@ -42,6 +42,10 @@ import { money, relativeTime, titleCase } from '../../../lib/format';
 import { EvidenceLink } from '../../../components/EvidenceLink';
 import { AgentRunTimeline, formatUsd } from '../../../components/AgentRunTimeline';
 import { CopilotPanel } from '../../../components/CopilotPanel';
+import { AgentPlanCard } from '../../../components/AgentPlanCard';
+import { CriticFlagBanner, VerificationPanel, findFlaggedCriticFinding } from '../../../components/VerificationPanel';
+import { ExplorationTrail } from '../../../components/ExplorationTrail';
+import type { VerificationSummary } from '@valytica/shared';
 import {
   Badge,
   Button,
@@ -51,6 +55,8 @@ import {
   CardHeader,
   Checkbox,
   EmptyState,
+  Field,
+  Input,
   Modal,
   Skeleton,
   Stat,
@@ -135,7 +141,7 @@ const CORROBORATION_LABEL: Record<ResearchFinding['corroboration'], string> = {
   uncorroborated: 'Uncorroborated',
 };
 
-const EMPTY_INTELLIGENCE: CaseIntelligence = { runs: [], pathways: [], research: [], insights: [], conversation: [] };
+const EMPTY_INTELLIGENCE: CaseIntelligence = { runs: [], explorations: [], pathways: [], research: [], insights: [], conversation: [] };
 
 function capabilityReasonText(reason: string): string {
   if (reason === 'no_credentials') return 'No Anthropic credentials are configured for this deployment.';
@@ -291,10 +297,12 @@ function InsightsCard({
   insights,
   evidence,
   onOpenEvidence,
+  verification,
 }: {
   insights: AgentInsight[];
   evidence: EvidenceItem[];
   onOpenEvidence: (ids: string[]) => void;
+  verification: VerificationSummary | undefined;
 }) {
   const sorted = useMemo(
     () => [...insights].sort((a, b) => IMPORTANCE_RANK[a.importance] - IMPORTANCE_RANK[b.importance]),
@@ -318,6 +326,7 @@ function InsightsCard({
           <ul className="flex flex-col gap-3">
             {sorted.map((insight) => {
               const Icon = CATEGORY_ICON[insight.category];
+              const flagged = findFlaggedCriticFinding(verification, 'insight', insight.id);
               return (
                 <li key={insight.id} className="rounded-lg bg-sunken p-3">
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -336,6 +345,11 @@ function InsightsCard({
                   </div>
                   <p className="mt-1.5 text-[13px] font-semibold text-ink">{insight.title}</p>
                   <p className="mt-0.5 text-xs leading-relaxed text-ink-secondary">{insight.body}</p>
+                  {flagged ? (
+                    <div className="mt-2">
+                      <CriticFlagBanner finding={flagged} compact />
+                    </div>
+                  ) : null}
                 </li>
               );
             })}
@@ -355,14 +369,17 @@ function ProofRouteRow({
   recommended,
   evidence,
   onOpenEvidence,
+  verification,
 }: {
   route: ProofRoute;
   recommended: boolean;
   evidence: EvidenceItem[];
   onOpenEvidence: (ids: string[]) => void;
+  verification: VerificationSummary | undefined;
 }) {
   const blocked = route.feasibility === 'blocked';
   const tone = FEASIBILITY_TONE[route.feasibility];
+  const flagged = findFlaggedCriticFinding(verification, 'proof_route', route.id);
   return (
     <div className={cn('rounded-lg p-3', blocked ? 'bg-critical/5 ring-1 ring-inset ring-critical/30' : 'bg-sunken')}>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -375,6 +392,12 @@ function ProofRouteRow({
         <span className="text-[13px] font-semibold text-ink">{route.title}</span>
         <span className="text-xs text-ink-muted">· {PROOF_ROUTE_KIND_LABEL[route.kind]}</span>
       </div>
+
+      {flagged ? (
+        <div className="mt-2">
+          <CriticFlagBanner finding={flagged} />
+        </div>
+      ) : null}
 
       <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
         <div className="flex justify-between gap-2 sm:block">
@@ -464,12 +487,15 @@ function PathwayCard({
   pathway,
   evidence,
   onOpenEvidence,
+  verification,
 }: {
   pathway: DocumentPathway;
   evidence: EvidenceItem[];
   onOpenEvidence: (ids: string[]) => void;
+  verification: VerificationSummary | undefined;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const flagged = findFlaggedCriticFinding(verification, 'pathway', pathway.id);
   return (
     <div className="rounded-lg ring-1 ring-inset ring-[var(--ring)]">
       <button
@@ -495,6 +521,7 @@ function PathwayCard({
       </button>
       {expanded ? (
         <div className="flex flex-col gap-3 border-t border-hairline px-3.5 py-3">
+          {flagged ? <CriticFlagBanner finding={flagged} /> : null}
           {pathway.routes.length === 0 ? (
             <Callout tone="serious" title="No known route">
               Nothing on file or in agent research closes this gap yet — treat it as an open unknown rather than an
@@ -508,6 +535,7 @@ function PathwayCard({
                 recommended={route.id === pathway.recommendedRouteId}
                 evidence={evidence}
                 onOpenEvidence={onOpenEvidence}
+                verification={verification}
               />
             ))
           )}
@@ -545,10 +573,12 @@ function PathwaysCard({
   pathways,
   evidence,
   onOpenEvidence,
+  verification,
 }: {
   pathways: DocumentPathway[];
   evidence: EvidenceItem[];
   onOpenEvidence: (ids: string[]) => void;
+  verification: VerificationSummary | undefined;
 }) {
   const groups = useMemo(
     () => TARGET_KIND_ORDER.map((kind) => ({ kind, items: pathways.filter((p) => p.targetKind === kind) })).filter((g) => g.items.length > 0),
@@ -581,7 +611,13 @@ function PathwaysCard({
                 </div>
                 <div className="flex flex-col gap-3">
                   {g.items.map((pathway) => (
-                    <PathwayCard key={pathway.id} pathway={pathway} evidence={evidence} onOpenEvidence={onOpenEvidence} />
+                    <PathwayCard
+                      key={pathway.id}
+                      pathway={pathway}
+                      evidence={evidence}
+                      onOpenEvidence={onOpenEvidence}
+                      verification={verification}
+                    />
                   ))}
                 </div>
               </div>

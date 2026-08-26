@@ -16,5 +16,6 @@ export * from './agents/proof-pathways';
 export * from './agents/copilot';
 export * from './agents/market-research';
 export * from './agents/diligence-planner';
+export * from './agents/explorer';
 
 export * from './orchestrator';

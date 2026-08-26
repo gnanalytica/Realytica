@@ -109,6 +109,12 @@ export const api = {
     }),
 
   clearConversation: (id: string) => request<void>(`/cases/${id}/agents/conversation`, { method: 'DELETE' }),
+
+  exploreCase: (id: string, body: { objective?: string; maxIterations?: number; maxCostUsd?: number }) =>
+    request<PropertyCase>(`/cases/${id}/agents/explore`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };
 
 export interface AgentStreamHandlers {

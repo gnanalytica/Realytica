@@ -1,39 +1,61 @@
 /**
- * The multi-agent plan: sequences document intelligence, proof pathways,
- * market research and the diligence planner into one run over a case.
+ * The multi-agent orchestrator: plans a case, then runs the plan, with a
+ * feedback loop back into the deterministic engine when document
+ * intelligence changes the facts on file.
  *
- * Sequencing rationale:
- * - Document intelligence runs once per unprocessed document, and those runs
- *   are independent of each other, so they run concurrently (capped — see
- *   `DOCUMENT_INTELLIGENCE_CONCURRENCY`) rather than one at a time.
- * - Proof pathways runs next, once, over the case as a whole.
- * - Market research runs after that, gated on `agentCapability().webSearchEnabled`
- *   (each agent module also self-gates, so this is belt-and-suspenders).
- * - The diligence planner runs last, because it is the one phase that
- *   consumes the other three's output (pathways + research findings).
+ * This replaces what used to be a fixed chain of `if` blocks with two things
+ * a hardcoded pipeline cannot do:
  *
- * Partial failure must not sink the run: every phase is wrapped so that one
- * agent throwing or failing leaves its own run `failed` and the rest still
- * proceed — the orchestrator always returns whatever succeeded, never throws
- * itself, and degrades to a single explanatory run when no credentials are
- * configured at all.
+ * 1. Planning. `runPlanner` (see `./agents/planner.ts`) reads this case's
+ *    actual shape — verdict, confidence, open blockers, missing documents,
+ *    unresolved checks, whether it has even been screened — and returns an
+ *    `AgentPlan`: one task per available agent, each with a `depth`
+ *    ('skip'/'light'/'standard'/'deep'), an `order`, a per-case `focus`, and
+ *    a rationale. Tasks are executed in ascending `order`; tasks that share
+ *    an `order` run concurrently. `deliberateOmissions` — what the planner
+ *    chose not to do, and why — travels with the plan into `CaseIntelligence`
+ *    so the UI can show it, not just log it. The planner can never block this
+ *    file: if its own model call fails, it returns a static fallback plan
+ *    (the old fixed pipeline, at standard depth) with the failure recorded
+ *    on its own `AgentRun`, and execution proceeds exactly as if that were
+ *    the plan all along.
+ *
+ * 2. The feedback loop. Document intelligence can extract a fact — a khata
+ *    number, an area, a K-RERA number — that contradicts what is already on
+ *    the case. When that happens (and only then — see the guard below),
+ *    this file re-runs `runScreen` (the real deterministic engine, not a
+ *    reimplementation of it) with the newly-merged documents, and every
+ *    downstream agent this run reasons over the FRESH result rather than the
+ *    stale one. A step reports when the re-screen actually changed something
+ *    material (verdict, confidence band, or gap count) — that is the moment
+ *    the loop earned its cost. The re-screen runs at most once per
+ *    orchestration, and only when document intelligence actually produced a
+ *    new field, so this cannot loop.
+ *
+ * Everything the previous version got right is kept: per-phase try/catch so
+ * one agent failing never sinks the run, a concurrency cap on document
+ * intelligence, aggregate usage via `sumUsage`, live `onStep`/`onRun`
+ * streaming, and an immediate, honest explanatory return when no credentials
+ * are configured at all.
  *
  * A note on the return shape: the documented contract is
- * `{ runs, intelligence, usage }`. `CaseIntelligence` itself has no field for
- * fresh evidence, proposed (not-yet-adopted) actions, or outreach drafts —
- * those live on individual phase results, not on the conversation/pathways/
- * research/insights shape `CaseIntelligence` defines. Rather than drop them,
- * this file returns them as additional top-level fields (`evidence`,
- * `proposedActions`, `drafts`) on top of the three documented ones. Any
- * caller destructuring just `{ runs, intelligence, usage }` is unaffected;
- * a caller that wants to persist the new evidence/actions/drafts can do so
- * explicitly rather than have this file silently decide where they go.
+ * `{ runs, intelligence, usage }`. This file adds fields rather than
+ * renaming any of them (see `apps/api/src/routes/agents.ts`, which
+ * destructures/consumes this result and must not break): `evidence`,
+ * `proposedActions` and `drafts` already existed for the same reason
+ * (`CaseIntelligence` has no field for them); `plan`, `verification` and
+ * `explorations` are new because `CaseIntelligence` now does have fields for
+ * them; `documents` and `screenResult` are new because the feedback loop's
+ * whole point — a corrected fact moving the verdict — only reaches the
+ * persisted case if the caller writes them onto `case.documents`/
+ * `case.result`. See the doc comments on `RunOrchestrationResult` below.
  */
 
 import { randomUUID } from 'node:crypto';
 import type {
   AgentInsight,
   AgentKind,
+  AgentPlan,
   AgentRun,
   AgentRunStatus,
   AgentStep,
@@ -42,23 +64,32 @@ import type {
   CaseIntelligence,
   DocumentPathway,
   EvidenceItem,
+  ExplorationSession,
+  PlannedTask,
   PropertyCase,
   RecommendedAction,
   ReferenceData,
   ResearchFinding,
+  ScreenResult,
+  TaskDepth,
+  VerificationSummary,
 } from '@valytica/shared';
+import { runScreen } from '@valytica/shared';
 import { AGENT_MODEL, agentCapability, describeError, sumUsage } from './client';
+import { runPlanner } from './agents/planner';
 import { runDocumentIntelligence } from './agents/document-intelligence';
 import { runProofPathways } from './agents/proof-pathways';
 import { runMarketResearch } from './agents/market-research';
 import { runDiligencePlanner, type DiligenceDraft } from './agents/diligence-planner';
+import { runCritic } from './agents/critic';
+import { runExplorer } from './agents/explorer';
 
 export interface RunOrchestrationParams {
   caseData: PropertyCase;
   refData: ReferenceData;
   /** ISO timestamp used to date every produced evidence/step — not wall-clock, so runs are reproducible. */
   now?: string;
-  /** Restrict the plan to a subset of phases. Anything outside the four orchestrable agents is ignored. Defaults to all four, further narrowed by `agentCapability().enabledAgents`. */
+  /** Restrict the plan to a subset of agents. Anything outside the orchestrable roster is ignored. Defaults to all of them, further narrowed by `agentCapability().enabledAgents` (and, for critic/explorer, by capability rules this file applies itself — see `resolvePlanningRoster`). */
   agents?: AgentKind[];
   onStep?: (step: AgentStep) => void;
   onRun?: (run: AgentRun) => void;
@@ -82,9 +113,44 @@ export interface RunOrchestrationResult {
   proposedActions: RecommendedAction[];
   /** Outreach message drafts for a human to review and send — never sent by this package. */
   drafts: DiligenceDraft[];
+  /** The plan this run executed, even when it is the static fallback (see `runPlanner`). Absent only on the immediate no-credentials return, where no planning happened at all. */
+  plan?: AgentPlan;
+  /** The critic's adversarial pass over this run's combined generative output, present only when the plan included the critic and it produced a result. */
+  verification?: VerificationSummary;
+  /**
+   * New open-ended exploration session(s) produced this run — 0 or 1 in
+   * practice, since the plan schedules the explorer at most once. This is a
+   * discrete past run, like `runs`, not a current-state summary like
+   * `pathways`/`research`/`insights` — the caller should APPEND it onto the
+   * case's existing `intelligence.explorations`, not replace them.
+   */
+  explorations: ExplorationSession[];
+  /**
+   * The case's documents as they stand after this run, including any newly
+   * merged extraction fields, reclassified `kind`, and `ocrStatus` from
+   * document intelligence. Identical to the input when document intelligence
+   * did not run, was skipped by the plan, or produced nothing new.
+   * `CaseIntelligence` has no field for this — it is a case field, not agent
+   * output — so, like `evidence`/`proposedActions`/`drafts`, it travels here
+   * for the caller to apply onto `case.documents`.
+   */
+  documents: CaseDocument[];
+  /**
+   * A freshly-computed `ScreenResult`, present only when the feedback loop's
+   * re-screen actually ran (document intelligence produced a new field this
+   * run). The caller should write this onto `case.result` — without that,
+   * the loop's entire point (a corrected khata number, area, or K-RERA
+   * number moving the verdict) never reaches the persisted case.
+   */
+  screenResult?: ScreenResult;
 }
 
-const ORCHESTRABLE_AGENTS: AgentKind[] = ['document_intelligence', 'proof_pathways', 'market_research', 'diligence_planner'];
+/** Every agent a plan may schedule. Mirrors `PLANNABLE_AGENTS` in `./agents/planner.ts`. */
+const ORCHESTRABLE_AGENTS: AgentKind[] = ['document_intelligence', 'proof_pathways', 'market_research', 'diligence_planner', 'critic', 'explorer'];
+
+/** Agents whose data dependencies this file schedules by the plan's `order` (document intelligence and critic are handled as their own guaranteed-first/guaranteed-last phases — see the run loop). */
+const SCHEDULABLE_AGENTS: AgentKind[] = ['proof_pathways', 'market_research', 'diligence_planner', 'explorer'];
+
 const DOCUMENT_INTELLIGENCE_CONCURRENCY = 3;
 
 async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
@@ -102,9 +168,53 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T,
   return results;
 }
 
-/** A document with no extraction yet, or one whose OCR never finished — the two states document intelligence can actually improve. */
-function isUnprocessed(document: CaseDocument): boolean {
+/** A document with no extraction yet, or one whose OCR never finished — the two states document intelligence can actually improve. Exported so a harness can reproduce the "which documents need processing" decision without a live model call. */
+export function isUnprocessed(document: CaseDocument): boolean {
   return document.ocrStatus !== 'complete' || document.extracted.length === 0;
+}
+
+/** The shape of one document intelligence run's outcome that the merge below actually needs — deliberately narrower than `DocumentIntelligenceResult` so a test can construct one without importing that module. */
+export interface DocumentIntelligenceOutcome {
+  document: CaseDocument;
+  kind: CaseDocument['kind'];
+  kindConfidence: number;
+  fields: CaseDocument['extracted'];
+  notes: string;
+}
+
+/**
+ * Merges one document intelligence outcome into its document. Pure and
+ * exported so the feedback loop's merge-then-rescreen step can be exercised
+ * with a fabricated outcome (no live model call) — see the header note in
+ * `runOrchestration`'s Phase A about the classification-confirmed-by-user
+ * guard.
+ */
+export function mergeDocumentIntelligenceOutcome(outcome: DocumentIntelligenceOutcome): CaseDocument {
+  const original = outcome.document;
+  return {
+    ...original,
+    kind: original.kindConfirmedByUser ? original.kind : outcome.kind,
+    classificationConfidence: original.kindConfirmedByUser ? original.classificationConfidence : outcome.kindConfidence,
+    ocrStatus: 'complete',
+    extracted: outcome.fields.length > 0 ? outcome.fields : original.extracted,
+    notes: outcome.notes || original.notes,
+  };
+}
+
+/**
+ * Groups planned tasks by ascending `order` — tasks sharing an order value
+ * run concurrently, later groups wait for earlier ones. Pure and exported so
+ * the scheduling behaviour (grouping, ordering) can be verified directly
+ * against a hand-built `AgentPlan` without any agent actually running.
+ */
+export function groupTasksByOrder(tasks: PlannedTask[]): PlannedTask[][] {
+  const groups = new Map<number, PlannedTask[]>();
+  for (const t of tasks) {
+    const group = groups.get(t.order) ?? [];
+    group.push(t);
+    groups.set(t.order, group);
+  }
+  return [...groups.keys()].sort((a, b) => a - b).map(k => groups.get(k) ?? []);
 }
 
 function rollupStatus(runs: AgentRun[]): AgentRunStatus {
@@ -116,6 +226,52 @@ function rollupStatus(runs: AgentRun[]): AgentRunStatus {
 
 function emptyUsage(): AgentUsage {
   return sumUsage([]);
+}
+
+function failedRun(caseId: string, agent: AgentKind, error: string): AgentRun {
+  const at = new Date().toISOString();
+  return { id: randomUUID(), caseId, agent, status: 'failed', startedAt: at, finishedAt: at, model: AGENT_MODEL, steps: [], error, producedEvidenceIds: [] };
+}
+
+/**
+ * The agent roster this run may plan for: the four original orchestrable
+ * agents, gated exactly as before by `agentCapability().enabledAgents`
+ * (which itself gates `market_research` on `webSearchEnabled`); plus
+ * `critic`, which needs no capability beyond overall availability (already
+ * true by the time this runs — see the early return below) since it makes
+ * no outbound call of its own; plus `explorer`, gated on `webSearchEnabled`
+ * the same way `market_research` is, since open-ended exploration is itself
+ * an outbound-research agent. `client.ts`'s `ALL_AGENTS` does not yet list
+ * `critic`/`explorer` (see the file header of `client.ts`), so they are
+ * added here rather than read off `capability.enabledAgents`.
+ */
+function resolvePlanningRoster(capability: ReturnType<typeof agentCapability>, requested: AgentKind[]): AgentKind[] {
+  const capabilityEnabled: AgentKind[] = [
+    ...capability.enabledAgents.filter(a => ORCHESTRABLE_AGENTS.includes(a)),
+    'critic',
+    ...(capability.webSearchEnabled ? (['explorer'] as AgentKind[]) : []),
+  ];
+  return ORCHESTRABLE_AGENTS.filter(a => requested.includes(a) && capabilityEnabled.includes(a));
+}
+
+/** Same country+state resolution the deterministic engine uses, so the critic checks proof routes against the same jurisdiction corpus (or lack of one) proof-pathways was grounded in. */
+function resolveStatePackId(caseData: PropertyCase, refData: ReferenceData): string | undefined {
+  return refData.statePacks.find(
+    p => p.country === caseData.identity.country && p.state.toLowerCase() === caseData.identity.state.toLowerCase(),
+  )?.id;
+}
+
+/**
+ * `runExplorer` takes concrete knobs (`maxIterations`/`maxCostUsd`), not a
+ * `TaskDepth` — this is where the plan's depth is translated into them.
+ * "standard" defers to the agent's own defaults (6 iterations / $0.75)
+ * rather than restating them here, so a future change to those defaults
+ * does not need a matching change in this file.
+ */
+function explorerBudgetForDepth(depth: TaskDepth): { maxIterations?: number; maxCostUsd?: number } {
+  if (depth === 'light') return { maxIterations: 3, maxCostUsd: 0.3 };
+  if (depth === 'deep') return { maxIterations: 10, maxCostUsd: 1.5 };
+  return {};
 }
 
 export async function runOrchestration(params: RunOrchestrationParams): Promise<RunOrchestrationResult> {
@@ -148,14 +304,11 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
       producedEvidenceIds: [],
     };
     params.onRun?.(run);
-    return { runs: [run], intelligence: {}, usage: emptyUsage(), evidence: [], proposedActions: [], drafts: [] };
+    return { runs: [run], intelligence: {}, usage: emptyUsage(), evidence: [], proposedActions: [], drafts: [], explorations: [], documents: caseData.documents };
   }
 
   const requested = params.agents ?? ORCHESTRABLE_AGENTS;
-  const effective = ORCHESTRABLE_AGENTS.filter(a => requested.includes(a) && capability.enabledAgents.includes(a));
-  emit({ kind: 'plan', label: `Plan: ${effective.length > 0 ? effective.join(' -> ') : '(nothing to run)'}` });
-
-  const resolveDocumentPath = params.resolveDocumentPath ?? (() => null);
+  const available = resolvePlanningRoster(capability, requested);
 
   const allRuns: AgentRun[] = [];
   const allEvidence: EvidenceItem[] = [];
@@ -165,16 +318,61 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
   };
 
   /* -------------------------------------------------------------- */
-  /* Phase A — document intelligence, one per unprocessed document,   */
-  /* run concurrently with a small cap since each is independent.     */
+  /* Plan.                                                             */
   /* -------------------------------------------------------------- */
-  if (effective.includes('document_intelligence')) {
+  const plannerResult = await runPlanner({ caseId: caseData.id, caseData, refData, available, now, onStep: params.onStep });
+  recordRun(plannerResult.run);
+  const plan = plannerResult.plan;
+  emit({
+    kind: 'plan',
+    label: `Plan: ${plan.tasks.filter(t => t.depth !== 'skip').map(t => `${t.agent}(${t.depth})`).join(', ') || '(nothing to run)'}`,
+    detail: plan.caseAssessment,
+  });
+  if (plan.deliberateOmissions.length > 0) {
+    emit({ kind: 'message', label: `${plan.deliberateOmissions.length} deliberate omission(s) in this plan.`, detail: plan.deliberateOmissions.join(' | ') });
+  }
+
+  const tasksByAgent = new Map<AgentKind, PlannedTask>(plan.tasks.map(t => [t.agent, t]));
+  const runnableTask = (agent: AgentKind): PlannedTask | undefined => {
+    const t = tasksByAgent.get(agent);
+    return t && t.depth !== 'skip' ? t : undefined;
+  };
+  const emitSkip = (agent: AgentKind): void => {
+    const t = tasksByAgent.get(agent);
+    if (t && t.depth === 'skip') emit({ kind: 'plan', label: `${agent} skipped by plan.`, detail: t.rationale });
+  };
+
+  let pathways: DocumentPathway[] = [];
+  let findings: ResearchFinding[] = [];
+  let insights: AgentInsight[] = [];
+  let proposedActions: RecommendedAction[] = [];
+  let drafts: DiligenceDraft[] = [];
+  let verification: VerificationSummary | undefined;
+  const explorations: ExplorationSession[] = [];
+  let freshScreenResult: ScreenResult | undefined;
+  let finalDocuments: CaseDocument[] = caseData.documents;
+
+  const resolveDocumentPath = params.resolveDocumentPath ?? (() => null);
+
+  /* -------------------------------------------------------------- */
+  /* Phase A — document intelligence, one per unprocessed document,   */
+  /* run concurrently with a small cap; then the feedback loop's       */
+  /* re-screen, guarded to run at most once and only on real new fields. */
+  /* -------------------------------------------------------------- */
+  const diTask = runnableTask('document_intelligence');
+  if (!diTask) {
+    emitSkip('document_intelligence');
+  } else {
     const unprocessed = caseData.documents.filter(isUnprocessed);
     if (unprocessed.length === 0) {
-      emit({ kind: 'plan', label: 'Document intelligence: no unprocessed documents — skipped' });
+      emit({ kind: 'plan', label: 'Document intelligence: no unprocessed documents — nothing to do.' });
     } else {
-      emit({ kind: 'plan', label: `Document intelligence: ${unprocessed.length} document(s), concurrency ${DOCUMENT_INTELLIGENCE_CONCURRENCY}` });
-      await mapWithConcurrency(unprocessed, DOCUMENT_INTELLIGENCE_CONCURRENCY, async document => {
+      emit({
+        kind: 'plan',
+        label: `Document intelligence (${diTask.depth}): ${unprocessed.length} document(s), concurrency ${DOCUMENT_INTELLIGENCE_CONCURRENCY}.`,
+        detail: diTask.rationale,
+      });
+      const diOutcomes = await mapWithConcurrency(unprocessed, DOCUMENT_INTELLIGENCE_CONCURRENCY, async document => {
         try {
           const result = await runDocumentIntelligence({
             caseId: caseData.id,
@@ -186,114 +384,189 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
           });
           recordRun(result.run);
           allEvidence.push(...result.evidence);
+          return result.run.status === 'succeeded' ? { document, kind: result.kind, kindConfidence: result.kindConfidence, fields: result.fields, notes: result.notes } : null;
         } catch (e) {
-          const reason = describeError(e);
-          const failedAt = new Date().toISOString();
-          recordRun({
-            id: randomUUID(),
-            caseId: caseData.id,
-            agent: 'document_intelligence',
-            status: 'failed',
-            startedAt: failedAt,
-            finishedAt: failedAt,
-            model: AGENT_MODEL,
-            steps: [],
-            error: `Unexpected error processing "${document.fileName}": ${reason}`,
-            producedEvidenceIds: [],
-          });
+          recordRun(failedRun(caseData.id, 'document_intelligence', `Unexpected error processing "${document.fileName}": ${describeError(e)}`));
+          return null;
         }
       });
+
+      // Merge every successful extraction into its document. A document the
+      // user has already confirmed the classification of keeps that
+      // classification — document intelligence can still correct its
+      // extracted fields, just not overrule a human's own call on kind.
+      const documentsById = new Map(caseData.documents.map(d => [d.id, d]));
+      let gainedNewFields = false;
+      for (const outcome of diOutcomes) {
+        if (!outcome) continue;
+        if (outcome.fields.length > 0) gainedNewFields = true;
+        documentsById.set(outcome.document.id, mergeDocumentIntelligenceOutcome(outcome));
+      }
+      finalDocuments = caseData.documents.map(d => documentsById.get(d.id) ?? d);
+
+      if (!gainedNewFields) {
+        emit({ kind: 'plan', label: 'Feedback loop: no new fields extracted — re-screen skipped.' });
+      } else {
+        emit({ kind: 'plan', label: 'Feedback loop: re-running the deterministic screen with newly extracted fields.' });
+        try {
+          const rescreened = runScreen({
+            caseId: caseData.id,
+            reference: caseData.reference,
+            identity: caseData.identity,
+            documents: finalDocuments,
+            refData,
+            now,
+            previousResult: caseData.result,
+          });
+          freshScreenResult = rescreened;
+
+          const prev = caseData.result;
+          if (!prev) {
+            emit({ kind: 'message', label: `Re-screen produced this case's first screen result: ${rescreened.recommendation.verdict}, confidence ${rescreened.confidence.band}.` });
+          } else {
+            const prevGapCount = prev.completeness.missingCritical.length + (prev.stateCompliance?.unresolved.length ?? 0);
+            const newGapCount = rescreened.completeness.missingCritical.length + (rescreened.stateCompliance?.unresolved.length ?? 0);
+            const changes: string[] = [];
+            if (prev.recommendation.verdict !== rescreened.recommendation.verdict) changes.push(`verdict ${prev.recommendation.verdict} -> ${rescreened.recommendation.verdict}`);
+            if (prev.confidence.band !== rescreened.confidence.band) changes.push(`confidence band ${prev.confidence.band} -> ${rescreened.confidence.band}`);
+            if (prevGapCount !== newGapCount) changes.push(`gap count ${prevGapCount} -> ${newGapCount}`);
+            emit(
+              changes.length > 0
+                ? { kind: 'message', label: `Re-screen changed something material: ${changes.join(', ')}.` }
+                : { kind: 'message', label: 'Re-screen ran but nothing material changed (verdict, confidence band and gap count all held).' },
+            );
+          }
+        } catch (e) {
+          emit({ kind: 'error', label: 'Re-screen failed — continuing with the prior screen result.', detail: describeError(e) });
+        }
+      }
     }
   }
 
+  // Downstream agents always see the merged documents (even absent a
+  // re-screen, e.g. a reclassification with no new field), and the fresh
+  // screen result exactly when the feedback loop produced one.
+  const effectiveCaseData: PropertyCase = { ...caseData, documents: finalDocuments, result: freshScreenResult ?? caseData.result };
+
   /* -------------------------------------------------------------- */
-  /* Phase B — proof pathways, once over the whole case.               */
+  /* Phase B — proof pathways / market research / diligence planner /  */
+  /* explorer, scheduled by the plan's `order`; same-order tasks run   */
+  /* concurrently.                                                     */
   /* -------------------------------------------------------------- */
-  let pathways: DocumentPathway[] = [];
-  if (effective.includes('proof_pathways')) {
+  for (const agent of SCHEDULABLE_AGENTS) emitSkip(agent);
+
+  const schedulableTasks = SCHEDULABLE_AGENTS.map(a => runnableTask(a)).filter((t): t is PlannedTask => t !== undefined);
+  const orderedGroups = groupTasksByOrder(schedulableTasks);
+
+  const runScheduledTask = async (task: PlannedTask): Promise<void> => {
+    switch (task.agent) {
+      case 'proof_pathways': {
+        emit({ kind: 'plan', label: `Running proof_pathways (${task.depth}).`, detail: task.rationale });
+        try {
+          const result = await runProofPathways({ caseId: caseData.id, caseData: effectiveCaseData, refData, now, onStep: params.onStep });
+          recordRun(result.run);
+          pathways = result.pathways;
+          allEvidence.push(...(result.evidence ?? []));
+        } catch (e) {
+          recordRun(failedRun(caseData.id, 'proof_pathways', `Unexpected error generating proof pathways: ${describeError(e)}`));
+        }
+        return;
+      }
+      case 'market_research': {
+        emit({ kind: 'plan', label: `Running market_research (${task.depth}).`, detail: task.rationale });
+        try {
+          const result = await runMarketResearch({ caseId: caseData.id, caseData: effectiveCaseData, refData, now, onStep: params.onStep });
+          recordRun(result.run);
+          findings = result.findings;
+          allEvidence.push(...result.evidence);
+        } catch (e) {
+          recordRun(failedRun(caseData.id, 'market_research', `Unexpected error during market research: ${describeError(e)}`));
+        }
+        return;
+      }
+      case 'diligence_planner': {
+        emit({ kind: 'plan', label: `Running diligence_planner (${task.depth}).`, detail: task.rationale });
+        try {
+          const result = await runDiligencePlanner({ caseId: caseData.id, caseData: effectiveCaseData, refData, pathways, findings, now, onStep: params.onStep });
+          recordRun(result.run);
+          insights = result.insights;
+          proposedActions = result.actions;
+          drafts = result.drafts;
+          allEvidence.push(...result.evidence);
+        } catch (e) {
+          recordRun(failedRun(caseData.id, 'diligence_planner', `Unexpected error during diligence planning: ${describeError(e)}`));
+        }
+        return;
+      }
+      case 'explorer': {
+        emit({ kind: 'plan', label: `Running explorer (${task.depth}).`, detail: task.rationale });
+        try {
+          const budget = explorerBudgetForDepth(task.depth);
+          const result = await runExplorer({
+            caseId: caseData.id,
+            caseData: effectiveCaseData,
+            refData,
+            objective: task.focus.length > 0 ? task.focus.join('; ') : undefined,
+            maxIterations: budget.maxIterations,
+            maxCostUsd: budget.maxCostUsd,
+            now,
+            onStep: params.onStep,
+          });
+          recordRun(result.run);
+          explorations.push(result.session);
+        } catch (e) {
+          recordRun(failedRun(caseData.id, 'explorer', `Unexpected error during exploration: ${describeError(e)}`));
+        }
+        return;
+      }
+      default:
+        return;
+    }
+  };
+
+  for (const group of orderedGroups) {
+    if (group.length > 1) {
+      emit({ kind: 'plan', label: `Order ${group[0].order}: running ${group.map(t => t.agent).join(', ')} concurrently.` });
+    }
+    await Promise.all(group.map(runScheduledTask));
+  }
+
+  /* -------------------------------------------------------------- */
+  /* Phase C — critic, always last: it checks the COMBINED output of   */
+  /* every generative agent that actually ran above, regardless of     */
+  /* what order value the plan assigned it.                            */
+  /* -------------------------------------------------------------- */
+  const criticTask = runnableTask('critic');
+  if (!criticTask) {
+    emitSkip('critic');
+  } else {
+    emit({ kind: 'plan', label: `Running critic (${criticTask.depth}) over this run's combined generative output.`, detail: criticTask.rationale });
+    // Every evidence id an insight could legitimately cite: the case's own
+    // screen ledger plus whatever this run's other agents produced (proof
+    // pathways, document intelligence, market research) — a superset is
+    // safe here since the critic only ever checks membership.
+    const evidenceIds = [...new Set([...(effectiveCaseData.result?.evidence.map(e => e.id) ?? []), ...allEvidence.map(e => e.id)])];
     try {
-      const result = await runProofPathways({ caseId: caseData.id, caseData, refData, now, onStep: params.onStep });
-      recordRun(result.run);
-      pathways = result.pathways;
-      allEvidence.push(...(result.evidence ?? []));
-    } catch (e) {
-      const reason = describeError(e);
-      const failedAt = new Date().toISOString();
-      recordRun({
-        id: randomUUID(),
+      const result = await runCritic({
         caseId: caseData.id,
-        agent: 'proof_pathways',
-        status: 'failed',
-        startedAt: failedAt,
-        finishedAt: failedAt,
-        model: AGENT_MODEL,
-        steps: [],
-        error: `Unexpected error generating proof pathways: ${reason}`,
-        producedEvidenceIds: [],
+        pathways,
+        insights,
+        research: findings,
+        evidenceIds,
+        statePackId: resolveStatePackId(effectiveCaseData, refData),
+        now,
+        onStep: params.onStep,
       });
+      recordRun(result.run);
+      verification = result.verification;
+    } catch (e) {
+      recordRun(failedRun(caseData.id, 'critic', `Unexpected error running the critic: ${describeError(e)}`));
     }
   }
 
   /* -------------------------------------------------------------- */
-  /* Phase C — market research, once, if enabled.                     */
+  /* Wrap up.                                                          */
   /* -------------------------------------------------------------- */
-  let findings: ResearchFinding[] = [];
-  if (effective.includes('market_research')) {
-    try {
-      const result = await runMarketResearch({ caseId: caseData.id, caseData, refData, now, onStep: params.onStep });
-      recordRun(result.run);
-      findings = result.findings;
-      allEvidence.push(...result.evidence);
-    } catch (e) {
-      const reason = describeError(e);
-      const failedAt = new Date().toISOString();
-      recordRun({
-        id: randomUUID(),
-        caseId: caseData.id,
-        agent: 'market_research',
-        status: 'failed',
-        startedAt: failedAt,
-        finishedAt: failedAt,
-        model: AGENT_MODEL,
-        steps: [],
-        error: `Unexpected error during market research: ${reason}`,
-        producedEvidenceIds: [],
-      });
-    }
-  }
-
-  /* -------------------------------------------------------------- */
-  /* Phase D — diligence planner, last: consumes B and C's output.    */
-  /* -------------------------------------------------------------- */
-  let insights: AgentInsight[] = [];
-  let proposedActions: RecommendedAction[] = [];
-  let drafts: DiligenceDraft[] = [];
-  if (effective.includes('diligence_planner')) {
-    try {
-      const result = await runDiligencePlanner({ caseId: caseData.id, caseData, refData, pathways, findings, now, onStep: params.onStep });
-      recordRun(result.run);
-      insights = result.insights;
-      proposedActions = result.actions;
-      drafts = result.drafts;
-      allEvidence.push(...result.evidence);
-    } catch (e) {
-      const reason = describeError(e);
-      const failedAt = new Date().toISOString();
-      recordRun({
-        id: randomUUID(),
-        caseId: caseData.id,
-        agent: 'diligence_planner',
-        status: 'failed',
-        startedAt: failedAt,
-        finishedAt: failedAt,
-        model: AGENT_MODEL,
-        steps: [],
-        error: `Unexpected error during diligence planning: ${reason}`,
-        producedEvidenceIds: [],
-      });
-    }
-  }
-
   const usage = sumUsage(allRuns.map(r => r.usage));
   const overallStatus = rollupStatus(allRuns);
   emit({
@@ -301,6 +574,7 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
     label: `Orchestration ${overallStatus} — ${allRuns.filter(r => r.status === 'succeeded').length}/${allRuns.length} phase run(s) succeeded`,
   });
 
+  const ranAgents = plan.tasks.filter(t => t.depth !== 'skip').map(t => t.agent);
   const orchestratorRun: AgentRun = {
     id: orchestratorRunId,
     caseId: caseData.id,
@@ -310,7 +584,7 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
     finishedAt: new Date().toISOString(),
     model: AGENT_MODEL,
     steps: orchestratorSteps,
-    summary: `${effective.join(', ') || 'no phases'} — ${allRuns.filter(r => r.status === 'succeeded').length}/${allRuns.length} succeeded, ${pathways.length} pathway(s), ${findings.length} research finding(s), ${insights.length} insight(s), ${proposedActions.length} proposed action(s).`,
+    summary: `${ranAgents.join(', ') || 'no phases'} — ${allRuns.filter(r => r.status === 'succeeded').length}/${allRuns.length} succeeded, ${pathways.length} pathway(s), ${findings.length} research finding(s), ${insights.length} insight(s), ${proposedActions.length} proposed action(s)${verification ? `, grounding score ${verification.groundingScore}` : ''}.`,
     usage,
     producedEvidenceIds: [],
   };
@@ -319,11 +593,26 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
   const runs = [orchestratorRun, ...allRuns];
   const intelligence: Partial<CaseIntelligence> = {
     runs,
+    plan,
+    verification,
+    explorations,
     pathways,
     research: findings,
     insights,
     lastRunAt: new Date().toISOString(),
   };
 
-  return { runs, intelligence, usage, evidence: allEvidence, proposedActions, drafts };
+  return {
+    runs,
+    intelligence,
+    usage,
+    evidence: allEvidence,
+    proposedActions,
+    drafts,
+    plan,
+    verification,
+    explorations,
+    documents: finalDocuments,
+    screenResult: freshScreenResult,
+  };
 }

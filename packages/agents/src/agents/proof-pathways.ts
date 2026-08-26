@@ -23,6 +23,21 @@
  * case in a state with no pack yet) the model is explicitly told it has no
  * verified jurisdiction-specific corpus and is forbidden from naming any
  * Karnataka/BBMP-specific institution.
+ *
+ * Fan-out: each gap is independent of every other gap, so each gets its own
+ * model call rather than all of them sharing one response budget — a case
+ * with eight gaps used to mean the eighth got whatever attention and output
+ * budget was left after the first seven; now every gap gets a full, focused
+ * call. Calls run concurrently with a small cap (`GAP_FANOUT_CONCURRENCY`).
+ * The system prompt (grounding rules, role, jurisdiction notice, and the
+ * Karnataka corpus where it applies) does not depend on which gap is being
+ * asked about, so it is built exactly once and passed byte-identical into
+ * every call — the same text with the same `cache_control` marker on every
+ * request is what lets prompt caching absorb the fan-out cheaply. One gap's
+ * call failing (network error, refusal, bad output) never loses the others:
+ * it is reported via `buildPathwayFromValidated`'s existing "no route
+ * analysis was produced" fallback, exactly as an uncovered gap already was
+ * before this file fanned out at all.
  */
 
 import { z } from 'zod';
@@ -30,6 +45,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import type {
   AgentRun,
   AgentStep,
+  AgentUsage,
   ComplianceVerdict,
   CurrencyCode,
   DocumentKind,
@@ -41,11 +57,11 @@ import type {
   ReferenceData,
   ScreenResult,
 } from '@valytica/shared';
-import { AGENT_MODEL, BASE_REQUEST, describeError, estimateUsage, getClient } from '../client';
+import { AGENT_MODEL, BASE_REQUEST, describeError, estimateUsage, getClient, sumUsage } from '../client';
 import { GROUNDING_RULES, renderCaseContext } from '../context';
 import { KARNATAKA_PROOF_ROUTES_VERIFY_BANNER, renderKarnatakaProofRoutesCorpus } from '../knowledge/karnataka-proof-routes';
 
-const TOOL_NAME = 'emit_document_pathways';
+const TOOL_NAME = 'emit_document_pathway';
 
 /* ------------------------------------------------------------------ */
 /* Deterministic gap derivation                                        */
@@ -175,10 +191,6 @@ const PathwaySchema = z.object({
   wouldResolve: z.array(z.string()),
 });
 
-const OutputSchema = z.object({
-  pathways: z.array(PathwaySchema),
-});
-
 type ValidatedPathway = z.infer<typeof PathwaySchema>;
 
 const ROUTE_JSON_SCHEMA = {
@@ -221,7 +233,7 @@ const ROUTE_JSON_SCHEMA = {
 const PATHWAY_JSON_SCHEMA = {
   type: 'object' as const,
   properties: {
-    targetKey: { type: 'string', description: 'Must exactly match one targetKey from the gaps list you were given — no more, no fewer pathways than gaps given.' },
+    targetKey: { type: 'string', description: 'Must exactly match the targetKey of the one gap you were given.' },
     whyItMatters: {
       type: 'string',
       description: 'Why this gap matters, ending with which route you recommend and why (there is no separate rationale field — say it here).',
@@ -245,29 +257,21 @@ const PATHWAY_JSON_SCHEMA = {
   additionalProperties: false,
 };
 
-const OUTPUT_JSON_SCHEMA = {
-  type: 'object' as const,
-  properties: {
-    pathways: { type: 'array', items: PATHWAY_JSON_SCHEMA },
-  },
-  required: ['pathways'],
-  additionalProperties: false,
-};
-
 /* ------------------------------------------------------------------ */
 /* Prompt assembly                                                     */
 /* ------------------------------------------------------------------ */
 
 const PROOF_PATHWAYS_ROLE = `
-You are the proof-pathways agent inside Valytica. You are handed a fixed list
-of evidence gaps that a deterministic engine has already identified on this
-case — required documents that are missing, and state-pack compliance checks
-that came back "unknown" or "blocker". You do not decide what is missing;
-that list is given to you and is final. Your job is to work out, for EACH
-gap given to you, every realistic way to close it.
+You are the proof-pathways agent inside Valytica. A deterministic engine has
+already identified evidence gaps on this case — required documents that are
+missing, and state-pack compliance checks that came back "unknown" or
+"blocker" — and you are handed exactly ONE of those gaps at a time. You do
+not decide what is missing; the gap is given to you and is final. Your job is
+to work out every realistic way to close this one gap, with your full
+attention on it rather than sharing it with a list of others.
 
-For each gap, produce one pathway with every viable route you can respons­ibly
-name, ranked best-first:
+For the gap given, produce one pathway with every viable route you can
+respons­ibly name, ranked best-first:
 - Be concrete: a named authority, a named portal or office, ordered steps a
   buyer could actually follow, prerequisites, an indicative cost range and an
   indicative duration range — never a vague "contact the relevant authority".
@@ -306,8 +310,8 @@ name, ranked best-first:
   or title, or a named confidence-factor key, all drawn from what you were
   given in this prompt. Do not write generic statements like "improves the
   screen".
-- Produce exactly one pathway per gap given to you, with targetKey matching
-  exactly — no more, no fewer, no gap skipped.
+- Produce exactly one pathway for the gap given to you, with targetKey
+  matching it exactly.
 `.trim();
 
 function buildJurisdictionNotice(caseData: PropertyCase, karnatakaApplies: boolean): string {
@@ -339,7 +343,17 @@ function buildSystemText(caseData: PropertyCase, karnatakaApplies: boolean): str
   return parts.join('\n\n');
 }
 
-function buildUserText(caseData: PropertyCase, refData: ReferenceData, result: ScreenResult, gaps: Gap[]): string {
+/**
+ * The case-level context (case JSON, confidence factors, open risks) is
+ * identical for every gap on a case, so in principle it could be hoisted out
+ * and shared across the fan-out the same way `buildSystemText`'s output is.
+ * It stays in the *user* message rather than the cached system prefix
+ * deliberately: `renderCaseContext` embeds the live screen result, which is
+ * exactly the kind of case-specific content the system prefix must NOT vary
+ * with turn to turn for caching to stay valid — keeping it here is what lets
+ * `buildSystemText`'s output stay a fixed, gap-independent string.
+ */
+function buildGapUserText(caseData: PropertyCase, refData: ReferenceData, result: ScreenResult, gap: Gap): string {
   const confidenceFactors = result.confidence.factors.map(f => ({ key: f.key, label: f.label }));
   const openRisks = result.risks
     .filter(r => r.status === 'open')
@@ -349,14 +363,14 @@ function buildUserText(caseData: PropertyCase, refData: ReferenceData, result: S
     'CASE CONTEXT (JSON) — for jurisdiction, property-type and khata/conversion facts:',
     renderCaseContext(caseData, refData, { includeEvidence: false, includeCompliance: true }),
     '',
-    'CONFIDENCE FACTORS — cite by "key" in wouldResolve where a pathway would move one of these:',
+    'CONFIDENCE FACTORS — cite by "key" in wouldResolve where this pathway would move one of these:',
     JSON.stringify(confidenceFactors, null, 1),
     '',
-    'OPEN RISKS — cite by "id" or "title" in wouldResolve/unlocks where a pathway would address one of these:',
+    'OPEN RISKS — cite by "id" or "title" in wouldResolve/unlocks where this pathway would address one of these:',
     JSON.stringify(openRisks, null, 1),
     '',
-    'GAPS TO ADDRESS — produce exactly one pathway per gap below, matching targetKey exactly:',
-    JSON.stringify(gaps, null, 1),
+    'THE GAP TO ADDRESS — produce exactly one pathway for this gap, matching targetKey exactly:',
+    JSON.stringify(gap, null, 1),
   ].join('\n');
 }
 
@@ -480,6 +494,95 @@ function makeStep(caseId: string, n: number, kind: AgentStep['kind'], label: str
 }
 
 /* ------------------------------------------------------------------ */
+/* Per-gap fan-out                                                     */
+/* ------------------------------------------------------------------ */
+
+/** One gap's worth of concurrency, capped like the rest of this codebase's fan-outs (see orchestrator.ts's own DOCUMENT_INTELLIGENCE_CONCURRENCY). */
+const GAP_FANOUT_CONCURRENCY = 4;
+
+/** A single gap needs far less output budget than the old one-call-for-everything request did. */
+const GAP_MAX_TOKENS = 16000;
+
+/**
+ * Small, dependency-free concurrency helper — deliberately duplicated here
+ * rather than imported from orchestrator.ts (out of scope for this file) or
+ * factored into a new shared module (also out of scope). `fn` must never
+ * throw: a rejection here would abort `Promise.all` and lose every other
+ * in-flight gap's result, defeating the whole point of "one gap failing must
+ * not lose the others".
+ */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const i = cursor;
+      cursor += 1;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, () => worker()));
+  return results;
+}
+
+interface GapCallOutcome {
+  validated?: ValidatedPathway;
+  usage?: AgentUsage;
+  error?: string;
+}
+
+/**
+ * One model call for one gap. Never throws — every failure mode (network
+ * error, safety refusal, missing tool call, schema mismatch) is caught and
+ * turned into `{ error }` so the caller can fall back to
+ * `buildPathwayFromValidated`'s existing "no route analysis was produced"
+ * path for this gap alone, without disturbing any other gap's call.
+ */
+async function runGapPathway(client: Anthropic, systemText: string, caseData: PropertyCase, refData: ReferenceData, result: ScreenResult, gap: Gap): Promise<GapCallOutcome> {
+  const userText = buildGapUserText(caseData, refData, result, gap);
+  try {
+    const stream = client.beta.messages.stream({
+      ...BASE_REQUEST,
+      max_tokens: GAP_MAX_TOKENS,
+      output_config: { effort: 'high' },
+      // Byte-identical across every gap's call — this is what lets the fan-out's
+      // concurrent requests share one cached prompt prefix instead of each
+      // paying full price for the grounding rules, role and corpus text.
+      system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: userText }],
+      tools: [
+        {
+          name: TOOL_NAME,
+          description: 'Emit the ranked, costed proof-sourcing pathway for the one gap given.',
+          strict: true,
+          input_schema: PATHWAY_JSON_SCHEMA,
+        },
+      ],
+      tool_choice: { type: 'tool', name: TOOL_NAME },
+    });
+    const finalMessage = await stream.finalMessage();
+
+    if (finalMessage.stop_reason === 'refusal') {
+      return { error: 'The model declined to answer (safety refusal) for this gap.', usage: estimateUsage(finalMessage.usage) };
+    }
+    const toolUse = finalMessage.content.find(
+      (block): block is Anthropic.Beta.Messages.BetaToolUseBlock => block.type === 'tool_use' && block.name === TOOL_NAME,
+    );
+    if (!toolUse) {
+      return { error: 'The model did not return the expected tool call for this gap.', usage: estimateUsage(finalMessage.usage) };
+    }
+    const parsed = PathwaySchema.safeParse(toolUse.input);
+    if (!parsed.success) {
+      return { error: `Model output did not match the expected schema: ${parsed.error.message}`, usage: estimateUsage(finalMessage.usage) };
+    }
+    return { validated: parsed.data, usage: estimateUsage(finalMessage.usage) };
+  } catch (e) {
+    return { error: describeError(e) };
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Entry point                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -580,87 +683,40 @@ export async function runProofPathways(input: {
   );
 
   const systemText = buildSystemText(caseData, karnatakaApplies);
-  const userText = buildUserText(caseData, refData, result, gaps);
 
-  emit('tool_call', `Requesting route analysis for ${gaps.length} gap(s) from ${AGENT_MODEL}.`, undefined, TOOL_NAME);
-
-  let finalMessage: Anthropic.Beta.Messages.BetaMessage;
-  try {
-    const stream = client.beta.messages.stream({
-      ...BASE_REQUEST,
-      max_tokens: 64000,
-      output_config: { effort: 'high' },
-      system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: userText }],
-      tools: [
-        {
-          name: TOOL_NAME,
-          description: 'Emit the ranked, costed proof-sourcing pathway for every gap given, one pathway per gap.',
-          strict: true,
-          input_schema: OUTPUT_JSON_SCHEMA,
-        },
-      ],
-      tool_choice: { type: 'tool', name: TOOL_NAME },
-    });
-    finalMessage = await stream.finalMessage();
-  } catch (e) {
-    return fail(describeError(e));
-  }
-
-  emit('tool_result', `Received response (stop_reason: ${finalMessage.stop_reason ?? 'unknown'}).`, undefined, TOOL_NAME);
-
-  if (finalMessage.stop_reason === 'refusal') {
-    return fail('The model declined to answer (safety refusal) and no fallback produced a usable response.');
-  }
-
-  const toolUse = finalMessage.content.find(
-    (block): block is Anthropic.Beta.Messages.BetaToolUseBlock => block.type === 'tool_use' && block.name === TOOL_NAME,
-  );
-  if (!toolUse) {
-    return fail('The model did not return the expected tool call.');
-  }
-
-  const parsed = OutputSchema.safeParse(toolUse.input);
-  if (!parsed.success) {
-    return fail(`Model output did not match the expected schema: ${parsed.error.message}`);
-  }
-
-  const byTargetKey = new Map<string, ValidatedPathway>();
-  for (const p of parsed.data.pathways) {
-    if (!byTargetKey.has(p.targetKey)) {
-      byTargetKey.set(p.targetKey, p);
-    }
-  }
-
-  const extraKeys = [...byTargetKey.keys()].filter(k => !gaps.some(g => g.targetKey === k));
-  if (extraKeys.length > 0) {
-    emit('message', `Ignored ${extraKeys.length} pathway(s) for keys that were not in the gap list.`, extraKeys.join(', '));
-  }
+  emit('plan', `Fanning out ${gaps.length} gap(s) to ${AGENT_MODEL}, one call per gap, concurrency ${GAP_FANOUT_CONCURRENCY}.`);
 
   const currency = caseData.identity.currency;
-  const pathways: DocumentPathway[] = [];
-  const evidence: EvidenceItem[] = [];
+  const usageList: AgentUsage[] = [];
+  let failedGaps = 0;
 
-  gaps.forEach((gap, i) => {
+  const built = await mapWithConcurrency(gaps, GAP_FANOUT_CONCURRENCY, async (gap, i) => {
     const n = i + 1;
     const pathwayId = `pathway-${caseId}-${n}`;
     const evidenceId = `ev-pathway-${caseId}-${n}`;
-    const validated = byTargetKey.get(gap.targetKey);
-    if (!validated) {
-      emit('message', `No route analysis returned for gap "${gap.targetKey}" — recorded as unresolved.`);
+    emit('tool_call', `Requesting route analysis for gap "${gap.targetKey}".`, undefined, TOOL_NAME);
+    const outcome = await runGapPathway(client, systemText, caseData, refData, result, gap);
+    if (outcome.usage) usageList.push(outcome.usage);
+    if (outcome.error) {
+      failedGaps += 1;
+      emit('error', `Route analysis failed for gap "${gap.targetKey}" — recorded as unresolved.`, outcome.error);
+    } else {
+      emit('tool_result', `Received route analysis for gap "${gap.targetKey}".`, undefined, TOOL_NAME);
     }
-    const built = buildPathwayFromValidated(pathwayId, gap, validated, currency, evidenceId);
-    pathways.push(built.pathway);
-    evidence.push(built.evidence);
+    return buildPathwayFromValidated(pathwayId, gap, outcome.validated, currency, evidenceId);
   });
+
+  const pathways = built.map(b => b.pathway);
+  const evidence = built.map(b => b.evidence);
 
   const blockedCount = pathways.filter(p => p.routes.length === 0 || p.routes.every(r => r.feasibility === 'blocked')).length;
   emit(
     'message',
-    `Produced ${pathways.length} pathway(s) covering ${gaps.length} gap(s)${blockedCount > 0 ? `; ${blockedCount} have no working route and are marked accordingly` : ''}.`,
+    `Produced ${pathways.length} pathway(s) covering ${gaps.length} gap(s)${blockedCount > 0 ? `; ${blockedCount} have no working route and are marked accordingly` : ''}` +
+      `${failedGaps > 0 ? `; ${failedGaps} gap call(s) failed and were recorded as unresolved rather than dropped` : ''}.`,
   );
 
-  const usage = estimateUsage(finalMessage.usage);
+  const usage = sumUsage(usageList);
 
   return {
     run: {
@@ -672,7 +728,7 @@ export async function runProofPathways(input: {
       finishedAt: new Date().toISOString(),
       model: AGENT_MODEL,
       steps,
-      summary: `Built ${pathways.length} proof pathway(s) for ${gaps.length} evidence gap(s) as of ${now}.`,
+      summary: `Built ${pathways.length} proof pathway(s) for ${gaps.length} evidence gap(s) as of ${now}${failedGaps > 0 ? ` (${failedGaps} could not be analysed and are marked unresolved)` : ''}.`,
       usage,
       producedEvidenceIds: evidence.map(e => e.id),
     },

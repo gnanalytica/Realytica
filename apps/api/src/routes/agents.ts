@@ -2,9 +2,10 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { z } from 'zod';
 import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase } from '@valytica/shared';
 import { REFERENCE_DATA } from '@valytica/shared';
-import { agentCapability, describeError, runCopilot, runOrchestration, type RunOrchestrationResult } from '@valytica/agents';
+import { agentCapability, describeError, runCopilot, runExplorer, runOrchestration, type RunOrchestrationResult } from '@valytica/agents';
 import { store, caseUploadDir } from '../store';
 import { findCase } from './cases';
 import { agentKindSchema, copilotBodySchema, runAgentsBodySchema } from '../schemas';
@@ -21,7 +22,7 @@ import { agentKindSchema, copilotBodySchema, runAgentsBodySchema } from '../sche
  */
 
 function emptyIntelligence(): CaseIntelligence {
-  return { runs: [], pathways: [], research: [], insights: [], conversation: [] };
+  return { runs: [], explorations: [], pathways: [], research: [], insights: [], conversation: [] };
 }
 
 const ALL_AGENT_KINDS: readonly AgentKind[] = agentKindSchema.options;
@@ -45,16 +46,26 @@ function resolveDocumentPath(caseId: string, document: CaseDocument): string | n
  * Folds one `runOrchestration` result into a case: appends its runs to the
  * history, replaces pathways/research/insights with the fresh computation
  * (they describe the case's *current* gaps and findings, not a log), leaves
- * the copilot conversation untouched (orchestration never touches it), and
- * merges any newly produced evidence into the screen's own evidence ledger —
- * without that merge, an agent-cited evidence id would never resolve via
- * `EvidenceLink`, breaking Evidence Before Assertion for everything the
- * agents surface.
+ * the copilot conversation and prior exploration sessions untouched
+ * (orchestration never touches either), and merges any newly produced
+ * evidence into the screen's own evidence ledger — without that merge, an
+ * agent-cited evidence id would never resolve via `EvidenceLink`, breaking
+ * Evidence Before Assertion for everything the agents surface.
+ *
+ * `plan` and `verification` are read straight off `result.intelligence` —
+ * both are already optional on `CaseIntelligence`, so this reads correctly
+ * whether or not the orchestrator populates them yet, and once it does, no
+ * change is needed here. Falling back to the previous value means a plan or
+ * verification summary from an earlier run survives a later run that (for
+ * whatever reason) didn't produce a fresh one, rather than disappearing.
  */
 function applyOrchestrationResult(found: PropertyCase, result: RunOrchestrationResult, now: string): void {
   const prev = found.intelligence ?? emptyIntelligence();
   found.intelligence = {
     runs: [...prev.runs, ...result.runs],
+    plan: result.intelligence.plan ?? prev.plan,
+    verification: result.intelligence.verification ?? prev.verification,
+    explorations: prev.explorations ?? [],
     pathways: result.intelligence.pathways ?? prev.pathways,
     research: result.intelligence.research ?? prev.research,
     insights: result.intelligence.insights ?? prev.insights,
@@ -240,4 +251,53 @@ caseAgentsRouter.delete<{ id: string }>('/conversation', (req, res) => {
   found.updatedAt = new Date().toISOString();
   store.scheduleSave();
   res.status(204).end();
+});
+
+const exploreBodySchema = z.object({
+  objective: z.string().min(1).max(500).optional(),
+  maxIterations: z.number().int().min(1).max(20).optional(),
+  maxCostUsd: z.number().positive().max(50).optional(),
+});
+
+// The explorer follows its own leads across the web rather than filling a
+// fixed output shape, so it is triggered from its own endpoint instead of
+// being folded into `/run` — a user opts into it deliberately, with its own
+// objective and budget, rather than it firing on every orchestration pass.
+caseAgentsRouter.post<{ id: string }>('/explore', async (req, res) => {
+  const found = findCase(req.params.id);
+  if (!found) {
+    res.status(404).json({ error: 'Case not found' });
+    return;
+  }
+  const capability = agentCapability();
+  if (!capability.available) {
+    res.status(503).json({ error: 'Agents are not configured for this deployment.', details: { reason: capability.reason } });
+    return;
+  }
+  const parsed = exploreBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    const now = new Date().toISOString();
+    const { run, session } = await runExplorer({
+      caseId: found.id,
+      caseData: found,
+      refData: REFERENCE_DATA,
+      objective: parsed.data.objective,
+      maxIterations: parsed.data.maxIterations,
+      maxCostUsd: parsed.data.maxCostUsd,
+      now,
+    });
+    if (!found.intelligence) found.intelligence = emptyIntelligence();
+    found.intelligence.runs = [...found.intelligence.runs, run];
+    found.intelligence.explorations = [...(found.intelligence.explorations ?? []), session];
+    found.updatedAt = new Date().toISOString();
+    store.scheduleSave();
+    res.json(found);
+  } catch (e) {
+    res.status(502).json({ error: describeError(e) });
+  }
 });
