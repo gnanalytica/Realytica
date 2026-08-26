@@ -1439,7 +1439,58 @@ export interface CountryPack {
   datasets: string[];
   stampDutyPct: number;
   registrationFeePct: number;
+  /**
+   * How the three areas a development scheme deals in relate to each other.
+   *
+   * A residual values a scheme by selling what it builds, and there are three
+   * different areas involved that a single number silently conflates:
+   *
+   *  - **FAR area** — what the zoning permits, which is what
+   *    `PlanningPosition.buildablePotentialSqm` holds.
+   *  - **Constructed area** — what actually gets built, which is larger:
+   *    basement parking, service floors, and other FAR-exempt space still
+   *    costs money to build.
+   *  - **Saleable area** — what the buyer is invoiced for, which in India is
+   *    super built-up: carpet plus walls plus a proportionate share of common
+   *    areas, loaded on top.
+   *
+   * The residual was multiplying FAR area by a per-sqm sale rate for the GDV
+   * and by a per-sqm construction rate for the cost, so both sides were
+   * measured against the wrong quantity. These ratios convert once, in the
+   * open, with a note saying they are market conventions rather than
+   * measurements of a specific scheme.
+   *
+   * Country-level rather than per-locality: the loading a developer charges
+   * and the parking a code requires are city-and-country conventions, and
+   * eighteen copies of the same two numbers would drift apart.
+   */
+  areaRatios: AreaRatios;
   notes: string;
+}
+
+/**
+ * FAR area → constructed area → saleable area, as ratios.
+ *
+ * Both are stated as `StatutoryRule`-style conventions rather than bare
+ * numbers, because a reader has to be able to see they are assumptions: a
+ * sanctioned plan and a price list replace both, and until one exists the
+ * residual is quoting a market norm back at you.
+ */
+export interface AreaRatios {
+  /**
+   * Saleable (super built-up) area achieved per sqm of FAR area. Above 1 in
+   * India, because loading is added on top of what the FAR counts.
+   */
+  saleableToFar: number;
+  /**
+   * Actual constructed area per sqm of FAR area. Above 1 because basement
+   * parking, service floors and other FAR-exempt space is still built.
+   */
+  constructedToFar: number;
+  /** Where these conventions come from, shown wherever they move a number. */
+  source: string;
+  /** What would replace them with a fact. */
+  verifyNote: string;
 }
 
 /**

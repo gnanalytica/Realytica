@@ -52,6 +52,21 @@ const INDIA_PACK: CountryPack = {
   // pack declares its covered states above.
   stampDutyPct: 5.6,
   registrationFeePct: 1,
+  // Bengaluru apartment conventions. Saleable is above 1.0 because super
+  // built-up loads a share of common area on top of what the FAR counts;
+  // constructed is above 1.0 because basement parking and service floors are
+  // FAR-exempt and still have to be built and paid for. Both are norms, not
+  // measurements — a sanctioned plan and a price list replace them.
+  areaRatios: {
+    saleableToFar: 1.25,
+    constructedToFar: 1.35,
+    source: 'Bengaluru development convention — super built-up loading and FAR-exempt basement/service area',
+    verifyNote:
+      'These are market norms for a mid-rise Bengaluru residential scheme, not figures measured from a plan. ' +
+      'A sanctioned building plan gives the real constructed area and a developer price list gives the real ' +
+      'saleable area; either one supersedes the ratio it replaces. A scheme with no basement parking, or one ' +
+      'selling on carpet area under RERA, will differ materially.',
+  },
   notes:
     'Stamp duty and registration are levied on the higher of transacted price or the circle rate ' +
     '(statutory guidance value) recorded by the State Registration Department. Circle rates typically ' +
@@ -87,6 +102,19 @@ const NETHERLANDS_PACK: CountryPack = {
   // The Kadaster registration levy is a small fixed notary disbursement rather than
   // a percentage of price, so this is left near-zero rather than fabricating a rate.
   registrationFeePct: 0.1,
+  // The Netherlands sells and permits on gebruiksoppervlakte (NEN 2580 usable
+  // floor area), so there is no super-built-up loading to add and the two
+  // ratios sit close to 1. Stated rather than omitted so the residual reads
+  // the same way in both countries instead of silently skipping a step.
+  areaRatios: {
+    saleableToFar: 1.0,
+    constructedToFar: 1.15,
+    source: 'NEN 2580 gebruiksoppervlakte — sale and permit measure the same area, so no loading applies',
+    verifyNote:
+      'Dutch practice measures both the sale and the permit on NEN 2580 usable floor area, so saleable and ' +
+      'permitted area coincide. The constructed ratio still exceeds 1 for parking and services. A NEN 2580 ' +
+      'meetrapport for the specific scheme replaces both.',
+  },
   notes:
     'Overdrachtsbelasting (property transfer tax) is 10.4% for investment acquisitions, versus a reduced ' +
     'rate for owner-occupiers under the starters exemption. The WOZ value is a municipal assessment used ' +

@@ -297,3 +297,41 @@ describe('a method that does not fit its subject says so', () => {
     assert.ok(brief.fitCaution, 'a user-set kind still gets checked against the subject');
   });
 });
+
+describe('the residual measures each side against the right area', () => {
+  it('sells saleable area and builds constructed area, not FAR area', () => {
+    const { result } = screenSeed(SITE, {
+      project: {
+        kind: 'apartment_project',
+        source: 'user',
+        intent: 'buy_and_build',
+        inference: { kind: 'apartment_project', confidence: 1, basis: ['stated'], alternatives: [] },
+        decidedAt: NOW,
+      },
+      // A site big enough that the FAR headroom clears the 'moderate' bar.
+      identity: { plotAreaSqm: 4000 },
+    });
+    const residual = result.anchors.find(a => a.method === 'residual_development');
+    assert.ok(residual, 'an apartment scheme on 4,000 sqm should produce a residual');
+    // The three areas must appear as three different numbers. If the rationale
+    // ever quotes one figure for all three, the conversion has been dropped.
+    const figures = (residual.rationale.match(/[\d,]{4,} sqm/g) ?? []).map(f => f.replace(/[^\d]/g, ''));
+    assert.ok(figures.length >= 3, `expected FAR, saleable and constructed areas in the rationale, got ${figures.length}`);
+    assert.equal(new Set(figures).size, figures.length, 'the three areas must not be the same number');
+  });
+
+  it('states the ratios as conventions rather than measurements', () => {
+    const { result } = screenSeed(SITE, {
+      project: {
+        kind: 'apartment_project',
+        source: 'user',
+        intent: 'buy_and_build',
+        inference: { kind: 'apartment_project', confidence: 1, basis: ['stated'], alternatives: [] },
+        decidedAt: NOW,
+      },
+      identity: { plotAreaSqm: 4000 },
+    });
+    const residual = result.anchors.find(a => a.method === 'residual_development');
+    assert.match(residual!.rationale, /not figures measured from a plan/);
+  });
+});

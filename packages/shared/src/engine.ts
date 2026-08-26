@@ -10,6 +10,7 @@
  */
 
 import type {
+  AreaRatios,
   AssessmentProfile,
   MethodRole,
   ActionOwner,
@@ -973,6 +974,12 @@ function buildAnchors(
   statutoryRateLabel: string,
   documents: CaseDocument[],
   /**
+   * How FAR area, constructed area and saleable area relate in this country.
+   * Passed in rather than looked up so the residual cannot silently fall back
+   * to treating all three as the same number, which is what it used to do.
+   */
+  areaRatios: AreaRatios,
+  /**
    * The assessment method in force for this project kind. It decides which
    * anchors lead, which are demoted to a sense check and which do not apply
    * at all — see `applyProfileToAnchors` at the end of this function.
@@ -1352,15 +1359,23 @@ function buildAnchors(
     }
   } else if (residualApplies && (planning.developmentPotential === 'moderate' || planning.developmentPotential === 'significant')) {
     const buildableSqm = planning.buildablePotentialSqm;
-    const gdv = buildableSqm * locality.medianPricePerSqm;
-    const constructionCost = buildableSqm * locality.replacementCostPerSqm;
+    // Three different areas, converted once and in the open. `buildableSqm`
+    // is FAR area; the buyer is invoiced for saleable (super built-up) area,
+    // which loads common space on top of it; the builder pays for constructed
+    // area, which includes the FAR-exempt basement parking and service floors.
+    // Multiplying FAR area by both a sale rate and a construction rate — which
+    // is what this did — measures each side against the wrong quantity.
+    const saleableSqm = buildableSqm * areaRatios.saleableToFar;
+    const constructedSqm = buildableSqm * areaRatios.constructedToFar;
+    const gdv = saleableSqm * locality.medianPricePerSqm;
+    const constructionCost = constructedSqm * locality.replacementCostPerSqm;
     const demolitionCost = isLand ? 0 : identity.builtUpAreaSqm * locality.replacementCostPerSqm * DEMOLITION_COST_PCT_OF_REPLACEMENT;
     const developerMargin = gdv * RESIDUAL_DEVELOPER_MARGIN_PCT;
     const residualToday =
       (gdv - constructionCost - demolitionCost - developerMargin) / Math.pow(1 + RESIDUAL_DISCOUNT_RATE_PCT, RESIDUAL_DEVELOPMENT_PERIOD_YEARS);
     if (residualToday > 0) {
       const rdEvId = evidence.add({
-        statement: `Permitted envelope of ${Math.round(buildableSqm).toLocaleString()} sqm at FAR ${locality.farAllowed}, built at ${locality.replacementCostPerSqm.toLocaleString()}/sqm and sold at the locality's built median of ${locality.medianPricePerSqm.toLocaleString()}/sqm, less a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, discounted ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year build-and-sell period.`,
+        statement: `Permitted envelope of ${Math.round(buildableSqm).toLocaleString()} sqm at FAR ${locality.farAllowed} converts to ${Math.round(saleableSqm).toLocaleString()} sqm saleable (x${areaRatios.saleableToFar}) sold at ${locality.medianPricePerSqm.toLocaleString()}/sqm, and ${Math.round(constructedSqm).toLocaleString()} sqm constructed (x${areaRatios.constructedToFar}) built at ${locality.replacementCostPerSqm.toLocaleString()}/sqm, less a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, discounted ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year build-and-sell period.`,
         sourceType: 'model_inference',
         sourceRef: 'residual_development',
         sourceLabel: locality.source,
@@ -1376,11 +1391,11 @@ function buildAnchors(
         high: roundMoney(residualToday * (1 + band), currency),
         weight: 0.08,
         confidence: planning.developmentPotential === 'significant' ? 0.45 : 0.35,
-        rationale: `Values the FAR-${locality.farAllowed} ${isLand ? 'permitted envelope' : 'unused envelope above what already stands'} as built product at the locality's median sale rate, nets off construction cost${
+        rationale: `Values the FAR-${locality.farAllowed} ${isLand ? 'permitted envelope' : 'unused envelope above what already stands'} as built product. The ${Math.round(buildableSqm).toLocaleString()} sqm the zoning permits is not the area sold or the area built: it sells as ${Math.round(saleableSqm).toLocaleString()} sqm of saleable super built-up area and is constructed as ${Math.round(constructedSqm).toLocaleString()} sqm once FAR-exempt parking and services are counted (${areaRatios.source}). Nets off construction cost${
           demolitionCost > 0
             ? `, ${Math.round(demolitionCost).toLocaleString()} ${currency} of demolition and site clearance (${round1(DEMOLITION_COST_PCT_OF_REPLACEMENT * 100)}% of what the existing ${Math.round(identity.builtUpAreaSqm).toLocaleString()} sqm cost to build)`
             : ''
-        } and a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, and discounts the result back to today at ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year timeline. It depends on construction-cost, margin and absorption assumptions this screen cannot independently verify.`,
+        } and a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, and discounts the result back to today at ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year timeline. ${areaRatios.verifyNote} It also depends on construction-cost, margin and absorption assumptions this screen cannot independently verify.`,
         evidenceIds: [rdEvId],
       });
     }
@@ -4324,6 +4339,7 @@ export function runScreen(input: {
     planning,
     statutoryRateLabel,
     documentsWithExtraction,
+    countryPack.areaRatios,
     profile,
     now,
     evidence,
