@@ -27,6 +27,7 @@
  */
 
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
+import { buildStaleness } from '@valytica/shared';
 import type { Comparable, LocalityReference, PropertyCase, ReferenceData } from '@valytica/shared';
 
 /**
@@ -246,6 +247,89 @@ export function createCaseTools(caseData: PropertyCase, refData: ReferenceData) 
     },
   });
 
+  const getOfferAdvice = betaTool({
+    name: 'get_offer_advice',
+    description:
+      'Fetch what to offer for this property and the argument behind it: the opening, target and walk-away prices, the total cash needed ' +
+      'at the target including acquisition costs, every argument with or without a figure attached, the conditions that must clear first, ' +
+      'and what is deliberately not priced. Use this for any question about what to pay, how to negotiate, or whether the asking price is ' +
+      'reasonable. Report the three prices as three prices — never average them into one recommended number.',
+    inputSchema: { type: 'object', additionalProperties: false, required: [], properties: {} } as const,
+    run: async () => {
+      if (!result) return JSON.stringify({ error: NO_SCREEN_MESSAGE });
+      if (!result.offer) return JSON.stringify({ error: 'This screen predates offer advice. Re-run the screen to produce it.' });
+      return JSON.stringify(result.offer);
+    },
+  });
+
+  const getForcedSaleValue = betaTool({
+    name: 'get_forced_sale_value',
+    description:
+      'Fetch what this property would realise in a constrained sale inside a fixed marketing window, the discount from the open-market ' +
+      'mid, and each named component of that discount. Use this for questions about downside, distress value, recovery, or what a lender ' +
+      'would advance against. If `lendable` is false you must say so: a blocker on the case means no regulated lender advances at all, and ' +
+      'the figure is then what an informed cash buyer might pay, not a lending input.',
+    inputSchema: { type: 'object', additionalProperties: false, required: [], properties: {} } as const,
+    run: async () => {
+      if (!result) return JSON.stringify({ error: NO_SCREEN_MESSAGE });
+      if (!result.forcedSale) return JSON.stringify({ error: 'This screen predates the forced-sale figure. Re-run the screen to produce it.' });
+      return JSON.stringify(result.forcedSale);
+    },
+  });
+
+  const getSiteContext = betaTool({
+    name: 'get_site_context',
+    description:
+      'Fetch where this property was located on a map, how precisely the geocoder placed it, what is nearby with measured distances, and ' +
+      'the street-level imagery with its capture date. Also returns every gap — what could not be established and what that leaves ' +
+      'unknown. Use for questions about location, commute, amenities or surroundings. Never present the pin as a parcel boundary, and ' +
+      'where `precision` is not rooftop or interpolated, say that the distances describe the neighbourhood rather than this property.',
+    inputSchema: { type: 'object', additionalProperties: false, required: [], properties: {} } as const,
+    run: async () => {
+      if (!caseData.siteContext) {
+        return JSON.stringify({
+          error:
+            'No map lookup has been built for this case. Either no mapping provider is configured for this deployment, or the address has not been resolved yet.',
+        });
+      }
+      return JSON.stringify(caseData.siteContext);
+    },
+  });
+
+  const getWaterAndConstraints = betaTool({
+    name: 'get_site_constraints',
+    description:
+      'Fetch the restrictions on this parcel that do not come from its title: flood and lake-catchment exposure for the locality, and the ' +
+      'statutory constraint checks (aerodrome height, transmission clearance, highway control line, railway setback, burial ground, ' +
+      'quarry lease). Use for questions about flooding, what can be built, height limits, or anything restricting use rather than ' +
+      'ownership. A constraint with verdict "unknown" means nobody has checked — say exactly that, and never report it as clear. Flood ' +
+      'exposure describes the catchment, not this parcel.',
+    inputSchema: { type: 'object', additionalProperties: false, required: [], properties: {} } as const,
+    run: async () => {
+      if (!result) return JSON.stringify({ error: NO_SCREEN_MESSAGE });
+      const constraintKeys = new Set(['airport_height', 'high_tension_line', 'highway_control_line', 'railway_boundary', 'burial_ground', 'quarry_lease']);
+      return JSON.stringify({
+        waterExposure: result.waterExposure ?? null,
+        waterExposureNote:
+          result.waterExposure === undefined
+            ? 'No flood or lake-catchment classification is carried for this locality, so exposure has not been assessed. That is not the same as low exposure.'
+            : 'This describes the locality catchment, not this parcel.',
+        constraints: (result.stateCompliance?.checks ?? []).filter(c => constraintKeys.has(c.key)),
+      });
+    },
+  });
+
+  const getStaleness = betaTool({
+    name: 'get_staleness',
+    description:
+      'Fetch what has gone out of date on this case: the age of the screen itself, documents past the point a counterparty will accept ' +
+      'them, an encumbrance certificate whose period has ended, an expired registration, and the statutory figures this deployment ' +
+      'carries. Use when asked whether the analysis is current, or what needs rechecking. Nothing here is asserted to be wrong — each ' +
+      'item is carried from a date, and that date has passed. Say it that way.',
+    inputSchema: { type: 'object', additionalProperties: false, required: [], properties: {} } as const,
+    run: async () => JSON.stringify(buildStaleness(caseData, refData, new Date().toISOString())),
+  });
+
   return [
     listEvidence,
     getEvidenceById,
@@ -255,5 +339,10 @@ export function createCaseTools(caseData: PropertyCase, refData: ReferenceData) 
     getAnchors,
     getDocumentFields,
     getLocalityReference,
+    getOfferAdvice,
+    getForcedSaleValue,
+    getSiteContext,
+    getWaterAndConstraints,
+    getStaleness,
   ];
 }

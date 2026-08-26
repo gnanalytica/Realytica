@@ -25,6 +25,7 @@ import type {
   ValueAnchor,
   ValueDriver,
 } from '@valytica/shared';
+import { SITE_CONSTRAINT_KEYS } from '@valytica/shared';
 import {
   area,
   confidenceTone,
@@ -109,6 +110,14 @@ function DriverDirectionIcon({ direction }: { direction: ValueDriver['direction'
   if (direction === 'negative') return <ArrowDownRight size={13} />;
   return <Minus size={13} />;
 }
+
+const CONSTRAINT_KEYS = new Set<string>(SITE_CONSTRAINT_KEYS);
+
+const VALLEY_LABEL: Record<string, string> = {
+  vrishabhavathi: 'Vrishabhavathi',
+  koramangala_challaghatta: 'Koramangala–Challaghatta',
+  hebbal_nagavara: 'Hebbal–Nagavara',
+};
 
 const OUT_OF_SCOPE = [
   'a certified valuation',
@@ -355,11 +364,39 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
   const stateCompliance = result.stateCompliance ?? null;
   const transactionCosts = result.transactionCosts ?? null;
   const hasStatePack = Boolean(stateCompliance);
-  const extra = hasStatePack ? 2 : 0;
+
+  /*
+   * Section numbers are counted, not written.
+   *
+   * They used to be literals with a `+ extra` offset that modelled exactly
+   * two conditional sections — which meant every insertion renumbered the
+   * whole document by hand, and any third conditional section would have
+   * silently produced a report with two sections numbered the same. A
+   * counter is correct for any number of them, and makes adding a section a
+   * one-line change instead of a fourteen-line one.
+   *
+   * Reset on every render because the component re-runs top to bottom, and a
+   * counter that survived a render would climb forever.
+   */
+  let sectionCount = 0;
+  const nextSection = (): number => (sectionCount += 1);
+
+  // Constraints are pulled out of the compliance list so they can be reported
+  // together with the flood exposure they belong beside — and so the count of
+  // unchecked ones is visible on the section header rather than buried in six
+  // rows a reader has to tally themselves.
+  const constraintChecks = (stateCompliance?.checks ?? []).filter((c) => CONSTRAINT_KEYS.has(c.key));
+  const uncheckedConstraints = constraintChecks.filter((c) => c.verdict === 'unknown').length;
   const complianceBlockers = stateCompliance ? stateCompliance.checks.filter((c) => c.verdict === 'blocker') : [];
+  // Constraints are excluded here because they get their own section below.
+  // They are also not title checks: the compliance section asks whether this
+  // can be transferred to you, and a transmission corridor has nothing to say
+  // about that. A blocking constraint would still surface in the blockers
+  // group above, which is deliberate — a blocker is a blocker wherever it
+  // came from.
   const complianceRest = stateCompliance
     ? [...stateCompliance.checks]
-        .filter((c) => c.verdict !== 'blocker')
+        .filter((c) => c.verdict !== 'blocker' && !CONSTRAINT_KEYS.has(c.key))
         .sort((a, b) => COMPLIANCE_VERDICT_RANK[a.verdict] - COMPLIANCE_VERDICT_RANK[b.verdict])
     : [];
   const complianceUnresolved = stateCompliance
@@ -394,8 +431,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
       </div>
 
       <div className="space-y-4">
-        {/* 1. Cover */}
-        <Section n={1} title="Cover">
+        {/* Cover */}
+        <Section n={nextSection()} title="Cover">
           <div className="text-center">
             <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-muted">Valytica Property Screen</div>
             <h2 className="mt-2 text-xl font-semibold tracking-tight text-ink">{identity.label}</h2>
@@ -411,8 +448,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </div>
         </Section>
 
-        {/* 2. Recommendation */}
-        <Section n={2} title="Recommendation">
+        {/* Recommendation */}
+        <Section n={nextSection()} title="Recommendation">
           <div className="flex items-center gap-3">
             <span className={toneText(verdictColor)}>
               <VerdictIcon size={26} />
@@ -445,8 +482,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </div>
         </Section>
 
-        {/* 3. Indicative value */}
-        <Section n={3} title="Indicative value" subtitle="A range, never a point — uncertainty is the point">
+        {/* Indicative value */}
+        <Section n={nextSection()} title="Indicative value" subtitle="A range, never a point — uncertainty is the point">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <KeyValue label="Range" value={`${money(result.indicativeValue.low, currency)} – ${money(result.indicativeValue.high, currency)}`} />
             <KeyValue label="Mid" value={money(result.indicativeValue.mid, currency)} mono />
@@ -471,8 +508,125 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           />
         </Section>
 
-        {/* 4. Basis of the range */}
-        <Section n={4} title="Basis of the range">
+        {/*
+          * What to offer.
+          *
+          * Placed immediately after the range and before the working, because
+          * this is the section the reader opened the report for. Everything
+          * from here to the appendix explains how it was reached.
+          */}
+        {result.offer && (
+          <Section
+            n={nextSection()}
+            title="What to offer"
+            subtitle="Three prices, and the argument for each"
+            action={
+              <Badge tone={result.offer.stance === 'do_not_offer' ? 'critical' : result.offer.stance === 'offer_conditionally' ? 'warning' : 'good'}>
+                {result.offer.stance === 'do_not_offer' ? 'Do not offer yet' : result.offer.stance === 'offer_conditionally' ? 'Conditional' : 'Ready to offer'}
+              </Badge>
+            }
+          >
+            <Callout
+              tone={result.offer.stance === 'do_not_offer' ? 'critical' : result.offer.stance === 'offer_conditionally' ? 'warning' : 'good'}
+            >
+              {result.offer.headline}
+            </Callout>
+            {/* Two across, not four: KeyValue lays label and value on one
+                line, and "Cash needed at settle" in a quarter-width column
+                truncates the number it exists to show. */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <KeyValue label="Open at" value={money(result.offer.opening, currency)} mono />
+              <KeyValue label="Settle at" value={money(result.offer.target, currency)} mono />
+              <KeyValue label="Walk away above" value={money(result.offer.walkAway, currency)} mono />
+              <KeyValue label="Cash needed at settle" value={money(result.offer.allInAtTarget, currency)} mono />
+            </div>
+            {result.offer.arguments.length > 0 && (
+              <TableWrap>
+                <table className="w-full min-w-[560px] border-collapse text-[13px]">
+                  <thead>
+                    <tr className="bg-sunken text-left">
+                      <th className="px-3 py-2 font-medium text-ink-secondary">Point</th>
+                      <th className="px-3 py-2 text-right font-medium text-ink-secondary">Effect</th>
+                      <th className="px-3 py-2 font-medium text-ink-secondary">Argument</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.offer.arguments.map((a) => (
+                      <tr key={a.key} className="border-t border-hairline align-top">
+                        <td className="px-3 py-2 font-medium text-ink">{a.label}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-ink-secondary">
+                          {a.amount !== null ? money(a.amount, currency) : <span className="text-ink-muted">no deduction</span>}
+                        </td>
+                        <td className="px-3 py-2 leading-relaxed text-ink-secondary">{a.argument}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TableWrap>
+            )}
+            {result.offer.preconditions.length > 0 && (
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-muted">
+                  Must be true before any offer
+                </div>
+                <ul className="mt-1 list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink-secondary">
+                  {result.offer.preconditions.map((c) => (
+                    <li key={c}>{c}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {result.offer.unpriced.length > 0 && (
+              <Callout tone="warning" title="Not deducted above, and not zero">
+                <ul className="mt-1 list-disc space-y-1 pl-4 text-[13px] leading-relaxed">
+                  {result.offer.unpriced.map((u) => (
+                    <li key={u}>{u}</li>
+                  ))}
+                </ul>
+              </Callout>
+            )}
+          </Section>
+        )}
+
+        {/* What it would fetch under duress */}
+        {result.forcedSale && (
+          <Section
+            n={nextSection()}
+            title="Value under a forced sale"
+            subtitle={`What this would realise inside ${result.forcedSale.marketingPeriodDays} days`}
+            action={<Badge tone={result.forcedSale.lendable ? 'neutral' : 'critical'}>{result.forcedSale.lendable ? `−${result.forcedSale.discountPct}%` : 'Not a lending figure'}</Badge>}
+          >
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <KeyValue label="Forced-sale value" value={money(result.forcedSale.value, currency)} mono />
+              <KeyValue label="Discount from mid" value={`− ${pct(result.forcedSale.discountPct, 1)}`} mono />
+              <KeyValue label="Marketing window" value={`${result.forcedSale.marketingPeriodDays} days`} mono />
+            </div>
+            <Callout tone={result.forcedSale.lendable ? 'info' : 'critical'}>{result.forcedSale.basis}</Callout>
+            <TableWrap>
+              <table className="w-full min-w-[520px] border-collapse text-[13px]">
+                <thead>
+                  <tr className="bg-sunken text-left">
+                    <th className="px-3 py-2 font-medium text-ink-secondary">Component</th>
+                    <th className="px-3 py-2 text-right font-medium text-ink-secondary">Discount</th>
+                    <th className="px-3 py-2 font-medium text-ink-secondary">Why</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.forcedSale.components.map((c) => (
+                    <tr key={c.key} className="border-t border-hairline align-top">
+                      <td className="px-3 py-2 font-medium text-ink">{c.label}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-ink-secondary">− {pct(c.pct, 1)}</td>
+                      <td className="px-3 py-2 leading-relaxed text-ink-secondary">{c.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableWrap>
+          </Section>
+        )}
+
+        {/* Basis of the range */}
+        <Section n={nextSection()} title="Basis of the range">
           <TableWrap>
             <table className="w-full min-w-[560px] border-collapse text-[13px]">
               <thead>
@@ -505,8 +659,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <AnchorWeightChart anchors={result.anchors} currency={currency} />
         </Section>
 
-        {/* 5. Market comparables */}
-        <Section n={5} title="Market comparables" subtitle={`${result.comparables.length} used in this range`}>
+        {/* Market comparables */}
+        <Section n={nextSection()} title="Market comparables" subtitle={`${result.comparables.length} used in this range`}>
           <TableWrap>
             <table className="w-full min-w-[720px] border-collapse text-[13px]">
               <thead>
@@ -547,8 +701,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <ComparablesChart comparables={result.comparables} subjectPricePerSqm={result.indicativeValue.perSqm.mid} currency={currency} />
         </Section>
 
-        {/* 6. Value drivers */}
-        <Section n={6} title="Value drivers">
+        {/* Value drivers */}
+        <Section n={nextSection()} title="Value drivers">
           <DriverImpactChart drivers={result.drivers} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {Array.from(driversByCategory.entries()).map(([category, drivers]) => (
@@ -575,9 +729,9 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </div>
         </Section>
 
-        {/* 7. Material risks */}
+        {/* Material risks */}
         <Section
-          n={7}
+          n={nextSection()}
           title="Material risks"
 
           action={<Badge tone={openRisksCount > 0 ? 'critical' : 'good'}>{openRisksCount} open</Badge>}
@@ -611,10 +765,10 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </div>
         </Section>
 
-        {/* 8. State compliance (Karnataka) — only when a State Pack covers this property's state */}
+        {/* State compliance (Karnataka) — only when a State Pack covers this property's state */}
         {stateCompliance ? (
           <Section
-            n={8}
+            n={nextSection()}
             title={`State compliance (${stateCompliance.state})`}
             subtitle="Title and municipal checks specific to this state — not a legal opinion or certified title report"
             action={<Badge tone={complianceBlockers.length > 0 ? 'critical' : 'good'}>{complianceBlockers.length} blocker{complianceBlockers.length === 1 ? '' : 's'}</Badge>}
@@ -684,10 +838,10 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </Section>
         ) : null}
 
-        {/* 9. Indicative acquisition costs — only alongside state compliance */}
+        {/* Indicative acquisition costs — only alongside state compliance */}
         {transactionCosts ? (
           <Section
-            n={9}
+            n={nextSection()}
             title="Indicative acquisition costs"
             subtitle="Stamp duty, cess, surcharge and registration on top of the price"
           >
@@ -744,8 +898,53 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </Section>
         ) : null}
 
-        {/* 8+extra. Planning position */}
-        <Section n={8 + extra} title="Planning position">
+        {/*
+          * What restricts the parcel other than its title.
+          *
+          * Sits between the compliance checks and the planning position
+          * because it belongs to both: these are the reasons the planning
+          * position may not be achievable, and none of them is in a deed.
+          */}
+        {(result.waterExposure || constraintChecks.length > 0) && (
+          <Section
+            n={nextSection()}
+            title="Restrictions beyond title"
+            subtitle="Flooding, and the statutory constraints no deed will mention"
+            action={
+              uncheckedConstraints > 0 ? <Badge tone="neutral">{uncheckedConstraints} unchecked</Badge> : undefined
+            }
+          >
+            {result.waterExposure && (
+              <>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <KeyValue label="Flood exposure" value={titleCase(result.waterExposure.floodExposure)} />
+                  <KeyValue label="Valley system" value={VALLEY_LABEL[result.waterExposure.valley]} />
+                  <KeyValue label="Lake chain" value={result.waterExposure.lakeChain} />
+                </div>
+                <Callout tone="info" title="This describes the locality, not this parcel">
+                  A site on high ground in a high-exposure locality does not flood, and a site on a filled tank bed in a
+                  low-exposure one may flood every year. Levels for this survey number against the nearest drain are the
+                  only thing that answers it for this property.
+                </Callout>
+                <p className="text-[13px] leading-relaxed text-ink-secondary">{result.waterExposure.note}</p>
+                {result.waterExposure.knownInundationPoints.length > 0 && (
+                  <KeyValue label="Reported inundation nearby" value={result.waterExposure.knownInundationPoints.join(' · ')} />
+                )}
+                <StatutoryProvenance
+                  asOf={result.waterExposure.asOf}
+                  source={result.waterExposure.source}
+                  verifyNote={result.waterExposure.verifyNote}
+                />
+              </>
+            )}
+            {constraintChecks.map((check) => (
+              <ComplianceCheckRow key={check.key} check={check} />
+            ))}
+          </Section>
+        )}
+
+        {/* Planning position */}
+        <Section n={nextSection()} title="Planning position">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <KeyValue label="Zoning" value={result.planning.zoning} />
             <KeyValue label="Development potential" value={titleCase(result.planning.developmentPotential)} />
@@ -789,9 +988,9 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <p className="text-[11px] text-ink-muted">Last checked {date(result.planning.lastCheckedAt)}</p>
         </Section>
 
-        {/* 9+extra. Document completeness */}
+        {/* Document completeness */}
         <Section
-          n={9 + extra}
+          n={nextSection()}
           title="Document completeness"
           action={
             <Button variant="ghost" size="sm" onClick={() => goToTab('documents')}>
@@ -843,8 +1042,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           ) : null}
         </Section>
 
-        {/* 10+extra. Confidence */}
-        <Section n={10 + extra} title="Confidence" subtitle="Stated as arithmetic, not a black box">
+        {/* Confidence */}
+        <Section n={nextSection()} title="Confidence" subtitle="Stated as arithmetic, not a black box">
           <div className="flex flex-wrap items-center gap-6">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Score</div>
@@ -878,8 +1077,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </Callout>
         </Section>
 
-        {/* 11+extra. Recommended actions */}
-        <Section n={11 + extra} title="Recommended actions">
+        {/* Recommended actions */}
+        <Section n={nextSection()} title="Recommended actions">
           <div className="space-y-4">
             {PRIORITY_ORDER.map((priority) => {
               const list = actionsByPriority.get(priority) ?? [];
@@ -912,9 +1111,9 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </div>
         </Section>
 
-        {/* 12+extra. Evidence appendix */}
+        {/* Evidence appendix */}
         {showAppendix ? (
-          <Section n={12 + extra} title="Evidence appendix" subtitle={`Full ledger — ${result.evidence.length} items`}>
+          <Section n={nextSection()} title="Evidence appendix" subtitle={`Full ledger — ${result.evidence.length} items`}>
             <TableWrap>
               <table className="w-full min-w-[640px] border-collapse text-[13px]">
                 <thead>
@@ -953,8 +1152,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </div>
         )}
 
-        {/* 13+extra (or 12+extra without the appendix). Scope and limitations */}
-        <Section n={(showAppendix ? 13 : 12) + extra} title="Scope and limitations">
+        {/* Scope and limitations */}
+        <Section n={nextSection()} title="Scope and limitations">
           <p className="text-[13px] leading-relaxed text-ink-secondary">This Property Screen report is an evidence-based indicative screen. It is not:</p>
           <ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink-secondary">
             {OUT_OF_SCOPE.map((item, i) => (

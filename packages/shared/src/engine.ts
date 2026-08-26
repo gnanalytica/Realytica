@@ -2909,18 +2909,34 @@ export function buildStateCompliance(
               confidence: measuredKm !== undefined ? 0.8 : 0.5,
             });
             evIds.push(evId);
-            relatedRiskIds = [
-              addRisk(
-                'karnataka_aerodrome_height_restriction',
-                `Height capped by ${name} — AAI clearance needed`,
-                rule.severityWhenPresent,
-                'planning',
-                finding,
-                'A site bought on its permitted FAR and then capped by an aerodrome surface has been bought on an envelope that cannot be built. On a plot sold for development this is the assumption most likely to be wrong and least likely to be checked.',
-                rule.obtain,
-                evIds,
-              ),
-            ];
+
+            // A height cap restricts what may be *built*. On a completed,
+            // certified flat there is nothing left to build, so the fact is
+            // worth recording — it bears on any future extension, and on the
+            // building's own regularity if it was ever exceeded — but it is
+            // not a finding against this purchase, and raising it as a
+            // serious risk on an existing apartment would be the kind of
+            // false positive that teaches people to skim the risk register.
+            const envelopeMatters = isLandPropertyType(identity.propertyType);
+            if (envelopeMatters) {
+              relatedRiskIds = [
+                addRisk(
+                  'karnataka_aerodrome_height_restriction',
+                  `Height capped by ${name} — AAI clearance needed`,
+                  rule.severityWhenPresent,
+                  'planning',
+                  finding,
+                  'A site bought on its permitted FAR and then capped by an aerodrome surface has been bought on an envelope that cannot be built. On a plot sold for development this is the assumption most likely to be wrong and least likely to be checked.',
+                  rule.obtain,
+                  evIds,
+                ),
+              ];
+            } else {
+              finding +=
+                ' This is a completed building, so the cap bears on any future extension or additional floor rather than on what is already there — and, if the structure predates or exceeds a surface, on whether it was ever regularised.';
+              nextStep =
+                'No action is needed to buy what exists. Before planning any addition, apply for an AAI height clearance NOC for the site coordinates through NOCAS.';
+            }
           } else {
             verdict = 'clear';
             finding = `This property sits ${basis}, outside the ${AERODROME_VICINITY_KM} km vicinity at which aerodrome height restrictions ordinarily bite.`;
@@ -3976,8 +3992,14 @@ function buildOffer(
   }
 
   const unpriced: string[] = [];
-  for (const item of compliance?.unresolved.slice(0, 6) ?? []) {
-    unpriced.push(item);
+  // Bare check labels used to be pushed here, which put "Aerodrome height
+  // restriction (AAI NOC)" under a heading that reads "not deducted above,
+  // and not zero" and left the reader to work out what that had to do with
+  // money. An unassessed constraint genuinely does belong in this list — you
+  // have priced nothing for the possibility that a transmission corridor
+  // crosses the site — but only if the sentence says that.
+  for (const label of compliance?.unresolved.slice(0, 6) ?? []) {
+    unpriced.push(`${label} has not been established either way, so nothing is priced for the possibility that it applies.`);
   }
   if (serious.length > 0) {
     unpriced.push(
@@ -4017,7 +4039,12 @@ function buildOffer(
     opening,
     target,
     walkAway,
-    allInAtTarget: roundMoney(target + acquisitionCostsAtTarget, currency),
+    // Not re-rounded. The view shows the offer and the acquisition costs
+    // beside this total, and a reader who subtracts one from the other must
+    // land on the third — a rounded sum that is a few hundred rupees off its
+    // own parts reads as an arithmetic error in a product whose whole claim
+    // is that its arithmetic is checkable.
+    allInAtTarget: target + acquisitionCostsAtTarget,
     acquisitionCostsAtTarget,
     askingPrice,
     gapToAsking,
