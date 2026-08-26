@@ -455,6 +455,19 @@ function discountUnverified(confidence: number): number {
 }
 
 /**
+ * The gaps that change what an extraction is *worth*, as opposed to what it
+ * costs.
+ *
+ * Every gap this run hits is recorded on `AgentRun.capabilityGaps` and reaches
+ * telemetry — that record is complete and stays complete. But the notes render
+ * next to a khata number in a case file, and telling a buyer there that "the
+ * stable prefix is re-sent and re-billed on every call" buries the sentence
+ * that actually matters ("a quoted page can be wrong") in operational trivia.
+ * These two are the ones that bear on whether the field can be trusted.
+ */
+const GROUNDING_GAPS: CapabilityGap[] = ['citations_unavailable', 'pdf_input_unavailable'];
+
+/**
  * Compares one extracted field against what the user already recorded on the
  * case identity. This is deliberately scoped to what a *single* document call
  * can actually check against `identity` alone — extent/area, khata
@@ -872,7 +885,8 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   // telemetry a person might read. `describeGap` states them in this
   // product's terms ("page references are self-reported...") rather than
   // naming a feature flag at someone who never chose the route.
-  const degradationNotes = capabilityGaps.map(describeGap);
+  const groundingGaps = capabilityGaps.filter(gap => GROUNDING_GAPS.includes(gap));
+  const degradationNotes = groundingGaps.map(describeGap);
   const notes = [parsed.data.notes, ...disagreementNotes, ...degradationNotes].filter(s => s.trim().length > 0).join(' ');
 
   emit({
@@ -884,7 +898,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   const summary =
     `Classified as ${kind} (${Math.round(kindConfidence * 100)}% confidence); extracted ${fields.length} field(s)` +
     `${disagreementNotes.length > 0 ? `; ${disagreementNotes.length} disagreement(s) flagged` : ''}` +
-    `${capabilityGaps.length > 0 ? `; run degraded on the ${route.provider} route (${capabilityGaps.join(', ')}) so no page reference is verified` : ''}.`;
+    `${groundingGaps.length > 0 ? `; run degraded on the ${route.provider} route (${groundingGaps.join(', ')}) so no page reference is verified` : ''}.`;
 
   const run: AgentRun = {
     id: runId,
