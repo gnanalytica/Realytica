@@ -2,7 +2,7 @@
   "name": "valytica",
   "private": true,
   "version": "0.1.0",
-  "description": "Valytica — AI-powered Property Intelligence. Local-first MVP: Valytica Property Screen.",
+  "description": "Valytica \u2014 AI-powered Property Intelligence. Local-first MVP: Valytica Property Screen.",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20.10"
@@ -17,7 +17,8 @@
     "start": "pnpm -F @valytica/api start",
     "typecheck": "tsc -p packages/shared && tsc -p packages/agents && tsc -p apps/api && tsc -p apps/web",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/web/dist",
-    "deploy:build": "pnpm install --frozen-lockfile && pnpm build"
+    "deploy:build": "pnpm install --frozen-lockfile && pnpm build",
+    "eval": "mkdir -p node_modules/.cache && esbuild scripts/run-eval.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/run-eval.mjs --log-level=error && node node_modules/.cache/run-eval.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

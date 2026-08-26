@@ -15,3 +15,8 @@ export * from './cases';
 export * from './score';
 export * from './run';
 export * from './rank';
+
+// The executor that turns an eval case into a real model call. Added last
+// because it depends on the provider port and the prompt registry, and the
+// rest of this folder deliberately does not.
+export * from './executor';
