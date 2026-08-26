@@ -12,7 +12,7 @@ import {
   verdictTone,
 } from '../lib/format';
 import { api } from '../lib/api';
-import { Badge, Button, Card, Checkbox, Modal, ProgressBar, TONE_ICON, cn, useToast, LIFT } from './ui/kit';
+import { Badge, Button, Checkbox, Modal, ProgressBar, TONE_ICON, Tile, cn, useToast } from './ui/kit';
 
 export interface CaseCardProps {
   data: CaseSummary;
@@ -71,10 +71,27 @@ export default function CaseCard({ data, selected, onToggleSelect, onDeleted }: 
 
   const screened = typeof data.indicativeMid === 'number';
   const VerdictIcon = data.verdict ? TONE_ICON[verdictTone(data.verdict)] : null;
+  // Neutral until the case has actually been screened — an unscreened case
+  // wearing a colour would be a verdict nobody reached.
+  const cardTone = data.verdict ? verdictTone(data.verdict) : 'neutral';
 
   return (
     <>
-      <Card className={cn('relative flex flex-col gap-3 p-4', LIFT, selected && 'ring-2 ring-brand')}>
+      {/*
+        * A tile keyed to the case's own verdict, with an accent rail.
+        *
+        * In a grid of a dozen cases the verdict is the thing a reader is
+        * scanning for, and it used to be findable only by reading a badge in
+        * each card. The rail and the wash make the grid sortable by eye
+        * before a single word is read — and an unscreened case stays neutral,
+        * because "no verdict yet" must not look like a verdict.
+        */}
+      <Tile
+        tone={cardTone}
+        rail
+        interactive
+        className={cn('relative flex flex-col gap-3 p-4', selected && 'ring-2 ring-brand')}
+      >
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-start gap-2">
             <Checkbox
@@ -194,7 +211,7 @@ export default function CaseCard({ data, selected, onToggleSelect, onDeleted }: 
           </span>
           <span>Updated {relativeTime(data.updatedAt)}</span>
         </div>
-      </Card>
+      </Tile>
 
       <Modal
         open={confirmOpen}

@@ -237,6 +237,159 @@ export function Stat({
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Tiles                                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The tone wash for each register, as a class.
+ *
+ * A tile's tone is the fastest signal on a dense screen — before any label is
+ * read, the colour says which register this belongs to. Kept weak on purpose
+ * (see the token layer): these are here to group and orient, not to decorate.
+ * A diligence tool whose surfaces shout competes with its own findings, and
+ * the findings have to win.
+ */
+const TILE_WASH: Record<Tone, string> = {
+  neutral: '',
+  brand: 'bg-grad-brand',
+  info: 'bg-grad-brand',
+  good: 'bg-grad-good',
+  warning: 'bg-grad-warning',
+  serious: 'bg-grad-serious',
+  critical: 'bg-grad-critical',
+};
+
+/** The accent rail colour, matching the wash. */
+const TILE_RAIL: Record<Tone, string> = {
+  neutral: 'bg-hairline',
+  brand: 'bg-brand',
+  info: 'bg-brand',
+  good: 'bg-good',
+  warning: 'bg-warning',
+  serious: 'bg-serious',
+  critical: 'bg-critical',
+};
+
+/**
+ * A surface with presence.
+ *
+ * `Card` remains the plain container for dense reading — tables, long prose,
+ * anything where a gradient would be noise behind text. `Tile` is for the
+ * things a reader's eye should land on first: a figure, a status, a case in a
+ * grid, a section opener.
+ *
+ * Three layers make it read as a surface rather than a rectangle of colour: a
+ * base gradient from the lighter surface to the darker one, the tone wash
+ * over it, and a sheen on the top edge. Drop any one and it flattens.
+ *
+ * `interactive` adds the lift. It is opt-in rather than automatic because a
+ * tile that rises under the cursor is promising it can be clicked, and one
+ * that lifts without a destination is a small lie the whole interface pays
+ * for.
+ */
+export function Tile({
+  tone = 'neutral',
+  rail,
+  interactive,
+  className,
+  children,
+  as: As = 'div',
+}: {
+  tone?: Tone;
+  /** Draws an accent rail down the leading edge in the tone's colour. */
+  rail?: boolean;
+  interactive?: boolean;
+  className?: string;
+  children: ReactNode;
+  as?: 'div' | 'section' | 'article' | 'li';
+}) {
+  return (
+    <As
+      className={cn(
+        'relative isolate overflow-hidden rounded-xl bg-tile shadow-tile ring-1 ring-[var(--ring)] print-block',
+        interactive &&
+          'transition-[box-shadow,transform,background-color] duration-base ease-enter hover:-translate-y-0.5 hover:shadow-raised motion-reduce:hover:translate-y-0',
+        className,
+      )}
+    >
+      {/* Wash and sheen are painted as siblings rather than on the tile
+          itself: a single element cannot carry three background layers and
+          still let a caller override the base with a className. */}
+      {tone !== 'neutral' && <span aria-hidden="true" className={cn('pointer-events-none absolute inset-0 -z-10', TILE_WASH[tone])} />}
+      <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-16 bg-sheen" />
+      {rail && <span aria-hidden="true" className={cn('pointer-events-none absolute inset-y-0 left-0 w-[3px]', TILE_RAIL[tone])} />}
+      {children}
+    </As>
+  );
+}
+
+/**
+ * A figure, in a tile, with its tone.
+ *
+ * The plain `Stat` is still the right thing inside a dense card. This is for
+ * the top of a page, where four figures are the first thing a reader sees and
+ * the difference between them should be visible before any of them is read.
+ */
+export function StatTile({
+  label,
+  value,
+  hint,
+  tone = 'neutral',
+  icon,
+  className,
+}: {
+  label: ReactNode;
+  value: ReactNode;
+  hint?: ReactNode;
+  tone?: Tone;
+  icon?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Tile tone={tone} className={cn('p-4', className)}>
+      <div className="flex items-start justify-between gap-3">
+        <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</span>
+        {icon ? <span className={cn('shrink-0', TONE_TEXT[tone])}>{icon}</span> : null}
+      </div>
+      <div className={cn('mt-1.5 truncate text-[26px] font-semibold leading-none tracking-tight', TONE_TEXT[tone])}>{value}</div>
+      {hint ? <div className="mt-1.5 text-[12px] leading-snug text-ink-secondary">{hint}</div> : null}
+    </Tile>
+  );
+}
+
+/**
+ * A full-bleed band behind a section.
+ *
+ * Long pages in this app run for thousands of pixels on one flat ground, and
+ * a reader loses their place in it. Alternating the ground gives the page a
+ * rhythm and makes "where does this section end" answerable without reading
+ * anything.
+ */
+export function SectionBand({
+  ground = 'page',
+  className,
+  children,
+}: {
+  ground?: 'page' | 'surface' | 'sunken' | 'brand';
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        'relative',
+        ground === 'surface' && 'bg-surface',
+        ground === 'sunken' && 'bg-sunken',
+        className,
+      )}
+    >
+      {ground === 'brand' && <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-band" />}
+      <div className="relative">{children}</div>
+    </div>
+  );
+}
+
 export function KeyValue({ label, value, mono }: { label: ReactNode; value: ReactNode; mono?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-hairline py-1.5 last:border-0">

@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FolderSearch, Plus, RotateCw, ScatterChart, Sparkles } from 'lucide-react';
+import { AlertOctagon, ClipboardCheck, Coins, FolderSearch, Layers, Plus, RotateCw, ScatterChart, Sparkles } from 'lucide-react';
 import type { CaseStatus, CaseSummary, CountryCode, CurrencyCode, PropertyType } from '@valytica/shared';
 import { PortfolioScatter } from '../components/charts';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { CASE_STATUS_LABEL, PROPERTY_TYPE_LABEL, money } from '../lib/format';
-import { Button, Callout, Card, CardBody, CardHeader, EmptyState, Input, Select, Skeleton, Stat, useToast } from '../components/ui/kit';
+import { Button, Callout, Card, CardBody, CardHeader, EmptyState, Input, Select, Skeleton, StatTile, useToast } from '../components/ui/kit';
 import CaseCard from '../components/CaseCard';
 
 type SortKey = 'updated' | 'confidence' | 'value';
@@ -157,28 +157,38 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5 pb-20">
+      {/*
+        * Toned tiles, not plain cards.
+        *
+        * These four are the first thing on the page and the only ones a
+        * reader takes in before scrolling. Two of them carry a judgement —
+        * whether every case has been screened, and whether anything critical
+        * is open — and those should be legible as colour before they are read
+        * as numbers. The other two are counts and stay neutral, because a
+        * count is not a verdict.
+        */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Card className="p-4">
-          <Stat label="Total cases" value={stats.total} />
-        </Card>
-        <Card className="p-4">
-          <Stat label="Screened" value={`${stats.screened} / ${stats.total}`} sub="Have a completed screen" />
-        </Card>
-        <Card className="p-4">
-          <Stat
-            label="Open critical risks"
-            value={stats.criticalRisks}
-            tone={stats.criticalRisks > 0 ? 'critical' : 'good'}
-            sub="Across all cases"
-          />
-        </Card>
-        <Card className="p-4">
-          <Stat
-            label="Combined indicative value"
-            value={formatCombinedValue(stats.byCurrency)}
-            sub={stats.byCurrency.size > 1 ? 'Shown per currency — never summed across them' : 'Mid of screened cases'}
-          />
-        </Card>
+        <StatTile label="Total cases" value={stats.total} icon={<Layers size={15} />} />
+        <StatTile
+          label="Screened"
+          value={`${stats.screened} / ${stats.total}`}
+          hint="Have a completed screen"
+          tone={stats.total > 0 && stats.screened === stats.total ? 'good' : 'neutral'}
+          icon={<ClipboardCheck size={15} />}
+        />
+        <StatTile
+          label="Open critical risks"
+          value={stats.criticalRisks}
+          tone={stats.criticalRisks > 0 ? 'critical' : 'good'}
+          hint="Across all cases"
+          icon={<AlertOctagon size={15} />}
+        />
+        <StatTile
+          label="Combined indicative value"
+          value={formatCombinedValue(stats.byCurrency)}
+          hint={stats.byCurrency.size > 1 ? 'Shown per currency — never summed across them' : 'Mid of screened cases'}
+          icon={<Coins size={15} />}
+        />
       </div>
 
       {/*

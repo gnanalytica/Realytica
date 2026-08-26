@@ -78,8 +78,15 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
               title={collapsed ? item.label : undefined}
               className={({ isActive }) =>
                 cn(
-                  'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors',
-                  isActive ? 'bg-brand-soft text-brand' : 'text-ink-secondary hover:bg-sunken hover:text-ink',
+                  // The active item gets an accent rail and the brand wash,
+                  // matching the tile system — a flat soft-blue fill was the
+                  // one place in the app where "selected" had no shape to it,
+                  // and it read as a hover state that had got stuck.
+                  'relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium',
+                  'transition-[background-color,color] duration-quick ease-state',
+                  isActive
+                    ? 'bg-brand-soft text-brand before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-r before:bg-brand'
+                    : 'text-ink-secondary hover:bg-sunken hover:text-ink',
                   collapsed && 'lg:justify-center lg:px-0',
                 )
               }

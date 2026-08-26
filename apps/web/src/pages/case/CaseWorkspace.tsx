@@ -42,6 +42,7 @@ import {
   Tabs,
   useToast,
   type TabDef,
+  type Tone,
 } from '../../components/ui/kit';
 import type { RunGraph } from '@valytica/shared';
 import { AnimatedNumber } from '../../components/ui/AnimatedNumber';
@@ -83,6 +84,24 @@ function HeaderSkeleton() {
     </div>
   );
 }
+
+/**
+ * The wash behind the workspace header, keyed to the verdict.
+ *
+ * A separate table from `Tile`'s because this one fades downward into the
+ * page rather than filling a rounded rectangle — the header has no bottom
+ * edge to stop at, and a wash that ended abruptly halfway down a sticky bar
+ * would read as a rendering fault.
+ */
+const HEADER_WASH: Record<Tone, string> = {
+  neutral: '',
+  brand: 'bg-grad-brand',
+  info: 'bg-grad-brand',
+  good: 'bg-grad-good',
+  warning: 'bg-grad-warning',
+  serious: 'bg-grad-serious',
+  critical: 'bg-grad-critical',
+};
 
 export default function CaseWorkspace() {
   const { caseId, tab } = useParams<{ caseId: string; tab?: string }>();
@@ -310,10 +329,24 @@ export default function CaseWorkspace() {
     );
   };
 
+  // Neutral until screened: a case with no verdict must not wear one.
+  const headerTone: Tone = result ? verdictTone(result.recommendation.verdict) : 'neutral';
+
   return (
     <div className="flex min-h-full flex-col">
+      {/*
+        * The header carries the case's verdict as a wash behind it.
+        *
+        * A workspace is a long scroll across five groups and a dozen views,
+        * and the one fact a reader needs held in view throughout is what this
+        * case actually came back as. It was a badge among four other badges.
+        * Now it is the ground the whole header sits on — visible in
+        * peripheral vision, gone the moment the verdict changes, and neutral
+        * until a screen has actually produced one.
+        */}
       <div className="no-print sticky top-0 z-20 bg-page/95 backdrop-blur">
-        <div className="flex flex-wrap items-start justify-between gap-4 px-6 pb-3 pt-4">
+        <span aria-hidden="true" className={cn('pointer-events-none absolute inset-x-0 top-0 h-32', HEADER_WASH[headerTone])} />
+        <div className="relative flex flex-wrap items-start justify-between gap-4 px-6 pb-3 pt-4">
           <div className="min-w-0">
             <Link
               to="/cases"

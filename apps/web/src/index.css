@@ -52,7 +52,8 @@
   --series-2: #eb6834;
   --series-3: #1baf7a;
   --series-4: #eda100;
-  --series-5: #e87ba4;
+  --series-5-rgb: 232 123 164;
+  --series-5: rgb(var(--series-5-rgb));
   --series-6: #008300;
   --series-7: #4a3aa7;
   --series-8: #e34948;
@@ -60,6 +61,65 @@
   --gridline: #e1e0d9;
   --axis: #c3c2b7;
   --ring: rgba(11, 11, 11, 0.1);
+
+  /*
+   * Sheen and elevation.
+   *
+   * The only two values in the gradient system that genuinely have to be
+   * declared per theme. A tile on paper catches light at the top and needs a
+   * white highlight; a tile on a dark ground needs the same gesture at a
+   * fraction of the strength, or it reads as a glowing panel rather than a
+   * surface. Everything else in the system below is composed from channel
+   * variables that already swap, so it adapts without a second declaration.
+   */
+  --sheen: rgba(255, 255, 255, 0.9);
+  --sheen-soft: rgba(255, 255, 255, 0.55);
+  --shadow-tint: 11, 11, 11;
+  --shadow-strength: 1;
+}
+
+/*
+ * The gradient and elevation system.
+ *
+ * Declared once, outside the theme blocks, because every value here is
+ * composed from variables that already swap — `--brand-rgb`, `--surface-2`,
+ * `--sheen`. A second copy under the dark scope would be two places to keep
+ * in agreement, and the first time they disagreed it would show as a tile
+ * that is subtly the wrong colour in one theme only.
+ *
+ * Tone washes are deliberately weak (14% to 3%). They exist to tell a reader
+ * at a glance which register a tile belongs to — a blocker, a clear result, a
+ * value figure — not to colour the interface. A diligence tool whose surfaces
+ * shout competes with its own findings for attention, and the findings have
+ * to win.
+ */
+:root,
+:root[data-theme='light'],
+:root[data-theme='dark'] {
+  --grad-tile: linear-gradient(180deg, var(--surface-2) 0%, var(--surface-1) 100%);
+  --grad-tile-sunken: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-3) 100%);
+
+  --grad-brand: linear-gradient(140deg, rgb(var(--brand-rgb) / 0.14) 0%, rgb(var(--brand-rgb) / 0.03) 62%, transparent 100%);
+  --grad-good: linear-gradient(140deg, rgb(var(--status-good-rgb) / 0.14) 0%, rgb(var(--status-good-rgb) / 0.03) 62%, transparent 100%);
+  --grad-warning: linear-gradient(140deg, rgb(var(--status-warning-rgb) / 0.18) 0%, rgb(var(--status-warning-rgb) / 0.04) 62%, transparent 100%);
+  --grad-serious: linear-gradient(140deg, rgb(var(--status-serious-rgb) / 0.16) 0%, rgb(var(--status-serious-rgb) / 0.04) 62%, transparent 100%);
+  --grad-critical: linear-gradient(140deg, rgb(var(--status-critical-rgb) / 0.14) 0%, rgb(var(--status-critical-rgb) / 0.03) 62%, transparent 100%);
+
+  /*
+   * A wide field for section grounds and page headers.
+   *
+   * Stronger than the tone washes above, and deliberately so. Those sit
+   * behind findings and have to lose that contest; this sits behind a page
+   * opening where there is nothing to compete with, and at tone-wash strength
+   * it was invisible on a near-white page — a gradient nobody can see is not
+   * restraint, it is a wasted declaration.
+   */
+  --grad-band: radial-gradient(100% 120% at 4% 0%, rgb(var(--brand-rgb) / 0.24) 0%, transparent 55%),
+    radial-gradient(85% 110% at 98% 4%, rgb(var(--status-good-rgb) / 0.16) 0%, transparent 58%),
+    radial-gradient(70% 90% at 55% 0%, rgb(var(--series-5-rgb) / 0.10) 0%, transparent 62%);
+
+  /* The top highlight that makes a tile read as a surface rather than a rectangle of colour. */
+  --tile-sheen: linear-gradient(180deg, var(--sheen-soft) 0%, transparent 38%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -77,6 +137,12 @@
     --text-muted: #898781;
     --text-inverse: #0b0b0b;
 
+    /* The same gesture at a tenth of the strength — see `--sheen` above. */
+    --sheen: rgba(255, 255, 255, 0.07);
+    --sheen-soft: rgba(255, 255, 255, 0.045);
+    --shadow-tint: 0, 0, 0;
+    --shadow-strength: 2.2;
+
     --brand-rgb: 57 135 229;
     --brand-soft-rgb: 23 41 63;
 
@@ -91,7 +157,8 @@
     --series-2: #d95926;
     --series-3: #199e70;
     --series-4: #c98500;
-    --series-5: #d55181;
+    --series-5-rgb: 213 81 129;
+    --series-5: rgb(var(--series-5-rgb));
     --series-6: #008300;
     --series-7: #9085e9;
     --series-8: #e66767;
@@ -116,6 +183,12 @@
   --text-muted: #898781;
   --text-inverse: #0b0b0b;
 
+  /* Must mirror the media-query dark block above — see `--sheen`. */
+  --sheen: rgba(255, 255, 255, 0.07);
+  --sheen-soft: rgba(255, 255, 255, 0.045);
+  --shadow-tint: 0, 0, 0;
+  --shadow-strength: 2.2;
+
   --brand-rgb: 57 135 229;
   --brand-soft-rgb: 23 41 63;
 
@@ -130,7 +203,8 @@
   --series-2: #d95926;
   --series-3: #199e70;
   --series-4: #c98500;
-  --series-5: #d55181;
+  --series-5-rgb: 213 81 129;
+  --series-5: rgb(var(--series-5-rgb));
   --series-6: #008300;
   --series-7: #9085e9;
   --series-8: #e66767;

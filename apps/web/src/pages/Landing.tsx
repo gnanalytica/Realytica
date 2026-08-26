@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { ENGINE_VERSION, KARNATAKA_PACK, REFERENCE_DATA, SITE_CONSTRAINT_KEYS } from '@valytica/shared';
 import { useInView } from '../lib/useReveal';
-import { cn } from '../components/ui/kit';
+import { SectionBand, Tile, cn } from '../components/ui/kit';
 
 /**
  * The front door, as a specimen of the thing the product makes.
@@ -53,17 +53,6 @@ import { cn } from '../components/ui/kit';
 /* ==================================================================== */
 /* Document furniture                                                    */
 /* ==================================================================== */
-
-/** A hairline that draws itself in when it reaches the viewport. */
-function Rule({ className }: { className?: string }) {
-  const { ref, inView } = useInView<HTMLDivElement>();
-  return (
-    <div
-      ref={ref}
-      className={cn('h-px origin-left bg-hairline transition-transform duration-slow ease-enter', inView ? 'scale-x-100' : 'scale-x-0', className)}
-    />
-  );
-}
 
 /**
  * One line of display type, set from below behind a mask.
@@ -150,7 +139,8 @@ function EvidenceLedger() {
   }, [inView]);
 
   return (
-    <div ref={ref} className="font-mono text-[13px]">
+    <Tile className="p-5">
+      <div ref={ref} className="font-mono text-[13px]">
       <div className="flex items-baseline justify-between border-b border-ink/20 pb-2 text-[10px] uppercase tracking-[0.12em] text-ink-muted">
         <span>Source</span>
         <span>States</span>
@@ -179,7 +169,8 @@ function EvidenceLedger() {
         <span className="text-good">Three sources, no conflict</span>
         <span className="tabular-nums text-good">111.5 m²</span>
       </div>
-    </div>
+      </div>
+    </Tile>
   );
 }
 
@@ -245,8 +236,12 @@ const CTA_CLASSES =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-page';
 
 export default function Landing() {
+  // `overflow-x-clip`, not `overflow-hidden`: the band bleeds half a viewport
+  // past each edge so it can run under the masthead, and without clipping
+  // that became 195px of horizontal scroll on a phone. Clip rather than
+  // hidden so no scroll container is created and nothing inside is affected.
   return (
-    <div className="min-h-screen bg-page">
+    <div className="min-h-screen overflow-x-clip bg-page">
       {/* ------------------------------------------------------ Masthead */}
       <header className="border-b border-ink/20">
         <div className="mx-auto flex max-w-5xl items-baseline justify-between gap-4 px-6 py-4">
@@ -267,7 +262,20 @@ export default function Landing() {
       </header>
 
       {/* -------------------------------------------------------- Header */}
-      <section className="mx-auto max-w-5xl px-6 pb-16 pt-12 sm:pt-16">
+      {/*
+        * The band wash under the opening.
+        *
+        * Two very low-opacity radial fields, one brand and one green, drawn
+        * from the token layer so they follow the theme. It gives the page a
+        * top rather than starting flat, and it is the only place on the page
+        * with a gradient this wide — a document has one masthead, not six.
+        */}
+      {/* `isolate` is load-bearing: `position: relative` with `z-index: auto`
+          creates no stacking context, so the band's `-z-10` escaped to the
+          root and painted behind the page's own opaque background — present
+          in the DOM, correct in the computed style, and invisible. */}
+      <section className="relative isolate mx-auto max-w-5xl px-6 pb-16 pt-12 sm:pt-16">
+        <span aria-hidden="true" className="pointer-events-none absolute inset-x-[-50vw] top-[-3.5rem] -z-10 h-[620px] bg-band" />
         <div className="mb-10 flex items-baseline justify-between font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">
           <span>Ref. specimen</span>
           <span>Evidence before assertion</span>
@@ -275,7 +283,8 @@ export default function Landing() {
 
         <Spread
           margin={
-            <dl className="m-0 space-y-3">
+            <Tile className="p-4">
+              <dl className="m-0 space-y-3">
               {SPEC.map((item, i) => (
                 <div key={item.label} className="animate-fade-in flex flex-wrap items-baseline justify-between gap-x-3 border-b border-hairline pb-2" style={{ animationDelay: `${520 + i * 60}ms` }}>
                   <dt className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">{item.label}</dt>
@@ -284,7 +293,8 @@ export default function Landing() {
                   <dd className="m-0 font-mono text-[12px] tabular-nums text-ink">{item.value}</dd>
                 </div>
               ))}
-            </dl>
+              </dl>
+            </Tile>
           }
         >
           <h1 className="m-0 font-display text-[40px] font-normal leading-[1.06] tracking-[-0.015em] text-ink sm:text-[58px]">
@@ -317,9 +327,8 @@ export default function Landing() {
         </Spread>
       </section>
 
-      <Rule />
-
       {/* ---------------------------------------------------- 01 What it reads */}
+      <SectionBand ground="surface" className="border-y border-hairline">
       <section className="mx-auto max-w-5xl px-6 py-16">
         <SectionHead
           n="01"
@@ -337,8 +346,7 @@ export default function Landing() {
           <EvidenceLedger />
         </Spread>
       </section>
-
-      <Rule />
+      </SectionBand>
 
       {/* --------------------------------------------------- 02 What it checks */}
       <section id="checks" className="mx-auto max-w-5xl scroll-mt-8 px-6 py-16">
@@ -393,9 +401,8 @@ export default function Landing() {
         </Spread>
       </section>
 
-      <Rule />
-
       {/* -------------------------------------------------- 03 What it refuses */}
+      <SectionBand ground="sunken" className="border-y border-hairline">
       <section className="mx-auto max-w-5xl px-6 py-16">
         <SectionHead
           n="03"
@@ -416,8 +423,7 @@ export default function Landing() {
           ))}
         </div>
       </section>
-
-      <Rule />
+      </SectionBand>
 
       {/* ----------------------------------------------------------- 04 Scope */}
       <section className="mx-auto max-w-5xl px-6 py-16">
@@ -444,9 +450,8 @@ export default function Landing() {
         </Spread>
       </section>
 
-      <Rule />
-
       {/* ------------------------------------------------------------- Close */}
+      <SectionBand ground="brand" className="border-t border-hairline">
       <section className="mx-auto max-w-5xl px-6 py-20">
         <Spread
           margin={
@@ -468,6 +473,7 @@ export default function Landing() {
           </Link>
         </Spread>
       </section>
+      </SectionBand>
 
       {/* --------------------------------------------------------- Colophon */}
       <footer className="border-t border-ink/20">

@@ -61,9 +61,40 @@ export default {
         display: ['ui-serif', 'Georgia', 'Iowan Old Style', 'Times New Roman', 'serif'],
       },
       borderRadius: { xl: '0.75rem', '2xl': '1rem' },
+      /*
+       * Named gradients, resolved from the token layer.
+       *
+       * Exposed as `bg-tile`, `bg-grad-good` and so on rather than written
+       * inline, so a tone wash is one class everywhere and there is exactly
+       * one definition of what "the warning wash" is. Inline gradients were
+       * how the first pass at this drifted into five slightly different
+       * blues.
+       */
+      backgroundImage: {
+        tile: 'var(--grad-tile)',
+        'tile-sunken': 'var(--grad-tile-sunken)',
+        sheen: 'var(--tile-sheen)',
+        band: 'var(--grad-band)',
+        'grad-brand': 'var(--grad-brand)',
+        'grad-good': 'var(--grad-good)',
+        'grad-warning': 'var(--grad-warning)',
+        'grad-serious': 'var(--grad-serious)',
+        'grad-critical': 'var(--grad-critical)',
+      },
+      /*
+       * One elevation ramp, tinted and scaled by the theme.
+       *
+       * `--shadow-strength` is 1 on paper and 2.2 on a dark ground, because
+       * the same alpha that reads as a soft lift on white is invisible on
+       * near-black. Without it every tile in dark mode sat flat on the page
+       * and the hover lift did nothing at all.
+       */
       boxShadow: {
-        card: '0 1px 2px rgba(11,11,11,0.04), 0 1px 1px rgba(11,11,11,0.03)',
-        pop: '0 8px 28px rgba(11,11,11,0.14)',
+        card: '0 1px 2px rgba(var(--shadow-tint), calc(0.04 * var(--shadow-strength))), 0 1px 1px rgba(var(--shadow-tint), calc(0.03 * var(--shadow-strength)))',
+        tile: '0 1px 2px rgba(var(--shadow-tint), calc(0.05 * var(--shadow-strength))), 0 4px 12px -4px rgba(var(--shadow-tint), calc(0.06 * var(--shadow-strength)))',
+        raised:
+          '0 2px 4px rgba(var(--shadow-tint), calc(0.05 * var(--shadow-strength))), 0 10px 24px -8px rgba(var(--shadow-tint), calc(0.10 * var(--shadow-strength)))',
+        pop: '0 8px 28px rgba(var(--shadow-tint), calc(0.14 * var(--shadow-strength)))',
       },
       /*
        * Three durations and two curves, and nothing else.
