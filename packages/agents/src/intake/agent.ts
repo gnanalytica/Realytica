@@ -63,6 +63,21 @@ export interface RunIntakeTurnResult {
  * difference is that it cannot parse free text, so it leans on the UI's
  * option buttons and direct answers. Worse, and working.
  */
+/**
+ * Can this deployment actually read free text for the intake?
+ *
+ * Exactly the two checks `runIntakeTurn` makes before calling a provider, so
+ * the opener and the first turn cannot disagree. Asking
+ * `agentCapability().available` instead — which was the first version — reads
+ * the *Anthropic* credential probe, so a deployment routing the intake at an
+ * OpenAI-compatible endpoint opened by announcing it had no model and then
+ * parsed the user's next sentence perfectly.
+ */
+export function intakeModelAvailable(): boolean {
+  const { route, descriptor } = resolveRoute('intake_concierge');
+  return !capabilityBlocksRoute(route, agentCapability()) && descriptor.configured;
+}
+
 export async function runIntakeTurn(params: RunIntakeTurnParams): Promise<RunIntakeTurnResult> {
   const now = params.now ?? new Date().toISOString();
   const { refData, message } = params;

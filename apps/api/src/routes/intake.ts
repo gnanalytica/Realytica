@@ -4,7 +4,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { REFERENCE_DATA, classifyDocument, extractFields, runScreen } from '@valytica/shared';
 import type { CaseDocument, IntakeSession, PropertyCase } from '@valytica/shared';
-import { agentCapability, commitDraft, openingTurn, readDraft, runIntakeTurn } from '@valytica/agents';
+import { commitDraft, intakeModelAvailable, openingTurn, readDraft, runIntakeTurn } from '@valytica/agents';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
@@ -65,7 +65,7 @@ intakeRouter.post('/', async (_req, res) => {
     // The opener is deterministic and says whether a model is configured, so
     // the first thing a user reads is already honest about what they are
     // talking to.
-    turns: [{ id: randomUUID(), role: 'assistant', text: openingTurn(agentCapability().available), at: now }],
+    turns: [{ id: randomUUID(), role: 'assistant', text: openingTurn(intakeModelAvailable()), at: now }],
     fields: [],
     documents: [],
   };

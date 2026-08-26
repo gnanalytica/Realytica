@@ -27,7 +27,7 @@ export type { FallbackReason } from './script';
 export { createIntakeTools } from './tools';
 export type { IntakeToolBuffer } from './tools';
 
-export { runIntakeTurn } from './agent';
+export { intakeModelAvailable, runIntakeTurn } from './agent';
 export type { RunIntakeTurnParams, RunIntakeTurnResult } from './agent';
 
 export { commitDraft } from './commit';
