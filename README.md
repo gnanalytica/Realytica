@@ -191,7 +191,7 @@ model stores square metres throughout; a Dutch case keeps m² and €/m².
 
 ### Agentic layer (optional)
 
-Six agents sit on top of the deterministic screen. **They are an addition, not a
+Ten agents sit on top of the deterministic screen. **They are an addition, not a
 dependency** — with no credentials configured the app behaves exactly as it does
 today, and the Intelligence tab explains what is missing rather than breaking.
 
@@ -208,7 +208,11 @@ pnpm dev
 | **Analyst copilot** | Grounded Q&A over the case. Cites evidence ids, and says "the documents on file do not answer this" rather than guessing. |
 | **Market research** | Web search for local transaction and infrastructure signal. Off by default. |
 | **Diligence planner** | Ranks insights and drafts the actual document-request messages for a human to send. |
-| **Orchestrator** | Plans and sequences the rest; one agent failing does not sink the run. |
+| **Critic** | Adversarially checks the run against the Karnataka corpus — what was asserted without support, what contradicts the documents. |
+| **Explorer** | Follows open-ended leads under a hard iteration and cost ceiling, recording what it chose to pursue and what came of it. |
+| **Title graph** | Reduces the ownership chain to findings: breaks, contradictions, and who actually holds what. |
+| **Planner** | Reads the case and decides which of the above it warrants and at what depth, rather than running everything every time. |
+| **Orchestrator** | Sequences the rest and enforces their data dependencies; one agent failing does not sink the run. |
 
 **The roster is tiered.** Not every agent needs the same model, and running
 all of them on a frontier model makes cost-per-case — not accuracy — the
@@ -281,6 +285,53 @@ on the judgment model — so the saving is a measurement, not a claim.
 
 Runs report their real token usage and an estimated cost, so a run is never a
 surprise on the bill.
+
+**Every prompt is versioned, and editing one is visible.** The nine prompts the
+agents run live in a registry rather than inline in the agent files, each with
+its shipped text as version 1. **Prompts** in the sidebar shows them, what
+guardrails each version keeps, and what a draft would give up.
+
+Editing is allowed, because an operator who cannot fix a preamble will work
+around the tool instead — where nothing is recorded at all. What is not
+negotiable is that a change is visible. The shared preamble is not stylistic:
+it is the text that says *never invent a document, a transaction, a statute, a
+case number, a date or a figure*, and an invented survey number is the one
+failure this product cannot ship. So a version that drops a guardrail is
+accepted, carries the failed checks, and marks every run that used it. Saving
+or activating such a version needs a per-guardrail acknowledgement and the
+guardrail's id typed out — never a generic "are you sure". The built-in version
+can never be edited or deleted, so there is always a way back.
+
+The guardrail checker is phrase matching within a proximity window, and its
+source says plainly what that buys: about one faithful rewrite in six to ten is
+flagged as a drop, and it cannot see negation. A satisfied invariant is weak
+evidence; an unsatisfied one is a strong prompt to read the diff. The thing
+that actually stops a fabricated figure reaching a user is the output-side
+evaluation gate, not this.
+
+Every run records the prompt versions it used and their content hashes, so
+*"the extraction got worse last Tuesday"* stays answerable after somebody edits
+a prompt.
+
+| Variable | Effect |
+| --- | --- |
+| `VALYTICA_PROMPT_<KEY>` | Pin one prompt to a version id or number, overriding the stored selection. E.g. `VALYTICA_PROMPT_CRITIC_SYSTEM=1` to force the shipped text. |
+
+**The run graph draws what actually happened.** The **Run graph** tab on a case
+is a pannable, zoomable canvas of one orchestration: lanes are the schedule the
+orchestrator really used rather than the plan's nominal ordering, edges
+distinguish "ran after" from "consumed the output of" from "re-ran something
+upstream", and the feedback loop that re-runs the deterministic screen after
+document intelligence changes a field is drawn as the loop it is. Clicking a
+node gives its model, route, duration, cost, steps, outputs, capability gaps
+and the prompt versions it ran under — and links to the exact prompt version,
+so a suspicious answer is one click from the text that produced it.
+
+The graph is derived on read rather than stored, so it can never disagree with
+the runs it describes. Nodes carry no cost when their route has no declared
+rates; a total that excludes one reads `≥` with the shortfall named, because a
+lower bound presented as a total is the same lie as pricing an unknown route at
+zero.
 
 ### Statutory values are versioned, not asserted
 
