@@ -8,7 +8,10 @@ import type {
   CopilotTurn,
   CreateCaseRequest,
   CaseDocument,
+  DataSourceDescriptor,
   DocumentKind,
+  IngestionReport,
+  MemoryRecall,
   PropertyCase,
   ReferenceData,
   RiskStatus,
@@ -128,6 +131,29 @@ export const api = {
     }),
 
   clearConversation: (id: string) => request<void>(`/cases/${id}/agents/conversation`, { method: 'DELETE' }),
+
+  /** Sources that bear on this property, including the ones that cannot be reached. */
+  caseSources: (id: string) => request<DataSourceDescriptor[]>(`/cases/${id}/knowledge/sources`),
+
+  /** What earlier cases established that touches this one. */
+  caseMemory: (id: string) => request<MemoryRecall>(`/cases/${id}/knowledge/memory`),
+
+  /** Teach cross-case memory what this case establishes. Idempotent. */
+  learnFromCase: (id: string) =>
+    request<{ learned: number; superseded: number; deduplicated: number; recall: MemoryRecall }>(
+      `/cases/${id}/knowledge/memory`,
+      { method: 'POST' },
+    ),
+
+  /**
+   * Run ingestion. `allowNetwork` is off by default — reaching a public
+   * register is still reaching outside the app, so it is the user's call.
+   */
+  ingest: (id: string, body: { sources?: string[]; files?: { fileName: string; content: string; sourceId: string }[]; allowNetwork?: boolean } = {}) =>
+    request<{ report: IngestionReport; networkRequests: number; unknownFileSourceIds: string[] }>(
+      `/cases/${id}/knowledge/ingest`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
 
   exploreCase: (id: string, body: { objective?: string; maxIterations?: number; maxCostUsd?: number }) =>
     request<PropertyCase>(`/cases/${id}/agents/explore`, {

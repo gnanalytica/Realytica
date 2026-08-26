@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase } from '@valytica/shared';
 import { REFERENCE_DATA } from '@valytica/shared';
-import { agentCapability, describeError, runCopilot, runExplorer, runOrchestration, type RunOrchestrationResult } from '@valytica/agents';
+import { agentCapability, describeError, recallForCase, runCopilot, runExplorer, runOrchestration, type RunOrchestrationResult } from '@valytica/agents';
+import { memoryStore } from '../memory';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
@@ -251,11 +252,15 @@ caseAgentsRouter.post<{ id: string }>('/copilot', async (req, res) => {
 
   try {
     const history = found.intelligence?.conversation ?? [];
+    // Resolved here, not inside the agent: persistence belongs to the app, and
+    // the agents package has to stay runnable with no store at all.
+    const memory = await recallForCase(memoryStore, found, { now: new Date().toISOString() });
     const { run, turn: assistantTurn } = await runCopilot({
       caseId: found.id,
       caseData: found,
       refData: REFERENCE_DATA,
       question: parsed.data.question,
+      memory,
       history,
       now,
     });

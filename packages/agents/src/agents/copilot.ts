@@ -25,11 +25,12 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
-import type { AgentRun, AgentRunStatus, AgentStep, CopilotTurn, PropertyCase, ReferenceData, RetrievalSelection } from '@valytica/shared';
+import type { AgentRun, AgentRunStatus, AgentStep, CopilotTurn, MemoryRecall, PropertyCase, ReferenceData, RetrievalSelection } from '@valytica/shared';
 import { buildTitleGraph } from '@valytica/shared';
 import { agentCapability, baseRequestFor, describeError, estimateUsage, getClient, modelFor, tierFor } from '../client';
 import { GROUNDING_RULES } from '../context';
 import { retrieveCaseContext } from '../retrieval';
+import { renderMemoryForPrompt } from '../memory';
 import { createCaseTools } from '../tools/case-tools';
 
 export interface RunCopilotParams {
@@ -41,6 +42,16 @@ export interface RunCopilotParams {
   history?: CopilotTurn[];
   /** ISO timestamp used to date the produced turn/evidence — not wall-clock, so runs are reproducible. */
   now?: string;
+  /**
+   * What earlier cases know that bears on this one.
+   *
+   * Passed in rather than looked up, because persistence belongs to the app,
+   * not to this package — the agents package must stay runnable with no store
+   * at all. Absent means "no memory configured", which is different from "no
+   * history found"; the latter arrives as a recall with zero facts and
+   * populated `consultedSubjects`, and is worth telling the model about.
+   */
+  memory?: MemoryRecall;
   onStep?: (step: AgentStep) => void;
 }
 
@@ -107,7 +118,7 @@ function processAnswer(rawText: string, validIds: ReadonlySet<string>): {
 }
 
 export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotResult> {
-  const { caseId, caseData, refData, question, history = [] } = params;
+  const { caseId, caseData, refData, question, memory, history = [] } = params;
   const now = params.now ?? new Date().toISOString();
   const runId = randomUUID();
   const startedAt = new Date().toISOString();
@@ -216,9 +227,28 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
       ? `${retrieved.selection.omitted.length} section(s) left out for budget; the model is told which kinds.`
       : 'Whole case fitted within budget.',
   });
+  // Never externalSafe here — the copilot is internal by construction, it
+  // answers the user about their own case and makes no outbound call. The flag
+  // is passed explicitly rather than defaulted so the boundary is visible at
+  // the call site rather than assumed from context.
+  const memoryBlock = memory ? renderMemoryForPrompt(memory, { externalSafe: false }) : '';
+  if (memoryBlock) {
+    emit({
+      kind: 'message',
+      label: `Cross-case memory: ${memory?.facts.length ?? 0} item(s) from ${memory?.consultedSubjects.length ?? 0} subject(s) consulted`,
+      detail: 'Context only — memory is never citable as evidence for this case.',
+    });
+  }
+
   messages.push({
     role: 'user',
-    content: `Case context (fetched fresh for this turn — treat it as more current than anything said earlier in this conversation):\n${retrieved.text}\n\nQuestion: ${question}`,
+    content: [
+      'Case context (fetched fresh for this turn — treat it as more current than anything said earlier in this conversation):',
+      retrieved.text,
+      ...(memoryBlock ? ['', memoryBlock] : []),
+      '',
+      `Question: ${question}`,
+    ].join('\n'),
   });
 
   const requestParams = {

@@ -34,6 +34,7 @@ import type {
   PropertyCase,
   ResearchFinding,
   ScreenResult,
+  IngestionReport,
 } from '@valytica/shared';
 import type { TabProps } from '../tab-props';
 import { api, streamAgentRun } from '../../../lib/api';
@@ -44,6 +45,7 @@ import { AgentRunTimeline, formatUsd } from '../../../components/AgentRunTimelin
 import { CopilotPanel } from '../../../components/CopilotPanel';
 import { AgentPlanCard } from '../../../components/AgentPlanCard';
 import { CostBreakdown } from '../../../components/CostBreakdown';
+import { MemoryCard, SourcesCard } from '../../../components/KnowledgePanel';
 import { CriticFlagBanner, VerificationPanel, findFlaggedCriticFinding } from '../../../components/VerificationPanel';
 import { ExplorationTrail } from '../../../components/ExplorationTrail';
 import type { VerificationSummary } from '@valytica/shared';
@@ -1017,6 +1019,8 @@ export default function IntelligenceTab({ caseData, result, refresh }: TabProps)
 
       {intel.cost && intel.cost.perAgent.length > 0 && <CostBreakdown cost={intel.cost} />}
 
+      <KnowledgeSection caseId={caseData.id} ingestions={intel.ingestions ?? []} />
+
       <InsightsCard insights={intel.insights} evidence={evidence} onOpenEvidence={openEvidence} verification={intel.verification} />
 
       <PathwaysCard pathways={intel.pathways} evidence={evidence} onOpenEvidence={openEvidence} verification={intel.verification} />
@@ -1055,6 +1059,47 @@ export default function IntelligenceTab({ caseData, result, refresh }: TabProps)
           <AgentRunTimeline runs={allRuns} live={running && !streamBuffered ? liveSteps : undefined} />
         </CardBody>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * External sources and cross-case memory, fetched on demand.
+ *
+ * Not folded into the case payload: both are about the world outside this
+ * case, both change independently of it, and loading them with every case
+ * read would make the common path pay for the uncommon one.
+ */
+function KnowledgeSection({ caseId, ingestions }: { caseId: string; ingestions: IngestionReport[] }) {
+  const toast = useToast();
+  const { data: sources } = useAsync(() => api.caseSources(caseId), [caseId]);
+  const { data: memory, refresh: refreshMemory } = useAsync(() => api.caseMemory(caseId), [caseId]);
+  const [ingesting, setIngesting] = useState(false);
+
+  const handleIngest = async () => {
+    setIngesting(true);
+    try {
+      const { report, networkRequests } = await api.ingest(caseId);
+      const unreachable = report.attempted.filter((a) => a.outcome === 'unreachable').length;
+      toast(
+        `${report.records.length} record(s) ingested; ${unreachable} source(s) unreachable; ${networkRequests} network request(s).`,
+        report.records.length > 0 ? 'good' : 'warning',
+      );
+      await refreshMemory();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Source check failed.', 'critical');
+    } finally {
+      setIngesting(false);
+    }
+  };
+
+  if (!sources && !memory) return null;
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      {sources && (
+        <SourcesCard sources={sources} ingestions={ingestions} onIngest={() => void handleIngest()} ingesting={ingesting} />
+      )}
+      {memory && <MemoryCard recall={memory} />}
     </div>
   );
 }
