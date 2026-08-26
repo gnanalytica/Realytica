@@ -15,8 +15,8 @@ export default function App() {
     <ToastHost>
       <Routes>
         <Route element={<AppShell />}>
-          <Route index element={<Dashboard />} />
-          <Route path="start" element={<Intake />} />
+          <Route index element={<Intake />} />
+          <Route path="cases" element={<Dashboard />} />
           <Route path="cases/new" element={<NewCase />} />
           <Route path="cases/:caseId" element={<CaseWorkspace />} />
           <Route path="cases/:caseId/:tab" element={<CaseWorkspace />} />

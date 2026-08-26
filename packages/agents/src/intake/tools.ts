@@ -1,5 +1,5 @@
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
-import type { IntakeProvenance, ReferenceData } from '@valytica/shared';
+import type { CaseSummary, IntakeProvenance, ReferenceData } from '@valytica/shared';
 import { INTAKE_FIELDS } from './fields';
 import type { CaptureInput } from './fields';
 import { resolveLocality } from './readout';
@@ -33,9 +33,20 @@ function capturePathDescription(): string {
 export interface IntakeToolBuffer {
   captures: CaptureInput[];
   localityLookups: { asked: string; resolved?: string; suggestions: string[] }[];
+  /** Cases `find_cases` matched, in the order it found them. */
+  matchedCaseIds: string[];
 }
 
-export function createIntakeTools(refData: ReferenceData, buffer: IntakeToolBuffer) {
+/**
+ * The existing cases the concierge may look at.
+ *
+ * Injected rather than fetched, so this package keeps knowing nothing about
+ * how the app stores anything — the same rule memory and the prompt registry
+ * follow.
+ */
+export type CaseLookup = () => Promise<CaseSummary[]> | CaseSummary[];
+
+export function createIntakeTools(refData: ReferenceData, buffer: IntakeToolBuffer, lookupCases?: CaseLookup) {
   const capture = betaTool({
     name: 'capture_particulars',
     description:
@@ -144,5 +155,66 @@ export function createIntakeTools(refData: ReferenceData, buffer: IntakeToolBuff
     },
   });
 
-  return [capture, locality];
+  /**
+   * Find cases that already exist.
+   *
+   * This is what makes one conversation the whole front door: "I'm looking at
+   * a flat in HSR" starts a new case, and "show me the Whitefield one" finds
+   * the existing one, without the person having to know which of those two
+   * things they are doing.
+   *
+   * It returns matches and never opens one. Opening is a navigation the person
+   * performs by clicking a card — an agent that navigated on its own reading
+   * of a sentence would be acting on an interpretation.
+   */
+  const findCases = betaTool({
+    name: 'find_cases',
+    description:
+      'Search the cases that already exist. Use this whenever someone refers to a property they have looked at before — ' +
+      'by locality, by reference like VPS-0003, by a name, or by a property they describe as already being on file. ' +
+      'Report what you found in your own words and let them choose; you cannot open a case yourself.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['query'],
+      properties: {
+        query: {
+          type: 'string',
+          description: 'What to match on: a locality, a reference, part of a label, or empty for everything.',
+        },
+      },
+    } as const,
+    run: async ({ query }) => {
+      if (!lookupCases) return JSON.stringify({ error: 'This conversation cannot see existing cases.' });
+      const all = await lookupCases();
+      const q = String(query ?? '').trim().toLowerCase();
+      const matches = q
+        ? all.filter(c =>
+            c.reference.toLowerCase().includes(q) ||
+            c.label.toLowerCase().includes(q) ||
+            c.locality.toLowerCase().includes(q) ||
+            c.city.toLowerCase().includes(q))
+        : all;
+      const top = matches.slice(0, 8);
+      buffer.matchedCaseIds = top.map(c => c.id);
+      return JSON.stringify({
+        found: matches.length,
+        showing: top.length,
+        cases: top.map(c => ({
+          reference: c.reference,
+          label: c.label,
+          locality: c.locality,
+          status: c.status,
+          verdict: c.verdict ?? null,
+          openCriticalRisks: c.openCriticalRisks,
+          documents: c.documentCount,
+          // Named so the model reports a range rather than inventing one.
+          indicative: c.indicativeLow && c.indicativeHigh ? `${c.indicativeLow}-${c.indicativeHigh} ${c.currency}` : null,
+        })),
+        note: 'These are shown to the user as cards they can open. Do not invent a case that is not in this list.',
+      });
+    },
+  });
+
+  return lookupCases ? [capture, locality, findCases] : [capture, locality];
 }

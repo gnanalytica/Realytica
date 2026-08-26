@@ -18,7 +18,7 @@ import { clientToolFromRunnable } from '../providers/anthropic';
 import type { LlmClientTool, LlmMessage } from '../providers/types';
 import { applyCapture } from './fields';
 import { readDraft } from './readout';
-import { createIntakeTools, type IntakeToolBuffer } from './tools';
+import { createIntakeTools, type CaseLookup, type IntakeToolBuffer } from './tools';
 import { answerCurrentGap, describeState, fallbackReply } from './script';
 
 const MAX_TOOL_ITERATIONS = 4;
@@ -31,6 +31,15 @@ export interface RunIntakeTurnParams {
   history: IntakeTurn[];
   refData: ReferenceData;
   caseId?: string;
+  /**
+   * Lets this conversation see the cases that already exist.
+   *
+   * Supplied by the home chat and omitted elsewhere, which is what makes the
+   * same agent serve both: with it, one conversation both starts a case and
+   * finds an old one; without it, it is intake only and the tool is not even
+   * offered.
+   */
+  lookupCases?: CaseLookup;
   now?: string;
   onStep?: (step: AgentStep) => void;
 }
@@ -105,7 +114,7 @@ export async function runIntakeTurn(params: RunIntakeTurnParams): Promise<RunInt
    * particular — locality, area, price — while looking like it worked.
    */
   const degrade = (make: (r: IntakeReadout) => string): RunIntakeTurnResult => {
-    const answer = answerCurrentGap(message, priorReadout.nextQuestion);
+    const answer = answerCurrentGap(message, priorReadout.nextQuestion, refData);
     const { fields, captured } = answer
       ? applyCapture(params.fields, [answer], now)
       : { fields: params.fields, captured: [] as IntakeField[] };
@@ -139,8 +148,8 @@ export async function runIntakeTurn(params: RunIntakeTurnParams): Promise<RunInt
   let capabilityGaps: CapabilityGap[] = [];
   let promptUsages: PromptUsage[] = [];
 
-  const buffer: IntakeToolBuffer = { captures: [], localityLookups: [] };
-  const tools: LlmClientTool[] = createIntakeTools(refData, buffer).map(clientToolFromRunnable);
+  const buffer: IntakeToolBuffer = { captures: [], localityLookups: [], matchedCaseIds: [] };
+  const tools: LlmClientTool[] = createIntakeTools(refData, buffer, params.lookupCases).map(clientToolFromRunnable);
 
   const messages: LlmMessage[] = [];
   // The last few turns only. An intake conversation is short and the state
@@ -249,6 +258,7 @@ export async function runIntakeTurn(params: RunIntakeTurnParams): Promise<RunInt
       at: now,
       captured: captured.length > 0 ? captured : undefined,
       requested: readout.documents.filter(d => d.critical && !d.received).slice(0, 2).map(d => d.kind),
+      matchedCaseIds: buffer.matchedCaseIds.length > 0 ? buffer.matchedCaseIds : undefined,
       runId,
     },
     fields,

@@ -2264,6 +2264,15 @@ export interface IntakeTurn {
   /** Documents this turn asked for. */
   requested?: DocumentKind[];
   /**
+   * Existing cases this turn found.
+   *
+   * The concierge finds; the person opens. Rendered as cards under the reply
+   * rather than navigated to, because opening a case is the user's move and an
+   * agent that redirects on its own reading of "show me the Whitefield one"
+   * has acted on an interpretation rather than an instruction.
+   */
+  matchedCaseIds?: string[];
+  /**
    * The agent run behind an assistant turn.
    *
    * Absent when the turn came from the deterministic fallback — which is the

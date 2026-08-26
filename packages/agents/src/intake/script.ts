@@ -1,5 +1,6 @@
-import type { IntakeField, IntakeGap, IntakeReadout } from '@valytica/shared';
+import type { IntakeField, IntakeGap, IntakeReadout, ReferenceData } from '@valytica/shared';
 import { INTAKE_FIELDS, SQFT_PER_SQM } from './fields';
+import { resolveLocality } from './readout';
 import type { CaptureInput } from './fields';
 
 /**
@@ -200,7 +201,11 @@ export function openingTurn(hasModel: boolean): string {
  * Returns nothing when the message does not read as an answer, which leaves
  * the deterministic reply to ask again rather than storing a guess.
  */
-export function answerCurrentGap(message: string, gap: IntakeGap | undefined): CaptureInput | undefined {
+export function answerCurrentGap(
+  message: string,
+  gap: IntakeGap | undefined,
+  refData?: ReferenceData,
+): CaptureInput | undefined {
   if (!gap) return undefined;
   const spec = INTAKE_FIELDS.find(f => f.path === gap.path);
   if (!spec) return undefined;
@@ -249,6 +254,19 @@ export function answerCurrentGap(message: string, gap: IntakeGap | undefined): C
   // about stamp duty" into the locality question has not answered it, and
   // storing that as their locality would be worse than not hearing them.
   if (text.length > 60 || /\?$/.test(text)) return undefined;
+
+  /*
+   * Locality is the one string field that can actually be checked, so it is.
+   *
+   * Without this, anything short became your locality: "hello there" and "show
+   * me the Whitefield one" were both accepted, and the draft then sat on a
+   * locality the reference data has never heard of, quietly refusing to
+   * produce a preview with nothing on screen to say why. Validating against
+   * the same list that prices everything is both stricter and more honest —
+   * an unrecognised name is not an answer, and the conversation asks again.
+   */
+  if (gap.path === 'locality' && refData && !resolveLocality(text, refData).match) return undefined;
+
   return { path: gap.path, value: text, provenance: 'stated', saidAs: text };
 }
 

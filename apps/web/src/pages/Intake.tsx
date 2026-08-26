@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { MessageSquare, Paperclip, Send, Sparkles } from 'lucide-react';
 import type { IntakeGap } from '@valytica/shared';
 import { api, type IntakeEnvelope } from '../lib/api';
 import { Badge, Button, Card, CardBody, Input, Spinner, cn, useToast } from '../components/ui/kit';
 import { DraftPanel, displayValue } from '../components/intake/DraftPanel';
+import { CaseRail } from '../components/intake/CaseRail';
+import { useAsync } from '../lib/useAsync';
 import { useAreaUnitFor } from '../lib/units';
 
 /**
@@ -35,6 +37,7 @@ export default function Intake() {
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const areaUnit = useAreaUnitFor('IN');
+  const { data: cases } = useAsync(() => api.listCases(), []);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -176,6 +179,23 @@ export default function Intake() {
                  * so a particular can never enter the draft without the user
                  * seeing the exact message it was read out of.
                  */}
+                {turn.matchedCaseIds?.length ? (
+                  <div className="mt-2 flex flex-col gap-1.5 border-t border-hairline pt-2">
+                    {turn.matchedCaseIds.map((id) => {
+                      const c = cases?.find((x) => x.id === id);
+                      return c ? (
+                        <Link
+                          key={id}
+                          to={`/cases/${c.id}`}
+                          data-matched={c.reference}
+                          className="rounded-lg bg-sunken px-2.5 py-1.5 text-[12px] text-ink transition-colors hover:bg-raised"
+                        >
+                          <span className="tabular text-ink-muted">{c.reference}</span> {c.label}
+                        </Link>
+                      ) : null;
+                    })}
+                  </div>
+                ) : null}
                 {turn.captured?.length ? (
                   <p className="mt-2 border-t border-hairline pt-2 text-[11px] text-ink-secondary">
                     Recorded: {turn.captured.map((c) => `${c.label} — ${displayValue(c, areaUnit)}`).join('; ')}
@@ -250,6 +270,16 @@ export default function Intake() {
       </div>
 
       <aside data-testid="draft" aria-label="Draft" className="lg:sticky lg:top-6 lg:self-start">
+        {/*
+         * One rail, two jobs. Until the conversation has captured anything it
+         * shows the cases you already have, because reopening one is the most
+         * common thing anyone does here and making that a sentence to compose
+         * would be slower than the dashboard this replaced. The moment a
+         * particular lands, it becomes the draft.
+         */}
+        {session.fields.length === 0 ? (
+          <CaseRail cases={cases ?? []} highlight={turns.flatMap((t) => t.matchedCaseIds ?? [])} />
+        ) : (
         <DraftPanel
           readout={readout}
           fields={session.fields}
@@ -273,6 +303,7 @@ export default function Intake() {
           building={building}
           busyPath={busyPath}
         />
+        )}
       </aside>
     </div>
   );

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { ChevronsLeft, ChevronsRight, FilePlus2, Gauge, GitCompare, Info, LayoutDashboard, MessageSquare, ScrollText, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Gauge, GitCompare, Info, LayoutDashboard, MessageSquare, ScrollText, X } from 'lucide-react';
 import { cn } from '../ui/kit';
 
 export interface SidebarProps {
@@ -17,11 +17,9 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: 'Cases', icon: LayoutDashboard, end: true },
-  // Above the form deliberately: three answers here reach a real screen,
-  // where the form asks for six required fields before it accepts anything.
-  { to: '/start', label: 'Start a case', icon: MessageSquare, end: false },
-  { to: '/cases/new', label: 'New case (form)', icon: FilePlus2, end: false },
+  // Chat is the front door, so it is the index route and the first item.
+  { to: '/', label: 'Chat', icon: MessageSquare, end: true },
+  { to: '/cases', label: 'Your cases', icon: LayoutDashboard, end: false },
   { to: '/compare', label: 'Compare', icon: GitCompare, end: false },
   { to: '/observability', label: 'AI activity', icon: Gauge, end: false },
   { to: '/prompts', label: 'AI instructions', icon: ScrollText, end: false },

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { REFERENCE_DATA, classifyDocument, extractFields, runScreen } from '@valytica/shared';
 import type { CaseDocument, IntakeSession, PropertyCase } from '@valytica/shared';
 import { commitDraft, intakeModelAvailable, openingTurn, readDraft, runIntakeTurn } from '@valytica/agents';
+import { toCaseSummary } from './cases';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
@@ -108,6 +109,9 @@ intakeRouter.post<{ id: string }>('/:id/turns', async (req, res) => {
     history: session.turns.slice(0, -1),
     refData: REFERENCE_DATA,
     caseId: session.caseId,
+    // One conversation is the whole front door: it starts a case, and it finds
+    // one that already exists.
+    lookupCases: () => store.data.cases.map(toCaseSummary),
     now,
   });
 

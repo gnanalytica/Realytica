@@ -231,10 +231,10 @@ export default function CaseWorkspace() {
             : error}
         </Callout>
         <Link
-          to="/"
+          to="/cases"
           className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-brand hover:underline"
         >
-          <ArrowLeft size={14} /> Back to Dashboard
+          <ArrowLeft size={14} /> Back to your cases
         </Link>
       </div>
     );
@@ -305,10 +305,10 @@ export default function CaseWorkspace() {
         <div className="flex flex-wrap items-start justify-between gap-4 px-6 pb-3 pt-4">
           <div className="min-w-0">
             <Link
-              to="/"
+              to="/cases"
               className="inline-flex items-center gap-1 text-xs font-medium text-ink-secondary hover:text-ink"
             >
-              <ArrowLeft size={12} /> Dashboard
+              <ArrowLeft size={12} /> Your cases
             </Link>
             <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <h1 className="truncate text-[15px] font-semibold tracking-tight text-ink">{caseData.reference}</h1>
