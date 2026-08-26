@@ -36,7 +36,8 @@ import {
   useToast,
   cn,
 } from '../../../components/ui/kit';
-import { api } from '../../../lib/api';
+import { api, uploadLimits } from '../../../lib/api';
+import type { UploadLimits } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
 import { DOCUMENT_KIND_LABEL, fileSize, relativeTime, titleCase } from '../../../lib/format';
 import type { TabProps } from '../tab-props';
@@ -80,6 +81,33 @@ interface PendingUpload {
   message?: string;
 }
 
+/**
+ * Split an upload into requests the deployment will accept — no more than
+ * `maxFiles` per request, and no more than `maxRequestBytes` of content.
+ *
+ * Every item is assumed to fit on its own; callers reject oversized files
+ * before getting here, since no grouping can rescue one. Order is preserved,
+ * so a partial failure leaves the earlier files uploaded and the rest not,
+ * which is the behaviour the pending rows describe.
+ */
+function batchToFit<T extends { file: File }>(items: T[], limits: UploadLimits): T[][] {
+  const batches: T[][] = [];
+  let current: T[] = [];
+  let currentBytes = 0;
+  for (const item of items) {
+    const wouldOverflow = currentBytes + item.file.size > limits.maxRequestBytes || current.length >= limits.maxFiles;
+    if (current.length > 0 && wouldOverflow) {
+      batches.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(item);
+    currentBytes += item.file.size;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
 interface RequiredRow {
   key: string;
   label: string;
@@ -109,19 +137,45 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
   };
 
   const handleFiles = async (files: File[]) => {
-    const valid = files.filter((f) => f.size > 0);
-    const emptyCount = files.length - valid.length;
+    const nonEmpty = files.filter((f) => f.size > 0);
+    const emptyCount = files.length - nonEmpty.length;
     if (emptyCount > 0) {
       toast(`Skipped ${emptyCount} empty file${emptyCount === 1 ? '' : 's'}.`, 'warning');
     }
+    if (nonEmpty.length === 0) return;
+
+    const limits = await uploadLimits();
+
+    // Reject what this deployment cannot take, by name and size. The
+    // alternative is sending it and surfacing whatever the platform says,
+    // which on a serverless host is an opaque payload-too-large page with no
+    // indication of which file caused it or what the limit is.
+    const tooLarge = nonEmpty.filter((f) => f.size > limits.maxFileBytes);
+    const valid = nonEmpty.filter((f) => f.size <= limits.maxFileBytes);
+    if (tooLarge.length > 0) {
+      const names = tooLarge.map((f) => `${f.name} (${fileSize(f.size)})`).join(', ');
+      toast(`Too large for this deployment — the limit is ${fileSize(limits.maxFileBytes)} per file: ${names}`, 'critical');
+    }
     if (valid.length === 0) return;
 
-    const rows: PendingUpload[] = valid.map((f) => ({ id: `${Date.now()}-${seq.current++}`, name: f.name, size: f.size, status: 'uploading' }));
+    const queued = valid.map((file) => ({
+      file,
+      row: { id: `${Date.now()}-${seq.current++}`, name: file.name, size: file.size, status: 'uploading' } as PendingUpload,
+    }));
+    const rows = queued.map((q) => q.row);
     setPending((prev) => [...prev, ...rows]);
 
+    // Files that each fit can still exceed the cap together, so send them in
+    // groups that fit rather than as one request. Sequentially: these are
+    // multi-megabyte uploads, and firing them in parallel competes for the
+    // same connection for no gain.
+    const created: CaseDocument[] = [];
     try {
-      const created = await api.uploadDocuments(caseData.id, valid);
-      setPending((prev) => prev.filter((p) => !rows.some((r) => r.id === p.id)));
+      for (const batch of batchToFit(queued, limits)) {
+        created.push(...(await api.uploadDocuments(caseData.id, batch.map((q) => q.file))));
+        const done = new Set(batch.map((q) => q.row.id));
+        setPending((prev) => prev.filter((p) => !done.has(p.id)));
+      }
       await refresh();
       const needsReview = created.filter((d) => d.classificationConfidence < REVIEW_THRESHOLD).length;
       const total = created.length;
@@ -133,8 +187,11 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
       );
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Upload failed.';
+      // Only the rows still pending failed — earlier batches already landed
+      // and were cleared, and their documents are on the case.
       setPending((prev) => prev.map((p) => (rows.some((r) => r.id === p.id) ? { ...p, status: 'error', message } : p)));
       toast(message, 'critical');
+      if (created.length > 0) await refresh();
     }
   };
 

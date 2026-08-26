@@ -44,8 +44,27 @@ export class ApiRequestError extends Error {
   }
 }
 
+/**
+ * What one upload call may contain. Reported by the API rather than assumed,
+ * because it depends on where the API is running: a server takes whatever
+ * multer allows, while a serverless platform caps the whole request body
+ * regardless.
+ */
+export interface UploadLimits {
+  maxFiles: number;
+  maxFileBytes: number;
+  maxRequestBytes: number;
+}
+
+export interface HealthResponse {
+  status: string;
+  version: string;
+  cases: number;
+  upload: UploadLimits;
+}
+
 export const api = {
-  health: () => request<{ status: string; version: string; cases: number }>('/health'),
+  health: () => request<HealthResponse>('/health'),
 
   reference: () => request<ReferenceData>('/reference'),
 
@@ -116,6 +135,42 @@ export const api = {
       body: JSON.stringify(body),
     }),
 };
+
+/**
+ * The deployment's upload limits, fetched once and shared.
+ *
+ * Cached as the promise rather than the value so that several callers racing
+ * on first use share one request instead of each firing their own. A failed
+ * lookup is not cached: `uploadLimits()` falls back to a conservative guess
+ * for that call and the next one tries again, so a blip does not leave the
+ * app permanently guessing.
+ */
+let uploadLimitsPromise: Promise<UploadLimits> | null = null;
+
+/**
+ * Small enough to be safe on any host, including a serverless platform with a
+ * request-body cap. Only used when the API cannot be reached to say otherwise
+ * — in which case the upload is about to fail anyway, and rejecting a large
+ * file early is the better of the two wrong answers.
+ */
+const FALLBACK_UPLOAD_LIMITS: UploadLimits = {
+  maxFiles: 10,
+  maxFileBytes: 4 * 1024 * 1024,
+  maxRequestBytes: 4 * 1024 * 1024,
+};
+
+export async function uploadLimits(): Promise<UploadLimits> {
+  if (!uploadLimitsPromise) {
+    uploadLimitsPromise = api
+      .health()
+      .then((h) => h.upload ?? FALLBACK_UPLOAD_LIMITS)
+      .catch(() => {
+        uploadLimitsPromise = null;
+        return FALLBACK_UPLOAD_LIMITS;
+      });
+  }
+  return uploadLimitsPromise;
+}
 
 export interface AgentStreamHandlers {
   onStep?: (step: AgentStep) => void;

@@ -8,7 +8,7 @@ import multer from 'multer';
 import { ENGINE_VERSION, compareCases } from '@valytica/shared';
 import { store, initStore } from './store';
 import { casesRouter } from './routes/cases';
-import { documentsRouter } from './routes/documents';
+import { documentsRouter, UPLOAD_LIMITS } from './routes/documents';
 import { screenRouter, risksRouter, actionsRouter } from './routes/screen';
 import { referenceRouter } from './routes/reference';
 import { demoRouter, seedDemoData } from './routes/demo';
@@ -42,7 +42,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', version: ENGINE_VERSION, cases: store.data.cases.length });
+  // `upload` describes what this deployment can accept, which differs between
+  // a server and a serverless platform with its own request-body cap. The
+  // client reads it here so it can reject or split an upload before sending,
+  // rather than finding out from a failed request.
+  res.json({
+    status: 'ok',
+    version: ENGINE_VERSION,
+    cases: store.data.cases.length,
+    upload: UPLOAD_LIMITS,
+  });
 });
 
 app.use('/api/reference', referenceRouter);
