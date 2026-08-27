@@ -8,6 +8,7 @@ import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, KeyValu
 import type { Tone } from '../../../components/ui/kit';
 import { EvidenceLink } from '../../../components/EvidenceLink';
 import { SchematicYieldCard } from '../../../components/SchematicYieldCard';
+import { SplitProse } from '../../../components/ui/prose';
 
 type DevelopmentPotential = PlanningPosition['developmentPotential'];
 
@@ -170,7 +171,7 @@ export default function PlanningTab({ caseData, result, runScreen, running, goTo
       <Card>
         <CardHeader title="Planning position notes" icon={<Landmark size={16} />} />
         <CardBody className="flex flex-col gap-3">
-          <p className="text-[13px] leading-relaxed text-ink-secondary">{planning.statusNote}</p>
+          <SplitProse text={planning.statusNote} />
           <div className="flex flex-col gap-1.5 border-t border-hairline pt-3 sm:flex-row sm:items-center sm:justify-between">
             <KeyValue label="Source" value={planning.source} />
           </div>

@@ -23,6 +23,58 @@
 export type EmphasisSpan = { text: string; quantity: boolean };
 
 /**
+ * Words after which a number is an identifier, not a quantity.
+ *
+ * "Karnataka Stamp Act 1957, Article 20, s.3-B" is three numbers and none of
+ * them is something a reader scans for — they name the law rather than
+ * measure anything. Emphasising them is worse than emphasising nothing,
+ * because it puts weight on the part of the sentence that carries no
+ * decision.
+ */
+const CITATION_ANTECEDENTS = new Set([
+  'act',
+  'acts',
+  'rule',
+  'rules',
+  'regulation',
+  'regulations',
+  'article',
+  'articles',
+  'section',
+  'sections',
+  's',
+  'ss',
+  'order',
+  'orders',
+  'form',
+  'forms',
+  'no',
+  'nos',
+  'chapter',
+  'clause',
+  'schedule',
+  'part',
+  'plan',
+  'rmp',
+  'cdp',
+]);
+
+/**
+ * A bare four-digit year, with no unit and not part of a range.
+ *
+ * `2013-2025` is a lookback period and worth weighting; the `1957` in
+ * "Karnataka Stamp Act 1957" is part of the statute's name. The difference is
+ * whether a hyphen or en-dash sits against it.
+ */
+function isNamingYear(value: string, before: string, after: string): boolean {
+  if (!/^\d{4}$/.test(value)) return false;
+  const year = Number(value);
+  if (year < 1800 || year > 2100) return false;
+  if (/[-–—/]\s*$/.test(before) || /^\s*[-–—/]/.test(after)) return false;
+  return true;
+}
+
+/**
  * One quantity: an optional currency mark, digits with separators, and an
  * optional unit.
  *
@@ -60,7 +112,11 @@ const UNITS = [
 
 const QUANTITY = new RegExp(
   // ₹1.2 Cr / $400,000 / 41,500 / 16.7% / 4,000 sqm / 9 floors / 30x40
-  `(?:[₹$€]\\s?)?\\d[\\d,]*(?:\\.\\d+)?(?:\\s?(?:${UNITS}))?`,
+  //
+  // The integer part cannot END on a separator: `\d[\d,]*` swallowed the
+  // trailing comma in "covers 2013-2025, leaving", so the emphasis included
+  // the punctuation and the bold ran into the next clause.
+  `(?:[₹$€]\\s?)?\\d(?:[\\d,]*\\d)?(?:\\.\\d+)?(?:\\s?(?:${UNITS}))?`,
   'gi',
 );
 
@@ -78,6 +134,26 @@ export function emphasise(text: string): EmphasisSpan[] {
     const start = match.index ?? 0;
     const value = match[0];
     if (!value) continue;
+
+    const before = text.slice(Math.max(0, start - 24), start);
+    const after = text.slice(start + value.length, start + value.length + 4);
+    // The token immediately before, stripped of the punctuation that sits
+    // between it and the number: "Act 1957", "s.3-B", "No. 42".
+    const antecedent = (before.match(/([A-Za-z.]+)[\s.]*$/)?.[1] ?? '').replace(/\.$/, '').toLowerCase();
+    const isCitation = CITATION_ANTECEDENTS.has(antecedent);
+
+    // Inside a filename. `EC_30Year_2025_Devanahalli.pdf` is one identifier,
+    // and weighting the `30Year` in the middle of it reads as a typo rather
+    // than as a figure. Underscores and a dot-extension are what mark a
+    // token as a name rather than a sentence.
+    const inFilename = /[_/\\]$/.test(before) || /^[_/\\]/.test(after) || /\.[a-z]{2,4}\b/i.test(after);
+
+    if (isCitation || inFilename || isNamingYear(value, before, after)) {
+      // Left as ordinary text. It is still there, still readable — it just
+      // does not compete with the figure the reader came for.
+      continue;
+    }
+
     if (start > last) spans.push({ text: text.slice(last, start), quantity: false });
     spans.push({ text: value, quantity: true });
     last = start + value.length;

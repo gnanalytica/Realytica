@@ -62,7 +62,7 @@ export function StalenessPanel({ caseId }: { caseId: string }) {
         icon={<CalendarClock size={16} />}
       />
       <CardBody className="flex flex-col gap-3">
-        <p className="m-0 text-[13px] leading-relaxed text-ink-secondary">{data.headline}</p>
+        <SplitProse text={data.headline} />
         <ul className="m-0 list-none space-y-3 p-0">
           {data.items.map(item => (
             <li key={item.key} className="border-b border-hairline pb-3 last:border-0 last:pb-0">
@@ -73,7 +73,8 @@ export function StalenessPanel({ caseId }: { caseId: string }) {
               <SplitProse text={item.what} className="mt-1" />
               <p className="m-0 mt-1 flex gap-1.5 text-[12px] leading-relaxed text-ink-muted">
                 <RefreshCw size={12} className="mt-0.5 shrink-0" />
-                <span>{item.refresh}</span>
+                {/* The action, split like everything else: what to do, then how. */}
+                <span className="min-w-0"><SplitProse text={item.refresh} /></span>
               </p>
             </li>
           ))}

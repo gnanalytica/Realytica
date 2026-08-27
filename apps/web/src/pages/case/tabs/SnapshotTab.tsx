@@ -48,6 +48,8 @@ import { useAsync } from '../../../lib/useAsync';
 import { PROPERTY_TYPE_LABEL, area, money, num, perSqm, pct, titleCase } from '../../../lib/format';
 import { SQM_PER_SQFT, formatArea, formatRate, sqmToSqft, useAreaUnitFor } from '../../../lib/units';
 import type { TabProps } from '../tab-props';
+import { Prose } from '../../../components/ui/prose';
+import { emphasise } from '@realytica/shared';
 
 const COUNTRY_LABEL: Record<CountryCode, string> = { IN: 'India', NL: 'Netherlands' };
 const COUNTRIES: CountryCode[] = ['IN', 'NL'];
@@ -59,32 +61,53 @@ export default function SnapshotTab({ caseData, result, refresh, runScreen, runn
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-5">
-      <CaseNotes notes={caseData.notes} />
-      {/*
-        * Above the summary, not below it. Everything under this point is
-        * computed from documents and reference data carried from dates, and a
-        * reader who has taken the verdict on board before learning the screen
-        * is eight months old has already made the decision this panel exists
-        * to interrupt. It renders nothing when nothing has aged.
-        */}
-      <StalenessPanel caseId={caseData.id} />
       {result ? (
         <>
+          {/*
+            * The answer first.
+            *
+            * This page used to open with the case notes — free text the user
+            * typed — then a staleness warning, and only then the verdict. A
+            * reader hitting the front door of a case got two things they did
+            * not ask for before the one they did, which is most of what made
+            * it feel like notes rather than a conclusion.
+            *
+            * The order now: what we concluded, then what is wrong with it,
+            * then the working, then the notes.
+            */}
           <Card>
             <CardBody>
-              <p className="text-[15px] leading-relaxed text-ink">{result.snapshot.headline}</p>
+              <p className="font-display text-[17px] leading-snug text-ink">
+                {emphasise(result.snapshot.headline).map((span, i) =>
+                  span.quantity ? (
+                    <span key={i} className="font-semibold tabular-nums">
+                      {span.text}
+                    </span>
+                  ) : (
+                    <span key={i}>{span.text}</span>
+                  ),
+                )}
+              </p>
               {result.snapshot.bullets.length > 0 ? (
                 <ul className="mt-3 flex flex-col gap-1.5">
                   {result.snapshot.bullets.map((b, i) => (
-                    <li key={i} className="flex gap-2 text-[13px] leading-relaxed text-ink-secondary">
+                    <li key={i} className="flex gap-2">
                       <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-ink-muted" />
-                      {b}
+                      <Prose className="m-0">{b}</Prose>
                     </li>
                   ))}
                 </ul>
               ) : null}
             </CardBody>
           </Card>
+
+          {/*
+            * The interruption, immediately after the verdict rather than
+            * before it. A reader who has taken the conclusion on board and
+            * then learns the screen is eight months old re-reads it; one who
+            * meets the warning first has not yet got anything to apply it to.
+            */}
+          <StalenessPanel caseId={caseData.id} />
 
           <TitleFindingStrip result={result} goToTab={goToTab} />
 
@@ -155,6 +178,9 @@ export default function SnapshotTab({ caseData, result, refresh, runScreen, runn
       )}
 
       <IdentityCard caseData={caseData} refresh={refresh} runScreen={runScreen} running={running} />
+
+      {/* What the person typed, at the end, where a note belongs. */}
+      <CaseNotes notes={caseData.notes} />
 
       {isLandPropertyType(identity.propertyType) ? <PlotFactsCard identity={identity} /> : null}
 

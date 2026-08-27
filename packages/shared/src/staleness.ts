@@ -388,12 +388,26 @@ export function buildStaleness(caseData: PropertyCase, refData: ReferenceData, n
   const referenceItem = items.find(i => i.kind === 'reference_data');
   const referenceNote = referenceItem ? ` Separately, the statutory figures this deployment carries were last confirmed ${referenceItem.ageDays} days ago, which affects every case here rather than this one.` : '';
 
+  /*
+   * One clause, then the caveat, then the aside.
+   *
+   * The old version welded all three into a single 57-word sentence that
+   * opened with "1 of 1 item ... are" — a plural agreement bug that only
+   * appears at exactly one item, which is the common case. It also stated
+   * "nothing below is asserted to be wrong" before the reader had seen
+   * anything below.
+   *
+   * `splitLead` on the rendering side takes the first sentence as the
+   * scannable claim, so the claim is now short by construction and everything
+   * after it folds.
+   */
+  const plural = caseItems.length === 1 ? '' : 's';
   const headline =
     caseItems.length === 0
       ? `Nothing on this case has aged past the point where it needs rechecking. That is a statement about dates, not about correctness.${referenceNote}`
       : caseSerious > 0
-        ? `${caseSerious} of ${caseItems.length} item${caseItems.length === 1 ? '' : 's'} on this case are old enough that a counterparty will question them. Nothing below is asserted to be wrong — each is carried from a date, and that date has passed.${referenceNote}`
-        : `${caseItems.length} item${caseItems.length === 1 ? ' is' : 's are'} approaching the point where ${caseItems.length === 1 ? 'it needs' : 'they need'} rechecking. Nothing below is asserted to be wrong — each is carried from a date, and that date is getting old.${referenceNote}`;
+        ? `${caseSerious} of ${caseItems.length} item${plural} here ${caseSerious === 1 ? 'is' : 'are'} old enough that a counterparty will question ${caseSerious === 1 ? 'it' : 'them'}. Nothing below is asserted to be wrong — each is carried from a date, and that date has passed.${referenceNote}`
+        : `${caseItems.length} item${plural} ${caseItems.length === 1 ? 'is' : 'are'} approaching the point where ${caseItems.length === 1 ? 'it needs' : 'they need'} rechecking. Nothing below is asserted to be wrong — each is carried from a date, and that date is getting old.${referenceNote}`;
 
   return { checkedAt: now, items, oldestAsOf, headline };
 }

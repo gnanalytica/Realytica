@@ -140,3 +140,70 @@ describe('splitting where this domain makes it hard', () => {
     assert.equal(`${lead} ${rest}`, original);
   });
 });
+
+describe('identifiers are not quantities', () => {
+  it('leaves a statute citation alone', () => {
+    // Three numbers, none of which a reader is scanning for. Bolding them
+    // puts weight on the part of the sentence carrying no decision.
+    assert.deepEqual(marked('Karnataka Stamp Act 1957, Article 20, s.3-B applies.'), []);
+  });
+
+  it('leaves a plan name alone', () => {
+    assert.deepEqual(marked('RMP 2015 as revised.'), []);
+    assert.deepEqual(marked('Registration Act 1908 governs this.'), []);
+  });
+
+  it('leaves a survey number alone', () => {
+    assert.deepEqual(marked('Survey No. 42 in Devanahalli.'), []);
+    assert.deepEqual(marked('Form 15 was issued.'), []);
+  });
+
+  it('still weights a year that is part of a range', () => {
+    // A lookback period is a real quantity — the difference is the dash.
+    assert.deepEqual(marked('The certificate covers 2013-2025 only.'), ['2013', '2025']);
+    assert.deepEqual(marked('It spans 2012–2024.'), ['2012', '2024']);
+  });
+
+  it('still weights a year carrying a unit', () => {
+    assert.deepEqual(marked('Built in 2018 and sold 3 years later.'), ['3 years']);
+  });
+
+  it('is still lossless when it skips', () => {
+    const text = 'Karnataka Stamp Act 1957, Article 20, and ₹41.5 L besides.';
+    assert.equal(emphasise(text).map(s => s.text).join(''), text);
+    assert.deepEqual(marked(text), ['₹41.5 L']);
+  });
+});
+
+describe('filenames are identifiers too', () => {
+  it('leaves a number inside a filename alone', () => {
+    // One identifier, not a figure. Weighting the middle of it reads as a typo.
+    assert.deepEqual(marked('EC_30Year_2025_Devanahalli.pdf covers the period.'), []);
+    assert.deepEqual(marked('See Sale_Deed_2024_Site118.pdf for the schedule.'), []);
+  });
+
+  it('still weights the figures in the same sentence', () => {
+    assert.deepEqual(
+      marked('EC_30Year_2025.pdf covers 2013-2025, leaving 2 years unsearched.'),
+      ['2013', '2025', '2 years'],
+    );
+  });
+
+  it('stays lossless around a filename', () => {
+    const text = 'Read Khata_Extract_2025.pdf and note the 220 sqm.';
+    assert.equal(emphasise(text).map(s => s.text).join(''), text);
+  });
+});
+
+describe('emphasis stops at the number', () => {
+  it('does not swallow a trailing comma', () => {
+    // The digit class `[\d,]*` ended on the separator, so "covers 2013-2025,
+    // leaving" bolded the comma and the weight ran into the next clause.
+    assert.deepEqual(marked('covers 2013-2025, leaving a gap'), ['2013', '2025']);
+    assert.deepEqual(marked('₹41,500, plus duty'), ['₹41,500']);
+  });
+
+  it('keeps the separators inside a number', () => {
+    assert.deepEqual(marked('a total of 41,500,000 rupees'), ['41,500,000']);
+  });
+});
