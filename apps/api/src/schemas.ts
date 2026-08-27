@@ -375,3 +375,37 @@ export const copilotBodySchema = z.object({
   /** What the analyst is viewing — forwarded to the model, never stored on the turn. */
   viewContext: z.string().max(300).optional(),
 });
+
+/* ------------------------------------------------------------------ */
+/* Requests (RFIs)                                                     */
+/* ------------------------------------------------------------------ */
+
+export const requestRecipientSchema = z.enum(['vendor', 'vendor_advocate', 'site_team', 'authority', 'internal']);
+export const requestStatusSchema = z.enum(['open', 'sent', 'answered', 'withdrawn']);
+
+/**
+ * Created in batches, because the way requests are actually made is "send the
+ * whole list" — one at a time would make the common act five round trips.
+ */
+export const createRequestSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        domain: z.string().min(1).max(40),
+        what: z.string().trim().min(1).max(300),
+        why: z.string().trim().min(1).max(500),
+        recipient: requestRecipientSchema,
+        dueAt: z.string().datetime().optional(),
+        originGapId: z.string().max(120).optional(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+export const updateRequestSchema = z.object({
+  status: requestStatusSchema.optional(),
+  recipient: requestRecipientSchema.optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+  answeredWithDocumentId: z.string().nullable().optional(),
+});

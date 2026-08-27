@@ -29,6 +29,9 @@ import type {
   ProjectIntent,
   ProjectKind,
   ScreenResult,
+  CaseRequest,
+  RequestRecipient,
+  RequestStatus,
   TechnicalFinding,
   TechnicalFindingDraft,
   TechnicalSystem,
@@ -223,6 +226,20 @@ export const api = {
 
   deleteTechnicalFinding: (id: string, findingId: string) =>
     request<void>(`/cases/${id}/technical-findings/${findingId}`, { method: 'DELETE' }),
+
+  createRequests: (
+    id: string,
+    items: { domain: string; what: string; why: string; recipient: RequestRecipient; dueAt?: string; originGapId?: string }[],
+  ) => request<CaseRequest[]>(`/cases/${id}/requests`, { method: 'POST', body: JSON.stringify({ items }) }),
+
+  updateRequest: (
+    id: string,
+    requestId: string,
+    body: { status?: RequestStatus; recipient?: RequestRecipient; dueAt?: string | null; answeredWithDocumentId?: string | null },
+  ) => request<CaseRequest>(`/cases/${id}/requests/${requestId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  deleteRequest: (id: string, requestId: string) =>
+    request<void>(`/cases/${id}/requests/${requestId}`, { method: 'DELETE' }),
 
   setTechnicalDocumentProvided: (id: string, itemId: string, provided: boolean) =>
     request<{ technicalDocumentsProvided: Record<string, boolean> }>(`/cases/${id}/technical-documents`, {

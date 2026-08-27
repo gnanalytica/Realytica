@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileText, Maximize2, PanelRight, RefreshCw, Waypoints } from 'lucide-react';
+import { ArrowLeft, FileText, Maximize2, PanelRight, Send, Waypoints } from 'lucide-react';
 import {
   DD_DOMAIN_KEYS,
   DD_DOMAIN_PROFILES,
@@ -8,6 +8,7 @@ import {
   domainForCheck,
   domainForRiskCategory,
   domainForSystem,
+  summariseRequests,
 } from '@realytica/shared';
 import type { DdDomain } from '@realytica/shared';
 import { api } from '../../lib/api';
@@ -17,6 +18,8 @@ import { CopilotPanel } from '../../components/CopilotPanel';
 import { Badge, Button, Callout, Skeleton, cn, useToast } from '../../components/ui/kit';
 import { DOCUMENT_KIND_LABEL, money, relativeTime, titleCase } from '../../lib/format';
 import { DossierPane } from './cockpit/DossierPane';
+import { RequestsPane } from './cockpit/RequestsPane';
+import GraphExplorerTab from './tabs/GraphExplorerTab';
 import { CommandBar } from './cockpit/CommandBar';
 import { LAYOUTS, LAYOUT_LABEL, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
 import type { CockpitLayout } from './cockpit/layout';
@@ -47,7 +50,9 @@ export default function Cockpit() {
     ? (domainParam as DdDomain)
     : 'land';
   const openDocumentId = searchParams.get('doc');
-  const paneMode = searchParams.get('pane') === 'graph' ? 'graph' : openDocumentId ? 'document' : 'dossier';
+  const paneParam = searchParams.get('pane');
+  const paneMode =
+    paneParam === 'graph' ? 'graph' : paneParam === 'requests' ? 'requests' : openDocumentId ? 'document' : 'dossier';
 
   /*
    * The layout follows the task: opening a document or the graph narrows the
@@ -55,7 +60,8 @@ export default function Cockpit() {
    * only one held in state rather than derived.
    */
   const [focusMode, setFocusMode] = useState(false);
-  const layout: CockpitLayout = focusMode ? 'focus' : paneMode === 'dossier' ? 'cockpit' : 'study';
+  const layout: CockpitLayout =
+    focusMode ? 'focus' : paneMode === 'dossier' || paneMode === 'requests' ? 'cockpit' : 'study';
 
   const [chatWidth, setChatWidth] = useState<number>(() => readChatWidth() ?? LAYOUTS.cockpit.chat ?? 520);
   const draggingRef = useRef(false);
@@ -168,6 +174,11 @@ export default function Cockpit() {
     return out;
   }, [caseData]);
 
+  const requestSummary = useMemo(
+    () => summariseRequests(caseData?.requests ?? [], new Date().toISOString()),
+    [caseData],
+  );
+
   if (loading && !caseData) {
     return (
       <div className="p-6">
@@ -278,6 +289,32 @@ export default function Cockpit() {
                 type="button"
                 onClick={() => {
                   setFocusMode(false);
+                  setParam({ pane: 'requests', doc: null });
+                }}
+                aria-current={paneMode === 'requests' ? 'true' : undefined}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
+                  paneMode === 'requests' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
+                )}
+              >
+                <Send size={13} /> Requests
+                {requestSummary.outstanding > 0 ? (
+                  <span
+                    className={cn(
+                      'tabular ml-auto rounded-full px-1.5 text-[10.5px]',
+                      requestSummary.overdue > 0 ? 'bg-critical text-white' : 'bg-surface-3 text-ink-secondary',
+                    )}
+                  >
+                    {requestSummary.overdue > 0 ? `${requestSummary.overdue} late` : requestSummary.outstanding}
+                  </span>
+                ) : null}
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  setFocusMode(false);
                   setParam({ pane: 'graph', doc: null });
                 }}
                 aria-current={paneMode === 'graph' ? 'true' : undefined}
@@ -359,8 +396,24 @@ export default function Cockpit() {
         {/* right pane */}
         {spec.rightPane ? (
           <section aria-label="Work surface" className="flex min-w-0 flex-1 flex-col bg-surface-1">
-            {paneMode === 'graph' ? (
-              <GraphPlaceholder onOpen={() => navigate(`/cases/${caseData.id}/diligence?view=graph`)} />
+            {paneMode === 'requests' ? (
+              <RequestsPane caseData={caseData} onChanged={refresh} onOpenDocument={(id) => openProof(id)} />
+            ) : paneMode === 'graph' ? (
+              /* The explorer is the same component the Diligence view uses —
+                 the cockpit gives it the Study width rather than a second
+                 implementation. It takes TabProps, so the cockpit supplies the
+                 same contract every other view gets. */
+              <div className="h-full overflow-y-auto p-4">
+                <GraphExplorerTab
+                  caseData={caseData}
+                  result={caseData.result ?? null}
+                  refresh={refresh}
+                  runScreen={async () => { await api.runScreen(caseData.id); await refresh(); }}
+                  running={false}
+                  goToTab={(key) => navigate(`/cases/${caseData.id}/${key}`)}
+                  lens={caseData.lens ?? 'developer'}
+                />
+              </div>
             ) : openDocument ? (
               <div className="flex h-full flex-col">
                 <div className="flex items-center gap-2.5 border-b border-hairline px-5 py-3">
@@ -419,6 +472,9 @@ export default function Cockpit() {
                 refData={REFERENCE_DATA}
                 onOpenProof={openProof}
                 onAddDocument={() => navigate(`/cases/${caseData.id}/documents`)}
+                onRunReview={(question) => void handleAsk(question)}
+                reviewBusy={asking}
+                reviewDisabled={canAnswer === false}
               />
             )}
           </section>
@@ -433,22 +489,6 @@ export default function Cockpit() {
         onAsk={q => setPendingQuestion(q)}
         onChanged={refresh}
       />
-    </div>
-  );
-}
-
-function GraphPlaceholder({ onOpen }: { onOpen: () => void }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-      <Waypoints size={26} className="text-ink-muted" />
-      <p className="text-[13px] font-medium text-ink">The evidence graph opens full width</p>
-      <p className="max-w-sm text-[12.5px] leading-relaxed text-ink-secondary">
-        A mind map of eight departments needs more room than this pane. It lives on the Diligence view, where it can use the
-        whole canvas.
-      </p>
-      <Button variant="primary" size="sm" icon={<RefreshCw size={13} />} onClick={onOpen}>
-        Open the graph
-      </Button>
     </div>
   );
 }

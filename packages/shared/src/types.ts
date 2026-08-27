@@ -1911,6 +1911,8 @@ export interface PropertyCase {
    * the default, matching every other completeness gap in this product.
    */
   technicalDocumentsProvided?: Record<string, boolean>;
+  /** Requests made on this case. Absent on cases that predate the tracker. */
+  requests?: CaseRequest[];
 }
 
 /** Case shape without the heavy nested payloads — used by list endpoints. */
@@ -2508,6 +2510,61 @@ export interface CopilotTurn {
   toolCalls?: { name: string; summary: string }[];
   /** Set when the agent declined to answer because the evidence does not support one. */
   refusedForLackOfEvidence?: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/* Requests (RFIs)                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Who a request is addressed to. Coarse on purpose: which AUTHORITY issues a
+ * missing record is the connector registry's knowledge, and duplicating it
+ * here would give the product two answers to the same question.
+ */
+export type RequestRecipient = 'vendor' | 'vendor_advocate' | 'site_team' | 'authority' | 'internal';
+
+/**
+ * A request's life. `answered` means something arrived and was accepted as
+ * answering it; `withdrawn` means we stopped asking. Neither is a synonym for
+ * the gap being closed — a gap closes because the evidence exists, and this
+ * status only records what we did about it.
+ */
+export type RequestStatus = 'open' | 'sent' | 'answered' | 'withdrawn';
+
+/**
+ * One thing we have asked someone for.
+ *
+ * Deliberately a stored record rather than a derivation of the gap list. A
+ * gap is a fact about the file and recomputes on every read; a request is an
+ * ACT — it was made, on a date, to a person, and it may still be outstanding
+ * after the gap that prompted it has been closed some other way. Deriving it
+ * would lose the date, the recipient and the fact that anyone was ever asked.
+ *
+ * `originGapId` links back to the gap that prompted it where there was one,
+ * so the dossier can show that a gap is already chased rather than inviting
+ * someone to chase it twice.
+ */
+export interface CaseRequest {
+  id: string;
+  caseId: string;
+  /** The department this belongs to — the same closed vocabulary as everything else. */
+  domain: string;
+  what: string;
+  /** The recorded absence that justifies asking. */
+  why: string;
+  recipient: RequestRecipient;
+  status: RequestStatus;
+  createdAt: string;
+  updatedAt: string;
+  /** Set when the request was marked sent. */
+  sentAt?: string;
+  /** ISO date the answer is expected by; a request with none is never "overdue". */
+  dueAt?: string;
+  /** Set when answered — the document that arrived against it, if one did. */
+  answeredWithDocumentId?: string;
+  answeredAt?: string;
+  /** The checklist or completeness gap that prompted this, where there was one. */
+  originGapId?: string;
 }
 
 export interface CaseIntelligence {

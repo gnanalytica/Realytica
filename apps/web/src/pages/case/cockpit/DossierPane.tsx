@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { AlarmClock, ExternalLink, FileText, FileWarning, Plug } from 'lucide-react';
-import { buildDepartmentDossier } from '@realytica/shared';
+import { AlarmClock, ExternalLink, FileText, FileWarning, Plug, Sparkles } from 'lucide-react';
+import { buildDepartmentDossier, buildDepartmentReview } from '@realytica/shared';
 import type { DdDomain, PropertyCase, ReferenceData } from '@realytica/shared';
 import { DOCUMENT_KIND_LABEL, relativeTime, severityTone, titleCase } from '../../../lib/format';
 import { Badge, Card, CardBody, CardHeader, EmptyState, Tile, cn } from '../../../components/ui/kit';
@@ -22,6 +22,9 @@ export function DossierPane({
   refData,
   onOpenProof,
   onAddDocument,
+  onRunReview,
+  reviewBusy,
+  reviewDisabled,
 }: {
   caseData: PropertyCase;
   domain: DdDomain;
@@ -29,11 +32,17 @@ export function DossierPane({
   /** Open a document at a page — the Study layout. */
   onOpenProof: (documentId: string, page?: number) => void;
   onAddDocument: () => void;
+  /** Ask the composed department review through the copilot. */
+  onRunReview: (question: string) => void;
+  reviewBusy: boolean;
+  reviewDisabled: boolean;
 }) {
   const dossier = useMemo(
     () => buildDepartmentDossier(caseData, domain, { refData: refData ?? undefined, now: new Date().toISOString() }),
     [caseData, domain, refData],
   );
+
+  const review = useMemo(() => buildDepartmentReview(caseData, domain, new Date().toISOString()), [caseData, domain]);
 
   const empty =
     dossier.facts.length === 0 &&
@@ -55,6 +64,24 @@ export function DossierPane({
           className="rounded-full border border-[var(--ring)] bg-surface px-3 py-1 text-[11.5px] text-ink-secondary hover:text-ink"
         >
           Add document
+        </button>
+        {/* The department's own specialised run. Disabled rather than hidden
+            when there is nothing filed here, so the affordance still says what
+            this department would be reviewed against. */}
+        <button
+          type="button"
+          onClick={() => onRunReview(review.question)}
+          disabled={reviewBusy || reviewDisabled || !review.runnable}
+          title={review.runnable ? `Reviews ${review.summary}` : `Nothing is filed to ${dossier.label} yet`}
+          className={cn(
+            'flex items-center gap-1.5 rounded-full px-3 py-1 text-[11.5px] font-medium',
+            reviewBusy || reviewDisabled || !review.runnable
+              ? 'cursor-not-allowed bg-surface-3 text-ink-muted'
+              : 'bg-brand text-[var(--brand-ink)]',
+          )}
+        >
+          <Sparkles size={12} />
+          {reviewBusy ? 'Reviewing…' : `Run ${dossier.label} review`}
         </button>
       </div>
 

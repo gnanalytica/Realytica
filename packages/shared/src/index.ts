@@ -21,3 +21,5 @@ export * from './dd-domains';
 export * from './dd-connectors';
 export * from './rfi';
 export * from './dd-dossier';
+export * from './requests';
+export * from './dd-review';
