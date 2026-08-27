@@ -55,6 +55,18 @@ export function toneText(tone: Tone): string {
   return TONE_TEXT[tone];
 }
 
+/**
+ * The chip surface for a tone — soft fill, matching text, inset ring.
+ *
+ * Exposed alongside `toneText` so anything that needs a tinted, tappable
+ * surface (a verdict segment, a status pill) inherits the same tokens as
+ * `Badge` rather than re-deriving them and drifting out of step with the
+ * palette.
+ */
+export function toneChip(tone: Tone): string {
+  return TONE_CHIP[tone];
+}
+
 /* ------------------------------------------------------------------ */
 /* Surfaces                                                            */
 /* ------------------------------------------------------------------ */

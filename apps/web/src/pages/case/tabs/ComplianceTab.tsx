@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import type { ChangeEvent, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
   ChevronDown,
   Filter,
   HelpCircle,
+  Landmark,
   Library,
   MapPinned,
   Receipt,
@@ -21,7 +22,6 @@ import { SiteConstraintsCard } from '../../../components/SiteConstraintsCard';
 import { StatutoryProvenance } from '../../../components/StatutoryProvenance';
 import { EvidenceLink } from '../../../components/EvidenceLink';
 import { Prose, SplitProse } from '../../../components/ui/prose';
-import { splitLead } from '@realytica/shared';
 import { PlaybookPanel } from '../../../components/PlaybookPanel';
 import { money, pct } from '../../../lib/format';
 import {
@@ -33,11 +33,11 @@ import {
   CardHeader,
   EmptyState,
   ProgressBar,
-  Select,
   Stat,
   TONE_ICON,
   Toggle,
   cn,
+  toneChip,
   type Tone,
 } from '../../../components/ui/kit';
 
@@ -408,6 +408,7 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
           {unresolved.length === 0 ? (
             <p className="text-[13px] text-ink-secondary">Every applicable Karnataka check could be resolved one way or another.</p>
           ) : (
+            <>
             <ul className="flex flex-col gap-2">
               {unresolved.map((u, i) => (
                 <li
@@ -416,20 +417,49 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
                 >
                   <div className="min-w-0">
                     <p className="text-[13px] font-medium text-ink">{u.text}</p>
-                    {u.check ? <p className="mt-0.5 text-xs leading-relaxed text-ink-secondary">{u.check.finding}</p> : null}
+                    {/*
+                      * The headline, not the finding. Five of these checks
+                      * share one word-identical sentence — "Nothing on file
+                      * says either way, and nothing in the title documents
+                      * ever will" — so printing the finding here restated the
+                      * same thing five times over. It is said once, in the
+                      * note below the list, and each row keeps only what is
+                      * true of it alone.
+                      */}
+                    {u.check ? <p className="mt-0.5 text-xs text-ink-secondary">{u.check.headline}</p> : null}
                   </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="shrink-0"
-                    icon={<ArrowRight size={13} />}
-                    onClick={() => goToTab('documents')}
-                  >
-                    Supply documents
-                  </Button>
+                  {/*
+                    * The action has to match what would actually resolve the
+                    * check. Every row used to offer "Supply documents",
+                    * including the six statutory constraints that no document
+                    * in the seller's possession can answer — a button that
+                    * sends the reader to upload a file which does not exist.
+                    * Those rows name the authority search instead.
+                    */}
+                  {u.check && (SITE_CONSTRAINT_KEYS as string[]).includes(u.check.key) ? (
+                    <Badge tone="neutral" icon={<Landmark size={11} />} className="shrink-0">
+                      Needs an authority search
+                    </Badge>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="shrink-0"
+                      icon={<ArrowRight size={13} />}
+                      onClick={() => goToTab('documents')}
+                    >
+                      Supply documents
+                    </Button>
+                  )}
                 </li>
               ))}
             </ul>
+              <p className="mt-3 text-xs leading-relaxed text-ink-muted">
+                Most of these are not gaps in the paperwork. A transmission corridor, a highway building line, a railway
+                setback, a burial ground and a quarrying lease are recorded by their own authorities and appear in no
+                deed — no document the seller can hand over will answer them.
+              </p>
+            </>
           )}
         </CardBody>
       </Card>
@@ -438,19 +468,17 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
       {compliance.checks.length > blockers.length ? (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <Filter size={13} className="shrink-0 text-ink-muted" aria-hidden="true" />
-            <div className="w-44">
-              <Select
-                aria-label="Filter by verdict"
-                value={restFilter}
-                onChange={(e: ChangeEvent<HTMLSelectElement>) => setRestFilter(e.target.value as RestFilter)}
-              >
-                <option value="all">All verdicts</option>
-                <option value="attention">Attention</option>
-                <option value="unknown">Unknown</option>
-                <option value="clear">Clear</option>
-              </Select>
-            </div>
+            {/*
+              * The distribution and the filter are the same control.
+              *
+              * A dropdown reading "All verdicts" shows nothing — the reader
+              * still has to count the rows to learn that ten of seventeen
+              * checks are clear and five were never searched. A proportional
+              * bar says that at a glance and filters on click, so one line of
+              * chrome does the work the dropdown and a summary would have
+              * needed two for.
+              */}
+            <VerdictBar counts={counts} active={restFilter} onSelect={setRestFilter} />
             <Toggle checked={hideClear} onChange={setHideClear} label="Hide clear checks" size="sm" />
             {filtersActive ? (
               <Button
@@ -530,7 +558,6 @@ function CheckTable({
         const tone = VERDICT_TONE[check.verdict];
         const Icon = TONE_ICON[tone];
         const open = openKey === check.key;
-        const { lead, rest } = splitLead(check.finding);
         return (
           <div key={check.key} className="border-b border-hairline last:border-0">
             <button
@@ -544,15 +571,16 @@ function CheckTable({
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-medium text-ink">{check.label}</span>
                 {/*
-                  * Two lines, not one. The lead is the check's claim, and a
-                  * single truncated line cut most of them mid-word — sixteen
-                  * rows of half-sentences is not a scannable index. Two lines
-                  * fits nearly every lead whole; the full finding is still one
-                  * click below either way.
+                  * One line, written as one line.
+                  *
+                  * This used to clamp the finding's first sentence to two
+                  * rows, which is a cut sentence rather than a short one. The
+                  * engine now states the answer in under eight words —
+                  * "A-khata", "Not searched", "Super built-up — rate
+                  * optimistic 25-35%" — and for most checks that is the whole
+                  * of what a reader needs.
                   */}
-                <span className="mt-0.5 block text-[12.5px] leading-snug text-ink-secondary [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
-                  {lead}
-                </span>
+                <span className="mt-0.5 block text-[12.5px] leading-snug text-ink-secondary">{check.headline}</span>
               </span>
               {/*
                 * Bounded and truncated. Some statutes cite three Acts —
@@ -575,14 +603,9 @@ function CheckTable({
             </button>
             {open && (
               <div className="border-t border-hairline bg-sunken/40 px-3.5 py-3">
-                {/*
-                  * The rest of the finding, not the finding again. The row
-                  * header already carries the lead, so re-rendering the whole
-                  * sentence here made every opened check read its first line
-                  * twice. Checks whose finding is a single sentence have no
-                  * rest, and correctly show nothing.
-                  */}
-                {rest ? <Prose size="sm">{rest}</Prose> : null}
+                {/* The full finding — the row header carries only the
+                    headline now, so nothing here repeats it. */}
+                <SplitProse text={check.finding} alwaysOpen />
                 {/* The citation in full — the row's chip truncates it, and a
                     tooltip is not where a statutory reference should live. */}
                 <p className="m-0 mt-1.5 font-mono text-[10.5px] leading-relaxed text-ink-muted">{check.statute}</p>
@@ -601,6 +624,89 @@ function CheckTable({
               </div>
             )}
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+/** Verdict order, worst first — fixed, so a segment never moves between cases. */
+const VERDICT_ORDER: ComplianceVerdict[] = ['blocker', 'attention', 'unknown', 'clear'];
+const VERDICT_LABEL: Record<ComplianceVerdict, string> = {
+  blocker: 'Blocker',
+  attention: 'Attention',
+  unknown: 'Unknown',
+  clear: 'Clear',
+};
+
+/**
+ * How the checks came out, as a bar you can click.
+ *
+ * Status colour is doing real work here — a verdict *means* good or bad — so
+ * this is one of the few places the palette's status tokens belong. It never
+ * carries the meaning alone: every segment shows its count and its word, and
+ * the selected one is marked by a ring rather than by a change of hue.
+ *
+ * Segments keep a fixed worst-first order and a minimum width, so a single
+ * blocker among sixteen clear checks is still a target you can hit rather
+ * than a two-pixel sliver.
+ */
+function VerdictBar({
+  counts,
+  active,
+  onSelect,
+}: {
+  counts: Record<ComplianceVerdict, number>;
+  active: RestFilter;
+  onSelect: (v: RestFilter) => void;
+}) {
+  const present = VERDICT_ORDER.filter((v) => counts[v] > 0);
+  const total = present.reduce((sum, v) => sum + counts[v], 0);
+  if (total === 0) return null;
+
+  return (
+    <div className="flex min-w-[280px] flex-1 flex-wrap gap-0.5" role="group" aria-label="Filter by verdict">
+      {present.map((v) => {
+        const Icon = TONE_ICON[VERDICT_TONE[v]];
+        const share = counts[v] / total;
+        const body = (
+          <>
+            <Icon size={12} className="shrink-0" aria-hidden="true" />
+            <span className="font-mono text-[13px] tabular-nums">{counts[v]}</span>
+            <span className="whitespace-nowrap">{VERDICT_LABEL[v]}</span>
+          </>
+        );
+        const shape = cn(
+          'flex min-w-[124px] basis-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors',
+          toneChip(VERDICT_TONE[v]),
+        );
+        const grow = { flexGrow: Math.max(share, 0.12) };
+
+        // Blockers are not a filter. They render in their own group above and
+        // are deliberately exempt from every filter on this view — offering a
+        // control that appears to hide them would be the one filter this
+        // screen must not have.
+        if (v === 'blocker') {
+          return (
+            <span key={v} style={grow} className={shape} title="Blockers always show in their own group above">
+              {body}
+            </span>
+          );
+        }
+        const on = active === v;
+        return (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onSelect(on ? 'all' : v)}
+            aria-pressed={on}
+            title={`${counts[v]} ${VERDICT_LABEL[v].toLowerCase()} — click to ${on ? 'clear the filter' : 'show only these'}`}
+            style={grow}
+            className={cn(shape, on ? 'ring-2 ring-[var(--focus)]' : 'hover:brightness-[0.97]')}
+          >
+            {body}
+          </button>
         );
       })}
     </div>

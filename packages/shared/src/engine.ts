@@ -2703,6 +2703,7 @@ export function buildStateCompliance(
     key: string,
     label: string,
     verdict: ComplianceVerdict,
+    headline: string,
     finding: string,
     consequence: string,
     nextStep: string,
@@ -2710,7 +2711,7 @@ export function buildStateCompliance(
     evidenceIds: string[],
     relatedRiskIds: string[],
   ): void => {
-    checks.push({ key, label, verdict, finding, consequence, nextStep, statute, evidenceIds, relatedRiskIds });
+    checks.push({ key, label, verdict, headline, finding, consequence, nextStep, statute, evidenceIds, relatedRiskIds });
     if (verdict === 'unknown') unresolved.push(label);
   };
 
@@ -2730,6 +2731,7 @@ export function buildStateCompliance(
       );
     }
     let verdict: ComplianceVerdict;
+    let headline: string;
     let finding: string;
     let consequence: string;
     let nextStep: string;
@@ -2737,11 +2739,13 @@ export function buildStateCompliance(
 
     if (khataType === 'a_khata') {
       verdict = 'clear';
+      headline = 'A-khata';
       finding = 'Property is recorded on an A-khata — the fully compliant BBMP property register entry.';
       consequence = 'A-khata supports normal bank lending, building-plan sanction and resale without restriction.';
       nextStep = 'Confirm the khata extract matches the current owner and survey number before proceeding.';
     } else if (khataType === 'b_khata') {
       verdict = 'blocker';
+      headline = 'B-khata — no bank finance, no plan sanction';
       finding = 'Property is recorded on a B-khata — an irregular/provisional BBMP entry, not the fully compliant register.';
       consequence =
         'B-khata properties are routinely refused home-loan financing by scheduled banks, cannot get a building plan sanctioned, and sell at a real cash-buyer-only discount to A-khata stock — this is usually the single most consequential finding in a Bengaluru title screen.';
@@ -2753,6 +2757,7 @@ export function buildStateCompliance(
       relatedRiskIds = [riskId];
     } else if (khataType === 'gram_panchayat_form_9_11') {
       verdict = 'attention';
+      headline = 'Form 9/11 — outside BBMP limits';
       finding = 'Property is recorded under Gram Panchayat Form 9/11 rather than a BBMP khata — it sits outside Bengaluru municipal limits.';
       consequence = 'Form 9/11 properties face tighter limits on construction and are viewed cautiously by bank lenders relative to BBMP A-khata stock.';
       nextStep = 'Confirm current jurisdiction (BBMP/BDA limits sometimes expand over such land) and check the panchayat register for conversion or annexation notices.';
@@ -2762,6 +2767,7 @@ export function buildStateCompliance(
       relatedRiskIds = [riskId];
     } else if (khataType === 'none') {
       verdict = 'attention';
+      headline = 'No khata on record';
       finding = 'No khata has been recorded for this property.';
       consequence = "Without any khata, property tax cannot be paid in the owner's name and registration/resale is materially harder.";
       nextStep = 'Apply for khata registration with BBMP/BDA before proceeding.';
@@ -2771,17 +2777,19 @@ export function buildStateCompliance(
       relatedRiskIds = [riskId];
     } else {
       verdict = 'unknown';
+      headline = 'Not confirmed';
       finding = 'Khata classification (A-khata / B-khata / Form 9-11) has not been confirmed for this property.';
       consequence =
         'Khata status directly gates lending, plan sanction and resale, so the screen cannot rule out a B-khata restriction until this is confirmed.';
       nextStep = 'Obtain the khata extract (or Form 9/11 for gram-panchayat land) and record the classification.';
     }
-    pushCheck('khata_classification', 'Khata classification', verdict, finding, consequence, nextStep, statuteFor('khata_classification', 'Karnataka Municipal Corporations Act, 1976 — BBMP khata register'), evIds, relatedRiskIds);
+    pushCheck('khata_classification', 'Khata classification', verdict, headline, finding, consequence, nextStep, statuteFor('khata_classification', 'Karnataka Municipal Corporations Act, 1976 — BBMP khata register'), evIds, relatedRiskIds);
   }
 
   // 2. e-Khata issuance.
   {
     let verdict: ComplianceVerdict;
+    let headline: string;
     let finding: string;
     let consequence: string;
     let nextStep: string;
@@ -2790,22 +2798,26 @@ export function buildStateCompliance(
 
     if (!ka) {
       verdict = 'unknown';
+      headline = 'Not recorded';
       finding = 'e-Khata issuance status has not been recorded.';
       consequence = 'Registration at the Sub-Registrar can stall without a matching e-khata on the Kaveri portal.';
       nextStep = "Check the property's e-khata status on the BBMP portal and record it.";
     } else if (ka.jurisdiction !== 'BBMP') {
       verdict = 'clear';
+      headline = `Not applicable under ${ka.jurisdiction}`;
       finding = `e-Khata is a BBMP-specific digitised record; this property falls under ${ka.jurisdiction} jurisdiction.`;
       consequence = 'No e-khata-specific restriction applies outside BBMP limits.';
       nextStep = 'Confirm the equivalent property-register instrument for this jurisdiction is on file.';
     } else if (ka.eKhataIssued) {
       verdict = 'clear';
+      headline = 'Issued';
       finding = 'e-Khata has been issued for this property on the BBMP portal.';
       consequence = 'Registration at the Sub-Registrar should not be blocked on this ground.';
       nextStep = 'Keep the e-khata printout current at the time of registration.';
       evIds.push(evidence.add({ statement: 'e-Khata recorded as issued.', sourceType: 'user_input', sourceRef: 'identity.karnataka.eKhataIssued', sourceLabel: 'Case identity — e-Khata status', confidence: 0.85 }));
     } else {
       verdict = 'attention';
+      headline = 'Not issued — registration can stall';
       finding = 'e-Khata has not yet been issued for this BBMP property.';
       consequence = "Absence of an e-khata is a common, avoidable cause of registration being stalled or refused at the Sub-Registrar's office.";
       nextStep = 'Apply for e-khata migration on the BBMP portal before scheduling registration.';
@@ -2814,7 +2826,7 @@ export function buildStateCompliance(
       const riskId = addRisk('karnataka_no_ekhata', 'e-Khata not issued', 'warning', 'title', finding, consequence, nextStep, evIds);
       relatedRiskIds = [riskId];
     }
-    pushCheck('e_khata_issuance', 'e-Khata issuance', verdict, finding, consequence, nextStep, statuteFor('e_khata_issuance', 'BBMP e-Khata initiative, administered under the Karnataka Municipal Corporations Act 1976'), evIds, relatedRiskIds);
+    pushCheck('e_khata_issuance', 'e-Khata issuance', verdict, headline, finding, consequence, nextStep, statuteFor('e_khata_issuance', 'BBMP e-Khata initiative, administered under the Karnataka Municipal Corporations Act 1976'), evIds, relatedRiskIds);
   }
 
   // 3. DC conversion status.
@@ -2823,6 +2835,7 @@ export function buildStateCompliance(
     const convDoc = findDoc('conversion_certificate');
     const isNonAgUse = identity.propertyType !== 'land_parcel';
     let verdict: ComplianceVerdict;
+    let headline: string;
     let finding: string;
     let consequence: string;
     let nextStep: string;
@@ -2831,12 +2844,14 @@ export function buildStateCompliance(
 
     if (!status || status === 'unknown') {
       verdict = 'unknown';
+      headline = 'Not confirmed';
       finding = 'DC (Deputy Commissioner) land-conversion status has not been confirmed.';
       consequence =
         'If the land is still agricultural, non-agricultural use or construction on it is unauthorised under s.95 of the Karnataka Land Revenue Act, 1964, putting financing and plan sanction at risk.';
       nextStep = 'Obtain the DC conversion order (or confirm the land was never agricultural) before proceeding.';
     } else if (status === 'agricultural' && isNonAgUse) {
       verdict = 'blocker';
+      headline = 'Still agricultural — construction unauthorised';
       finding = `Land is recorded as still agricultural, but the property is being screened as a ${identity.propertyType.replace(/_/g, ' ')} — a non-agricultural use.`;
       consequence =
         'Non-agricultural use or construction on unconverted agricultural land is unauthorised under s.95 of the Karnataka Land Revenue Act, 1964, exposing the buyer to penalty, resumption, or an inability to register or mortgage the property.';
@@ -2848,12 +2863,14 @@ export function buildStateCompliance(
     } else if (status === 'converted') {
       if (convDoc) {
         verdict = 'clear';
+        headline = 'Converted, certificate on file';
         finding = 'Land has been converted for non-agricultural use and the DC conversion certificate is on file.';
         consequence = 'Supports lawful non-agricultural use, financing and plan sanction.';
         nextStep = 'Cross-check the conversion order number and extent against the survey number on the title deed.';
         evIds.push(evidence.add({ statement: `DC conversion certificate on file (${convDoc.fileName}).`, sourceType: 'document', sourceRef: convDoc.id, sourceLabel: convDoc.fileName, confidence: convDoc.classificationConfidence }));
       } else {
         verdict = 'attention';
+        headline = 'Converted, certificate not on file';
         finding = 'Land is recorded as converted for non-agricultural use, but the DC conversion certificate itself is not on file.';
         consequence = 'Without the certificate, the conversion cannot be independently verified — lenders and the Sub-Registrar will typically ask for it.';
         nextStep = 'Obtain a copy of the DC conversion order/certificate for the file.';
@@ -2864,17 +2881,19 @@ export function buildStateCompliance(
       }
     } else {
       verdict = 'clear';
+      headline = 'Not applicable';
       finding = 'DC conversion is not applicable to this property.';
       consequence = 'No conversion-related restriction applies.';
       nextStep = 'No action needed on this point.';
     }
-    pushCheck('dc_conversion', 'DC land-conversion status', verdict, finding, consequence, nextStep, statuteFor('dc_conversion', 'Karnataka Land Revenue Act 1964, s.95'), evIds, relatedRiskIds);
+    pushCheck('dc_conversion', 'DC land-conversion status', verdict, headline, finding, consequence, nextStep, statuteFor('dc_conversion', 'Karnataka Land Revenue Act 1964, s.95'), evIds, relatedRiskIds);
   }
 
   // 4. PTCL Act, 1978 granted land.
   {
     const flagged = ka?.grantedLandPtcl;
     let verdict: ComplianceVerdict;
+    let headline: string;
     let finding: string;
     let consequence: string;
     let nextStep: string;
@@ -2883,6 +2902,7 @@ export function buildStateCompliance(
 
     if (flagged === true) {
       verdict = 'blocker';
+      headline = 'Granted land — transfer restricted';
       finding = 'Property is flagged as granted land under the Karnataka Scheduled Castes and Scheduled Tribes (Prohibition of Transfer of Certain Lands) Act, 1978 (PTCL Act).';
       consequence =
         'PTCL-granted land carries statutory restrictions — in many cases an outright prohibition — on transfer without government permission; a sale in breach of the Act can be set aside years later, even against a bona fide purchaser.';
@@ -2893,21 +2913,24 @@ export function buildStateCompliance(
       relatedRiskIds = [riskId];
     } else if (flagged === false) {
       verdict = 'clear';
+      headline = 'Not granted land';
       finding = 'Property is not flagged as PTCL Act granted land.';
       consequence = 'No PTCL transfer restriction applies on the information provided.';
       nextStep = "If the seller's title traces back to a government grant, independently confirm the PTCL position with the Revenue Department regardless.";
     } else {
       verdict = 'unknown';
+      headline = 'Not checked';
       finding = 'Whether the land was originally granted under the PTCL Act, 1978 has not been checked.';
       consequence = 'Undisclosed PTCL-granted status can void a sale years after completion.';
       nextStep = "Trace the title chain back to the original grant (if any) and check the Revenue Department's PTCL register.";
     }
-    pushCheck('ptcl_restriction', 'PTCL Act 1978 granted-land status', verdict, finding, consequence, nextStep, statuteFor('ptcl_restriction', 'Karnataka Scheduled Castes and Scheduled Tribes (Prohibition of Transfer of Certain Lands) Act, 1978'), evIds, relatedRiskIds);
+    pushCheck('ptcl_restriction', 'PTCL Act 1978 granted-land status', verdict, headline, finding, consequence, nextStep, statuteFor('ptcl_restriction', 'Karnataka Scheduled Castes and Scheduled Tribes (Prohibition of Transfer of Certain Lands) Act, 1978'), evIds, relatedRiskIds);
   }
 
   // 5. Rajakaluve / lake buffer.
   {
     let verdict: ComplianceVerdict;
+    let headline: string;
     let finding: string;
     let consequence: string;
     let nextStep: string;
@@ -2916,11 +2939,13 @@ export function buildStateCompliance(
 
     if (!ka) {
       verdict = 'unknown';
+      headline = 'Not checked';
       finding = 'Proximity to a storm-water drain (rajakaluve) or lake boundary has not been checked.';
       consequence = 'Construction within a drain/lake buffer is subject to demolition orders under NGT directions even where the property otherwise has clean title.';
       nextStep = 'Check the BBMP/BDA drain and lake maps for this survey number.';
     } else if (!ka.nearRajakaluve && !ka.nearLake) {
       verdict = 'clear';
+      headline = 'No drain or lake flagged';
       finding = 'No storm-water drain (rajakaluve) or lake-buffer proximity has been flagged for this property.';
       consequence = 'No buffer-zone construction restriction is indicated by the information on file.';
       nextStep = 'If a site inspection shows proximity to a drain or lake not captured here, re-run this check with that flag set.';
@@ -2941,6 +2966,7 @@ export function buildStateCompliance(
         .filter((s): s is string => Boolean(s))
         .join(' / ');
       verdict = 'attention';
+      headline = `Near ${ka.nearRajakaluve && ka.nearLake ? 'a drain and a lake' : ka.nearRajakaluve ? 'a drain' : 'a lake'} — setback unmeasured`;
       finding = `Property is recorded as being near ${featureLabel}.`;
       consequence =
         `Karnataka's buffer rules (${statePack.buffers.source}, as of ${statePack.buffers.asOf})${ruleText ? ` set a no-construction setback of ${ruleText}` : ' restrict construction near drains and lakes'}, but the distance that actually applies depends on how this specific drain is classified in the current BBMP/BDA drain-classification map, and these distances have been repeatedly revised by NGT orders — it cannot be assumed from a proximity flag alone.`;
@@ -2950,7 +2976,7 @@ export function buildStateCompliance(
       const riskId = addRisk('karnataka_buffer_proximity', 'Rajakaluve / lake buffer proximity', 'serious', 'environmental', finding, consequence, nextStep, evIds);
       relatedRiskIds = [riskId];
     }
-    pushCheck('rajakaluve_lake_buffer', 'Rajakaluve / lake buffer', verdict, finding, consequence, nextStep, statuteFor('rajakaluve_lake_buffer', 'Karnataka Town and Country Planning Act 1961; NGT orders on Bengaluru lake and drain buffers'), evIds, relatedRiskIds);
+    pushCheck('rajakaluve_lake_buffer', 'Rajakaluve / lake buffer', verdict, headline, finding, consequence, nextStep, statuteFor('rajakaluve_lake_buffer', 'Karnataka Town and Country Planning Act 1961; NGT orders on Bengaluru lake and drain buffers'), evIds, relatedRiskIds);
   }
 
   // 6. Occupancy certificate — very commonly absent in Bengaluru. Not
@@ -2959,6 +2985,7 @@ export function buildStateCompliance(
     const ocDoc = findDoc('occupancy_certificate');
     const isLandType = identity.propertyType === 'residential_plot' || identity.propertyType === 'land_parcel';
     let verdict: ComplianceVerdict;
+    let headline: string;
     let finding: string;
     let consequence: string;
     let nextStep: string;
@@ -2967,17 +2994,20 @@ export function buildStateCompliance(
 
     if (isLandType) {
       verdict = 'clear';
+      headline = 'Not applicable — bare plot';
       finding = 'Occupancy certificate is not applicable — this is a bare plot with no structure to have been occupied.';
       consequence = 'No occupancy-certificate-related restriction applies until a building is actually constructed on the site.';
       nextStep = 'Revisit this check once construction begins and an occupancy certificate becomes relevant.';
     } else if (ocDoc) {
       verdict = 'clear';
+      headline = 'On file';
       finding = 'Occupancy certificate is on file.';
       consequence = 'Supports lawful occupation, insurability and normal resale/financing.';
       nextStep = 'Confirm the OC covers the specific unit/floor being screened, not just the overall project.';
       evIds.push(evidence.add({ statement: `Occupancy certificate on file (${ocDoc.fileName}).`, sourceType: 'document', sourceRef: ocDoc.id, sourceLabel: ocDoc.fileName, confidence: ocDoc.classificationConfidence }));
     } else {
       verdict = 'attention';
+      headline = 'Not on file';
       finding = 'No occupancy certificate is on file — very commonly absent for Bengaluru stock, but still a gap.';
       consequence = 'Without an OC, compliance with the sanctioned plan cannot be confirmed, which can affect insurability, resale and further financing.';
       nextStep = "Request the occupancy certificate from the builder/seller, or check BBMP's OC-status portal for the project.";
@@ -2986,13 +3016,14 @@ export function buildStateCompliance(
       const riskId = addRisk('karnataka_no_occupancy_certificate', 'Occupancy certificate not on file', 'warning', 'title', finding, consequence, nextStep, evIds);
       relatedRiskIds = [riskId];
     }
-    pushCheck('occupancy_certificate_compliance', 'Occupancy certificate', verdict, finding, consequence, nextStep, statuteFor('occupancy_certificate_compliance', 'Karnataka Municipal Corporations Act 1976, s.310'), evIds, relatedRiskIds);
+    pushCheck('occupancy_certificate_compliance', 'Occupancy certificate', verdict, headline, finding, consequence, nextStep, statuteFor('occupancy_certificate_compliance', 'Karnataka Municipal Corporations Act 1976, s.310'), evIds, relatedRiskIds);
   }
 
   // 7. Encumbrance continuity — reuses the existing country-level risk (if any) rather than duplicating it.
   {
     const ecDoc = findDoc('encumbrance_certificate');
     let verdict: ComplianceVerdict;
+    let headline: string;
     let finding: string;
     let consequence: string;
     let nextStep: string;
@@ -3001,12 +3032,14 @@ export function buildStateCompliance(
 
     if (ecDoc) {
       verdict = 'clear';
+      headline = '30-year EC on file';
       finding = 'A 30-year encumbrance certificate is on file, evidencing continuity of the recorded chain of title.';
       consequence = 'Supports a clean-title basis for lending and registration.';
       nextStep = 'Confirm the EC period actually spans the full 30 years and shows no unresolved entries.';
       evIds.push(evidence.add({ statement: `Encumbrance certificate on file (${ecDoc.fileName}).`, sourceType: 'document', sourceRef: ecDoc.id, sourceLabel: ecDoc.fileName, confidence: ecDoc.classificationConfidence }));
     } else {
       verdict = 'attention';
+      headline = 'No EC on file';
       finding = 'No encumbrance certificate is on file to evidence continuity of title.';
       consequence = 'Undisclosed mortgages, liens or pending litigation would not be visible without this document.';
       nextStep = 'Obtain a fresh 30-year encumbrance certificate from the Sub-Registrar (Kaveri Online Services).';
@@ -3016,13 +3049,14 @@ export function buildStateCompliance(
         evIds = [...existing.evidenceIds];
       }
     }
-    pushCheck('encumbrance_continuity', 'Encumbrance continuity (30-year EC)', verdict, finding, consequence, nextStep, statuteFor('encumbrance_continuity', 'Registration Act 1908, s.57'), evIds, relatedRiskIds);
+    pushCheck('encumbrance_continuity', 'Encumbrance continuity (30-year EC)', verdict, headline, finding, consequence, nextStep, statuteFor('encumbrance_continuity', 'Registration Act 1908, s.57'), evIds, relatedRiskIds);
   }
 
   // 8. K-RERA registration — only for projects that require it.
   {
     const reraApplicable = identity.propertyType === 'residential_apartment' || identity.propertyType === 'residential_villa';
     let verdict: ComplianceVerdict;
+    let headline: string;
     let finding: string;
     let consequence: string;
     let nextStep: string;
@@ -3031,6 +3065,7 @@ export function buildStateCompliance(
 
     if (!reraApplicable) {
       verdict = 'clear';
+      headline = 'Not applicable to this property type';
       finding = 'K-RERA registration is not applicable to this property type.';
       consequence = 'No RERA-related restriction applies.';
       nextStep = 'No action needed on this point.';
@@ -3039,6 +3074,7 @@ export function buildStateCompliance(
       const kreraNumber = ka?.kreraNumber ?? reraDoc?.extracted.find(f => f.key === 'reraNumber')?.value;
       if (kreraNumber) {
         verdict = 'clear';
+        headline = 'Registered';
         finding = `K-RERA registration number ${kreraNumber} is on record for this project.`;
         consequence = 'Supports buyer protections (receivables escrow, delivery timeline, defect liability) under the RERA Act, 2016.';
         nextStep = 'Verify the registration is still active on the K-RERA portal (rera.karnataka.gov.in).';
@@ -3053,6 +3089,7 @@ export function buildStateCompliance(
         );
       } else {
         verdict = 'attention';
+        headline = 'No registration number on record';
         finding = 'This is an apartment/villa project but no K-RERA registration number is on record.';
         consequence = 'Selling a RERA-eligible project without registration is a statutory breach and forfeits the buyer protections RERA provides.';
         nextStep = "Confirm the project's K-RERA registration number on rera.karnataka.gov.in before booking or paying any advance.";
@@ -3062,12 +3099,13 @@ export function buildStateCompliance(
         relatedRiskIds = [riskId];
       }
     }
-    pushCheck('krera_registration', 'K-RERA registration', verdict, finding, consequence, nextStep, statuteFor('krera_registration', 'Real Estate (Regulation and Development) Act 2016, as administered by K-RERA'), evIds, relatedRiskIds);
+    pushCheck('krera_registration', 'K-RERA registration', verdict, headline, finding, consequence, nextStep, statuteFor('krera_registration', 'Real Estate (Regulation and Development) Act 2016, as administered by K-RERA'), evIds, relatedRiskIds);
   }
 
   // 9. Acquisition / de-notification status (BDA/BMRDA).
   {
     let verdict: ComplianceVerdict;
+    let headline: string;
     let finding: string;
     let consequence: string;
     let nextStep: string;
@@ -3076,11 +3114,13 @@ export function buildStateCompliance(
 
     if (!ka || ka.jurisdiction === 'unknown') {
       verdict = 'unknown';
+      headline = 'Not checked';
       finding = 'Whether this parcel has ever been notified for acquisition (and, if so, de-notified) by BDA/BMRDA has not been checked.';
       consequence = 'A parcel under an unresolved acquisition notification cannot be safely developed or financed even if title otherwise looks clean.';
       nextStep = 'Search the BDA/BMRDA acquisition and de-notification registers against the survey number.';
     } else if (ka.jurisdiction === 'BDA' || ka.jurisdiction === 'BMRDA') {
       verdict = 'attention';
+      headline = `${ka.jurisdiction} land — registers not searched`;
       finding = `Property falls under ${ka.jurisdiction} jurisdiction, where historical land-acquisition notifications are common across Bengaluru's peripheral layouts.`;
       consequence = 'An unresolved or improperly de-notified acquisition can result in the land reverting to the acquiring authority regardless of the current sale deed.';
       nextStep = `Search the ${ka.jurisdiction} acquisition and de-notification registers against the survey number before proceeding.`;
@@ -3090,11 +3130,12 @@ export function buildStateCompliance(
       relatedRiskIds = [riskId];
     } else {
       verdict = 'clear';
+      headline = `Lower exposure under ${ka.jurisdiction}`;
       finding = `Property falls under ${ka.jurisdiction} jurisdiction, where BDA/BMRDA-style acquisition-notification exposure is materially lower.`;
       consequence = 'No specific acquisition-notification concern is indicated by jurisdiction alone.';
       nextStep = 'No action needed on this point beyond the standard encumbrance search.';
     }
-    pushCheck('bda_bmrda_acquisition', 'Acquisition / de-notification status', verdict, finding, consequence, nextStep, statuteFor('bda_bmrda_acquisition', 'Bangalore Development Authority Act 1976; Bangalore Metropolitan Region Development Authority Act 1985'), evIds, relatedRiskIds);
+    pushCheck('bda_bmrda_acquisition', 'Acquisition / de-notification status', verdict, headline, finding, consequence, nextStep, statuteFor('bda_bmrda_acquisition', 'Bangalore Development Authority Act 1976; Bangalore Metropolitan Region Development Authority Act 1985'), evIds, relatedRiskIds);
   }
 
   // 10. Area basis — Bengaluru pricing is routinely quoted on super built-up
@@ -3104,6 +3145,7 @@ export function buildStateCompliance(
     const basis = ka?.areaBasis;
     const isLandType = identity.propertyType === 'residential_plot' || identity.propertyType === 'land_parcel';
     let verdict: ComplianceVerdict;
+    let headline: string;
     let finding: string;
     let consequence: string;
     let nextStep: string;
@@ -3112,22 +3154,26 @@ export function buildStateCompliance(
 
     if (isLandType) {
       verdict = 'clear';
+      headline = 'Not applicable — priced on plot area';
       finding = 'Quoted-area basis (carpet / built-up / super built-up) is a built-property distinction and does not apply — this site is priced on plot area directly.';
       consequence = 'No area-basis distortion applies to a land rate quoted per sqm of plot area.';
       nextStep = 'No action needed on this point.';
     } else if (basis === 'carpet') {
       verdict = 'clear';
+      headline = 'RERA carpet area';
       finding = 'Quoted area is on a RERA carpet-area basis.';
       consequence = 'Price-per-sqm figures are directly comparable to RERA-mandated carpet-area disclosures and to other carpet-area comparables.';
       nextStep = 'No action needed on this point.';
     } else if (basis === 'built_up') {
       verdict = 'attention';
+      headline = 'Built-up — rate understated 10-15%';
       finding = 'Quoted area is on a built-up basis, not RERA carpet area.';
       consequence = 'Built-up area typically runs 10-15% above carpet area, so a price-per-sqm computed on it understates the true carpet-area rate by a similar margin.';
       nextStep = 'Ask for the carpet-area figure (or the built-up-to-carpet efficiency ratio) before comparing this price per sqm to carpet-area comparables.';
       evIds.push(evidence.add({ statement: 'Area basis recorded as built-up, not carpet.', sourceType: 'user_input', sourceRef: 'identity.karnataka.areaBasis', sourceLabel: 'Case identity — area basis', confidence: 0.85 }));
     } else {
       verdict = 'attention';
+      headline = basis === 'super_built_up' ? 'Super built-up — rate optimistic 25-35%' : 'Basis not confirmed';
       finding = basis === 'super_built_up' ? 'Quoted area is on a super built-up basis, not RERA carpet area.' : 'The basis the quoted area is measured on (carpet / built-up / super built-up) has not been confirmed.';
       consequence =
         'Bengaluru pricing is routinely quoted on super built-up area while RERA mandates carpet area — the quoted rate is typically 25-35% optimistic against a genuine carpet-area comparison, so anchors and comparables here may overstate value versus carpet-area market data.';
@@ -3143,7 +3189,7 @@ export function buildStateCompliance(
       const riskId = addRisk('karnataka_area_basis_not_carpet', 'Quoted area basis is not RERA carpet area', 'warning', 'data', finding, consequence, nextStep, evIds);
       relatedRiskIds = [riskId];
     }
-    pushCheck('area_basis', 'Quoted area basis', verdict, finding, consequence, nextStep, 'Real Estate (Regulation and Development) Act, 2016 — s.2(k) carpet-area definition', evIds, relatedRiskIds);
+    pushCheck('area_basis', 'Quoted area basis', verdict, headline, finding, consequence, nextStep, 'Real Estate (Regulation and Development) Act, 2016 — s.2(k) carpet-area definition', evIds, relatedRiskIds);
   }
 
   // 11. Layout approval status — plot-specific, and per the pack's own
@@ -3156,6 +3202,7 @@ export function buildStateCompliance(
     const isLandType = identity.propertyType === 'residential_plot' || identity.propertyType === 'land_parcel';
     const layoutApproval = identity.plot?.layoutApproval;
     let verdict: ComplianceVerdict;
+    let headline: string;
     let finding: string;
     let consequence: string;
     let nextStep: string;
@@ -3164,22 +3211,26 @@ export function buildStateCompliance(
 
     if (!isLandType) {
       verdict = 'clear';
+      headline = 'Not applicable to a built unit';
       finding = 'Layout approval status is a plot-specific check and does not apply to a built unit.';
       consequence = 'No layout-approval-specific restriction applies to a constructed unit.';
       nextStep = 'No action needed on this point.';
     } else if (!layoutApproval || layoutApproval === 'unknown') {
       verdict = 'unknown';
+      headline = 'Not confirmed';
       finding = 'The layout approval status of this site (BDA / BMRDA / panchayat / private / revenue / unapproved) has not been confirmed.';
       consequence = 'Layout approval status gates khata issuance, building-plan sanction and financing, so the screen cannot rule out a revenue or unapproved layout until this is confirmed.';
       nextStep = 'Trace the layout-approval order (or its absence) for this survey number with the relevant planning authority before relying on this screen.';
     } else if (layoutApproval === 'bda_approved' || layoutApproval === 'bmrda_approved') {
       verdict = 'clear';
+      headline = `${layoutApproval === 'bda_approved' ? 'BDA' : 'BMRDA'}-approved layout`;
       finding = `The site sits in a ${layoutApproval === 'bda_approved' ? 'BDA' : 'BMRDA'}-approved layout.`;
       consequence = 'Supports normal khata issuance, building-plan sanction and mortgage financing.';
       nextStep = 'Cross-check the layout-approval order number against the survey number on the title deed.';
       evIds.push(evidence.add({ statement: `Layout approval recorded as ${layoutApproval.replace(/_/g, ' ')}.`, sourceType: 'user_input', sourceRef: 'identity.plot.layoutApproval', sourceLabel: 'Case identity — layout approval', confidence: 0.85 }));
     } else if (layoutApproval === 'panchayat_approved' || layoutApproval === 'private_approved') {
       verdict = 'attention';
+      headline = `${layoutApproval === 'panchayat_approved' ? 'Panchayat' : 'Privately'}-approved — needs verification`;
       finding = `The site sits in a ${layoutApproval === 'panchayat_approved' ? 'gram panchayat-approved' : 'privately approved'} layout, not a BDA/BMRDA-sanctioned one.`;
       consequence = `${layoutApproval === 'panchayat_approved' ? 'Panchayat' : 'Private'} approval needs verifying on its own merits — lenders and BBMP/BDA treat it more cautiously than a BDA/BMRDA sanction.`;
       nextStep = 'Obtain and independently verify the specific approval order/certificate for this layout before relying on it for financing.';
@@ -3199,6 +3250,7 @@ export function buildStateCompliance(
     } else {
       // revenue_layout or unapproved — the serious/critical end.
       verdict = 'blocker';
+      headline = layoutApproval === 'revenue_layout' ? 'Revenue layout — khata and sanction at risk' : 'Unapproved layout';
       finding =
         layoutApproval === 'revenue_layout'
           ? 'The site sits in a revenue layout — carved out of agricultural revenue land and sold without a sanctioned layout plan.'
@@ -3220,7 +3272,7 @@ export function buildStateCompliance(
       );
       relatedRiskIds = [riskId];
     }
-    pushCheck('layout_approval_status', 'Layout approval status', verdict, finding, consequence, nextStep, statuteFor('layout_approval_status', 'Karnataka Town and Country Planning Act 1961, ss.17 & 32'), evIds, relatedRiskIds);
+    pushCheck('layout_approval_status', 'Layout approval status', verdict, headline, finding, consequence, nextStep, statuteFor('layout_approval_status', 'Karnataka Town and Country Planning Act 1961, ss.17 & 32'), evIds, relatedRiskIds);
   }
 
   /* -- Statutory site constraints ------------------------------------- */
@@ -3242,7 +3294,8 @@ export function buildStateCompliance(
       const declaration = declared.get(rule.key);
       const evIds: string[] = [];
       let verdict: ComplianceVerdict;
-      let finding: string;
+      let headline: string;
+    let finding: string;
       let consequence: string;
       let nextStep: string;
       let relatedRiskIds: string[] = [];
@@ -3263,6 +3316,7 @@ export function buildStateCompliance(
         // proximity inference.
         if (declaration?.presence === 'absent') {
           verdict = 'clear';
+          headline = 'Confirmed not to apply';
           finding = `An aerodrome height clearance has been confirmed as not applying to this site${declaration.note ? ` — ${declaration.note}` : ''}.`;
           consequence = 'The permitted building envelope is not additionally capped by aerodrome obstacle limitation surfaces.';
           nextStep = 'No action needed on this point, provided the confirmation is on file and names this survey number.';
@@ -3277,6 +3331,7 @@ export function buildStateCompliance(
           );
         } else if (km === undefined) {
           verdict = 'unknown';
+          headline = 'Not established — no location on file';
           finding =
             'Whether this parcel falls inside an aerodrome\'s notified vicinity has not been established. No location is on file for it and no aerodrome is recorded for this locality.';
           consequence =
@@ -3290,6 +3345,7 @@ export function buildStateCompliance(
               : `approximately ${km} km from ${name} at locality level — this property's own distance has not been measured`;
           if (inside || declaration?.presence === 'present') {
             verdict = 'attention';
+            headline = `${km.toFixed(1)} km from ${name} — inside the vicinity`;
             finding =
               `This property sits ${basis}, inside the vicinity where the Aircraft (Demolition of Obstructions) Rules apply. ` +
               `${localityAerodrome?.note ?? ''} The height that may actually be built here is set by the aerodrome's obstacle ` +
@@ -3334,6 +3390,7 @@ export function buildStateCompliance(
             }
           } else {
             verdict = 'clear';
+            headline = `${km.toFixed(1)} km from ${name} — outside the vicinity`;
             finding = `This property sits ${basis}, outside the ${AERODROME_VICINITY_KM} km vicinity at which aerodrome height restrictions ordinarily bite.`;
             consequence =
               'No aerodrome height cap is indicated by distance. This is a negative from a distance figure, not from an authority — a tall proposal should still be confirmed, because the surfaces extend further along the approach path than they do to the sides.';
@@ -3356,11 +3413,13 @@ export function buildStateCompliance(
         /* -- The five that need a human ------------------------------ */
 
         verdict = 'unknown';
+        headline = 'Not searched';
         finding = `MISSING: any record of whether ${rule.label.toLowerCase()} affects this parcel. Nothing on file says either way, and nothing in the title documents ever will.`;
         consequence = rule.restriction;
         nextStep = rule.obtain;
       } else if (declaration.presence === 'absent') {
         verdict = 'clear';
+        headline = 'Recorded as not affecting';
         finding = `${rule.label} is recorded as not affecting this parcel${declaration.note ? ` — ${declaration.note}` : ''}.`;
         consequence = 'This restriction does not bear on what may be built or on the value of the site.';
         nextStep = `This is a negative recorded on the case rather than a search result. If it came from anything less than ${rule.authority.toLowerCase()}, treat it as provisional.`;
@@ -3375,6 +3434,7 @@ export function buildStateCompliance(
         );
       } else {
         verdict = 'attention';
+        headline = 'Affects this parcel';
         finding = `${rule.label} affects this parcel${declaration.note ? ` — ${declaration.note}` : ''}. ${rule.restriction}`;
         consequence = `${rule.authority} decides what actually applies here, and the figure is computed from facts about this specific site rather than read off a table.`;
         nextStep = rule.obtain;
@@ -3400,7 +3460,7 @@ export function buildStateCompliance(
         ];
       }
 
-      pushCheck(rule.key, rule.label, verdict, finding, consequence, nextStep, rule.statute, evIds, relatedRiskIds);
+      pushCheck(rule.key, rule.label, verdict, headline, finding, consequence, nextStep, rule.statute, evIds, relatedRiskIds);
     }
   }
 

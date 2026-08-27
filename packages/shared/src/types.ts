@@ -1008,6 +1008,17 @@ export interface ComplianceCheck {
   key: string;
   label: string;
   verdict: ComplianceVerdict;
+  /**
+   * The answer, in one line — under about eight words.
+   *
+   * This is what the reader sees by default, and for most checks it is all
+   * they ever need: "A-khata", "Not searched", "Super built-up — rate
+   * optimistic 25-35%". `finding` remains the full sentence behind a click.
+   * Kept as its own field rather than derived by truncating `finding`,
+   * because a cut sentence is not a short one — it is a sentence with its end
+   * missing, which is what made this product read like somebody's notes.
+   */
+  headline: string;
   /** What the engine concluded, in plain language. */
   finding: string;
   /** Why it matters commercially or legally. */
