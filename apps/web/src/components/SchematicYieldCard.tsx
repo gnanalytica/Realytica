@@ -4,6 +4,7 @@ import { Badge, Callout, Card, CardBody, CardHeader, StatTile, Tile } from './ui
 import { StatutoryProvenance } from './StatutoryProvenance';
 import { formatArea, useAreaUnitFor } from '../lib/units';
 import type { CountryCode } from '@realytica/shared';
+import { SplitProse } from './ui/prose';
 
 /**
  * What this site can hold, at a first pass.
@@ -108,8 +109,8 @@ export function SchematicYieldCard({ yieldResult, country }: { yieldResult: Sche
             </p>
             <ul className="m-0 mt-2 flex list-none flex-col gap-2 p-0">
               {y.gaps.map((gap) => (
-                <li key={gap} className="text-[12.5px] leading-relaxed text-ink-secondary">
-                  {gap}
+                <li key={gap}>
+                  <SplitProse text={gap} />
                 </li>
               ))}
             </ul>

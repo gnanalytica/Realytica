@@ -346,3 +346,21 @@
     animation-iteration-count: infinite !important;
   }
 }
+
+
+/*
+ * A folded caveat is a screen affordance, not a document one.
+ *
+ * `StatutoryProvenance` folds its verify note because printing 500 characters
+ * on every card taught readers to skip the whole line. A printed page has no
+ * reader to skip it — and a report sent to a lender that omits "this figure
+ * is a norm, not a measurement" would be omitting the part that matters.
+ */
+@media print {
+  details.print-open > *:not(summary) {
+    display: block !important;
+  }
+  details.print-open > summary {
+    list-style: none;
+  }
+}

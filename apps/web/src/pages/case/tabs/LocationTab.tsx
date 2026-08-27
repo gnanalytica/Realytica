@@ -6,6 +6,7 @@ import { BoundaryCard } from '../../../components/BoundaryCard';
 import { api } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Skeleton } from '../../../components/ui/kit';
+import { SplitProse } from '../../../components/ui/prose';
 
 /**
  * Where the property is, and what surrounds it.
@@ -318,7 +319,7 @@ function GapList({ gaps }: { gaps: SiteContext['gaps'] }) {
           {gaps.map(gap => (
             <li key={gap.code} className="border-b border-hairline pb-3 last:border-0 last:pb-0">
               <p className="m-0 text-[13px] font-medium text-ink">{gap.attempted}</p>
-              <p className="m-0 mt-0.5 text-[13px] leading-relaxed text-ink-secondary">{gap.consequence}</p>
+              <SplitProse text={gap.consequence} className="mt-0.5" />
             </li>
           ))}
         </ul>

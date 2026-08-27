@@ -20,6 +20,8 @@ import { WaterExposureCard } from '../../../components/WaterExposureCard';
 import { SiteConstraintsCard } from '../../../components/SiteConstraintsCard';
 import { StatutoryProvenance } from '../../../components/StatutoryProvenance';
 import { EvidenceLink } from '../../../components/EvidenceLink';
+import { Prose, SplitProse } from '../../../components/ui/prose';
+import { splitLead } from '@realytica/shared';
 import { PlaybookPanel } from '../../../components/PlaybookPanel';
 import { money, pct } from '../../../lib/format';
 import {
@@ -73,11 +75,11 @@ function complianceBand(score: number, blockerCount: number): { label: string; t
 }
 
 /** Small, dense two-column block used for Consequence / Next step inside a check card. */
-function InfoBlock({ title, children }: { title: string; children: ReactNode }) {
+function InfoBlock({ title, children }: { title: string; children: string }) {
   return (
     <div className="rounded-lg bg-sunken p-3">
       <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{title}</p>
-      <p className="text-xs leading-relaxed text-ink-secondary">{children}</p>
+      <Prose size="sm">{children}</Prose>
     </div>
   );
 }
@@ -127,7 +129,16 @@ function ComplianceCheckCard({
             {check.statute}
           </span>
         </div>
-        <p className="text-[13px] leading-relaxed text-ink">{check.finding}</p>
+        {/*
+          * The finding is a claim, not a paragraph.
+          *
+          * `SplitProse` takes its first sentence as the scannable line and
+          * folds the rest. Fourteen checks used to be fourteen paragraphs;
+          * they are now fourteen claims, and a reader opens the two they care
+          * about. A blocker renders open, because scrolling past a folded
+          * blocker would be this interface's fault.
+          */}
+        <SplitProse text={check.finding} tone={alwaysOpen ? 'critical' : undefined} alwaysOpen={alwaysOpen} />
 
         {expanded ? (
           <>
@@ -303,10 +314,19 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
             * and the BBMP roll also knows what is not in them.
             */}
           {compliance.datasets && compliance.datasets.length > 0 && (
-            <div className="rounded-lg bg-sunken p-3">
-              <p className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+            /*
+              * Folded. This list earns its place — a reader who knows the
+              * checks are written against Kaveri, Bhoomi and the BBMP roll
+              * also knows what is *not* in them — but it is context, and it
+              * was sitting above every finding on the page demanding to be
+              * read first.
+              */
+            <details className="rounded-lg bg-sunken p-3 print-open group">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
                 <Library size={12} /> Registries these checks are written against
-              </p>
+                <span className="font-normal normal-case tracking-normal text-ink-faint">({compliance.datasets.length})</span>
+                <ChevronDown size={11} className="ml-auto transition-transform duration-base group-open:rotate-180" />
+              </summary>
               <ul className="m-0 mt-1.5 grid list-none gap-x-4 gap-y-1 p-0 sm:grid-cols-2">
                 {compliance.datasets.map((dataset) => (
                   <li key={dataset} className="text-[12px] leading-snug text-ink-secondary">
@@ -319,7 +339,7 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
                 check reported as clear is clear on what you supplied — it is not the result of a search of these
                 registries.
               </p>
-            </div>
+            </details>
           )}
         </CardBody>
       </Card>
@@ -453,21 +473,106 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
               description="Try widening the verdict filter or turning off “hide clear checks”."
             />
           ) : (
-            <div className="flex flex-col gap-3">
-              {rest.map((check) => (
-                <ComplianceCheckCard
-                  key={check.key}
-                  check={check}
-                  evidence={result.evidence}
-                  onOpenEvidence={openEvidence}
-                  onJumpToRisks={() => goToTab('risks')}
-                />
-              ))}
-            </div>
+            /*
+              * A table, not fourteen cards.
+              *
+              * Fourteen checks rendered as fourteen cards was three quarters
+              * of this view's word count and the thing that made it read like
+              * somebody's notes: every check demanded a paragraph of
+              * attention whether or not it had anything wrong with it. Ten of
+              * them are clear.
+              *
+              * A row per check — verdict, name, statute, one line — scans in
+              * seconds, and the one you care about opens in place with the
+              * consequence, the next step and the evidence trail intact.
+              * Nothing was removed; the reading order was.
+              */
+            <CheckTable
+              checks={rest}
+              evidence={result.evidence}
+              onOpenEvidence={openEvidence}
+              onJumpToRisks={() => goToTab('risks')}
+            />
           )}
         </>
       ) : null}
 
+    </div>
+  );
+}
+
+/**
+ * The check list as a scannable table.
+ *
+ * One row per check, sorted worst-first by the caller. The finding's first
+ * sentence is the row's own text — enough to know whether this is the check
+ * you came for — and the row expands in place to the full card rather than
+ * navigating anywhere.
+ *
+ * Verdict is a chip *and* a word, never colour alone.
+ */
+function CheckTable({
+  checks,
+  evidence,
+  onOpenEvidence,
+  onJumpToRisks,
+}: {
+  checks: ComplianceCheck[];
+  evidence: EvidenceItem[];
+  onOpenEvidence: (ids: string[]) => void;
+  onJumpToRisks: () => void;
+}) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+
+  return (
+    <div className="overflow-hidden rounded-xl ring-1 ring-[var(--ring)]">
+      {checks.map((check) => {
+        const tone = VERDICT_TONE[check.verdict];
+        const Icon = TONE_ICON[tone];
+        const open = openKey === check.key;
+        const { lead } = splitLead(check.finding);
+        return (
+          <div key={check.key} className="border-b border-hairline last:border-0">
+            <button
+              type="button"
+              onClick={() => setOpenKey(open ? null : check.key)}
+              className="flex w-full items-start gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-sunken/60"
+            >
+              <Badge tone={tone} icon={<Icon size={11} />} className="mt-px shrink-0">
+                {VERDICT_TEXT[check.verdict]}
+              </Badge>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-medium text-ink">{check.label}</span>
+                <span className="mt-0.5 block truncate text-[12.5px] text-ink-secondary">{lead}</span>
+              </span>
+              <span className="hidden shrink-0 rounded bg-sunken px-1.5 py-0.5 font-mono text-[10.5px] text-ink-secondary sm:inline">
+                {check.statute}
+              </span>
+              <ChevronDown
+                size={14}
+                className={cn('mt-1 shrink-0 text-ink-faint transition-transform duration-base', open && 'rotate-180')}
+              />
+            </button>
+            {open && (
+              <div className="border-t border-hairline bg-sunken/40 px-3.5 py-3">
+                <SplitProse text={check.finding} alwaysOpen />
+                <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
+                  <InfoBlock title="Consequence">{check.consequence}</InfoBlock>
+                  <InfoBlock title="Next step">{check.nextStep}</InfoBlock>
+                </div>
+                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-hairline pt-2.5">
+                  <EvidenceLink ids={check.evidenceIds} evidence={evidence} onOpen={onOpenEvidence} />
+                  {check.relatedRiskIds.length > 0 ? (
+                    <Button variant="ghost" size="sm" icon={<ArrowRight size={13} />} onClick={onJumpToRisks}>
+                      {check.relatedRiskIds.length} related risk{check.relatedRiskIds.length === 1 ? '' : 's'}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

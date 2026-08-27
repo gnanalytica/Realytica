@@ -23,6 +23,7 @@ import { date, money, num, perSqm, pct, titleCase } from '../../../lib/format';
 import { formatArea, formatRate, useAreaUnitFor } from '../../../lib/units';
 import type { AreaUnit } from '../../../lib/units';
 import type { TabProps } from '../tab-props';
+import { SplitProse } from '../../../components/ui/prose';
 
 type SortKey = 'adjustedPricePerSqm' | 'distanceKm' | 'transactedAt' | 'areaSqm' | 'similarity';
 
@@ -215,7 +216,9 @@ export default function ValuationTab({ caseData, result, refresh, running }: Tab
                     <ProgressBar value={weightPct(a.weight)} tone="brand" label="Weight in blend" />
                     <ProgressBar value={a.confidence * 100} tone={confidenceTone(a.confidence)} label="Confidence" />
                   </div>
-                  <p className="text-[13px] leading-relaxed text-ink-secondary">{a.rationale}</p>
+                  {/* The 969-character residual rationale was the longest single
+                      block in the product. First sentence scans; the working folds. */}
+                  <SplitProse text={a.rationale} />
                   {a.roleNote && (
                     <p className="border-l-2 border-[var(--ring)] pl-3 text-[12.5px] leading-relaxed text-ink-muted">
                       <span className="font-medium text-ink-secondary">Why it {a.role === 'primary' ? 'leads' : a.role === 'sense_check' ? 'is only a check' : 'supports'} here:</span>{' '}

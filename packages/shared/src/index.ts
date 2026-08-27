@@ -3,6 +3,7 @@ export * from './constants';
 export * from './reference';
 export * from './site';
 export * from './geometry';
+export * from './emphasis';
 export * from './assessment';
 export * from './disclosure';
 export * from './discovery';

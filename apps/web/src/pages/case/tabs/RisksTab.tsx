@@ -25,6 +25,7 @@ import { EvidenceLink } from '../../../components/EvidenceLink';
 import { RiskProfileChart } from '../../../components/charts';
 import { LensQuestion } from '../../../components/LensBar';
 import { partitionByLens } from '@realytica/shared';
+import { Prose, SplitProse } from '../../../components/ui/prose';
 
 const SEVERITIES: RiskSeverity[] = ['critical', 'serious', 'warning', 'info'];
 const CATEGORIES: RiskCategory[] = [
@@ -399,15 +400,15 @@ function RiskCard({
       </button>
       {expanded ? (
         <div className="border-t border-hairline px-4 py-3">
-          <p className="text-[13px] leading-relaxed text-ink-secondary">{risk.description}</p>
+          <SplitProse text={risk.description} alwaysOpen={risk.severity === 'critical'} />
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg bg-sunken p-3">
               <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Impact</p>
-              <p className="text-xs leading-relaxed text-ink-secondary">{risk.impact}</p>
+              <Prose size="sm">{risk.impact}</Prose>
             </div>
             <div className="rounded-lg bg-sunken p-3">
               <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Mitigation</p>
-              <p className="text-xs leading-relaxed text-ink-secondary">{risk.mitigation}</p>
+              <Prose size="sm">{risk.mitigation}</Prose>
             </div>
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">

@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Lock, MinusCircle, TriangleAlert } from 'lucide-react';
 import type { ComplianceVerdict, PlaybookRun, PlaybookStepResult, PlaybookStepState } from '@realytica/shared';
 import { DOCUMENT_KIND_LABEL } from '../lib/format';
+import { splitLead } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader, ProgressBar, cn, type Tone } from './ui/kit';
 import { PlaybookTrack } from './charts';
+import { Prose } from './ui/prose';
 
 /**
  * A diligence procedure, shown as the practitioner walks it.
@@ -61,7 +63,13 @@ function StepRow({
   const [open, setOpen] = useState(isNext);
   const Icon = STATE_ICON[step.state];
   const tone = STATE_TONE[step.state];
-  const hasDetail = step.needs.length > 0 || Boolean(step.citation) || (step.blockedBy?.length ?? 0) > 0;
+  // The rest of the finding counts as detail now, or a step whose only extra
+  // content is the tail of its own sentence would have no way to open.
+  const hasDetail =
+    step.needs.length > 0 ||
+    Boolean(step.citation) ||
+    (step.blockedBy?.length ?? 0) > 0 ||
+    Boolean(splitLead(step.finding).rest);
 
   return (
     <div
@@ -91,7 +99,15 @@ function StepRow({
             <Badge tone={tone}>{STATE_LABEL[step.state]}</Badge>
             {isNext && <Badge tone="brand">Next</Badge>}
           </span>
-          <span className="mt-0.5 block text-xs leading-relaxed text-ink-secondary">{step.finding}</span>
+          {/*
+            * The first sentence on the row; the rest inside.
+            *
+            * Fourteen steps rendering their whole finding was roughly half
+            * the compliance view's text — over a hundred words per step, all
+            * of it demanding to be read before you could tell which step you
+            * were looking for.
+            */}
+          <span className="mt-0.5 block text-xs leading-relaxed text-ink-secondary">{splitLead(step.finding).lead}</span>
         </span>
         {hasDetail &&
           (open ? (
@@ -103,6 +119,9 @@ function StepRow({
 
       {open && hasDetail && (
         <div className="mt-2 space-y-2 pl-[26px]">
+          {splitLead(step.finding).rest && (
+            <Prose size="sm" className="border-l-2 border-[var(--ring)] pl-2.5">{splitLead(step.finding).rest}</Prose>
+          )}
           <p className="text-[11px] italic leading-relaxed text-ink-muted">{step.question}</p>
           {step.blockedBy && step.blockedBy.length > 0 && (
             <p className="text-[11px] leading-relaxed text-ink-secondary">

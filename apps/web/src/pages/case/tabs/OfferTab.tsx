@@ -5,6 +5,7 @@ import { money } from '../../../lib/format';
 import { Badge, Callout, Card, CardBody, CardHeader, EmptyState, Stat, cn } from '../../../components/ui/kit';
 import type { Tone } from '../../../components/ui/kit';
 import { EvidenceLink } from '../../../components/EvidenceLink';
+import { Prose, SplitProse } from '../../../components/ui/prose';
 
 /**
  * What to offer, and the argument for it.
@@ -102,7 +103,7 @@ function ForcedSaleCard({ forced }: { forced: ForcedSaleValue }) {
                   <span className="text-[13px] font-medium text-ink">{component.label}</span>
                   <span className="shrink-0 text-[13px] tabular-nums text-ink-secondary">−{component.pct}%</span>
                 </div>
-                <p className="m-0 mt-0.5 text-[12px] leading-relaxed text-ink-secondary">{component.reason}</p>
+                <Prose size="sm" className="m-0 mt-0.5">{component.reason}</Prose>
               </li>
             ))}
           </ul>
@@ -209,7 +210,8 @@ export default function OfferTab({ result, runScreen, running }: TabProps) {
                       <Badge tone="neutral">Argument, no deduction</Badge>
                     )}
                   </div>
-                  <p className="m-0 mt-1 text-[13px] leading-relaxed text-ink-secondary">{argument.argument}</p>
+                  {/* An argument is a claim plus its working; only the claim needs to be read. */}
+                  <SplitProse text={argument.argument} className="mt-1" />
                   {argument.evidenceIds.length > 0 && (
                     <div className="mt-1.5">
                       <EvidenceLink ids={argument.evidenceIds} evidence={result.evidence} compact />

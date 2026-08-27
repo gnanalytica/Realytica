@@ -5,6 +5,7 @@ import type { TabProps } from '../tab-props';
 import { DOCUMENT_KIND_LABEL } from '../../../lib/format';
 import { Button, Callout, Card, CardBody, CardHeader, EmptyState, SectionTitle, cn } from '../../../components/ui/kit';
 import { CompletenessRing, ConfidenceGauge } from '../../../components/charts';
+import { SplitProse } from '../../../components/ui/prose';
 
 function shareOf(weight: number, totalWeight: number): number {
   if (totalWeight <= 0) return 0;
@@ -54,7 +55,7 @@ function ItemRow({ item, onOpenDocument }: { item: CompletenessItem; onOpenDocum
             Satisfied by: {item.satisfiedBy.map((k) => DOCUMENT_KIND_LABEL[k]).join(' or ')}
           </p>
         ) : item.note ? (
-          <p className="mt-0.5 text-xs text-ink-secondary">{item.note}</p>
+          <SplitProse text={item.note} className="mt-0.5" />
         ) : null}
       </div>
     </div>

@@ -42,6 +42,7 @@ import { useAsync } from '../../../lib/useAsync';
 import { DOCUMENT_KIND_LABEL, fileSize, relativeTime, titleCase } from '../../../lib/format';
 import type { TabProps } from '../tab-props';
 import { RecordFetchCard } from '../../../components/RecordFetchCard';
+import { SplitProse } from '../../../components/ui/prose';
 
 const KIND_ICON: Record<DocumentKind, typeof FileText> = {
   title_deed: ScrollText,
@@ -387,7 +388,7 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
                           {row.required && !row.present ? <Badge tone="critical">Missing</Badge> : null}
                           {!row.required ? <Badge tone="neutral">Optional</Badge> : null}
                         </div>
-                        {row.note ? <p className="mt-0.5 text-xs text-ink-muted">{row.note}</p> : null}
+                        {row.note ? <SplitProse text={row.note} className="mt-0.5" /> : null}
                       </div>
                     </li>
                   );

@@ -5,6 +5,7 @@ import { useAsync } from '../lib/useAsync';
 import { relativeTime } from '../lib/format';
 import { Badge, Card, CardBody, CardHeader, Skeleton } from './ui/kit';
 import type { Tone } from './ui/kit';
+import { SplitProse } from './ui/prose';
 
 /**
  * What has gone out of date on this case.
@@ -69,7 +70,7 @@ export function StalenessPanel({ caseId }: { caseId: string }) {
                 <span className="text-[13px] font-medium text-ink">{item.label}</span>
                 <Badge tone={SEVERITY_TONE[item.severity]}>{ageLabel(item)}</Badge>
               </div>
-              <p className="m-0 mt-1 text-[13px] leading-relaxed text-ink-secondary">{item.what}</p>
+              <SplitProse text={item.what} className="mt-1" />
               <p className="m-0 mt-1 flex gap-1.5 text-[12px] leading-relaxed text-ink-muted">
                 <RefreshCw size={12} className="mt-0.5 shrink-0" />
                 <span>{item.refresh}</span>

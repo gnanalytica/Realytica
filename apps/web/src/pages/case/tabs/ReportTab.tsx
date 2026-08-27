@@ -177,7 +177,8 @@ const PRINT_STYLE = `
    * with on screen; it must not decide what a lender receives — a report is
    * only a report if it is complete.
    */
-  .vly-report-print details.report-section > :not(summary) {
+  .vly-report-print details.report-section > :not(summary),
+  .vly-report-print details.print-open > :not(summary) {
     display: block !important;
   }
   .vly-report-print summary {
