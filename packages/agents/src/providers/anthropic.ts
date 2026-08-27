@@ -80,7 +80,11 @@ function toMessage(message: LlmMessage): Anthropic.Beta.BetaMessageParam {
     return { role: message.role, content: message.content };
   }
   const content: Anthropic.Beta.BetaContentBlockParam[] = message.content.map(part => {
-    if (part.type === 'text') return { type: 'text' as const, text: part.text };
+    if (part.type === 'text') {
+      return part.cacheBreakpoint
+        ? { type: 'text' as const, text: part.text, cache_control: { type: 'ephemeral' as const } }
+        : { type: 'text' as const, text: part.text };
+    }
     if (part.type === 'image') {
       return {
         type: 'image' as const,

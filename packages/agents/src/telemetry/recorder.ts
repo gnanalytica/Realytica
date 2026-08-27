@@ -99,7 +99,7 @@ function mintId(startedAtMs: number): string {
   return `llm-${startedAtMs.toString(36)}-${pid.toString(36)}-${sequence.toString(36).padStart(4, '0')}`;
 }
 
-const ZERO_TOKENS: TokenCounts = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
+const ZERO_TOKENS: TokenCounts = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
 
 /* ==================================================================== */
 /* The handle                                                           */
@@ -361,6 +361,7 @@ function normaliseTokens(tokens: TokenCounts | undefined): TokenCounts {
     inputTokens: normaliseCount(tokens.inputTokens),
     outputTokens: normaliseCount(tokens.outputTokens),
     cacheReadTokens: normaliseCount(tokens.cacheReadTokens),
+    cacheWriteTokens: normaliseCount(tokens.cacheWriteTokens),
   };
 }
 

@@ -55,6 +55,13 @@ export interface RateCard {
   output: number;
   /** Rate for cached input tokens. Defaults to a tenth of `input` when unstated. */
   cacheRead?: number;
+  /**
+   * Rate for tokens written to the cache. Defaults to `CACHE_WRITE_MULTIPLIER`
+   * times `input`, which is the published premium on every endpoint that
+   * charges for a write at all. An endpoint that writes for free states
+   * `cacheWrite: 0` rather than being assumed to.
+   */
+  cacheWrite?: number;
 }
 
 /**
@@ -146,6 +153,16 @@ const ANTHROPIC_PRICED_MODELS: ReadonlySet<string> = new Set([
  * default never applies.
  */
 export const DEFAULT_CACHE_READ_DISCOUNT = 0.1;
+
+/**
+ * What a cache WRITE costs, as a multiple of the input rate.
+ *
+ * A write is more expensive than an ordinary input token, not less — the
+ * saving is entirely in the reads that follow it. Assuming otherwise would
+ * make a route that writes a cache and never reads it look like a saving when
+ * it is a 25% surcharge.
+ */
+export const CACHE_WRITE_MULTIPLIER = 1.25;
 
 function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
@@ -337,9 +354,11 @@ function applyRate(
   source: PriceSource,
 ): PriceResolution {
   const cacheReadRate = rate.cacheRead ?? rate.input * DEFAULT_CACHE_READ_DISCOUNT;
+  const cacheWriteRate = rate.cacheWrite ?? rate.input * CACHE_WRITE_MULTIPLIER;
   const usd =
     (tokens.inputTokens / 1_000_000) * rate.input +
     (tokens.cacheReadTokens / 1_000_000) * cacheReadRate +
+    ((tokens.cacheWriteTokens ?? 0) / 1_000_000) * cacheWriteRate +
     (tokens.outputTokens / 1_000_000) * rate.output;
   return { costUsd: round4(usd), confidence, source, route, rate };
 }

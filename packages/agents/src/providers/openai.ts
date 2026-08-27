@@ -432,7 +432,15 @@ function mapRequest(req: LlmRequest, config: OpenAiCompatibleConfig): MappedRequ
   gaps.push('adaptive_thinking_unavailable', 'refusal_fallback_unavailable');
 
   const systemText = req.system.map(b => b.text).join('\n\n');
-  if (req.system.some(b => b.cacheBreakpoint)) gaps.push('prompt_caching_unavailable');
+  // A breakpoint anywhere is the same gap — the caller asked to place one and
+  // this endpoint cannot honour it. Counted once: the gap is a fact about the
+  // provider, not a tally of how many breakpoints were dropped.
+  const wantsCache =
+    req.system.some(b => b.cacheBreakpoint) ||
+    req.messages.some(
+      m => typeof m.content !== 'string' && m.content.some(p => p.type === 'text' && p.cacheBreakpoint),
+    );
+  if (wantsCache) gaps.push('prompt_caching_unavailable');
 
   const messages: Record<string, unknown>[] = [];
   if (systemText.trim().length > 0) messages.push({ role: 'system', content: systemText });

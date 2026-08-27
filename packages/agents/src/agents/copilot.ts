@@ -325,16 +325,49 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
     });
   }
 
+  /*
+   * The corpus and the question are two content parts, not one string, and the
+   * cache breakpoint sits between them.
+   *
+   * The corpus is by far the largest thing sent on a copilot turn and the
+   * question is a sentence, so putting them in one block meant the whole
+   * corpus sat behind a byte that changes every time and could never be
+   * cached. Split, the corpus is a prefix and the question is the volatile
+   * tail — which is the arrangement `renderCaseContext` was already written
+   * for (see its header) but nothing had yet taken advantage of.
+   *
+   * The guaranteed win is WITHIN a turn, not across turns. `runTools` may go
+   * up to MAX_TOOL_ITERATIONS round trips, and every one of them resends this
+   * message unchanged — so iterations 2..N read the corpus from cache at
+   * roughly a tenth of the input rate. Across turns the hit is likely but not
+   * certain: retrieval is focused on the question (`focus:` above), so a
+   * follow-up on the same subject selects the same sections and hits, while a
+   * question that turns to something else selects differently and pays a
+   * fresh write. That is the right trade — the within-turn saving alone
+   * covers the write — but it is why this is not advertised as free.
+   *
+   * Memory rides on the corpus side deliberately: it is derived from other
+   * cases and does not vary with the question, so it belongs in front of the
+   * breakpoint rather than after it.
+   */
+  const corpusPart = [
+    'Case context (fetched fresh for this turn — treat it as more current than anything said earlier in this conversation):',
+    retrieved.text,
+    ...(memoryBlock ? ['', memoryBlock] : []),
+  ].join('\n');
+
   messages.push({
     role: 'user',
     content: [
-      'Case context (fetched fresh for this turn — treat it as more current than anything said earlier in this conversation):',
-      retrieved.text,
-      ...(memoryBlock ? ['', memoryBlock] : []),
-      '',
-      `Question: ${question}`,
-      ...(viewContext ? [`(The analyst is currently looking at: ${viewContext}. "This" or "here" likely refers to it.)`] : []),
-    ].join('\n'),
+      { type: 'text', text: corpusPart, cacheBreakpoint: true },
+      {
+        type: 'text',
+        text: [
+          `Question: ${question}`,
+          ...(viewContext ? [`(The analyst is currently looking at: ${viewContext}. "This" or "here" likely refers to it.)`] : []),
+        ].join('\n'),
+      },
+    ],
   });
 
   emit({ kind: 'tool_call', label: 'Consulting the case ledger', detail: `${tools.length} read-only tool(s) available` });

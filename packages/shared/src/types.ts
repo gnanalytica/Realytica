@@ -2278,6 +2278,17 @@ export interface AgentUsage {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  /**
+   * Tokens WRITTEN to the prompt cache on this call, billed at ~1.25x input.
+   *
+   * Reported separately from `inputTokens` by the API, so a run that writes a
+   * cache and does not count this looks cheaper than it was — the write is
+   * the cost that has to be earned back by later reads, and hiding it makes
+   * caching look free rather than profitable. Optional because records
+   * written before caching was placed carry no such field, and absent is
+   * honestly different from zero.
+   */
+  cacheWriteTokens?: number;
   /** Estimated, from the model's published rates — shown so cost is never a surprise. */
   estimatedCostUsd: number;
 }
