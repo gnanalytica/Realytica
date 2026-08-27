@@ -61,7 +61,7 @@ export default function DriversTab({ result }: TabProps) {
         </CardBody>
       </Card>
 
-      <Callout tone="neutral" title="How to read this">
+      <Callout tone="neutral" title="How to read this" collapsible>
         Each impact is relative to the locality median for a comparable property. They explain direction and rough scale — they are not
         additive to one precise total.
       </Callout>

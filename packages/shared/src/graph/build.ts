@@ -528,6 +528,8 @@ export function buildTitleGraph(propertyCase: PropertyCase, now: string): TitleG
     if (spec.role === 'instrument') {
       const dateField = firstField(doc, INSTRUMENT_DATE_FIELD_KEYS);
       const at = isoDate(dateField?.value);
+      const considerationField = firstField(doc, ['considerationPaid']);
+      const consideration = considerationField ? Number(considerationField.value) : undefined;
       const identifierSource = reference ? `${doc.kind} ${reference.value}` : `${doc.kind} doc ${doc.id}`;
       const label = [spec.label, reference?.value, at ? `(${at.slice(0, 4)})` : undefined].filter(Boolean).join(' ');
       speaker = graph.upsertNode({
@@ -544,6 +546,7 @@ export function buildTitleGraph(propertyCase: PropertyCase, now: string): TitleG
           conveysOwnership: spec.conveysOwnership,
           ...(at ? { instrumentDate: at } : {}),
           ...(reference ? { reference: reference.value } : {}),
+          ...(consideration !== undefined && Number.isFinite(consideration) && consideration > 0 ? { consideration } : {}),
         },
         assertion: fromDocument(doc, dateField ?? reference),
       });

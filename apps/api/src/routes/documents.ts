@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
-import type { CaseDocument } from '@realytica/shared';
-import { classifyDocument, extractFields } from '@realytica/shared';
+import type { CaseDocument, TechnicalSystem } from '@realytica/shared';
+import { TECHNICAL_SYSTEMS, classifyDocument, extractFields } from '@realytica/shared';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { updateDocumentSchema } from '../schemas';
+import { readExifCapture } from '../exif';
+import { sendDocumentBytes } from './document-file';
 import { findCase } from './cases';
 
 const MAX_FILES_PER_UPLOAD = 10;
@@ -65,12 +67,30 @@ documentsRouter.post<{ id: string }>('/', upload.array('files', 10), async (req,
     return;
   }
 
+  // Capture-time mapping, sent as plain multipart fields beside the files:
+  // the zone and asset system these shots were taken against. Applied only to
+  // image files — a deed dropped into the same batch does not inherit a zone
+  // just because the uploader was standing somewhere. Silently ignoring an
+  // unknown system would lose a mapping the person typed, so it is a 400.
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const captureZone = typeof body.captureZone === 'string' ? body.captureZone.trim().slice(0, 120) : '';
+  const rawSystem = typeof body.captureSystem === 'string' ? body.captureSystem : '';
+  if (rawSystem && !(TECHNICAL_SYSTEMS as string[]).includes(rawSystem)) {
+    res.status(400).json({ error: `Unknown asset system "${rawSystem}"` });
+    return;
+  }
+  const captureSystem = rawSystem ? (rawSystem as TechnicalSystem) : undefined;
+
   try {
     const now = new Date().toISOString();
     const created: CaseDocument[] = [];
     for (const file of files) {
       const docId = randomUUID();
       const classification = classifyDocument(file.originalname, file.mimetype);
+      const isImage = classification.kind === 'photograph' || file.mimetype.startsWith('image/');
+      // The phone already stamped where and when the shot was taken; a JPEG
+      // that carries it enters the graph geotagged without anyone retyping it.
+      const exif = isImage ? readExifCapture(file.buffer) : {};
       const doc: CaseDocument = {
         id: docId,
         caseId: found.id,
@@ -84,6 +104,10 @@ documentsRouter.post<{ id: string }>('/', upload.array('files', 10), async (req,
         pages: 1,
         ocrStatus: 'complete',
         extracted: [],
+        ...(isImage && captureZone ? { captureZone } : {}),
+        ...(isImage && captureSystem ? { captureSystem } : {}),
+        ...(exif.lat !== undefined && exif.lng !== undefined ? { captureLat: exif.lat, captureLng: exif.lng } : {}),
+        ...(exif.takenAt ? { captureTakenAt: exif.takenAt } : {}),
       };
       doc.extracted = extractFields(doc, found.identity, found.id);
       await storageAdapter.putDocument(found.id, documentKey(doc), file.buffer, file.mimetype);
@@ -101,104 +125,60 @@ documentsRouter.post<{ id: string }>('/', upload.array('files', 10), async (req,
 });
 
 /**
- * What a browser may be told to render in place, and nothing else.
- *
- * `doc.mimeType` is whatever the upload declared — multer copies the
- * client-supplied part header verbatim — so it is attacker-controlled and
- * independent of the bytes actually stored. Echoing it back as the response
- * `Content-Type` while serving `inline` from this origin is stored XSS: upload
- * HTML bytes with a declared type of `text/html`, open the preview, and the
- * payload runs on the app's own origin.
- *
- * So the declared type is never trusted as a rendering instruction. It is
- * looked up in this allowlist, and anything not on it is served as an opaque
- * download instead. Every entry here is a format the browser renders in a
- * sandbox of its own rather than as script.
- */
-const INLINE_RENDERABLE = new Set([
-  'application/pdf',
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-  'image/gif',
-  'image/heic',
-  'image/heif',
-]);
-
-/** Strip anything that could break out of the Content-Disposition header. */
-function safeFilename(name: string): string {
-  return name.replace(/[\r\n"\\]/g, '_').slice(0, 200) || 'document';
-}
-
 /**
- * Serve one uploaded document's bytes.
+ * The bytes of one document.
  *
  * Until this existed a document could be uploaded, classified, read by the
- * agents for extraction, and cited by id in the evidence ledger — and there
- * was no way for the person who uploaded it to open it again. The storage
- * adapter has had `getDocument` all along; nothing reached it over HTTP.
+ * agents for extraction and cited by id in the evidence ledger — and there
+ * was no way for the person who uploaded it to open it again.
  *
  * The bytes are proxied through this route rather than handed out as a
  * storage URL. On the Blob adapter that URL is public and its pathname is
  * deterministic, so linking to it directly would put the file outside
  * whatever access control this app later grows; on the filesystem adapter
- * there is no URL to hand out at all. One route that reads through the
- * adapter keeps both backends behaving the same and keeps the storage
- * address server-side.
+ * there is no URL to hand out at all. One route through the adapter keeps
+ * both backends behaving the same and keeps the storage address server-side.
+ *
+ * A document seeded by the demo has a record but no file — the seeder
+ * deliberately creates the metadata without materialising bytes. That is a
+ * different thing from a storage failure, and the viewer has to say so
+ * differently ("this record carries no file" vs "we could not read it"), so
+ * each answer carries a code rather than only a status.
  */
 documentsRouter.get<{ id: string; docId: string }>('/:docId/file', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
-    res.status(404).json({ error: 'Case not found' });
+    res.status(404).json({ error: 'Case not found', code: 'case_not_found' });
     return;
   }
   // Matched within the case rather than globally, so a document id from one
   // case cannot be read through another case's URL.
   const doc = found.documents.find((d) => d.id === req.params.docId);
   if (!doc) {
-    res.status(404).json({ error: 'Document not found' });
+    res.status(404).json({ error: 'Document not found', code: 'document_not_found' });
     return;
   }
-
-  let bytes: Buffer | null;
+  let bytes: Buffer | null = null;
   try {
     bytes = await storageAdapter.getDocument(found.id, documentKey(doc));
   } catch (e) {
-    res.status(502).json({ error: `Could not read the stored file: ${e instanceof Error ? e.message : String(e)}` });
+    // 502, not 500: this app is fine, the store behind it did not answer.
+    res.status(502).json({
+      error: `Could not read the stored file: ${e instanceof Error ? e.message : String(e)}`,
+      code: 'file_read_failed',
+    });
     return;
   }
   if (!bytes) {
-    // A demo-seeded document is a real row with no bytes behind it. That is a
-    // specific, explainable state rather than a failure, and the client says
-    // so instead of showing a broken viewer.
-    res.status(404).json({ error: 'This document has no stored file — seeded demo documents carry their extracted fields only.' });
+    res.status(404).json({
+      error: 'This document has no stored file — seeded demo documents carry their extracted fields only.',
+      code: 'file_not_stored',
+    });
     return;
   }
-
-  const declared = (doc.mimeType ?? '').split(';')[0].trim().toLowerCase();
   // `?download=1` forces the attachment path for a type that could otherwise
   // render, so the same URL backs both the viewer and the download button.
-  const forceDownload = req.query.download === '1';
-  const inline = !forceDownload && INLINE_RENDERABLE.has(declared);
-
-  res.setHeader('Content-Type', inline ? declared : 'application/octet-stream');
-  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${safeFilename(doc.fileName)}"`);
-  res.setHeader('Content-Length', String(bytes.byteLength));
-  // Belt and braces against the same class of bug: forbid MIME sniffing, so a
-  // "PDF" whose bytes are HTML cannot be re-interpreted as a document.
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  // Only on the download path — the browser's built-in PDF viewer is sensitive
-  // to a restrictive CSP on the PDF response itself, and an inline response is
-  // already pinned to an inert media type above.
-  if (!inline) res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
-  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  // The bytes are immutable for a given document id — an upload creates a new
-  // document, it never rewrites one — so a short private cache is what makes
-  // reopening a case instant instead of re-downloading several megabytes.
-  // `private` keeps it out of shared and CDN caches.
-  res.setHeader('Cache-Control', 'private, max-age=900, must-revalidate');
-  res.end(bytes);
+  sendDocumentBytes(res, doc, bytes, req.query.download === '1');
 });
 
 documentsRouter.patch<{ id: string; docId: string }>('/:docId', async (req, res) => {
@@ -224,6 +204,14 @@ documentsRouter.patch<{ id: string; docId: string }>('/:docId', async (req, res)
     doc.extracted = extractFields(doc, found.identity, found.id);
   }
   if (parsed.data.notes !== undefined) doc.notes = parsed.data.notes;
+  if (parsed.data.captureZone !== undefined) {
+    if (parsed.data.captureZone === null || parsed.data.captureZone === '') delete doc.captureZone;
+    else doc.captureZone = parsed.data.captureZone;
+  }
+  if (parsed.data.captureSystem !== undefined) {
+    if (parsed.data.captureSystem === null) delete doc.captureSystem;
+    else doc.captureSystem = parsed.data.captureSystem;
+  }
   found.updatedAt = new Date().toISOString();
   await store.save();
   res.json(doc);

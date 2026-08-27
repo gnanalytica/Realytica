@@ -87,9 +87,16 @@ export interface LlmImage {
  * `documents` array, because their *position* is load-bearing: document
  * intelligence puts the PDF ahead of its instruction text so the model reads
  * the source before the ask. A flat array would lose that ordering.
+ *
+ * `cacheBreakpoint` on a text part means the same thing it means on a system
+ * block — cache everything up to and including this part — and it exists here
+ * because the largest stable payload in this codebase is not the system
+ * prompt, it is the case corpus, and the corpus travels in a user message.
+ * Like the system-block flag it is a request: a provider without
+ * `promptCaching` drops it and records `prompt_caching_unavailable`.
  */
 export type LlmContentPart =
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string; cacheBreakpoint?: boolean }
   | { type: 'document'; document: LlmDocument }
   | { type: 'image'; image: LlmImage };
 

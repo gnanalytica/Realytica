@@ -132,6 +132,7 @@ export function reconstructChains(graph: TitleGraph): TitleChain[] {
           toPartyLabel: grantee?.label,
           documentId: attrString(instrument, 'documentId'),
           extentSqm,
+          considerationAmount: attrNumber(instrument, 'consideration'),
         } satisfies ChainLink;
       })
       // Oldest first. An undated instrument sorts last because it cannot be

@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { LENS_PROFILES, SITE_CONSTRAINT_KEYS } from '@realytica/shared';
+import { LENS_PROFILES, SITE_CONSTRAINT_KEYS, openTechnicalFindingCounts } from '@realytica/shared';
 import type { LensKey, LensSection, PropertyCase, ScreenResult } from '@realytica/shared';
 import type { TabProps } from './tab-props';
 import SnapshotTab from './tabs/SnapshotTab';
@@ -19,6 +19,11 @@ import ReportTab from './tabs/ReportTab';
 import ConstraintsTab from './tabs/ConstraintsTab';
 import CostsTab from './tabs/CostsTab';
 import ResearchTab from './tabs/ResearchTab';
+import TechnicalDiligenceTab from './tabs/TechnicalDiligenceTab';
+import GraphExplorerTab from './tabs/GraphExplorerTab';
+import { makeDomainView } from './tabs/DomainWorkboardTab';
+import { DD_DOMAIN_KEYS, DD_DOMAIN_PROFILES, domainForCheck, domainForRiskCategory, domainForSystem } from '@realytica/shared';
+import type { DdDomain } from '@realytica/shared';
 
 /**
  * Five places instead of fourteen.
@@ -67,6 +72,33 @@ export const CASE_GROUPS: CaseGroup[] = [
       // to look for. Under Overview because "is this worth pursuing" is
       // exactly the question an outside record answers or ruins.
       { key: 'research', label: 'Outside record', component: ResearchTab },
+      // Building condition is a different axis from title/value/planning —
+      // it does not fit Legal, Value or Documents — but it is squarely
+      // "what is wrong with it", so it lands here rather than earning a
+      // sixth group. Opt-in: most cases have nothing here, which is why it
+      // is not in NEEDS_SCREEN below — it does not depend on a screen run.
+      { key: 'technical', label: 'Technical DD', component: TechnicalDiligenceTab },
+    ],
+  },
+  {
+    key: 'diligence',
+    label: 'Diligence',
+    question: 'What exactly are we getting into, department by department?',
+    // The cockpit's domain navigator: eight departments, one repeated
+    // workboard anatomy, each view a FILTER over stores the case already
+    // has (see DomainWorkboardTab). The views are generated from the same
+    // registry the evidence graph's domain attribute reads, so the
+    // navigation and the graph cannot disagree about what belongs where.
+    views: [
+      ...DD_DOMAIN_KEYS.map(domain => ({
+        key: domain,
+        label: DD_DOMAIN_PROFILES[domain].label,
+        component: makeDomainView(domain),
+      })),
+      // The graph explorer: the same evidence graph the copilot traverses,
+      // drawn. Last, because it is how the departments connect rather than
+      // a ninth department.
+      { key: 'graph', label: 'Graph', component: GraphExplorerTab },
     ],
   },
   {
@@ -152,6 +184,23 @@ export interface ViewState {
 }
 
 export function viewState(viewKey: string, caseData: PropertyCase, result: ScreenResult | null): ViewState {
+  // The eight department views badge on what is red in that department —
+  // blockers first, then open critical risk/findings — computed from the
+  // same closed maps the workboards filter by.
+  if ((DD_DOMAIN_KEYS as string[]).includes(viewKey)) {
+    const domain = viewKey as DdDomain;
+    const blockers = (result?.stateCompliance?.checks ?? []).filter(c => c.verdict === 'blocker' && domainForCheck(c.key) === domain).length;
+    if (blockers > 0) return { count: blockers, tone: 'critical', note: `${blockers} blocker${blockers === 1 ? '' : 's'}` };
+    const criticalRisks = (result?.risks ?? []).filter(
+      r => r.status === 'open' && r.severity === 'critical' && (domain === 'risk' || domainForRiskCategory(r.category) === domain),
+    ).length;
+    const criticalFindings = (caseData.technicalFindings ?? []).filter(
+      f => f.reviewState === 'accepted' && f.status === 'open' && f.severity === 'critical' && domainForSystem(f.system) === domain,
+    ).length;
+    const critical = criticalRisks + criticalFindings;
+    if (critical > 0) return { count: critical, tone: 'critical', note: `${critical} open critical item${critical === 1 ? '' : 's'}` };
+    return {};
+  }
   if (!result) return {};
   switch (viewKey) {
     case 'risks': {
@@ -166,6 +215,15 @@ export function viewState(viewKey: string, caseData: PropertyCase, result: Scree
     }
     case 'location':
       return caseData.siteContext ? {} : { empty: true, note: 'No mapping provider has placed this property yet' };
+    case 'technical': {
+      const findings = caseData.technicalFindings ?? [];
+      const proposed = findings.filter(f => f.reviewState === 'proposed').length;
+      if (proposed > 0) return { count: proposed, tone: 'brand', note: `${proposed} drafted finding${proposed === 1 ? '' : 's'} awaiting review` };
+      const counts = openTechnicalFindingCounts(findings);
+      if (counts.openCritical > 0) return { count: counts.openCritical, tone: 'critical', note: `${counts.openCritical} open critical technical finding${counts.openCritical === 1 ? '' : 's'}` };
+      if (counts.open > 0) return { count: counts.open, tone: 'warning', note: `${counts.open} open technical finding${counts.open === 1 ? '' : 's'}` };
+      return {};
+    }
     case 'costs':
       return result.transactionCosts
         ? {}
@@ -242,16 +300,20 @@ const SECTION_GROUP: Record<LensSection, string> = {
  * Everything after them follows the lens.
  */
 export function groupsForLens(lens: LensKey): CaseGroup[] {
+  // Diligence is pinned beside Overview for every lens: the departmental
+  // cockpit is the working surface of a DD engagement, and no reader's
+  // ordering may bury it behind the report.
+  const pinned = new Set(['overview', 'diligence']);
   const wanted = LENS_PROFILES[lens].sections.map(s => SECTION_GROUP[s]);
-  const rest = CASE_GROUPS.filter(g => g.key !== 'overview');
+  const rest = CASE_GROUPS.filter(g => !pinned.has(g.key));
   const ordered: CaseGroup[] = [];
   for (const key of wanted) {
     const group = rest.find(g => g.key === key);
     if (group && !ordered.includes(group)) ordered.push(group);
   }
   for (const g of rest) if (!ordered.includes(g)) ordered.push(g);
-  const overview = CASE_GROUPS.find(g => g.key === 'overview');
-  return overview ? [overview, ...ordered] : ordered;
+  const head = CASE_GROUPS.filter(g => pinned.has(g.key));
+  return [...head, ...ordered];
 }
 
 /**

@@ -507,6 +507,25 @@ export interface CaseDocument {
   ocrStatus: OcrStatus;
   extracted: ExtractedField[];
   notes?: string;
+  /**
+   * Capture-time mapping, meaningful on photographs: the zone the shot was
+   * taken in and the asset system it looks at, so a site photo enters the
+   * evidence graph already connected rather than as a loose file to be
+   * sorted later. Stated by the person capturing or filing it — a human
+   * assertion about their own photo, so no review step — and editable
+   * afterwards from the document list.
+   */
+  captureZone?: string;
+  captureSystem?: TechnicalSystem;
+  /**
+   * Read from the photo's own EXIF at upload — where and when the shutter
+   * actually fired, as the phone stamped it. Never inferred, and absent on
+   * anything whose metadata was stripped (WhatsApp forwards, screenshots).
+   * `captureTakenAt` carries no timezone because EXIF does not.
+   */
+  captureLat?: number;
+  captureLng?: number;
+  captureTakenAt?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -868,6 +887,127 @@ export interface RiskFlag {
 }
 
 /* ------------------------------------------------------------------ */
+/* Technical / construction due diligence                              */
+/*                                                                      */
+/* A separate axis from everything above: `RiskFlag` and the assessment */
+/* profile are about the DEAL — title, value, planning. A technical      */
+/* finding is about the BUILDING — does the structure, the MEP plant and */
+/* the fire/life-safety systems do what they are supposed to. The two    */
+/* only meet at the case they both hang off.                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The discipline a finding belongs to — mirrors how a technical DD is
+ * actually staffed and read, zone by zone.
+ *
+ * `project_ops` is not a defect discipline like the others — it is the
+ * building's own operating baseline (power backup coverage, HVAC setpoint,
+ * parking ratio, floor efficiency: facts a facilities walk-through records,
+ * not problems it found). It reuses the same finding shape rather than a
+ * parallel schema — severity `info` for a confirmed-fine baseline fact,
+ * `warning`+ for one that falls short of what was represented — because a
+ * baseline fact and a defect are read the same way: observed, evidenced,
+ * reviewed.
+ */
+export type TechnicalSystem = 'architectural' | 'structural' | 'mep_hvac' | 'mep_phe' | 'mep_fire' | 'mep_electrical' | 'mep_ibms' | 'statutory' | 'ehs' | 'project_ops';
+
+/** Where a finding came from. An agent-sourced one is never final on arrival — see `TechnicalFindingReviewState`. */
+export type TechnicalFindingSource = 'user' | 'agent';
+
+/**
+ * A proposed finding is a claim, not yet a fact on the case.
+ *
+ * Mirrors the accept/reject discipline this product already applies to
+ * extracted case facts: an agent may draft a finding with its evidence, but
+ * only a person's acceptance makes it count. A user-authored finding has no
+ * proposal step to pass through — it is `accepted` the moment it is saved,
+ * because nobody needs to review their own statement of what they observed.
+ */
+export type TechnicalFindingReviewState = 'proposed' | 'accepted' | 'rejected';
+
+/**
+ * The fields a finding must supply, before it has an id, a case, or a review
+ * state. One shape for both paths that can produce a finding — a person
+ * filling in a form and an agent calling a tool — so neither can supply less
+ * than the other.
+ */
+export interface TechnicalFindingDraft {
+  system: TechnicalSystem;
+  /**
+   * Where on the property this was observed — a floor, a room, a run of
+   * pipework. Free text: a technical DD's zones are as varied as the
+   * buildings it covers, and a closed enum would either miss most of them or
+   * grow one value per building.
+   */
+  zone: string;
+  observation: string;
+  severity: RiskSeverity;
+  recommendation: string;
+  /**
+   * The exact code citation behind the recommendation, e.g. "NBC 2005, Part
+   * 4, Clause 4.16.7" — carried verbatim so a reviewer can look it up, never
+   * paraphrased into a generic "per code" that cannot be checked.
+   */
+  codeCitation?: string;
+  /** Document ids (photographs already on the case) that evidence this finding. */
+  evidenceDocumentIds: string[];
+}
+
+export interface TechnicalFinding extends TechnicalFindingDraft {
+  id: string;
+  caseId: string;
+  source: TechnicalFindingSource;
+  reviewState: TechnicalFindingReviewState;
+  /** The remediation lifecycle — meaningful once accepted; a rejected finding does not track this. */
+  status: RiskStatus;
+  createdAt: string;
+  updatedAt: string;
+  /** The copilot run that proposed this, when `source` is `'agent'` — lets a reviewer open the conversation that produced it. */
+  proposedByRunId?: string;
+  /**
+   * What it costs to fix, and who owns closing it out — the FINANCIAL
+   * domain's own framing: "quantify each issue: severity, owner, cost,
+   * warranty recovery." Absent by default and reachable only through the
+   * update endpoint, never the create draft or the copilot's proposal tool:
+   * a cost figure with no cost consultant or BOQ behind it is exactly the
+   * fabricated number this product's evidence discipline exists to refuse.
+   * A person enters this once they actually have a number.
+   */
+  estimatedCost?: number;
+  estimatedCostCurrency?: CurrencyCode;
+  /** Who is responsible for closing this out — a name, a role, a firm. Free text; there is no fixed roster of parties to choose from. */
+  owner?: string;
+  /**
+   * Does this finding represent a departure from what was sanctioned/
+   * occupied, rather than a defect with no bearing on the approved envelope?
+   * The board's "approved vs as-built" cross-check, kept honest by staying a
+   * person's assertion rather than an inferred match against free-text
+   * approval fields — a wrong automatic match here would be worse than no
+   * flag at all.
+   */
+  deviatesFromApproved?: boolean;
+}
+
+/** Every field a finding may be updated with after creation — the one list the API schema, the client and the update route all read from. */
+export type TechnicalFindingPatch = Partial<
+  Pick<
+    TechnicalFinding,
+    'zone' | 'observation' | 'severity' | 'recommendation' | 'codeCitation' | 'evidenceDocumentIds' | 'status' | 'estimatedCost' | 'estimatedCostCurrency' | 'owner' | 'deviatesFromApproved'
+  >
+>;
+
+/** Built (Phase I, already standing) vs proposed (Phase II, not yet built) — the split the document checklist itself uses. */
+export type TechnicalDdPhase = 'built' | 'proposed';
+
+/** One line of the required-documents checklist — a catalog entry, not a case fact. See `technical-diligence.ts`. */
+export interface TechnicalDocumentItem {
+  id: string;
+  system: TechnicalSystem;
+  phase: TechnicalDdPhase;
+  label: string;
+}
+
+/* ------------------------------------------------------------------ */
 /* Planning                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -1067,6 +1207,90 @@ export interface TransactionCostBreakdown {
   verifyNote: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Joint-development split                                             */
+/* ------------------------------------------------------------------ */
+
+export type JdSplitVerdict = 'developer_favoured' | 'balanced' | 'landowner_favoured';
+
+/**
+ * The JDA's sharing ratio, graded against the land value and the scheme.
+ *
+ * Every figure here is arithmetic on numbers the screen already produced —
+ * the residual's gross realisation and the land-rate anchor — never a new
+ * opinion of value. What this adds is the translation practitioners do on
+ * paper: a share ratio is an implied land price, and an implied land price
+ * can be compared with what the land is worth.
+ */
+export interface JdSplitAssessment {
+  /** Landowner's share of the scheme, 0..100, as the JDA states it. */
+  offeredOwnerSharePct: number;
+  /** Where the ratio came from — the JDA document on file. */
+  sourceDocumentId?: string;
+  /** Gross realisation of the scheme the residual priced (GDV). */
+  schemeGrossValue: number;
+  /** What the offered share is worth in scheme value terms. */
+  offeredShareValue: number;
+  /** The same figure per sqm of the land contributed. */
+  offeredShareValuePerSqm: number;
+  /**
+   * The share band the land value itself would justify: land-rate anchor
+   * low/high as a percentage of the scheme's gross realisation.
+   */
+  fairSharePctLow: number;
+  fairSharePctHigh: number;
+  verdict: JdSplitVerdict;
+  /** The finding in words, one statement per line. */
+  statements: string[];
+  /** What this arithmetic deliberately does not model. */
+  caveats: string[];
+  currency: CurrencyCode;
+  evidenceIds: string[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Price trajectory (the parcel's own registered history)              */
+/* ------------------------------------------------------------------ */
+
+export type PricePointKind = 'registered' | 'indicative';
+
+export interface PricePoint {
+  /** ISO date — the instrument date, or `generatedAt` for the indicative point. */
+  at: string;
+  amount: number;
+  kind: PricePointKind;
+  /** The instrument that recites this figure, for the registered points. */
+  label: string;
+  documentId?: string;
+}
+
+/**
+ * What this parcel's own documents say it has changed hands for.
+ *
+ * Built only from the conveyances in the title chain plus today's indicative
+ * mid — never from other people's transactions, which is what keeps it
+ * honest and shareable. The standing caveat is structural to India:
+ * a deed recites the dutiable value, which tracks the guidance value, so the
+ * trajectory is a floor on the market's movement rather than a measurement
+ * of it. `understatementLikely` carries that warning to every renderer.
+ */
+export interface PriceTrajectory {
+  points: PricePoint[];
+  /**
+   * Annualised growth between the earliest and latest registered points,
+   * present when two dated registered considerations exist.
+   */
+  registeredCagrPct?: number;
+  /**
+   * Annualised growth from the latest registered point to the indicative
+   * mid, present when both exist.
+   */
+  impliedCagrToIndicativePct?: number;
+  understatementLikely: boolean;
+  statements: string[];
+  currency: CurrencyCode;
+}
+
 export interface ScreenResult {
   caseId: string;
   generatedAt: string;
@@ -1133,6 +1357,16 @@ export interface ScreenResult {
    * Catchment-level, never parcel-level — see `WaterExposureReference`.
    */
   waterExposure?: WaterExposureReference;
+  /**
+   * The JDA's share ratio graded against the land value. Present only on a
+   * joint development whose JDA states a ratio — see `JdSplitAssessment`.
+   */
+  jdSplit?: JdSplitAssessment;
+  /**
+   * What this parcel's own conveyances recite as consideration, over time.
+   * Present when at least one dated conveyance on file states one.
+   */
+  priceTrajectory?: PriceTrajectory;
   recommendation: {
     verdict: ScreenVerdict;
     headline: string;
@@ -1665,6 +1899,20 @@ export interface PropertyCase {
    * without it.
    */
   siteContext?: SiteContext;
+  /**
+   * Technical/construction due-diligence findings — building condition, not
+   * title or value. Absent means nobody has run a technical DD on this case
+   * yet, which is the common case: it is opt-in, not part of every screen.
+   */
+  technicalFindings?: TechnicalFinding[];
+  /**
+   * Which `TechnicalDocumentItem.id`s have been marked as supplied for this
+   * case. A missing key means not yet provided — the checklist's absence is
+   * the default, matching every other completeness gap in this product.
+   */
+  technicalDocumentsProvided?: Record<string, boolean>;
+  /** Requests made on this case. Absent on cases that predate the tracker. */
+  requests?: CaseRequest[];
 }
 
 /** Case shape without the heavy nested payloads — used by list endpoints. */
@@ -2030,6 +2278,17 @@ export interface AgentUsage {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  /**
+   * Tokens WRITTEN to the prompt cache on this call, billed at ~1.25x input.
+   *
+   * Reported separately from `inputTokens` by the API, so a run that writes a
+   * cache and does not count this looks cheaper than it was — the write is
+   * the cost that has to be earned back by later reads, and hiding it makes
+   * caching look free rather than profitable. Optional because records
+   * written before caching was placed carry no such field, and absent is
+   * honestly different from zero.
+   */
+  cacheWriteTokens?: number;
   /** Estimated, from the model's published rates — shown so cost is never a surprise. */
   estimatedCostUsd: number;
 }
@@ -2252,9 +2511,71 @@ export interface CopilotTurn {
   text: string;
   at: string;
   citedEvidenceIds: string[];
+  /**
+   * DD-graph node ids the answer cited (checks, findings, risks, zones …),
+   * validated against the case's built graph before the turn is stored —
+   * the chat→canvas half of the shared selection context: each renders as a
+   * chip that focuses the graph explorer on that node.
+   */
+  citedNodeIds?: string[];
   toolCalls?: { name: string; summary: string }[];
   /** Set when the agent declined to answer because the evidence does not support one. */
   refusedForLackOfEvidence?: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/* Requests (RFIs)                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Who a request is addressed to. Coarse on purpose: which AUTHORITY issues a
+ * missing record is the connector registry's knowledge, and duplicating it
+ * here would give the product two answers to the same question.
+ */
+export type RequestRecipient = 'vendor' | 'vendor_advocate' | 'site_team' | 'authority' | 'internal';
+
+/**
+ * A request's life. `answered` means something arrived and was accepted as
+ * answering it; `withdrawn` means we stopped asking. Neither is a synonym for
+ * the gap being closed — a gap closes because the evidence exists, and this
+ * status only records what we did about it.
+ */
+export type RequestStatus = 'open' | 'sent' | 'answered' | 'withdrawn';
+
+/**
+ * One thing we have asked someone for.
+ *
+ * Deliberately a stored record rather than a derivation of the gap list. A
+ * gap is a fact about the file and recomputes on every read; a request is an
+ * ACT — it was made, on a date, to a person, and it may still be outstanding
+ * after the gap that prompted it has been closed some other way. Deriving it
+ * would lose the date, the recipient and the fact that anyone was ever asked.
+ *
+ * `originGapId` links back to the gap that prompted it where there was one,
+ * so the dossier can show that a gap is already chased rather than inviting
+ * someone to chase it twice.
+ */
+export interface CaseRequest {
+  id: string;
+  caseId: string;
+  /** The department this belongs to — the same closed vocabulary as everything else. */
+  domain: string;
+  what: string;
+  /** The recorded absence that justifies asking. */
+  why: string;
+  recipient: RequestRecipient;
+  status: RequestStatus;
+  createdAt: string;
+  updatedAt: string;
+  /** Set when the request was marked sent. */
+  sentAt?: string;
+  /** ISO date the answer is expected by; a request with none is never "overdue". */
+  dueAt?: string;
+  /** Set when answered — the document that arrived against it, if one did. */
+  answeredWithDocumentId?: string;
+  answeredAt?: string;
+  /** The checklist or completeness gap that prompted this, where there was one. */
+  originGapId?: string;
 }
 
 export interface CaseIntelligence {
@@ -2539,6 +2860,13 @@ export interface ChainLink {
   documentId?: string;
   /** Area this instrument claims to convey, in sqm, where stated. */
   extentSqm?: number;
+  /**
+   * The registered consideration this conveyance recites, where the document
+   * states one. In India this is routinely the guidance value rather than the
+   * price actually paid — the trajectory built from these says so rather than
+   * presenting the recital as a market price.
+   */
+  considerationAmount?: number;
 }
 
 export type ChainBreakKind =

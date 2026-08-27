@@ -12,6 +12,9 @@ import type {
   LayoutApproval,
   PlotAttributes,
   PlotFacing,
+  TechnicalDdPhase,
+  TechnicalFindingReviewState,
+  TechnicalSystem,
 } from '@realytica/shared';
 
 /**
@@ -77,6 +80,75 @@ export const documentKindSchema = z.enum([
 ]) satisfies z.ZodType<DocumentKind>;
 
 export const riskStatusSchema = z.enum(['open', 'mitigated', 'accepted']);
+export const riskSeveritySchema = z.enum(['info', 'warning', 'serious', 'critical']);
+
+export const technicalSystemSchema = z.enum([
+  'architectural',
+  'structural',
+  'mep_hvac',
+  'mep_phe',
+  'mep_fire',
+  'mep_electrical',
+  'mep_ibms',
+  'statutory',
+  'ehs',
+  'project_ops',
+]) satisfies z.ZodType<TechnicalSystem>;
+
+export const technicalDdPhaseSchema = z.enum(['built', 'proposed']) satisfies z.ZodType<TechnicalDdPhase>;
+
+export const technicalFindingReviewStateSchema = z.enum(['proposed', 'accepted', 'rejected']) satisfies z.ZodType<TechnicalFindingReviewState>;
+
+/**
+ * The draft shape — what a person filling in the form and a copilot tool
+ * call both have to supply. `evidenceDocumentIds` defaults to empty rather
+ * than being required: a user typing up a fresh site observation may not
+ * have a photo attached yet, and the finding should still be saveable.
+ */
+export const technicalFindingDraftSchema = z.object({
+  system: technicalSystemSchema,
+  zone: z.string().min(1).max(200),
+  observation: z.string().min(1).max(2000),
+  severity: riskSeveritySchema,
+  recommendation: z.string().min(1).max(2000),
+  codeCitation: z.string().max(300).optional(),
+  evidenceDocumentIds: z.array(z.string()).max(20).default([]),
+});
+
+export const updateTechnicalFindingSchema = z.object({
+  zone: z.string().min(1).max(200).optional(),
+  observation: z.string().min(1).max(2000).optional(),
+  severity: riskSeveritySchema.optional(),
+  recommendation: z.string().min(1).max(2000).optional(),
+  codeCitation: z.string().max(300).optional(),
+  evidenceDocumentIds: z.array(z.string()).max(20).optional(),
+  status: riskStatusSchema.optional(),
+  // FINANCIAL and approved-vs-as-built enrichments — reachable only through
+  // this route, never through technicalFindingDraftSchema or the copilot's
+  // propose tool. A cost with no cost consultant or BOQ behind it, or a
+  // deviation flag inferred rather than asserted, is exactly the fabricated
+  // figure this product's evidence discipline exists to refuse — so these
+  // are a person's own entry, always.
+  estimatedCost: z.number().min(0).max(1_000_000_000_000).optional(),
+  estimatedCostCurrency: currencyCodeSchema.optional(),
+  owner: z.string().max(200).optional(),
+  deviatesFromApproved: z.boolean().optional(),
+});
+
+/**
+ * Accepting or rejecting a proposal is its own endpoint rather than a field
+ * on the general update — the same reason `riskStatusBodySchema` is separate
+ * from a generic PATCH: a state transition with a closed set of outcomes
+ * should not be reachable by typing an arbitrary string into a JSON body.
+ */
+export const technicalFindingReviewBodySchema = z.object({
+  reviewState: z.enum(['accepted', 'rejected']),
+});
+
+export const technicalDocumentsProvidedBodySchema = z.object({
+  itemId: z.string().min(1),
+  provided: z.boolean(),
+});
 
 // Karnataka State Pack attributes, carried on `PropertyIdentity.karnataka`.
 // The `satisfies` checks keep each enum in sync with its `types.ts` union.
@@ -216,6 +288,10 @@ export const updateCaseSchema = z.object({
 export const updateDocumentSchema = z.object({
   kind: documentKindSchema.optional(),
   notes: z.string().optional(),
+  // Capture-time mapping (photographs). Null clears a mapping that was wrong;
+  // undefined leaves it alone — the difference matters on a PATCH.
+  captureZone: z.string().trim().max(120).nullable().optional(),
+  captureSystem: technicalSystemSchema.nullable().optional(),
 });
 
 export const riskStatusBodySchema = z.object({
@@ -296,4 +372,40 @@ export const runAgentsBodySchema = z.object({
 
 export const copilotBodySchema = z.object({
   question: z.string().min(1).max(2000),
+  /** What the analyst is viewing — forwarded to the model, never stored on the turn. */
+  viewContext: z.string().max(300).optional(),
+});
+
+/* ------------------------------------------------------------------ */
+/* Requests (RFIs)                                                     */
+/* ------------------------------------------------------------------ */
+
+export const requestRecipientSchema = z.enum(['vendor', 'vendor_advocate', 'site_team', 'authority', 'internal']);
+export const requestStatusSchema = z.enum(['open', 'sent', 'answered', 'withdrawn']);
+
+/**
+ * Created in batches, because the way requests are actually made is "send the
+ * whole list" — one at a time would make the common act five round trips.
+ */
+export const createRequestSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        domain: z.string().min(1).max(40),
+        what: z.string().trim().min(1).max(300),
+        why: z.string().trim().min(1).max(500),
+        recipient: requestRecipientSchema,
+        dueAt: z.string().datetime().optional(),
+        originGapId: z.string().max(120).optional(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+export const updateRequestSchema = z.object({
+  status: requestStatusSchema.optional(),
+  recipient: requestRecipientSchema.optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+  answeredWithDocumentId: z.string().nullable().optional(),
 });

@@ -206,7 +206,7 @@ export default function CompletenessTab({ result, runScreen, running, goToTab }:
         </CardBody>
       </Card>
 
-      <Callout tone="info" title="How these two cards relate">
+      <Callout tone="info" title="How these two cards relate" collapsible>
         Completeness counts what evidence exists; confidence weighs how reliable it is. A file can be complete and
         still earn low confidence if the evidence inside it is stale, conflicting, or unverified — closing the gaps
         above is usually, but not always, the fastest way to raise the score below.

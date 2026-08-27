@@ -11,6 +11,7 @@ export * from './env';
 export * from './client';
 export * from './context';
 export * from './tools/case-tools';
+export * from './tools/command-tools';
 
 export * from './agents/document-intelligence';
 export * from './agents/proof-pathways';

@@ -46,6 +46,7 @@ import type {
   ExtractedField,
   ExtractionMethod,
   IndicativeValue,
+  JdSplitAssessment,
   LayoutApproval,
   LocalityReference,
   MarketContext,
@@ -77,6 +78,8 @@ import type {
   OfferArgument,
   OfferStance,
 } from './types';
+import { assessJdSplit } from './jd-split';
+import { buildPriceTrajectory } from './price-trajectory';
 import { amenityDistance, nearestTransit, sitePinIsAccurate } from './site';
 import { erodedAreaSqm, openRing, projectRing } from './geometry';
 import { assessmentProfile, methodStance, resolveProjectBrief } from './assessment';
@@ -319,6 +322,24 @@ function scheduleFields(identity: PropertyIdentity, seed: string, docId: string,
   ];
 }
 
+/**
+ * A plausible recited consideration for a conveyance executed `yearsAgo`.
+ *
+ * Anchored on the asking price where the case has one (else a seeded rate on
+ * the larger of the two areas), discounted back at a seeded appreciation
+ * rate, then shaded below that — because a registered deed recites the
+ * dutiable value, not the price, and the demo data should exercise the same
+ * understatement the trajectory's caveat exists for.
+ */
+function syntheticConsideration(identity: PropertyIdentity, rnd: (label: string, min: number, max: number) => number, yearsAgo: number, label: string): number {
+  const areaSqm = Math.max(identity.plotAreaSqm, identity.builtUpAreaSqm, 50);
+  const todayBasis = identity.askingPrice ?? areaSqm * rnd(`${label}:baseRate`, identity.currency === 'INR' ? 45000 : 4500, identity.currency === 'INR' ? 95000 : 8500);
+  const appreciation = rnd(`${label}:apprec`, 0.06, 0.11);
+  const recitalShade = rnd(`${label}:recital`, 0.55, 0.9);
+  const thenValue = todayBasis / Math.pow(1 + appreciation, Math.max(yearsAgo, 0));
+  return Math.max(Math.round((thenValue * recitalShade) / 1000) * 1000, 1000);
+}
+
 export function extractFields(doc: CaseDocument, identity: PropertyIdentity, seed: string): ExtractedField[] {
   const rnd = (label: string, min: number, max: number): number => seededRange(`${seed}:${doc.id}:${label}`, min, max);
   const conf = (label: string): number => round2(rnd(`conf:${label}`, 0.6, 0.98));
@@ -328,14 +349,18 @@ export function extractFields(doc: CaseDocument, identity: PropertyIdentity, see
   const uploadYear = new Date(doc.uploadedAt).getFullYear();
 
   switch (doc.kind) {
-    case 'title_deed':
+    case 'title_deed': {
+      const deedYear = 2015 + Math.floor(rnd('year', 0, 9));
+      const deedDate = new Date(deedYear, Math.floor(rnd('month', 0, 11)), 1 + Math.floor(rnd('day', 0, 27))).toISOString().slice(0, 10);
       return [
         mkField('ownerName', 'Registered owner', syntheticPersonName(`${seed}:${docId}:owner`, identity.country), conf('owner'), docId, 'ocr'),
-        mkField('deedDate', 'Deed execution date', new Date(2015 + Math.floor(rnd('year', 0, 9)), Math.floor(rnd('month', 0, 11)), 1 + Math.floor(rnd('day', 0, 27))).toISOString().slice(0, 10), conf('deedDate'), docId, 'ocr'),
+        mkField('deedDate', 'Deed execution date', deedDate, conf('deedDate'), docId, 'ocr'),
         mkField('registrationNumber', 'Registration number', `${identity.state.slice(0, 2).toUpperCase()}-${Math.floor(rnd('regno', 100000, 999999))}`, conf('regno'), docId, 'ocr'),
         mkField('extent', 'Extent conveyed', identity.plotAreaSqm.toFixed(1), conf('extent'), docId, 'parser', 'sqm'),
+        mkField('considerationPaid', 'Consideration recited', String(syntheticConsideration(identity, rnd, uploadYear - deedYear, 'deed')), conf('consideration'), docId, 'ocr', identity.currency),
         ...scheduleFields(identity, seed, docId, conf('schedule')),
       ];
+    }
     case 'sale_agreement':
       return [
         mkField('agreementDate', 'Agreement date', new Date(2024, Math.floor(rnd('month', 0, 11)), 1 + Math.floor(rnd('day', 0, 27))).toISOString().slice(0, 10), conf('agrDate'), docId, 'ocr'),
@@ -401,12 +426,20 @@ export function extractFields(doc: CaseDocument, identity: PropertyIdentity, see
         mkField('reraValidTill', 'Valid until', `${uploadYear + Math.floor(rnd('reraexp', 1, 5))}-12-31`, conf('reraexp'), docId, 'parser'),
       ];
     }
-    case 'mother_deed':
+    case 'mother_deed': {
+      // A mother deed is by definition the older instrument — dated a
+      // generation before the title deed's 2015+ band so the chain and the
+      // trajectory both read the two in the right order.
+      const motherYear = 1994 + Math.floor(rnd('mdYear', 0, 14));
+      const motherDate = new Date(motherYear, Math.floor(rnd('mdMonth', 0, 11)), 1 + Math.floor(rnd('mdDay', 0, 27))).toISOString().slice(0, 10);
       return [
         mkField('surveyNumber', 'Survey number', identity.parcelId || `Sy. No. ${Math.floor(rnd('sy', 10, 400))}/${Math.floor(rnd('sysub', 1, 9))}`, conf('sy'), docId, 'ocr'),
+        mkField('executionDate', 'Deed execution date', motherDate, conf('mdDate'), docId, 'ocr'),
         mkField('extentConveyed', 'Extent', identity.plotAreaSqm.toFixed(1), conf('extent'), docId, 'parser', 'sqm'),
+        mkField('considerationPaid', 'Consideration recited', String(syntheticConsideration(identity, rnd, uploadYear - motherYear, 'mother')), conf('mdConsideration'), docId, 'ocr', identity.currency),
         ...scheduleFields(identity, seed, docId, conf('schedule')),
       ];
+    }
     case 'conversion_certificate':
       return [
         mkField(
@@ -443,8 +476,12 @@ export function extractFields(doc: CaseDocument, identity: PropertyIdentity, see
           'ocr',
         ),
       ];
-    case 'joint_development_agreement':
-      return [mkField('jdaSharingRatio', 'JDA sharing ratio (owner:developer)', `${40 + Math.floor(rnd('jda', 0, 20))}:${60 - Math.floor(rnd('jda2', 0, 20))}`, conf('jda'), docId, 'ocr')];
+    case 'joint_development_agreement': {
+      // The two sides of a sharing ratio are one draw, not two independent
+      // ones — a JDA that says "47:41" is not a document anyone signed.
+      const ownerShare = 35 + Math.floor(rnd('jda', 0, 26));
+      return [mkField('jdaSharingRatio', 'JDA sharing ratio (owner:developer)', `${ownerShare}:${100 - ownerShare}`, conf('jda'), docId, 'ocr')];
+    }
     case 'sanctioned_plan_bbmp':
       return [mkField('sanctionNumber', 'BBMP sanction number', `BBMP/Addl.Dir/${Math.floor(rnd('sanc', 1000, 9999))}/${uploadYear}`, conf('sanc'), docId, 'ocr')];
     case 'valuation_report':
@@ -4727,6 +4764,38 @@ export function runScreen(input: {
     evidence,
   );
 
+  /*
+   * The JDA's ratio graded against the land value. Only for a joint
+   * development whose JDA actually states a ratio — `assessJdSplit` returns
+   * nothing when either anchor it needs is absent, because a split verdict
+   * built on an estimated land value would be an opinion, not arithmetic.
+   */
+  const prose = (n: number): string => formatCurrency(n, identity.currency, countryPack.locale);
+  let jdSplit: JdSplitAssessment | undefined;
+  if (project.kind === 'joint_development') {
+    const jdaDoc = documentsWithExtraction.find(d => d.kind === 'joint_development_agreement');
+    const ratioField = jdaDoc?.extracted.find(f => f.key === 'jdaSharingRatio');
+    if (jdaDoc && ratioField) {
+      const evidenceId = evidence.add({
+        statement: `JDA sharing ratio ${ratioField.value} (owner:developer), as stated in ${jdaDoc.fileName}.`,
+        sourceType: 'document',
+        sourceRef: jdaDoc.id,
+        sourceLabel: jdaDoc.fileName,
+        confidence: ratioField.confidence,
+      });
+      jdSplit = assessJdSplit({
+        offeredRatio: ratioField.value,
+        sourceDocumentId: jdaDoc.id,
+        residualAnchor: anchors.find(a => a.method === 'residual_development'),
+        landRateAnchor: anchors.find(a => a.method === 'land_rate'),
+        plotAreaSqm: identity.plotAreaSqm,
+        currency: identity.currency,
+        money: prose,
+        evidenceIds: [evidenceId],
+      });
+    }
+  }
+
   const marketContext: MarketContext = {
     medianPricePerSqm: locality.medianPricePerSqm,
     yoyChangePct: locality.yoyChangePct,
@@ -4760,6 +4829,7 @@ export function runScreen(input: {
     forcedSale,
     offer,
     waterExposure: locality.waterExposure,
+    jdSplit,
     recommendation,
   };
 
@@ -4795,6 +4865,17 @@ export function runScreen(input: {
   // case whose documents simply do not speak to ownership.
   if (analysis.graph.nodes.length > 0) {
     result.titleGraph = analysis.summary;
+    // The parcel's own registered price history, from the chain just built.
+    // Inside this branch deliberately: with no graph there are no chains, and
+    // a trajectory computed from nothing would be the empty-finding problem
+    // the branch above exists to avoid.
+    result.priceTrajectory = buildPriceTrajectory({
+      chains: analysis.summary.chains,
+      indicative: indicativeValue,
+      generatedAt: now,
+      currency: identity.currency,
+      money: prose,
+    });
   }
   const playbooks = runPlaybooks({ ...graphCase, result }, result, now);
   if (playbooks.length > 0) {

@@ -136,6 +136,7 @@ function tokensOf(record: LlmCallRecord): TokenCounts {
     inputTokens: u?.inputTokens ?? 0,
     outputTokens: u?.outputTokens ?? 0,
     cacheReadTokens: u?.cacheReadTokens ?? 0,
+    cacheWriteTokens: u?.cacheWriteTokens ?? 0,
   };
 }
 
@@ -195,6 +196,7 @@ export function providerPerformance(records: readonly LlmCallRecord[]): Provider
     degraded: number;
     inputTokens: number;
     cacheReadTokens: number;
+    cacheWriteTokens: number;
     usages: AgentUsage[];
     confidence: PriceConfidence;
   }
@@ -215,6 +217,7 @@ export function providerPerformance(records: readonly LlmCallRecord[]): Provider
         degraded: 0,
         inputTokens: 0,
         cacheReadTokens: 0,
+        cacheWriteTokens: 0,
         usages: [],
         confidence: 'exact',
       };
@@ -231,6 +234,7 @@ export function providerPerformance(records: readonly LlmCallRecord[]): Provider
     if ((record.capabilityGaps?.length ?? 0) > 0) bucket.degraded++;
     bucket.inputTokens += tokens.inputTokens;
     bucket.cacheReadTokens += tokens.cacheReadTokens;
+    bucket.cacheWriteTokens += tokens.cacheWriteTokens ?? 0;
     bucket.usages.push({ ...tokens, estimatedCostUsd: price.costUsd });
     bucket.confidence = price.confidence;
   }

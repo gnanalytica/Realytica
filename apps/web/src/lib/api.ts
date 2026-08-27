@@ -29,6 +29,14 @@ import type {
   ProjectIntent,
   ProjectKind,
   ScreenResult,
+  CaseRequest,
+  RequestRecipient,
+  RequestStatus,
+  TechnicalFinding,
+  TechnicalFindingDraft,
+  TechnicalSystem,
+  TechnicalFindingPatch,
+  TechnicalFindingReviewState,
   TelemetrySummary,
   UpdateCaseRequest,
 } from '@realytica/shared';
@@ -104,6 +112,21 @@ export interface IntakeEnvelope {
   readout: IntakeReadout;
 }
 
+/**
+ * Where one document's bytes live.
+ *
+ * A standalone function as well as an `api` method because both viewers need
+ * it — the preview modal builds an iframe `src`, the cockpit's viewer fetches
+ * it — and two hand-written copies of a URL is how a route comes to be
+ * renamed in one place and not the other.
+ *
+ * `download` forces the attachment path server-side, so the same URL backs
+ * the viewer and the download button.
+ */
+export function documentFileUrl(id: string, docId: string, opts?: { download?: boolean }): string {
+  return `${BASE}/cases/${id}/documents/${docId}/file${opts?.download ? '?download=1' : ''}`;
+}
+
 export const api = {
   health: () => request<HealthResponse>('/health'),
 
@@ -121,13 +144,20 @@ export const api = {
 
   deleteCase: (id: string) => request<void>(`/cases/${id}`, { method: 'DELETE' }),
 
-  uploadDocuments: (id: string, files: File[]) => {
+  uploadDocuments: (id: string, files: File[], capture?: { zone?: string; system?: TechnicalSystem }) => {
     const form = new FormData();
     files.forEach((f) => form.append('files', f));
+    // Capture-time mapping: applied server-side to the image files only.
+    if (capture?.zone) form.append('captureZone', capture.zone);
+    if (capture?.system) form.append('captureSystem', capture.system);
     return request<CaseDocument[]>(`/cases/${id}/documents`, { method: 'POST', body: form });
   },
 
-  updateDocument: (id: string, docId: string, body: { kind?: DocumentKind; notes?: string }) =>
+  updateDocument: (
+    id: string,
+    docId: string,
+    body: { kind?: DocumentKind; notes?: string; captureZone?: string | null; captureSystem?: TechnicalSystem | null },
+  ) =>
     request<CaseDocument>(`/cases/${id}/documents/${docId}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   deleteDocument: (id: string, docId: string) =>
@@ -141,8 +171,7 @@ export const api = {
    * request itself. `download` swaps the route to the attachment path, so the
    * viewer and the save button share one address.
    */
-  documentFileUrl: (id: string, docId: string, opts?: { download?: boolean }) =>
-    `${BASE}/cases/${id}/documents/${docId}/file${opts?.download ? '?download=1' : ''}`,
+  documentFileUrl,
 
   /** Change who the case is written for. Does not re-screen — see the route. */
   setLens: (id: string, lens: LensKey) =>
@@ -208,6 +237,41 @@ export const api = {
       body: JSON.stringify({ done }),
     }),
 
+  createTechnicalFinding: (id: string, draft: TechnicalFindingDraft) =>
+    request<TechnicalFinding>(`/cases/${id}/technical-findings`, { method: 'POST', body: JSON.stringify(draft) }),
+
+  updateTechnicalFinding: (id: string, findingId: string, patch: TechnicalFindingPatch) =>
+    request<TechnicalFinding>(`/cases/${id}/technical-findings/${findingId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  reviewTechnicalFinding: (id: string, findingId: string, reviewState: Extract<TechnicalFindingReviewState, 'accepted' | 'rejected'>) =>
+    request<TechnicalFinding>(`/cases/${id}/technical-findings/${findingId}/review`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reviewState }),
+    }),
+
+  deleteTechnicalFinding: (id: string, findingId: string) =>
+    request<void>(`/cases/${id}/technical-findings/${findingId}`, { method: 'DELETE' }),
+
+  createRequests: (
+    id: string,
+    items: { domain: string; what: string; why: string; recipient: RequestRecipient; dueAt?: string; originGapId?: string }[],
+  ) => request<CaseRequest[]>(`/cases/${id}/requests`, { method: 'POST', body: JSON.stringify({ items }) }),
+
+  updateRequest: (
+    id: string,
+    requestId: string,
+    body: { status?: RequestStatus; recipient?: RequestRecipient; dueAt?: string | null; answeredWithDocumentId?: string | null },
+  ) => request<CaseRequest>(`/cases/${id}/requests/${requestId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  deleteRequest: (id: string, requestId: string) =>
+    request<void>(`/cases/${id}/requests/${requestId}`, { method: 'DELETE' }),
+
+  setTechnicalDocumentProvided: (id: string, itemId: string, provided: boolean) =>
+    request<{ technicalDocumentsProvided: Record<string, boolean> }>(`/cases/${id}/technical-documents`, {
+      method: 'PATCH',
+      body: JSON.stringify({ itemId, provided }),
+    }),
+
   compare: (caseIds: string[]) =>
     request<ComparisonResult>('/compare', { method: 'POST', body: JSON.stringify({ caseIds }) }),
 
@@ -232,10 +296,17 @@ export const api = {
       body: JSON.stringify({ agents }),
     }),
 
-  askCopilot: (id: string, question: string) =>
-    request<{ userTurn: CopilotTurn; assistantTurn: CopilotTurn }>(`/cases/${id}/agents/copilot`, {
+  askCopilot: (id: string, question: string, viewContext?: string) =>
+    request<{
+      userTurn: CopilotTurn;
+      assistantTurn: CopilotTurn;
+      /** One line per user command the turn executed (the authorship law's acting half). */
+      appliedCommands?: string[];
+      /** Views the person asked chat to open; the caller navigates to the first. */
+      navigations?: { target: string }[];
+    }>(`/cases/${id}/agents/copilot`, {
       method: 'POST',
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, viewContext }),
     }),
 
   clearConversation: (id: string) => request<void>(`/cases/${id}/agents/conversation`, { method: 'DELETE' }),

@@ -963,7 +963,7 @@ export default function NewCase() {
             icon={<LandPlot size={16} />}
           />
           <CardBody className="space-y-6">
-            <Callout tone="neutral" title="Everything here is optional">
+            <Callout tone="neutral" title="Everything here is optional" collapsible>
               Facing and layout approval default to "Unknown" so the case can still be created — Property Screen will report the rest as
               unresolved rather than block case creation. But the more you can confirm now, the sharper the screen.
             </Callout>
@@ -1102,7 +1102,7 @@ export default function NewCase() {
             icon={<Scale size={16} />}
           />
           <CardBody className="space-y-6">
-            <Callout tone="neutral" title="Everything here is optional">
+            <Callout tone="neutral" title="Everything here is optional" collapsible>
               Leave anything you don't know as "Unknown" — Property Screen will report those checks as unresolved rather than block case
               creation. But the more you can confirm now, the sharper the screen.
             </Callout>
@@ -1441,7 +1441,7 @@ export default function NewCase() {
             </CardBody>
           </Card>
 
-          <Callout tone="neutral" title="What Property Screen is — and isn't">
+          <Callout tone="neutral" title="What Property Screen is — and isn't" collapsible>
             Property Screen gives you an evidence-based read on whether this property is worth pursuing: an indicative value range, the
             drivers behind it, material risks and what's missing. It is <span className="font-medium text-ink">not</span> a certified
             valuation, a legal title certificate, or an engineering inspection — treat it as the first, structured look before you commit

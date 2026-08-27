@@ -27,8 +27,8 @@
  */
 
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
-import { buildStaleness } from '@realytica/shared';
-import type { Comparable, LocalityReference, PropertyCase, ReferenceData } from '@realytica/shared';
+import { buildDdGraph, buildStaleness, findNodes, serializeSubgraph, subgraph, technicalDocumentGaps, TECHNICAL_SYSTEM_LABEL, trace } from '@realytica/shared';
+import type { Comparable, DdGraph, LocalityReference, PropertyCase, ReferenceData, TechnicalDdPhase, TechnicalSystem } from '@realytica/shared';
 
 /**
  * Tools are declared with `betaTool` and raw JSON Schema rather than
@@ -57,10 +57,22 @@ const EVIDENCE_SOURCE_TYPES = ['document', 'external_dataset', 'comparable', 'us
 const RISK_SEVERITIES = ['info', 'warning', 'serious', 'critical'] as const;
 const RISK_STATUSES = ['open', 'mitigated', 'accepted'] as const;
 const COMPLIANCE_VERDICTS = ['clear', 'attention', 'blocker', 'unknown'] as const;
+const TECHNICAL_SYSTEMS = ['architectural', 'structural', 'mep_hvac', 'mep_phe', 'mep_fire', 'mep_electrical', 'mep_ibms', 'statutory', 'ehs', 'project_ops'] as const;
+const TECHNICAL_REVIEW_STATES = ['proposed', 'accepted', 'rejected'] as const;
+const TECHNICAL_DD_PHASES = ['built', 'proposed'] as const;
 
 /** Every tool this factory returns is a `BetaRunnableTool` — safe to hand straight to `toolRunner`. */
 export function createCaseTools(caseData: PropertyCase, refData: ReferenceData) {
   const result = caseData.result;
+
+  // Built once per tool-set, lazily: the graph is a deterministic projection
+  // over the case's stores, and one copilot run works against one snapshot of
+  // it — the same one-case-one-closure rule the rest of this factory follows.
+  let ddGraph: DdGraph | undefined;
+  const graph = (): DdGraph => {
+    if (!ddGraph) ddGraph = buildDdGraph(caseData, new Date().toISOString());
+    return ddGraph;
+  };
 
   const listEvidence = betaTool({
     name: 'list_evidence',
@@ -319,6 +331,112 @@ export function createCaseTools(caseData: PropertyCase, refData: ReferenceData) 
     },
   });
 
+  const getTechnicalFindings = betaTool({
+    name: 'get_technical_findings',
+    description:
+      'Fetch technical/construction due-diligence findings on this case — building-condition defects (structural, MEP, fire, electrical, ' +
+      "statutory, EHS), each with its severity, recommendation, code citation and remediation status. This is a different axis from " +
+      'get_risks: risks are about title, value and planning; these are about the physical building. `reviewState` distinguishes an ' +
+      "accepted finding (a fact about the case) from one still `proposed` (a draft — including any this run itself has queued — " +
+      'awaiting a person\'s review) — never present a proposed finding as settled. Call this before propose_technical_finding, so you do ' +
+      'not draft a finding that already exists.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['system', 'reviewState'],
+      properties: {
+        system: { type: ['string', 'null'], enum: [...TECHNICAL_SYSTEMS, null], description: 'Restrict to one discipline, or null for all.' },
+        reviewState: {
+          type: ['string', 'null'],
+          enum: [...TECHNICAL_REVIEW_STATES, null],
+          description: 'Restrict to this review state, or null for all.',
+        },
+      },
+    } as const,
+    run: async ({ system, reviewState }) => {
+      const findings = (caseData.technicalFindings ?? []).filter(
+        f => (!system || f.system === system) && (!reviewState || f.reviewState === reviewState),
+      );
+      return JSON.stringify(findings);
+    },
+  });
+
+  const getTechnicalDocumentStatus = betaTool({
+    name: 'get_technical_document_status',
+    description:
+      'Fetch the technical-DD required-document checklist for one phase (Phase I: the built building, or Phase II: a proposed add-on), ' +
+      'and which items this case has marked as supplied. Use this to tell the user exactly what is still missing, by discipline, rather ' +
+      'than asking generically for "more documents."',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['phase'],
+      properties: {
+        phase: { type: 'string', enum: [...TECHNICAL_DD_PHASES], description: 'Which building this checklist is for.' },
+      },
+    } as const,
+    run: async ({ phase }) => {
+      const typedPhase = phase as TechnicalDdPhase;
+      const missing = technicalDocumentGaps(typedPhase, caseData.technicalDocumentsProvided);
+      return JSON.stringify({
+        phase: typedPhase,
+        missingCount: missing.length,
+        missing: missing.map(item => ({ id: item.id, system: item.system, systemLabel: TECHNICAL_SYSTEM_LABEL[item.system as TechnicalSystem], label: item.label })),
+      });
+    },
+  });
+
+  const getSubgraph = betaTool({
+    name: 'get_subgraph',
+    description:
+      "Query the case's evidence graph: entities (parcels, parties, approvals, zones), evidence (documents, photos), claims (facts with " +
+      'provenance, contradictions) and judgements (checks, findings, risks, actions), joined by typed edges. Pass a search term (a place, ' +
+      'a party, a topic like "khata", or an exact node/evidence id) and a hop count; the result is the matching neighbourhood as ' +
+      '[id] node and [from] -edge-> [to] lines — and it always includes any contradiction or open blocker adjacent to the neighbourhood, ' +
+      'so read those before answering. Every [id] is citable. Prefer this over reading whole lists when the question is about how things ' +
+      'connect: what supports a conclusion, what disagrees, what depends on what.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['query', 'hops'],
+      properties: {
+        query: { type: 'string', description: 'A search term matched against node labels, or an exact node/evidence id.' },
+        hops: { type: 'number', minimum: 1, maximum: 3, description: 'How many hops of neighbourhood to include (1-3).' },
+      },
+    } as const,
+    run: async ({ query, hops }) => {
+      const seeds = findNodes(graph(), String(query ?? ''));
+      if (seeds.length === 0) {
+        return JSON.stringify({ error: `Nothing in the evidence graph matches "${query}". Try a different term, or an id from another tool.` });
+      }
+      const clamped = Math.max(1, Math.min(3, Number(hops) || 1));
+      const sub = subgraph(graph(), seeds.slice(0, 5).map(n => n.id), clamped);
+      return serializeSubgraph(sub);
+    },
+  });
+
+  const traceConclusion = betaTool({
+    name: 'trace_conclusion',
+    description:
+      'Trace one conclusion — a risk, check, finding, action or contradiction — down through everything that supports it: the claims it ' +
+      'rests on, the documents and photos those claims come from, and any contradiction touching the chain. Use this whenever asked WHY ' +
+      'something was concluded, or before disputing a conclusion. If the trace reaches no evidence, that absence is the answer: say the ' +
+      'conclusion is not evidenced, never invent support for it.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['nodeId'],
+      properties: {
+        nodeId: { type: 'string', description: 'The node id to trace — a risk id, an [ev:...] id, or an id returned by get_subgraph.' },
+      },
+    } as const,
+    run: async ({ nodeId }) => {
+      const cone = trace(graph(), String(nodeId ?? ''));
+      if (!cone) return JSON.stringify({ error: `No node "${nodeId}" in the evidence graph. get_subgraph can find valid ids.` });
+      return serializeSubgraph(cone);
+    },
+  });
+
   const getStaleness = betaTool({
     name: 'get_staleness',
     description:
@@ -343,6 +461,10 @@ export function createCaseTools(caseData: PropertyCase, refData: ReferenceData) 
     getForcedSaleValue,
     getSiteContext,
     getWaterAndConstraints,
+    getTechnicalFindings,
+    getTechnicalDocumentStatus,
+    getSubgraph,
+    traceConclusion,
     getStaleness,
   ];
 }

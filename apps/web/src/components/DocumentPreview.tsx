@@ -53,7 +53,18 @@ export interface DocumentPreviewProps {
 }
 
 export function DocumentPreview({ caseId, doc, onClose, page, actions }: DocumentPreviewProps) {
-  const kind = inlineKind(doc.mimeType);
+  /*
+   * The DECLARED type only picks which element to mount before the probe
+   * answers; the SERVED type is what decides.
+   *
+   * The server does not read `doc.mimeType` at all any more — it sniffs the
+   * bytes — so the two genuinely disagree on real files: a PDF uploaded by a
+   * tool that announced `application/octet-stream` is served as a PDF and
+   * declared as neither. Choosing the element from the declaration would show
+   * a download panel for a file the server is happily rendering.
+   */
+  const [servedType, setServedType] = useState<string | null>(null);
+  const kind = inlineKind(servedType ?? doc.mimeType);
   const src = api.documentFileUrl(caseId, doc.id);
   // The fragment goes on the frame's src only — it is a viewer instruction,
   // not part of the request, and appending it to the probe or the download
@@ -61,7 +72,7 @@ export function DocumentPreview({ caseId, doc, onClose, page, actions }: Documen
   const frameSrc = page && page > 0 ? `${src}#page=${page}` : src;
   const downloadHref = api.documentFileUrl(caseId, doc.id, { download: true });
 
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>(kind === 'pdf' ? 'loading' : 'ready');
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorText, setErrorText] = useState<string | null>(null);
 
   // Escape closes, and the page behind does not scroll while this is open.
@@ -79,23 +90,25 @@ export function DocumentPreview({ caseId, doc, onClose, page, actions }: Documen
   }, [onClose]);
 
   /*
-   * Only the PDF path pays for a probe.
+   * Every path pays for the probe now, and it earns its keep twice.
    *
-   * An <iframe> fires `load` for an error page as readily as for a PDF, so it
-   * cannot tell us whether the bytes arrived — a HEAD request is the only way
-   * to turn "this document was seeded without a file" into a sentence rather
-   * than a blank grey rectangle. An <img> has no such problem: it fires
-   * `error` on a non-image response, so probing one would be a second round
-   * trip to learn what the first will tell us anyway.
+   * An <iframe> fires `load` for an error page as readily as for a PDF, so a
+   * HEAD request is the only way to turn "this document was seeded without a
+   * file" into a sentence rather than a blank grey rectangle. That was the
+   * original reason and it applied to PDFs alone — an <img> reports its own
+   * failure. The second reason applies to everything: the response header is
+   * where the SERVED type is, and the server decides that by sniffing the
+   * bytes rather than by trusting what the upload declared.
    */
   useEffect(() => {
-    if (kind !== 'pdf') return;
     let cancelled = false;
     void (async () => {
       try {
         const res = await fetch(src, { method: 'HEAD' });
         if (cancelled) return;
         if (res.ok) {
+          const served = (res.headers.get('Content-Type') ?? '').split(';')[0].trim().toLowerCase();
+          if (served) setServedType(served);
           setState('ready');
           return;
         }

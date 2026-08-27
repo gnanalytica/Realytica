@@ -504,7 +504,7 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
       )}
 
       {!persists ? (
-        <Callout tone="warning" title="Changes are held in this page only">
+        <Callout tone="warning" title="Changes are held in this page only" collapsible>
           No prompt endpoint is available in this build, so versions created here live in the browser tab and vanish on
           reload. Guardrail results shown for them are this page's own evaluation, not a registry's.
         </Callout>

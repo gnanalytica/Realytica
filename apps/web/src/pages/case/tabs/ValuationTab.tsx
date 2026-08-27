@@ -16,6 +16,8 @@ import {
 import { AnchorWeightChart, ComparablesChart, ResidualWaterfallChart, ValueRangeChart } from '../../../components/charts';
 import { EvidenceLink } from '../../../components/EvidenceLink';
 import { AssessmentMethodCard } from '../../../components/AssessmentMethodCard';
+import { JdSplitCard } from '../../../components/JdSplitCard';
+import { PriceTrajectoryCard } from '../../../components/PriceTrajectoryCard';
 import { isLandPropertyType, localityBenchmarkPerSqm } from '../../../components/PlotFactsCard';
 import { api } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
@@ -157,6 +159,7 @@ export default function ValuationTab({ caseData, result, refresh, running }: Tab
           anchors={anchors}
           onChangeKind={setProjectKind}
           busy={settingKind || running}
+          reference={caseData.reference}
         />
       )}
 
@@ -174,10 +177,16 @@ export default function ValuationTab({ caseData, result, refresh, running }: Tab
         </CardBody>
       </Card>
 
-      <Callout tone="neutral" title="This is an indicative screening range">
+      <Callout tone="neutral" title="This is an indicative screening range" collapsible>
         Not a certified valuation, a legal title opinion, or a formal mortgage valuation. Use it to decide whether further diligence is
         worth the effort — not as the basis for a lending or legal decision.
       </Callout>
+
+      {/* Directly under the range on purpose: on a joint development the
+          ratio, not the range, is the number the deal is signed on. */}
+      {result.jdSplit && <JdSplitCard split={result.jdSplit} evidence={result.evidence} />}
+
+      {result.priceTrajectory && <PriceTrajectoryCard trajectory={result.priceTrajectory} />}
 
       <Card>
         <CardHeader title="Value anchors" />
@@ -254,7 +263,7 @@ export default function ValuationTab({ caseData, result, refresh, running }: Tab
         <CardBody>
           {isLand ? (
             <div className="mb-3">
-              <Callout tone="info" title="Land-rate basis">
+              <Callout tone="info" title="Land-rate basis" collapsible>
                 Every figure below is a rate per {unitLabel} of <span className="font-medium text-ink">plot area</span> — benchmarked
                 against the locality's land rate, not the built-up price basis used for apartments and villas.
               </Callout>

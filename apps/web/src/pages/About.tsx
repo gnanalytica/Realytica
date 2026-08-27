@@ -217,7 +217,7 @@ export default function About() {
               A deterministic screening engine — same inputs always produce the same evidence-backed result.
             </li>
           </ul>
-          <Callout tone="warning" title="Geographic coverage in this build">
+          <Callout tone="warning" title="Geographic coverage in this build" collapsible>
             Phase 1 is deliberately one state/metro. Indian rules here are calibrated for{' '}
             <strong>Karnataka (Bengaluru)</strong> — stamp duty, registration fees and the property-register
             instrument (the Khata extract) are all set at state level in India, so they are not portable to

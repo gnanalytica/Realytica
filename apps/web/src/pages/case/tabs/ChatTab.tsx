@@ -57,8 +57,11 @@ export default function ChatTab({ caseData, result, refresh, runScreen, running,
       setAsking(true);
       setDraft('');
       try {
-        await api.askCopilot(caseData.id, q);
+        const response = await api.askCopilot(caseData.id, q);
         await refresh();
+        // "Open compliance" said in chat is the person navigating — follow it.
+        const target = response.navigations?.[0]?.target;
+        if (target) goToTab(target);
       } catch (e) {
         toast(e instanceof Error ? e.message : 'That question did not get through.', 'critical');
         setDraft(q);
@@ -66,7 +69,7 @@ export default function ChatTab({ caseData, result, refresh, runScreen, running,
         setAsking(false);
       }
     },
-    [caseData.id, refresh, toast, asking],
+    [caseData.id, refresh, toast, asking, goToTab],
   );
 
   /**
@@ -179,6 +182,22 @@ export default function ChatTab({ caseData, result, refresh, runScreen, running,
                   >
                     {t.citedEvidenceIds.length} source{t.citedEvidenceIds.length === 1 ? '' : 's'} cited
                   </button>
+                ) : null}
+                {/* Graph nodes the answer named, as chips that focus the
+                    explorer — the chat→canvas half of the shared context. */}
+                {t.citedNodeIds && t.citedNodeIds.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {t.citedNodeIds.map((nodeId) => (
+                      <button
+                        key={nodeId}
+                        onClick={() => goToTab(`diligence?view=graph&node=${encodeURIComponent(nodeId)}`)}
+                        className="rounded-full bg-sunken px-2 py-0.5 font-mono text-[10px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:text-ink"
+                        title="Focus this node in the graph explorer"
+                      >
+                        {nodeId.length > 26 ? `${nodeId.slice(0, 26)}…` : nodeId}
+                      </button>
+                    ))}
+                  </div>
                 ) : null}
               </div>
             </div>

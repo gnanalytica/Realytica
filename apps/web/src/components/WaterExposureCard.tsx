@@ -42,7 +42,7 @@ export function WaterExposureCard({ water, locality }: { water: WaterExposureRef
           <span className="text-[12px] text-ink-muted">{water.lakeChain}</span>
         </div>
 
-        <Callout tone="info" title="This describes the locality, not this parcel">
+        <Callout tone="info" title="This describes the locality, not this parcel" collapsible>
           A site on high ground in a high-exposure locality does not flood, and a site on a filled tank bed in a
           low-exposure one may flood every year. Take the levels for this survey number against the nearest drain and
           ask the neighbours what the last two monsoons did — that is the only thing that answers it for this property.

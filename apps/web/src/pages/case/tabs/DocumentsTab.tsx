@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -17,11 +18,13 @@ import {
   Loader2,
   Ruler,
   ScrollText,
+  Eye,
   Trash2,
   UploadCloud,
   Zap,
 } from 'lucide-react';
-import type { CaseDocument, DocumentKind, ExtractedField } from '@realytica/shared';
+import type { CaseDocument, DocumentKind, ExtractedField, TechnicalSystem } from '@realytica/shared';
+import { TECHNICAL_SYSTEMS, TECHNICAL_SYSTEM_LABEL } from '@realytica/shared';
 import {
   Badge,
   Button,
@@ -29,6 +32,7 @@ import {
   CardBody,
   CardHeader,
   EmptyState,
+  Input,
   Modal,
   ProgressBar,
   Select,
@@ -123,6 +127,7 @@ interface RequiredRow {
 
 export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
   const toast = useToast();
+  const navigate = useNavigate();
   const { data: reference } = useAsync(() => api.reference(), []);
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -209,6 +214,15 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
       toast(`Reclassified as "${DOCUMENT_KIND_LABEL[kind]}" — extracted fields refreshed.`, 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Failed to update the document.', 'critical');
+    }
+  };
+
+  const handleCaptureChange = async (doc: CaseDocument, patch: { captureZone?: string | null; captureSystem?: TechnicalSystem | null }) => {
+    try {
+      await api.updateDocument(caseData.id, doc.id, patch);
+      await refresh();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Failed to update the capture mapping.', 'critical');
     }
   };
 
@@ -337,7 +351,7 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
                     <th className="px-3 py-2">Uploaded</th>
                     <th className="px-3 py-2">Kind</th>
                     <th className="px-3 py-2">Confidence</th>
-                    <th className="w-10 px-3 py-2" />
+                    <th className="w-16 px-3 py-2" />
                   </tr>
                 </thead>
                 <tbody>
@@ -348,9 +362,11 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
                       expanded={expandedIds.has(doc.id)}
                       onToggle={() => toggleExpand(doc.id)}
                       onKindChange={(kind) => void handleKindChange(doc, kind)}
+                      onCaptureChange={(patch) => void handleCaptureChange(doc, patch)}
                       onDelete={() => setDocPendingDelete(doc)}
                       onPreview={() => setDocPreview({ doc })}
                       onPreviewPage={(page) => setDocPreview({ doc, page })}
+                      onOpen={() => navigate(`/cases/${caseData.id}/cockpit?doc=${doc.id}`)}
                     />
                   ))}
                 </tbody>
@@ -489,17 +505,23 @@ function DocRow({
   expanded,
   onToggle,
   onKindChange,
+  onCaptureChange,
   onDelete,
   onPreview,
   onPreviewPage,
+  onOpen,
 }: {
   doc: CaseDocument;
   expanded: boolean;
   onToggle: () => void;
   onKindChange: (kind: DocumentKind) => void;
+  onCaptureChange: (patch: { captureZone?: string | null; captureSystem?: TechnicalSystem | null }) => void;
   onDelete: () => void;
+  /** Quick look, in a modal over this table. */
   onPreview: () => void;
   onPreviewPage: (page?: number) => void;
+  /** Open the file in the cockpit's proof pane, to work against it. */
+  onOpen: () => void;
 }) {
   const Icon = KIND_ICON[doc.kind];
   const needsReview = doc.classificationConfidence < REVIEW_THRESHOLD && !doc.kindConfirmedByUser;
@@ -521,7 +543,7 @@ function DocRow({
           <div className="flex items-start gap-2">
             <Icon size={15} className="mt-0.5 shrink-0 text-ink-muted" />
             <div className="min-w-0">
-              {/*
+{/*
                 * The filename opens the file. It is the thing a reader
                 * reaches for first, and until there was a route to serve the
                 * bytes it was inert text — a case could cite a document by
@@ -535,6 +557,19 @@ function DocRow({
               >
                 {doc.fileName}
               </button>
+              {doc.captureZone || doc.captureSystem || doc.captureLat !== undefined || doc.captureTakenAt ? (
+                <div className="mt-0.5 truncate text-[11px] text-ink-muted">
+                  Captured:{' '}
+                  {[
+                    doc.captureSystem ? TECHNICAL_SYSTEM_LABEL[doc.captureSystem] : null,
+                    doc.captureZone,
+                    doc.captureLat !== undefined && doc.captureLng !== undefined ? `${doc.captureLat}, ${doc.captureLng}` : null,
+                    doc.captureTakenAt ? `taken ${doc.captureTakenAt.slice(0, 10)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </div>
+              ) : null}
               {needsReview ? (
                 <Badge tone="warning" className="mt-1">
                   Needs review
@@ -568,6 +603,13 @@ function DocRow({
           <div className="tabular mt-1 text-[11px] text-ink-muted">{Math.round(doc.classificationConfidence * 100)}%</div>
         </td>
         <td className="px-3 py-2 text-right align-top">
+          <button
+            onClick={onOpen}
+            aria-label={`Open ${doc.fileName}`}
+            className="rounded p-1 text-ink-muted hover:bg-brand-soft hover:text-brand"
+          >
+            <Eye size={14} />
+          </button>
           <button onClick={onDelete} aria-label={`Delete ${doc.fileName}`} className="rounded p-1 text-ink-muted hover:bg-critical/10 hover:text-critical">
             <Trash2 size={14} />
           </button>
@@ -577,11 +619,66 @@ function DocRow({
         <tr className="border-b border-hairline bg-sunken/40 last:border-0">
           <td />
           <td colSpan={7} className="px-3 py-3">
+{doc.kind === 'photograph' ? <CaptureEditor doc={doc} onChange={onCaptureChange} /> : null}
             <ExtractedFieldsTable fields={doc.extracted} onOpenSource={onPreviewPage} />
           </td>
         </tr>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Where a photograph was taken and what it looks at. The mapping is the
+ * person's own statement about their own photo, so it saves directly — no
+ * review step — and connects the photo into the evidence graph as
+ * located_in(zone) and about(system).
+ */
+function CaptureEditor({
+  doc,
+  onChange,
+}: {
+  doc: CaseDocument;
+  onChange: (patch: { captureZone?: string | null; captureSystem?: TechnicalSystem | null }) => void;
+}) {
+  const [zone, setZone] = useState(doc.captureZone ?? '');
+  const commitZone = () => {
+    const next = zone.trim();
+    if (next !== (doc.captureZone ?? '')) onChange({ captureZone: next || null });
+  };
+  return (
+    <div className="mb-3 flex flex-wrap items-end gap-3 rounded-lg bg-surface p-2.5 ring-1 ring-inset ring-[var(--ring)]">
+      <label className="flex flex-col gap-1 text-[11px] font-medium text-ink-muted">
+        Asset system
+        <Select
+          value={doc.captureSystem ?? ''}
+          onChange={(e) => onChange({ captureSystem: e.target.value ? (e.target.value as TechnicalSystem) : null })}
+          aria-label={`Asset system for ${doc.fileName}`}
+          className="!h-8 min-w-[10rem]"
+        >
+          <option value="">Not mapped</option>
+          {TECHNICAL_SYSTEMS.map((s) => (
+            <option key={s} value={s}>
+              {TECHNICAL_SYSTEM_LABEL[s]}
+            </option>
+          ))}
+        </Select>
+      </label>
+      <label className="flex flex-col gap-1 text-[11px] font-medium text-ink-muted">
+        Zone
+        <Input
+          value={zone}
+          onChange={(e) => setZone(e.target.value)}
+          onBlur={commitZone}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitZone();
+          }}
+          placeholder="e.g. Basement 2, DG room"
+          aria-label={`Zone for ${doc.fileName}`}
+          className="!h-8 min-w-[14rem]"
+        />
+      </label>
+    </div>
   );
 }
 

@@ -35,13 +35,17 @@ import type {
   PropertyCase,
   ReferenceData,
   RetrievalSelection,
+  TechnicalFindingDraft,
 } from '@realytica/shared';
-import { buildTitleGraph } from '@realytica/shared';
+import { buildDdGraph, buildTitleGraph } from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
 import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { retrieveCaseContext } from '../retrieval';
 import { renderMemoryForPrompt } from '../memory';
 import { createCaseTools } from '../tools/case-tools';
+import { createProposeTools } from '../tools/propose-tools';
+import { createCommandTools } from '../tools/command-tools';
+import type { CopilotCommand, CopilotNavigation } from '../tools/command-tools';
 import { describeGap } from '../routing';
 import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute, textOf } from '../providers';
 import type { LlmClientTool, LlmMessage } from '../providers';
@@ -51,6 +55,13 @@ export interface RunCopilotParams {
   caseData: PropertyCase;
   refData: ReferenceData;
   question: string;
+  /**
+   * What the analyst is looking at right now — "Diligence → Technical", a
+   * finding id, a document name. Injected into the model's message only,
+   * never stored on the turn: the transcript records what was asked, not
+   * where the asker's window happened to be scrolled.
+   */
+  viewContext?: string;
   /** Prior turns of this conversation, oldest first. Does not include `question` itself. */
   history?: CopilotTurn[];
   /** ISO timestamp used to date the produced turn/evidence — not wall-clock, so runs are reproducible. */
@@ -71,6 +82,22 @@ export interface RunCopilotParams {
 export interface RunCopilotResult {
   run: AgentRun;
   turn: CopilotTurn;
+  /**
+   * Technical findings this turn drafted via `propose_technical_finding`,
+   * queued but not yet a fact about the case. Empty on every early-exit path
+   * (no credentials, no answer, an error) — a run that never reached the
+   * tool loop proposed nothing. The caller (the API route, never this
+   * package) persists each one with `reviewState: 'proposed'`.
+   */
+  proposedFindings: TechnicalFindingDraft[];
+  /**
+   * User commands this turn collected (command-tools.ts) — the person acting
+   * through chat, validated against the case at collection time. The API
+   * route applies them and saves; this package still touches no store.
+   */
+  commands: CopilotCommand[];
+  /** Views the person asked chat to open. Forwarded to the client, which navigates. */
+  navigations: CopilotNavigation[];
 }
 
 const MAX_TOOL_ITERATIONS = 8;
@@ -88,6 +115,25 @@ const MAX_TOOL_ITERATIONS = 8;
 
 const REFUSAL_LINE_RE = /\n?REFUSED_FOR_LACK_OF_EVIDENCE:\s*(true|false)\s*$/i;
 const CITATION_RE = /\[ev:([^\]\s]+)\]/g;
+/** Bracketed tokens the graph tools serialise — `[dd-risk-ab12cd34]`, `[risk-...]` — as they reappear in an answer. */
+const NODE_TOKEN_RE = /\[([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/g;
+
+/**
+ * The graph-node citations in an answer, validated against the built graph.
+ * The graph tools serialise every line as `[nodeId] …`, so a model quoting
+ * its own trace naturally carries the ids; only ids the graph actually holds
+ * survive — a bracketed token that resolves to nothing is just prose.
+ * Evidence-ledger ids are excluded: they are already `citedEvidenceIds`, and
+ * one citation must not render as two chips.
+ */
+function extractNodeCitations(rawText: string, validNodeIds: ReadonlySet<string>, evidenceIds: ReadonlySet<string>): string[] {
+  const cited: string[] = [];
+  for (const match of rawText.matchAll(NODE_TOKEN_RE)) {
+    const id = match[1];
+    if (validNodeIds.has(id) && !evidenceIds.has(id) && !cited.includes(id)) cited.push(id);
+  }
+  return cited;
+}
 
 /** Strips the trailing refusal marker, validates inline citations against the real ledger, and reports what happened. */
 function processAnswer(rawText: string, validIds: ReadonlySet<string>): {
@@ -123,7 +169,7 @@ function processAnswer(rawText: string, validIds: ReadonlySet<string>): {
 }
 
 export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotResult> {
-  const { caseId, caseData, refData, question, memory, history = [] } = params;
+  const { caseId, caseData, refData, question, viewContext, memory, history = [] } = params;
   const now = params.now ?? new Date().toISOString();
   const runId = randomUUID();
   const startedAt = new Date().toISOString();
@@ -186,7 +232,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
       citedEvidenceIds: opts.citedEvidenceIds ?? [],
       refusedForLackOfEvidence: opts.refusedForLackOfEvidence ?? false,
     };
-    return { run, turn };
+    return { run, turn, proposedFindings: [], commands: [], navigations: [] };
   };
 
   emit({ kind: 'plan', label: `Answering: "${question.length > 80 ? `${question.slice(0, 80)}…` : question}"` });
@@ -218,7 +264,16 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
    * the loop itself. Neither is a re-implementation of the other: they are the
    * same closure reached two ways.
    */
-  const tools: LlmClientTool[] = createCaseTools(caseData, refData).map(clientToolFromRunnable);
+  // Mutated by the tools' `run()` — see propose-tools.ts and command-tools.ts.
+  // Read back once the loop below finishes; nothing here touches the store.
+  const proposedFindings: TechnicalFindingDraft[] = [];
+  const commands: CopilotCommand[] = [];
+  const navigations: CopilotNavigation[] = [];
+  const tools: LlmClientTool[] = [
+    ...createCaseTools(caseData, refData),
+    ...createProposeTools(caseData, proposedFindings),
+    ...createCommandTools(caseData, commands, navigations),
+  ].map(clientToolFromRunnable);
 
   const messages: LlmMessage[] = [];
   for (const turn of history) {
@@ -270,15 +325,49 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
     });
   }
 
+  /*
+   * The corpus and the question are two content parts, not one string, and the
+   * cache breakpoint sits between them.
+   *
+   * The corpus is by far the largest thing sent on a copilot turn and the
+   * question is a sentence, so putting them in one block meant the whole
+   * corpus sat behind a byte that changes every time and could never be
+   * cached. Split, the corpus is a prefix and the question is the volatile
+   * tail — which is the arrangement `renderCaseContext` was already written
+   * for (see its header) but nothing had yet taken advantage of.
+   *
+   * The guaranteed win is WITHIN a turn, not across turns. `runTools` may go
+   * up to MAX_TOOL_ITERATIONS round trips, and every one of them resends this
+   * message unchanged — so iterations 2..N read the corpus from cache at
+   * roughly a tenth of the input rate. Across turns the hit is likely but not
+   * certain: retrieval is focused on the question (`focus:` above), so a
+   * follow-up on the same subject selects the same sections and hits, while a
+   * question that turns to something else selects differently and pays a
+   * fresh write. That is the right trade — the within-turn saving alone
+   * covers the write — but it is why this is not advertised as free.
+   *
+   * Memory rides on the corpus side deliberately: it is derived from other
+   * cases and does not vary with the question, so it belongs in front of the
+   * breakpoint rather than after it.
+   */
+  const corpusPart = [
+    'Case context (fetched fresh for this turn — treat it as more current than anything said earlier in this conversation):',
+    retrieved.text,
+    ...(memoryBlock ? ['', memoryBlock] : []),
+  ].join('\n');
+
   messages.push({
     role: 'user',
     content: [
-      'Case context (fetched fresh for this turn — treat it as more current than anything said earlier in this conversation):',
-      retrieved.text,
-      ...(memoryBlock ? ['', memoryBlock] : []),
-      '',
-      `Question: ${question}`,
-    ].join('\n'),
+      { type: 'text', text: corpusPart, cacheBreakpoint: true },
+      {
+        type: 'text',
+        text: [
+          `Question: ${question}`,
+          ...(viewContext ? [`(The analyst is currently looking at: ${viewContext}. "This" or "here" likely refers to it.)`] : []),
+        ].join('\n'),
+      },
+    ],
   });
 
   emit({ kind: 'tool_call', label: 'Consulting the case ledger', detail: `${tools.length} read-only tool(s) available` });
@@ -339,6 +428,10 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
   }
 
   const { text, citedEvidenceIds, refusedForLackOfEvidence } = processAnswer(rawText, validEvidenceIds);
+  // The chat→canvas half of the shared selection context: node ids the answer
+  // carried, validated against the same projection the graph tools read.
+  const ddGraph = buildDdGraph(caseData, now);
+  const citedNodeIds = extractNodeCitations(rawText, new Set(ddGraph.nodes.map(n => n.id)), validEvidenceIds);
 
   emit({
     kind: 'message',
@@ -369,10 +462,11 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
     text,
     at: now,
     citedEvidenceIds,
+    ...(citedNodeIds.length > 0 ? { citedNodeIds } : {}),
     refusedForLackOfEvidence,
     toolCalls: steps
       .filter(s => s.kind === 'tool_call' && s.toolName)
       .map(s => ({ name: s.toolName as string, summary: s.label })),
   };
-  return { run, turn };
+  return { run, turn, proposedFindings, commands, navigations };
 }

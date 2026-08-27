@@ -89,7 +89,7 @@ export function BoundaryCard({ caseData, onChanged }: { caseData: PropertyCase; 
               encloses against the extent on record. That comparison is the one finding nothing else on this case can
               produce.
             </p>
-            <Callout tone="neutral" title="There is no “detect boundary” button, on purpose">
+            <Callout tone="neutral" title="There is no “detect boundary” button, on purpose" collapsible>
               A geocoded pin locates a property; it does not describe a parcel. An outline this product drew for itself
               would carry the authority of a survey and the accuracy of a guess.
             </Callout>

@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase } from '@realytica/shared';
+import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase, TechnicalFinding } from '@realytica/shared';
 import { REFERENCE_DATA } from '@realytica/shared';
-import { agentCapability, capabilityWithRoutes, describeError, describeProviders, recallForCase, resolveRoute, runCopilot, runExplorer, runOrchestration, runPropertyDiscovery, type RunOrchestrationResult } from '@realytica/agents';
+import { agentCapability, capabilityWithRoutes, describeError, describeProviders, recallForCase, resolveRoute, runCopilot, runExplorer, runOrchestration, runPropertyDiscovery, type CopilotCommand, type RunOrchestrationResult } from '@realytica/agents';
+import { extractFields } from '@realytica/shared';
 import { memoryStore } from '../memory';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
@@ -232,6 +233,67 @@ caseAgentsRouter.get<{ id: string }>('/stream', async (req, res) => {
   }
 });
 
+/**
+ * Applies the user commands a copilot turn collected — the person acting
+ * through chat, per the authorship law in command-tools.ts. Every command was
+ * validated against this same case object at collection time (same request,
+ * same in-memory case), so each application is a straight mutation mirroring
+ * the corresponding REST route's own semantics. Returns one confirmation
+ * line per applied command for the response payload.
+ */
+function applyCopilotCommands(found: PropertyCase, commands: CopilotCommand[], now: string): string[] {
+  const applied: string[] = [];
+  for (const command of commands) {
+    switch (command.kind) {
+      case 'mark_technical_document': {
+        found.technicalDocumentsProvided = { ...(found.technicalDocumentsProvided ?? {}), [command.itemId]: command.provided };
+        applied.push(`Marked checklist item ${command.itemId} ${command.provided ? 'received' : 'not received'}`);
+        break;
+      }
+      case 'set_risk_status': {
+        const risk = found.result?.risks.find((r) => r.id === command.riskId);
+        if (risk) {
+          risk.status = command.status;
+          applied.push(`Risk "${risk.title}" → ${command.status}`);
+        }
+        break;
+      }
+      case 'set_action_done': {
+        const action = found.result?.actions.find((a) => a.id === command.actionId);
+        if (action) {
+          action.done = command.done;
+          applied.push(`Action "${action.title}" → ${command.done ? 'done' : 'open'}`);
+        }
+        break;
+      }
+      case 'review_technical_finding': {
+        const finding = found.technicalFindings?.find((f) => f.id === command.findingId);
+        // Same guard as the REST review route: only a proposed finding is reviewable.
+        if (finding && finding.reviewState === 'proposed') {
+          finding.reviewState = command.decision;
+          finding.updatedAt = now;
+          applied.push(`Finding "${finding.observation.slice(0, 60)}" → ${command.decision}`);
+        }
+        break;
+      }
+      case 'set_document_kind': {
+        const doc = found.documents.find((d) => d.id === command.documentId);
+        if (doc) {
+          // Mirrors the documents PATCH: a reclassification is a human
+          // confirmation and re-extracts the document's fields.
+          doc.kind = command.docKind;
+          doc.kindConfirmedByUser = true;
+          doc.classificationConfidence = 1;
+          doc.extracted = extractFields(doc, found.identity, found.id);
+          applied.push(`"${doc.fileName}" reclassified as ${command.docKind}`);
+        }
+        break;
+      }
+    }
+  }
+  return applied;
+}
+
 caseAgentsRouter.post<{ id: string }>('/copilot', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
@@ -266,11 +328,12 @@ caseAgentsRouter.post<{ id: string }>('/copilot', async (req, res) => {
     // Resolved here, not inside the agent: persistence belongs to the app, and
     // the agents package has to stay runnable with no store at all.
     const memory = await recallForCase(memoryStore, found, { now: new Date().toISOString() });
-    const { run, turn: assistantTurn } = await runCopilot({
+    const { run, turn: assistantTurn, proposedFindings, commands, navigations } = await runCopilot({
       caseId: found.id,
       caseData: found,
       refData: REFERENCE_DATA,
       question: parsed.data.question,
+      viewContext: parsed.data.viewContext,
       memory,
       history,
       now,
@@ -278,9 +341,30 @@ caseAgentsRouter.post<{ id: string }>('/copilot', async (req, res) => {
     if (!found.intelligence) found.intelligence = emptyIntelligence();
     found.intelligence.conversation = [...found.intelligence.conversation, userTurn, assistantTurn];
     found.intelligence.runs = [...found.intelligence.runs, run];
+    // Persisting a proposal is this route's job, not the agent's — see
+    // `RunCopilotResult.proposedFindings`. Each lands as `proposed`, never
+    // `accepted`: a person has to act on it before it counts toward the case.
+    const newFindings: TechnicalFinding[] = proposedFindings.map((draft) => ({
+      ...draft,
+      id: randomUUID(),
+      caseId: found.id,
+      source: 'agent',
+      reviewState: 'proposed',
+      status: 'open',
+      createdAt: now,
+      updatedAt: now,
+      proposedByRunId: run.id,
+    }));
+    if (newFindings.length > 0) {
+      found.technicalFindings = [...(found.technicalFindings ?? []), ...newFindings];
+    }
+    // Commands collected by the turn are the PERSON acting through chat —
+    // applied directly, no review step, per the authorship law. Proposals
+    // above stay proposals; these are the other half.
+    const appliedCommands = applyCopilotCommands(found, commands, now);
     found.updatedAt = new Date().toISOString();
     await store.save();
-    res.json({ userTurn, assistantTurn });
+    res.json({ userTurn, assistantTurn, proposedFindings: newFindings, appliedCommands, navigations });
   } catch (e) {
     res.status(502).json({ error: describeError(e) });
   }

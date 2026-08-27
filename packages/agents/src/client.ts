@@ -277,13 +277,15 @@ function rateFor(model: string): { input: number; output: number } {
  */
 export function priceTokensUsd(
   model: string,
-  tokens: { inputTokens: number; outputTokens: number; cacheReadTokens: number },
+  tokens: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens?: number },
 ): number {
   const rate = rateFor(model);
-  // Cached reads bill at roughly a tenth of the input rate.
+  // Cached reads bill at roughly a tenth of the input rate; a cache WRITE
+  // bills at roughly 1.25x, which is what the later reads have to earn back.
   const usd =
     (tokens.inputTokens / 1_000_000) * rate.input +
     (tokens.cacheReadTokens / 1_000_000) * rate.input * 0.1 +
+    ((tokens.cacheWriteTokens ?? 0) / 1_000_000) * rate.input * 1.25 +
     (tokens.outputTokens / 1_000_000) * rate.output;
   return Math.round(usd * 10000) / 10000;
 }
@@ -303,12 +305,18 @@ export function estimateUsage(
     input_tokens?: number | null;
     output_tokens?: number | null;
     cache_read_input_tokens?: number | null;
+    cache_creation_input_tokens?: number | null;
   },
 ): AgentUsage {
+  // `cache_creation_input_tokens` is reported ALONGSIDE `input_tokens`, not
+  // inside it, so dropping it does not merely lose detail — it loses the
+  // charge entirely, and the turn that writes the cache reads as the cheapest
+  // one in the run.
   const tokens = {
     inputTokens: usage.input_tokens ?? 0,
     outputTokens: usage.output_tokens ?? 0,
     cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
   };
   return { ...tokens, estimatedCostUsd: priceTokensUsd(model, tokens) };
 }
@@ -319,9 +327,10 @@ export function sumUsage(runs: (AgentUsage | undefined)[]): AgentUsage {
       inputTokens: acc.inputTokens + u.inputTokens,
       outputTokens: acc.outputTokens + u.outputTokens,
       cacheReadTokens: acc.cacheReadTokens + u.cacheReadTokens,
+      cacheWriteTokens: (acc.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0),
       estimatedCostUsd: Math.round((acc.estimatedCostUsd + u.estimatedCostUsd) * 10000) / 10000,
     }),
-    { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estimatedCostUsd: 0 },
+    { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, estimatedCostUsd: 0 },
   );
 }
 
