@@ -4,6 +4,7 @@ import { ASSESSMENT_PROFILES, PROJECT_KINDS } from '@realytica/shared';
 import type { AssessmentProfile, MethodRole, ProjectBrief, ProjectKind, ValueAnchor } from '@realytica/shared';
 import { Badge, Button, Card, CardBody, CardHeader, Callout, Tile, cn } from './ui/kit';
 import { pct, titleCase } from '../lib/format';
+import { RequirementSheet } from './RequirementSheet';
 
 /**
  * How this project is being assessed, and why.
@@ -43,12 +44,15 @@ export function AssessmentMethodCard({
   anchors,
   onChangeKind,
   busy,
+  reference,
 }: {
   project: ProjectBrief;
   profile: AssessmentProfile;
   anchors: ValueAnchor[];
   onChangeKind: (kind: ProjectKind) => void | Promise<void>;
   busy?: boolean;
+  /** Case reference, stamped onto the copyable requirement sheet. */
+  reference?: string;
 }) {
   const [picking, setPicking] = useState(false);
   const [showMethods, setShowMethods] = useState(false);
@@ -60,15 +64,18 @@ export function AssessmentMethodCard({
         title="How this is being assessed"
         subtitle={profile.summary}
         action={
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<Pencil size={13} />}
-            onClick={() => setPicking((v) => !v)}
-            disabled={busy}
-          >
-            {picking ? 'Cancel' : 'Change'}
-          </Button>
+          <div className="flex items-center gap-1">
+            <RequirementSheet profile={profile} reference={reference ?? ''} />
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Pencil size={13} />}
+              onClick={() => setPicking((v) => !v)}
+              disabled={busy}
+            >
+              {picking ? 'Cancel' : 'Change'}
+            </Button>
+          </div>
         }
       />
       <CardBody className="space-y-4">

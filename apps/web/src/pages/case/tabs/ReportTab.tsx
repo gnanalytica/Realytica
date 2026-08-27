@@ -1321,6 +1321,24 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
               <li key={i}>{item}</li>
             ))}
           </ul>
+          {/* Named because a reader will not go looking for what a screen
+              cannot see, and this class of risk is the one sellers exploit:
+              side agreements signed with several buyers and never registered
+              are invisible to every records-based check in this report. */}
+          <p className="text-[13px] leading-relaxed text-ink-secondary">
+            <span className="font-semibold text-ink">What no records-based screen can see: </span>
+            an agreement to sell that was signed but never registered, an oral family arrangement, or a dispute that has not reached a
+            court leaves no trace in the registered record, the encumbrance certificate, or any portal this screen reads. Physical
+            possession, a public-notice advertisement before purchase, and enquiries with neighbours and the local Sub-Registrar are the
+            only checks that reach it — none of which this report replaces.
+          </p>
+          {!result.waterExposure && (
+            <p className="text-[13px] leading-relaxed text-ink-secondary">
+              <span className="font-semibold text-ink">Not assessed in this report: </span>
+              flood and storm-water exposure for {caseData.identity.locality} — no catchment classification is carried for this locality
+              yet, and an unassessed exposure is not a clear one.
+            </p>
+          )}
           <p className="text-[13px] leading-relaxed text-ink-secondary">
             Every figure in this report carries an evidence trail and a confidence level rather than false precision. Use it to decide
             whether — and how — to pursue formal diligence, not as a substitute for it.

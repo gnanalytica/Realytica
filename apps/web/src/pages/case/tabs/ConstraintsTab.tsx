@@ -66,7 +66,18 @@ export default function ConstraintsTab({ caseData, result, refresh, runScreen, r
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4">
-      {result.waterExposure && <WaterExposureCard water={result.waterExposure} locality={caseData.identity.locality} />}
+      {result.waterExposure ? (
+        <WaterExposureCard water={result.waterExposure} locality={caseData.identity.locality} />
+      ) : (
+        /* An unassessed locality and a safe one must not read the same — the
+           engine records this gap as evidence, and this is where a reader
+           looking for flooding actually looks. */
+        <Callout tone="neutral" title="Water, drains and flooding — not assessed">
+          No flood or lake-catchment classification is carried for {caseData.identity.locality} yet, so this property's exposure to the
+          storm-water network has not been looked at. That is a gap in this product's coverage, not a finding that the site is clear —
+          check the locality's flooding history and the revenue map's drain alignments before pricing it as unexposed.
+        </Callout>
+      )}
 
       <SiteConstraintsCard caseData={caseData} checks={compliance.checks} refresh={refresh} />
 
