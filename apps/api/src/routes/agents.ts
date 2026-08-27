@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase } from '@realytica/shared';
+import type { AgentKind, AgentRun, AgentStep, CaseDocument, CaseIntelligence, CopilotTurn, PropertyCase, TechnicalFinding } from '@realytica/shared';
 import { REFERENCE_DATA } from '@realytica/shared';
 import { agentCapability, capabilityWithRoutes, describeError, describeProviders, recallForCase, resolveRoute, runCopilot, runExplorer, runOrchestration, runPropertyDiscovery, type RunOrchestrationResult } from '@realytica/agents';
 import { memoryStore } from '../memory';
@@ -266,7 +266,7 @@ caseAgentsRouter.post<{ id: string }>('/copilot', async (req, res) => {
     // Resolved here, not inside the agent: persistence belongs to the app, and
     // the agents package has to stay runnable with no store at all.
     const memory = await recallForCase(memoryStore, found, { now: new Date().toISOString() });
-    const { run, turn: assistantTurn } = await runCopilot({
+    const { run, turn: assistantTurn, proposedFindings } = await runCopilot({
       caseId: found.id,
       caseData: found,
       refData: REFERENCE_DATA,
@@ -278,9 +278,26 @@ caseAgentsRouter.post<{ id: string }>('/copilot', async (req, res) => {
     if (!found.intelligence) found.intelligence = emptyIntelligence();
     found.intelligence.conversation = [...found.intelligence.conversation, userTurn, assistantTurn];
     found.intelligence.runs = [...found.intelligence.runs, run];
+    // Persisting a proposal is this route's job, not the agent's — see
+    // `RunCopilotResult.proposedFindings`. Each lands as `proposed`, never
+    // `accepted`: a person has to act on it before it counts toward the case.
+    const newFindings: TechnicalFinding[] = proposedFindings.map((draft) => ({
+      ...draft,
+      id: randomUUID(),
+      caseId: found.id,
+      source: 'agent',
+      reviewState: 'proposed',
+      status: 'open',
+      createdAt: now,
+      updatedAt: now,
+      proposedByRunId: run.id,
+    }));
+    if (newFindings.length > 0) {
+      found.technicalFindings = [...(found.technicalFindings ?? []), ...newFindings];
+    }
     found.updatedAt = new Date().toISOString();
     await store.save();
-    res.json({ userTurn, assistantTurn });
+    res.json({ userTurn, assistantTurn, proposedFindings: newFindings });
   } catch (e) {
     res.status(502).json({ error: describeError(e) });
   }

@@ -27,8 +27,8 @@
  */
 
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
-import { buildStaleness } from '@realytica/shared';
-import type { Comparable, LocalityReference, PropertyCase, ReferenceData } from '@realytica/shared';
+import { buildStaleness, technicalDocumentGaps, TECHNICAL_SYSTEM_LABEL } from '@realytica/shared';
+import type { Comparable, LocalityReference, PropertyCase, ReferenceData, TechnicalDdPhase, TechnicalSystem } from '@realytica/shared';
 
 /**
  * Tools are declared with `betaTool` and raw JSON Schema rather than
@@ -57,6 +57,9 @@ const EVIDENCE_SOURCE_TYPES = ['document', 'external_dataset', 'comparable', 'us
 const RISK_SEVERITIES = ['info', 'warning', 'serious', 'critical'] as const;
 const RISK_STATUSES = ['open', 'mitigated', 'accepted'] as const;
 const COMPLIANCE_VERDICTS = ['clear', 'attention', 'blocker', 'unknown'] as const;
+const TECHNICAL_SYSTEMS = ['architectural', 'structural', 'mep_hvac', 'mep_phe', 'mep_fire', 'mep_electrical', 'mep_ibms', 'statutory', 'ehs'] as const;
+const TECHNICAL_REVIEW_STATES = ['proposed', 'accepted', 'rejected'] as const;
+const TECHNICAL_DD_PHASES = ['built', 'proposed'] as const;
 
 /** Every tool this factory returns is a `BetaRunnableTool` — safe to hand straight to `toolRunner`. */
 export function createCaseTools(caseData: PropertyCase, refData: ReferenceData) {
@@ -319,6 +322,61 @@ export function createCaseTools(caseData: PropertyCase, refData: ReferenceData) 
     },
   });
 
+  const getTechnicalFindings = betaTool({
+    name: 'get_technical_findings',
+    description:
+      'Fetch technical/construction due-diligence findings on this case — building-condition defects (structural, MEP, fire, electrical, ' +
+      "statutory, EHS), each with its severity, recommendation, code citation and remediation status. This is a different axis from " +
+      'get_risks: risks are about title, value and planning; these are about the physical building. `reviewState` distinguishes an ' +
+      "accepted finding (a fact about the case) from one still `proposed` (a draft — including any this run itself has queued — " +
+      'awaiting a person\'s review) — never present a proposed finding as settled. Call this before propose_technical_finding, so you do ' +
+      'not draft a finding that already exists.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['system', 'reviewState'],
+      properties: {
+        system: { type: ['string', 'null'], enum: [...TECHNICAL_SYSTEMS, null], description: 'Restrict to one discipline, or null for all.' },
+        reviewState: {
+          type: ['string', 'null'],
+          enum: [...TECHNICAL_REVIEW_STATES, null],
+          description: 'Restrict to this review state, or null for all.',
+        },
+      },
+    } as const,
+    run: async ({ system, reviewState }) => {
+      const findings = (caseData.technicalFindings ?? []).filter(
+        f => (!system || f.system === system) && (!reviewState || f.reviewState === reviewState),
+      );
+      return JSON.stringify(findings);
+    },
+  });
+
+  const getTechnicalDocumentStatus = betaTool({
+    name: 'get_technical_document_status',
+    description:
+      'Fetch the technical-DD required-document checklist for one phase (Phase I: the built building, or Phase II: a proposed add-on), ' +
+      'and which items this case has marked as supplied. Use this to tell the user exactly what is still missing, by discipline, rather ' +
+      'than asking generically for "more documents."',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['phase'],
+      properties: {
+        phase: { type: 'string', enum: [...TECHNICAL_DD_PHASES], description: 'Which building this checklist is for.' },
+      },
+    } as const,
+    run: async ({ phase }) => {
+      const typedPhase = phase as TechnicalDdPhase;
+      const missing = technicalDocumentGaps(typedPhase, caseData.technicalDocumentsProvided);
+      return JSON.stringify({
+        phase: typedPhase,
+        missingCount: missing.length,
+        missing: missing.map(item => ({ id: item.id, system: item.system, systemLabel: TECHNICAL_SYSTEM_LABEL[item.system as TechnicalSystem], label: item.label })),
+      });
+    },
+  });
+
   const getStaleness = betaTool({
     name: 'get_staleness',
     description:
@@ -343,6 +401,8 @@ export function createCaseTools(caseData: PropertyCase, refData: ReferenceData) 
     getForcedSaleValue,
     getSiteContext,
     getWaterAndConstraints,
+    getTechnicalFindings,
+    getTechnicalDocumentStatus,
     getStaleness,
   ];
 }

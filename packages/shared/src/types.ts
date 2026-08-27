@@ -868,6 +868,85 @@ export interface RiskFlag {
 }
 
 /* ------------------------------------------------------------------ */
+/* Technical / construction due diligence                              */
+/*                                                                      */
+/* A separate axis from everything above: `RiskFlag` and the assessment */
+/* profile are about the DEAL — title, value, planning. A technical      */
+/* finding is about the BUILDING — does the structure, the MEP plant and */
+/* the fire/life-safety systems do what they are supposed to. The two    */
+/* only meet at the case they both hang off.                            */
+/* ------------------------------------------------------------------ */
+
+/** The discipline a finding belongs to — mirrors how a technical DD is actually staffed and read, zone by zone. */
+export type TechnicalSystem = 'architectural' | 'structural' | 'mep_hvac' | 'mep_phe' | 'mep_fire' | 'mep_electrical' | 'mep_ibms' | 'statutory' | 'ehs';
+
+/** Where a finding came from. An agent-sourced one is never final on arrival — see `TechnicalFindingReviewState`. */
+export type TechnicalFindingSource = 'user' | 'agent';
+
+/**
+ * A proposed finding is a claim, not yet a fact on the case.
+ *
+ * Mirrors the accept/reject discipline this product already applies to
+ * extracted case facts: an agent may draft a finding with its evidence, but
+ * only a person's acceptance makes it count. A user-authored finding has no
+ * proposal step to pass through — it is `accepted` the moment it is saved,
+ * because nobody needs to review their own statement of what they observed.
+ */
+export type TechnicalFindingReviewState = 'proposed' | 'accepted' | 'rejected';
+
+/**
+ * The fields a finding must supply, before it has an id, a case, or a review
+ * state. One shape for both paths that can produce a finding — a person
+ * filling in a form and an agent calling a tool — so neither can supply less
+ * than the other.
+ */
+export interface TechnicalFindingDraft {
+  system: TechnicalSystem;
+  /**
+   * Where on the property this was observed — a floor, a room, a run of
+   * pipework. Free text: a technical DD's zones are as varied as the
+   * buildings it covers, and a closed enum would either miss most of them or
+   * grow one value per building.
+   */
+  zone: string;
+  observation: string;
+  severity: RiskSeverity;
+  recommendation: string;
+  /**
+   * The exact code citation behind the recommendation, e.g. "NBC 2005, Part
+   * 4, Clause 4.16.7" — carried verbatim so a reviewer can look it up, never
+   * paraphrased into a generic "per code" that cannot be checked.
+   */
+  codeCitation?: string;
+  /** Document ids (photographs already on the case) that evidence this finding. */
+  evidenceDocumentIds: string[];
+}
+
+export interface TechnicalFinding extends TechnicalFindingDraft {
+  id: string;
+  caseId: string;
+  source: TechnicalFindingSource;
+  reviewState: TechnicalFindingReviewState;
+  /** The remediation lifecycle — meaningful once accepted; a rejected finding does not track this. */
+  status: RiskStatus;
+  createdAt: string;
+  updatedAt: string;
+  /** The copilot run that proposed this, when `source` is `'agent'` — lets a reviewer open the conversation that produced it. */
+  proposedByRunId?: string;
+}
+
+/** Built (Phase I, already standing) vs proposed (Phase II, not yet built) — the split the document checklist itself uses. */
+export type TechnicalDdPhase = 'built' | 'proposed';
+
+/** One line of the required-documents checklist — a catalog entry, not a case fact. See `technical-diligence.ts`. */
+export interface TechnicalDocumentItem {
+  id: string;
+  system: TechnicalSystem;
+  phase: TechnicalDdPhase;
+  label: string;
+}
+
+/* ------------------------------------------------------------------ */
 /* Planning                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -1759,6 +1838,18 @@ export interface PropertyCase {
    * without it.
    */
   siteContext?: SiteContext;
+  /**
+   * Technical/construction due-diligence findings — building condition, not
+   * title or value. Absent means nobody has run a technical DD on this case
+   * yet, which is the common case: it is opt-in, not part of every screen.
+   */
+  technicalFindings?: TechnicalFinding[];
+  /**
+   * Which `TechnicalDocumentItem.id`s have been marked as supplied for this
+   * case. A missing key means not yet provided — the checklist's absence is
+   * the default, matching every other completeness gap in this product.
+   */
+  technicalDocumentsProvided?: Record<string, boolean>;
 }
 
 /** Case shape without the heavy nested payloads — used by list endpoints. */

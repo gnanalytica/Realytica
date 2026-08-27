@@ -29,6 +29,9 @@ import type {
   ProjectIntent,
   ProjectKind,
   ScreenResult,
+  TechnicalFinding,
+  TechnicalFindingDraft,
+  TechnicalFindingReviewState,
   TelemetrySummary,
   UpdateCaseRequest,
 } from '@realytica/shared';
@@ -195,6 +198,27 @@ export const api = {
     request<ScreenResult>(`/cases/${id}/actions/${actionId}`, {
       method: 'PATCH',
       body: JSON.stringify({ done }),
+    }),
+
+  createTechnicalFinding: (id: string, draft: TechnicalFindingDraft) =>
+    request<TechnicalFinding>(`/cases/${id}/technical-findings`, { method: 'POST', body: JSON.stringify(draft) }),
+
+  updateTechnicalFinding: (id: string, findingId: string, patch: Partial<TechnicalFindingDraft & { status: RiskStatus }>) =>
+    request<TechnicalFinding>(`/cases/${id}/technical-findings/${findingId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  reviewTechnicalFinding: (id: string, findingId: string, reviewState: Extract<TechnicalFindingReviewState, 'accepted' | 'rejected'>) =>
+    request<TechnicalFinding>(`/cases/${id}/technical-findings/${findingId}/review`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reviewState }),
+    }),
+
+  deleteTechnicalFinding: (id: string, findingId: string) =>
+    request<void>(`/cases/${id}/technical-findings/${findingId}`, { method: 'DELETE' }),
+
+  setTechnicalDocumentProvided: (id: string, itemId: string, provided: boolean) =>
+    request<{ technicalDocumentsProvided: Record<string, boolean> }>(`/cases/${id}/technical-documents`, {
+      method: 'PATCH',
+      body: JSON.stringify({ itemId, provided }),
     }),
 
   compare: (caseIds: string[]) =>

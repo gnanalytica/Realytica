@@ -1,0 +1,355 @@
+import { useState } from 'react';
+import { Check, HardHat, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import {
+  TECHNICAL_SYSTEMS,
+  TECHNICAL_SYSTEM_LABEL,
+  acceptedTechnicalFindings,
+  groupFindingsBySystem,
+  openTechnicalFindingCounts,
+  proposedTechnicalFindings,
+  technicalDocumentChecklist,
+} from '@realytica/shared';
+import type { RiskSeverity, RiskStatus, TechnicalDdPhase, TechnicalFinding, TechnicalFindingDraft, TechnicalSystem } from '@realytica/shared';
+import type { TabProps } from '../tab-props';
+import { api } from '../../../lib/api';
+import { severityTone, titleCase } from '../../../lib/format';
+import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Input, Select, StatTile, Textarea, Toggle, cn, useToast } from '../../../components/ui/kit';
+
+const SEVERITIES: RiskSeverity[] = ['critical', 'serious', 'warning', 'info'];
+const STATUSES: RiskStatus[] = ['open', 'mitigated', 'accepted'];
+
+const EMPTY_DRAFT: TechnicalFindingDraft = {
+  system: 'structural',
+  zone: '',
+  observation: '',
+  severity: 'warning',
+  recommendation: '',
+  codeCitation: undefined,
+  evidenceDocumentIds: [],
+};
+
+function AddFindingForm({ caseId, onAdded, onCancel }: { caseId: string; onAdded: (f: TechnicalFinding) => void; onCancel: () => void }) {
+  const toast = useToast();
+  const [draft, setDraft] = useState<TechnicalFindingDraft>(EMPTY_DRAFT);
+  const [saving, setSaving] = useState(false);
+
+  const canSave = draft.zone.trim().length > 0 && draft.observation.trim().length > 0 && draft.recommendation.trim().length > 0;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const finding = await api.createTechnicalFinding(caseId, {
+        ...draft,
+        codeCitation: draft.codeCitation?.trim() || undefined,
+      });
+      onAdded(finding);
+      toast('Finding added', 'good');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not add the finding', 'critical');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader title="Add a finding" subtitle="What you observed on site — the same shape as a technical DD walk-through" />
+      <CardBody className="flex flex-col gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-[12px] font-medium text-ink-muted">
+            System
+            <Select value={draft.system} onChange={(e) => setDraft((d) => ({ ...d, system: e.target.value as TechnicalSystem }))}>
+              {TECHNICAL_SYSTEMS.map((s) => (
+                <option key={s} value={s}>
+                  {TECHNICAL_SYSTEM_LABEL[s]}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="flex flex-col gap-1 text-[12px] font-medium text-ink-muted">
+            Zone
+            <Input value={draft.zone} onChange={(e) => setDraft((d) => ({ ...d, zone: e.target.value }))} placeholder="e.g. Basement 2, DG room" />
+          </label>
+        </div>
+        <label className="flex flex-col gap-1 text-[12px] font-medium text-ink-muted">
+          Observation
+          <Textarea value={draft.observation} onChange={(e) => setDraft((d) => ({ ...d, observation: e.target.value }))} placeholder="What did you actually see?" />
+        </label>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-[12px] font-medium text-ink-muted">
+            Severity
+            <Select value={draft.severity} onChange={(e) => setDraft((d) => ({ ...d, severity: e.target.value as RiskSeverity }))}>
+              {SEVERITIES.map((s) => (
+                <option key={s} value={s}>
+                  {titleCase(s)}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="flex flex-col gap-1 text-[12px] font-medium text-ink-muted">
+            Code citation (optional)
+            <Input
+              value={draft.codeCitation ?? ''}
+              onChange={(e) => setDraft((d) => ({ ...d, codeCitation: e.target.value }))}
+              placeholder="e.g. NBC 2005, Part 4, Clause 4.16.7"
+            />
+          </label>
+        </div>
+        <label className="flex flex-col gap-1 text-[12px] font-medium text-ink-muted">
+          Recommendation
+          <Textarea value={draft.recommendation} onChange={(e) => setDraft((d) => ({ ...d, recommendation: e.target.value }))} placeholder="What should be done about it?" />
+        </label>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" disabled={!canSave} loading={saving} onClick={() => void save()}>
+            Save finding
+          </Button>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+function FindingRow({
+  finding,
+  onChanged,
+  onDeleted,
+}: {
+  finding: TechnicalFinding;
+  onChanged: (f: TechnicalFinding) => void;
+  onDeleted: (id: string) => void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const setStatus = async (status: RiskStatus) => {
+    setBusy(true);
+    try {
+      onChanged(await api.updateTechnicalFinding(finding.caseId, finding.id, { status }));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not update the finding', 'critical');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const review = async (reviewState: 'accepted' | 'rejected') => {
+    setBusy(true);
+    try {
+      onChanged(await api.reviewTechnicalFinding(finding.caseId, finding.id, reviewState));
+      toast(reviewState === 'accepted' ? 'Accepted onto the case' : 'Rejected', 'good');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not review the finding', 'critical');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await api.deleteTechnicalFinding(finding.caseId, finding.id);
+      onDeleted(finding.id);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not delete the finding', 'critical');
+      setBusy(false);
+    }
+  };
+
+  const proposed = finding.reviewState === 'proposed';
+
+  return (
+    <div className={cn('rounded-lg p-3 ring-1', proposed ? 'bg-brand-soft/40 ring-brand/30' : 'bg-surface-2 ring-[var(--ring)]')}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge tone={severityTone(finding.severity)}>{titleCase(finding.severity)}</Badge>
+          <span className="text-[13px] font-semibold text-ink">{finding.zone}</span>
+          {proposed && (
+            <Badge tone="brand" icon={<Sparkles size={11} />}>
+              Drafted by copilot — awaiting review
+            </Badge>
+          )}
+        </div>
+        {!proposed && (
+          <div className="flex items-center gap-1.5">
+            <Select value={finding.status} disabled={busy} onChange={(e) => void setStatus(e.target.value as RiskStatus)} className="!h-7 !py-0 text-[12px]">
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {titleCase(s)}
+                </option>
+              ))}
+            </Select>
+            <Button variant="ghost" size="sm" icon={<Trash2 size={13} />} disabled={busy} onClick={() => void remove()} />
+          </div>
+        )}
+      </div>
+      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-secondary">{finding.observation}</p>
+      <p className="mt-1 text-[13px] leading-relaxed text-ink">
+        <span className="font-medium text-ink-secondary">Recommendation: </span>
+        {finding.recommendation}
+      </p>
+      {finding.codeCitation && <p className="mt-1 text-[12px] text-ink-muted">{finding.codeCitation}</p>}
+      {proposed && (
+        <div className="mt-2.5 flex gap-2">
+          <Button variant="primary" size="sm" icon={<Check size={13} />} disabled={busy} onClick={() => void review('accepted')}>
+            Accept
+          </Button>
+          <Button variant="ghost" size="sm" icon={<X size={13} />} disabled={busy} onClick={() => void review('rejected')}>
+            Reject
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DocumentChecklist({ caseId, phase, provided, onToggled }: { caseId: string; phase: TechnicalDdPhase; provided: Record<string, boolean>; onToggled: (id: string, v: boolean) => void }) {
+  const items = technicalDocumentChecklist(phase);
+  const bySystem = TECHNICAL_SYSTEMS.map((system) => ({ system, items: items.filter((i) => i.system === system) })).filter((g) => g.items.length > 0);
+  const suppliedCount = items.filter((i) => provided[i.id]).length;
+
+  return (
+    <Card>
+      <CardHeader
+        title={phase === 'built' ? 'Phase I — built building' : 'Phase II — proposed building'}
+        subtitle={`${suppliedCount} of ${items.length} supplied`}
+      />
+      <CardBody className="flex flex-col gap-4">
+        {bySystem.map((group) => (
+          <div key={group.system}>
+            <h4 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{TECHNICAL_SYSTEM_LABEL[group.system]}</h4>
+            <ul className="mt-1.5 flex flex-col gap-1.5">
+              {group.items.map((item) => (
+                <li key={item.id} className="flex items-center justify-between gap-3">
+                  <span className={cn('text-[13px] leading-relaxed', provided[item.id] ? 'text-ink-muted line-through' : 'text-ink-secondary')}>{item.label}</span>
+                  <Toggle
+                    checked={!!provided[item.id]}
+                    onChange={(next) => {
+                      onToggled(item.id, next);
+                      void api.setTechnicalDocumentProvided(caseId, item.id, next);
+                    }}
+                    size="sm"
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </CardBody>
+    </Card>
+  );
+}
+
+export default function TechnicalDiligenceTab({ caseData }: TabProps) {
+  const [findings, setFindings] = useState<TechnicalFinding[]>(caseData.technicalFindings ?? []);
+  const [provided, setProvided] = useState<Record<string, boolean>>(caseData.technicalDocumentsProvided ?? {});
+  const [showAdd, setShowAdd] = useState(false);
+  const [phase, setPhase] = useState<TechnicalDdPhase>('built');
+
+  const proposed = proposedTechnicalFindings(findings);
+  const accepted = acceptedTechnicalFindings(findings);
+  const counts = openTechnicalFindingCounts(findings);
+  const grouped = groupFindingsBySystem(accepted);
+
+  const replace = (f: TechnicalFinding) => setFindings((prev) => prev.map((x) => (x.id === f.id ? f : x)));
+  const remove = (id: string) => setFindings((prev) => prev.filter((x) => x.id !== id));
+
+  return (
+    <div className="mx-auto flex max-w-4xl flex-col gap-5">
+      <Callout tone="neutral" title="Building condition, not title or value" collapsible>
+        This is a different axis from the rest of the case: structural, MEP, fire and statutory condition of the physical building —
+        the questions a technical due-diligence walk-through asks, not what the title or the market says. Opt-in, and separate from
+        the deterministic screen.
+      </Callout>
+
+      {findings.length === 0 && !showAdd ? (
+        <EmptyState
+          icon={<HardHat size={28} />}
+          title="No technical findings yet"
+          description="Add what you observed on site, or ask the copilot about a defect and it can draft one for your review."
+          action={
+            <Button variant="primary" size="sm" icon={<Plus size={13} />} onClick={() => setShowAdd(true)}>
+              Add a finding
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <StatTile label="Open critical" value={counts.openCritical} tone={counts.openCritical > 0 ? 'critical' : 'neutral'} />
+            <StatTile label="Open serious" value={counts.openSerious} tone={counts.openSerious > 0 ? 'warning' : 'neutral'} />
+            <StatTile label="Mitigated" value={counts.mitigated} tone="neutral" />
+            <StatTile label="Resolved" value={counts.accepted} tone="good" />
+          </div>
+
+          {proposed.length > 0 && (
+            <Card>
+              <CardHeader
+                title="Drafted for your review"
+                subtitle="The copilot proposed these — nothing here counts toward the case until you accept it"
+                icon={<Sparkles size={16} />}
+              />
+              <CardBody className="flex flex-col gap-2">
+                {proposed.map((f) => (
+                  <FindingRow key={f.id} finding={f} onChanged={replace} onDeleted={remove} />
+                ))}
+              </CardBody>
+            </Card>
+          )}
+
+          {!showAdd && (
+            <div className="flex justify-end">
+              <Button variant="secondary" size="sm" icon={<Plus size={13} />} onClick={() => setShowAdd(true)}>
+                Add a finding
+              </Button>
+            </div>
+          )}
+
+          {grouped.map((group) => (
+            <Card key={group.system}>
+              <CardHeader title={TECHNICAL_SYSTEM_LABEL[group.system]} subtitle={`${group.findings.length} finding${group.findings.length === 1 ? '' : 's'}`} />
+              <CardBody className="flex flex-col gap-2">
+                {group.findings.map((f) => (
+                  <FindingRow key={f.id} finding={f} onChanged={replace} onDeleted={remove} />
+                ))}
+              </CardBody>
+            </Card>
+          ))}
+        </>
+      )}
+
+      {showAdd && (
+        <AddFindingForm
+          caseId={caseData.id}
+          onCancel={() => setShowAdd(false)}
+          onAdded={(f) => {
+            setFindings((prev) => [...prev, f]);
+            setShowAdd(false);
+          }}
+        />
+      )}
+
+      <div>
+        <div className="mb-2 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setPhase('built')}
+            className={cn('rounded-md px-2.5 py-1 text-[12px] font-medium ring-1', phase === 'built' ? 'bg-brand-soft ring-brand text-brand' : 'bg-surface-2 ring-[var(--ring)] text-ink-secondary')}
+          >
+            Phase I — built
+          </button>
+          <button
+            type="button"
+            onClick={() => setPhase('proposed')}
+            className={cn('rounded-md px-2.5 py-1 text-[12px] font-medium ring-1', phase === 'proposed' ? 'bg-brand-soft ring-brand text-brand' : 'bg-surface-2 ring-[var(--ring)] text-ink-secondary')}
+          >
+            Phase II — proposed
+          </button>
+        </div>
+        <DocumentChecklist caseId={caseData.id} phase={phase} provided={provided} onToggled={(id, v) => setProvided((p) => ({ ...p, [id]: v }))} />
+      </div>
+    </div>
+  );
+}

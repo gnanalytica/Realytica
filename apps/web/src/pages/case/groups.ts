@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { LENS_PROFILES, SITE_CONSTRAINT_KEYS } from '@realytica/shared';
+import { LENS_PROFILES, SITE_CONSTRAINT_KEYS, openTechnicalFindingCounts } from '@realytica/shared';
 import type { LensKey, LensSection, PropertyCase, ScreenResult } from '@realytica/shared';
 import type { TabProps } from './tab-props';
 import SnapshotTab from './tabs/SnapshotTab';
@@ -19,6 +19,7 @@ import ReportTab from './tabs/ReportTab';
 import ConstraintsTab from './tabs/ConstraintsTab';
 import CostsTab from './tabs/CostsTab';
 import ResearchTab from './tabs/ResearchTab';
+import TechnicalDiligenceTab from './tabs/TechnicalDiligenceTab';
 
 /**
  * Five places instead of fourteen.
@@ -67,6 +68,12 @@ export const CASE_GROUPS: CaseGroup[] = [
       // to look for. Under Overview because "is this worth pursuing" is
       // exactly the question an outside record answers or ruins.
       { key: 'research', label: 'Outside record', component: ResearchTab },
+      // Building condition is a different axis from title/value/planning —
+      // it does not fit Legal, Value or Documents — but it is squarely
+      // "what is wrong with it", so it lands here rather than earning a
+      // sixth group. Opt-in: most cases have nothing here, which is why it
+      // is not in NEEDS_SCREEN below — it does not depend on a screen run.
+      { key: 'technical', label: 'Technical DD', component: TechnicalDiligenceTab },
     ],
   },
   {
@@ -166,6 +173,15 @@ export function viewState(viewKey: string, caseData: PropertyCase, result: Scree
     }
     case 'location':
       return caseData.siteContext ? {} : { empty: true, note: 'No mapping provider has placed this property yet' };
+    case 'technical': {
+      const findings = caseData.technicalFindings ?? [];
+      const proposed = findings.filter(f => f.reviewState === 'proposed').length;
+      if (proposed > 0) return { count: proposed, tone: 'brand', note: `${proposed} drafted finding${proposed === 1 ? '' : 's'} awaiting review` };
+      const counts = openTechnicalFindingCounts(findings);
+      if (counts.openCritical > 0) return { count: counts.openCritical, tone: 'critical', note: `${counts.openCritical} open critical technical finding${counts.openCritical === 1 ? '' : 's'}` };
+      if (counts.open > 0) return { count: counts.open, tone: 'warning', note: `${counts.open} open technical finding${counts.open === 1 ? '' : 's'}` };
+      return {};
+    }
     case 'costs':
       return result.transactionCosts
         ? {}

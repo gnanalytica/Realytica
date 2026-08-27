@@ -35,6 +35,7 @@ import type {
   PropertyCase,
   ReferenceData,
   RetrievalSelection,
+  TechnicalFindingDraft,
 } from '@realytica/shared';
 import { buildTitleGraph } from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
@@ -42,6 +43,7 @@ import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { retrieveCaseContext } from '../retrieval';
 import { renderMemoryForPrompt } from '../memory';
 import { createCaseTools } from '../tools/case-tools';
+import { createProposeTools } from '../tools/propose-tools';
 import { describeGap } from '../routing';
 import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute, textOf } from '../providers';
 import type { LlmClientTool, LlmMessage } from '../providers';
@@ -71,6 +73,14 @@ export interface RunCopilotParams {
 export interface RunCopilotResult {
   run: AgentRun;
   turn: CopilotTurn;
+  /**
+   * Technical findings this turn drafted via `propose_technical_finding`,
+   * queued but not yet a fact about the case. Empty on every early-exit path
+   * (no credentials, no answer, an error) — a run that never reached the
+   * tool loop proposed nothing. The caller (the API route, never this
+   * package) persists each one with `reviewState: 'proposed'`.
+   */
+  proposedFindings: TechnicalFindingDraft[];
 }
 
 const MAX_TOOL_ITERATIONS = 8;
@@ -186,7 +196,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
       citedEvidenceIds: opts.citedEvidenceIds ?? [],
       refusedForLackOfEvidence: opts.refusedForLackOfEvidence ?? false,
     };
-    return { run, turn };
+    return { run, turn, proposedFindings: [] };
   };
 
   emit({ kind: 'plan', label: `Answering: "${question.length > 80 ? `${question.slice(0, 80)}…` : question}"` });
@@ -218,7 +228,10 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
    * the loop itself. Neither is a re-implementation of the other: they are the
    * same closure reached two ways.
    */
-  const tools: LlmClientTool[] = createCaseTools(caseData, refData).map(clientToolFromRunnable);
+  // Mutated by propose_technical_finding's `run()` — see propose-tools.ts.
+  // Read back once the loop below finishes; nothing here touches the store.
+  const proposedFindings: TechnicalFindingDraft[] = [];
+  const tools: LlmClientTool[] = [...createCaseTools(caseData, refData), ...createProposeTools(caseData, proposedFindings)].map(clientToolFromRunnable);
 
   const messages: LlmMessage[] = [];
   for (const turn of history) {
@@ -374,5 +387,5 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
       .filter(s => s.kind === 'tool_call' && s.toolName)
       .map(s => ({ name: s.toolName as string, summary: s.label })),
   };
-  return { run, turn };
+  return { run, turn, proposedFindings };
 }

@@ -12,6 +12,9 @@ import type {
   LayoutApproval,
   PlotAttributes,
   PlotFacing,
+  TechnicalDdPhase,
+  TechnicalFindingReviewState,
+  TechnicalSystem,
 } from '@realytica/shared';
 
 /**
@@ -77,6 +80,64 @@ export const documentKindSchema = z.enum([
 ]) satisfies z.ZodType<DocumentKind>;
 
 export const riskStatusSchema = z.enum(['open', 'mitigated', 'accepted']);
+export const riskSeveritySchema = z.enum(['info', 'warning', 'serious', 'critical']);
+
+export const technicalSystemSchema = z.enum([
+  'architectural',
+  'structural',
+  'mep_hvac',
+  'mep_phe',
+  'mep_fire',
+  'mep_electrical',
+  'mep_ibms',
+  'statutory',
+  'ehs',
+]) satisfies z.ZodType<TechnicalSystem>;
+
+export const technicalDdPhaseSchema = z.enum(['built', 'proposed']) satisfies z.ZodType<TechnicalDdPhase>;
+
+export const technicalFindingReviewStateSchema = z.enum(['proposed', 'accepted', 'rejected']) satisfies z.ZodType<TechnicalFindingReviewState>;
+
+/**
+ * The draft shape — what a person filling in the form and a copilot tool
+ * call both have to supply. `evidenceDocumentIds` defaults to empty rather
+ * than being required: a user typing up a fresh site observation may not
+ * have a photo attached yet, and the finding should still be saveable.
+ */
+export const technicalFindingDraftSchema = z.object({
+  system: technicalSystemSchema,
+  zone: z.string().min(1).max(200),
+  observation: z.string().min(1).max(2000),
+  severity: riskSeveritySchema,
+  recommendation: z.string().min(1).max(2000),
+  codeCitation: z.string().max(300).optional(),
+  evidenceDocumentIds: z.array(z.string()).max(20).default([]),
+});
+
+export const updateTechnicalFindingSchema = z.object({
+  zone: z.string().min(1).max(200).optional(),
+  observation: z.string().min(1).max(2000).optional(),
+  severity: riskSeveritySchema.optional(),
+  recommendation: z.string().min(1).max(2000).optional(),
+  codeCitation: z.string().max(300).optional(),
+  evidenceDocumentIds: z.array(z.string()).max(20).optional(),
+  status: riskStatusSchema.optional(),
+});
+
+/**
+ * Accepting or rejecting a proposal is its own endpoint rather than a field
+ * on the general update — the same reason `riskStatusBodySchema` is separate
+ * from a generic PATCH: a state transition with a closed set of outcomes
+ * should not be reachable by typing an arbitrary string into a JSON body.
+ */
+export const technicalFindingReviewBodySchema = z.object({
+  reviewState: z.enum(['accepted', 'rejected']),
+});
+
+export const technicalDocumentsProvidedBodySchema = z.object({
+  itemId: z.string().min(1),
+  provided: z.boolean(),
+});
 
 // Karnataka State Pack attributes, carried on `PropertyIdentity.karnataka`.
 // The `satisfies` checks keep each enum in sync with its `types.ts` union.
