@@ -19,10 +19,12 @@ function TurnBubble({
   turn,
   evidence,
   verification,
+  onOpenNode,
 }: {
   turn: CopilotTurn;
   evidence: EvidenceItem[];
   verification?: VerificationSummary;
+  onOpenNode?: (nodeId: string) => void;
 }) {
   // A critic flag has to travel with the claim it concerns. Surfacing it only
   // in the verification panel would let someone read an unsupported answer
@@ -81,6 +83,20 @@ function TurnBubble({
             <EvidenceLink ids={turn.citedEvidenceIds} evidence={evidence} />
           </div>
         ) : null}
+        {onOpenNode && turn.citedNodeIds && turn.citedNodeIds.length > 0 ? (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {turn.citedNodeIds.map((nodeId) => (
+              <button
+                key={nodeId}
+                onClick={() => onOpenNode(nodeId)}
+                className="rounded-full bg-surface px-2 py-0.5 font-mono text-[10px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:text-ink"
+                title="Focus this node in the graph explorer"
+              >
+                {nodeId.length > 26 ? `${nodeId.slice(0, 26)}…` : nodeId}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <AgentTag at={turn.at} />
       </div>
     </div>
@@ -132,6 +148,7 @@ export function CopilotPanel({
   disabled,
   disabledReason,
   verification,
+  onOpenNode,
 }: {
   conversation: CopilotTurn[];
   evidence: EvidenceItem[];
@@ -142,6 +159,8 @@ export function CopilotPanel({
   disabled?: boolean;
   disabledReason?: string;
   verification?: VerificationSummary;
+  /** When set, graph-node citations render as chips that focus the explorer. */
+  onOpenNode?: (nodeId: string) => void;
 }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -206,7 +225,7 @@ export function CopilotPanel({
         ) : (
           <>
             {conversation.map((turn) => (
-              <TurnBubble verification={verification} key={turn.id} turn={turn} evidence={evidence} />
+              <TurnBubble verification={verification} key={turn.id} turn={turn} evidence={evidence} onOpenNode={onOpenNode} />
             ))}
             {busy ? <TypingIndicator /> : null}
           </>

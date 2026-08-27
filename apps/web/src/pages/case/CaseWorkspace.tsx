@@ -532,6 +532,7 @@ export default function CaseWorkspace() {
             result={result}
             refresh={refresh}
             viewContext={group.views.length > 1 ? `${group.label} → ${view.label}` : group.label}
+            goToTab={goToTab}
             className="hidden xl:flex"
           />
         ) : null}

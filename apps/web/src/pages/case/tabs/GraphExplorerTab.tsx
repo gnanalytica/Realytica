@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Camera, FileText, Maximize2, Minus, Plus, Search, Waypoints, X } from 'lucide-react';
 import { DD_DOMAIN_PROFILES, buildDdGraph, findNodes, trace } from '@realytica/shared';
 import type { DdGraph, DdLayer, DdNode, DdSubgraph } from '@realytica/shared';
@@ -161,6 +162,24 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [domainFilter, setDomainFilter] = useState<string>('');
   const [query, setQuery] = useState('');
+
+  /*
+   * Chat can address this canvas: a cited-node chip navigates to
+   * ?view=graph&node=<id>, and the explorer opens focused on that node. The
+   * param is consumed once — cleared after selecting — so it deep-links a
+   * moment, not a permanent selection the reader cannot shake off.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedNode = searchParams.get('node');
+  useEffect(() => {
+    if (!requestedNode) return;
+    if (graph.nodes.some(n => n.id === requestedNode)) setSelectedId(requestedNode);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('node');
+      return next;
+    }, { replace: true });
+  }, [requestedNode, graph, setSearchParams]);
 
   const selected = selectedId ? graph.nodes.find(n => n.id === selectedId) ?? null : null;
   const cone: DdSubgraph | undefined = useMemo(

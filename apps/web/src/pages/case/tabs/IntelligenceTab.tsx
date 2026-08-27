@@ -1013,6 +1013,7 @@ export default function IntelligenceTab({ caseData, result, refresh }: TabProps)
             disabled={!capability.available}
             disabledReason={capability.available ? undefined : capabilityReasonText(capability.reason)}
             verification={intel.verification}
+            onOpenNode={(nodeId) => navigate(`/cases/${caseData.id}/diligence?view=graph&node=${encodeURIComponent(nodeId)}`)}
           />
         </CardBody>
       </Card>

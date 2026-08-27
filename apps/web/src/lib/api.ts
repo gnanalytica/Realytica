@@ -255,7 +255,14 @@ export const api = {
     }),
 
   askCopilot: (id: string, question: string, viewContext?: string) =>
-    request<{ userTurn: CopilotTurn; assistantTurn: CopilotTurn }>(`/cases/${id}/agents/copilot`, {
+    request<{
+      userTurn: CopilotTurn;
+      assistantTurn: CopilotTurn;
+      /** One line per user command the turn executed (the authorship law's acting half). */
+      appliedCommands?: string[];
+      /** Views the person asked chat to open; the caller navigates to the first. */
+      navigations?: { target: string }[];
+    }>(`/cases/${id}/agents/copilot`, {
       method: 'POST',
       body: JSON.stringify({ question, viewContext }),
     }),

@@ -517,6 +517,15 @@ export interface CaseDocument {
    */
   captureZone?: string;
   captureSystem?: TechnicalSystem;
+  /**
+   * Read from the photo's own EXIF at upload — where and when the shutter
+   * actually fired, as the phone stamped it. Never inferred, and absent on
+   * anything whose metadata was stripped (WhatsApp forwards, screenshots).
+   * `captureTakenAt` carries no timezone because EXIF does not.
+   */
+  captureLat?: number;
+  captureLng?: number;
+  captureTakenAt?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2489,6 +2498,13 @@ export interface CopilotTurn {
   text: string;
   at: string;
   citedEvidenceIds: string[];
+  /**
+   * DD-graph node ids the answer cited (checks, findings, risks, zones …),
+   * validated against the case's built graph before the turn is stored —
+   * the chat→canvas half of the shared selection context: each renders as a
+   * chip that focuses the graph explorer on that node.
+   */
+  citedNodeIds?: string[];
   toolCalls?: { name: string; summary: string }[];
   /** Set when the agent declined to answer because the evidence does not support one. */
   refusedForLackOfEvidence?: boolean;

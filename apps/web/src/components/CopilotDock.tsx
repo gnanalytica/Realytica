@@ -25,12 +25,15 @@ export function CopilotDock({
   result,
   refresh,
   viewContext,
+  goToTab,
   className,
 }: {
   caseData: PropertyCase;
   result: ScreenResult | null;
   refresh: () => void | Promise<void>;
   viewContext: string;
+  /** Lets a chat command ("open compliance") and a cited-node chip move the canvas. */
+  goToTab: (key: string) => void;
   className?: string;
 }) {
   const [open, setOpen] = useState(true);
@@ -50,13 +53,15 @@ export function CopilotDock({
     async (question: string) => {
       setAsking(true);
       try {
-        await api.askCopilot(caseData.id, question, viewContext);
+        const response = await api.askCopilot(caseData.id, question, viewContext);
         await refresh();
+        const target = response.navigations?.[0]?.target;
+        if (target) goToTab(target);
       } finally {
         setAsking(false);
       }
     },
-    [caseData.id, refresh, viewContext],
+    [caseData.id, refresh, viewContext, goToTab],
   );
 
   const handleClear = useCallback(async () => {
@@ -109,6 +114,7 @@ export function CopilotDock({
         disabled={agentsOff}
         disabledReason={agentsOff ? 'No model is configured for this deployment.' : undefined}
         verification={caseData.intelligence?.verification}
+        onOpenNode={nodeId => goToTab(`diligence?view=graph&node=${encodeURIComponent(nodeId)}`)}
       />
     </aside>
   );

@@ -37,13 +37,15 @@ import type {
   RetrievalSelection,
   TechnicalFindingDraft,
 } from '@realytica/shared';
-import { buildTitleGraph } from '@realytica/shared';
+import { buildDdGraph, buildTitleGraph } from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
 import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { retrieveCaseContext } from '../retrieval';
 import { renderMemoryForPrompt } from '../memory';
 import { createCaseTools } from '../tools/case-tools';
 import { createProposeTools } from '../tools/propose-tools';
+import { createCommandTools } from '../tools/command-tools';
+import type { CopilotCommand, CopilotNavigation } from '../tools/command-tools';
 import { describeGap } from '../routing';
 import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute, textOf } from '../providers';
 import type { LlmClientTool, LlmMessage } from '../providers';
@@ -88,6 +90,14 @@ export interface RunCopilotResult {
    * package) persists each one with `reviewState: 'proposed'`.
    */
   proposedFindings: TechnicalFindingDraft[];
+  /**
+   * User commands this turn collected (command-tools.ts) — the person acting
+   * through chat, validated against the case at collection time. The API
+   * route applies them and saves; this package still touches no store.
+   */
+  commands: CopilotCommand[];
+  /** Views the person asked chat to open. Forwarded to the client, which navigates. */
+  navigations: CopilotNavigation[];
 }
 
 const MAX_TOOL_ITERATIONS = 8;
@@ -105,6 +115,25 @@ const MAX_TOOL_ITERATIONS = 8;
 
 const REFUSAL_LINE_RE = /\n?REFUSED_FOR_LACK_OF_EVIDENCE:\s*(true|false)\s*$/i;
 const CITATION_RE = /\[ev:([^\]\s]+)\]/g;
+/** Bracketed tokens the graph tools serialise — `[dd-risk-ab12cd34]`, `[risk-...]` — as they reappear in an answer. */
+const NODE_TOKEN_RE = /\[([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/g;
+
+/**
+ * The graph-node citations in an answer, validated against the built graph.
+ * The graph tools serialise every line as `[nodeId] …`, so a model quoting
+ * its own trace naturally carries the ids; only ids the graph actually holds
+ * survive — a bracketed token that resolves to nothing is just prose.
+ * Evidence-ledger ids are excluded: they are already `citedEvidenceIds`, and
+ * one citation must not render as two chips.
+ */
+function extractNodeCitations(rawText: string, validNodeIds: ReadonlySet<string>, evidenceIds: ReadonlySet<string>): string[] {
+  const cited: string[] = [];
+  for (const match of rawText.matchAll(NODE_TOKEN_RE)) {
+    const id = match[1];
+    if (validNodeIds.has(id) && !evidenceIds.has(id) && !cited.includes(id)) cited.push(id);
+  }
+  return cited;
+}
 
 /** Strips the trailing refusal marker, validates inline citations against the real ledger, and reports what happened. */
 function processAnswer(rawText: string, validIds: ReadonlySet<string>): {
@@ -203,7 +232,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
       citedEvidenceIds: opts.citedEvidenceIds ?? [],
       refusedForLackOfEvidence: opts.refusedForLackOfEvidence ?? false,
     };
-    return { run, turn, proposedFindings: [] };
+    return { run, turn, proposedFindings: [], commands: [], navigations: [] };
   };
 
   emit({ kind: 'plan', label: `Answering: "${question.length > 80 ? `${question.slice(0, 80)}…` : question}"` });
@@ -235,10 +264,16 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
    * the loop itself. Neither is a re-implementation of the other: they are the
    * same closure reached two ways.
    */
-  // Mutated by propose_technical_finding's `run()` — see propose-tools.ts.
+  // Mutated by the tools' `run()` — see propose-tools.ts and command-tools.ts.
   // Read back once the loop below finishes; nothing here touches the store.
   const proposedFindings: TechnicalFindingDraft[] = [];
-  const tools: LlmClientTool[] = [...createCaseTools(caseData, refData), ...createProposeTools(caseData, proposedFindings)].map(clientToolFromRunnable);
+  const commands: CopilotCommand[] = [];
+  const navigations: CopilotNavigation[] = [];
+  const tools: LlmClientTool[] = [
+    ...createCaseTools(caseData, refData),
+    ...createProposeTools(caseData, proposedFindings),
+    ...createCommandTools(caseData, commands, navigations),
+  ].map(clientToolFromRunnable);
 
   const messages: LlmMessage[] = [];
   for (const turn of history) {
@@ -360,6 +395,10 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
   }
 
   const { text, citedEvidenceIds, refusedForLackOfEvidence } = processAnswer(rawText, validEvidenceIds);
+  // The chat→canvas half of the shared selection context: node ids the answer
+  // carried, validated against the same projection the graph tools read.
+  const ddGraph = buildDdGraph(caseData, now);
+  const citedNodeIds = extractNodeCitations(rawText, new Set(ddGraph.nodes.map(n => n.id)), validEvidenceIds);
 
   emit({
     kind: 'message',
@@ -390,10 +429,11 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
     text,
     at: now,
     citedEvidenceIds,
+    ...(citedNodeIds.length > 0 ? { citedNodeIds } : {}),
     refusedForLackOfEvidence,
     toolCalls: steps
       .filter(s => s.kind === 'tool_call' && s.toolName)
       .map(s => ({ name: s.toolName as string, summary: s.label })),
   };
-  return { run, turn, proposedFindings };
+  return { run, turn, proposedFindings, commands, navigations };
 }
