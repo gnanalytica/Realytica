@@ -7,6 +7,7 @@ import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { updateDocumentSchema } from '../schemas';
+import { readExifCapture } from '../exif';
 import { findCase } from './cases';
 
 const MAX_FILES_PER_UPLOAD = 10;
@@ -86,6 +87,9 @@ documentsRouter.post<{ id: string }>('/', upload.array('files', 10), async (req,
       const docId = randomUUID();
       const classification = classifyDocument(file.originalname, file.mimetype);
       const isImage = classification.kind === 'photograph' || file.mimetype.startsWith('image/');
+      // The phone already stamped where and when the shot was taken; a JPEG
+      // that carries it enters the graph geotagged without anyone retyping it.
+      const exif = isImage ? readExifCapture(file.buffer) : {};
       const doc: CaseDocument = {
         id: docId,
         caseId: found.id,
@@ -101,6 +105,8 @@ documentsRouter.post<{ id: string }>('/', upload.array('files', 10), async (req,
         extracted: [],
         ...(isImage && captureZone ? { captureZone } : {}),
         ...(isImage && captureSystem ? { captureSystem } : {}),
+        ...(exif.lat !== undefined && exif.lng !== undefined ? { captureLat: exif.lat, captureLng: exif.lng } : {}),
+        ...(exif.takenAt ? { captureTakenAt: exif.takenAt } : {}),
       };
       doc.extracted = extractFields(doc, found.identity, found.id);
       await storageAdapter.putDocument(found.id, documentKey(doc), file.buffer, file.mimetype);

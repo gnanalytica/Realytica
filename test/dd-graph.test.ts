@@ -109,6 +109,9 @@ describe('construction', () => {
       extracted: [],
       captureZone: 'Basement 2, DG Room',
       captureSystem: 'mep_electrical',
+      captureLat: 12.9716,
+      captureLng: 77.5946,
+      captureTakenAt: '2026-08-14T10:30:00',
     });
     const photo = c.documents[c.documents.length - 1];
     // The finding says the same place differently — capture-time zones and
@@ -118,6 +121,8 @@ describe('construction', () => {
     const photoNode = graph.nodes.find(n => n.kind === 'photo' && n.attributes.documentId === photo.id);
     assert.ok(photoNode);
     assert.equal(photoNode.domain, 'technical');
+    assert.equal(photoNode.attributes.captureLat, 12.9716);
+    assert.equal(photoNode.attributes.captureTakenAt, '2026-08-14T10:30:00');
     const locatedIn = graph.edges.find(e => e.kind === 'located_in' && e.fromNodeId === photoNode.id);
     assert.ok(locatedIn, 'photo must be located_in its capture zone');
     const findingNode = graph.nodes.find(n => n.kind === 'finding');

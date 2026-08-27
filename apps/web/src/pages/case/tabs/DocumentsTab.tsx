@@ -519,9 +519,17 @@ function DocRow({
             <Icon size={15} className="mt-0.5 shrink-0 text-ink-muted" />
             <div className="min-w-0">
               <div className="truncate font-medium text-ink">{doc.fileName}</div>
-              {doc.captureZone || doc.captureSystem ? (
+              {doc.captureZone || doc.captureSystem || doc.captureLat !== undefined || doc.captureTakenAt ? (
                 <div className="mt-0.5 truncate text-[11px] text-ink-muted">
-                  Captured: {[doc.captureSystem ? TECHNICAL_SYSTEM_LABEL[doc.captureSystem] : null, doc.captureZone].filter(Boolean).join(' · ')}
+                  Captured:{' '}
+                  {[
+                    doc.captureSystem ? TECHNICAL_SYSTEM_LABEL[doc.captureSystem] : null,
+                    doc.captureZone,
+                    doc.captureLat !== undefined && doc.captureLng !== undefined ? `${doc.captureLat}, ${doc.captureLng}` : null,
+                    doc.captureTakenAt ? `taken ${doc.captureTakenAt.slice(0, 10)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </div>
               ) : null}
               {needsReview ? (

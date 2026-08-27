@@ -193,6 +193,10 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
         domains: domains.join(','),
         ...(doc.captureZone ? { captureZone: doc.captureZone } : {}),
         ...(doc.captureSystem ? { captureSystem: doc.captureSystem } : {}),
+        ...(doc.captureLat !== undefined && doc.captureLng !== undefined
+          ? { captureLat: doc.captureLat, captureLng: doc.captureLng }
+          : {}),
+        ...(doc.captureTakenAt ? { captureTakenAt: doc.captureTakenAt } : {}),
       },
     });
     // Capture-time mapping: the photo arrives already connected to where it
