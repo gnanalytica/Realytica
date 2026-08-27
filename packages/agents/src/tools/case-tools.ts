@@ -57,7 +57,7 @@ const EVIDENCE_SOURCE_TYPES = ['document', 'external_dataset', 'comparable', 'us
 const RISK_SEVERITIES = ['info', 'warning', 'serious', 'critical'] as const;
 const RISK_STATUSES = ['open', 'mitigated', 'accepted'] as const;
 const COMPLIANCE_VERDICTS = ['clear', 'attention', 'blocker', 'unknown'] as const;
-const TECHNICAL_SYSTEMS = ['architectural', 'structural', 'mep_hvac', 'mep_phe', 'mep_fire', 'mep_electrical', 'mep_ibms', 'statutory', 'ehs'] as const;
+const TECHNICAL_SYSTEMS = ['architectural', 'structural', 'mep_hvac', 'mep_phe', 'mep_fire', 'mep_electrical', 'mep_ibms', 'statutory', 'ehs', 'project_ops'] as const;
 const TECHNICAL_REVIEW_STATES = ['proposed', 'accepted', 'rejected'] as const;
 const TECHNICAL_DD_PHASES = ['built', 'proposed'] as const;
 

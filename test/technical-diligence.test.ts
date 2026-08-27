@@ -20,6 +20,7 @@ import {
   technicalDocumentChecklist,
   technicalDocumentGaps,
   technicalDocumentItem,
+  totalOpenEstimatedCost,
 } from '@realytica/shared';
 import type { TechnicalFinding } from '@realytica/shared';
 
@@ -108,5 +109,26 @@ describe('review state keeps a proposal out of the case until accepted', () => {
       grouped.map(g => g.system),
       TECHNICAL_SYSTEMS.filter(s => s === 'architectural' || s === 'ehs'),
     );
+  });
+});
+
+describe('open exposure — the FINANCIAL domain as a number', () => {
+  it('is undefined when nothing has been costed, never a silent zero', () => {
+    const findings = [finding({ id: 'a' }), finding({ id: 'b', estimatedCost: undefined })];
+    assert.equal(totalOpenEstimatedCost(findings), undefined);
+  });
+
+  it('sums only open, accepted, costed findings', () => {
+    const findings = [
+      finding({ id: 'open-costed', status: 'open', estimatedCost: 50_000 }),
+      finding({ id: 'open-uncosted', status: 'open' }),
+      finding({ id: 'mitigated-costed', status: 'mitigated', estimatedCost: 20_000 }),
+      finding({ id: 'proposed-costed', reviewState: 'proposed', source: 'agent', status: 'open', estimatedCost: 99_000 }),
+      finding({ id: 'rejected-costed', reviewState: 'rejected', status: 'open', estimatedCost: 5_000 }),
+    ];
+    // Only 'open-costed' qualifies: open status, accepted review state, and
+    // an actual number. A mitigated item is no longer exposure; a proposal
+    // or a rejection was never a fact about the case to begin with.
+    assert.equal(totalOpenEstimatedCost(findings), 50_000);
   });
 });

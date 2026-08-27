@@ -92,6 +92,7 @@ export const technicalSystemSchema = z.enum([
   'mep_ibms',
   'statutory',
   'ehs',
+  'project_ops',
 ]) satisfies z.ZodType<TechnicalSystem>;
 
 export const technicalDdPhaseSchema = z.enum(['built', 'proposed']) satisfies z.ZodType<TechnicalDdPhase>;
@@ -122,6 +123,16 @@ export const updateTechnicalFindingSchema = z.object({
   codeCitation: z.string().max(300).optional(),
   evidenceDocumentIds: z.array(z.string()).max(20).optional(),
   status: riskStatusSchema.optional(),
+  // FINANCIAL and approved-vs-as-built enrichments — reachable only through
+  // this route, never through technicalFindingDraftSchema or the copilot's
+  // propose tool. A cost with no cost consultant or BOQ behind it, or a
+  // deviation flag inferred rather than asserted, is exactly the fabricated
+  // figure this product's evidence discipline exists to refuse — so these
+  // are a person's own entry, always.
+  estimatedCost: z.number().min(0).max(1_000_000_000_000).optional(),
+  estimatedCostCurrency: currencyCodeSchema.optional(),
+  owner: z.string().max(200).optional(),
+  deviatesFromApproved: z.boolean().optional(),
 });
 
 /**

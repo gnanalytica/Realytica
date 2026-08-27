@@ -19,7 +19,7 @@ import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import type { PropertyCase, TechnicalFindingDraft } from '@realytica/shared';
 
 const RISK_SEVERITIES = ['info', 'warning', 'serious', 'critical'] as const;
-const TECHNICAL_SYSTEMS = ['architectural', 'structural', 'mep_hvac', 'mep_phe', 'mep_fire', 'mep_electrical', 'mep_ibms', 'statutory', 'ehs'] as const;
+const TECHNICAL_SYSTEMS = ['architectural', 'structural', 'mep_hvac', 'mep_phe', 'mep_fire', 'mep_electrical', 'mep_ibms', 'statutory', 'ehs', 'project_ops'] as const;
 
 /**
  * `collector` is mutated by `run()` — every accepted-shape draft is pushed

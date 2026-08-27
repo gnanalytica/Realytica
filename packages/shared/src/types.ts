@@ -877,8 +877,20 @@ export interface RiskFlag {
 /* only meet at the case they both hang off.                            */
 /* ------------------------------------------------------------------ */
 
-/** The discipline a finding belongs to — mirrors how a technical DD is actually staffed and read, zone by zone. */
-export type TechnicalSystem = 'architectural' | 'structural' | 'mep_hvac' | 'mep_phe' | 'mep_fire' | 'mep_electrical' | 'mep_ibms' | 'statutory' | 'ehs';
+/**
+ * The discipline a finding belongs to — mirrors how a technical DD is
+ * actually staffed and read, zone by zone.
+ *
+ * `project_ops` is not a defect discipline like the others — it is the
+ * building's own operating baseline (power backup coverage, HVAC setpoint,
+ * parking ratio, floor efficiency: facts a facilities walk-through records,
+ * not problems it found). It reuses the same finding shape rather than a
+ * parallel schema — severity `info` for a confirmed-fine baseline fact,
+ * `warning`+ for one that falls short of what was represented — because a
+ * baseline fact and a defect are read the same way: observed, evidenced,
+ * reviewed.
+ */
+export type TechnicalSystem = 'architectural' | 'structural' | 'mep_hvac' | 'mep_phe' | 'mep_fire' | 'mep_electrical' | 'mep_ibms' | 'statutory' | 'ehs' | 'project_ops';
 
 /** Where a finding came from. An agent-sourced one is never final on arrival — see `TechnicalFindingReviewState`. */
 export type TechnicalFindingSource = 'user' | 'agent';
@@ -933,7 +945,37 @@ export interface TechnicalFinding extends TechnicalFindingDraft {
   updatedAt: string;
   /** The copilot run that proposed this, when `source` is `'agent'` — lets a reviewer open the conversation that produced it. */
   proposedByRunId?: string;
+  /**
+   * What it costs to fix, and who owns closing it out — the FINANCIAL
+   * domain's own framing: "quantify each issue: severity, owner, cost,
+   * warranty recovery." Absent by default and reachable only through the
+   * update endpoint, never the create draft or the copilot's proposal tool:
+   * a cost figure with no cost consultant or BOQ behind it is exactly the
+   * fabricated number this product's evidence discipline exists to refuse.
+   * A person enters this once they actually have a number.
+   */
+  estimatedCost?: number;
+  estimatedCostCurrency?: CurrencyCode;
+  /** Who is responsible for closing this out — a name, a role, a firm. Free text; there is no fixed roster of parties to choose from. */
+  owner?: string;
+  /**
+   * Does this finding represent a departure from what was sanctioned/
+   * occupied, rather than a defect with no bearing on the approved envelope?
+   * The board's "approved vs as-built" cross-check, kept honest by staying a
+   * person's assertion rather than an inferred match against free-text
+   * approval fields — a wrong automatic match here would be worse than no
+   * flag at all.
+   */
+  deviatesFromApproved?: boolean;
 }
+
+/** Every field a finding may be updated with after creation — the one list the API schema, the client and the update route all read from. */
+export type TechnicalFindingPatch = Partial<
+  Pick<
+    TechnicalFinding,
+    'zone' | 'observation' | 'severity' | 'recommendation' | 'codeCitation' | 'evidenceDocumentIds' | 'status' | 'estimatedCost' | 'estimatedCostCurrency' | 'owner' | 'deviatesFromApproved'
+  >
+>;
 
 /** Built (Phase I, already standing) vs proposed (Phase II, not yet built) — the split the document checklist itself uses. */
 export type TechnicalDdPhase = 'built' | 'proposed';

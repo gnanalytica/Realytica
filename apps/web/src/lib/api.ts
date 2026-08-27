@@ -31,6 +31,7 @@ import type {
   ScreenResult,
   TechnicalFinding,
   TechnicalFindingDraft,
+  TechnicalFindingPatch,
   TechnicalFindingReviewState,
   TelemetrySummary,
   UpdateCaseRequest,
@@ -203,7 +204,7 @@ export const api = {
   createTechnicalFinding: (id: string, draft: TechnicalFindingDraft) =>
     request<TechnicalFinding>(`/cases/${id}/technical-findings`, { method: 'POST', body: JSON.stringify(draft) }),
 
-  updateTechnicalFinding: (id: string, findingId: string, patch: Partial<TechnicalFindingDraft & { status: RiskStatus }>) =>
+  updateTechnicalFinding: (id: string, findingId: string, patch: TechnicalFindingPatch) =>
     request<TechnicalFinding>(`/cases/${id}/technical-findings/${findingId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 
   reviewTechnicalFinding: (id: string, findingId: string, reviewState: Extract<TechnicalFindingReviewState, 'accepted' | 'rejected'>) =>

@@ -20,6 +20,7 @@ export const TECHNICAL_SYSTEMS: TechnicalSystem[] = [
   'mep_ibms',
   'statutory',
   'ehs',
+  'project_ops',
 ];
 
 export const TECHNICAL_SYSTEM_LABEL: Record<TechnicalSystem, string> = {
@@ -32,6 +33,7 @@ export const TECHNICAL_SYSTEM_LABEL: Record<TechnicalSystem, string> = {
   mep_ibms: 'MEP — IBMS / BMS',
   statutory: 'Statutory',
   ehs: 'EHS',
+  project_ops: 'Project / operations',
 };
 
 /**
@@ -122,4 +124,20 @@ export function openTechnicalFindingCounts(findings: TechnicalFinding[]): Record
     openCritical: open.filter(f => f.severity === 'critical').length,
     openSerious: open.filter(f => f.severity === 'serious').length,
   };
+}
+
+/**
+ * Total costed exposure across open, accepted findings — the FINANCIAL
+ * domain's "technical defects become capex exposure," made into a number.
+ *
+ * Sums only what a person actually priced (`estimatedCost` is opt-in), and
+ * only for findings still `open` — a mitigated or resolved item is no
+ * longer exposure. Returns `undefined` when nothing has been costed at all,
+ * which a caller must render as "not yet costed," never as a silent zero:
+ * zero would read as "this will cost nothing to fix."
+ */
+export function totalOpenEstimatedCost(findings: TechnicalFinding[]): number | undefined {
+  const costed = acceptedTechnicalFindings(findings).filter(f => f.status === 'open' && typeof f.estimatedCost === 'number');
+  if (costed.length === 0) return undefined;
+  return costed.reduce((sum, f) => sum + (f.estimatedCost as number), 0);
 }

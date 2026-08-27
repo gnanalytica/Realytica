@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Camera, Check, HardHat, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Camera, Check, HardHat, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import {
   TECHNICAL_SYSTEMS,
   TECHNICAL_SYSTEM_LABEL,
@@ -8,11 +8,12 @@ import {
   openTechnicalFindingCounts,
   proposedTechnicalFindings,
   technicalDocumentChecklist,
+  totalOpenEstimatedCost,
 } from '@realytica/shared';
-import type { CaseDocument, RiskSeverity, RiskStatus, TechnicalDdPhase, TechnicalFinding, TechnicalFindingDraft, TechnicalSystem } from '@realytica/shared';
+import type { CaseDocument, CurrencyCode, RiskSeverity, RiskStatus, TechnicalDdPhase, TechnicalFinding, TechnicalFindingDraft, TechnicalSystem } from '@realytica/shared';
 import type { TabProps } from '../tab-props';
 import { api } from '../../../lib/api';
-import { severityTone, titleCase } from '../../../lib/format';
+import { money, severityTone, titleCase } from '../../../lib/format';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Input, Select, StatTile, Textarea, Toggle, cn, useToast } from '../../../components/ui/kit';
 
 const SEVERITIES: RiskSeverity[] = ['critical', 'serious', 'warning', 'info'];
@@ -155,28 +156,54 @@ function AddFindingForm({
 function FindingRow({
   finding,
   photos,
+  currency,
   onChanged,
   onDeleted,
 }: {
   finding: TechnicalFinding;
   /** The case's photograph documents, to resolve `evidenceDocumentIds` to a file name a reviewer recognises. */
   photos: CaseDocument[];
+  /** The case's own currency — cost is entered in it, never a currency the finding invents. */
+  currency: CurrencyCode;
   onChanged: (f: TechnicalFinding) => void;
   onDeleted: (id: string) => void;
 }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [costDraft, setCostDraft] = useState(finding.estimatedCost !== undefined ? String(finding.estimatedCost) : '');
+  const [ownerDraft, setOwnerDraft] = useState(finding.owner ?? '');
 
-  const setStatus = async (status: RiskStatus) => {
+  const patch = async (body: Parameters<typeof api.updateTechnicalFinding>[2]) => {
     setBusy(true);
     try {
-      onChanged(await api.updateTechnicalFinding(finding.caseId, finding.id, { status }));
+      onChanged(await api.updateTechnicalFinding(finding.caseId, finding.id, body));
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not update the finding', 'critical');
     } finally {
       setBusy(false);
     }
   };
+
+  const saveCost = () => {
+    const trimmed = costDraft.trim();
+    const parsed = trimmed === '' ? undefined : Number(trimmed);
+    if (parsed !== undefined && (!Number.isFinite(parsed) || parsed < 0)) {
+      toast('Cost must be a positive number', 'critical');
+      setCostDraft(finding.estimatedCost !== undefined ? String(finding.estimatedCost) : '');
+      return;
+    }
+    if (parsed === finding.estimatedCost) return;
+    void patch({ estimatedCost: parsed, estimatedCostCurrency: parsed !== undefined ? currency : undefined });
+  };
+
+  const saveOwner = () => {
+    const trimmed = ownerDraft.trim();
+    if (trimmed === (finding.owner ?? '')) return;
+    void patch({ owner: trimmed || undefined });
+  };
+
+  const setStatus = (status: RiskStatus) => void patch({ status });
+  const toggleDeviation = () => void patch({ deviatesFromApproved: !finding.deviatesFromApproved });
 
   const review = async (reviewState: 'accepted' | 'rejected') => {
     setBusy(true);
@@ -209,6 +236,11 @@ function FindingRow({
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge tone={severityTone(finding.severity)}>{titleCase(finding.severity)}</Badge>
           <span className="text-[13px] font-semibold text-ink">{finding.zone}</span>
+          {finding.deviatesFromApproved && (
+            <Badge tone="warning" icon={<AlertTriangle size={11} />}>
+              Deviates from approved plan
+            </Badge>
+          )}
           {proposed && (
             <Badge tone="brand" icon={<Sparkles size={11} />}>
               Drafted by copilot — awaiting review
@@ -242,13 +274,51 @@ function FindingRow({
             .join(', ')}
         </p>
       )}
-      {proposed && (
+      {proposed ? (
         <div className="mt-2.5 flex gap-2">
           <Button variant="primary" size="sm" icon={<Check size={13} />} disabled={busy} onClick={() => void review('accepted')}>
             Accept
           </Button>
           <Button variant="ghost" size="sm" icon={<X size={13} />} disabled={busy} onClick={() => void review('rejected')}>
             Reject
+          </Button>
+        </div>
+      ) : (
+        // FINANCIAL enrichments — always a person's own entry, never the
+        // copilot's: see the field comments on TechnicalFinding for why.
+        <div className="mt-2.5 flex flex-wrap items-end gap-2 border-t border-hairline pt-2.5">
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-ink-muted">
+            Est. cost to fix ({currency})
+            <Input
+              type="number"
+              min={0}
+              value={costDraft}
+              disabled={busy}
+              onChange={(e) => setCostDraft(e.target.value)}
+              onBlur={saveCost}
+              placeholder="Not yet costed"
+              className="!h-7 w-32 text-[12.5px]"
+            />
+          </label>
+          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-ink-muted">
+            Owner
+            <Input
+              value={ownerDraft}
+              disabled={busy}
+              onChange={(e) => setOwnerDraft(e.target.value)}
+              onBlur={saveOwner}
+              placeholder="Who closes this out"
+              className="!h-7 w-40 text-[12.5px]"
+            />
+          </label>
+          <Button
+            variant={finding.deviatesFromApproved ? 'secondary' : 'ghost'}
+            size="sm"
+            icon={<AlertTriangle size={13} />}
+            disabled={busy}
+            onClick={toggleDeviation}
+          >
+            {finding.deviatesFromApproved ? 'Marked as a deviation' : 'Mark as a deviation from approved plan'}
           </Button>
         </div>
       )}
@@ -303,6 +373,7 @@ export default function TechnicalDiligenceTab({ caseData }: TabProps) {
   const proposed = proposedTechnicalFindings(findings);
   const accepted = acceptedTechnicalFindings(findings);
   const counts = openTechnicalFindingCounts(findings);
+  const openExposure = totalOpenEstimatedCost(findings);
   const grouped = groupFindingsBySystem(accepted);
 
   const replace = (f: TechnicalFinding) => setFindings((prev) => prev.map((x) => (x.id === f.id ? f : x)));
@@ -311,9 +382,9 @@ export default function TechnicalDiligenceTab({ caseData }: TabProps) {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-5">
       <Callout tone="neutral" title="Building condition, not title or value" collapsible>
-        This is a different axis from the rest of the case: structural, MEP, fire and statutory condition of the physical building —
-        the questions a technical due-diligence walk-through asks, not what the title or the market says. Opt-in, and separate from
-        the deterministic screen.
+        This is a different axis from the rest of the case: structural, MEP, fire and statutory condition of the physical building, its
+        operational baseline, and what fixing what's wrong actually costs — the questions a technical due-diligence walk-through asks,
+        not what the title or the market says. Opt-in, and separate from the deterministic screen.
       </Callout>
 
       {findings.length === 0 && !showAdd ? (
@@ -329,11 +400,17 @@ export default function TechnicalDiligenceTab({ caseData }: TabProps) {
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <StatTile label="Open critical" value={counts.openCritical} tone={counts.openCritical > 0 ? 'critical' : 'neutral'} />
             <StatTile label="Open serious" value={counts.openSerious} tone={counts.openSerious > 0 ? 'warning' : 'neutral'} />
             <StatTile label="Mitigated" value={counts.mitigated} tone="neutral" />
             <StatTile label="Resolved" value={counts.accepted} tone="good" />
+            <StatTile
+              label="Open exposure"
+              value={openExposure !== undefined ? money(openExposure, caseData.identity.currency) : 'Not costed'}
+              tone="neutral"
+              hint="Sum of what's been priced — findings with no cost entered yet aren't in this number"
+            />
           </div>
 
           {proposed.length > 0 && (
@@ -345,7 +422,7 @@ export default function TechnicalDiligenceTab({ caseData }: TabProps) {
               />
               <CardBody className="flex flex-col gap-2">
                 {proposed.map((f) => (
-                  <FindingRow key={f.id} finding={f} photos={photos} onChanged={replace} onDeleted={remove} />
+                  <FindingRow key={f.id} finding={f} photos={photos} currency={caseData.identity.currency} onChanged={replace} onDeleted={remove} />
                 ))}
               </CardBody>
             </Card>
@@ -364,7 +441,7 @@ export default function TechnicalDiligenceTab({ caseData }: TabProps) {
               <CardHeader title={TECHNICAL_SYSTEM_LABEL[group.system]} subtitle={`${group.findings.length} finding${group.findings.length === 1 ? '' : 's'}`} />
               <CardBody className="flex flex-col gap-2">
                 {group.findings.map((f) => (
-                  <FindingRow key={f.id} finding={f} photos={photos} onChanged={replace} onDeleted={remove} />
+                  <FindingRow key={f.id} finding={f} photos={photos} currency={caseData.identity.currency} onChanged={replace} onDeleted={remove} />
                 ))}
               </CardBody>
             </Card>
