@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -17,6 +18,7 @@ import {
   Loader2,
   Ruler,
   ScrollText,
+  Eye,
   Trash2,
   UploadCloud,
   Zap,
@@ -124,6 +126,7 @@ interface RequiredRow {
 
 export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
   const toast = useToast();
+  const navigate = useNavigate();
   const { data: reference } = useAsync(() => api.reference(), []);
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -346,7 +349,7 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
                     <th className="px-3 py-2">Uploaded</th>
                     <th className="px-3 py-2">Kind</th>
                     <th className="px-3 py-2">Confidence</th>
-                    <th className="w-10 px-3 py-2" />
+                    <th className="w-16 px-3 py-2" />
                   </tr>
                 </thead>
                 <tbody>
@@ -359,6 +362,7 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
                       onKindChange={(kind) => void handleKindChange(doc, kind)}
                       onCaptureChange={(patch) => void handleCaptureChange(doc, patch)}
                       onDelete={() => setDocPendingDelete(doc)}
+                      onOpen={() => navigate(`/cases/${caseData.id}/cockpit?doc=${doc.id}`)}
                     />
                   ))}
                 </tbody>
@@ -490,6 +494,7 @@ function DocRow({
   onKindChange,
   onCaptureChange,
   onDelete,
+  onOpen,
 }: {
   doc: CaseDocument;
   expanded: boolean;
@@ -497,6 +502,8 @@ function DocRow({
   onKindChange: (kind: DocumentKind) => void;
   onCaptureChange: (patch: { captureZone?: string | null; captureSystem?: TechnicalSystem | null }) => void;
   onDelete: () => void;
+  /** Open the file in the cockpit's proof pane — the one viewer in the app. */
+  onOpen: () => void;
 }) {
   const Icon = KIND_ICON[doc.kind];
   const needsReview = doc.classificationConfidence < REVIEW_THRESHOLD && !doc.kindConfirmedByUser;
@@ -565,6 +572,13 @@ function DocRow({
           <div className="tabular mt-1 text-[11px] text-ink-muted">{Math.round(doc.classificationConfidence * 100)}%</div>
         </td>
         <td className="px-3 py-2 text-right align-top">
+          <button
+            onClick={onOpen}
+            aria-label={`Open ${doc.fileName}`}
+            className="rounded p-1 text-ink-muted hover:bg-brand-soft hover:text-brand"
+          >
+            <Eye size={14} />
+          </button>
           <button onClick={onDelete} aria-label={`Delete ${doc.fileName}`} className="rounded p-1 text-ink-muted hover:bg-critical/10 hover:text-critical">
             <Trash2 size={14} />
           </button>

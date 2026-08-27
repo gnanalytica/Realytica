@@ -8,6 +8,7 @@ import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { updateDocumentSchema } from '../schemas';
 import { readExifCapture } from '../exif';
+import { sendDocumentBytes } from './document-file';
 import { findCase } from './cases';
 
 const MAX_FILES_PER_UPLOAD = 10;
@@ -121,6 +122,43 @@ documentsRouter.post<{ id: string }>('/', upload.array('files', 10), async (req,
   } catch (e) {
     res.status(500).json({ error: `Failed to store uploaded file(s): ${e instanceof Error ? e.message : String(e)}` });
   }
+});
+
+/**
+ * The bytes of one document, for the viewer.
+ *
+ * A document seeded by the demo has a record but no file — the seeder
+ * deliberately creates the metadata without materialising bytes. That is a
+ * different thing from a storage failure, and the viewer has to say so
+ * differently ("this record carries no file" vs "we could not read it"), so
+ * it is a 404 carrying a code rather than a bare status.
+ */
+documentsRouter.get<{ id: string; docId: string }>('/:docId/file', async (req, res) => {
+  const found = findCase(req.params.id);
+  if (!found) {
+    res.status(404).json({ error: 'Case not found', code: 'case_not_found' });
+    return;
+  }
+  const doc = found.documents.find((d) => d.id === req.params.docId);
+  if (!doc) {
+    res.status(404).json({ error: 'Document not found', code: 'document_not_found' });
+    return;
+  }
+  let bytes: Buffer | null = null;
+  try {
+    bytes = await storageAdapter.getDocument(found.id, documentKey(doc));
+  } catch (e) {
+    res.status(500).json({
+      error: `Failed to read the stored file: ${e instanceof Error ? e.message : String(e)}`,
+      code: 'file_read_failed',
+    });
+    return;
+  }
+  if (!bytes) {
+    res.status(404).json({ error: 'No file is stored for this document', code: 'file_not_stored' });
+    return;
+  }
+  sendDocumentBytes(res, doc, bytes);
 });
 
 documentsRouter.patch<{ id: string; docId: string }>('/:docId', async (req, res) => {

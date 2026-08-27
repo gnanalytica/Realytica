@@ -16,9 +16,10 @@ import { useAsync } from '../../lib/useAsync';
 import { agentAvailable } from '../../lib/agent-availability';
 import { CopilotPanel } from '../../components/CopilotPanel';
 import { Badge, Button, Callout, Skeleton, cn, useToast } from '../../components/ui/kit';
-import { DOCUMENT_KIND_LABEL, money, relativeTime, titleCase } from '../../lib/format';
+import { money } from '../../lib/format';
 import { DossierPane } from './cockpit/DossierPane';
 import { RequestsPane } from './cockpit/RequestsPane';
+import { ProofPane } from './cockpit/ProofPane';
 import GraphExplorerTab from './tabs/GraphExplorerTab';
 import { CommandBar } from './cockpit/CommandBar';
 import { LAYOUTS, LAYOUT_LABEL, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
@@ -415,56 +416,12 @@ export default function Cockpit() {
                 />
               </div>
             ) : openDocument ? (
-              <div className="flex h-full flex-col">
-                <div className="flex items-center gap-2.5 border-b border-hairline px-5 py-3">
-                  <FileText size={14} className="text-ink-muted" />
-                  <div className="min-w-0">
-                    <div className="truncate text-[13px] font-semibold text-ink">{openDocument.fileName}</div>
-                    <div className="text-[11px] text-ink-muted">
-                      {DOCUMENT_KIND_LABEL[openDocument.kind]} · {relativeTime(openDocument.uploadedAt)}
-                      {citedPage ? ` · cited on page ${citedPage}` : ''}
-                    </div>
-                  </div>
-                  <div className="flex-grow" />
-                  <Button variant="secondary" size="sm" onClick={() => setParam({ doc: null, page: null })}>
-                    Back to dossier
-                  </Button>
-                </div>
-                <div className="flex-1 overflow-y-auto p-5">
-                  <h3 className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
-                    What this document establishes
-                  </h3>
-                  {openDocument.extracted.length === 0 ? (
-                    <p className="text-[12.5px] text-ink-muted">Nothing has been extracted from this document yet.</p>
-                  ) : (
-                    <ul className="flex flex-col">
-                      {openDocument.extracted.map(f => (
-                        <li
-                          key={f.key}
-                          className={cn(
-                            'flex items-baseline gap-3 border-b border-hairline py-2 last:border-b-0',
-                            citedPage && String(f.sourcePage ?? '') === citedPage ? 'bg-warning/15' : '',
-                          )}
-                        >
-                          <span className="w-44 shrink-0 text-[12px] text-ink-secondary">{f.label}</span>
-                          <span className="flex-grow text-[12.5px] font-medium text-ink">
-                            {f.value}
-                            {f.unit ? <span className="font-normal text-ink-secondary"> {f.unit}</span> : null}
-                          </span>
-                          <span className="tabular shrink-0 text-[11px] text-ink-muted">
-                            {Math.round(f.confidence * 100)}% · {titleCase(f.method)}
-                            {f.sourcePage ? ` · p.${f.sourcePage}` : ''}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <p className="mt-4 text-[11px] leading-relaxed text-ink-muted">
-                    Page rendering is not wired in this build — what is shown is every field extracted from this file, with the
-                    cited page highlighted.
-                  </p>
-                </div>
-              </div>
+              <ProofPane
+                caseId={caseData.id}
+                document={openDocument}
+                citedPage={citedPage ? Number(citedPage) : undefined}
+                onClose={() => setParam({ doc: null, page: null })}
+              />
             ) : (
               <DossierPane
                 caseData={caseData}
