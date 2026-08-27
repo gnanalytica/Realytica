@@ -133,6 +133,17 @@ export const api = {
   deleteDocument: (id: string, docId: string) =>
     request<void>(`/cases/${id}/documents/${docId}`, { method: 'DELETE' }),
 
+  /**
+   * Where a document's bytes are served from.
+   *
+   * A URL rather than a fetch, because the two things that consume it — an
+   * `<iframe>`/`<img>` and a download link — both want the browser to do the
+   * request itself. `download` swaps the route to the attachment path, so the
+   * viewer and the save button share one address.
+   */
+  documentFileUrl: (id: string, docId: string, opts?: { download?: boolean }) =>
+    `${BASE}/cases/${id}/documents/${docId}/file${opts?.download ? '?download=1' : ''}`,
+
   /** Change who the case is written for. Does not re-screen — see the route. */
   setLens: (id: string, lens: LensKey) =>
     request<PropertyCase>(`/cases/${id}`, { method: 'PATCH', body: JSON.stringify({ lens }) }),

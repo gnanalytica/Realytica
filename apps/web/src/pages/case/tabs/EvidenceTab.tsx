@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Database, FileText, Link2, MapPinned, Search, Sparkles, User, X } from 'lucide-react';
-import type { ConfidenceBand, EvidenceItem, EvidenceSourceType } from '@realytica/shared';
+import type { CaseDocument, ConfidenceBand, EvidenceItem, EvidenceSourceType } from '@realytica/shared';
 import { ProvenanceBar } from '../../../components/charts';
+import { DocumentPreview } from '../../../components/DocumentPreview';
 import type { TabProps } from '../tab-props';
 import { confidenceTone, date } from '../../../lib/format';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Input, ProgressBar, Select, cn } from '../../../components/ui/kit';
@@ -42,6 +43,7 @@ export default function EvidenceTab({ caseData, result, runScreen, running, goTo
   const [sourceFilter, setSourceFilter] = useState<EvidenceSourceType | 'all'>('all');
   const [bandFilter, setBandFilter] = useState<ConfidenceBand | 'all'>('all');
   const [sortMode, setSortMode] = useState<SortMode>('newest');
+  const [docPreview, setDocPreview] = useState<CaseDocument | null>(null);
   const rowRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
   const evidenceParam = searchParams.get('evidence');
@@ -220,7 +222,23 @@ export default function EvidenceTab({ caseData, result, runScreen, running, goTo
                 key={e.id}
                 evidence={e}
                 highlighted={referencedSet.has(e.id)}
-                onOpenDocuments={e.sourceType === 'document' ? () => goToTab('documents') : undefined}
+                /*
+                 * A document citation opens the document, not the tab it
+                 * lives on. `sourceRef` is the document id the evidence was
+                 * built from, so the file behind the claim is one click away
+                 * rather than a name to go hunting for. Evidence whose
+                 * document has since been deleted keeps the old behaviour —
+                 * the Documents tab is where the reader finds out it is gone.
+                 */
+                onOpenDocuments={
+                  e.sourceType === 'document'
+                    ? () => {
+                        const cited = caseData.documents.find((d) => d.id === e.sourceRef);
+                        if (cited) setDocPreview(cited);
+                        else goToTab('documents');
+                      }
+                    : undefined
+                }
                 registerRef={(el) => {
                   rowRefs.current[e.id] = el;
                 }}
@@ -229,6 +247,10 @@ export default function EvidenceTab({ caseData, result, runScreen, running, goTo
           </ul>
         )}
       </Card>
+
+      {docPreview ? (
+        <DocumentPreview caseId={caseData.id} doc={docPreview} onClose={() => setDocPreview(null)} />
+      ) : null}
     </div>
   );
 }
@@ -261,7 +283,7 @@ function EvidenceRow({
             <Badge tone="neutral">{SOURCE_LABEL[evidence.sourceType]}</Badge>
             {onOpenDocuments ? (
               <button type="button" onClick={onOpenDocuments} className="text-[11px] text-brand hover:underline">
-                Open in Documents
+                Open document
               </button>
             ) : null}
           </div>

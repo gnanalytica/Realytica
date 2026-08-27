@@ -43,6 +43,7 @@ import { DOCUMENT_KIND_LABEL, fileSize, relativeTime, titleCase } from '../../..
 import type { TabProps } from '../tab-props';
 import { RecordFetchCard } from '../../../components/RecordFetchCard';
 import { SplitProse } from '../../../components/ui/prose';
+import { DocumentPreview } from '../../../components/DocumentPreview';
 
 const KIND_ICON: Record<DocumentKind, typeof FileText> = {
   title_deed: ScrollText,
@@ -126,6 +127,7 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [docPendingDelete, setDocPendingDelete] = useState<CaseDocument | null>(null);
+  const [docPreview, setDocPreview] = useState<CaseDocument | null>(null);
   const [deleting, setDeleting] = useState(false);
   const seq = useRef(0);
 
@@ -347,6 +349,7 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
                       onToggle={() => toggleExpand(doc.id)}
                       onKindChange={(kind) => void handleKindChange(doc, kind)}
                       onDelete={() => setDocPendingDelete(doc)}
+                      onPreview={() => setDocPreview(doc)}
                     />
                   ))}
                 </tbody>
@@ -398,6 +401,10 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
           </CardBody>
         </Card>
       </div>
+
+      {docPreview ? (
+        <DocumentPreview caseId={caseData.id} doc={docPreview} onClose={() => setDocPreview(null)} />
+      ) : null}
 
       <Modal
         open={docPendingDelete !== null}
@@ -477,12 +484,14 @@ function DocRow({
   onToggle,
   onKindChange,
   onDelete,
+  onPreview,
 }: {
   doc: CaseDocument;
   expanded: boolean;
   onToggle: () => void;
   onKindChange: (kind: DocumentKind) => void;
   onDelete: () => void;
+  onPreview: () => void;
 }) {
   const Icon = KIND_ICON[doc.kind];
   const needsReview = doc.classificationConfidence < REVIEW_THRESHOLD && !doc.kindConfirmedByUser;
@@ -504,7 +513,20 @@ function DocRow({
           <div className="flex items-start gap-2">
             <Icon size={15} className="mt-0.5 shrink-0 text-ink-muted" />
             <div className="min-w-0">
-              <div className="truncate font-medium text-ink">{doc.fileName}</div>
+              {/*
+                * The filename opens the file. It is the thing a reader
+                * reaches for first, and until there was a route to serve the
+                * bytes it was inert text — a case could cite a document by
+                * name that nobody could open.
+                */}
+              <button
+                type="button"
+                onClick={onPreview}
+                title={`Open ${doc.fileName}`}
+                className="block max-w-full truncate text-left font-medium text-ink underline-offset-2 hover:text-brand hover:underline"
+              >
+                {doc.fileName}
+              </button>
               {needsReview ? (
                 <Badge tone="warning" className="mt-1">
                   Needs review

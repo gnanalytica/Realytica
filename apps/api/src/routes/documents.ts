@@ -100,6 +100,107 @@ documentsRouter.post<{ id: string }>('/', upload.array('files', 10), async (req,
   }
 });
 
+/**
+ * What a browser may be told to render in place, and nothing else.
+ *
+ * `doc.mimeType` is whatever the upload declared — multer copies the
+ * client-supplied part header verbatim — so it is attacker-controlled and
+ * independent of the bytes actually stored. Echoing it back as the response
+ * `Content-Type` while serving `inline` from this origin is stored XSS: upload
+ * HTML bytes with a declared type of `text/html`, open the preview, and the
+ * payload runs on the app's own origin.
+ *
+ * So the declared type is never trusted as a rendering instruction. It is
+ * looked up in this allowlist, and anything not on it is served as an opaque
+ * download instead. Every entry here is a format the browser renders in a
+ * sandbox of its own rather than as script.
+ */
+const INLINE_RENDERABLE = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/heic',
+  'image/heif',
+]);
+
+/** Strip anything that could break out of the Content-Disposition header. */
+function safeFilename(name: string): string {
+  return name.replace(/[\r\n"\\]/g, '_').slice(0, 200) || 'document';
+}
+
+/**
+ * Serve one uploaded document's bytes.
+ *
+ * Until this existed a document could be uploaded, classified, read by the
+ * agents for extraction, and cited by id in the evidence ledger — and there
+ * was no way for the person who uploaded it to open it again. The storage
+ * adapter has had `getDocument` all along; nothing reached it over HTTP.
+ *
+ * The bytes are proxied through this route rather than handed out as a
+ * storage URL. On the Blob adapter that URL is public and its pathname is
+ * deterministic, so linking to it directly would put the file outside
+ * whatever access control this app later grows; on the filesystem adapter
+ * there is no URL to hand out at all. One route that reads through the
+ * adapter keeps both backends behaving the same and keeps the storage
+ * address server-side.
+ */
+documentsRouter.get<{ id: string; docId: string }>('/:docId/file', async (req, res) => {
+  const found = findCase(req.params.id);
+  if (!found) {
+    res.status(404).json({ error: 'Case not found' });
+    return;
+  }
+  // Matched within the case rather than globally, so a document id from one
+  // case cannot be read through another case's URL.
+  const doc = found.documents.find((d) => d.id === req.params.docId);
+  if (!doc) {
+    res.status(404).json({ error: 'Document not found' });
+    return;
+  }
+
+  let bytes: Buffer | null;
+  try {
+    bytes = await storageAdapter.getDocument(found.id, documentKey(doc));
+  } catch (e) {
+    res.status(502).json({ error: `Could not read the stored file: ${e instanceof Error ? e.message : String(e)}` });
+    return;
+  }
+  if (!bytes) {
+    // A demo-seeded document is a real row with no bytes behind it. That is a
+    // specific, explainable state rather than a failure, and the client says
+    // so instead of showing a broken viewer.
+    res.status(404).json({ error: 'This document has no stored file — seeded demo documents carry their extracted fields only.' });
+    return;
+  }
+
+  const declared = (doc.mimeType ?? '').split(';')[0].trim().toLowerCase();
+  // `?download=1` forces the attachment path for a type that could otherwise
+  // render, so the same URL backs both the viewer and the download button.
+  const forceDownload = req.query.download === '1';
+  const inline = !forceDownload && INLINE_RENDERABLE.has(declared);
+
+  res.setHeader('Content-Type', inline ? declared : 'application/octet-stream');
+  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${safeFilename(doc.fileName)}"`);
+  res.setHeader('Content-Length', String(bytes.byteLength));
+  // Belt and braces against the same class of bug: forbid MIME sniffing, so a
+  // "PDF" whose bytes are HTML cannot be re-interpreted as a document.
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  // Only on the download path — the browser's built-in PDF viewer is sensitive
+  // to a restrictive CSP on the PDF response itself, and an inline response is
+  // already pinned to an inert media type above.
+  if (!inline) res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  // The bytes are immutable for a given document id — an upload creates a new
+  // document, it never rewrites one — so a short private cache is what makes
+  // reopening a case instant instead of re-downloading several megabytes.
+  // `private` keeps it out of shared and CDN caches.
+  res.setHeader('Cache-Control', 'private, max-age=900, must-revalidate');
+  res.end(bytes);
+});
+
 documentsRouter.patch<{ id: string; docId: string }>('/:docId', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
