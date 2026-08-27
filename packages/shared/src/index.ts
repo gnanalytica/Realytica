@@ -17,3 +17,4 @@ export * from './playbooks';
 export * from './jd-split';
 export * from './price-trajectory';
 export * from './technical-diligence';
+export * from './dd-domains';
