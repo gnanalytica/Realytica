@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -12,8 +12,8 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { LENS_PROFILES } from '@realytica/shared';
-import type { LensKey, LensSection } from '@realytica/shared';
+import { LENS_PROFILES, buildDdGraph, buildGraphReport } from '@realytica/shared';
+import type { GraphReportJudgement, LensKey, LensSection } from '@realytica/shared';
 import type {
   ActionPriority,
   Comparable,
@@ -242,6 +242,7 @@ const REPORT_SECTION_ORDER: { id: string; section: LensSection | 'always' }[] = 
   { id: 'planning', section: 'planning' },
   { id: 'completeness', section: 'documents' },
   { id: 'confidence', section: 'evidence' },
+  { id: 'traceability', section: 'evidence' },
   { id: 'actions', section: 'actions' },
   { id: 'appendix', section: 'evidence' },
   { id: 'scope', section: 'always' },
@@ -377,6 +378,62 @@ function ComplianceCheckRow({ check }: { check: ComplianceCheck }) {
   );
 }
 
+function judgementTone(j: GraphReportJudgement): Tone {
+  const { severity, verdict } = j.node.attributes;
+  if (severity === 'critical' || verdict === 'blocker') return 'critical';
+  if (severity === 'serious') return 'serious';
+  if (severity === 'warning' || verdict === 'attention') return 'warning';
+  if (verdict === 'clear') return 'good';
+  return 'neutral';
+}
+
+/**
+ * One conclusion, printed with the chain the graph actually holds behind it.
+ * The chain reads claims-then-files because that is the direction a reviewer
+ * checks it: what was said, then where it was said. An empty chain is stated
+ * in words — the one thing this section exists to make impossible is a
+ * conclusion whose support cannot be seen.
+ */
+function TracedJudgementRow({ judgement }: { judgement: GraphReportJudgement }) {
+  const { node, claims, evidence, contradictions, unevidenced } = judgement;
+  const badge = (node.attributes.verdict ?? node.attributes.severity ?? node.kind) as string;
+  return (
+    <div className="rounded-lg border border-hairline p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={judgementTone(judgement)}>{titleCase(badge)}</Badge>
+        <Badge tone="neutral">{titleCase(node.kind)}</Badge>
+        <span className="text-[13px] font-medium text-ink">{node.label}</span>
+      </div>
+      {claims.length > 0 ? (
+        <ul className="mt-1.5 space-y-0.5">
+          {claims.map((c) => (
+            <li key={c.id} className="text-xs leading-relaxed text-ink-secondary">
+              — {c.label}
+              {typeof c.attributes.sourceLabel === 'string' && c.attributes.sourceLabel ? (
+                <span className="text-ink-faint"> ({c.attributes.sourceLabel})</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {evidence.length > 0 ? (
+        <p className="mt-1 text-[11px] text-ink-muted">On file: {evidence.map((e) => e.label).join(' · ')}</p>
+      ) : null}
+      {contradictions.map((c) => (
+        <p key={c.id} className="mt-1 text-[11px] font-medium text-critical">
+          Live contradiction in this chain: {c.label}
+        </p>
+      ))}
+      {unevidenced ? (
+        <p className="mt-1 text-[11px] text-ink-muted">
+          No evidence chain in the graph derives this conclusion — it rests on the screen's own computation, not on a
+          document on file.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Report                                                              */
 /* ------------------------------------------------------------------ */
@@ -387,6 +444,14 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
   const unitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
   const [showAppendix, setShowAppendix] = useState(false);
   const [expandAll, setExpandAll] = useState(false);
+
+  /*
+   * The report as a graph traversal: every department's conclusions with the
+   * evidence chain the DD graph actually holds behind each one. Built here
+   * from the case itself — the graph is a deterministic projection, so the
+   * printed trace and the copilot's trace_conclusion answer are one query.
+   */
+  const graphReport = useMemo(() => buildGraphReport(buildDdGraph(caseData, caseData.updatedAt)), [caseData]);
 
   /*
    * Which sections this reader opens with.
@@ -1237,6 +1302,36 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
             {result.confidence.biggestLever}
           </Callout>
         </Section>
+
+        {/* Conclusions with their derivation — the report as a graph traversal */}
+        {graphReport.sections.length > 0 ? (
+          <Section
+            n={nextSection()}
+            title="Findings by department, each with its evidence chain"
+            subtitle={
+              `${graphReport.totals.judgements} conclusion${graphReport.totals.judgements === 1 ? '' : 's'}` +
+              (graphReport.totals.unevidenced > 0 ? ` · ${graphReport.totals.unevidenced} with no evidence chain` : '') +
+              (graphReport.totals.contradictions > 0 ? ` · ${graphReport.totals.contradictions} live contradiction${graphReport.totals.contradictions === 1 ? '' : 's'}` : '')
+            }
+            open={openFor('traceability')}
+          >
+            <div className="space-y-4">
+              {graphReport.sections.map((section) => (
+                <div key={section.domain}>
+                  <div className="mb-1.5 flex flex-wrap items-baseline gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">{section.label}</span>
+                    <span className="text-[11px] text-ink-faint">{section.question}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {section.judgements.map((j) => (
+                      <TracedJudgementRow key={j.node.id} judgement={j} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        ) : null}
 
         {/* Recommended actions */}
         <Section n={nextSection()} title="Recommended actions" open={openFor('actions')}>

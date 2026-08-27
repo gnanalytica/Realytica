@@ -11,7 +11,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { buildDdGraph, ddLayerFor, findNodes, serializeSubgraph, subgraph, trace } from '@realytica/shared';
+import { buildDdGraph, buildGraphReport, ddLayerFor, findNodes, serializeSubgraph, subgraph, trace } from '@realytica/shared';
 import type { PropertyCase, TechnicalFinding } from '@realytica/shared';
 import { NOW, caseFrom, documentsFor, screenSeed, seedFor } from './fixtures';
 
@@ -92,6 +92,43 @@ describe('construction', () => {
     assert.ok(graph.edges.some(e => e.kind === 'about' && e.fromNodeId === node.id));
   });
 
+  it('a photo captured against a zone and system enters already connected, sharing the zone with findings', () => {
+    const c = ddCase();
+    c.documents.push({
+      id: 'photo-1',
+      caseId: c.id,
+      fileName: 'DG_room_busduct_floor_cutout.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 2048,
+      uploadedAt: NOW,
+      kind: 'photograph',
+      classificationConfidence: 1,
+      kindConfirmedByUser: true,
+      pages: 1,
+      ocrStatus: 'complete',
+      extracted: [],
+      captureZone: 'Basement 2, DG Room',
+      captureSystem: 'mep_electrical',
+    });
+    const photo = c.documents[c.documents.length - 1];
+    // The finding says the same place differently — capture-time zones and
+    // finding zones must merge into ONE node, or "where" fragments per writer.
+    c.technicalFindings = [finding(c, { zone: 'basement 2 dg room' })];
+    const graph = buildDdGraph(c, NOW);
+    const photoNode = graph.nodes.find(n => n.kind === 'photo' && n.attributes.documentId === photo.id);
+    assert.ok(photoNode);
+    assert.equal(photoNode.domain, 'technical');
+    const locatedIn = graph.edges.find(e => e.kind === 'located_in' && e.fromNodeId === photoNode.id);
+    assert.ok(locatedIn, 'photo must be located_in its capture zone');
+    const findingNode = graph.nodes.find(n => n.kind === 'finding');
+    assert.ok(findingNode);
+    const findingLocatedIn = graph.edges.find(e => e.kind === 'located_in' && e.fromNodeId === findingNode.id);
+    assert.equal(locatedIn.toNodeId, findingLocatedIn?.toNodeId, 'photo and finding must share one zone node');
+    const about = graph.edges.find(e => e.kind === 'about' && e.fromNodeId === photoNode.id);
+    assert.ok(about, 'photo must be about its capture system');
+    assert.equal(graph.nodes.find(n => n.id === about.toNodeId)?.kind, 'asset_system');
+  });
+
   it('every edge joins two nodes the graph actually holds', () => {
     const c = ddCase();
     c.technicalFindings = [finding(c, { evidenceDocumentIds: ['not-a-real-document'] })];
@@ -137,5 +174,52 @@ describe('traversal', () => {
     assert.ok(byLabel.length > 0);
     const text = serializeSubgraph(subgraph(graph, [byLabel[0].id], 1));
     assert.ok(text.includes(`[${byLabel[0].id}]`));
+  });
+});
+
+describe('graph report', () => {
+  it('is deterministic and carries only domains that hold judgements', () => {
+    const c = ddCase();
+    const graph = buildDdGraph(c, NOW);
+    const a = buildGraphReport(graph);
+    const b = buildGraphReport(graph);
+    assert.deepEqual(a, b);
+    assert.ok(a.sections.length > 0, 'a screened case has judgements to report');
+    for (const section of a.sections) {
+      assert.ok(section.judgements.length > 0, `empty section ${section.domain} should not print`);
+    }
+  });
+
+  it('every reported judgement is check, finding or risk — actions have no cone to print', () => {
+    const c = ddCase();
+    c.technicalFindings = [finding(c)];
+    const report = buildGraphReport(buildDdGraph(c, NOW));
+    for (const section of report.sections) {
+      for (const j of section.judgements) {
+        assert.ok(['check', 'finding', 'risk'].includes(j.node.kind), `unexpected kind ${j.node.kind}`);
+      }
+    }
+  });
+
+  it('an evidenced judgement prints with its claims; a conclusion nothing derives is flagged, never hidden', () => {
+    const c = ddCase();
+    const report = buildGraphReport(buildDdGraph(c, NOW));
+    const all = report.sections.flatMap(s => s.judgements);
+    const evidenced = all.find(j => !j.unevidenced);
+    assert.ok(evidenced, 'seed case should carry at least one evidenced judgement');
+    assert.ok(evidenced.claims.length > 0 || evidenced.evidence.length > 0, 'evidenced judgement must print its support');
+    assert.equal(report.totals.judgements, all.length);
+    assert.equal(report.totals.unevidenced, all.filter(j => j.unevidenced).length);
+  });
+
+  it('blockers and criticals lead their section', () => {
+    const c = ddCase();
+    const report = buildGraphReport(buildDdGraph(c, NOW));
+    for (const section of report.sections) {
+      const severities = section.judgements.map(j =>
+        j.node.attributes.verdict === 'blocker' || j.node.attributes.severity === 'critical' ? 0 : 1,
+      );
+      assert.deepEqual(severities, [...severities].sort((a, b) => a - b), `${section.domain} not ordered worst-first`);
+    }
   });
 });

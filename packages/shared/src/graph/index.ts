@@ -15,6 +15,7 @@ export * from './contradictions';
 export * from './resolve';
 export * from './proposals';
 export * from './dd-graph';
+export * from './report';
 
 import type {
   ChainBreak,
