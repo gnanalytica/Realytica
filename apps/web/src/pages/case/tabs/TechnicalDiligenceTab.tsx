@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, HardHat, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { Camera, Check, HardHat, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import {
   TECHNICAL_SYSTEMS,
   TECHNICAL_SYSTEM_LABEL,
@@ -9,7 +9,7 @@ import {
   proposedTechnicalFindings,
   technicalDocumentChecklist,
 } from '@realytica/shared';
-import type { RiskSeverity, RiskStatus, TechnicalDdPhase, TechnicalFinding, TechnicalFindingDraft, TechnicalSystem } from '@realytica/shared';
+import type { CaseDocument, RiskSeverity, RiskStatus, TechnicalDdPhase, TechnicalFinding, TechnicalFindingDraft, TechnicalSystem } from '@realytica/shared';
 import type { TabProps } from '../tab-props';
 import { api } from '../../../lib/api';
 import { severityTone, titleCase } from '../../../lib/format';
@@ -28,12 +28,29 @@ const EMPTY_DRAFT: TechnicalFindingDraft = {
   evidenceDocumentIds: [],
 };
 
-function AddFindingForm({ caseId, onAdded, onCancel }: { caseId: string; onAdded: (f: TechnicalFinding) => void; onCancel: () => void }) {
+function AddFindingForm({
+  caseId,
+  photos,
+  onAdded,
+  onCancel,
+}: {
+  caseId: string;
+  /** The case's own photograph-kind documents — the only evidence a finding can point at, so a made-up id can never reach the case. */
+  photos: CaseDocument[];
+  onAdded: (f: TechnicalFinding) => void;
+  onCancel: () => void;
+}) {
   const toast = useToast();
   const [draft, setDraft] = useState<TechnicalFindingDraft>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
 
   const canSave = draft.zone.trim().length > 0 && draft.observation.trim().length > 0 && draft.recommendation.trim().length > 0;
+
+  const togglePhoto = (docId: string) =>
+    setDraft((d) => ({
+      ...d,
+      evidenceDocumentIds: d.evidenceDocumentIds.includes(docId) ? d.evidenceDocumentIds.filter((id) => id !== docId) : [...d.evidenceDocumentIds, docId],
+    }));
 
   const save = async () => {
     setSaving(true);
@@ -99,6 +116,29 @@ function AddFindingForm({ caseId, onAdded, onCancel }: { caseId: string; onAdded
           Recommendation
           <Textarea value={draft.recommendation} onChange={(e) => setDraft((d) => ({ ...d, recommendation: e.target.value }))} placeholder="What should be done about it?" />
         </label>
+
+        <div>
+          <h4 className="mb-1.5 text-[12px] font-medium text-ink-muted">Evidence photos (optional)</h4>
+          {photos.length === 0 ? (
+            <p className="text-[12px] leading-relaxed text-ink-subtle">
+              No photographs are on this case yet — upload one from the Documents tab, then come back and attach it here.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1 rounded-lg bg-surface-2 p-2 ring-1 ring-[var(--ring)]">
+              {photos.map((doc) => {
+                const checked = draft.evidenceDocumentIds.includes(doc.id);
+                return (
+                  <label key={doc.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-surface-3">
+                    <input type="checkbox" checked={checked} onChange={() => togglePhoto(doc.id)} className="h-3.5 w-3.5 accent-brand" />
+                    <Camera size={13} className="shrink-0 text-ink-faint" />
+                    <span className="truncate text-[12.5px] text-ink-secondary">{doc.fileName}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel}>
             Cancel
@@ -114,10 +154,13 @@ function AddFindingForm({ caseId, onAdded, onCancel }: { caseId: string; onAdded
 
 function FindingRow({
   finding,
+  photos,
   onChanged,
   onDeleted,
 }: {
   finding: TechnicalFinding;
+  /** The case's photograph documents, to resolve `evidenceDocumentIds` to a file name a reviewer recognises. */
+  photos: CaseDocument[];
   onChanged: (f: TechnicalFinding) => void;
   onDeleted: (id: string) => void;
 }) {
@@ -191,6 +234,14 @@ function FindingRow({
         {finding.recommendation}
       </p>
       {finding.codeCitation && <p className="mt-1 text-[12px] text-ink-muted">{finding.codeCitation}</p>}
+      {finding.evidenceDocumentIds.length > 0 && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-ink-muted">
+          <Camera size={12} className="shrink-0" />
+          {finding.evidenceDocumentIds
+            .map((id) => photos.find((p) => p.id === id)?.fileName ?? 'photo no longer on this case')
+            .join(', ')}
+        </p>
+      )}
       {proposed && (
         <div className="mt-2.5 flex gap-2">
           <Button variant="primary" size="sm" icon={<Check size={13} />} disabled={busy} onClick={() => void review('accepted')}>
@@ -248,6 +299,7 @@ export default function TechnicalDiligenceTab({ caseData }: TabProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [phase, setPhase] = useState<TechnicalDdPhase>('built');
 
+  const photos = caseData.documents.filter((d) => d.kind === 'photograph');
   const proposed = proposedTechnicalFindings(findings);
   const accepted = acceptedTechnicalFindings(findings);
   const counts = openTechnicalFindingCounts(findings);
@@ -293,7 +345,7 @@ export default function TechnicalDiligenceTab({ caseData }: TabProps) {
               />
               <CardBody className="flex flex-col gap-2">
                 {proposed.map((f) => (
-                  <FindingRow key={f.id} finding={f} onChanged={replace} onDeleted={remove} />
+                  <FindingRow key={f.id} finding={f} photos={photos} onChanged={replace} onDeleted={remove} />
                 ))}
               </CardBody>
             </Card>
@@ -312,7 +364,7 @@ export default function TechnicalDiligenceTab({ caseData }: TabProps) {
               <CardHeader title={TECHNICAL_SYSTEM_LABEL[group.system]} subtitle={`${group.findings.length} finding${group.findings.length === 1 ? '' : 's'}`} />
               <CardBody className="flex flex-col gap-2">
                 {group.findings.map((f) => (
-                  <FindingRow key={f.id} finding={f} onChanged={replace} onDeleted={remove} />
+                  <FindingRow key={f.id} finding={f} photos={photos} onChanged={replace} onDeleted={remove} />
                 ))}
               </CardBody>
             </Card>
@@ -323,6 +375,7 @@ export default function TechnicalDiligenceTab({ caseData }: TabProps) {
       {showAdd && (
         <AddFindingForm
           caseId={caseData.id}
+          photos={photos}
           onCancel={() => setShowAdd(false)}
           onAdded={(f) => {
             setFindings((prev) => [...prev, f]);
