@@ -168,6 +168,14 @@ export const api = {
       | { ok: false; gap: { reason: string; kind: string; leavesUnknown: string; manualRoute: string; detail?: string } }
     >(`/cases/${id}/records`, { method: 'POST', body: JSON.stringify(body) }),
 
+  /**
+   * Supply the parcel outline as a KML or GeoJSON file's text. Re-screens,
+   * because it changes the setback footprint and produces the extent
+   * comparison nothing else on the case can.
+   */
+  setBoundary: (id: string, body: { fileText: string; note?: string }) =>
+    request<PropertyCase>(`/cases/${id}/records/boundary`, { method: 'PUT', body: JSON.stringify(body) }),
+
   runScreen: (id: string) => request<ScreenResult>(`/cases/${id}/screen`, { method: 'POST' }),
 
   /**

@@ -9,6 +9,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { buildBoundary } from '@realytica/shared';
 import type { ProjectBrief, ProjectKind } from '@realytica/shared';
 import { NOW, screenSeed } from './fixtures';
 
@@ -212,5 +213,133 @@ describe('refusing to present arithmetic as a building', () => {
     }).result.yield;
     assert.ok(y);
     assert.equal(y.floorPlateViable, true);
+  });
+});
+
+describe('a real parcel outline replaces the square assumption', () => {
+  /** A w x h rectangle in metres near the seed locality. */
+  function rect(widthM: number, heightM: number, lat = 12.97, lng = 77.59) {
+    const dLat = heightM / 111_320;
+    const dLng = widthM / (111_320 * Math.cos((lat * Math.PI) / 180));
+    return [
+      { lat, lng },
+      { lat, lng: lng + dLng },
+      { lat: lat + dLat, lng: lng + dLng },
+      { lat: lat + dLat, lng },
+      { lat, lng },
+    ];
+  }
+
+  function withBoundary(widthM: number, heightM: number, statedAreaSqm: number) {
+    const boundary = buildBoundary(rect(widthM, heightM), 'surveyed', NOW, 'test');
+    assert.ok(boundary);
+    return screenSeed(SITE, {
+      project: brief('apartment_project'),
+      identity: {
+        plotAreaSqm: statedAreaSqm,
+        boundary,
+        plot: { roadWidthFt: 120, facing: 'east', layoutApproval: 'bda_approved' },
+      },
+    });
+  }
+
+  it('drops the square-plot caveat once an outline is on file', () => {
+    const y = withBoundary(63, 63, 3969).result.yield;
+    assert.ok(y);
+    assert.ok(!y.gaps.some(g => /assumes a square site/.test(g)));
+  });
+
+  it('costs a narrow site more footprint than a square of the same area', () => {
+    // 4,000 sqm as a 63x63 square and as a 20x200 strip. The square-plot
+    // assumption said they were identical; setbacks say otherwise, and on the
+    // strip they eat most of it.
+    const square = withBoundary(63.2, 63.2, 4000).result.yield;
+    const strip = withBoundary(20, 200, 4000).result.yield;
+    assert.ok(square && strip);
+    assert.ok(
+      strip.footprintSqm < square.footprintSqm,
+      `a 20x200 strip must lose more to setbacks than a 63x63 square: ${strip.footprintSqm} vs ${square.footprintSqm}`,
+    );
+    assert.ok(strip.gaps.some(g => /times as long as it is wide/.test(g)));
+  });
+
+  it('warns that a re-entrant parcel overstates its footprint', () => {
+    const lat = 12.97;
+    const lng = 77.59;
+    const dLat = (m: number) => m / 111_320;
+    const dLng = (m: number) => m / (111_320 * Math.cos((lat * Math.PI) / 180));
+    const L = buildBoundary(
+      [
+        { lat, lng },
+        { lat, lng: lng + dLng(80) },
+        { lat: lat + dLat(30), lng: lng + dLng(80) },
+        { lat: lat + dLat(30), lng: lng + dLng(30) },
+        { lat: lat + dLat(80), lng: lng + dLng(30) },
+        { lat: lat + dLat(80), lng },
+        { lat, lng },
+      ],
+      'surveyed',
+      NOW,
+      'L-shaped',
+    );
+    assert.ok(L);
+    assert.equal(L.convex, false);
+    const y = screenSeed(SITE, {
+      project: brief('apartment_project'),
+      identity: { plotAreaSqm: L.computedAreaSqm, boundary: L, plot: { roadWidthFt: 120, facing: 'east', layoutApproval: 'bda_approved' } },
+    }).result.yield;
+    assert.ok(y);
+    assert.ok(y.gaps.some(g => /re-entrant/.test(g)));
+  });
+});
+
+describe('the outline against the extent on record', () => {
+  function rect(widthM: number, heightM: number, lat = 12.97, lng = 77.59) {
+    const dLat = heightM / 111_320;
+    const dLng = widthM / (111_320 * Math.cos((lat * Math.PI) / 180));
+    return [
+      { lat, lng },
+      { lat, lng: lng + dLng },
+      { lat: lat + dLat, lng: lng + dLng },
+      { lat: lat + dLat, lng },
+      { lat, lng },
+    ];
+  }
+
+  const screenWith = (widthM: number, heightM: number, statedAreaSqm: number) => {
+    const boundary = buildBoundary(rect(widthM, heightM), 'surveyed', NOW, 'test');
+    assert.ok(boundary);
+    return screenSeed(SITE, { identity: { plotAreaSqm: statedAreaSqm, boundary } }).result;
+  };
+
+  it('says nothing when the two agree', () => {
+    const result = screenWith(20, 30, 600);
+    assert.equal(result.risks.find(r => r.code === 'boundary_area_mismatch'), undefined);
+  });
+
+  it('flags an outline enclosing materially less than the deed recites', () => {
+    // 600 sqm measured against 750 recorded — 20% of the land is not inside
+    // the boundary being sold.
+    const result = screenWith(20, 30, 750);
+    const risk = result.risks.find(r => r.code === 'boundary_area_mismatch');
+    assert.ok(risk, 'a 20% shortfall is a finding');
+    assert.equal(risk.severity, 'serious');
+    assert.match(risk.impact, /direct overpayment/);
+  });
+
+  it('flags an outline enclosing more than the deed conveys', () => {
+    const result = screenWith(20, 30, 500);
+    const risk = result.risks.find(r => r.code === 'boundary_area_mismatch');
+    assert.ok(risk);
+    assert.match(risk.impact, /somebody else’s title/);
+  });
+
+  it('leaves both numbers alone rather than reconciling them', () => {
+    // The disagreement is the finding. Overwriting either number would erase it.
+    const boundary = buildBoundary(rect(20, 30), 'surveyed', NOW, 'test');
+    assert.ok(boundary);
+    const { identity } = screenSeed(SITE, { identity: { plotAreaSqm: 750, boundary } });
+    assert.equal(identity.plotAreaSqm, 750, 'the recorded extent is untouched');
+    assert.ok(Math.abs(identity.boundary!.computedAreaSqm - 600) < 15, 'and so is the measurement');
   });
 });

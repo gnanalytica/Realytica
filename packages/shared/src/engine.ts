@@ -77,6 +77,7 @@ import type {
   OfferStance,
 } from './types';
 import { amenityDistance, nearestTransit, sitePinIsAccurate } from './site';
+import { erodedAreaSqm, openRing, projectRing } from './geometry';
 import { assessmentProfile, methodStance, resolveProjectBrief } from './assessment';
 import { COMPASS_SIDES, analyseTitleGraph, type CompassSide } from './graph';
 import { runPlaybooks } from './playbooks';
@@ -2034,6 +2035,52 @@ function buildRisks(
   ): void => {
     risks.push(makeRisk(code, title, severity, category, description, impact, mitigation, evidenceIds));
   };
+
+  /*
+   * The extent the deed recites against the extent the outline measures.
+   *
+   * This is the finding a parcel boundary makes possible and nothing else on
+   * the case can produce. A deed reciting 220 sqm over a polygon measuring
+   * 195 is either a boundary somebody drew badly or land somebody does not
+   * own, and both are worth knowing before completion. Deliberately does NOT
+   * overwrite either number with the other — the disagreement is the finding,
+   * and reconciling it silently would erase it.
+   */
+  const boundary = identity.boundary;
+  if (boundary && identity.plotAreaSqm > 0) {
+    const stated = identity.plotAreaSqm;
+    const measured = boundary.computedAreaSqm;
+    const diffPct = ((measured - stated) / stated) * 100;
+    // 5% is inside what a hand-traced outline can be out by; 10% is not, and
+    // is roughly where a whole strip of frontage has gone missing.
+    const severity: RiskSeverity | null = Math.abs(diffPct) >= 10 ? 'serious' : Math.abs(diffPct) >= 5 ? 'warning' : null;
+    if (severity) {
+      const shortfall = diffPct < 0;
+      const evId = evidence.add({
+        statement:
+          `The parcel outline supplied on ${boundary.suppliedAt.slice(0, 10)} measures ${Math.round(measured).toLocaleString()} sqm; ` +
+          `the extent recorded on the case is ${Math.round(stated).toLocaleString()} sqm — a difference of ${round1(Math.abs(diffPct))}%.`,
+        sourceType: 'user_input',
+        sourceRef: 'identity.boundary',
+        sourceLabel: `Parcel outline (${boundary.source.replace(/_/g, ' ')})`,
+        confidence: boundary.source === 'surveyed' ? 0.85 : 0.6,
+      });
+      mk(
+        'boundary_area_mismatch',
+        shortfall ? 'Outline measures less land than the extent on record' : 'Outline measures more land than the extent on record',
+        severity,
+        'title',
+        `The supplied outline encloses ${Math.round(measured).toLocaleString()} sqm against a recorded extent of ${Math.round(stated).toLocaleString()} sqm — ${round1(Math.abs(diffPct))}% ${shortfall ? 'less' : 'more'}.`,
+        shortfall
+          ? 'Either the outline is wrong, or part of what the deed describes is not inside the boundary being sold. On a per-sqm price this is a direct overpayment; on a development site it moves the permitted area with it.'
+          : 'Either the outline is wrong, or it encloses land the deed does not convey. Building on the difference is building on somebody else’s title.',
+        boundary.source === 'surveyed'
+          ? 'The outline came from a survey, so reconcile the deed schedule against it — the discrepancy is in the paperwork, not the measurement.'
+          : 'This outline was supplied rather than surveyed. Commission a licensed surveyor to measure the parcel against the deed schedule before relying on either figure.',
+        [evId],
+      );
+    }
+  }
 
   // India sets its property-register instrument, stamp duty and registration fee
   // at state level, so a pack calibrated for one state cannot silently be
@@ -4846,13 +4893,21 @@ function buildYield(
   let floorsImplied = 1;
   let heightM = dc.floorToFloorM;
   let setbackFootprintSqm = coverageFootprintSqm;
+  const boundary = identity.boundary;
   for (let pass = 0; pass < 3; pass += 1) {
-    // A square plot is the least-bad assumption without a boundary: it
-    // maximises area for a given perimeter, so the footprint this yields is
-    // an upper bound. A long thin plot loses far more to setbacks.
-    const sideM = Math.sqrt(plotAreaSqm);
-    const usableSideM = Math.max(sideM - 2 * setbackAllRoundM, 0);
-    setbackFootprintSqm = usableSideM * usableSideM;
+    if (boundary) {
+      // The real thing: erode the supplied outline by the setback. This is
+      // exact for a convex parcel and an overestimate for a re-entrant one,
+      // which is why `boundary.convex` is reported rather than assumed.
+      setbackFootprintSqm = erodedAreaSqm(openRing(projectRing(boundary.ring)), setbackAllRoundM);
+    } else {
+      // A square plot is the least-bad assumption without a boundary: it
+      // maximises area for a given perimeter, so the footprint this yields is
+      // an upper bound. A long thin plot loses far more to setbacks.
+      const sideM = Math.sqrt(plotAreaSqm);
+      const usableSideM = Math.max(sideM - 2 * setbackAllRoundM, 0);
+      setbackFootprintSqm = usableSideM * usableSideM;
+    }
     footprintSqm = Math.min(coverageFootprintSqm, setbackFootprintSqm);
     floorsImplied = footprintSqm > 0 ? Math.ceil(permittedFarAreaSqm / footprintSqm) : 0;
     heightM = floorsImplied * dc.floorToFloorM;
@@ -4867,10 +4922,26 @@ function buildYield(
         'Either the scheme is shorter than assumed here or the site cannot carry it — this needs an architect, not a screen.',
     );
   }
-  if (!identity.plot) {
+  if (boundary) {
+    if (!boundary.convex) {
+      gaps.push(
+        'This parcel is re-entrant — it has a corner that folds inward. The setback footprint is computed exactly for a ' +
+          'convex outline and overstates a concave one, because a reflex corner eats more than the arithmetic credits. ' +
+          'Treat the footprint as an upper bound.',
+      );
+    }
+    if (boundary.elongation > 2.5) {
+      gaps.push(
+        `The parcel is ${boundary.elongation.toFixed(1)} times as long as it is wide. Setbacks bite hardest on a narrow ` +
+          'site, and a scheme sized on plot area alone would be badly wrong here — which is what supplying the outline ' +
+          'has just corrected.',
+      );
+    }
+  } else {
     gaps.push(
-      'No plot dimensions are on file, so the footprint assumes a square site. A long or irregular plot loses materially ' +
-        'more to setbacks than this shows.',
+      'No parcel outline is on file, so the footprint assumes a square site. A square maximises area for a given ' +
+        'perimeter, so this is an upper bound — a long or irregular plot loses materially more to setbacks. Uploading ' +
+        'the boundary as KML or GeoJSON replaces the assumption with the measurement.',
     );
   }
   // The arithmetic will happily return nine floors on a twenty-one square

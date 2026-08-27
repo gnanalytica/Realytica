@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import type { CaseDocument, RegisterSearch } from '@realytica/shared';
-import { classifyDocument, extractFields } from '@realytica/shared';
+import { REFERENCE_DATA, buildBoundary, classifyDocument, extractFields, parseBoundary, runScreen } from '@realytica/shared';
+import type { BoundarySource } from '@realytica/shared';
 import { MANUAL_ROUTES, RECORD_DOCUMENT_KIND, recordProviderFor } from '@realytica/agents';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
-import { fetchRecordBodySchema } from '../schemas';
+import { boundaryBodySchema, fetchRecordBodySchema } from '../schemas';
+import { ensureSiteContext } from '../site-context';
 import { findCase } from './cases';
 
 export const recordsRouter = Router({ mergeParams: true });
@@ -131,4 +133,73 @@ recordsRouter.post<{ id: string }>('/', async (req, res) => {
   found.updatedAt = now;
   await store.save();
   res.json({ ok: true, record: { ...record, content: undefined }, document: created, case: found });
+});
+
+/**
+ * Supply the parcel outline.
+ *
+ * Two ways in, and both are somebody *supplying* it: a KML/GeoJSON export, or
+ * a ring traced on a map. There is deliberately no third way where the
+ * product derives one — `SiteContext` documents at length why a geocoded pin
+ * is not a parcel, and a polygon this product drew for itself would carry the
+ * authority of a survey and the accuracy of a guess.
+ *
+ * Re-screens on success, because the boundary changes real numbers: the
+ * setback footprint stops being a square-plot assumption, and the extent it
+ * measures is compared against the extent on record. That comparison is the
+ * finding a boundary makes possible and nothing else on the case can produce.
+ */
+recordsRouter.put<{ id: string }>('/boundary', async (req, res) => {
+  const found = findCase(req.params.id);
+  if (!found) {
+    res.status(404).json({ error: 'Case not found' });
+    return;
+  }
+  const parsed = boundaryBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  let ring;
+  let source: BoundarySource;
+
+  if ('fileText' in parsed.data) {
+    const outcome = parseBoundary(parsed.data.fileText);
+    if (!outcome.ok) {
+      // 400 with the parser's own sentence, which is written for a person to
+      // act on — "no Polygon in that GeoJSON" rather than a stack trace.
+      res.status(400).json({ error: outcome.reason });
+      return;
+    }
+    ring = outcome.ring;
+    source = outcome.format === 'uploaded_kml' ? 'uploaded_kml' : 'uploaded_geojson';
+  } else {
+    ring = parsed.data.ring;
+    source = parsed.data.source;
+  }
+
+  const boundary = buildBoundary(ring, source, now, parsed.data.note);
+  if (!boundary) {
+    res.status(400).json({ error: 'That outline encloses no area.' });
+    return;
+  }
+
+  found.identity = { ...found.identity, boundary };
+  const siteContext = await ensureSiteContext(found, now);
+  found.result = runScreen({
+    caseId: found.id,
+    reference: found.reference,
+    identity: found.identity,
+    documents: found.documents,
+    refData: REFERENCE_DATA,
+    now,
+    previousResult: found.result,
+    siteContext,
+    project: found.project,
+  });
+  found.updatedAt = now;
+  await store.save();
+  res.json(found);
 });

@@ -230,6 +230,12 @@ export interface PropertyIdentity {
    */
   plot?: PlotAttributes;
   /**
+   * The parcel outline, when somebody has supplied one. Never inferred: a pin
+   * is not a parcel, and a polygon this product drew for itself would carry
+   * the authority of a survey and the accuracy of a guess.
+   */
+  boundary?: ParcelBoundary;
+  /**
    * State-pack specific attributes. Present only when a State Pack defines them
    * — for Karnataka these drive the khata, jurisdiction and conversion checks
    * that dominate a Bengaluru title screen. Everything here is optional so the
@@ -501,6 +507,54 @@ export interface CaseDocument {
   ocrStatus: OcrStatus;
   extracted: ExtractedField[];
   notes?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Parcel boundary                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Where the boundary came from.
+ *
+ * There is no `inferred` and there never will be. `SiteContext` documents at
+ * length why a geocoded pin is not a parcel, and the whole value of a
+ * boundary is that somebody supplied one — a polygon this product drew for
+ * itself would carry the authority of a survey and the accuracy of a guess.
+ */
+export type BoundarySource =
+  /** A KML file, typically exported from a survey or a mapping tool. */
+  | 'uploaded_kml'
+  /** A GeoJSON polygon. */
+  | 'uploaded_geojson'
+  /** Traced by the user on a map. Honest about being a trace, not a survey. */
+  | 'drawn'
+  /** Transcribed from a licensed surveyor's plan. The only authoritative kind. */
+  | 'surveyed';
+
+/**
+ * The parcel's outline, as somebody supplied it.
+ *
+ * `statedAreaSqm` is kept alongside the computed area rather than replacing
+ * it, because the interesting case is when they disagree: a deed reciting 220
+ * sqm over a polygon measuring 195 is a finding, and overwriting one with the
+ * other would erase it.
+ */
+export interface ParcelBoundary {
+  /** Outer ring, closed or not — the geometry handles both. */
+  ring: GeoPoint[];
+  source: BoundarySource;
+  suppliedAt: string;
+  /** Free text: which file, which surveyor, which plan number. */
+  suppliedNote?: string;
+  /** Area computed from the ring itself. */
+  computedAreaSqm: number;
+  perimeterM: number;
+  longestEdgeM: number;
+  shortestEdgeM: number;
+  /** False for an L-shaped or otherwise re-entrant parcel — see `erodedAreaSqm`. */
+  convex: boolean;
+  /** Longest edge over shortest. High means the square-plot assumption was badly wrong. */
+  elongation: number;
 }
 
 /* ------------------------------------------------------------------ */

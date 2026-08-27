@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, Camera, ExternalLink, MapPin, Navigation, RefreshCw } from 'lucide-react';
 import type { AmenityKind, NearbyAmenity, SiteContext } from '@realytica/shared';
 import type { TabProps } from '../tab-props';
+import { BoundaryCard } from '../../../components/BoundaryCard';
 import { api } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Skeleton } from '../../../components/ui/kit';
@@ -101,7 +102,7 @@ function AmenityRow({ amenity }: { amenity: NearbyAmenity }) {
   );
 }
 
-export default function LocationTab({ caseData }: TabProps) {
+export default function LocationTab({ caseData, refresh }: TabProps) {
   const { data, loading, error, setData } = useAsync<SiteContext>(() => api.siteContext(caseData.id), [caseData.id]);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -126,9 +127,22 @@ export default function LocationTab({ caseData }: TabProps) {
     }
   };
 
+  /*
+   * The outline renders above every early return on this page, including the
+   * "no mapping provider" one — which is the default, and was where this card
+   * first went to die.
+   *
+   * A parcel boundary needs no mapping provider at all: it is a file somebody
+   * exports from a survey. Hiding it behind a Google key would have made it
+   * unreachable on exactly the deployment where it is the only thing on this
+   * page that knows anything about the land.
+   */
+  const outline = <BoundaryCard caseData={caseData} onChanged={refresh} />;
+
   if (loading && !data) {
     return (
       <div className="flex flex-col gap-4">
+        {outline}
         <Skeleton className="h-56 w-full" />
         <Skeleton className="h-40 w-full" />
       </div>
@@ -136,7 +150,12 @@ export default function LocationTab({ caseData }: TabProps) {
   }
 
   if (error) {
-    return <Callout tone="critical" title="Could not load the location">{error}</Callout>;
+    return (
+      <div className="flex flex-col gap-4">
+        {outline}
+        <Callout tone="critical" title="Could not load the location">{error}</Callout>
+      </div>
+    );
   }
 
   const location = data?.location ?? null;
@@ -145,6 +164,7 @@ export default function LocationTab({ caseData }: TabProps) {
   if (!location) {
     return (
       <div className="flex flex-col gap-4">
+        {outline}
         <EmptyState
           icon={<MapPin size={28} />}
           title={unconfigured ? 'No map for this deployment' : 'This address could not be placed on a map'}
@@ -172,6 +192,7 @@ export default function LocationTab({ caseData }: TabProps) {
 
   return (
     <div className="flex flex-col gap-4">
+      {outline}
       <Card>
         <CardHeader
           title="On the map"

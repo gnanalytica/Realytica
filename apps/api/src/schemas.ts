@@ -251,6 +251,23 @@ export const projectBriefBodySchema = z.object({
   unitsPlanned: z.number().int().positive().max(100000).optional(),
 });
 
+/**
+ * A boundary is supplied as the text of a KML or GeoJSON file, or as a ring
+ * of points from a map. Never as an area — a number cannot be eroded by a
+ * setback, and an area with no shape is what the yield already assumes.
+ */
+export const boundaryBodySchema = z.union([
+  z.object({
+    fileText: z.string().min(1).max(2_000_000),
+    note: z.string().max(500).optional(),
+  }),
+  z.object({
+    ring: z.array(z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) })).min(3).max(2000),
+    source: z.enum(['drawn', 'surveyed']),
+    note: z.string().max(500).optional(),
+  }),
+]);
+
 export const compareBodySchema = z.object({
   caseIds: z.array(z.string().min(1)).min(2).max(4),
 });
