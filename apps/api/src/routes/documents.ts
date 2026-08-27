@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
-import type { CaseDocument } from '@realytica/shared';
-import { classifyDocument, extractFields } from '@realytica/shared';
+import type { CaseDocument, TechnicalSystem } from '@realytica/shared';
+import { TECHNICAL_SYSTEMS, classifyDocument, extractFields } from '@realytica/shared';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
@@ -65,12 +65,27 @@ documentsRouter.post<{ id: string }>('/', upload.array('files', 10), async (req,
     return;
   }
 
+  // Capture-time mapping, sent as plain multipart fields beside the files:
+  // the zone and asset system these shots were taken against. Applied only to
+  // image files — a deed dropped into the same batch does not inherit a zone
+  // just because the uploader was standing somewhere. Silently ignoring an
+  // unknown system would lose a mapping the person typed, so it is a 400.
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const captureZone = typeof body.captureZone === 'string' ? body.captureZone.trim().slice(0, 120) : '';
+  const rawSystem = typeof body.captureSystem === 'string' ? body.captureSystem : '';
+  if (rawSystem && !(TECHNICAL_SYSTEMS as string[]).includes(rawSystem)) {
+    res.status(400).json({ error: `Unknown asset system "${rawSystem}"` });
+    return;
+  }
+  const captureSystem = rawSystem ? (rawSystem as TechnicalSystem) : undefined;
+
   try {
     const now = new Date().toISOString();
     const created: CaseDocument[] = [];
     for (const file of files) {
       const docId = randomUUID();
       const classification = classifyDocument(file.originalname, file.mimetype);
+      const isImage = classification.kind === 'photograph' || file.mimetype.startsWith('image/');
       const doc: CaseDocument = {
         id: docId,
         caseId: found.id,
@@ -84,6 +99,8 @@ documentsRouter.post<{ id: string }>('/', upload.array('files', 10), async (req,
         pages: 1,
         ocrStatus: 'complete',
         extracted: [],
+        ...(isImage && captureZone ? { captureZone } : {}),
+        ...(isImage && captureSystem ? { captureSystem } : {}),
       };
       doc.extracted = extractFields(doc, found.identity, found.id);
       await storageAdapter.putDocument(found.id, documentKey(doc), file.buffer, file.mimetype);
@@ -123,6 +140,14 @@ documentsRouter.patch<{ id: string; docId: string }>('/:docId', async (req, res)
     doc.extracted = extractFields(doc, found.identity, found.id);
   }
   if (parsed.data.notes !== undefined) doc.notes = parsed.data.notes;
+  if (parsed.data.captureZone !== undefined) {
+    if (parsed.data.captureZone === null || parsed.data.captureZone === '') delete doc.captureZone;
+    else doc.captureZone = parsed.data.captureZone;
+  }
+  if (parsed.data.captureSystem !== undefined) {
+    if (parsed.data.captureSystem === null) delete doc.captureSystem;
+    else doc.captureSystem = parsed.data.captureSystem;
+  }
   found.updatedAt = new Date().toISOString();
   await store.save();
   res.json(doc);

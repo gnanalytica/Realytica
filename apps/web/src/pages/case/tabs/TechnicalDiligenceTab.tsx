@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { AlertTriangle, Camera, Check, HardHat, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import {
   TECHNICAL_SYSTEMS,
@@ -34,16 +34,48 @@ function AddFindingForm({
   photos,
   onAdded,
   onCancel,
+  onUploaded,
 }: {
   caseId: string;
   /** The case's own photograph-kind documents — the only evidence a finding can point at, so a made-up id can never reach the case. */
   photos: CaseDocument[];
   onAdded: (f: TechnicalFinding) => void;
   onCancel: () => void;
+  /** Refresh the case after a capture upload, so the new photos join the list. */
+  onUploaded?: () => void | Promise<void>;
 }) {
   const toast = useToast();
   const [draft, setDraft] = useState<TechnicalFindingDraft>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const captureInputRef = useRef<HTMLInputElement>(null);
+
+  /*
+   * Capture at the point of truth: a shot taken here is uploaded with the
+   * form's own zone and system as its capture mapping, so it enters the
+   * evidence graph already connected to where it was taken and what it looks
+   * at — never as a loose file to be sorted later. It is also ticked into
+   * this finding's evidence immediately.
+   */
+  const captureShots = async (files: File[]) => {
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      const created = await api.uploadDocuments(caseId, files, {
+        zone: draft.zone.trim() || undefined,
+        system: draft.system,
+      });
+      const photoIds = created.filter((d) => d.kind === 'photograph').map((d) => d.id);
+      setDraft((d) => ({ ...d, evidenceDocumentIds: [...d.evidenceDocumentIds, ...photoIds] }));
+      await onUploaded?.();
+      const where = draft.zone.trim() ? ` · ${draft.zone.trim()}` : '';
+      toast(`${created.length} photo${created.length === 1 ? '' : 's'} captured against ${TECHNICAL_SYSTEM_LABEL[draft.system]}${where}`, 'good');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not upload the photos', 'critical');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const canSave = draft.zone.trim().length > 0 && draft.observation.trim().length > 0 && draft.recommendation.trim().length > 0;
 
@@ -119,10 +151,36 @@ function AddFindingForm({
         </label>
 
         <div>
-          <h4 className="mb-1.5 text-[12px] font-medium text-ink-muted">Evidence photos (optional)</h4>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <h4 className="text-[12px] font-medium text-ink-muted">Evidence photos (optional)</h4>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Camera size={13} />}
+              loading={uploading}
+              onClick={() => captureInputRef.current?.click()}
+            >
+              Capture photos
+            </Button>
+            <input
+              ref={captureInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void captureShots(Array.from(e.target.files ?? []));
+                e.target.value = '';
+              }}
+            />
+          </div>
+          <p className="mb-1.5 text-[11px] leading-relaxed text-ink-subtle">
+            Photos captured here arrive already mapped to {TECHNICAL_SYSTEM_LABEL[draft.system]}
+            {draft.zone.trim() ? ` in ${draft.zone.trim()}` : ''} and attach to this finding.
+          </p>
           {photos.length === 0 ? (
             <p className="text-[12px] leading-relaxed text-ink-subtle">
-              No photographs are on this case yet — upload one from the Documents tab, then come back and attach it here.
+              No photographs are on this case yet — capture some above, or upload from the Documents tab.
             </p>
           ) : (
             <div className="flex flex-col gap-1 rounded-lg bg-surface-2 p-2 ring-1 ring-[var(--ring)]">
@@ -133,6 +191,11 @@ function AddFindingForm({
                     <input type="checkbox" checked={checked} onChange={() => togglePhoto(doc.id)} className="h-3.5 w-3.5 accent-brand" />
                     <Camera size={13} className="shrink-0 text-ink-faint" />
                     <span className="truncate text-[12.5px] text-ink-secondary">{doc.fileName}</span>
+                    {doc.captureZone || doc.captureSystem ? (
+                      <span className="ml-auto shrink-0 text-[10.5px] text-ink-faint">
+                        {[doc.captureSystem ? TECHNICAL_SYSTEM_LABEL[doc.captureSystem] : null, doc.captureZone].filter(Boolean).join(' · ')}
+                      </span>
+                    ) : null}
                   </label>
                 );
               })}
@@ -363,7 +426,7 @@ function DocumentChecklist({ caseId, phase, provided, onToggled }: { caseId: str
   );
 }
 
-export default function TechnicalDiligenceTab({ caseData }: TabProps) {
+export default function TechnicalDiligenceTab({ caseData, refresh }: TabProps) {
   const [findings, setFindings] = useState<TechnicalFinding[]>(caseData.technicalFindings ?? []);
   const [provided, setProvided] = useState<Record<string, boolean>>(caseData.technicalDocumentsProvided ?? {});
   const [showAdd, setShowAdd] = useState(false);
@@ -453,6 +516,7 @@ export default function TechnicalDiligenceTab({ caseData }: TabProps) {
         <AddFindingForm
           caseId={caseData.id}
           photos={photos}
+          onUploaded={refresh}
           onCancel={() => setShowAdd(false)}
           onAdded={(f) => {
             setFindings((prev) => [...prev, f]);

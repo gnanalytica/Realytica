@@ -57,7 +57,7 @@ export type DdEdgeKind =
   | TitleEdgeKind // carried through verbatim from the title graph
   /** evidence -> claim: the document/photo that says so. */
   | 'asserts'
-  /** claim | judgement -> entity: what it is about. */
+  /** claim | judgement | photo -> entity: what it is about. */
   | 'about'
   /** evidence | claim -> judgement: what supports the conclusion. */
   | 'evidences'
@@ -176,19 +176,40 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
     const id = mintId(kind, doc.id);
     documentNodeId.set(doc.id, id);
     const domains = domainsForDocumentKind(doc.kind);
+    // A photo captured against an asset system belongs to that system's
+    // domain, not to the generic photograph bucket — the capture statement
+    // is more specific than the file kind.
+    const domain = doc.captureSystem ? domainForSystem(doc.captureSystem) : domains[0];
     addNode({
       id,
       kind,
       layer: 'evidence',
       label: doc.fileName,
-      domain: domains[0],
+      domain,
       attributes: {
         documentId: doc.id,
         documentKind: doc.kind,
         uploadedAt: doc.uploadedAt,
         domains: domains.join(','),
+        ...(doc.captureZone ? { captureZone: doc.captureZone } : {}),
+        ...(doc.captureSystem ? { captureSystem: doc.captureSystem } : {}),
       },
     });
+    // Capture-time mapping: the photo arrives already connected to where it
+    // was taken and what it looks at — the design doc's "capture at the
+    // point of truth". Zone nodes merge on the same normalised key the
+    // findings use, so "Basement 2, DG room" said twice is one place.
+    if (doc.captureZone) {
+      const zoneKey = zoneMergeKey(doc.captureZone);
+      const zoneId = mintId('zone', zoneKey);
+      addNode({ id: zoneId, kind: 'zone', layer: 'entity', label: doc.captureZone, attributes: { mergeKey: zoneKey } });
+      addEdge('located_in', id, zoneId, 'captured in');
+    }
+    if (doc.captureSystem) {
+      const systemId = mintId('asset_system', doc.captureSystem);
+      addNode({ id: systemId, kind: 'asset_system', layer: 'entity', label: doc.captureSystem, attributes: { system: doc.captureSystem } });
+      addEdge('about', id, systemId, 'shows');
+    }
   }
 
   // Title edges only after evidence exists, because instrument nodes carry

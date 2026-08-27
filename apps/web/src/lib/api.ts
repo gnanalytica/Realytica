@@ -31,6 +31,7 @@ import type {
   ScreenResult,
   TechnicalFinding,
   TechnicalFindingDraft,
+  TechnicalSystem,
   TechnicalFindingPatch,
   TechnicalFindingReviewState,
   TelemetrySummary,
@@ -125,13 +126,20 @@ export const api = {
 
   deleteCase: (id: string) => request<void>(`/cases/${id}`, { method: 'DELETE' }),
 
-  uploadDocuments: (id: string, files: File[]) => {
+  uploadDocuments: (id: string, files: File[], capture?: { zone?: string; system?: TechnicalSystem }) => {
     const form = new FormData();
     files.forEach((f) => form.append('files', f));
+    // Capture-time mapping: applied server-side to the image files only.
+    if (capture?.zone) form.append('captureZone', capture.zone);
+    if (capture?.system) form.append('captureSystem', capture.system);
     return request<CaseDocument[]>(`/cases/${id}/documents`, { method: 'POST', body: form });
   },
 
-  updateDocument: (id: string, docId: string, body: { kind?: DocumentKind; notes?: string }) =>
+  updateDocument: (
+    id: string,
+    docId: string,
+    body: { kind?: DocumentKind; notes?: string; captureZone?: string | null; captureSystem?: TechnicalSystem | null },
+  ) =>
     request<CaseDocument>(`/cases/${id}/documents/${docId}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   deleteDocument: (id: string, docId: string) =>

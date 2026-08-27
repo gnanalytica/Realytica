@@ -507,6 +507,16 @@ export interface CaseDocument {
   ocrStatus: OcrStatus;
   extracted: ExtractedField[];
   notes?: string;
+  /**
+   * Capture-time mapping, meaningful on photographs: the zone the shot was
+   * taken in and the asset system it looks at, so a site photo enters the
+   * evidence graph already connected rather than as a loose file to be
+   * sorted later. Stated by the person capturing or filing it — a human
+   * assertion about their own photo, so no review step — and editable
+   * afterwards from the document list.
+   */
+  captureZone?: string;
+  captureSystem?: TechnicalSystem;
 }
 
 /* ------------------------------------------------------------------ */

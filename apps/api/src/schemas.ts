@@ -288,6 +288,10 @@ export const updateCaseSchema = z.object({
 export const updateDocumentSchema = z.object({
   kind: documentKindSchema.optional(),
   notes: z.string().optional(),
+  // Capture-time mapping (photographs). Null clears a mapping that was wrong;
+  // undefined leaves it alone — the difference matters on a PATCH.
+  captureZone: z.string().trim().max(120).nullable().optional(),
+  captureSystem: technicalSystemSchema.nullable().optional(),
 });
 
 export const riskStatusBodySchema = z.object({
