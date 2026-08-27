@@ -1067,6 +1067,90 @@ export interface TransactionCostBreakdown {
   verifyNote: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Joint-development split                                             */
+/* ------------------------------------------------------------------ */
+
+export type JdSplitVerdict = 'developer_favoured' | 'balanced' | 'landowner_favoured';
+
+/**
+ * The JDA's sharing ratio, graded against the land value and the scheme.
+ *
+ * Every figure here is arithmetic on numbers the screen already produced —
+ * the residual's gross realisation and the land-rate anchor — never a new
+ * opinion of value. What this adds is the translation practitioners do on
+ * paper: a share ratio is an implied land price, and an implied land price
+ * can be compared with what the land is worth.
+ */
+export interface JdSplitAssessment {
+  /** Landowner's share of the scheme, 0..100, as the JDA states it. */
+  offeredOwnerSharePct: number;
+  /** Where the ratio came from — the JDA document on file. */
+  sourceDocumentId?: string;
+  /** Gross realisation of the scheme the residual priced (GDV). */
+  schemeGrossValue: number;
+  /** What the offered share is worth in scheme value terms. */
+  offeredShareValue: number;
+  /** The same figure per sqm of the land contributed. */
+  offeredShareValuePerSqm: number;
+  /**
+   * The share band the land value itself would justify: land-rate anchor
+   * low/high as a percentage of the scheme's gross realisation.
+   */
+  fairSharePctLow: number;
+  fairSharePctHigh: number;
+  verdict: JdSplitVerdict;
+  /** The finding in words, one statement per line. */
+  statements: string[];
+  /** What this arithmetic deliberately does not model. */
+  caveats: string[];
+  currency: CurrencyCode;
+  evidenceIds: string[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Price trajectory (the parcel's own registered history)              */
+/* ------------------------------------------------------------------ */
+
+export type PricePointKind = 'registered' | 'indicative';
+
+export interface PricePoint {
+  /** ISO date — the instrument date, or `generatedAt` for the indicative point. */
+  at: string;
+  amount: number;
+  kind: PricePointKind;
+  /** The instrument that recites this figure, for the registered points. */
+  label: string;
+  documentId?: string;
+}
+
+/**
+ * What this parcel's own documents say it has changed hands for.
+ *
+ * Built only from the conveyances in the title chain plus today's indicative
+ * mid — never from other people's transactions, which is what keeps it
+ * honest and shareable. The standing caveat is structural to India:
+ * a deed recites the dutiable value, which tracks the guidance value, so the
+ * trajectory is a floor on the market's movement rather than a measurement
+ * of it. `understatementLikely` carries that warning to every renderer.
+ */
+export interface PriceTrajectory {
+  points: PricePoint[];
+  /**
+   * Annualised growth between the earliest and latest registered points,
+   * present when two dated registered considerations exist.
+   */
+  registeredCagrPct?: number;
+  /**
+   * Annualised growth from the latest registered point to the indicative
+   * mid, present when both exist.
+   */
+  impliedCagrToIndicativePct?: number;
+  understatementLikely: boolean;
+  statements: string[];
+  currency: CurrencyCode;
+}
+
 export interface ScreenResult {
   caseId: string;
   generatedAt: string;
@@ -1133,6 +1217,16 @@ export interface ScreenResult {
    * Catchment-level, never parcel-level — see `WaterExposureReference`.
    */
   waterExposure?: WaterExposureReference;
+  /**
+   * The JDA's share ratio graded against the land value. Present only on a
+   * joint development whose JDA states a ratio — see `JdSplitAssessment`.
+   */
+  jdSplit?: JdSplitAssessment;
+  /**
+   * What this parcel's own conveyances recite as consideration, over time.
+   * Present when at least one dated conveyance on file states one.
+   */
+  priceTrajectory?: PriceTrajectory;
   recommendation: {
     verdict: ScreenVerdict;
     headline: string;
@@ -2539,6 +2633,13 @@ export interface ChainLink {
   documentId?: string;
   /** Area this instrument claims to convey, in sqm, where stated. */
   extentSqm?: number;
+  /**
+   * The registered consideration this conveyance recites, where the document
+   * states one. In India this is routinely the guidance value rather than the
+   * price actually paid — the trajectory built from these says so rather than
+   * presenting the recital as a market price.
+   */
+  considerationAmount?: number;
 }
 
 export type ChainBreakKind =
