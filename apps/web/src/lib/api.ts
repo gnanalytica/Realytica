@@ -246,10 +246,10 @@ export const api = {
       body: JSON.stringify({ agents }),
     }),
 
-  askCopilot: (id: string, question: string) =>
+  askCopilot: (id: string, question: string, viewContext?: string) =>
     request<{ userTurn: CopilotTurn; assistantTurn: CopilotTurn }>(`/cases/${id}/agents/copilot`, {
       method: 'POST',
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, viewContext }),
     }),
 
   clearConversation: (id: string) => request<void>(`/cases/${id}/agents/conversation`, { method: 'DELETE' }),

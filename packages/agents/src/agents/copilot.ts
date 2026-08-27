@@ -53,6 +53,13 @@ export interface RunCopilotParams {
   caseData: PropertyCase;
   refData: ReferenceData;
   question: string;
+  /**
+   * What the analyst is looking at right now — "Diligence → Technical", a
+   * finding id, a document name. Injected into the model's message only,
+   * never stored on the turn: the transcript records what was asked, not
+   * where the asker's window happened to be scrolled.
+   */
+  viewContext?: string;
   /** Prior turns of this conversation, oldest first. Does not include `question` itself. */
   history?: CopilotTurn[];
   /** ISO timestamp used to date the produced turn/evidence — not wall-clock, so runs are reproducible. */
@@ -133,7 +140,7 @@ function processAnswer(rawText: string, validIds: ReadonlySet<string>): {
 }
 
 export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotResult> {
-  const { caseId, caseData, refData, question, memory, history = [] } = params;
+  const { caseId, caseData, refData, question, viewContext, memory, history = [] } = params;
   const now = params.now ?? new Date().toISOString();
   const runId = randomUUID();
   const startedAt = new Date().toISOString();
@@ -291,6 +298,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
       ...(memoryBlock ? ['', memoryBlock] : []),
       '',
       `Question: ${question}`,
+      ...(viewContext ? [`(The analyst is currently looking at: ${viewContext}. "This" or "here" likely refers to it.)`] : []),
     ].join('\n'),
   });
 

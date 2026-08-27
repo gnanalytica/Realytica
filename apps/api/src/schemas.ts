@@ -368,4 +368,6 @@ export const runAgentsBodySchema = z.object({
 
 export const copilotBodySchema = z.object({
   question: z.string().min(1).max(2000),
+  /** What the analyst is viewing — forwarded to the model, never stored on the turn. */
+  viewContext: z.string().max(300).optional(),
 });

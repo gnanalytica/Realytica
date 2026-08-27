@@ -53,6 +53,7 @@ import { resolveLens } from '@realytica/shared';
 import type { LensKey } from '@realytica/shared';
 
 import ChatTab from './tabs/ChatTab';
+import { CopilotDock } from '../../components/CopilotDock';
 
 
 
@@ -517,7 +518,24 @@ export default function CaseWorkspace() {
         <Tabs tabs={tabDefs} active={activeTab} onChange={goToTab} className="px-6" />
       </div>
 
-      <div className="flex-1 p-6">{renderTab()}</div>
+      {/*
+        * The content row: whatever group is open, with the copilot docked at
+        * its right on wide screens. The chat tab IS the copilot at full
+        * width, so the dock stands down there rather than showing the same
+        * conversation twice.
+        */}
+      <div className="flex flex-1 items-stretch">
+        <div className="min-w-0 flex-1 p-6">{renderTab()}</div>
+        {activeTab !== 'chat' ? (
+          <CopilotDock
+            caseData={caseData}
+            result={result}
+            refresh={refresh}
+            viewContext={group.views.length > 1 ? `${group.label} → ${view.label}` : group.label}
+            className="hidden xl:flex"
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

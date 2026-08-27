@@ -271,6 +271,7 @@ caseAgentsRouter.post<{ id: string }>('/copilot', async (req, res) => {
       caseData: found,
       refData: REFERENCE_DATA,
       question: parsed.data.question,
+      viewContext: parsed.data.viewContext,
       memory,
       history,
       now,
