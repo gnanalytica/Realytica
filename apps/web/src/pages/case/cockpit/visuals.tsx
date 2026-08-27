@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { openTechnicalFindingCounts, totalOpenEstimatedCost, domainForRiskCategory, domainForSystem } from '@realytica/shared';
+import { openTechnicalFindingCounts, totalOpenEstimatedCost, domainForRiskCategory, domainForSystem, buildDepartmentDossier } from '@realytica/shared';
 import type { DdDomain, PropertyCase, TechnicalSystem } from '@realytica/shared';
 import { TECHNICAL_SYSTEM_LABEL } from '@realytica/shared';
 import { money } from '../../../lib/format';
@@ -233,6 +233,185 @@ function ChainOfCustody({ caseData }: { caseData: PropertyCase }) {
   );
 }
 
+
+/* ==================================================================== */
+/* Financial — value by method (the football field)                      */
+/* ==================================================================== */
+
+/**
+ * Every method's range on one axis, against the asking price.
+ *
+ * Drawn from `result.anchors`, which the engine already computes per
+ * valuation method — no new data and no opinion of ours. One hue, because
+ * the methods are one series seen four ways rather than four identities; the
+ * asking price is a reference line, not a fifth bar.
+ */
+function ValueByMethod({ caseData }: { caseData: PropertyCase }) {
+  const anchors = caseData.result?.anchors ?? [];
+  const asking = caseData.identity.askingPrice;
+  const indicative = caseData.result?.indicativeValue;
+  if (anchors.length === 0) return null;
+
+  const lows = anchors.map(a => a.low);
+  const highs = anchors.map(a => a.high);
+  if (asking) { lows.push(asking); highs.push(asking); }
+  if (indicative) { lows.push(indicative.low); highs.push(indicative.high); }
+  const min = Math.min(...lows);
+  const max = Math.max(...highs);
+  const span = Math.max(1, max - min);
+  const L = 150;
+  const W = 250;
+  const x = (v: number) => L + ((v - min) / span) * W;
+  const currency = caseData.identity.currency;
+  const rowH = 26;
+  const rows = anchors.length + (indicative ? 1 : 0);
+
+  return (
+    <Card>
+      <CardHeader title="Value by method" subtitle="What each approach supports, against the asking price" />
+      <CardBody>
+        <svg
+          width="100%"
+          viewBox={`0 0 420 ${rows * rowH + 30}`}
+          role="img"
+          aria-label={`Value by method. ${anchors.map(a => `${a.label} ${money(a.low, currency)} to ${money(a.high, currency)}`).join('; ')}.`}
+        >
+          {anchors.map((a, i) => {
+            const y = i * rowH + 6;
+            const x1 = x(a.low);
+            const w = Math.max(4, x(a.high) - x1);
+            return (
+              <g key={a.id}>
+                <text x={L - 8} y={y + 12} textAnchor="end" fontSize="11" fill="var(--text-secondary)">
+                  {a.label.length > 22 ? `${a.label.slice(0, 22)}…` : a.label}
+                </text>
+                <rect x={x1} y={y + 2} width={w} height="13" rx="4" fill={SERIES_1} opacity={0.35 + a.confidence * 0.6} />
+              </g>
+            );
+          })}
+          {indicative ? (
+            <g>
+              <text x={L - 8} y={anchors.length * rowH + 18} textAnchor="end" fontSize="11" fontWeight="600" fill="var(--text-primary)">
+                Indicative
+              </text>
+              <rect
+                x={x(indicative.low)}
+                y={anchors.length * rowH + 8}
+                width={Math.max(4, x(indicative.high) - x(indicative.low))}
+                height="13"
+                rx="4"
+                fill="var(--status-good)"
+              />
+            </g>
+          ) : null}
+          {asking ? (
+            <g>
+              <line x1={x(asking)} y1="2" x2={x(asking)} y2={rows * rowH + 8} stroke="var(--status-critical)" strokeWidth="2" />
+              <text x={x(asking)} y={rows * rowH + 22} textAnchor="middle" fontSize="10" fill="var(--status-critical)">
+                asking {money(asking, currency, { compact: true })}
+              </text>
+            </g>
+          ) : null}
+        </svg>
+        {asking && indicative && asking > indicative.high ? (
+          <p className="mt-1 text-[11.5px] leading-relaxed text-ink-secondary">
+            The asking price sits above the indicative range — a gap to explain or negotiate, not a number to argue with.
+          </p>
+        ) : null}
+      </CardBody>
+    </Card>
+  );
+}
+
+/* ==================================================================== */
+/* Land — the parcel outline, and what each record says its extent is    */
+/* ==================================================================== */
+
+/**
+ * The supplied boundary drawn to scale, beside the extents the documents
+ * state. Nothing is inferred: the ring is whatever was supplied and its area
+ * is computed from that ring, while the document figures come from the
+ * dossier's own grouped facts. Where they disagree the drawing says so and
+ * stops — reconciling them is the valuer's judgement, not a chart's.
+ */
+function BoundaryAndExtent({ caseData }: { caseData: PropertyCase }) {
+  const boundary = caseData.identity.boundary;
+  const stated = useMemo(() => {
+    const dossier = buildDepartmentDossier(caseData, 'land');
+    return dossier.facts.filter(f => /extent|area/i.test(f.label) && /[0-9]/.test(f.value));
+  }, [caseData]);
+
+  if (!boundary && stated.length === 0) return null;
+
+  // Fit the ring into a 200×150 box, preserving shape.
+  let path = '';
+  if (boundary && boundary.ring.length >= 3) {
+    const lats = boundary.ring.map(p => p.lat);
+    const lngs = boundary.ring.map(p => p.lng);
+    const latSpan = Math.max(1e-9, Math.max(...lats) - Math.min(...lats));
+    const lngSpan = Math.max(1e-9, Math.max(...lngs) - Math.min(...lngs));
+    const scale = Math.min(200 / lngSpan, 150 / latSpan);
+    path =
+      boundary.ring
+        .map((p, i) => {
+          const px = 20 + (p.lng - Math.min(...lngs)) * scale;
+          // Latitude increases northward; SVG y increases downward.
+          const py = 20 + (Math.max(...lats) - p.lat) * scale;
+          return `${i === 0 ? 'M' : 'L'} ${px.toFixed(1)} ${py.toFixed(1)}`;
+        })
+        .join(' ') + ' Z';
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Boundary and extent"
+        subtitle={boundary ? `Outline supplied ${boundary.source.replace(/_/g, ' ')}` : 'What the records state'}
+      />
+      <CardBody className="flex flex-col gap-3">
+        {path ? (
+          <svg width="100%" viewBox="0 0 250 190" role="img" aria-label="The supplied parcel outline, drawn to scale.">
+            <path d={path} fill="rgba(42,120,214,0.10)" stroke={SERIES_1} strokeWidth="2" />
+            <text x="20" y="180" fontSize="10" fill="var(--text-muted)">
+              {Math.round(boundary!.computedAreaSqm)} sqm from the supplied outline
+              {boundary!.elongation > 2 ? ' · elongated, not a square plot' : ''}
+            </text>
+          </svg>
+        ) : null}
+        {stated.length > 0 ? (
+          <div>
+            <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+              What the documents state
+            </div>
+            <ul className="flex flex-col gap-1">
+              {stated.map(f => (
+                <li key={f.key} className="flex items-baseline gap-2 text-[12px]">
+                  <span className="text-ink-secondary">{f.label}</span>
+                  <span className="font-medium text-ink">
+                    {f.value}
+                    {f.unit ? ` ${f.unit}` : ''}
+                  </span>
+                  {f.varies ? (
+                    <span className="ml-auto rounded-full bg-warning/25 px-2 py-0.5 text-[10.5px] text-ink">
+                      {f.values?.length} versions
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {boundary ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
+                The outline&rsquo;s own area is stated above it. Where it and a document disagree, that difference is the
+                finding — reconciling them is a survey question, not an arithmetic one.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </CardBody>
+    </Card>
+  );
+}
+
 /* ==================================================================== */
 /* Registry                                                              */
 /* ==================================================================== */
@@ -258,8 +437,10 @@ export function DepartmentVisuals({ caseData, domain }: { caseData: PropertyCase
       ) : null}
 
       {(domain === 'technical' || domain === 'financial') && <ExposureBySystem caseData={caseData} />}
+      {domain === 'financial' && <ValueByMethod caseData={caseData} />}
       {domain === 'risk' && <SeverityMatrix caseData={caseData} />}
       {domain === 'legal' && <ChainOfCustody caseData={caseData} />}
+      {domain === 'land' && <BoundaryAndExtent caseData={caseData} />}
     </div>
   );
 }
