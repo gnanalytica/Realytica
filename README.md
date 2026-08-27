@@ -49,6 +49,26 @@ complete deployment.
 **On Vercel.** `vercel.json` builds the repo root. Push it, and you get the web
 build on the CDN and the whole Express API as one function.
 
+The function runs in **`bom1` (Mumbai)**, set by `regions` in `vercel.json`.
+That is a data-residency choice, not a latency one: every case this product
+holds is an Indian property, its documents are Indian land records, and the
+people named in them are Indian data principals. It shipped in `iad1`
+(Washington DC) by default, which is the wrong answer to the first question an
+institutional client asks. Note the two halves this does *not* settle — the
+static build is on the CDN and therefore everywhere, which is correct because
+it carries no case data; and the Blob store has its own region, so check that
+it is Mumbai too, or a Mumbai function is reading a US bucket. `regions` is
+also NOT pattern-matched against the repository the way `functions` is, which
+is what lets it work here at all: this is a Build Output API deployment and
+the function does not exist until the build has run.
+
+`functionFailoverRegions` is deliberately unset. Every region Vercel could
+fail over to is outside India, so naming one would trade the residency
+guarantee for uptime without saying so. Confirm in the dashboard what an unset
+value means for this plan — "no failover" and "any region" are very different
+answers to the same question, and only one of them keeps the claim true during
+an outage.
+
 Serverless has no writable disk, so persistence goes through a
 `StorageAdapter` (`apps/api/src/storage/`) instead. Attach a Vercel Blob store
 — that sets `BLOB_READ_WRITE_TOKEN`, which is what selects the Blob adapter —
