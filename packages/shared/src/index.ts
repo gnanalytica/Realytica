@@ -18,3 +18,5 @@ export * from './jd-split';
 export * from './price-trajectory';
 export * from './technical-diligence';
 export * from './dd-domains';
+export * from './dd-connectors';
+export * from './rfi';
