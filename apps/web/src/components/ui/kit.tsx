@@ -710,15 +710,53 @@ export function EmptyState({
   );
 }
 
-export function Callout({ tone = 'info', title, children }: { tone?: Tone; title?: ReactNode; children: ReactNode }) {
+/**
+ * `collapsible` is for exposition, never for a finding.
+ *
+ * A callout that states something true about THIS case — a risk, a gap, a
+ * result — has to be visible the moment the page opens, or it has failed at
+ * the one thing it exists to do. A callout that explains background ("why
+ * there is no fetch button", "this describes the locality, not the parcel")
+ * is read once and then re-explains itself on every visit; `collapsible`
+ * lets that kind collapse to its title, with the reasoning a click away.
+ * Requires a `title` — a collapsed callout with nothing to summarise it by
+ * is a row that says nothing, so without one this renders open regardless.
+ */
+export function Callout({
+  tone = 'info',
+  title,
+  children,
+  collapsible = false,
+}: {
+  tone?: Tone;
+  title?: ReactNode;
+  children: ReactNode;
+  collapsible?: boolean;
+}) {
   const Icon = TONE_ICON[tone];
-  return (
-    <div className={cn('flex gap-2.5 rounded-lg p-3 text-xs leading-relaxed', TONE_CHIP[tone])}>
-      <Icon size={14} className="mt-0.5 shrink-0" />
-      <div className="min-w-0">
-        {title ? <p className="mb-0.5 font-semibold">{title}</p> : null}
-        <div className="text-ink-secondary">{children}</div>
+  const [open, setOpen] = useState(false);
+  const canCollapse = collapsible && title !== undefined;
+
+  if (!canCollapse) {
+    return (
+      <div className={cn('flex gap-2.5 rounded-lg p-3 text-xs leading-relaxed', TONE_CHIP[tone])}>
+        <Icon size={14} className="mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          {title ? <p className="mb-0.5 font-semibold">{title}</p> : null}
+          <div className="text-ink-secondary">{children}</div>
+        </div>
       </div>
+    );
+  }
+
+  return (
+    <div className={cn('rounded-lg text-xs leading-relaxed', TONE_CHIP[tone])}>
+      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2.5 p-3 text-left" aria-expanded={open}>
+        <Icon size={14} className="shrink-0" />
+        <span className="min-w-0 flex-1 font-semibold">{title}</span>
+        <ChevronDown size={13} className={cn('shrink-0 text-ink-faint transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && <div className="px-3 pb-3 pl-[34px] text-ink-secondary">{children}</div>}
     </div>
   );
 }

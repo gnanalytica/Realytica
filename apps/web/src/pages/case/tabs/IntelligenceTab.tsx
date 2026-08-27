@@ -180,7 +180,7 @@ function buildSuggestions(caseData: PropertyCase, result: ScreenResult | null, i
 
 function CapabilityExplainer({ capability }: { capability: AgentCapability }) {
   return (
-    <Callout tone="neutral" title="Agents are not configured">
+    <Callout tone="neutral" title="Agents are not configured" collapsible>
       <div className="flex flex-col gap-2">
         <p>{capabilityReasonText(capability.reason)}</p>
         {capability.reason === 'no_credentials' ? (
@@ -738,7 +738,7 @@ function ExploreControl({
       />
       <CardBody className="flex flex-col gap-3">
         {disabled ? (
-          <Callout tone="neutral" title="Exploration needs Anthropic credentials">
+          <Callout tone="neutral" title="Exploration needs Anthropic credentials" collapsible>
             {disabledReason} The rest of Realytica works fully without it.
           </Callout>
         ) : null}

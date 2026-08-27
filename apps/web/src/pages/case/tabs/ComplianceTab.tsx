@@ -373,7 +373,7 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
             icon={<XCircle size={16} className="text-critical" />}
           />
           <CardBody className="flex flex-col gap-3">
-            <Callout tone="critical" title="These stop a clean transaction under current Karnataka rules">
+            <Callout tone="critical" title="These stop a clean transaction under current Karnataka rules" collapsible>
               A blocker is a finding severe enough to jeopardise financing, resale or registration outright — for
               example a B-khata classification or unconverted agricultural land. Get professional advice on each one
               before committing further time or money.

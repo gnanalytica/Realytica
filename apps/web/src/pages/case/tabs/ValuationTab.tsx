@@ -177,7 +177,7 @@ export default function ValuationTab({ caseData, result, refresh, running }: Tab
         </CardBody>
       </Card>
 
-      <Callout tone="neutral" title="This is an indicative screening range">
+      <Callout tone="neutral" title="This is an indicative screening range" collapsible>
         Not a certified valuation, a legal title opinion, or a formal mortgage valuation. Use it to decide whether further diligence is
         worth the effort — not as the basis for a lending or legal decision.
       </Callout>
@@ -263,7 +263,7 @@ export default function ValuationTab({ caseData, result, refresh, running }: Tab
         <CardBody>
           {isLand ? (
             <div className="mb-3">
-              <Callout tone="info" title="Land-rate basis">
+              <Callout tone="info" title="Land-rate basis" collapsible>
                 Every figure below is a rate per {unitLabel} of <span className="font-medium text-ink">plot area</span> — benchmarked
                 against the locality's land rate, not the built-up price basis used for apartments and villas.
               </Callout>

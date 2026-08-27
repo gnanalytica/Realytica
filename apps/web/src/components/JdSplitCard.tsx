@@ -50,7 +50,7 @@ export function JdSplitCard({ split, evidence }: { split: JdSplitAssessment; evi
             </p>
           ))}
         </div>
-        <Callout tone="info" title="What this arithmetic does not price">
+        <Callout tone="info" title="What this arithmetic does not price" collapsible>
           <ul className="flex list-disc flex-col gap-1 pl-4">
             {split.caveats.map((caveat, i) => (
               <li key={i}>{caveat}</li>

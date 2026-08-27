@@ -57,7 +57,7 @@ export function PriceTrajectoryCard({ trajectory }: { trajectory: PriceTrajector
           ))}
         </div>
         {trajectory.understatementLikely ? (
-          <Callout tone="warning" title="Read the levels as a floor">
+          <Callout tone="warning" title="Read the levels as a floor" collapsible>
             A registered deed recites the dutiable value, which tracks the guidance value rather than the price paid. The dates and direction
             are reliable; the amounts likely understate what actually changed hands — {registered.length === 1 ? 'this recital' : 'these recitals'} cannot
             be read as market prices.

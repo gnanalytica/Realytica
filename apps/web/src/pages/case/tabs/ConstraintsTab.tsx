@@ -72,7 +72,7 @@ export default function ConstraintsTab({ caseData, result, refresh, runScreen, r
         /* An unassessed locality and a safe one must not read the same — the
            engine records this gap as evidence, and this is where a reader
            looking for flooding actually looks. */
-        <Callout tone="neutral" title="Water, drains and flooding — not assessed">
+        <Callout tone="neutral" title="Water, drains and flooding — not assessed" collapsible>
           No flood or lake-catchment classification is carried for {caseData.identity.locality} yet, so this property's exposure to the
           storm-water network has not been looked at. That is a gap in this product's coverage, not a finding that the site is clear —
           check the locality's flooding history and the revenue map's drain alignments before pricing it as unexposed.
@@ -82,7 +82,7 @@ export default function ConstraintsTab({ caseData, result, refresh, runScreen, r
       <SiteConstraintsCard caseData={caseData} checks={compliance.checks} refresh={refresh} />
 
       {answered.length === 0 && (
-        <Callout tone="neutral" title="Nothing declared yet">
+        <Callout tone="neutral" title="Nothing declared yet" collapsible>
           None of these constraints has been answered for this site. That is not the same as none of them applying —
           an unanswered constraint is an unknown, and it is reported as one on the compliance checks rather than
           treated as clear.

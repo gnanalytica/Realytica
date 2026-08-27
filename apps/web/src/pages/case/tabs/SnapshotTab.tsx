@@ -682,7 +682,7 @@ function MarketStrip({ market, currency, identity }: { market: MarketContext; cu
       <CardBody>
         {isLand ? (
           <div className="mb-3">
-            <Callout tone="info" title="Land-rate basis">
+            <Callout tone="info" title="Land-rate basis" collapsible>
               This locality figure is the median <span className="font-medium text-ink">land rate</span> per {unitLabel} of plot area —
               not the built-up price basis used for apartments and villas.
             </Callout>

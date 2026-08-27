@@ -101,7 +101,7 @@ function AcquisitionCostCard({
          * there underneath for anyone checking a figure against a receipt.
          */}
         <CostWaterfallChart costs={costs} askingPrice={askingPrice} />
-        <Callout tone="info" title="Duty is charged on the higher of price and guidance value">
+        <Callout tone="info" title="Duty is charged on the higher of price and guidance value" collapsible>
           Karnataka computes stamp duty and registration fees on whichever is higher: the agreed sale consideration or
           the government&rsquo;s guidance value for the locality — never on the lower figure, even if the negotiated
           price is lower. Most buyers only discover this at the sub-registrar&rsquo;s office.

@@ -180,7 +180,7 @@ export function CopilotPanel({
   return (
     <div className="flex flex-col gap-3">
       {disabled ? (
-        <Callout tone="neutral" title="Copilot needs Anthropic credentials">
+        <Callout tone="neutral" title="Copilot needs Anthropic credentials" collapsible>
           {disabledReason ?? 'Configure agent credentials to ask questions about this case.'} The rest of Realytica works
           fully without it.
         </Callout>

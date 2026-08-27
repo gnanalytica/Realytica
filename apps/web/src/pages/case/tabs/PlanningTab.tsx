@@ -179,7 +179,7 @@ export default function PlanningTab({ caseData, result, runScreen, running, goTo
             label="Last checked"
             value={`${date(planning.lastCheckedAt)} (${relativeTime(planning.lastCheckedAt)})`}
           />
-          <Callout tone={isStale ? 'warning' : 'neutral'} title="Planning data ages">
+          <Callout tone={isStale ? 'warning' : 'neutral'} title="Planning data ages" collapsible>
             Planning positions are pulled from a municipality pack at a point in time — re-check with the local
             planning authority before making or finalising an offer, especially if this check is more than a few
             months old.
@@ -190,7 +190,7 @@ export default function PlanningTab({ caseData, result, runScreen, running, goTo
         </CardBody>
       </Card>
 
-      <Callout tone="info" title="Indicative, not certified">
+      <Callout tone="info" title="Indicative, not certified" collapsible>
         This planning position is an indicative read from a municipality data pack, not a formal planning certificate
         and not a full project feasibility study — both are out of scope for Property Screen. Commission a formal
         planning check and, if pursuing development, a feasibility study before committing capital.
