@@ -20,6 +20,7 @@ import ConstraintsTab from './tabs/ConstraintsTab';
 import CostsTab from './tabs/CostsTab';
 import ResearchTab from './tabs/ResearchTab';
 import TechnicalDiligenceTab from './tabs/TechnicalDiligenceTab';
+import GraphExplorerTab from './tabs/GraphExplorerTab';
 import { makeDomainView } from './tabs/DomainWorkboardTab';
 import { DD_DOMAIN_KEYS, DD_DOMAIN_PROFILES, domainForCheck, domainForRiskCategory, domainForSystem } from '@realytica/shared';
 import type { DdDomain } from '@realytica/shared';
@@ -88,11 +89,17 @@ export const CASE_GROUPS: CaseGroup[] = [
     // has (see DomainWorkboardTab). The views are generated from the same
     // registry the evidence graph's domain attribute reads, so the
     // navigation and the graph cannot disagree about what belongs where.
-    views: DD_DOMAIN_KEYS.map(domain => ({
-      key: domain,
-      label: DD_DOMAIN_PROFILES[domain].label,
-      component: makeDomainView(domain),
-    })),
+    views: [
+      ...DD_DOMAIN_KEYS.map(domain => ({
+        key: domain,
+        label: DD_DOMAIN_PROFILES[domain].label,
+        component: makeDomainView(domain),
+      })),
+      // The graph explorer: the same evidence graph the copilot traverses,
+      // drawn. Last, because it is how the departments connect rather than
+      // a ninth department.
+      { key: 'graph', label: 'Graph', component: GraphExplorerTab },
+    ],
   },
   {
     key: 'value',
