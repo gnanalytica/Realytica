@@ -27,7 +27,16 @@ type FetchState =
   | { status: 'document'; fileName: string }
   | { status: 'gap'; leavesUnknown: string; manualRoute: string; detail?: string };
 
-export function RecordFetchCard({ caseData, onChanged }: { caseData: PropertyCase; onChanged: () => Promise<void> }) {
+export function RecordFetchCard({
+  caseData,
+  onChanged,
+  kinds,
+}: {
+  caseData: PropertyCase;
+  onChanged: () => Promise<void>;
+  /** Restrict to these record kinds — how a domain workboard shows only its own connectors. Omitted, every route renders. */
+  kinds?: string[];
+}) {
   const { data } = useAsync(() => api.recordCapability(caseData.id), [caseData.id]);
   const [busy, setBusy] = useState<string | null>(null);
   const [state, setState] = useState<Record<string, FetchState>>({});
@@ -73,7 +82,9 @@ export function RecordFetchCard({ caseData, onChanged }: { caseData: PropertyCas
         action={<Badge tone={provider.configured ? 'good' : 'neutral'}>{provider.configured ? 'Vendor connected' : 'Manual only'}</Badge>}
       />
       <CardBody className="flex flex-col gap-2">
-        {Object.entries(manualRoutes).map(([kind, route]) => {
+        {Object.entries(manualRoutes)
+          .filter(([kind]) => !kinds || kinds.includes(kind))
+          .map(([kind, route]) => {
           const canFetch = provider.configured && provider.capabilities.kinds.includes(kind);
           const search = searches.find((s) => s.kind === kind);
           const result = state[kind];
