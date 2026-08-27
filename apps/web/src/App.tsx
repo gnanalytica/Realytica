@@ -8,6 +8,7 @@ import About from './pages/About';
 import Observability from './pages/Observability';
 import Prompts from './pages/Prompts';
 import Intake from './pages/Intake';
+import Cockpit from './pages/case/Cockpit';
 import CaseWorkspace from './pages/case/CaseWorkspace';
 import Landing from './pages/Landing';
 
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="cases" element={<Dashboard />} />
           <Route path="cases/new" element={<NewCase />} />
           <Route path="cases/:caseId" element={<CaseWorkspace />} />
+          <Route path="cases/:caseId/cockpit" element={<Cockpit />} />
           <Route path="cases/:caseId/:tab" element={<CaseWorkspace />} />
           <Route path="compare" element={<Compare />} />
           <Route path="observability" element={<Observability />} />

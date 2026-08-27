@@ -500,6 +500,17 @@ export default function CaseWorkspace() {
                 <span className="text-[11px] text-ink-muted">Screened {relativeTime(result.generatedAt)}</span>
               ) : null}
               <UnitToggle />
+              {/* The DD shell, over the same engine. The screen's buyer-question
+                  layout stays exactly as it is; this opens the cockpit an
+                  engagement is actually run from. */}
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<LayoutDashboard size={13} />}
+                onClick={() => navigate(`/cases/${caseData.id}/cockpit`)}
+              >
+                Diligence cockpit
+              </Button>
               <Button
                 variant="primary"
                 size="sm"

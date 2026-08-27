@@ -20,3 +20,4 @@ export * from './technical-diligence';
 export * from './dd-domains';
 export * from './dd-connectors';
 export * from './rfi';
+export * from './dd-dossier';
