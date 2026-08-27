@@ -5,7 +5,7 @@ import { StatutoryProvenance } from './StatutoryProvenance';
 import { formatArea, useAreaUnitFor } from '../lib/units';
 import type { CountryCode } from '@realytica/shared';
 import { SplitProse } from './ui/prose';
-import { YieldFunnelChart } from './charts';
+import { ParkingMeterChart, YieldFunnelChart } from './charts';
 
 /**
  * What this site can hold, at a first pass.
@@ -95,6 +95,23 @@ export function SchematicYieldCard({ yieldResult, country }: { yieldResult: Sche
             {area(y.footprintSqm)} plate
           </p>
         </div>
+
+        {/*
+         * Parking, as a stack rather than two numbers.
+         *
+         * "285 car spaces" and "2 basement levels" left the arithmetic
+         * between them to the reader, and the figure that decides the budget
+         * is the one neither shows: how much of the last level is spare. A
+         * norm missed by a handful of cars costs a whole excavated level.
+         */}
+        {y.parkingSpacesRequired > 0 && y.basementLevelsNeeded > 0 ? (
+          <div className="border-t border-hairline pt-3">
+            <p className="m-0 mb-2 text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted">
+              Parking against the dig
+            </p>
+            <ParkingMeterChart yieldResult={y} formatArea={area} />
+          </div>
+        ) : null}
 
         {!y.floorPlateViable && (
           <Callout tone="critical" title="This site cannot carry this scheme">

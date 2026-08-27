@@ -21,11 +21,12 @@ import {
   createProviderEvalExecutor,
   parseEvalRoute,
   rankEvalResults,
+  readEnv,
   runEvalComparison,
   summariseRanking,
   tierFor,
 } from '@realytica/agents';
-import type { EvalCase, EvalTaskKind } from '@realytica/shared';
+import type { EvalCase, EvalRanking, EvalTaskKind } from '@realytica/shared';
 
 const TASKS: EvalTaskKind[] = ['document_extraction', 'grounding', 'proof_routing', 'title_reasoning'];
 
@@ -90,6 +91,29 @@ async function main(): Promise<void> {
     return;
   }
 
+  /*
+   * The gate.
+   *
+   * Until this existed the harness printed a ranking and exited 0 whatever
+   * the models scored, which makes it a report rather than a check: a prompt
+   * change that halved extraction accuracy passed CI exactly as loudly as one
+   * that improved it. A threshold turns the golden set into something a merge
+   * can be blocked on.
+   *
+   * The default is deliberately not 1.0. These cases score partial credit per
+   * expectation, and a route that declines to answer where the evidence is
+   * absent is behaving correctly while scoring below full marks — a perfect
+   * bar would select for confident guessing, which is the opposite of what
+   * this product wants.
+   */
+  const threshold = Number(readEnv('EVAL_THRESHOLD') ?? '0.75');
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+    console.error(`REALYTICA_EVAL_THRESHOLD must be a number between 0 and 1 — got "${readEnv('EVAL_THRESHOLD')}".`);
+    process.exit(2);
+  }
+  /** Best mean score any route reached on each task, and what dragged it down. */
+  const taskBest = new Map<string, { model: string; meanScore: number; fabrications: number }>();
+
   const execute = createProviderEvalExecutor();
   for (const { task, cases } of byTask) {
     if (cases.length === 0) continue;
@@ -102,7 +126,14 @@ async function main(): Promise<void> {
       now: new Date().toISOString(),
     });
 
-    for (const line of summariseRanking(rankEvalResults(comparison.results))) console.log(`  ${line}`);
+    const ranking = rankEvalResults(comparison.results);
+    for (const line of summariseRanking(ranking)) console.log(`  ${line}`);
+    // The best route on this task is what the gate judges. A comparison run
+    // deliberately includes weak routes; failing the build because a
+    // known-cheap model scored badly against a known-good one would make the
+    // comparison itself unrunnable in CI.
+    const best = ranking.reduce<EvalRanking | null>((a, b) => (a === null || b.meanScore > a.meanScore ? b : a), null);
+    if (best) taskBest.set(task, { model: `${best.provider}:${best.model}`, meanScore: best.meanScore, fabrications: best.fabrications });
     if (comparison.skipped.length > 0) {
       // Never silently dropped: a case that could not run is not a case that passed.
       console.log(`\n  ${comparison.skipped.length} case(s) skipped:`);
@@ -114,6 +145,44 @@ async function main(): Promise<void> {
       for (const f of failures.slice(0, 5)) console.log(`    - ${f.evalCaseId} on ${f.model}: ${f.error}`);
     }
   }
+
+  if (taskBest.size === 0) {
+    console.log('\nNo task produced a ranking — nothing to judge.');
+    return;
+  }
+
+  console.log(`\n${'='.repeat(64)}\nGate — best route per task against a ${threshold.toFixed(2)} threshold\n${'='.repeat(64)}`);
+  const below: string[] = [];
+  let fabricationTotal = 0;
+  for (const [task, best] of taskBest) {
+    const pass = best.meanScore >= threshold;
+    fabricationTotal += best.fabrications;
+    console.log(
+      `  ${pass ? 'PASS' : 'FAIL'}  ${task.padEnd(22)} ${best.meanScore.toFixed(3)}  ${best.model}` +
+        (best.fabrications > 0 ? `  (${best.fabrications} fabrication${best.fabrications === 1 ? '' : 's'})` : ''),
+    );
+    if (!pass) below.push(`${task} scored ${best.meanScore.toFixed(3)} on its best route (${best.model})`);
+  }
+
+  /*
+   * Fabrications are reported loudly but do not fail the run on their own.
+   *
+   * They are already scored — `scoreEvalCase` treats an invented value as
+   * worse than an absent one — so failing separately would double-count. The
+   * count is printed because a route that reaches the threshold *while*
+   * inventing values is a different problem from one that simply scores low,
+   * and the person reading the output needs to be able to tell them apart.
+   */
+  if (fabricationTotal > 0) {
+    console.log(`\n  ${fabricationTotal} fabricated value(s) across the best routes — already reflected in the scores above.`);
+  }
+
+  if (below.length > 0) {
+    console.error(`\nEval gate failed:\n${below.map(b => `  - ${b}`).join('\n')}`);
+    console.error(`\nRaise the routes, or set REALYTICA_EVAL_THRESHOLD deliberately if the bar has moved.`);
+    process.exit(1);
+  }
+  console.log('\nEval gate passed.');
 }
 
 main().catch(e => {

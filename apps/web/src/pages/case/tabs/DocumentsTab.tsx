@@ -127,7 +127,7 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [docPendingDelete, setDocPendingDelete] = useState<CaseDocument | null>(null);
-  const [docPreview, setDocPreview] = useState<CaseDocument | null>(null);
+  const [docPreview, setDocPreview] = useState<{ doc: CaseDocument; page?: number } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const seq = useRef(0);
 
@@ -349,7 +349,8 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
                       onToggle={() => toggleExpand(doc.id)}
                       onKindChange={(kind) => void handleKindChange(doc, kind)}
                       onDelete={() => setDocPendingDelete(doc)}
-                      onPreview={() => setDocPreview(doc)}
+                      onPreview={() => setDocPreview({ doc })}
+                      onPreviewPage={(page) => setDocPreview({ doc, page })}
                     />
                   ))}
                 </tbody>
@@ -403,7 +404,12 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
       </div>
 
       {docPreview ? (
-        <DocumentPreview caseId={caseData.id} doc={docPreview} onClose={() => setDocPreview(null)} />
+        <DocumentPreview
+          caseId={caseData.id}
+          doc={docPreview.doc}
+          page={docPreview.page}
+          onClose={() => setDocPreview(null)}
+        />
       ) : null}
 
       <Modal
@@ -485,6 +491,7 @@ function DocRow({
   onKindChange,
   onDelete,
   onPreview,
+  onPreviewPage,
 }: {
   doc: CaseDocument;
   expanded: boolean;
@@ -492,6 +499,7 @@ function DocRow({
   onKindChange: (kind: DocumentKind) => void;
   onDelete: () => void;
   onPreview: () => void;
+  onPreviewPage: (page?: number) => void;
 }) {
   const Icon = KIND_ICON[doc.kind];
   const needsReview = doc.classificationConfidence < REVIEW_THRESHOLD && !doc.kindConfirmedByUser;
@@ -569,7 +577,7 @@ function DocRow({
         <tr className="border-b border-hairline bg-sunken/40 last:border-0">
           <td />
           <td colSpan={7} className="px-3 py-3">
-            <ExtractedFieldsTable fields={doc.extracted} />
+            <ExtractedFieldsTable fields={doc.extracted} onOpenSource={onPreviewPage} />
           </td>
         </tr>
       ) : null}
@@ -577,7 +585,13 @@ function DocRow({
   );
 }
 
-function ExtractedFieldsTable({ fields }: { fields: ExtractedField[] }) {
+function ExtractedFieldsTable({
+  fields,
+  onOpenSource,
+}: {
+  fields: ExtractedField[];
+  onOpenSource: (page?: number) => void;
+}) {
   if (fields.length === 0) {
     return <p className="text-xs text-ink-muted">No fields extracted from this document yet.</p>;
   }
@@ -591,6 +605,7 @@ function ExtractedFieldsTable({ fields }: { fields: ExtractedField[] }) {
             <th className="py-1 pr-3 font-medium">Unit</th>
             <th className="py-1 pr-3 font-medium">Confidence</th>
             <th className="py-1 pr-3 font-medium">Method</th>
+            <th className="py-1 font-medium">Source</th>
           </tr>
         </thead>
         <tbody>
@@ -610,6 +625,22 @@ function ExtractedFieldsTable({ fields }: { fields: ExtractedField[] }) {
                   ) : null}
                 </td>
                 <td className="py-1.5 pr-3 text-ink-muted">{titleCase(f.method)}</td>
+                {/*
+                  * Open the document this value came from — at its page when
+                  * an extractor genuinely located one, and at the top when
+                  * none did. The label says which, because "page 3" and "no
+                  * page recorded" are different claims about how well this
+                  * value is evidenced.
+                  */}
+                <td className="py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onOpenSource(f.sourcePage)}
+                    className="text-[11.5px] text-brand hover:underline"
+                  >
+                    {f.sourcePage ? `Page ${f.sourcePage}` : 'Open'}
+                  </button>
+                </td>
               </tr>
             );
           })}

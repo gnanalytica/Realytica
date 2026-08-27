@@ -240,7 +240,18 @@ function mkField(
   method: ExtractionMethod,
   unit?: string,
 ): ExtractedField {
-  return { key, label, value, unit, confidence, sourceDocumentId, sourcePage: 1, method };
+  /*
+   * No page, rather than page 1.
+   *
+   * This used to stamp `sourcePage: 1` on every field. Nothing located
+   * anything on page 1 — this extractor derives values from the document kind
+   * and the case identity, so it has no idea which page a value came from,
+   * and a hard 1 is a fabricated citation that reads exactly like a real one.
+   * It is left undefined so that anything downstream — a viewer jumping to a
+   * page, a report citing one — can tell "not known" from "known to be page
+   * 1", and cannot navigate somewhere on the strength of a guess.
+   */
+  return { key, label, value, unit, confidence, sourceDocumentId, method };
 }
 
 /**

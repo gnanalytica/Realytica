@@ -5,6 +5,7 @@ import { Badge, Button, Callout, Card, CardBody, CardHeader, Tile } from './ui/k
 import { api } from '../lib/api';
 import { formatArea, useAreaUnitFor } from '../lib/units';
 import { relativeTime } from '../lib/format';
+import { AreaReconcileChart } from './charts';
 
 /**
  * The parcel outline.
@@ -97,11 +98,28 @@ export function BoundaryCard({ caseData, onChanged }: { caseData: PropertyCase; 
 
         {boundary && (
           <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {/*
+              * Measured against on-record, drawn rather than listed.
+              *
+              * These were two stat tiles and a sentence giving the
+              * percentage, which reads as two facts when what it is is one
+              * disagreement — and the quantity in dispute, not the
+              * percentage, is what gets paid for per square foot.
+              */}
+            {stated > 0 ? (
+              <AreaReconcileChart
+                measuredSqm={boundary.computedAreaSqm}
+                statedSqm={stated}
+                formatArea={(sqm) => formatArea(sqm, unit)}
+              />
+            ) : (
               <Fact label="Measured" value={formatArea(boundary.computedAreaSqm, unit)} />
-              <Fact label="On record" value={stated > 0 ? formatArea(stated, unit) : '—'} />
+            )}
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Fact label="Frontage (longest edge)" value={`${boundary.longestEdgeM} m`} />
               <Fact label="Shortest edge" value={`${boundary.shortestEdgeM} m`} />
+              <Fact label="Perimeter" value={`${Math.round(boundary.perimeterM)} m`} />
             </div>
 
             {diffPct !== null && (

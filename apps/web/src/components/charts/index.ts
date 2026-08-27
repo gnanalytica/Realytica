@@ -47,3 +47,9 @@ export type { ResidualWaterfallChartProps } from './ResidualWaterfallChart';
 
 export { default as YieldFunnelChart } from './YieldFunnelChart';
 export type { YieldFunnelChartProps } from './YieldFunnelChart';
+
+export { default as ParkingMeterChart } from './ParkingMeterChart';
+export type { ParkingMeterChartProps } from './ParkingMeterChart';
+
+export { default as AreaReconcileChart } from './AreaReconcileChart';
+export type { AreaReconcileChartProps } from './AreaReconcileChart';

@@ -38,13 +38,27 @@ export interface DocumentPreviewProps {
   caseId: string;
   doc: CaseDocument;
   onClose: () => void;
+  /**
+   * Open at this page, when something genuinely knows which page it means.
+   *
+   * `#page=N` is one of Adobe's Open Parameters, which Chrome's built-in
+   * viewer does implement — unlike `#search=`, a pdf.js convention Chrome
+   * silently ignores. Pass it only from a real located page: opening at a
+   * page nobody located is a fabricated citation that looks exactly like a
+   * real one.
+   */
+  page?: number;
   /** Rendered beside the download button — e.g. a link back to the evidence that cited this. */
   actions?: React.ReactNode;
 }
 
-export function DocumentPreview({ caseId, doc, onClose, actions }: DocumentPreviewProps) {
+export function DocumentPreview({ caseId, doc, onClose, page, actions }: DocumentPreviewProps) {
   const kind = inlineKind(doc.mimeType);
   const src = api.documentFileUrl(caseId, doc.id);
+  // The fragment goes on the frame's src only — it is a viewer instruction,
+  // not part of the request, and appending it to the probe or the download
+  // would just make two URLs where one is meant.
+  const frameSrc = page && page > 0 ? `${src}#page=${page}` : src;
   const downloadHref = api.documentFileUrl(caseId, doc.id, { download: true });
 
   const [state, setState] = useState<'loading' | 'ready' | 'error'>(kind === 'pdf' ? 'loading' : 'ready');
@@ -124,6 +138,7 @@ export function DocumentPreview({ caseId, doc, onClose, actions }: DocumentPrevi
               <Badge tone={doc.kindConfirmedByUser ? 'good' : 'neutral'}>{DOCUMENT_KIND_LABEL[doc.kind]}</Badge>
               <span>{fileSize(doc.sizeBytes)}</span>
               {doc.pages ? <span>· {doc.pages} page{doc.pages === 1 ? '' : 's'}</span> : null}
+              {page && page > 0 ? <span>· opened at page {page}</span> : null}
             </p>
           </div>
           {actions}
@@ -156,7 +171,7 @@ export function DocumentPreview({ caseId, doc, onClose, actions }: DocumentPrevi
           ) : kind === 'pdf' ? (
             // `title` is what a screen reader announces for the frame, and
             // what the browser falls back to if the plugin is unavailable.
-            <iframe src={src} title={doc.fileName} className="h-full w-full border-0" />
+            <iframe src={frameSrc} title={doc.fileName} className="h-full w-full border-0" />
           ) : kind === 'image' ? (
             <img
               src={src}
