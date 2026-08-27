@@ -25,8 +25,10 @@ export function StatutoryProvenance({
   compact?: boolean;
 }) {
   if (compact) {
+    // The source goes in the tooltip too — the line truncates it, and a
+    // source you cannot read is not provenance.
     return (
-      <Tooltip label={verifyNote}>
+      <Tooltip label={`${source} — ${verifyNote}`}>
         <span
           tabIndex={0}
           className="inline-flex min-w-0 cursor-help items-center gap-1 text-[11px] text-ink-muted"
@@ -59,10 +61,16 @@ export function StatutoryProvenance({
     <details className="print-open group">
       <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-ink-muted">
         <Info size={12} className="shrink-0" aria-hidden="true" />
-        <span className="truncate">
+        {/*
+          * Truncated closed, whole open. The source is often longer than the
+          * line — "Revised Master Plan 2015 … ground coverage, setbacks and
+          * parking provision" — and expanding used to reveal only the caveat,
+          * so the citation itself was unreadable in either state.
+          */}
+        <span className="truncate group-open:overflow-visible group-open:whitespace-normal">
           As of {fmtDate(asOf)} · {source}
         </span>
-        <ChevronDown size={11} className="no-print shrink-0 transition-transform duration-base group-open:rotate-180" />
+        <ChevronDown size={11} className="no-print shrink-0 self-start transition-transform duration-base group-open:rotate-180" />
       </summary>
       <p className="mt-1.5 border-l-2 border-[var(--ring)] pl-2.5 text-[11.5px] leading-relaxed text-ink-muted">
         {verifyNote}

@@ -231,7 +231,12 @@ export function Stat({
   return (
     <div className={cn('min-w-0', className)} title={hint}>
       <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</div>
-      <div className={cn('mt-1 truncate text-2xl font-semibold leading-tight tracking-tight', TONE_TEXT[tone])}>{value}</div>
+      <div
+        className={cn('mt-1 truncate font-semibold leading-tight tracking-tight', valueSizeClass(value, 'stat'), TONE_TEXT[tone])}
+        title={hint ?? (typeof value === 'string' ? value : undefined)}
+      >
+        {value}
+      </div>
       {sub ? <div className="mt-0.5 text-xs text-ink-secondary">{sub}</div> : null}
     </div>
   );
@@ -352,10 +357,47 @@ export function StatTile({
         <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</span>
         {icon ? <span className={cn('shrink-0', TONE_TEXT[tone])}>{icon}</span> : null}
       </div>
-      <div className={cn('mt-1.5 truncate text-[26px] font-semibold leading-none tracking-tight', TONE_TEXT[tone])}>{value}</div>
+      {/*
+        * The value sizes itself down rather than truncating.
+        *
+        * A fixed 26px with `truncate` clipped "1,96,172 sq ft" to
+        * "1,96,172 s…" — a stat tile whose whole job is to carry one figure,
+        * hiding the end of it. Indian digit grouping and a unit suffix make
+        * long values ordinary here, not exceptional, so the size steps down
+        * to fit instead. `truncate` stays as the backstop for a value no size
+        * would fit, with the full text on the element for hover.
+        */}
+      <div
+        className={cn('mt-1.5 truncate font-semibold leading-none tracking-tight', valueSizeClass(value), TONE_TEXT[tone])}
+        title={typeof value === 'string' ? value : undefined}
+      >
+        {value}
+      </div>
       {hint ? <div className="mt-1.5 text-[12px] leading-snug text-ink-secondary">{hint}</div> : null}
     </Tile>
   );
+}
+
+/**
+ * How big a headline figure can be and still fit one line of its box.
+ *
+ * Both `Stat` and `StatTile` truncated at a fixed size, which clipped exactly
+ * the values that matter most here: "1,96,172 sq ft" and "₹4,069/sq ft" lost
+ * their tails, and a figure with its end hidden is worse than a smaller one.
+ * Indian digit grouping plus a unit suffix makes long values the ordinary
+ * case in this product, not the exception, so the size steps down to fit.
+ */
+function valueSizeClass(value: ReactNode, scale: 'tile' | 'stat' = 'tile'): string {
+  const steps =
+    scale === 'stat'
+      ? ['text-2xl', 'text-[20px]', 'text-[17px]', 'text-[15px]']
+      : ['text-[26px]', 'text-[21px]', 'text-[18px]', 'text-[16px]'];
+  if (typeof value !== 'string' && typeof value !== 'number') return steps[0];
+  const len = String(value).length;
+  if (len <= 8) return steps[0];
+  if (len <= 12) return steps[1];
+  if (len <= 16) return steps[2];
+  return steps[3];
 }
 
 /**
@@ -391,10 +433,25 @@ export function SectionBand({
 }
 
 export function KeyValue({ label, value, mono }: { label: ReactNode; value: ReactNode; mono?: boolean }) {
+  /*
+   * Wraps rather than truncates.
+   *
+   * This row used to pin the label and truncate the value, which turned
+   * "₹4,069/sq ft" into "₹4,069/sq…" and the registering authority's name
+   * into a fragment. Truncating the label instead just moved the damage:
+   * these rows sit in grid columns as narrow as 36px in the report, where
+   * any fixed split clips one side or the other.
+   *
+   * So neither side is cut. Label and value sit on one line where they fit
+   * and the value drops to its own full-width line where they do not —
+   * every character of both, at every width.
+   */
   return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-hairline py-1.5 last:border-0">
-      <dt className="shrink-0 text-xs text-ink-secondary">{label}</dt>
-      <dd className={cn('min-w-0 truncate text-right text-[13px] font-medium text-ink', mono && 'tabular')}>{value}</dd>
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 border-b border-hairline py-1.5 last:border-0">
+      <dt className="text-xs text-ink-secondary">{label}</dt>
+      <dd className={cn('min-w-0 flex-1 text-right text-[13px] font-medium text-ink [overflow-wrap:anywhere]', mono && 'tabular')}>
+        {value}
+      </dd>
     </div>
   );
 }

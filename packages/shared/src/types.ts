@@ -729,6 +729,41 @@ export type ValuationMethod =
   | 'asking_price_adjusted'
   | 'index_trend';
 
+/**
+ * One line of a residual's arithmetic.
+ *
+ * `amount` is signed — negative for anything leaving the pot — so a renderer
+ * never has to know which labels are deductions.
+ */
+export interface ResidualStep {
+  key: string;
+  label: string;
+  amount: number;
+  kind: 'gross' | 'deduction' | 'discount' | 'result';
+  /** The one-line reason, for a tooltip or a table row. */
+  note: string;
+}
+
+/**
+ * The residual, as its steps rather than as a paragraph.
+ *
+ * The engine computed every one of these figures and threw all but the last
+ * away, which is exactly why the anchor's rationale had grown to 969
+ * characters: with no structure to render, the only place the working could
+ * go was into a sentence. Carrying the steps lets a waterfall show the shape
+ * of the calculation — gross down to residual — and lets the sentence shrink
+ * to what a chart cannot say.
+ */
+export interface ResidualBreakdown {
+  steps: ResidualStep[];
+  /** Area the gross was computed on, and the rate applied to it. */
+  areaSqm: number;
+  ratePerSqm: number;
+  /** What the area is: saleable built area, or net saleable sites. */
+  areaBasis: string;
+  currency: CurrencyCode;
+}
+
 export interface ValueAnchor {
   id: string;
   method: ValuationMethod;
@@ -749,6 +784,12 @@ export interface ValueAnchor {
    */
   role?: MethodRole;
   roleNote?: string;
+  /**
+   * The arithmetic behind a residual, step by step. Present only on the
+   * `residual_development` anchor — every other method is a rate times an
+   * area and has no intermediate steps worth drawing.
+   */
+  residual?: ResidualBreakdown;
 }
 
 export interface ComparableAdjustment {

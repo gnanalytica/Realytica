@@ -8,18 +8,26 @@ const LOCALE: Record<CurrencyCode, string> = { INR: 'en-IN', EUR: 'en-IE' };
 export function money(value: number | null | undefined, currency: CurrencyCode, opts?: { compact?: boolean }): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '—';
   const compact = opts?.compact ?? true;
+  /*
+   * The sign comes out before the symbol goes on. Formatting the signed value
+   * directly produced "₹-59 Cr" — the minus stranded between the currency and
+   * the digits, where it reads as a stray dash rather than as a subtraction.
+   * A true minus (U+2212) rather than a hyphen, because these sit in tabular
+   * columns beside positive figures and a hyphen sits too low and too short
+   * to line up with them.
+   */
+  const sign = value < 0 ? '\u2212' : '';
+  const abs = Math.abs(value);
   if (currency === 'INR' && compact) {
-    const abs = Math.abs(value);
-    if (abs >= 1e7) return `₹${trim(value / 1e7)} Cr`;
-    if (abs >= 1e5) return `₹${trim(value / 1e5)} L`;
-    if (abs >= 1e3) return `₹${trim(value / 1e3)}K`;
-    return `₹${Math.round(value).toLocaleString('en-IN')}`;
+    if (abs >= 1e7) return `${sign}₹${trim(abs / 1e7)} Cr`;
+    if (abs >= 1e5) return `${sign}₹${trim(abs / 1e5)} L`;
+    if (abs >= 1e3) return `${sign}₹${trim(abs / 1e3)}K`;
+    return `${sign}₹${Math.round(abs).toLocaleString('en-IN')}`;
   }
   if (compact) {
-    const abs = Math.abs(value);
-    if (abs >= 1e6) return `€${trim(value / 1e6)}M`;
-    if (abs >= 1e3) return `€${trim(value / 1e3)}K`;
-    return `€${Math.round(value).toLocaleString(LOCALE.EUR)}`;
+    if (abs >= 1e6) return `${sign}€${trim(abs / 1e6)}M`;
+    if (abs >= 1e3) return `${sign}€${trim(abs / 1e3)}K`;
+    return `${sign}€${Math.round(abs).toLocaleString(LOCALE.EUR)}`;
   }
   return new Intl.NumberFormat(LOCALE[currency], {
     style: 'currency',

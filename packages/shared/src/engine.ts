@@ -15,6 +15,7 @@ import type {
   GroundCoverageBand,
   ParkingNorm,
   ProjectKind,
+  ResidualBreakdown,
   SchematicYield,
   SetbackBand,
   AssessmentProfile,
@@ -998,6 +999,16 @@ function buildAnchors(
    * at all — see `applyProfileToAnchors` at the end of this function.
    */
   profile: AssessmentProfile,
+  /**
+   * The schematic yield, when this project kind has one. The residual needs
+   * it: `planning.buildablePotentialSqm` is the *zoning* envelope, and on a
+   * Bengaluru site the abutting road width routinely caps the FAR well below
+   * what the zone offers. Valuing the zoning envelope while the yield card on
+   * the same screen says a fifth of it cannot be built is not a difference of
+   * opinion between two views — it is the primary anchor pricing floor area
+   * that planning permission forbids.
+   */
+  schematicYield: SchematicYield | undefined,
   now: string,
   evidence: EvidenceBuilder,
 ): ValueAnchor[] {
@@ -1357,21 +1368,93 @@ function buildAnchors(
         confidence: 0.45,
       });
       const band = 0.2;
+      const plottedResidual: ResidualBreakdown = {
+        areaSqm: Math.round(netSaleableSqm),
+        ratePerSqm: Math.round(siteRate),
+        areaBasis: 'net saleable site area',
+        currency,
+        steps: [
+          {
+            key: 'gross',
+            label: 'Sites sold',
+            amount: roundMoney(gdv, currency),
+            kind: 'gross',
+            note: `${Math.round(netSaleableSqm).toLocaleString()} sqm saleable after the ${round1(LAYOUT_SURRENDER_PCT * 100)}% surrender, at the locality's developed-site rate.`,
+          },
+          {
+            key: 'infrastructure',
+            label: 'Infrastructure',
+            amount: -roundMoney(infrastructureCost, currency),
+            kind: 'deduction',
+            note: `Roads, drains, water, electricals and STP at ${round1(LAYOUT_INFRASTRUCTURE_PCT_OF_GDV * 100)}% of the sites' sale value.`,
+          },
+          {
+            key: 'margin',
+            label: 'Developer margin',
+            amount: -roundMoney(developerMargin, currency),
+            kind: 'deduction',
+            note: `${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% of gross, the return the scheme has to earn to be worth doing.`,
+          },
+          {
+            key: 'discount',
+            label: `Discounted ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS} yr`,
+            amount: -roundMoney(gdv - infrastructureCost - developerMargin - residualToday, currency),
+            kind: 'discount',
+            note: `${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year layout-and-sell period.`,
+          },
+          {
+            key: 'result',
+            label: 'Land value today',
+            amount: roundMoney(residualToday, currency),
+            kind: 'result',
+            note: 'What the raw parcel can be paid for and still leave the margin above.',
+          },
+        ],
+      };
       anchors.push({
         id: `anchor-${caseId}-residual_development`,
         method: 'residual_development',
         label: 'Plotted layout residual',
+        residual: plottedResidual,
         low: roundMoney(residualToday * (1 - band), currency),
         mid: roundMoney(residualToday, currency),
         high: roundMoney(residualToday * (1 + band), currency),
         weight: 0.4,
         confidence: 0.45,
-        rationale: `Values the layout as what it actually sells — sites, not built area. ${Math.round(netSaleableSqm).toLocaleString()} sqm remains saleable after the ${round1(LAYOUT_SURRENDER_PCT * 100)}% statutory surrender to roads, parks and civic amenity; at the locality's developed-site rate that grosses ${Math.round(gdv).toLocaleString()} ${currency}, from which ${round1(LAYOUT_INFRASTRUCTURE_PCT_OF_GDV * 100)}% infrastructure and a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin are netted and the result discounted back at ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS} years. The surrender ratio and infrastructure share are planning-norm assumptions, not measurements from an approved layout plan — a sanctioned plan would replace both.`,
+        rationale: `Values the layout as what it actually sells — sites, not built area. The ${round1(LAYOUT_SURRENDER_PCT * 100)}% surrender ratio and the ${round1(LAYOUT_INFRASTRUCTURE_PCT_OF_GDV * 100)}% infrastructure share are planning-norm assumptions, not measurements from an approved layout plan — a sanctioned plan would replace both.`,
         evidenceIds: [plotEvId],
       });
     }
   } else if (residualApplies && (planning.developmentPotential === 'moderate' || planning.developmentPotential === 'significant')) {
-    const buildableSqm = planning.buildablePotentialSqm;
+    /*
+     * The share of the zoning envelope that survives to being buildable.
+     *
+     * `buildablePotentialSqm` is FAR headroom against `locality.farAllowed` —
+     * the zone's published ratio and nothing else. The schematic yield knows
+     * better: it applies the road-width FAR band and the ground-coverage and
+     * setback rules, and on a site abutting a narrow road that routinely
+     * leaves a fifth or more of the zoning envelope unbuildable.
+     *
+     * Applied as a ratio rather than by substituting the yield's area
+     * outright, because the two quantities do not mean the same thing on a
+     * redevelopment: the yield's `achievableFarAreaSqm` is the whole envelope
+     * while `buildablePotentialSqm` is what remains after the standing
+     * building's consumption. Scaling preserves the headroom semantics and
+     * still applies the haircut.
+     *
+     * Clamped at 1 so this can only ever reduce. If a future yield reads
+     * higher than the zoning ratio — a premium-FAR or TDR provision, say —
+     * the right place to widen the envelope is the planning position, not a
+     * silent multiplier inside the residual.
+     */
+    const zoningEnvelopeSqm =
+      schematicYield !== undefined ? identity.plotAreaSqm * schematicYield.farFromZoning : 0;
+    const realisableShare =
+      schematicYield !== undefined && zoningEnvelopeSqm > 0
+        ? Math.min(1, schematicYield.achievableFarAreaSqm / zoningEnvelopeSqm)
+        : 1;
+    const buildableSqm = planning.buildablePotentialSqm * realisableShare;
+    const yieldCapped = realisableShare < 0.999;
     // Three different areas, converted once and in the open. `buildableSqm`
     // is FAR area; the buyer is invoiced for saleable (super built-up) area,
     // which loads common space on top of it; the builder pays for constructed
@@ -1388,27 +1471,90 @@ function buildAnchors(
       (gdv - constructionCost - demolitionCost - developerMargin) / Math.pow(1 + RESIDUAL_DISCOUNT_RATE_PCT, RESIDUAL_DEVELOPMENT_PERIOD_YEARS);
     if (residualToday > 0) {
       const rdEvId = evidence.add({
-        statement: `Permitted envelope of ${Math.round(buildableSqm).toLocaleString()} sqm at FAR ${locality.farAllowed} converts to ${Math.round(saleableSqm).toLocaleString()} sqm saleable (x${areaRatios.saleableToFar}) sold at ${locality.medianPricePerSqm.toLocaleString()}/sqm, and ${Math.round(constructedSqm).toLocaleString()} sqm constructed (x${areaRatios.constructedToFar}) built at ${locality.replacementCostPerSqm.toLocaleString()}/sqm, less a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, discounted ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year build-and-sell period.`,
+        statement: `${
+          yieldCapped
+            ? `Buildable envelope of ${Math.round(buildableSqm).toLocaleString()} sqm — the zone's FAR ${locality.farAllowed} cut to an applied FAR ${schematicYield?.farApplied} by the ${schematicYield?.bindingConstraint === 'road_width' ? 'abutting road width' : 'ground-coverage and setback rules'} — converts to`
+            : `Permitted envelope of ${Math.round(buildableSqm).toLocaleString()} sqm at FAR ${locality.farAllowed} converts to`
+        } ${Math.round(saleableSqm).toLocaleString()} sqm saleable (x${areaRatios.saleableToFar}) sold at ${locality.medianPricePerSqm.toLocaleString()}/sqm, and ${Math.round(constructedSqm).toLocaleString()} sqm constructed (x${areaRatios.constructedToFar}) built at ${locality.replacementCostPerSqm.toLocaleString()}/sqm, less a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, discounted ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year build-and-sell period.`,
         sourceType: 'model_inference',
         sourceRef: 'residual_development',
         sourceLabel: locality.source,
         confidence: 0.4,
       });
       const band = 0.18;
+      const buildOutResidual: ResidualBreakdown = {
+        areaSqm: Math.round(saleableSqm),
+        ratePerSqm: Math.round(locality.medianPricePerSqm),
+        areaBasis: 'saleable super built-up area',
+        currency,
+        steps: [
+          {
+            key: 'gross',
+            label: 'Built and sold',
+            amount: roundMoney(gdv, currency),
+            kind: 'gross',
+            note: `${Math.round(saleableSqm).toLocaleString()} sqm saleable (x${areaRatios.saleableToFar} on the ${yieldCapped ? 'buildable' : 'FAR'} area) at the locality's median rate.`,
+          },
+          {
+            key: 'construction',
+            label: 'Construction',
+            amount: -roundMoney(constructionCost, currency),
+            kind: 'deduction',
+            note: `${Math.round(constructedSqm).toLocaleString()} sqm constructed (x${areaRatios.constructedToFar}, counting FAR-exempt parking and services) at ${locality.replacementCostPerSqm.toLocaleString()}/sqm.`,
+          },
+          ...(demolitionCost > 0
+            ? [
+                {
+                  key: 'demolition',
+                  label: 'Demolition',
+                  amount: -roundMoney(demolitionCost, currency),
+                  kind: 'deduction' as const,
+                  note: `Clearing the existing ${Math.round(identity.builtUpAreaSqm).toLocaleString()} sqm before the unused envelope can be built.`,
+                },
+              ]
+            : []),
+          {
+            key: 'margin',
+            label: 'Developer margin',
+            amount: -roundMoney(developerMargin, currency),
+            kind: 'deduction',
+            note: `${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% of gross, the return the scheme has to earn to be worth doing.`,
+          },
+          {
+            key: 'discount',
+            label: `Discounted ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS} yr`,
+            amount: -roundMoney(gdv - constructionCost - demolitionCost - developerMargin - residualToday, currency),
+            kind: 'discount',
+            note: `${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year build-and-sell period.`,
+          },
+          {
+            key: 'result',
+            label: 'Land value today',
+            amount: roundMoney(residualToday, currency),
+            kind: 'result',
+            note: 'What the site can be paid for and still leave the margin above.',
+          },
+        ],
+      };
       anchors.push({
         id: `anchor-${caseId}-residual_development`,
         method: 'residual_development',
         label: 'Residual development value',
+        residual: buildOutResidual,
         low: roundMoney(residualToday * (1 - band), currency),
         mid: roundMoney(residualToday, currency),
         high: roundMoney(residualToday * (1 + band), currency),
         weight: 0.08,
         confidence: planning.developmentPotential === 'significant' ? 0.45 : 0.35,
-        rationale: `Values the FAR-${locality.farAllowed} ${isLand ? 'permitted envelope' : 'unused envelope above what already stands'} as built product. The ${Math.round(buildableSqm).toLocaleString()} sqm the zoning permits is not the area sold or the area built: it sells as ${Math.round(saleableSqm).toLocaleString()} sqm of saleable super built-up area and is constructed as ${Math.round(constructedSqm).toLocaleString()} sqm once FAR-exempt parking and services are counted (${areaRatios.source}). Nets off construction cost${
-          demolitionCost > 0
-            ? `, ${Math.round(demolitionCost).toLocaleString()} ${currency} of demolition and site clearance (${round1(DEMOLITION_COST_PCT_OF_REPLACEMENT * 100)}% of what the existing ${Math.round(identity.builtUpAreaSqm).toLocaleString()} sqm cost to build)`
-            : ''
-        } and a ${round1(RESIDUAL_DEVELOPER_MARGIN_PCT * 100)}% developer margin, and discounts the result back to today at ${round1(RESIDUAL_DISCOUNT_RATE_PCT * 100)}%/yr over an assumed ${RESIDUAL_DEVELOPMENT_PERIOD_YEARS}-year timeline. ${areaRatios.verifyNote} It also depends on construction-cost, margin and absorption assumptions this screen cannot independently verify.`,
+        // Short, because the steps now render as a chart beside it. What is
+        // left is the part a waterfall cannot say: which envelope is being
+        // valued, and that the ratios are conventions rather than
+        // measurements.
+        rationale: `${
+          yieldCapped
+            ? `Values the FAR-${schematicYield?.farApplied} buildable envelope as built product. The zone allows FAR ${locality.farAllowed}, but ${schematicYield?.bindingConstraint === 'road_width' ? 'the abutting road width caps it' : 'ground coverage and setbacks cap it'}, so the remaining ${Math.round((1 - realisableShare) * 100)}% of the zoning envelope is priced at nothing — it cannot be built.`
+            : `Values the FAR-${locality.farAllowed} ${isLand ? 'permitted envelope' : 'unused envelope above what already stands'} as built product.`
+        } ${areaRatios.verifyNote} The construction-cost, margin and absorption assumptions behind the steps are ones this screen cannot independently verify.`,
         evidenceIds: [rdEvId],
       });
     }
@@ -4412,6 +4558,7 @@ export function runScreen(input: {
     documentsWithExtraction,
     countryPack.areaRatios,
     profile,
+    schematicYield,
     now,
     evidence,
   );

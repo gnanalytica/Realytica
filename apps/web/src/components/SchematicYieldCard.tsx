@@ -5,6 +5,7 @@ import { StatutoryProvenance } from './StatutoryProvenance';
 import { formatArea, useAreaUnitFor } from '../lib/units';
 import type { CountryCode } from '@realytica/shared';
 import { SplitProse } from './ui/prose';
+import { YieldFunnelChart } from './charts';
 
 /**
  * What this site can hold, at a first pass.
@@ -78,14 +79,22 @@ export function SchematicYieldCard({ yieldResult, country }: { yieldResult: Sche
           />
         </div>
 
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-2 border-t border-hairline pt-3 sm:grid-cols-3">
-          <Row label="Ground coverage" value={`${y.groundCoveragePct}%`} />
-          <Row label="Footprint" value={area(y.footprintSqm)} />
-          <Row label="Setback all round" value={`${y.setbackAllRoundM} m`} />
-          <Row label="Floors implied" value={String(y.floorsImplied)} />
-          <Row label="Height" value={`${y.heightM} m`} />
-          <Row label="Permitted before limits" value={area(y.permittedFarAreaSqm)} />
-        </dl>
+        {/*
+         * These six figures were a definition list, which reads as "here are
+         * some facts" when the thing they describe is a sequence: the zone
+         * offers an envelope, the road caps it, coverage and setbacks cut a
+         * footprint out of it, and what remains is buildable. The funnel is
+         * that sequence, so the loss is seen rather than computed. Height is
+         * the one figure the funnel cannot carry — it is a consequence of the
+         * result, not a step toward it — so it stays as a line beneath.
+         */}
+        <div className="border-t border-hairline pt-3">
+          <YieldFunnelChart yieldResult={y} formatArea={area} />
+          <p className="m-0 mt-2 text-[11px] text-ink-muted">
+            {y.floorsImplied} floor{y.floorsImplied === 1 ? '' : 's'} at {y.heightM} m, on a{' '}
+            {area(y.footprintSqm)} plate
+          </p>
+        </div>
 
         {!y.floorPlateViable && (
           <Callout tone="critical" title="This site cannot carry this scheme">
@@ -120,14 +129,5 @@ export function SchematicYieldCard({ yieldResult, country }: { yieldResult: Sche
         <StatutoryProvenance asOf={y.asOf} source={y.source} verifyNote={y.verifyNote} />
       </CardBody>
     </Card>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-[11px] font-medium uppercase tracking-[0.05em] text-ink-muted">{label}</dt>
-      <dd className="m-0 font-mono text-[13px] tabular-nums text-ink">{value}</dd>
-    </div>
   );
 }

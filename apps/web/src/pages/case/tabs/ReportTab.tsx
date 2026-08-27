@@ -647,9 +647,9 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
               value={result.indicativeValue.askingVsMidPct != null ? pct(result.indicativeValue.askingVsMidPct, 1, true) : '—'}
               mono
             />
-            <KeyValue label={`Per {unitLabel} — low`} value={formatRate(result.indicativeValue.perSqm.low, areaUnit, currency)} mono />
-            <KeyValue label={`Per {unitLabel} — mid`} value={formatRate(result.indicativeValue.perSqm.mid, areaUnit, currency)} mono />
-            <KeyValue label={`Per {unitLabel} — high`} value={formatRate(result.indicativeValue.perSqm.high, areaUnit, currency)} mono />
+            <KeyValue label={`Per ${unitLabel} — low`} value={formatRate(result.indicativeValue.perSqm.low, areaUnit, currency)} mono />
+            <KeyValue label={`Per ${unitLabel} — mid`} value={formatRate(result.indicativeValue.perSqm.mid, areaUnit, currency)} mono />
+            <KeyValue label={`Per ${unitLabel} — high`} value={formatRate(result.indicativeValue.perSqm.high, areaUnit, currency)} mono />
             <KeyValue label="Asking price" value={identity.askingPrice != null ? money(identity.askingPrice, currency) : 'Not supplied'} mono />
           </div>
           <ValueRangeChart

@@ -530,7 +530,7 @@ function CheckTable({
         const tone = VERDICT_TONE[check.verdict];
         const Icon = TONE_ICON[tone];
         const open = openKey === check.key;
-        const { lead } = splitLead(check.finding);
+        const { lead, rest } = splitLead(check.finding);
         return (
           <div key={check.key} className="border-b border-hairline last:border-0">
             <button
@@ -543,9 +543,29 @@ function CheckTable({
               </Badge>
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-medium text-ink">{check.label}</span>
-                <span className="mt-0.5 block truncate text-[12.5px] text-ink-secondary">{lead}</span>
+                {/*
+                  * Two lines, not one. The lead is the check's claim, and a
+                  * single truncated line cut most of them mid-word — sixteen
+                  * rows of half-sentences is not a scannable index. Two lines
+                  * fits nearly every lead whole; the full finding is still one
+                  * click below either way.
+                  */}
+                <span className="mt-0.5 block text-[12.5px] leading-snug text-ink-secondary [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
+                  {lead}
+                </span>
               </span>
-              <span className="hidden shrink-0 rounded bg-sunken px-1.5 py-0.5 font-mono text-[10.5px] text-ink-secondary sm:inline">
+              {/*
+                * Bounded and truncated. Some statutes cite three Acts —
+                * "Karnataka Town and Country Planning Act 1961, ss.17 & 32;
+                * Bangalore Development Authority Act 1976; …" — and an
+                * unbounded `shrink-0` chip took the whole row, squeezing the
+                * check's own label into a one-word column and running off the
+                * card. The full citation is on hover and in the expanded body.
+                */}
+              <span
+                className="hidden max-w-[210px] shrink-0 truncate rounded bg-sunken px-1.5 py-0.5 font-mono text-[10.5px] text-ink-secondary sm:inline"
+                title={check.statute}
+              >
                 {check.statute}
               </span>
               <ChevronDown
@@ -555,7 +575,17 @@ function CheckTable({
             </button>
             {open && (
               <div className="border-t border-hairline bg-sunken/40 px-3.5 py-3">
-                <SplitProse text={check.finding} alwaysOpen />
+                {/*
+                  * The rest of the finding, not the finding again. The row
+                  * header already carries the lead, so re-rendering the whole
+                  * sentence here made every opened check read its first line
+                  * twice. Checks whose finding is a single sentence have no
+                  * rest, and correctly show nothing.
+                  */}
+                {rest ? <Prose size="sm">{rest}</Prose> : null}
+                {/* The citation in full — the row's chip truncates it, and a
+                    tooltip is not where a statutory reference should live. */}
+                <p className="m-0 mt-1.5 font-mono text-[10.5px] leading-relaxed text-ink-muted">{check.statute}</p>
                 <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
                   <InfoBlock title="Consequence">{check.consequence}</InfoBlock>
                   <InfoBlock title="Next step">{check.nextStep}</InfoBlock>

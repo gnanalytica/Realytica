@@ -41,3 +41,9 @@ export type { PlaybookTrackProps } from './PlaybookTrack';
 
 export { default as LatencySpreadChart } from './LatencySpreadChart';
 export type { LatencySpreadChartProps } from './LatencySpreadChart';
+
+export { default as ResidualWaterfallChart } from './ResidualWaterfallChart';
+export type { ResidualWaterfallChartProps } from './ResidualWaterfallChart';
+
+export { default as YieldFunnelChart } from './YieldFunnelChart';
+export type { YieldFunnelChartProps } from './YieldFunnelChart';

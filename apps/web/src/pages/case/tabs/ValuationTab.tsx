@@ -13,7 +13,7 @@ import {
   Stat,
   cn,
 } from '../../../components/ui/kit';
-import { AnchorWeightChart, ComparablesChart, ValueRangeChart } from '../../../components/charts';
+import { AnchorWeightChart, ComparablesChart, ResidualWaterfallChart, ValueRangeChart } from '../../../components/charts';
 import { EvidenceLink } from '../../../components/EvidenceLink';
 import { AssessmentMethodCard } from '../../../components/AssessmentMethodCard';
 import { isLandPropertyType, localityBenchmarkPerSqm } from '../../../components/PlotFactsCard';
@@ -216,8 +216,22 @@ export default function ValuationTab({ caseData, result, refresh, running }: Tab
                     <ProgressBar value={weightPct(a.weight)} tone="brand" label="Weight in blend" />
                     <ProgressBar value={a.confidence * 100} tone={confidenceTone(a.confidence)} label="Confidence" />
                   </div>
-                  {/* The 969-character residual rationale was the longest single
-                      block in the product. First sentence scans; the working folds. */}
+                  {/*
+                    * The residual's arithmetic as a picture, and the sentence
+                    * cut down to what a picture cannot say. A subtraction
+                    * chain was being carried entirely in prose — 969
+                    * characters of it — because the engine kept only the
+                    * final figure. Now the steps are data, and which of
+                    * construction or margin eats the scheme is visible rather
+                    * than reconstructed.
+                    */}
+                  {a.residual ? (
+                    <ResidualWaterfallChart
+                      residual={a.residual}
+                      formatArea={(sqm) => formatArea(sqm, areaUnit)}
+                      formatRate={(rate) => formatRate(rate, areaUnit, a.residual!.currency)}
+                    />
+                  ) : null}
                   <SplitProse text={a.rationale} />
                   {a.roleNote && (
                     <p className="border-l-2 border-[var(--ring)] pl-3 text-[12.5px] leading-relaxed text-ink-muted">

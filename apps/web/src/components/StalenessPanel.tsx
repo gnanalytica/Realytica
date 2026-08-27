@@ -71,11 +71,17 @@ export function StalenessPanel({ caseId }: { caseId: string }) {
                 <Badge tone={SEVERITY_TONE[item.severity]}>{ageLabel(item)}</Badge>
               </div>
               <SplitProse text={item.what} className="mt-1" />
-              <p className="m-0 mt-1 flex gap-1.5 text-[12px] leading-relaxed text-ink-muted">
+              {/*
+                * A div, not a p. `SplitProse` renders a `Finding`, which is a
+                * block element — nesting it inside a paragraph is invalid
+                * HTML, and the browser silently closes the `<p>` early, which
+                * drops the flex layout this row depends on.
+                */}
+              <div className="m-0 mt-1 flex gap-1.5 text-[12px] leading-relaxed text-ink-muted">
                 <RefreshCw size={12} className="mt-0.5 shrink-0" />
                 {/* The action, split like everything else: what to do, then how. */}
                 <span className="min-w-0"><SplitProse text={item.refresh} /></span>
-              </p>
+              </div>
             </li>
           ))}
         </ul>

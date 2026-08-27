@@ -250,6 +250,64 @@ describe('the residual values the right product', () => {
     assert.match(residual!.rationale, /not measurements from an approved layout plan/);
   });
 
+  it('prices the buildable envelope, not the zoning envelope, when the road caps the FAR', () => {
+    const apartmentBrief: ProjectBrief = {
+      kind: 'apartment_project',
+      source: 'user',
+      intent: 'buy_and_build',
+      inference: { kind: 'apartment_project', confidence: 1, basis: ['stated'], alternatives: [] },
+      decidedAt: NOW,
+    };
+    const seed = seedFor(SITE);
+    // Big enough to carry a scheme, on a road narrow enough that the FAR band
+    // binds below the zone's ratio — the ordinary Bengaluru case, and the one
+    // where valuing the zoning envelope overstates the land by the whole
+    // difference.
+    const narrow = screenSeed(SITE, {
+      project: apartmentBrief,
+      identity: { plotAreaSqm: 8100, plot: { ...seed.identity.plot!, roadWidthFt: 30 } },
+    });
+    const y = narrow.result.yield;
+    assert.ok(y, 'an apartment project on a site this size must produce a yield');
+    assert.equal(y.bindingConstraint, 'road_width', 'a 30ft road should cap the FAR below the zoning ratio');
+
+    const residual = narrow.result.anchors.find(a => a.method === 'residual_development');
+    assert.ok(residual?.residual, 'the residual must carry its breakdown');
+    // The saleable area the residual prices has to trace back to the FAR area
+    // the yield says is achievable — not to plot area x the zoning FAR, which
+    // is the envelope planning permission forbids.
+    const impliedFarAreaSqm = residual.residual.areaSqm / 1.25;
+    assert.ok(
+      Math.abs(impliedFarAreaSqm - y.achievableFarAreaSqm) < y.achievableFarAreaSqm * 0.02,
+      `residual prices ${Math.round(impliedFarAreaSqm)} sqm of FAR area but only ${y.achievableFarAreaSqm} sqm is buildable`,
+    );
+    assert.ok(
+      impliedFarAreaSqm < 8100 * y.farFromZoning * 0.99,
+      'the residual is still valuing the uncapped zoning envelope',
+    );
+    assert.match(residual.rationale, /cannot be built/);
+  });
+
+  it('leaves the envelope alone when nothing caps it', () => {
+    const apartmentBrief: ProjectBrief = {
+      kind: 'apartment_project',
+      source: 'user',
+      intent: 'buy_and_build',
+      inference: { kind: 'apartment_project', confidence: 1, basis: ['stated'], alternatives: [] },
+      decidedAt: NOW,
+    };
+    const seed = seedFor(SITE);
+    const wide = screenSeed(SITE, {
+      project: apartmentBrief,
+      identity: { plotAreaSqm: 8100, plot: { ...seed.identity.plot!, roadWidthFt: 100 } },
+    });
+    const residual = wide.result.anchors.find(a => a.method === 'residual_development');
+    assert.ok(residual?.residual);
+    // A cap that fires when nothing binds would quietly shrink every residual
+    // in the product, which is the failure mode a one-sided test misses.
+    assert.doesNotMatch(residual.rationale, /cannot be built/);
+  });
+
   it('nets demolition off a redevelopment residual', () => {
     const redevelopBrief: ProjectBrief = {
       kind: 'redevelopment',
@@ -313,11 +371,40 @@ describe('the residual measures each side against the right area', () => {
     });
     const residual = result.anchors.find(a => a.method === 'residual_development');
     assert.ok(residual, 'an apartment scheme on 4,000 sqm should produce a residual');
-    // The three areas must appear as three different numbers. If the rationale
-    // ever quotes one figure for all three, the conversion has been dropped.
-    const figures = (residual.rationale.match(/[\d,]{4,} sqm/g) ?? []).map(f => f.replace(/[^\d]/g, ''));
-    assert.ok(figures.length >= 3, `expected FAR, saleable and constructed areas in the rationale, got ${figures.length}`);
-    assert.equal(new Set(figures).size, figures.length, 'the three areas must not be the same number');
+    // Asserted against the structured steps rather than the sentence: the
+    // three areas are data now, and the sentence is the part a chart cannot
+    // say. The gross step is priced on saleable area, the construction step
+    // on constructed area, and neither equals the FAR area they came from.
+    const breakdown = residual.residual;
+    assert.ok(breakdown, 'a residual carries its arithmetic');
+    const gross = breakdown.steps.find(s => s.key === 'gross');
+    const construction = breakdown.steps.find(s => s.key === 'construction');
+    assert.ok(gross && construction);
+    const saleable = Number((gross.note.match(/([\d,]+) sqm saleable/) ?? [])[1]?.replace(/,/g, ''));
+    const constructed = Number((construction.note.match(/([\d,]+) sqm constructed/) ?? [])[1]?.replace(/,/g, ''));
+    assert.ok(saleable > 0 && constructed > 0, 'both areas are stated');
+    assert.notEqual(saleable, constructed, 'saleable and constructed are not the same quantity');
+    assert.equal(breakdown.areaBasis, 'saleable super built-up area');
+  });
+
+  it('nets the steps to the residual it reports', () => {
+    // The waterfall has to add up, or the chart draws a shape the number
+    // does not agree with.
+    const { result } = screenSeed(SITE, {
+      project: {
+        kind: 'apartment_project',
+        source: 'user',
+        intent: 'buy_and_build',
+        inference: { kind: 'apartment_project', confidence: 1, basis: ['stated'], alternatives: [] },
+        decidedAt: NOW,
+      },
+      identity: { plotAreaSqm: 4000 },
+    });
+    const breakdown = result.anchors.find(a => a.method === 'residual_development')?.residual;
+    assert.ok(breakdown);
+    const running = breakdown.steps.filter(s => s.kind !== 'result').reduce((sum, s) => sum + s.amount, 0);
+    const stated = breakdown.steps.find(s => s.kind === 'result')?.amount ?? 0;
+    assert.ok(Math.abs(running - stated) <= Math.max(2, Math.abs(stated) * 0.001), `steps net to ${running}, result says ${stated}`);
   });
 
   it('states the ratios as conventions rather than measurements', () => {
