@@ -69,7 +69,7 @@ async function bundleFunction() {
     outfile: path.join(functionDir, 'index.mjs'),
     bundle: true,
     platform: 'node',
-    target: 'node20',
+    target: 'node24',
     format: 'esm',
     // ESM, not CommonJS: `storage/index.ts` chooses its adapter with a
     // top-level await and `app.ts` reads `import.meta.url`. Neither survives
@@ -89,7 +89,19 @@ async function bundleFunction() {
     path.join(functionDir, '.vc-config.json'),
     `${JSON.stringify(
       {
-        runtime: 'nodejs20.x',
+        /*
+         * This wins over the project's Node setting, and that is the trap.
+         *
+         * A Build Output API function declares its own runtime, so the
+         * version chosen in the Vercel dashboard is ignored for it entirely.
+         * The project was set to 24.x while this file said 20.x, and the
+         * deployment quietly obeyed this one — a disagreement nothing
+         * surfaces, because both numbers look right in the place you read
+         * them. Keep this in step with the project setting; the esbuild
+         * `target` below has to move with it or the bundle is transpiled for
+         * a runtime that is no longer there.
+         */
+        runtime: 'nodejs24.x',
         handler: 'index.mjs',
         launcherType: 'Nodejs',
         // The handler is an Express app, which needs the unmodified Node
