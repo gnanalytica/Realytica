@@ -30,6 +30,23 @@ function documentPathname(caseId: string, key: string): string {
   return `${UPLOADS_PREFIX}${caseId}/${key}`;
 }
 
+/**
+ * Every blob this app writes is private, and that is not configurable.
+ *
+ * A public blob has a guessable-free but permanently unauthenticated URL:
+ * anyone holding it can read the bytes forever, with no session, no
+ * expiry and nothing in an access log tying it to a person. What this store
+ * holds is title deeds, encumbrance certificates and site photographs of
+ * other people's property — the case file itself. It was `'public'` until a
+ * store created with `--access private` refused the write, which is the good
+ * kind of failure: the store's own setting caught what the code had assumed.
+ *
+ * Deliberately a constant rather than an environment variable. A knob here
+ * would let one misconfigured deployment publish a client's deeds, and no
+ * deployment of this product has a reason to want that.
+ */
+const BLOB_ACCESS = 'private' as const;
+
 function requireToken(): string {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   if (!token) {
@@ -101,16 +118,22 @@ async function resolveBlob(pathname: string, token: string): Promise<ResolvedBlo
  * write can silently return the previous version and lose the change that
  * was just made.
  */
-async function fetchFresh(resolved: ResolvedBlob): Promise<Response> {
+async function fetchFresh(resolved: ResolvedBlob, token: string): Promise<Response> {
   const bustParam = `v=${resolved.uploadedAt.getTime()}`;
   const url = `${resolved.url}${resolved.url.includes('?') ? '&' : '?'}${bustParam}`;
-  return fetch(url);
+  // A private blob's URL is not a credential — the read is authenticated by
+  // this header, and without it the fetch comes back 401 while `head()` and
+  // `list()` above keep working, because those are control-plane calls that
+  // already carry the token. That asymmetry is worth naming: it makes a
+  // misconfiguration look like "the file exists but is empty" rather than
+  // like an auth error.
+  return fetch(url, { headers: { Authorization: `Bearer ${token}` } });
 }
 
 async function readPathname(pathname: string, token: string): Promise<StoreData | null> {
   const resolved = await resolveBlob(pathname, token);
   if (!resolved) return null;
-  const res = await fetchFresh(resolved);
+  const res = await fetchFresh(resolved, token);
   if (!res.ok) return null;
   const text = await res.text();
   if (!text.trim()) return null;
@@ -149,7 +172,7 @@ async function writeStore(data: StoreData): Promise<void> {
   // would produce an app that works exactly once and then fails to persist
   // anything — the kind of fault that only appears after the first real edit.
   const result = await put(STORE_PATHNAME, JSON.stringify(data, null, 2), {
-    access: 'public',
+    access: BLOB_ACCESS,
     addRandomSuffix: false,
     allowOverwrite: true,
     contentType: 'application/json',
@@ -165,7 +188,7 @@ async function putDocument(caseId: string, key: string, bytes: Buffer, contentTy
   // again, and overwrite allowed so re-uploading over an existing document id
   // does not error.
   const result = await put(pathname, bytes, {
-    access: 'public',
+    access: BLOB_ACCESS,
     addRandomSuffix: false,
     allowOverwrite: true,
     contentType,
@@ -179,7 +202,7 @@ async function getDocument(caseId: string, key: string): Promise<Buffer | null> 
   const pathname = documentPathname(caseId, key);
   const resolved = await resolveBlob(pathname, token);
   if (!resolved) return null;
-  const res = await fetchFresh(resolved);
+  const res = await fetchFresh(resolved, token);
   if (!res.ok) return null;
   const bytes = await res.arrayBuffer();
   return Buffer.from(bytes);
