@@ -72,11 +72,28 @@ export const journalAdapter: GraphAdapter = {
       const all = await readAll();
       const record = all[graph.caseId] ?? emptyRecord(graph.builtAt);
       const authoredIds = new Set(graph.nodes.filter(n => n.origin === 'authored').map(n => n.id));
+      const incoming = graph.edges.filter(e => !authoredIds.has(e.fromNodeId) && !authoredIds.has(e.toNodeId));
+      const incomingIds = new Set(incoming.map(e => e.id));
+      const closedAt = graph.builtAt;
+
+      // An edge the rebuild no longer draws is CLOSED, not deleted. The case
+      // changed; the edge was not wrong. Keeping it with a timestamp is what
+      // lets the graph answer "what did we believe in March" — deleting it
+      // answers that with silence, which in a diligence file is the wrong
+      // answer rather than no answer.
+      const closed = record.derived.edges
+        .filter(e => !incomingIds.has(e.id))
+        .map(e => (e.closedAt ? e : { ...e, closedAt }));
+      // A re-drawn edge REOPENS: the same relationship asserted again is the
+      // same edge, not a second one, so the stale timestamp comes off.
+      const reopened = incoming.map(e => {
+        const { closedAt: _was, ...open } = e;
+        return open;
+      });
+
       record.derived = {
         nodes: graph.nodes.filter(n => n.origin === 'derived'),
-        // An edge touching an authored node belongs to the authored half, or a
-        // sync would drop the joins that make deliberation traversable.
-        edges: graph.edges.filter(e => !authoredIds.has(e.fromNodeId) && !authoredIds.has(e.toNodeId)),
+        edges: [...reopened, ...closed],
       };
       record.builtAt = graph.builtAt;
       all[graph.caseId] = record;
@@ -96,17 +113,23 @@ export const journalAdapter: GraphAdapter = {
         record.authored.nodes[node.id] = node;
       }
       for (const edge of edges) record.authored.edges[edge.id] = edge;
+      // An id is a content digest, so the same id IS the same edge. Neo4j gets
+      // that from MERGE on id; here the two halves are separate maps and would
+      // otherwise hold two copies, which read() would return as a duplicate.
+      record.derived.edges = record.derived.edges.filter(e => !(e.id in record.authored.edges));
       all[caseId] = record;
       await writeAll(all);
     });
   },
 
-  async read(caseId: string): Promise<DdGraph | null> {
+  async read(caseId: string, asOf?: string): Promise<DdGraph | null> {
     const all = await readAll();
     const record = all[caseId];
     if (!record) return null;
     const nodes = [...record.derived.nodes, ...Object.values(record.authored.nodes)];
     const present = new Set(nodes.map(n => n.id));
+    // Open now, or open at the instant asked about.
+    const openAt = (e: DdEdge): boolean => (asOf ? !e.closedAt || e.closedAt > asOf : !e.closedAt);
     // An authored edge outlives the sync that removed the node it pointed at,
     // because the journal is append-only and never rewrites. So dangling ones
     // are dropped on the way out rather than deleted on the way in: the reason
@@ -114,6 +137,7 @@ export const journalAdapter: GraphAdapter = {
     // it) and the fabricated connection is not returned. Neo4j gets this for
     // free from DETACH DELETE, and the two must agree or the port is a lie.
     const edges = [...record.derived.edges, ...Object.values(record.authored.edges)]
+      .filter(openAt)
       .filter(e => present.has(e.fromNodeId) && present.has(e.toNodeId));
     return { caseId, builtAt: record.builtAt, nodes, edges };
   },

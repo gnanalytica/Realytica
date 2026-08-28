@@ -47,8 +47,16 @@ export interface GraphAdapter {
    */
   append(caseId: string, nodes: DdNode[], edges: DdEdge[]): Promise<void>;
 
-  /** Everything held for one case, derived and authored together. */
-  read(caseId: string): Promise<DdGraph | null>;
+  /**
+   * Everything held for one case, derived and authored together.
+   *
+   * Open edges only by default. `asOf` returns the graph as it stood at an
+   * instant instead: edges closed after it are still open, edges closed before
+   * it are gone. That is what makes "what did we believe when we signed the
+   * March report" answerable, and it is why a sync closes an edge rather than
+   * deleting it.
+   */
+  read(caseId: string, asOf?: string): Promise<DdGraph | null>;
 
   /** Drop everything for a case. Used when the case itself is deleted. */
   purge(caseId: string): Promise<void>;

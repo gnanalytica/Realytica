@@ -202,6 +202,21 @@ export interface DdEdge {
   fromNodeId: string;
   toNodeId: string;
   label: string;
+  /**
+   * When this stopped being what the case says — absent while it still is.
+   *
+   * A rebuild that no longer draws an edge is not evidence the edge was
+   * wrong; it is evidence the case changed. A July encumbrance certificate
+   * superseding a March one should leave both readable, because "what did we
+   * believe when we signed the March report" is a question a diligence file
+   * has to be able to answer, and deleting the edge answers it with silence.
+   *
+   * Set by the persistence layer at the moment a sync stops producing the
+   * edge, never by the projection — the projection has no memory of what it
+   * emitted last time, which is exactly why the store is the one that can
+   * tell.
+   */
+  closedAt?: string;
 }
 
 export interface DdGraph {
@@ -689,6 +704,104 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
       },
     });
     for (const evidenceId of insight.evidenceIds) addEdge('cites', id, evidenceId, 'cites');
+  }
+
+  // What was explored, and — the part worth keeping — what could not be
+  // reached and what that would have answered. An exploration that hit a dead
+  // end is scope, exactly like a nil register search: it says where the file
+  // stops rather than leaving the reader to assume it does not.
+  for (const session of intelligence?.explorations ?? []) {
+    const id = mintId('thought', `exploration|${session.id}`);
+    addNode({
+      id,
+      kind: 'thought',
+      layer: 'deliberation',
+      label: `Explored: ${summarise(session.objective)}`,
+      attributes: {
+        explorationId: session.id,
+        at: session.startedAt,
+        iterations: session.iterations,
+        stoppedBecause: session.stoppedBecause,
+        leads: session.leads.length,
+        openQuestions: session.openQuestions.length,
+      },
+    });
+    for (const blocked of session.unreachable) {
+      const blockedId = mintId('search', `unreachable|${session.id}|${blocked.source}`);
+      addNode({
+        id: blockedId,
+        kind: 'search',
+        layer: 'evidence',
+        label: `Could not reach ${blocked.source}`,
+        attributes: {
+          searchKind: blocked.source,
+          outcome: 'gap',
+          reachability: blocked.reachability,
+          attemptedAt: session.startedAt,
+          leavesUnknown: blocked.whatItWouldHaveAnswered,
+        },
+      });
+      if (primaryParcelId) addEdge('about', blockedId, primaryParcelId, 'attempted for');
+    }
+    // An open question is exactly a follow-up: something we do not know yet.
+    for (const [index, question] of session.openQuestions.entries()) {
+      const qId = mintId('question', `exploration|${session.id}|${index}`);
+      addNode({
+        id: qId,
+        kind: 'question',
+        layer: 'deliberation',
+        label: question,
+        attributes: { explorationId: session.id, at: session.startedAt, open: true },
+      });
+      addEdge('follows', qId, id, 'raised by');
+    }
+  }
+
+  // Where the case sits, as things that exist. Amenities are entities rather
+  // than claims: the model is that a school is a thing near the parcel, not an
+  // assertion someone made about it.
+  const site = propertyCase.siteContext;
+  if (site?.location) {
+    const siteId = mintId('zone', `site|${propertyCase.id}`);
+    addNode({
+      id: siteId,
+      kind: 'zone',
+      layer: 'entity',
+      label: site.location.resolvedAddress,
+      domain: 'land',
+      attributes: {
+        provider: site.location.provider,
+        resolvedAt: site.location.resolvedAt,
+        // Precision and caveat travel with the pin. A geocode is an
+        // approximation and a graph that carries the coordinate without how
+        // good it is invites the next reader to treat it as surveyed.
+        precision: site.location.precision,
+        caveat: site.location.caveat,
+        lat: site.location.point.lat,
+        lng: site.location.point.lng,
+        amenities: site.amenities.length,
+      },
+    });
+    if (primaryParcelId) addEdge('about', siteId, primaryParcelId, 'locates');
+    // A gap in the site context is a gap, and says which provider left it.
+    for (const [index, gap] of site.gaps.entries()) {
+      const gapId = mintId('search', `site|${propertyCase.id}|${index}`);
+      addNode({
+        id: gapId,
+        kind: 'search',
+        layer: 'evidence',
+        label: `Site context gap: ${summarise(gap.attempted, 80)}`,
+        domain: 'land',
+        attributes: {
+          searchKind: gap.code,
+          outcome: 'gap',
+          attemptedAt: site.builtAt,
+          by: site.provider,
+          leavesUnknown: gap.consequence,
+        },
+      });
+      if (primaryParcelId) addEdge('about', gapId, primaryParcelId, 'attempted for');
+    }
   }
 
   return { caseId: propertyCase.id, builtAt: now, nodes: [...nodes.values()], edges: [...edges.values()] };

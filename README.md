@@ -95,13 +95,31 @@ direction outright, so the rule is enforced, not documented. Authored nodes are
 drawn as notes — dashed, recessed, no shadow — so a reasoning step and a
 verified fact never look alike in a screenshot.
 
-Persistence follows the same split. `derived` nodes are a function of the case
-store, so a rebuild replaces them and losing them costs a rebuild. `authored`
-nodes came out of a conversation and can never be regenerated, so a sync must
-never touch them — **a rebuild cannot delete a reason**, asserted against both
-adapters. Set `REALYTICA_NEO4J_URL` for Neo4j; leave it and the append-only
-journal beside the case store is used, which is what makes any free-tier
-instance disposable.
+It is **written on every save**, for the cases that actually moved — a case
+whose `updatedAt` has not changed cannot have produced a different graph.
+Awaited rather than fired off, because on serverless the process can freeze the
+moment a response is sent; swallowed on failure, because a graph store being
+unreachable must not fail an upload.
+
+`derived` nodes are a function of the case store, so a rebuild replaces them.
+`authored` nodes are written straight into the graph and held nowhere else, so
+a sync must never touch them — **a rebuild cannot delete a reason**, asserted
+against both adapters. Set `REALYTICA_NEO4J_URL` for Neo4j; leave it and the
+append-only journal beside the case store is used, which is what makes any
+free-tier instance disposable.
+
+**An edge the rebuild stops drawing is CLOSED, not deleted.** A July
+encumbrance certificate superseding a March one changed the case; it did not
+make the March edge a lie. `read(caseId, asOf)` returns the graph as it stood
+at an instant, so *"what did we believe when we signed the March report"* is a
+query rather than an archaeology exercise.
+
+**`why(nodeId)` is the reasoning, `trace(nodeId)` is the evidence**, and they
+are separate calls on purpose: evidence is what a conclusion rests on and
+belongs in a report, deliberation is how we got there and belongs in an audit
+trail. The copilot reaches `why` through `recall_reasoning`, which **says the
+record is silent** when nothing discussed a node — a model handed an empty list
+fills the silence with a rationale nobody gave.
 
 **Environment variables**, all optional — the screening engine is deterministic
 and needs none of them:

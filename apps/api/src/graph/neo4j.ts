@@ -96,6 +96,9 @@ const WRITE_EDGES = `
   MATCH (a:Dd { id: row.from }), (b:Dd { id: row.to })
   MERGE (a)-[r:${REL} { id: row.id }]->(b)
   SET r.caseId = row.caseId, r.kind = row.kind, r.label = row.label, r.origin = row.origin
+  // Re-drawing an edge reopens it: the same relationship asserted again is the
+  // same edge, not a second one.
+  REMOVE r.closedAt
 `;
 
 export const neo4jAdapter: GraphAdapter = {
@@ -132,14 +135,15 @@ export const neo4jAdapter: GraphAdapter = {
            DETACH DELETE n`,
           { caseId: graph.caseId, keep: derivedNodes.map(n => n.id) },
         );
-        // Stale derived edges between nodes that both survived — a
-        // relationship the rebuild no longer draws. Scoped by origin so an
-        // authored citation is never in scope for this delete.
+        // A derived edge the rebuild no longer draws is CLOSED, not deleted.
+        // The case changed; the edge was not wrong, and "what did we believe
+        // in March" is a question a diligence file has to answer. Scoped by
+        // origin so an authored citation is never in scope.
         await tx.run(
           `MATCH (:Dd { caseId: $caseId })-[r:${REL} { caseId: $caseId, origin: 'derived' }]->(:Dd)
-           WHERE NOT r.id IN $keep
-           DELETE r`,
-          { caseId: graph.caseId, keep: derivedEdges.map(e => e.id) },
+           WHERE NOT r.id IN $keep AND r.closedAt IS NULL
+           SET r.closedAt = $closedAt`,
+          { caseId: graph.caseId, keep: derivedEdges.map(e => e.id), closedAt: graph.builtAt },
         );
       });
     } finally {
@@ -161,7 +165,7 @@ export const neo4jAdapter: GraphAdapter = {
     }
   },
 
-  async read(caseId: string): Promise<DdGraph | null> {
+  async read(caseId: string, asOf?: string): Promise<DdGraph | null> {
     const session = client().session();
     try {
       const nodeResult = await session.executeRead(tx =>
@@ -174,13 +178,16 @@ export const neo4jAdapter: GraphAdapter = {
         ),
       );
       if (nodeResult.records.length === 0) return null;
+      // Open now, or open at the instant asked about. Expressed as one query
+      // with a null `asOf` rather than two, so the two cannot drift.
       const edgeResult = await session.executeRead(tx =>
         tx.run(
           `MATCH (:Dd { caseId: $caseId })-[r:${REL} { caseId: $caseId }]->(:Dd)
+           WHERE r.closedAt IS NULL OR ($asOf IS NOT NULL AND r.closedAt > $asOf)
            RETURN r.id AS id, r.kind AS kind, r.label AS label,
                   startNode(r).id AS fromNodeId, endNode(r).id AS toNodeId
            ORDER BY r.id`,
-          { caseId },
+          { caseId, asOf: asOf ?? null },
         ),
       );
       return {

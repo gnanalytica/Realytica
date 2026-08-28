@@ -21,7 +21,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { after, before, describe, it } from 'node:test';
+import { after, before, beforeEach, describe, it } from 'node:test';
 import type { DdEdge, DdGraph, DdNode } from '@realytica/shared';
 import type { GraphAdapter } from '../apps/api/src/graph/types';
 
@@ -50,10 +50,12 @@ function contract(name: string, load: () => Promise<GraphAdapter>): void {
   describe(name, () => {
     let adapter: GraphAdapter;
 
-    before(async () => {
-      adapter = await load();
-      await adapter.purge(CASE);
-    });
+    before(async () => { adapter = await load(); });
+    // Per test, not per suite. Ids here are fixtures rather than the content
+    // digests the projection mints, so state leaking between tests lets one
+    // test's `e1` satisfy the next one's assertion — which is exactly how the
+    // first run of these passed on one adapter and failed on the other.
+    beforeEach(async () => { await adapter.purge(CASE); });
     after(async () => { await adapter.purge(CASE); });
 
     it('reports null for a case it holds nothing for', async () => {
@@ -125,6 +127,32 @@ function contract(name: string, load: () => Promise<GraphAdapter>): void {
       await adapter.append(CASE, [node('p-sneaky', 'derived')], []);
       const back = await adapter.read(CASE);
       assert.ok(!(back?.nodes ?? []).some(n => n.id === 'p-sneaky'));
+    });
+
+    it('CLOSES an edge the rebuild dropped, rather than deleting it', async () => {
+      // "What did we believe when we signed the March report" is a question a
+      // diligence file has to be able to answer. A July certificate
+      // superseding a March one changed the case; it did not make the March
+      // edge a lie, and deleting it answers that question with silence.
+      await adapter.sync({ ...graph([node('p1', 'derived'), node('p2', 'derived')], [edge('e1', 'p1', 'p2')]), builtAt: '2026-03-01T00:00:00.000Z' });
+      await adapter.sync({ ...graph([node('p1', 'derived'), node('p2', 'derived')], []), builtAt: '2026-07-01T00:00:00.000Z' });
+
+      const now = await adapter.read(CASE);
+      assert.ok(!now?.edges.some(e => e.id === 'e1'), 'gone from the current graph');
+
+      const march = await adapter.read(CASE, '2026-04-01T00:00:00.000Z');
+      assert.ok(march?.edges.some(e => e.id === 'e1'), 'and still there as of April');
+    });
+
+    it('reopens an edge the rebuild draws again, rather than stacking a second', async () => {
+      await adapter.sync({ ...graph([node('p1', 'derived'), node('p2', 'derived')], [edge('e1', 'p1', 'p2')]), builtAt: '2026-03-01T00:00:00.000Z' });
+      await adapter.sync({ ...graph([node('p1', 'derived'), node('p2', 'derived')], []), builtAt: '2026-07-01T00:00:00.000Z' });
+      await adapter.sync({ ...graph([node('p1', 'derived'), node('p2', 'derived')], [edge('e1', 'p1', 'p2')]), builtAt: '2026-08-01T00:00:00.000Z' });
+
+      const back = await adapter.read(CASE);
+      const matches = back?.edges.filter(e => e.id === 'e1') ?? [];
+      assert.equal(matches.length, 1, 'the same relationship asserted again is the same edge');
+      assert.equal(matches[0].closedAt, undefined, 'and it is open');
     });
 
     it('purges everything for a case', async () => {

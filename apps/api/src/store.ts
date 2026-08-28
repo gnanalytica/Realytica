@@ -146,6 +146,12 @@ class Store {
    */
   async save(): Promise<void> {
     await storageAdapter.writeStore(this.data);
+    // After the case store is durable, never before: the graph is an index
+    // over it, and an index written ahead of the thing it indexes can point at
+    // a state that never existed. Imported lazily to keep the store module
+    // free of a dependency on the graph layer, which imports it back.
+    const { syncGraph } = await import('./graph/sync');
+    await syncGraph(this.data.cases);
   }
 
   /** Alias for `save()`, kept for the SIGINT/SIGTERM shutdown path. */

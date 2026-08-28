@@ -27,7 +27,7 @@
  */
 
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
-import { buildDdGraph, buildStaleness, findNodes, serializeSubgraph, subgraph, technicalDocumentGaps, TECHNICAL_SYSTEM_LABEL, trace } from '@realytica/shared';
+import { buildDdGraph, buildStaleness, findNodes, serializeSubgraph, serializeWhy, subgraph, technicalDocumentGaps, TECHNICAL_SYSTEM_LABEL, trace, why } from '@realytica/shared';
 import type { Comparable, DdGraph, LocalityReference, PropertyCase, ReferenceData, TechnicalDdPhase, TechnicalSystem } from '@realytica/shared';
 
 /**
@@ -437,6 +437,33 @@ export function createCaseTools(caseData: PropertyCase, refData: ReferenceData) 
     },
   });
 
+  const recallReasoning = betaTool({
+    name: 'recall_reasoning',
+    description:
+      'Recall what was actually SAID about something on this case — the questions asked, the answers given, what a previous run looked ' +
+      'at before answering, the routes proposed for closing a gap, and any outside research bearing on it. This is the audit trail, not ' +
+      'the evidence: use trace_conclusion for what a conclusion RESTS on, and this for how it was arrived at. Reach for it when asked ' +
+      'why a decision was made, whether something was already considered, or what was concluded last time. When the record is silent it ' +
+      'says so — report that silence rather than reconstructing a rationale that was never given.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['nodeId'],
+      properties: {
+        nodeId: { type: 'string', description: 'The node to recall reasoning about — a risk id, an [ev:...] id, or an id from get_subgraph.' },
+        depth: {
+          type: 'number',
+          description: 'How far to follow the conversation once reached. 1 is what mentioned it; 2 (default) also picks up what followed.',
+        },
+      },
+    } as const,
+    run: async ({ nodeId, depth }) => {
+      const found = why(graph(), String(nodeId ?? ''), typeof depth === 'number' ? depth : 2);
+      if (!found) return JSON.stringify({ error: `No node "${nodeId}" in the evidence graph. get_subgraph can find valid ids.` });
+      return serializeWhy(found);
+    },
+  });
+
   const getStaleness = betaTool({
     name: 'get_staleness',
     description:
@@ -465,6 +492,7 @@ export function createCaseTools(caseData: PropertyCase, refData: ReferenceData) 
     getTechnicalDocumentStatus,
     getSubgraph,
     traceConclusion,
+    recallReasoning,
     getStaleness,
   ];
 }
