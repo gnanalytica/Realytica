@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Camera, FileText, Maximize2, Minus, Plus, Search, Waypoints, X } from 'lucide-react';
+import { Building2, Camera, FileText, HelpCircle, Lightbulb, Maximize2, MessageSquare, Minus, Plus, Search, Waypoints, X } from 'lucide-react';
 import { DD_DOMAIN_PROFILES, buildDdGraph, findNodes, trace } from '@realytica/shared';
 import type { DdGraph, DdLayer, DdNode, DdSubgraph } from '@realytica/shared';
 import { Badge, Callout, Input, Select, cn } from '../../../components/ui/kit';
@@ -25,13 +25,14 @@ import type { TabProps } from '../tab-props';
  * server-side from the same inputs.
  */
 
-const LAYERS: DdLayer[] = ['entity', 'evidence', 'claim', 'judgement'];
+const LAYERS: DdLayer[] = ['entity', 'evidence', 'claim', 'judgement', 'deliberation'];
 
 const LAYER_LABEL: Record<DdLayer, string> = {
   entity: 'What exists',
   evidence: 'What we hold',
   claim: 'What it says',
   judgement: 'What we conclude',
+  deliberation: 'How we got here',
 };
 
 const NODE_W = 208;
@@ -46,6 +47,10 @@ const LANE_HEADER = 30;
 type Tone = 'critical' | 'serious' | 'warning' | 'brand' | 'neutral';
 
 function nodeTone(n: DdNode): Tone {
+  // Deliberation carries no severity. Tone means "how bad is this finding",
+  // and painting a question amber because it mentions one would report a
+  // problem the case does not have.
+  if (n.layer === 'deliberation') return 'neutral';
   if (n.kind === 'contradiction') return 'critical';
   const sev = n.attributes.severity;
   const verdict = n.attributes.verdict;
@@ -418,11 +423,26 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
                       onClick={() => setSelectedId(node.id)}
                       title={node.label}
                       className={cn(
-                        'absolute flex items-center gap-1.5 rounded-lg bg-surface px-2 text-left shadow-sm ring-1 transition-opacity',
-                        isSelected ? 'ring-2 ring-brand' : 'ring-[var(--ring)]',
+                        'absolute flex items-center gap-1.5 rounded-lg px-2 text-left transition-opacity',
+                        isSelected ? 'ring-2 ring-brand' : 'ring-1 ring-[var(--ring)]',
                         lit ? 'opacity-100' : 'opacity-25',
+                        // Authored nodes are drawn as a note rather than a
+                        // record: no shadow, a dashed edge, a recessed ground.
+                        // The distinction has to survive a screenshot — a
+                        // reasoning step and a verified fact reaching a bank
+                        // must not look alike, and colour alone would put the
+                        // weight on tone, which already means severity here.
+                        node.origin === 'authored'
+                          ? 'border border-dashed border-[var(--ring)] bg-sunken'
+                          : 'bg-surface shadow-sm',
                       )}
-                      style={{ left: x, top: y, width: NODE_W, height: NODE_H, borderLeft: `3px solid ${TONE_ACCENT[tone]}` }}
+                      style={{
+                        left: x,
+                        top: y,
+                        width: NODE_W,
+                        height: NODE_H,
+                        borderLeft: `3px ${node.origin === 'authored' ? 'dashed' : 'solid'} ${TONE_ACCENT[tone]}`,
+                      }}
                     >
                       <NodeIcon node={node} />
                       <span className="min-w-0 flex-1">
@@ -463,6 +483,10 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
 function NodeIcon({ node }: { node: DdNode }) {
   if (node.kind === 'photo') return <Camera size={13} className="shrink-0 text-ink-muted" />;
   if (node.kind === 'document') return <FileText size={13} className="shrink-0 text-ink-muted" />;
+  if (node.kind === 'question' || node.kind === 'followup') return <HelpCircle size={13} className="shrink-0 text-ink-muted" />;
+  if (node.kind === 'answer') return <MessageSquare size={13} className="shrink-0 text-ink-muted" />;
+  if (node.kind === 'thought') return <Lightbulb size={13} className="shrink-0 text-ink-muted" />;
+  if (node.kind === 'department') return <Building2 size={13} className="shrink-0 text-ink-muted" />;
   return <Waypoints size={13} className="shrink-0 text-ink-muted" />;
 }
 

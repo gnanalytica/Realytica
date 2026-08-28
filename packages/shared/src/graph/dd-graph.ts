@@ -25,20 +25,32 @@
  *   present an unreviewed model claim as case truth — the exact thing the
  *   review discipline exists to prevent. Rejected findings likewise stay
  *   out.
+ *
+ * - **Deliberation is IN, in its own layer, pointing one way.** That rule
+ *   above was right about facts and wrong applied to reasoning. "We treated
+ *   the 1998 gift deed as root because the 1994 schedule does not close" is
+ *   not a claim about the property; it is a record of our own process, and in
+ *   a diligence opinion that record is half the deliverable. It also has no
+ *   other home — a fact can be re-derived from the documents, a reason cannot.
+ *   So questions, answers, thoughts and follow-ups are nodes, and what keeps
+ *   them safe is DIRECTION rather than exclusion: a deliberation node may cite
+ *   a claim, and no claim or judgement may ever rest on one. `addEdge` refuses
+ *   the wrong direction outright, so the rule is enforced rather than
+ *   documented.
  */
 
 import type { EvidenceItem, PropertyCase, TitleEdgeKind, TitleGraph, TitleNodeKind } from '../types';
 import { buildTitleGraph } from './build';
 import { detectContradictions } from './contradictions';
 import { stableDigest } from './ontology';
-import { domainForCheck, domainForRiskCategory, domainForSystem, domainsForDocumentKind } from '../dd-domains';
+import { DD_DOMAIN_KEYS, DD_DOMAIN_PROFILES, domainForCheck, domainForRiskCategory, domainForSystem, domainsForDocumentKind } from '../dd-domains';
 import type { DdDomain } from '../dd-domains';
 
 /* ==================================================================== */
 /* The closed vocabulary                                                 */
 /* ==================================================================== */
 
-export type DdLayer = 'entity' | 'evidence' | 'claim' | 'judgement';
+export type DdLayer = 'entity' | 'evidence' | 'claim' | 'judgement' | 'deliberation';
 
 export type DdNodeKind =
   | TitleNodeKind // party | parcel | instrument | authority | encumbrance | approval — all entities
@@ -51,7 +63,15 @@ export type DdNodeKind =
   | 'check'
   | 'finding'
   | 'risk'
-  | 'action';
+  | 'action'
+  /** A department — a domain as a thing you can traverse to, not just a tag. */
+  | 'department'
+  /** One ingestion event: a chat turn, an upload, a check run. What Graphiti calls an episode. */
+  | 'episode'
+  | 'question'
+  | 'answer'
+  | 'thought'
+  | 'followup';
 
 export type DdEdgeKind =
   | TitleEdgeKind // carried through verbatim from the title graph
@@ -70,7 +90,17 @@ export type DdEdgeKind =
   /** contradiction -> each node involved in the disagreement. */
   | 'contradicts'
   /** finding -> approval/document it departs from (approved vs as-built). */
-  | 'deviates_from';
+  | 'deviates_from'
+  /** deliberation -> anything it referred to. The one-way join; see the module note. */
+  | 'cites'
+  /** question -> the answer given to it. */
+  | 'answered_by'
+  /** answer | thought -> the question or answer it followed from. */
+  | 'follows'
+  /** any node -> the episode that produced it. */
+  | 'recorded_in'
+  /** anything with a domain -> its department. */
+  | 'belongs_to';
 
 const LAYER_BY_KIND: Record<DdNodeKind, DdLayer> = {
   party: 'entity',
@@ -89,17 +119,38 @@ const LAYER_BY_KIND: Record<DdNodeKind, DdLayer> = {
   finding: 'judgement',
   risk: 'judgement',
   action: 'judgement',
+  department: 'entity',
+  episode: 'deliberation',
+  question: 'deliberation',
+  answer: 'deliberation',
+  thought: 'deliberation',
+  followup: 'deliberation',
 };
 
 export function ddLayerFor(kind: DdNodeKind): DdLayer {
   return LAYER_BY_KIND[kind];
 }
 
+/**
+ * Where a node came from, and therefore what may be done to it.
+ *
+ * `derived` nodes are a function of the case's stores. Rebuilding replaces
+ * them wholesale, and losing them costs a rebuild rather than data — which is
+ * what lets any persistence layer underneath be treated as an index rather
+ * than a source of truth.
+ *
+ * `authored` nodes were written once by a person or an agent and can never be
+ * regenerated, because the input that produced them was a conversation rather
+ * than a document. They are the ones a store must not lose.
+ */
+export type DdOrigin = 'derived' | 'authored';
+
 export interface DdNode {
   id: string;
   kind: DdNodeKind;
   layer: DdLayer;
   label: string;
+  origin: DdOrigin;
   domain?: DdDomain;
   attributes: Record<string, string | number | boolean>;
 }
@@ -131,6 +182,12 @@ function mintEdgeId(kind: DdEdgeKind, from: string, to: string): string {
   return `dde-${kind}-${stableDigest(`${kind}|${from}|${to}`, 10)}`;
 }
 
+/** A node label is a handle. The full text lives in the transcript the node names. */
+function summarise(text: string, max = 120): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}\u2026`;
+}
+
 /** "Basement 2, DG room" and "basement 2 dg room" are one zone. */
 function zoneMergeKey(zone: string): string {
   return zone.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -140,17 +197,29 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
   const nodes = new Map<string, DdNode>();
   const edges = new Map<string, DdEdge>();
 
-  const addNode = (node: DdNode): DdNode => {
+  // Defaulted rather than demanded, because every caller below reads a case
+  // store and is derived by construction. The deliberation pass is the only
+  // producer of authored nodes and says so explicitly at each one.
+  const addNode = (node: Omit<DdNode, 'origin'> & { origin?: DdOrigin }): DdNode => {
     const existing = nodes.get(node.id);
     if (existing) return existing;
-    nodes.set(node.id, node);
-    return node;
+    const withOrigin: DdNode = { ...node, origin: node.origin ?? 'derived' };
+    nodes.set(node.id, withOrigin);
+    return withOrigin;
   };
   const addEdge = (kind: DdEdgeKind, fromNodeId: string, toNodeId: string, label: string): void => {
     // An edge naming a node the graph does not hold is a fabricated
     // connection — dropped rather than stored, same rule as the title
     // graph's proposal validator.
-    if (!nodes.has(fromNodeId) || !nodes.has(toNodeId)) return;
+    const from = nodes.get(fromNodeId);
+    const to = nodes.get(toNodeId);
+    if (!from || !to) return;
+    // The one-way join, enforced rather than documented. Deliberation may cite
+    // a fact; a fact may never rest on deliberation. Without this the graph
+    // would let an unreviewed chat answer become the support under a finding
+    // that reaches a bank, which is the whole reason the layer was kept out
+    // before — the fix is direction, not exclusion.
+    if (from.origin === 'derived' && to.origin === 'authored') return;
     const id = mintEdgeId(kind, fromNodeId, toNodeId);
     if (!edges.has(id)) edges.set(id, { id, kind, fromNodeId, toNodeId, label });
   };
@@ -357,6 +426,108 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
           .map(d => documentNodeId.get(d.id))
           .find((n): n is string => n !== undefined);
       if (target) addEdge('deviates_from', id, target, 'deviates from');
+    }
+  }
+
+  /* -- Layer 5: deliberation — the reasoning, and where it pointed ----- */
+
+  // Departments become nodes rather than staying a tag, so "everything Legal
+  // touched" is a traversal instead of a filter, and a question can be
+  // addressed to a department without inventing a second vocabulary for it.
+  for (const node of [...nodes.values()]) {
+    if (!node.domain) continue;
+    const deptId = mintId('department', node.domain);
+    addNode({ id: deptId, kind: 'department', layer: 'entity', label: DD_DOMAIN_PROFILES[node.domain].label, domain: node.domain, attributes: { domain: node.domain } });
+    addEdge('belongs_to', node.id, deptId, 'belongs to');
+  }
+
+  const turns = propertyCase.intelligence?.conversation ?? [];
+  let previousId: string | undefined;
+  for (const turn of turns) {
+    const kind: DdNodeKind = turn.role === 'user' ? 'question' : 'answer';
+    const id = mintId(kind, turn.id);
+    addNode({
+      id,
+      kind,
+      layer: 'deliberation',
+      // Truncated for the label only. The full text stays in the transcript,
+      // which the node names — a graph label is a handle, not a store.
+      label: summarise(turn.text),
+      origin: 'authored',
+      attributes: {
+        turnId: turn.id,
+        at: turn.at,
+        role: turn.role,
+        ...(turn.refusedForLackOfEvidence ? { refusedForLackOfEvidence: true } : {}),
+      },
+    });
+
+    // The edges were already computed and already stored — `citedNodeIds` is
+    // validated against this same projection before a turn is written, and
+    // `citedEvidenceIds` are ledger ids, which ARE fact node ids. They were
+    // used once to draw a chip and then discarded. This is the whole reason
+    // the deliberation layer costs no model call: the joins already exist.
+    for (const nodeId of turn.citedNodeIds ?? []) addEdge('cites', id, nodeId, 'cites');
+    for (const evidenceId of turn.citedEvidenceIds) addEdge('cites', id, evidenceId, 'cites');
+
+    if (previousId) {
+      addEdge(kind === 'answer' ? 'answered_by' : 'follows', previousId, id, kind === 'answer' ? 'answered by' : 'follows');
+    }
+
+    // A tool call is a thought: what the agent chose to look at before
+    // answering. Recorded because "it checked the encumbrance register and
+    // found nothing" is a different answer from "it did not look".
+    for (const [index, call] of (turn.toolCalls ?? []).entries()) {
+      const thoughtId = mintId('thought', `${turn.id}:${index}`);
+      addNode({
+        id: thoughtId,
+        kind: 'thought',
+        layer: 'deliberation',
+        label: `${call.name}: ${summarise(call.summary)}`,
+        origin: 'authored',
+        attributes: { turnId: turn.id, tool: call.name, at: turn.at },
+      });
+      addEdge('follows', thoughtId, id, 'informed');
+    }
+
+    previousId = id;
+  }
+
+  // An open request is a question this case is still waiting on an answer to.
+  // Modelled as the same kind as a chat question deliberately: "what do we not
+  // know yet" should be one traversal, whether we asked ourselves or a third
+  // party.
+  for (const request of propertyCase.requests ?? []) {
+    const id = mintId('followup', request.id);
+    // `domain` is a plain string on the request, so it is checked rather than
+    // asserted — an unrecognised value leaves the node undepartmented instead
+    // of putting a made-up department in the graph.
+    const domain = (DD_DOMAIN_KEYS as string[]).includes(request.domain) ? (request.domain as DdDomain) : undefined;
+    addNode({
+      id,
+      kind: 'followup',
+      layer: 'deliberation',
+      label: request.what,
+      origin: 'authored',
+      ...(domain ? { domain } : {}),
+      attributes: {
+        requestId: request.id,
+        status: request.status,
+        recipient: request.recipient,
+        why: summarise(request.why),
+        ...(request.dueAt ? { dueAt: request.dueAt } : {}),
+        ...(request.sentAt ? { sentAt: request.sentAt } : {}),
+      },
+    });
+    // The document that arrived against it — the answer to this question.
+    if (request.answeredWithDocumentId) {
+      const answeredWith = documentNodeId.get(request.answeredWithDocumentId);
+      if (answeredWith) addEdge('answered_by', id, answeredWith, 'answered with');
+    }
+    if (domain) {
+      const deptId = mintId('department', domain);
+      addNode({ id: deptId, kind: 'department', layer: 'entity', label: DD_DOMAIN_PROFILES[domain].label, domain, attributes: { domain } });
+      addEdge('belongs_to', id, deptId, 'belongs to');
     }
   }
 

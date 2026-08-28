@@ -81,6 +81,28 @@ Vercel's `api/` directory convention. That file explains why; the short version
 is that this codebase is written for a bundler and Vercel does not bundle
 function sources.
 
+**The reasoning graph** (`packages/shared/src/graph/`, `apps/api/src/graph/`)
+is a five-layer projection over the case: what exists, what we hold, what it
+says, what we conclude — and **how we got here**. That last layer is the
+conversation: questions, answers, the agent's tool calls as thoughts, and open
+follow-ups, joined to the nodes they cited.
+
+It is in the graph because a diligence opinion is half *why*, and a reason is
+the one thing that cannot be re-derived from the documents. What keeps it safe
+is direction rather than exclusion: **a deliberation node may cite a claim, and
+no claim or judgement may ever rest on one.** `addEdge` refuses the wrong
+direction outright, so the rule is enforced, not documented. Authored nodes are
+drawn as notes — dashed, recessed, no shadow — so a reasoning step and a
+verified fact never look alike in a screenshot.
+
+Persistence follows the same split. `derived` nodes are a function of the case
+store, so a rebuild replaces them and losing them costs a rebuild. `authored`
+nodes came out of a conversation and can never be regenerated, so a sync must
+never touch them — **a rebuild cannot delete a reason**, asserted against both
+adapters. Set `REALYTICA_NEO4J_URL` for Neo4j; leave it and the append-only
+journal beside the case store is used, which is what makes any free-tier
+instance disposable.
+
 **Environment variables**, all optional — the screening engine is deterministic
 and needs none of them:
 
@@ -90,7 +112,8 @@ and needs none of them:
 | `REALYTICA_API_KEY` | Turns on the agent layer. Without it — or without an endpoint that needs no key — every agent route answers `503 no_credentials` and the rest of the app is unaffected. The bare `ANTHROPIC_API_KEY` also works when no base URL is set, since the Anthropic SDK reads it itself. |
 | `REALYTICA_BASE_URL` | Sends calls to a gateway instead of to Anthropic — OpenRouter, or anything else serving the Anthropic Messages API. The only way to reach another vendor; see the agent section. |
 | `REALYTICA_AGENT_WEB_SEARCH=1` | Lets the research and explorer agents reach the public web. Off by default: enabling it is a permission, and only external-safe case context is ever sent. |
-| `REALYTICA_DATA_DIR` | Filesystem adapter only. Where the JSON store and uploaded documents live. |
+| `REALYTICA_DATA_DIR` | Filesystem adapter only. Where the JSON store, uploaded documents and the graph journal live. |
+| `REALYTICA_NEO4J_URL` / `_USER` / `_PASSWORD` | Keeps the reasoning graph in Neo4j instead of the journal. Unreachable at boot falls back to the journal and says so — a graph store is an index over data that lives elsewhere and must not take the product down. |
 | `REALYTICA_GOOGLE_MAPS_API_KEY` | Turns on geocoding, Street View and nearby amenities. Absent, the site context reports named gaps rather than empty results. |
 | `REALYTICA_GOOGLE_MAPS_API_KEY` (again, for context) | Note the parcel outline needs none of this — a KML or GeoJSON boundary is a file you supply, and it works with no mapping provider configured. |
 | `REALYTICA_RECORDS_BASE_URL` / `_API_KEY` / `_KINDS` | Connects a statutory-records vendor. All three are required — `_KINDS` is a comma-separated coverage list and is deliberately not defaulted, because a provider that claims a record kind it cannot deliver manufactures a failed fetch where an honest one would name the manual route. Optional alongside: `_LABEL`, `_REGIONS`, `_AUTH_HEADER`, `_TIMEOUT_MS`, `_MONITOR=1`. |

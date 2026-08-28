@@ -2,7 +2,7 @@
   "name": "realytica",
   "private": true,
   "version": "0.1.0",
-  "description": "Realytica \u2014 AI-powered Property Intelligence. Local-first MVP: Realytica Property Screen.",
+  "description": "Realytica — AI-powered Property Intelligence. Local-first MVP: Realytica Property Screen.",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20.10"
@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@realytica/agents": "workspace:*",
-    "@realytica/shared": "workspace:*"
+    "@realytica/shared": "workspace:*",
+    "neo4j-driver": "^6.2.0"
   }
 }

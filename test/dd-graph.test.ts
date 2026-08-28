@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { buildDdGraph, buildGraphReport, ddLayerFor, findNodes, serializeSubgraph, subgraph, trace } from '@realytica/shared';
-import type { PropertyCase, TechnicalFinding } from '@realytica/shared';
+import type { CopilotTurn, PropertyCase, TechnicalFinding } from '@realytica/shared';
 import { NOW, caseFrom, documentsFor, screenSeed, seedFor } from './fixtures';
 
 function ddCase(match = 'Site No. 118'): PropertyCase {
@@ -226,5 +226,108 @@ describe('graph report', () => {
       );
       assert.deepEqual(severities, [...severities].sort((a, b) => a - b), `${section.domain} not ordered worst-first`);
     }
+  });
+});
+
+/* ==================================================================== */
+/* The deliberation layer                                                */
+/* ==================================================================== */
+
+/**
+ * The reasoning is in the graph now, and what keeps that safe is direction.
+ *
+ * Deliberation was previously excluded on the grounds that a graph carrying
+ * unreviewed model output would present it as case truth. That was right about
+ * FACTS and wrong applied to reasoning: "why did we conclude this" has no
+ * other home, cannot be re-derived from the documents, and in a diligence
+ * opinion is half the deliverable. So the rule became one-way rather than
+ * closed — and a one-way rule is only worth anything if the code refuses the
+ * wrong direction, which is what these assert.
+ */
+
+function withConversation(c: PropertyCase, turns: CopilotTurn[]): PropertyCase {
+  return {
+    ...c,
+    intelligence: {
+      runs: [], explorations: [], pathways: [], research: [], insights: [],
+      conversation: turns,
+    },
+  };
+}
+
+function turn(over: Partial<CopilotTurn> & { id: string; role: 'user' | 'assistant' }): CopilotTurn {
+  return { text: 'text', at: NOW, citedEvidenceIds: [], ...over };
+}
+
+describe('deliberation enters the graph, one way', () => {
+  it('projects a conversation into questions and answers', () => {
+    const c = withConversation(ddCase(), [
+      turn({ id: 't1', role: 'user', text: 'Is the khata transferable?' }),
+      turn({ id: 't2', role: 'assistant', text: 'Yes — the A-khata is in the seller name.' }),
+    ]);
+    const g = buildDdGraph(c, NOW);
+    const kinds = g.nodes.filter(n => n.layer === 'deliberation').map(n => n.kind).sort();
+    assert.deepEqual(kinds, ['answer', 'question']);
+    assert.ok(g.nodes.every(n => n.layer !== 'deliberation' || n.origin === 'authored'));
+  });
+
+  it('reuses the citations the turn already carried, rather than re-deriving them', () => {
+    // The whole reason this layer costs no model call: `citedEvidenceIds` are
+    // ledger ids, and a ledger id IS a fact node id.
+    const c = ddCase();
+    const evidenceId = c.result?.evidence?.[0]?.id;
+    assert.ok(evidenceId, 'fixture should carry evidence');
+    const g = buildDdGraph(withConversation(c, [
+      turn({ id: 't1', role: 'assistant', citedEvidenceIds: [evidenceId] }),
+    ]), NOW);
+    const cites = g.edges.filter(e => e.kind === 'cites');
+    assert.equal(cites.length, 1);
+    assert.equal(cites[0].toNodeId, evidenceId);
+  });
+
+  it('REFUSES an edge from a derived node to an authored one', () => {
+    // The invariant. A finding must never rest on a chat answer: that is the
+    // failure the layer was excluded to prevent, and direction is what
+    // replaced exclusion.
+    const c = withConversation(ddCase(), [turn({ id: 't1', role: 'assistant' })]);
+    const g = buildDdGraph(c, NOW);
+    const authored = new Set(g.nodes.filter(n => n.origin === 'authored').map(n => n.id));
+    const derived = new Set(g.nodes.filter(n => n.origin === 'derived').map(n => n.id));
+    const violations = g.edges.filter(e => derived.has(e.fromNodeId) && authored.has(e.toNodeId));
+    assert.deepEqual(violations, [], 'no derived node may point at an authored one');
+  });
+
+  it('drops a citation to a node the graph does not hold', () => {
+    // A model naming a node id that does not exist is a fabricated connection,
+    // and it reaches here as ordinary data.
+    const g = buildDdGraph(withConversation(ddCase(), [
+      turn({ id: 't1', role: 'assistant', citedNodeIds: ['dd-parcel-deadbeef'] }),
+    ]), NOW);
+    assert.equal(g.edges.filter(e => e.kind === 'cites').length, 0);
+  });
+
+  it('records a tool call as a thought', () => {
+    const g = buildDdGraph(withConversation(ddCase(), [
+      turn({ id: 't1', role: 'assistant', toolCalls: [{ name: 'get_risks', summary: '3 open risks' }] }),
+    ]), NOW);
+    const thought = g.nodes.find(n => n.kind === 'thought');
+    assert.ok(thought, '"it looked and found nothing" is a different answer from "it did not look"');
+    assert.match(thought.label, /get_risks/);
+  });
+
+  it('stays deterministic with deliberation in it', () => {
+    const c = withConversation(ddCase(), [
+      turn({ id: 't1', role: 'user' }),
+      turn({ id: 't2', role: 'assistant', toolCalls: [{ name: 'get_risks', summary: 's' }] }),
+    ]);
+    assert.equal(JSON.stringify(buildDdGraph(c, NOW)), JSON.stringify(buildDdGraph(c, NOW)));
+  });
+
+  it('gives every departmented node a department to traverse to', () => {
+    const g = buildDdGraph(ddCase(), NOW);
+    const departments = g.nodes.filter(n => n.kind === 'department');
+    assert.ok(departments.length > 0);
+    assert.ok(departments.every(d => d.origin === 'derived'), 'a department is a fact about the roster, not an opinion');
+    assert.ok(g.edges.some(e => e.kind === 'belongs_to'));
   });
 });
