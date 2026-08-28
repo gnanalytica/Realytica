@@ -1,21 +1,20 @@
 /**
- * Does a document survive the hop through LiteLLM?
+ * Does a document survive the hop to this model?
  *
- * The whole case for putting a LiteLLM proxy in front of everything rests on
- * one claim: its Anthropic-format endpoint carries a `document` block and a
- * citation request through to whatever vendor it routes to. If that holds, a
- * free-tier Gemini can read a scanned deed and every model keeps the full
- * capability set. If it does not, the document reader has to keep going to
- * Anthropic directly and we need to know that BEFORE the code assumes
- * otherwise.
+ * Reaching a vendor other than Anthropic means going through a gateway that
+ * speaks Anthropic's format and routes onward, and the whole case for that
+ * rests on one claim: the gateway carries a `document` block and a citation
+ * request through to whatever vendor answers. Measured against a real proxy,
+ * a PDF reaches Gemini as `inline_data` and an OpenAI-shaped endpoint not at
+ * all — silently. So it is a claim to check per model, not to assume.
  *
  * It is a CLI and not a test because it needs a live proxy and spends real
  * money, and it drives the production provider rather than a hand-rolled
  * request — a probe that exercises its own transport proves nothing about the
  * one the agents use.
  *
- *   pnpm probe:litellm --model realytica-extraction
- *   pnpm probe:litellm --model gemini-flash --pdf ./some-scan.pdf
+ *   pnpm probe:model --model anthropic/claude-haiku-4.5
+ *   pnpm probe:model --model google/gemini-2.5-flash --pdf ./some-scan.pdf
  *
  * With no --pdf it generates a one-page PDF containing a made-up khata number
  * and asks for it back. A model that answers correctly read the document; one

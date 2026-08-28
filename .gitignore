@@ -14,6 +14,3 @@ coverage/
 # The Vercel deployment — static files plus the bundled serverless function.
 # Produced by `pnpm build:vercel`; see scripts/build-vercel-output.mjs.
 .vercel/
-
-# LiteLLM vendor keys
-litellm/.env

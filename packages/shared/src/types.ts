@@ -3368,8 +3368,7 @@ export interface RetrievalSelection {
  * port whose second half cannot carry a scanned deed is not portability.
  *
  * So vendor choice moved OUT of this codebase and into a proxy in front of
- * it (see `REALYTICA_BASE_URL` and `litellm/config.yaml`), which speaks this
- * format and routes onward. The consequence worth remembering: with a proxy
+ * it (see `REALYTICA_BASE_URL`), which speaks this format and routes onward. The consequence worth remembering: with a proxy
  * configured, this id no longer names the company that served the call — the
  * model name does, and even then only as far as the proxy's config says.
  *

@@ -188,7 +188,7 @@ function CapabilityExplainer({ capability }: { capability: AgentCapability }) {
             Set <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">REALYTICA_API_KEY</code> for the
             API process and restart it. To run against something other than Anthropic, point{' '}
             <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">REALYTICA_BASE_URL</code> at a
-            LiteLLM proxy instead — see the README.
+            gateway that speaks the same format — see the README.
           </p>
         ) : null}
         <p className="font-medium text-ink">

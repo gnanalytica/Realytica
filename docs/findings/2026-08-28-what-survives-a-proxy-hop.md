@@ -42,8 +42,9 @@ Anthropic's. So:
   text extractor written precisely because that path could not send a PDF.
   `ProviderId` is now one member and names the **wire format**, not the
   company.
-- `REALYTICA_BASE_URL` points at a proxy that speaks that format.
-  `litellm/config.yaml` is where a tier name becomes a vendor.
+- `REALYTICA_BASE_URL` points at a gateway that speaks that format —
+  OpenRouter serves it hosted; a self-hosted LiteLLM serves it if you want the
+  vendor keys on your own infrastructure.
 - Do not point a document-reading tier at an `openai/…` model. The table above
   is why, and nothing downstream can detect it.
 
@@ -75,7 +76,7 @@ breakdown and the coverage report described one call two ways.
 
 Nothing in the repo could have. The claim was about someone else's translation
 layer, and the only way to settle it was to run that layer and watch what came
-out the far side. `pnpm probe:litellm --model <name>` is that experiment made
+out the far side. `pnpm probe:model --model <name>` is that experiment made
 repeatable: it sends a real one-page PDF through your proxy and reports, as
 three separate verdicts, whether the document reached the model, whether
 citations came back, and whether they were verified. Run it after pointing a

@@ -3,14 +3,14 @@
  *
  * Setting the agent layer up is one key and one model per tier. There is no
  * provider to choose, because choosing a vendor is not this codebase's job any
- * more — a proxy in front of it does that (see `litellm/config.yaml`), and
- * every call leaves here in Anthropic's wire format regardless of which
- * company ends up answering it.
+ * more — a gateway in front of it does that, and every call leaves here in
+ * Anthropic's wire format regardless of which company ends up answering it.
  *
  *   REALYTICA_BASE_URL unset  → api.anthropic.com, nothing else to run
- *   REALYTICA_BASE_URL set    → a LiteLLM proxy, which fans out to any vendor
- *                               it is configured for, and the model names are
- *                               the ones in its config
+ *   REALYTICA_BASE_URL set    → a gateway speaking the same format (OpenRouter,
+ *                               a self-hosted LiteLLM), which fans out to any
+ *                               vendor it is configured for; the model names
+ *                               are that gateway's own
  *
  * This module is the single place any of that is decided. It imports nothing
  * but `env` and `warn`, so every layer above — routing, the client, the
@@ -35,11 +35,12 @@ function trimmed(value: string | undefined): string | undefined {
  * The proxy to send Anthropic-format calls to, or undefined for Anthropic
  * itself.
  *
- * A LiteLLM proxy serves `/v1/messages` in this format and routes it onward,
- * so pointing here keeps PDF input and prompt caching on calls that end up at
- * Gemini or DeepSeek — measured, not assumed. What does NOT survive the hop is
- * verified citations, which only Claude returns; that is detected per call
- * rather than declared, because from here the vendor is unknowable.
+ * A gateway that serves `/v1/messages` in this format and routes onward —
+ * OpenRouter, or a self-hosted LiteLLM — keeps PDF input and prompt caching on
+ * calls that end up at Gemini or DeepSeek. Measured, not assumed. What does NOT
+ * survive the hop is verified citations, which only Claude returns; that is
+ * detected per call rather than declared, because from here the vendor is
+ * unknowable.
  */
 export function baseUrl(): string | undefined {
   return trimmed(readEnv('BASE_URL'));

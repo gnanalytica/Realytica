@@ -88,7 +88,7 @@ and needs none of them:
 | --- | --- |
 | `BLOB_READ_WRITE_TOKEN` | Set automatically by attaching a Vercel Blob store. Switches storage from the filesystem to Blob, which is what makes a serverless deployment durable. |
 | `REALYTICA_API_KEY` | Turns on the agent layer. Without it — or without an endpoint that needs no key — every agent route answers `503 no_credentials` and the rest of the app is unaffected. The bare `ANTHROPIC_API_KEY` also works when no base URL is set, since the Anthropic SDK reads it itself. |
-| `REALYTICA_BASE_URL` | Sends calls to a proxy instead of to Anthropic. This is the LiteLLM seat, and the only way to reach another vendor — see the agent section. |
+| `REALYTICA_BASE_URL` | Sends calls to a gateway instead of to Anthropic — OpenRouter, or anything else serving the Anthropic Messages API. The only way to reach another vendor; see the agent section. |
 | `REALYTICA_AGENT_WEB_SEARCH=1` | Lets the research and explorer agents reach the public web. Off by default: enabling it is a permission, and only external-safe case context is ever sent. |
 | `REALYTICA_DATA_DIR` | Filesystem adapter only. Where the JSON store and uploaded documents live. |
 | `REALYTICA_GOOGLE_MAPS_API_KEY` | Turns on geocoding, Street View and nearby amenities. Absent, the site context reports named gaps rather than empty results. |
@@ -110,7 +110,7 @@ pnpm clean        # remove node_modules and build output
 
 ```bash
 pnpm eval --routes claude-haiku-4-5-20251001,claude-sonnet-5 --dry-run
-pnpm eval --routes gemini-flash --task document_extraction   # a name from litellm/config.yaml
+pnpm eval --routes google/gemini-2.5-flash --task document_extraction
 ```
 
 Runs the 43-case corpus against one or more routes and ranks them. `--dry-run`
@@ -331,53 +331,34 @@ REALYTICA_MODEL_JUDGMENT=claude-opus-5
 That talks to Anthropic and needs nothing else running.
 
 **To use any other vendor, put a gateway in front rather than teaching this
-app a second vendor.** `docker-compose.yml` in the repo root runs
-[LiteLLM](https://docs.litellm.ai) and its database; `litellm/config.yaml` is
-where a model name becomes an actual vendor, and every API key lives there
-instead of here:
+app a second vendor.** [OpenRouter](https://openrouter.ai) serves the same
+Anthropic Messages API this app already speaks, so it is a base URL and a key
+— nothing to host:
 
 ```bash
-cp litellm/.env.example litellm/.env    # vendor keys, and a UI login
-docker compose up -d
-open http://localhost:4000/ui           # models, keys, budgets, spend
+REALYTICA_BASE_URL=https://openrouter.ai/api
+REALYTICA_API_KEY=sk-or-v1-...
+REALYTICA_MODEL_EXTRACTION=anthropic/claude-haiku-4.5
+REALYTICA_MODEL_REASONING=google/gemini-2.5-flash
+REALYTICA_MODEL_JUDGMENT=anthropic/claude-sonnet-4.5
 ```
 
-The UI is where the vendor decisions actually live once it is running: add a
-model and its API key without editing a file or restarting (`store_model_in_db`
-is on, so it persists in Postgres), mint the virtual key Realytica uses, set a
-monthly budget and rate limit per key, and watch spend per key, per model and
-per day. `litellm/config.yaml` is the checked-in baseline; the UI is how you
-try something. Around 150 providers are supported — Anthropic, Gemini, OpenAI,
-DeepSeek, Kimi (Moonshot), Hugging Face, Groq, Together, Mistral, xAI, Bedrock,
-Vertex, Ollama and the rest — and `config.yaml` carries commented entries for
-the common ones.
+One key reaches every vendor it fronts, spend limits and the usage dashboard
+are per key on their side, and swapping a vendor is one model name here. Its
+free-tier models (`:free` suffixes) cost nothing, and moving to paid is adding
+credit to the same key rather than a migration.
 
-```bash
-REALYTICA_BASE_URL=http://localhost:4000
-REALYTICA_API_KEY=<a virtual key issued in the UI>
-REALYTICA_MODEL_EXTRACTION=realytica-extraction   # names from litellm/config.yaml
-REALYTICA_MODEL_REASONING=realytica-reasoning
-REALYTICA_MODEL_JUDGMENT=realytica-judgment
-```
+Any gateway serving `/v1/messages` works the same way — a self-hosted
+[LiteLLM](https://docs.litellm.ai) if you ever want the vendor keys on your own
+infrastructure, with `REALYTICA_BASE_URL` pointed at it instead. The app cannot
+tell the difference, which is the point of having settled on one wire format.
 
-Swapping a vendor is then an edit to `config.yaml` and a restart, with no
-change here and no redeploy. Budgets, per-key spend limits and the cost
-dashboard are the proxy's, which is the right home for them — they are
-infrastructure, not case data.
-
-**Running across several vendors' free tiers** is the same mechanism: give two
-deployments the same `model_name` and they are one pool, and a key that returns
-429 is cooled down and skipped rather than retried on every request. Measured
-against the proxy with a backend rigged to be out of quota — of four requests,
-exactly one touched the exhausted key. Declare each deployment's real `rpm` and
-the router steers away from a nearly-spent key before it fails at all;
-`fallbacks` sends a whole exhausted tier up to the next one as a last resort.
-`litellm/config.yaml` carries the worked example.
-
-The one rule, and it binds only the extraction tier: **every deployment in that
-pool must be able to receive a document** — Anthropic and Gemini can, an
-`openai/…` model cannot and drops it silently, so a text-only vendor in that
-pool means whichever requests land on it read a deed they were never sent.
+**Check a model before you trust a tier to it.** `pnpm probe:model --model
+<name>` sends a real one-page PDF through whatever endpoint is configured and
+reports three things separately: whether the document reached the model,
+whether citations came back, and whether they were verified. The three fail
+independently and the middle one failing quietly is the expensive case — a
+page reference nothing checked, rendered exactly like one that was.
 
 **There is one wire format and no second provider in this codebase, and that
 is a measured decision.** Reaching another vendor used to mean a second
@@ -396,14 +377,12 @@ Anthropic's, and the proxy is what makes it reach one. A port whose second half
 cannot carry a deed is not portability, and it is now gone.
 
 Two consequences are wired in rather than written down. **Citations are
-detected from the answer, not declared.** Behind a proxy the vendor is
+detected from the answer, not declared.** Behind a gateway the vendor is
 unknowable from here, so a document read that asked for citations and got none
 records a `citations_unavailable` gap on its result, and that travels into the
-evidence and the telemetry — a page reference nothing verified must never look
-like one that was. And **`pnpm probe:litellm --model <name>`** sends a real
-one-page PDF through your proxy and reports, separately, whether the document
-reached the model, whether citations came back, and whether they were verified.
-Run it after pointing a tier at a new model.
+evidence and the telemetry. And **the extraction tier may only point at a model
+that can receive a document** — the table above is why, and nothing downstream
+can detect a deed that was never sent.
 
 The rest:
 
@@ -412,11 +391,9 @@ The rest:
 | `REALYTICA_AGENTS_DISABLED=1` | Turn the agent layer off entirely. |
 | `REALYTICA_AGENT_WEB_SEARCH=1` | Let the research and explorer agents reach the public web. |
 
-A model name is passed through verbatim, so a proxy's own names work as
+A model name is passed through verbatim, so a gateway's own names work as
 written — `llama3.3:70b` and `anthropic/claude-sonnet-4.5:beta` are single
-names, not structure. Routing one agent somewhere different is a `model_name`
-in `litellm/config.yaml` pointed at by that agent's tier, not a variable
-here.
+names, not structure.
 
 **The abstraction declares capabilities rather than flattening to what every
 provider shares.** That distinction is the whole design. Anthropic's
