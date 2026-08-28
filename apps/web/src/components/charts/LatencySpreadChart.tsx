@@ -1,12 +1,7 @@
 import type { ProviderPerformance } from '@realytica/shared';
 import type { ProviderId } from '@realytica/shared';
 
-/** Mirrors the label the performance table uses, so the chart and the table name a route the same way. */
-const PROVIDER_LABEL: Record<ProviderId, string> = {
-  anthropic: 'Anthropic',
-  openai_compatible: 'OpenAI-compatible',
-};
-const formatRoute = (provider: ProviderId, model: string): string => `${PROVIDER_LABEL[provider]} · ${model}`;
+const formatRoute = (_provider: ProviderId, model: string): string => model;
 import {
   BaselineAxis,
   ChartContainer,

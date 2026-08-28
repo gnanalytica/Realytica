@@ -150,7 +150,7 @@ const CORROBORATION_LABEL: Record<ResearchFinding['corroboration'], string> = {
 const EMPTY_INTELLIGENCE: CaseIntelligence = { runs: [], explorations: [], pathways: [], research: [], insights: [], conversation: [] };
 
 function capabilityReasonText(reason: string): string {
-  if (reason === 'no_credentials') return 'No Anthropic credentials are configured for this deployment.';
+  if (reason === 'no_credentials') return 'No model endpoint is configured for this deployment.';
   if (reason === 'disabled') return 'Agents are explicitly disabled for this deployment.';
   return `Agents are unavailable (${reason}).`;
 }
@@ -186,9 +186,9 @@ function CapabilityExplainer({ capability }: { capability: AgentCapability }) {
         {capability.reason === 'no_credentials' ? (
           <p>
             Set <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">REALYTICA_API_KEY</code> for the
-            API process and restart it. To run against something other than Anthropic, set{' '}
-            <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">REALYTICA_BASE_URL</code> to an
-            OpenAI-compatible endpoint alongside it.
+            API process and restart it. To run against something other than Anthropic, point{' '}
+            <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">REALYTICA_BASE_URL</code> at a
+            LiteLLM proxy instead — see the README.
           </p>
         ) : null}
         <p className="font-medium text-ink">

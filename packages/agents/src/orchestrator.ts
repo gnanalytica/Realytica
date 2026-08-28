@@ -362,7 +362,7 @@ export async function runOrchestration(params: RunOrchestrationParams): Promise<
 
   const capability = agentCapability();
   if (!capability.available) {
-    const reason = `Orchestration is unavailable (${capability.reason}) — Anthropic credentials are not configured.`;
+    const reason = `Orchestration is unavailable (${capability.reason}) — no model endpoint is configured.`;
     emit({ kind: 'error', label: 'Agent unavailable', detail: reason });
     const run: AgentRun = {
       id: orchestratorRunId,

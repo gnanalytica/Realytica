@@ -44,11 +44,6 @@ const TASK_HINT: Record<EvalTaskKind, string> = {
   title_reasoning: 'Whether title-chain reasoning reaches the right finding.',
 };
 
-const PROVIDER_LABEL: Record<ProviderId, string> = {
-  anthropic: 'Anthropic',
-  openai_compatible: 'OpenAI-compatible',
-};
-
 function usd(n: number): string {
   if (!Number.isFinite(n)) return '—';
   if (n === 0) return '$0';
@@ -62,8 +57,7 @@ function RankRow({ rank, row, best }: { rank: number; row: EvalRanking; best: nu
     <div className={cn('border-b border-hairline py-2.5 last:border-0', rank === 1 && '-mx-3 rounded-lg bg-brand-soft px-3')}>
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         {rank === 1 && <Trophy size={13} className="text-brand" />}
-        <span className="text-sm font-medium text-ink">{PROVIDER_LABEL[row.provider]}</span>
-        <span className="font-mono text-[11px] text-ink-muted">{row.model}</span>
+        <span className="font-mono text-sm font-medium text-ink">{row.model}</span>
         {!clean && (
           <Badge tone="critical">
             {row.fabrications} fabrication{row.fabrications === 1 ? '' : 's'}

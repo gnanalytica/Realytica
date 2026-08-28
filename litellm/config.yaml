@@ -38,12 +38,16 @@ model_list:
   # --- Alternatives, ready to swap in above -------------------------------
   # Uncomment, set the key in .env, and point a tier at the model_name.
   #
-  # Gemini's free tier is the cheapest way to run the extraction tier. Verify
-  # a scanned PDF end to end before trusting it there: the Anthropic-format
-  # endpoint carries a document block, but whether LiteLLM's translation
-  # delivers it to Gemini as a readable page — and whether citations come back
-  # at all — is not something to assume. `pnpm probe:litellm` checks exactly
-  # this and prints what came back.
+  # Gemini's free tier is the cheapest way to run the extraction tier, and the
+  # document DOES survive the hop: measured against this proxy, an
+  # Anthropic-format PDF arrives at Gemini as `inline_data`. Citations do NOT —
+  # only Claude fills those fields, so a Gemini extraction records a
+  # `citations_unavailable` gap and its page references are the model's own
+  # word. `pnpm probe:litellm` reports both, separately, per model.
+  #
+  # Do NOT point a document-reading tier at an `openai/...` model. The same
+  # measurement showed the PDF dropped entirely and silently on that path — the
+  # model is asked to read a document it was never sent.
   #
   # - model_name: gemini-flash
   #   litellm_params:

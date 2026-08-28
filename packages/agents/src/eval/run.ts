@@ -9,7 +9,7 @@ import type {
   ModelTier,
   ProviderId,
 } from '@realytica/shared';
-import { AGENT_CAPABILITY_NEEDS, parseRoute } from '../routing';
+import { AGENT_CAPABILITY_NEEDS } from '../routing';
 import { rankEvalResults } from './rank';
 import { scoreEvalCase, type EvalAnswer } from './score';
 
@@ -127,13 +127,13 @@ export function capabilityNeedsFor(taskKind: EvalTaskKind): CapabilityGap[] {
 }
 
 /**
- * A route from `provider:model` syntax, so a comparison can be configured the
- * same way the rest of the routing layer is — including bare `model` for
- * Anthropic and slash-bearing OpenRouter model ids.
+ * A route from a model name. Passed through verbatim, slashes and colons
+ * included, because a proxy's model names are its own — `llama3.3:70b` and
+ * `anthropic/claude-sonnet-4.5:beta` are both single names, not structure.
  */
 export function parseEvalRoute(spec: string, tier: ModelTier): EvalRoute | null {
-  const parsed = parseRoute(spec);
-  return parsed ? { ...parsed, tier } : null;
+  const model = spec.trim();
+  return model ? { provider: 'anthropic', model, tier } : null;
 }
 
 function describeError(error: unknown): string {

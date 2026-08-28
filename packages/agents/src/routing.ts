@@ -1,56 +1,35 @@
-import type { AgentCapability, AgentKind, AgentRoute, CapabilityGap, ModelTier, ProviderId } from '@realytica/shared';
-import { AGENT_TIERS, agentCapability, tierFor, warnOnce } from './client';
-import { formatRoute, parseRoute, tierRoute } from './config';
-
-export { formatRoute, parseRoute } from './config';
+import type { AgentCapability, AgentKind, AgentRoute, CapabilityGap, ModelTier } from '@realytica/shared';
+import { AGENT_TIERS, agentCapability, tierFor } from './client';
+import { modelForTier } from './config';
 
 /**
- * Which provider and model each agent runs on, and where that decision came
- * from.
+ * Which model each agent runs on, and where that decision came from.
  *
- * Routing is separate from tiering on purpose. A tier is a judgement about
- * how much capability a job needs; a route is where that capability is bought.
- * Keeping them apart means an operator can move one agent to a cheaper vendor
- * without restating what kind of work it does, and the two decisions stay
- * independently explicable when a result looks wrong.
+ * Routing is separate from tiering on purpose. A tier is a judgement about how
+ * much capability a job needs; a route is which model buys it. Keeping them
+ * apart means an operator can move one agent to a cheaper model without
+ * restating what kind of work it does.
  *
- * Every route records its `source`. A surprising route — an agent on a model
- * nobody expected — is otherwise an archaeology exercise across four
- * environment variables, and the one time that matters is during an incident.
+ * There is no provider in a route any more. Every call leaves in Anthropic's
+ * wire format, and which vendor answers is the proxy's decision — so a route
+ * that named one would be asserting something this codebase cannot know. See
+ * `ProviderId` in the shared types for the measurement behind that.
  */
 
-/**
- * The route for one agent, most specific first.
- *
- *   1. `REALYTICA_ROUTE_<AGENT>`   — this one agent, anywhere
- *   2. `REALYTICA_MODEL_<TIER>`    — every agent on that tier
- *   3. the built-in default for the tier
- *
- * The syntax and the tier table both live in `config.ts`; this file is only
- * the precedence between them.
- */
+/** The route for one agent: its tier's model, or the built-in default. */
 export function routeFor(agent: AgentKind): AgentRoute {
   const tier = tierFor(agent);
-
-  const name = `REALYTICA_ROUTE_${agent.toUpperCase()}`;
-  const raw = process.env[name];
-  if (raw) {
-    const parsed = parseRoute(raw);
-    if (parsed) return { agent, tier, ...parsed, source: 'agent_env', expectedGaps: [] };
-    // Ignored rather than thrown: a typo in a deployment variable must not
-    // take the agent layer down, and the warning names what was dropped.
-    warnOnce(
-      `route:${name}:${raw}`,
-      `Ignoring ${name}="${raw}" — expected a model name, optionally prefixed "anthropic:" or "openai_compatible:".`,
-    );
-  }
-
-  return { agent, tier, ...tierRoute(tier), source: 'tier_env', expectedGaps: [] };
+  return { agent, tier, provider: 'anthropic', model: modelForTier(tier), source: 'tier_env', expectedGaps: [] };
 }
 
 /** Every agent's route. Used by the capability probe and the observability view. */
 export function allRoutes(): AgentRoute[] {
   return (Object.keys(AGENT_TIERS) as AgentKind[]).map(routeFor);
+}
+
+/** A route as one string, for a telemetry key or a panel label. */
+export function formatRoute(_provider: 'anthropic', model: string): string {
+  return model;
 }
 
 /* ==================================================================== */

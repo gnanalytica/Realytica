@@ -241,7 +241,7 @@ export async function runCopilot(params: RunCopilotParams): Promise<RunCopilotRe
   // route; the kill switch speaks for all of them. See `capabilityBlocksRoute`.
   const capability = agentCapability();
   if (capabilityBlocksRoute(route, capability)) {
-    const reason = `The analyst copilot is unavailable (${capability.reason}) — Anthropic credentials are not configured.`;
+    const reason = `The analyst copilot is unavailable (${capability.reason}) — no model endpoint is configured.`;
     emit({ kind: 'error', label: 'Agent unavailable', detail: reason });
     return finish('failed', reason, reason);
   }

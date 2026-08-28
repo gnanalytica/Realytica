@@ -22,7 +22,7 @@
  * that says it cannot see a document was handed nothing.
  */
 import { readFile } from 'node:fs/promises';
-import { anthropicProvider, anthropicBaseUrl } from '@realytica/agents';
+import { anthropicProvider } from '@realytica/agents';
 import type { LlmRequest } from '@realytica/agents';
 
 function arg(name: string): string | undefined {
@@ -72,8 +72,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const endpoint = anthropicBaseUrl();
-  console.log(`Endpoint  ${endpoint ?? 'api.anthropic.com (REALYTICA_ANTHROPIC_BASE_URL is unset)'}`);
+  const endpoint = process.env.REALYTICA_BASE_URL?.trim();
+  console.log(`Endpoint  ${endpoint || 'api.anthropic.com (REALYTICA_BASE_URL is unset)'}`);
   console.log(`Model     ${model}`);
 
   const pdfPath = arg('pdf');

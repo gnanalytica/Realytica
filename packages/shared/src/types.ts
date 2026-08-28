@@ -3357,29 +3357,30 @@ export interface RetrievalSelection {
 /* ==================================================================== */
 
 /**
- * Which LLM provider a call goes to.
+ * Which WIRE FORMAT a call is made in — not which company answers it.
  *
- * The point of this abstraction is NOT to reduce every provider to what they
- * all share. A lowest-common-denominator port would cost this product the
- * features its guarantees rest on — document citations with verified page
- * locations are what separate "the khata number is on page 3" from a model
- * asserting a page number it may have invented.
+ * There is one, and that is a decision rather than an omission. Reaching a
+ * second vendor used to mean a second implementation here, and the only
+ * shared format available for that job — OpenAI's chat completions — has no
+ * field for a document or a citation. Measured directly against a LiteLLM
+ * proxy: the same PDF sent in Anthropic's format arrives at Gemini as
+ * `inline_data`, and at an OpenAI-shaped endpoint not at all, silently. A
+ * port whose second half cannot carry a scanned deed is not portability.
  *
- * So the port declares capabilities instead of assuming them. A provider
- * says what it can do; a call that wanted something unavailable degrades
- * explicitly and records the gap (`CapabilityGap`), which then travels into
- * the evidence and the telemetry rather than disappearing. Losing a feature
- * is allowed. Losing it silently is not.
+ * So vendor choice moved OUT of this codebase and into a proxy in front of
+ * it (see `REALYTICA_BASE_URL` and `litellm/config.yaml`), which speaks this
+ * format and routes onward. The consequence worth remembering: with a proxy
+ * configured, this id no longer names the company that served the call — the
+ * model name does, and even then only as far as the proxy's config says.
+ *
+ * The port still declares capabilities rather than assuming them. A call that
+ * wanted something unavailable degrades explicitly and records the gap
+ * (`CapabilityGap`), which travels into the evidence and the telemetry rather
+ * than disappearing. That matters more under a proxy, not less: citations are
+ * requested on every document read and only Claude returns them, so the gap
+ * is now detected from the ANSWER rather than declared up front.
  */
-export type ProviderId =
-  | 'anthropic'
-  /**
-   * Any endpoint speaking the OpenAI Chat Completions shape: OpenRouter,
-   * LiteLLM, Together, Groq, vLLM, Ollama. One implementation covers them
-   * because the wire format is the same; they differ only in base URL,
-   * credentials and which models they expose.
-   */
-  | 'openai_compatible';
+export type ProviderId = 'anthropic';
 
 /**
  * What a provider can actually do.

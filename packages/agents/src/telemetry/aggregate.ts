@@ -42,7 +42,7 @@ import type {
   TelemetrySummary,
 } from '@realytica/shared';
 import { sumUsage, warnOnce } from '../client';
-import { tierRoute } from '../config';
+import { modelForTier } from '../config';
 import { formatRoute } from '../routing';
 import {
   createCoverageAccumulator,
@@ -171,7 +171,7 @@ function round4(n: number): number {
 /**
  * One row per `(provider, model)`, which is the unit a routing decision is
  * actually made in — "is Anthropic faster" is not a question anyone can act
- * on, "is `openai_compatible:meta-llama/llama-3.3-70b-instruct` faster than
+ * on, "is `gemini-flash` faster than
  * `anthropic:claude-haiku-4-5-20251001` at the extraction tier" is.
  *
  * Failures and refusals are counted, and their durations are kept in the
@@ -494,10 +494,10 @@ export function summariseCaseCost(
 /**
  * Where the judgment tier currently points.
  *
- * Read through `tierRoute` rather than restated, so the "what this would have
- * cost on one model" comparison tracks the deployment's actual judgment route
- * with no second implementation to keep in step.
+ * Read through `modelForTier` rather than restated, so the "what this would
+ * have cost on one model" comparison tracks the deployment's actual judgment
+ * model with no second implementation to keep in step.
  */
 function defaultJudgmentRoute(): { provider: ProviderId; model: string } {
-  return tierRoute('judgment');
+  return { provider: 'anthropic', model: modelForTier('judgment') };
 }

@@ -10,7 +10,7 @@
 #   open http://localhost:4000/ui          # budgets, spend, virtual keys
 #
 # Then point Realytica at it (see README):
-#   REALYTICA_ANTHROPIC_BASE_URL=http://localhost:4000
+#   REALYTICA_BASE_URL=http://localhost:4000
 #   REALYTICA_API_KEY=<a virtual key issued in the UI>
 
 services:

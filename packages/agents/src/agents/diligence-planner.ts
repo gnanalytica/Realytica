@@ -195,13 +195,10 @@ export async function runDiligencePlanner(params: RunDiligencePlannerParams): Pr
   emit({ kind: 'plan', label: `Planning next steps from ${pathways.length} pathway(s) and ${findings.length} research finding(s)` });
 
   // `agentCapability()` answers two questions at once: is the agent layer
-  // switched on, and does this deployment hold Anthropic credentials. Only the
-  // first applies to every route — see `capabilityBlocksRoute`. Blocking an
-  // OpenAI-compatible route for want of an ANTHROPIC_API_KEY would make the
-  // port unusable on exactly the deployments it exists for.
+  // switched on, and can this deployment reach a model at all.
   const capability = agentCapability();
   if (capabilityBlocksRoute(route, capability)) {
-    const reason = `The diligence planner is unavailable (${capability.reason}) — Anthropic credentials are not configured.`;
+    const reason = `The diligence planner is unavailable (${capability.reason}) — no model endpoint is configured.`;
     emit({ kind: 'error', label: 'Agent unavailable', detail: reason });
     return finish('failed', reason);
   }

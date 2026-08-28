@@ -9,7 +9,7 @@ import type {
   ModelTier,
   ModelTierAssignment,
 } from '@realytica/shared';
-import { anthropicBaseUrl, apiKeyFor, baseUrl, defaultProviderId, tierRoute } from './config';
+import { apiKey, baseUrl, modelForTier } from './config';
 import { warnOnce } from './warn';
 
 export { warnOnce };
@@ -107,18 +107,7 @@ export const AGENT_TIERS: Record<AgentKind, ModelTier> = {
 /* Tier → model                                                          */
 /* ==================================================================== */
 
-/**
- * Resolves a tier to the model id that will actually be sent.
- *
- * Delegates to `tierRoute` rather than reading the variables again. It used to
- * have its own copy of the tier table and its own env reads, which meant the
- * pricing comparison and the model shown in the UI could name a model no call
- * was made on — the two resolutions agreed only for as long as nobody edited
- * one of them.
- */
-export function modelForTier(tier: ModelTier): string {
-  return tierRoute(tier).model;
-}
+export { modelForTier } from './config';
 
 /**
  * The tier an agent runs on.
@@ -198,65 +187,16 @@ export const BASE_REQUEST = {
 /* ==================================================================== */
 
 /**
- * Published rates per million tokens, used for the cost estimate shown to
- * users. Dated snapshots are listed alongside their alias because the tier
- * defaults pin a snapshot (`claude-haiku-4-5-20251001`) while an operator
- * overriding by env will usually type the alias.
+ * Pricing lives in `telemetry/pricing.ts` — one table, one fallback rule, one
+ * piece of arithmetic. It used to live here as well, and the two disagreed
+ * about any model neither had a rate for: this module billed it at the
+ * Anthropic ceiling while the telemetry reported it unpriced, so the cost
+ * breakdown and the coverage report described the same call differently.
  */
-const RATES: Record<string, { input: number; output: number }> = {
-  'claude-opus-5': { input: 5, output: 25 },
-  'claude-opus-4-8': { input: 5, output: 25 },
-  'claude-sonnet-5': { input: 2, output: 10 },
-  'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-haiku-4-5': { input: 1, output: 5 },
-  'claude-haiku-4-5-20251001': { input: 1, output: 5 },
-};
+import { priceTokensUsd } from './telemetry/pricing';
 
-/** The most expensive rate we know, used as the deliberate fallback for an unpriced model. */
-const FALLBACK_RATE_MODEL = 'claude-opus-5';
+export { priceTokensUsd };
 
-
-/**
- * The rate for a model id, or a loud fallback.
- *
- * An unknown id is a real possibility now that three env vars can each name a
- * model, and the two silent failure modes are both worse than a warning:
- * pricing at zero tells the user a run was free, and pricing at Opus while
- * saying nothing tells them tiering did not work. So this warns by name and
- * then prices at the most expensive rate we know — an over-estimate the user
- * can act on beats an under-estimate they cannot see.
- */
-function rateFor(model: string): { input: number; output: number } {
-  const known = RATES[model];
-  if (known) return known;
-  warnOnce(
-    `rate:${model}`,
-    `No published rate on file for model "${model}" — pricing it at ${FALLBACK_RATE_MODEL} rates, so the cost shown is an upper bound, not an estimate. Add it to RATES in packages/agents/src/client.ts.`,
-  );
-  return RATES[FALLBACK_RATE_MODEL];
-}
-
-/**
- * Prices a set of token counts against a specific model.
- *
- * Shared by `estimateUsage` and by the single-tier counterfactual in
- * `cost.ts` so the two cannot drift: the saving that justifies tiering has to
- * be computed with the same arithmetic as the bill it is compared against.
- */
-export function priceTokensUsd(
-  model: string,
-  tokens: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens?: number },
-): number {
-  const rate = rateFor(model);
-  // Cached reads bill at roughly a tenth of the input rate; a cache WRITE
-  // bills at roughly 1.25x, which is what the later reads have to earn back.
-  const usd =
-    (tokens.inputTokens / 1_000_000) * rate.input +
-    (tokens.cacheReadTokens / 1_000_000) * rate.input * 0.1 +
-    ((tokens.cacheWriteTokens ?? 0) / 1_000_000) * rate.input * 1.25 +
-    (tokens.outputTokens / 1_000_000) * rate.output;
-  return Math.round(usd * 10000) / 10000;
-}
 
 /**
  * Costs one API response.
@@ -490,12 +430,12 @@ export function getClient(): Anthropic | null {
      * SDK's chain — `ANTHROPIC_AUTH_TOKEN`, and an `ant auth login` profile on
      * disk, neither of which is an API key at all.
      */
-    const apiKey = apiKeyFor('anthropic');
-    const base = anthropicBaseUrl();
+    const key = apiKey();
+    const base = baseUrl();
     // Built from an options object only where there is something to put in it:
     // passing `apiKey: undefined` explicitly would defeat the SDK's own
     // resolution chain, which is the whole reason the bare constructor exists.
-    const options = { ...(apiKey ? { apiKey } : {}), ...(base ? { baseURL: base } : {}) };
+    const options = { ...(key ? { apiKey: key } : {}), ...(base ? { baseURL: base } : {}) };
     cached = Object.keys(options).length > 0 ? new Anthropic(options) : new Anthropic();
     return cached;
   } catch {
@@ -517,18 +457,13 @@ export function getClient(): Anthropic | null {
  * of the endpoints this path exists to serve.
  */
 function hasCredentials(): boolean {
-  if (defaultProviderId() === 'openai_compatible') return baseUrl() !== undefined;
-  // A proxy in front of Anthropic's format authenticates with its own key, and
-  // some run without one at all on a private network — the endpoint being
-  // configured is the credential.
-  if (anthropicBaseUrl()) return true;
+  // A proxy on a private network may need no key at all, so the endpoint being
+  // configured is itself the credential.
+  if (baseUrl()) return true;
+  if (apiKey()) return true;
+  // The SDK's own chain: an env key, an auth token, or an `ant auth login`
+  // profile on disk, none of which we read ourselves.
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) return true;
-  // The prefixed and one-key spellings have to be recognised HERE too, or
-  // setting one gives a working client behind a capability endpoint that still
-  // says there are no credentials — the app would answer questions while
-  // telling every screen it cannot.
-  if (apiKeyFor('anthropic')) return true;
-  // An `ant auth login` profile lives on disk; the SDK finds it without an env var.
   return process.env.ANTHROPIC_PROFILE !== undefined || readEnv('AGENTS_ASSUME_AUTH') === '1';
 }
 
@@ -558,7 +493,7 @@ export function agentCapability(): AgentCapability {
 
 /** Narrows an unknown throw into a message worth showing a user. */
 export function describeError(e: unknown): string {
-  if (e instanceof Anthropic.AuthenticationError) return 'Anthropic credentials rejected — check REALYTICA_API_KEY or run `ant auth login`.';
+  if (e instanceof Anthropic.AuthenticationError) return 'Credentials rejected by the model endpoint — check REALYTICA_API_KEY.';
   if (e instanceof Anthropic.RateLimitError) return 'Rate limited by the Anthropic API — try again shortly.';
   if (e instanceof Anthropic.BadRequestError) return `Request rejected: ${e.message}`;
   if (e instanceof Anthropic.APIConnectionError) return 'Could not reach the Anthropic API — check network access.';

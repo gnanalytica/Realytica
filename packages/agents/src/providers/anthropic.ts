@@ -22,9 +22,9 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { ProviderDescriptor } from '@realytica/shared';
+import type { CapabilityGap, ProviderDescriptor } from '@realytica/shared';
 import { agentCapability, baseRequestFor, estimateUsage, getClient } from '../client';
-import { anthropicBaseUrl } from '../config';
+import { baseUrl } from '../config';
 import { ProviderCallError } from './types';
 import type {
   LlmCitation,
@@ -306,6 +306,30 @@ function toStopReason(reason: string | null | undefined): LlmStopReason | null {
 type StreamParams = Parameters<Anthropic['beta']['messages']['stream']>[0];
 type ToolRunnerParams = Parameters<Anthropic['beta']['messages']['toolRunner']>[0] & { stream?: false };
 
+
+/**
+ * Whether this call asked for citations and got none back.
+ *
+ * Declared capabilities cannot answer this any more. A proxy in the base-URL
+ * seat serves Anthropic's format and routes onward, and only Claude fills the
+ * citation fields — measured against LiteLLM, the same PDF reaches Gemini as
+ * `inline_data` with the citation request dropped on the way. From here the
+ * vendor is unknowable, so the gap is read off the ANSWER instead: the request
+ * wanted verified quotes and the reply carries none.
+ *
+ * Reported only when a document actually asked for them. A call with no
+ * document has nothing to cite, and flagging it would bury the real signal.
+ */
+export function citationGap(req: LlmRequest, content: LlmContentBlock[]): CapabilityGap[] {
+  const wanted = req.messages.some(m =>
+    typeof m.content !== 'string'
+    && m.content.some(part => part.type === 'document' && part.document.wantCitations),
+  );
+  if (!wanted) return [];
+  const got = content.some(block => block.type === 'text' && block.citations && block.citations.length > 0);
+  return got ? [] : ['citations_unavailable'];
+}
+
 class AnthropicProvider implements LlmProvider {
   readonly id = 'anthropic' as const;
 
@@ -315,13 +339,13 @@ class AnthropicProvider implements LlmProvider {
     // token, an `ant auth login` profile on disk and the global kill switch.
     // Re-deriving that here would give two answers to one question.
     const capability = agentCapability();
-    const base = anthropicBaseUrl();
+    const base = baseUrl();
     return {
       id: 'anthropic',
-      // Named for where the calls actually land. A deployment fronted by
-      // LiteLLM reaches five vendors through this provider, and a panel that
-      // still said "Anthropic" would be describing the format, not the route.
-      label: base ? 'Anthropic format (proxied)' : 'Anthropic',
+      // Named for where the calls actually land. A proxied deployment reaches
+      // whatever vendors its proxy is configured for, and a panel that still
+      // said "Anthropic" would be describing the format, not the route.
+      label: base ? 'Proxy (Anthropic format)' : 'Anthropic',
       ...(base ? { baseUrl: base } : {}),
       configured: capability.available,
       capabilities: { ...ANTHROPIC_CAPABILITIES },
@@ -339,14 +363,15 @@ class AnthropicProvider implements LlmProvider {
       if (firstTokenAt === undefined && event.type === 'content_block_delta') firstTokenAt = Date.now();
     });
     const message = await stream.finalMessage();
+    const content = toContentBlocks(message.content);
 
     return {
       provider: 'anthropic',
       model: req.model,
-      content: toContentBlocks(message.content),
+      content,
       stopReason: toStopReason(message.stop_reason),
       usage: estimateUsage(req.model, message.usage),
-      capabilityGaps: [],
+      capabilityGaps: citationGap(req, content),
       durationMs: Date.now() - startedAt,
       timeToFirstTokenMs: firstTokenAt === undefined ? undefined : firstTokenAt - startedAt,
       retries: 0,
@@ -404,7 +429,7 @@ class AnthropicProvider implements LlmProvider {
       // here means the deployment changed under a run. Thrown rather than
       // returned so it lands in the same catch as any other transport failure.
       throw new ProviderCallError(
-        'Anthropic credentials are not configured — set REALYTICA_API_KEY or run `ant auth login`.',
+        'No model endpoint is configured — set REALYTICA_API_KEY, or REALYTICA_BASE_URL for a proxy.',
       );
     }
     return client;

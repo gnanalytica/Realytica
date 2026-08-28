@@ -516,7 +516,7 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
   // route; the kill switch speaks for all of them. See `capabilityBlocksRoute`.
   const capability = agentCapability();
   if (capabilityBlocksRoute(route, capability)) {
-    const reason = `The explorer is unavailable (${capability.reason}) — Anthropic credentials are not configured.`;
+    const reason = `The explorer is unavailable (${capability.reason}) — no model endpoint is configured.`;
     emit({ kind: 'error', label: 'Agent unavailable', detail: reason });
     return { run: buildRun('failed', reason), session: buildSession(0, 'error') };
   }

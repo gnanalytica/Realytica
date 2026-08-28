@@ -7,9 +7,9 @@
  * real money proportional to routes x cases, and that is not something a web
  * button should let anyone start.
  *
- *   pnpm eval --routes anthropic:claude-haiku-4-5-20251001,anthropic:claude-sonnet-5
- *   pnpm eval --routes openai_compatible:llama-3.3-70b --task document_extraction
- *   pnpm eval --routes anthropic:claude-haiku-4-5-20251001 --limit 5 --dry-run
+ *   pnpm eval --routes claude-haiku-4-5-20251001,claude-sonnet-5
+ *   pnpm eval --routes gemini-flash --task document_extraction
+ *   pnpm eval --routes claude-haiku-4-5-20251001 --limit 5 --dry-run
  *
  * `--dry-run` assembles the corpus, resolves the routes and reports what a
  * real run would cost in calls, without spending anything. Use it first.

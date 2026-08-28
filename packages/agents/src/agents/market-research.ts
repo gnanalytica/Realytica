@@ -170,7 +170,7 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
   // route; the kill switch speaks for all of them. See `capabilityBlocksRoute`.
   const capability = agentCapability();
   if (capabilityBlocksRoute(route, capability)) {
-    const reason = `Market research is unavailable (${capability.reason}) — Anthropic credentials are not configured.`;
+    const reason = `Market research is unavailable (${capability.reason}) — no model endpoint is configured.`;
     emit({ kind: 'error', label: 'Agent unavailable', detail: reason });
     return finish('failed', reason);
   }

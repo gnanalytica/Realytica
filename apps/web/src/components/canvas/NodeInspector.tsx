@@ -20,7 +20,6 @@ import {
   GAP_LABEL,
   KIND_ICON,
   KIND_LABEL,
-  PROVIDER_LABEL,
   brokenInvariants,
   isModelStep,
   ms,
@@ -160,10 +159,6 @@ export default function NodeInspector({
                 Route
               </SectionTitle>
               <dl>
-                <KeyValue
-                  label="Provider"
-                  value={node.provider ? PROVIDER_LABEL[node.provider] : <span className="text-ink-muted">not recorded</span>}
-                />
                 <KeyValue label="Model" value={node.model ?? <span className="text-ink-muted">not recorded</span>} mono />
                 {node.tier ? <KeyValue label="Tier" value={<Badge tone="neutral">{node.tier}</Badge>} /> : null}
               </dl>

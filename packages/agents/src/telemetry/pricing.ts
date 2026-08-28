@@ -4,7 +4,7 @@
  * Before the provider port there was one vendor, one price list and one
  * question: what did this case cost. `client.ts` answers that for Anthropic
  * model ids and is still the authority for them. The moment a route can read
- * `openai_compatible:meta-llama/llama-3.3-70b-instruct`, that table stops
+ * a proxy's own model name, that table stops
  * being complete — and an incomplete pricing table does not fail loudly, it
  * quietly reports a number.
  *
@@ -32,8 +32,8 @@
  */
 
 import type { AgentUsage, ProviderId } from '@realytica/shared';
-import { priceTokensUsd, warnOnce } from '../client';
-import { formatRoute, parseRoute } from '../routing';
+import { warnOnce } from '../warn';
+import { baseUrl } from '../config';
 
 /* ==================================================================== */
 /* Shapes                                                                */
@@ -104,7 +104,7 @@ export interface PriceResolution {
   costUsd: number;
   confidence: PriceConfidence;
   source: PriceSource;
-  /** `provider:model`, the key this was resolved for. */
+  /** The model name this was resolved for. */
   route: string;
   /** The rate used, when there was one. Absent for `unavailable`. */
   rate?: RateCard;
@@ -115,31 +115,91 @@ export interface PriceResolution {
 /* ==================================================================== */
 
 /**
- * The model ids `client.ts` has a published rate for.
+ * Published Anthropic rates, USD per million tokens.
  *
- * This mirrors the *keys* of that module's private `RATES` and none of its
- * numbers. The numbers are reached through `priceTokensUsd`, so a repricing
- * happens in one place; this set only decides whether the resulting figure is
- * labelled `exact` or `upper_bound`.
- *
- * The mirror can go stale in exactly one direction, and it is the harmless
- * one. A model added to `RATES` but not added here is priced correctly — the
- * number comes from `RATES` either way — and merely labelled as a ceiling when
- * it is in fact exact: a true figure, under-claimed. The reverse (a rate this
- * set claims exists when it does not) cannot happen, because removing a model
- * from `RATES` makes `priceTokensUsd` warn by name on the very first call.
- *
- * Deriving this from `RATES` directly would be better and is not possible:
- * `RATES` is not exported, and this package may not edit `client.ts`.
+ * This lives with the rest of the pricing rather than beside the client,
+ * because the question "what does this model cost" has exactly one answer and
+ * had two implementations: the client priced every unknown id at the Anthropic
+ * ceiling while this module reported it as unpriced, so the cost breakdown and
+ * the telemetry disagreed about the same call. They now share `rateFor`.
  */
-const ANTHROPIC_PRICED_MODELS: ReadonlySet<string> = new Set([
-  'claude-opus-5',
-  'claude-opus-4-8',
-  'claude-sonnet-5',
-  'claude-sonnet-4-6',
-  'claude-haiku-4-5',
-  'claude-haiku-4-5-20251001',
-]);
+const RATES: Record<string, { input: number; output: number }> = {
+  'claude-opus-5': { input: 5, output: 25 },
+  'claude-opus-4-8': { input: 5, output: 25 },
+  'claude-sonnet-5': { input: 2, output: 10 },
+  'claude-sonnet-4-6': { input: 3, output: 15 },
+  'claude-haiku-4-5': { input: 1, output: 5 },
+  'claude-haiku-4-5-20251001': { input: 1, output: 5 },
+};
+
+/** The most expensive rate we know, used as the deliberate ceiling for an unpriced Anthropic model. */
+const FALLBACK_RATE_MODEL = 'claude-opus-5';
+
+/**
+ * The rate to bill a model at, and how much to trust it.
+ *
+ * The ceiling is only honest when we know the model is Anthropic's — pointed
+ * straight at Anthropic, an id missing from `RATES` is a NEW Anthropic model
+ * and Opus rates bound it. Behind a proxy the same id could be Gemini Flash,
+ * where Opus rates over-report by a factor of fifty; that is not a ceiling, it
+ * is a number nobody should act on. So there it is unpriced, and the warning
+ * names `REALYTICA_PRICING`, which is the fix an operator can actually apply —
+ * telling them to edit our source is no help for a model we have never heard of.
+ */
+function rateFor(model: string): { rate: RateCard; confidence: PriceConfidence; source: PriceSource } | null {
+  const overrides = overrideTable();
+  const exact = overrides.get(model);
+  if (exact) return { rate: exact, confidence: 'exact', source: 'operator_override' };
+  const wildcard = overrides.get('*');
+  if (wildcard) return { rate: wildcard, confidence: 'exact', source: 'operator_wildcard' };
+
+  const published = RATES[model];
+  if (published) return { rate: published, confidence: 'exact', source: 'anthropic_published' };
+
+  if (!baseUrl()) {
+    warnOnce(
+      `rate:${model}`,
+      `No published rate on file for model "${model}" — pricing it at ${FALLBACK_RATE_MODEL} rates, so the cost shown is an upper bound, not an estimate.`,
+    );
+    return { rate: RATES[FALLBACK_RATE_MODEL], confidence: 'upper_bound', source: 'anthropic_ceiling' };
+  }
+
+  warnOnce(
+    `rate:${model}`,
+    `No rate on file for "${model}" — its calls are counted as UNPRICED, not as $0, so every cost total that includes them is a lower bound. ` +
+      `Declare it: ${PRICING_ENV_VAR}='{"${model}":{"input":<usd per million>,"output":<usd per million>}}'.`,
+  );
+  return null;
+}
+
+/**
+ * Prices a set of token counts against a specific model.
+ *
+ * Returns 0 for a model with no rate. That is a floor, not a claim — every
+ * aggregate reports unpriced calls and their tokens alongside the total, and
+ * `priceTokens` below carries the `unavailable` confidence that says so.
+ */
+export function priceTokensUsd(
+  model: string,
+  tokens: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens?: number },
+): number {
+  const resolved = rateFor(model);
+  return resolved ? applyRateUsd(resolved.rate, tokens) : 0;
+}
+
+/** The arithmetic, shared so a repricing cannot land in one path and not the other. */
+function applyRateUsd(
+  rate: RateCard,
+  tokens: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens?: number },
+): number {
+  const cacheRead = rate.cacheRead ?? rate.input * DEFAULT_CACHE_READ_DISCOUNT;
+  return round4(
+    (tokens.inputTokens / 1_000_000) * rate.input
+    + (tokens.cacheReadTokens / 1_000_000) * cacheRead
+    + ((tokens.cacheWriteTokens ?? 0) / 1_000_000) * rate.input * CACHE_WRITE_MULTIPLIER
+    + (tokens.outputTokens / 1_000_000) * rate.output,
+  );
+}
 
 /**
  * What a cached input token costs, as a fraction of the input rate, when an
@@ -147,7 +207,7 @@ const ANTHROPIC_PRICED_MODELS: ReadonlySet<string> = new Set([
  *
  * Mirrors the assumption `priceTokensUsd` already makes for Anthropic, so a
  * cached read is not accounted for differently either side of the provider
- * boundary. Every major OpenAI-compatible gateway discounts cache reads by
+ * boundary. Every major gateway discounts cache reads by
  * roughly this much, but "roughly" is doing work in that sentence: an operator
  * who knows their gateway's real number states it as `cacheRead` and this
  * default never applies.
@@ -179,20 +239,19 @@ export const PRICING_ENV_VAR = 'REALYTICA_PRICING';
  *
  * ```
  * REALYTICA_PRICING='{
- *   "openai_compatible:meta-llama/llama-3.3-70b-instruct": { "input": 0.6, "output": 0.6 },
- *   "openai_compatible:*": { "input": 0.9, "output": 0.9, "cacheRead": 0.09 }
+ *   "gemini-flash": { "input": 0.075, "output": 0.3 },
+ *   "*": { "input": 0.9, "output": 0.9, "cacheRead": 0.09 }
  * }'
  * ```
  *
- * Keys use the same route syntax as `REALYTICA_MODEL_*` (`provider:model`, or a
- * bare model id meaning Anthropic), because an operator who has just written a
- * route into one variable should not have to learn a second spelling to price
- * it. Values are USD per million tokens.
+ * Keys are model names, spelled exactly as `REALYTICA_MODEL_*` spells them —
+ * an operator who has just named a model in one variable should not have to
+ * learn a second spelling to price it. Values are USD per million tokens.
  *
- * `provider:*` prices every model on that provider at one rate. That exists for
- * the deployment where it is actually true — a self-hosted vLLM or a fixed-rate
- * gateway — and it is checked only after an exact key, so one model can be
- * corrected without abandoning the blanket rate.
+ * `*` prices every model at one rate. That exists for the deployment where it
+ * is actually true — a self-hosted vLLM, or a fixed-rate gateway — and it is
+ * checked only after an exact key, so one model can be corrected without
+ * abandoning the blanket rate.
  *
  * An override outranks the built-in Anthropic table on purpose: a deployment on
  * negotiated or committed-use rates has a truer number than the public price
@@ -214,14 +273,14 @@ function parseOverrides(raw: string): Map<string, RateCard> {
     warnOnce(
       `pricing-json:${raw}`,
       `Ignoring ${PRICING_ENV_VAR} — it is not valid JSON (${(err as Error).message}). ` +
-        'Expected {"provider:model":{"input":<usd per million>,"output":<usd per million>}}.',
+        'Expected {"<model>":{"input":<usd per million>,"output":<usd per million>}}.',
     );
     return table;
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     warnOnce(
       `pricing-shape:${raw}`,
-      `Ignoring ${PRICING_ENV_VAR} — expected a JSON object keyed by "provider:model", got ${
+      `Ignoring ${PRICING_ENV_VAR} — expected a JSON object keyed by model name, got ${
         Array.isArray(parsed) ? 'an array' : typeof parsed
       }.`,
     );
@@ -229,12 +288,9 @@ function parseOverrides(raw: string): Map<string, RateCard> {
   }
 
   for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-    const route = parseRoute(key);
-    if (!route) {
-      warnOnce(
-        `pricing-key:${key}`,
-        `Ignoring ${PRICING_ENV_VAR} entry "${key}" — expected "model" or "provider:model" with provider one of anthropic/openai_compatible.`,
-      );
+    const model = key.trim();
+    if (!model) {
+      warnOnce(`pricing-key:${key}`, `Ignoring an empty ${PRICING_ENV_VAR} key — expected a model name.`);
       continue;
     }
     const card = readRateCard(value);
@@ -245,7 +301,7 @@ function parseOverrides(raw: string): Map<string, RateCard> {
       );
       continue;
     }
-    table.set(formatRoute(route.provider, route.model), card);
+    table.set(model, card);
   }
   return table;
 }
@@ -296,54 +352,37 @@ export function declaredPricingRoutes(): string[] {
 /* ==================================================================== */
 
 /**
- * Prices token counts for one (provider, model), in resolution order:
+ * Prices token counts for one model, in resolution order:
  *
- *   1. an exact `REALYTICA_PRICING` entry for the route;
- *   2. a `provider:*` wildcard entry;
+ *   1. an exact `REALYTICA_PRICING` entry for the model;
+ *   2. the `*` wildcard entry;
  *   3. Anthropic's published rates, via `client.ts`;
  *   4. nothing — the cost is unknown and says so.
  *
- * Step 3 inherits `client.ts`'s own fallback for an id it does not recognise:
- * it warns by name and prices at the most expensive Anthropic rate. This
- * module keeps that behaviour rather than overriding it — within one vendor a
- * ceiling is bounded and actionable — but labels the result `upper_bound` so a
- * reader is never shown a ceiling dressed as an estimate.
+ * Step 3 depends on whether a proxy is configured, and that distinction is
+ * load-bearing. Pointed straight at Anthropic, every model IS an Anthropic
+ * model, so an id not in the table is a NEW Anthropic model and the most
+ * expensive Anthropic rate is a bounded, actionable ceiling — labelled
+ * `upper_bound` so nobody is shown a ceiling dressed as an estimate. Behind a
+ * proxy the same id could be anything, and pricing a Gemini Flash call at
+ * Opus rates is not a ceiling, it is a fiction fifty times the truth. So there
+ * it falls to step 4.
  *
- * Step 4 warns once naming the route, and returns `costUsd: 0` carrying
+ * Step 4 warns once naming the model, and returns `costUsd: 0` carrying
  * `confidence: 'unavailable'`. Zero is the only number that can be put in a
  * field typed `number`; what stops it from becoming a lie is that every
  * aggregate in this package reports the unpriced calls and their tokens
  * alongside the total. See `PricingCoverage`.
  */
-export function priceTokens(provider: ProviderId, model: string, tokens: TokenCounts): PriceResolution {
-  const route = formatRoute(provider, model);
-  const overrides = overrideTable();
-
-  const exact = overrides.get(route);
-  if (exact) return applyRate(route, exact, tokens, 'exact', 'operator_override');
-
-  const wildcard = overrides.get(formatRoute(provider, '*'));
-  if (wildcard) return applyRate(route, wildcard, tokens, 'exact', 'operator_wildcard');
-
-  if (provider === 'anthropic') {
-    const known = ANTHROPIC_PRICED_MODELS.has(model);
-    // `priceTokensUsd` owns the numbers, and warns by name itself when the id
-    // is one it does not recognise — so there is no second warning here.
-    const costUsd = priceTokensUsd(model, tokens);
-    return {
-      costUsd,
-      confidence: known ? 'exact' : 'upper_bound',
-      source: known ? 'anthropic_published' : 'anthropic_ceiling',
-      route,
-    };
-  }
-
-  warnOnce(
-    `pricing:${route}`,
-    `No rate on file for "${route}" — its calls are counted as UNPRICED, not as $0, so every cost total that includes them is a lower bound. ` +
-      `Declare it: ${PRICING_ENV_VAR}='{"${route}":{"input":<usd per million>,"output":<usd per million>}}'.`,
-  );
-  return { costUsd: 0, confidence: 'unavailable', source: 'none', route };
+export function priceTokens(_provider: ProviderId, model: string, tokens: TokenCounts): PriceResolution {
+  const resolved = rateFor(model);
+  if (!resolved) return { costUsd: 0, confidence: 'unavailable', source: 'none', route: model };
+  return {
+    costUsd: applyRateUsd(resolved.rate, tokens),
+    confidence: resolved.confidence,
+    source: resolved.source,
+    route: model,
+  };
 }
 
 function applyRate(

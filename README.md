@@ -88,8 +88,7 @@ and needs none of them:
 | --- | --- |
 | `BLOB_READ_WRITE_TOKEN` | Set automatically by attaching a Vercel Blob store. Switches storage from the filesystem to Blob, which is what makes a serverless deployment durable. |
 | `REALYTICA_API_KEY` | Turns on the agent layer. Without it — or without an endpoint that needs no key — every agent route answers `503 no_credentials` and the rest of the app is unaffected. The bare `ANTHROPIC_API_KEY` also works when no base URL is set, since the Anthropic SDK reads it itself. |
-| `REALYTICA_ANTHROPIC_BASE_URL` | Sends Anthropic-format calls to a proxy instead of to Anthropic. This is the LiteLLM seat — see the agent section for why it, and not the OpenAI-compatible one, is the way to reach other vendors. |
-| `REALYTICA_BASE_URL` | Points the whole roster at a plain OpenAI-compatible endpoint instead. Costs PDF input and verified citations, which that format cannot express. |
+| `REALYTICA_BASE_URL` | Sends calls to a proxy instead of to Anthropic. This is the LiteLLM seat, and the only way to reach another vendor — see the agent section. |
 | `REALYTICA_AGENT_WEB_SEARCH=1` | Lets the research and explorer agents reach the public web. Off by default: enabling it is a permission, and only external-safe case context is ever sent. |
 | `REALYTICA_DATA_DIR` | Filesystem adapter only. Where the JSON store and uploaded documents live. |
 | `REALYTICA_GOOGLE_MAPS_API_KEY` | Turns on geocoding, Street View and nearby amenities. Absent, the site context reports named gaps rather than empty results. |
@@ -110,8 +109,8 @@ pnpm clean        # remove node_modules and build output
 **Evaluating a route before you tier it:**
 
 ```bash
-pnpm eval --routes anthropic:claude-haiku-4-5-20251001,anthropic:claude-sonnet-5 --dry-run
-pnpm eval --routes openai_compatible:llama-3.3-70b --task document_extraction
+pnpm eval --routes claude-haiku-4-5-20251001,claude-sonnet-5 --dry-run
+pnpm eval --routes gemini-flash --task document_extraction   # a name from litellm/config.yaml
 ```
 
 Runs the 43-case corpus against one or more routes and ranks them. `--dry-run`
@@ -344,7 +343,7 @@ open http://localhost:4000/ui           # virtual keys, budgets, spend
 ```
 
 ```bash
-REALYTICA_ANTHROPIC_BASE_URL=http://localhost:4000
+REALYTICA_BASE_URL=http://localhost:4000
 REALYTICA_API_KEY=<a virtual key issued in the UI>
 REALYTICA_MODEL_EXTRACTION=realytica-extraction   # names from litellm/config.yaml
 REALYTICA_MODEL_REASONING=realytica-reasoning
@@ -356,39 +355,44 @@ change here and no redeploy. Budgets, per-key spend limits and the cost
 dashboard are the proxy's, which is the right home for them — they are
 infrastructure, not case data.
 
-**Why the *Anthropic* base URL and not the OpenAI one.** LiteLLM serves both
-formats, and they are not equivalent for this product. Anthropic's format
-carries a document block and a citation request; the OpenAI chat-completions
-format has no field for either, so a model reached that way cannot be sent a
-scanned deed and cannot return a page reference the provider checked. Pointing
-the Anthropic client at the proxy keeps PDF input, verified citations, prompt
-caching and adaptive thinking on calls that end up at any vendor.
+**There is one wire format and no second provider in this codebase, and that
+is a measured decision.** Reaching another vendor used to mean a second
+implementation here, speaking the only shared format available — OpenAI's chat
+completions — which has no field for a document or a citation. Run against a
+real LiteLLM proxy with the same Anthropic-format PDF:
 
-That last claim is the whole premise and it is worth checking rather than
-believing. `pnpm probe:litellm --model <name>` sends a real one-page PDF
-through the proxy and reports three things separately — whether the document
-reached the model, whether citations came back, and whether they are verified
-— because a proxy can deliver the bytes and quietly drop the citation request,
-which looks like success right up until a page number in a report turns out to
-be a guess.
+| Routed to | PDF arrives | Citation request |
+| --- | --- | --- |
+| Anthropic | yes, as a `document` block | carried |
+| **Gemini** | yes, as `inline_data` | dropped |
+| OpenAI | **no — dropped silently** | dropped |
 
-`REALYTICA_BASE_URL` still points at a plain OpenAI-compatible endpoint
-(OpenRouter, Groq, Ollama) for a deployment that wants no proxy and accepts
-losing those two capabilities. Everything below is an escape hatch — reach for
-it when you need it, not to get started:
+So the format that carries a scanned deed to a third-party model is
+Anthropic's, and the proxy is what makes it reach one. A port whose second half
+cannot carry a deed is not portability, and it is now gone.
+
+Two consequences are wired in rather than written down. **Citations are
+detected from the answer, not declared.** Behind a proxy the vendor is
+unknowable from here, so a document read that asked for citations and got none
+records a `citations_unavailable` gap on its result, and that travels into the
+evidence and the telemetry — a page reference nothing verified must never look
+like one that was. And **`pnpm probe:litellm --model <name>`** sends a real
+one-page PDF through your proxy and reports, separately, whether the document
+reached the model, whether citations came back, and whether they were verified.
+Run it after pointing a tier at a new model.
+
+The rest:
 
 | Variable | Effect |
 | --- | --- |
-| `provider:model` on any route | Sends one route to a specific provider regardless of the endpoint, e.g. `anthropic:claude-haiku-4-5-20251001` for document intelligence while everything else runs on a gateway. Name that provider's own key (`REALYTICA_ANTHROPIC_API_KEY`) alongside it — `REALYTICA_API_KEY` belongs to the endpoint that issued it and is never sent elsewhere. |
-| `REALYTICA_ROUTE_<AGENT>` | Route one agent, overriding everything else. With a gateway in front this is rarely needed — routing is what the gateway is for. |
-| `REALYTICA_OPENAI_STRICT_TOOLS=1` | Declares that this endpoint enforces `strict` on tool schemas. Off by default, and left off unless you have checked: a capability that holds only when the vendor happens to comply is worse than one that is honestly false. |
 | `REALYTICA_AGENTS_DISABLED=1` | Turn the agent layer off entirely. |
+| `REALYTICA_AGENT_WEB_SEARCH=1` | Let the research and explorer agents reach the public web. |
 
-Precedence, most specific first: `REALYTICA_ROUTE_<AGENT>` →
-`REALYTICA_MODEL_<TIER>` → the built-in default. Every route records where its
-decision came from, because a surprising route is otherwise an archaeology
-exercise across the environment, and the one time that matters is during an
-incident.
+A model name is passed through verbatim, so a proxy's own names work as
+written — `llama3.3:70b` and `anthropic/claude-sonnet-4.5:beta` are single
+names, not structure. Routing one agent somewhere different is a `model_name`
+in `litellm/config.yaml` pointed at by that agent's tier, not a variable
+here.
 
 **The abstraction declares capabilities rather than flattening to what every
 provider shares.** That distinction is the whole design. Anthropic's

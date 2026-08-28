@@ -20,12 +20,10 @@ import type { AgentKind, AgentRoute, CapabilityGap, ProviderCapabilities, Provid
 import { AGENT_CAPABILITY_NEEDS, formatRoute, routeFor } from '../routing';
 import { anthropicProvider } from './anthropic';
 import { instrument } from './instrument';
-import { openAiCompatibleProvider } from './openai';
 import type { LlmProvider } from './types';
 
 const PROVIDERS: Record<ProviderId, LlmProvider> = {
   anthropic: anthropicProvider,
-  openai_compatible: openAiCompatibleProvider,
 };
 
 /**
@@ -38,7 +36,6 @@ const PROVIDERS: Record<ProviderId, LlmProvider> = {
  */
 const INSTRUMENTED: Record<ProviderId, LlmProvider> = {
   anthropic: instrument(PROVIDERS.anthropic, 'anthropic'),
-  openai_compatible: instrument(PROVIDERS.openai_compatible, 'openai_compatible'),
 };
 
 /** The provider object for an id. Total over `ProviderId`, so a new id is a compile error here. */
@@ -113,47 +110,29 @@ export function resolveRoute(agent: AgentKind): ResolvedRoute {
 /* Wording for an unreachable route                                      */
 /* ==================================================================== */
 
-/**
- * The short form: `"<why> — <what that means for this agent>"`.
- *
- * The Anthropic half is word-for-word what each agent said before the port
- * existed, because these strings reach users and a migration is not a licence
- * to reword them. The OpenAI-compatible half names the two variables an
- * operator has to set, since "not configured" without them is a scavenger
- * hunt.
- */
-export function missingCredentialsReason(route: AgentRoute, clause: string): string {
-  const head =
-    route.provider === 'anthropic'
-      ? 'Anthropic credentials are not configured'
-      : `No OpenAI-compatible endpoint is configured for route ${formatRoute(route.provider, route.model)} (set REALYTICA_BASE_URL, and REALYTICA_API_KEY where the endpoint needs one)`;
-  return `${head} — ${clause}`;
+/** The short form: `"<why> — <what that means for this agent>"`. */
+export function missingCredentialsReason(_route: AgentRoute, clause: string): string {
+  return `${CREDENTIALS_MISSING} — ${clause}`;
 }
 
 /** The long form, used where an agent already spelled out every credential it looks for. */
-export function missingCredentialsDetail(route: AgentRoute, clause?: string): string {
-  const head =
-    route.provider === 'anthropic'
-      ? 'Anthropic credentials are not configured for this deployment (no REALYTICA_API_KEY, ANTHROPIC_API_KEY, auth token, or `ant auth login` profile was found)'
-      : `No OpenAI-compatible endpoint is configured for this deployment (route ${formatRoute(route.provider, route.model)} needs REALYTICA_BASE_URL, and REALYTICA_API_KEY where the endpoint needs one)`;
-  return clause ? `${head} — ${clause}` : `${head}.`;
+export function missingCredentialsDetail(_route: AgentRoute, clause?: string): string {
+  return clause ? `${CREDENTIALS_MISSING} — ${clause}` : `${CREDENTIALS_MISSING}.`;
 }
+
+const CREDENTIALS_MISSING =
+  'No model endpoint is configured for this deployment (set REALYTICA_API_KEY, or REALYTICA_BASE_URL for a proxy)';
 
 /**
  * Whether a run may go ahead given the deployment-level capability probe.
  *
  * `agentCapability()` answers two questions at once: is the agent layer
- * switched on at all, and does this deployment hold Anthropic credentials.
- * The first applies to every route; the second only applies to a route that
- * actually goes to Anthropic. Blocking an OpenAI-compatible route because
- * there is no `ANTHROPIC_API_KEY` would make the whole port unusable on the
- * deployments it exists for.
+ * switched on at all, and can this deployment reach a model. Neither has a
+ * per-route answer any more, so a blocked probe blocks every route.
  */
 export function capabilityBlocksRoute(
-  route: AgentRoute,
+  _route: AgentRoute,
   capability: { available: boolean; reason: string },
 ): boolean {
-  if (capability.available) return false;
-  if (capability.reason === 'disabled') return true;
-  return route.provider === 'anthropic';
+  return !capability.available;
 }

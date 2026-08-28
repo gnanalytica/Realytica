@@ -61,7 +61,8 @@ import {
 /**
  * Where every model call went, what it cost, and what it could not do.
  *
- * This page exists because the agent layer is no longer "always Anthropic".
+ * This page exists because the agent layer is no longer "always Anthropic" —
+ * a proxy in the base-URL seat can send any call to any vendor.
  * Once each agent can be pointed at a different provider, three questions stop
  * being answerable by inspection: what a case actually cost, which route is
  * genuinely faster, and — the one that matters most here — which calls ran
@@ -73,11 +74,6 @@ import {
  * invisible in the output and expensive in a diligence context, so it is given
  * a column of its own rather than folded into an error rate.
  */
-
-const PROVIDER_LABEL: Record<ProviderId, string> = {
-  anthropic: 'Anthropic',
-  openai_compatible: 'OpenAI-compatible',
-};
 
 const GAP_LABEL: Record<CapabilityGap, string> = {
   citations_unavailable: 'No verified citations',
@@ -147,21 +143,23 @@ function RoutingCard({ routes, providers }: { routes: AgentRoute[]; providers: P
    * look identical here.
    *
    * `expectedGaps` is filled by whichever layer knows the provider registry.
-   * An API build that does not fill it returns empty arrays — which, on a
-   * roster pointed at a non-Anthropic provider, would render as a confident
-   * "Full capability" badge over routes that certainly cannot do verified
-   * citations. Claiming a guarantee that was never checked is the worst of the
-   * three possible answers, so an unassessed non-Anthropic route says so.
+   * An API build that does not fill it returns empty arrays, which would
+   * render as a confident "Full capability" badge over routes nobody checked.
+   *
+   * Behind a proxy the badge cannot be confident even when the layer IS
+   * assessed: the declaration describes the wire format, and which vendor
+   * answers — and therefore whether citations come back at all — is the
+   * proxy's business. So a proxied roster says "not assessed" and leaves the
+   * real answer to the per-call gaps, which are measured from the reply.
+   * Claiming a guarantee nothing checked is the worst of the three answers.
    */
-  const assessed = providers.length > 0;
-  const nonAnthropic = routes.some((r) => r.provider !== 'anthropic');
+  const proxied = providers.some((p) => Boolean(p.baseUrl));
+  const assessed = providers.length > 0 && !proxied;
   const badge = degraded.length > 0
     ? <Badge tone="warning">{degraded.length} degraded</Badge>
     : assessed
       ? <Badge tone="good">Full capability</Badge>
-      : nonAnthropic
-        ? <Badge tone="neutral">Capability not assessed</Badge>
-        : <Badge tone="good">Full capability</Badge>;
+      : <Badge tone="neutral">Capability not assessed</Badge>;
   return (
     <Card>
       <CardHeader
@@ -205,7 +203,7 @@ function RoutingCard({ routes, providers }: { routes: AgentRoute[]; providers: P
                       <Badge tone="neutral">{r.tier}</Badge>
                     </td>
                     <td className="py-1.5 pr-3 align-top font-mono text-[11px] text-ink-secondary">
-                      {PROVIDER_LABEL[r.provider]} · {r.model}
+                      {r.model}
                     </td>
                     <td className="py-1.5 pr-3 align-top text-[11px] text-ink-muted">{r.source.replace(/_/g, ' ')}</td>
                     <td className="py-1.5 align-top">
@@ -273,8 +271,7 @@ function PerformanceTable({ rows }: { rows: ProviderPerformance[] }) {
                 {rows.map((r) => (
                   <tr key={`${r.provider}-${r.model}`} className="border-b border-hairline last:border-0">
                     <td className="py-1.5 pr-3 align-top">
-                      <span className="text-ink">{PROVIDER_LABEL[r.provider]}</span>
-                      <span className="block font-mono text-[10px] text-ink-muted">{r.model}</span>
+                      <span className="font-mono text-ink">{r.model}</span>
                     </td>
                     <td className="tabular py-1.5 pr-3 text-right align-top text-ink-secondary">{r.calls}</td>
                     <td className="tabular py-1.5 pr-3 text-right align-top text-ink">{ms(r.medianDurationMs)}</td>
@@ -354,7 +351,7 @@ function CallLog({ calls }: { calls: LlmCallRecord[] }) {
                   {c.outcome}
                 </Badge>
                 <span className="font-mono text-[10px] text-ink-muted">
-                  {PROVIDER_LABEL[c.provider]} · {c.model}
+                  {c.model}
                 </span>
                 <span className="tabular ml-auto text-[11px] text-ink-muted">
                   {ms(c.durationMs)}

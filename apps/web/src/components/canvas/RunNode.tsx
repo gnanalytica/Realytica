@@ -45,11 +45,6 @@ import type { PositionedNode } from './layout';
 /* Shared vocabulary                                                   */
 /* ------------------------------------------------------------------ */
 
-export const PROVIDER_LABEL: Record<ProviderId, string> = {
-  anthropic: 'Anthropic',
-  openai_compatible: 'OpenAI-compatible',
-};
-
 export const GAP_LABEL: Record<CapabilityGap, string> = {
   citations_unavailable: 'No verified citations',
   prompt_caching_unavailable: 'No prompt caching',
@@ -206,9 +201,10 @@ export function isModelStep(node: RunGraphNode): boolean {
 }
 
 export function routeLabel(node: RunGraphNode): string | null {
-  if (!node.provider && !node.model) return null;
-  const provider = node.provider ? PROVIDER_LABEL[node.provider] : 'unknown provider';
-  return node.model ? `${provider} · ${node.model}` : provider;
+  // The model alone. There is one wire format and the vendor behind a proxy is
+  // not knowable from here, so a provider name beside it would be decoration
+  // at best and a wrong attribution at worst.
+  return node.model ?? null;
 }
 
 /** Gaps split into the two kinds that matter, preserving contract order. */

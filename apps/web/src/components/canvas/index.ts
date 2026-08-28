@@ -16,7 +16,6 @@ export {
   GROUNDING_GAPS,
   KIND_ICON,
   KIND_LABEL,
-  PROVIDER_LABEL,
   STATUS_LABEL,
   STATUS_TONE,
   brokenInvariants,
