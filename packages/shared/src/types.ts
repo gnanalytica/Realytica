@@ -1602,6 +1602,50 @@ export type StaleKind =
  * it as an absent document would lose both halves — that something was
  * searched, and that the answer has a date on it.
  */
+/**
+ * One attempt to fetch a statutory record, whether or not it worked.
+ *
+ * `registerSearches` records only the SUCCESSES — a search that answered, and
+ * what it said. That is the right shape for the staleness watch, and it is
+ * the wrong shape for a reader deciding what to do next, because a failure
+ * leaves no trace at all: the card reported "Kaveri is unreachable" in local
+ * state and a page reload erased it. The next person then has no way to tell
+ * an unattempted record from one that has been tried four times and refused
+ * every time, which is exactly the fact that decides whether to keep trying
+ * or take the manual route.
+ *
+ * So every attempt is recorded, and an outcome that is not a retrieval is
+ * kept with its reason. One entry per kind — a later attempt supersedes an
+ * earlier one rather than accumulating beside it, the same rule
+ * `registerSearches` follows, because the question is "what happened last
+ * time", not "how many times".
+ */
+export interface RecordFetchAttempt {
+  /** The record kind attempted; matches `RegisterSearch.kind`. */
+  kind: string;
+  attemptedAt: string;
+  /** Vendor id, or `manual` when a person did it themselves. */
+  by: string;
+  outcome: 'retrieved' | 'gap';
+  /**
+   * Why it did not arrive, in the provider's own vocabulary —
+   * `not_configured`, `out_of_coverage`, `refused`, `unreachable`,
+   * `insufficient_identifiers`. Carried verbatim as text rather than as an
+   * enum because that set is owned by the records provider in
+   * `@realytica/agents`, and shared must not depend on it; collapsing the
+   * five into two would lose the distinction the reader acts on — "no vendor
+   * is configured" and "the vendor refused us" call for different next
+   * steps.
+   */
+  reason?: string;
+  /** What the reader loses while this stays unanswered — copied from the manual route. */
+  leavesUnknown?: string;
+  /** How to get it by hand instead. */
+  manualRoute?: string;
+  /** The provider's own words about why it could not answer. Never invented. */
+  detail?: string;
+}
+
 export interface RegisterSearch {
   /** Matches the record kind that produced it. */
   kind: string;
@@ -1878,6 +1922,8 @@ export interface PropertyCase {
    * watch with nothing to watch.
    */
   registerSearches?: RegisterSearch[];
+  /** Every fetch attempt, successful or not — see `RecordFetchAttempt`. */
+  recordFetchAttempts?: RecordFetchAttempt[];
   /**
    * What is being done with the site, and how that was decided. Absent on
    * cases created before the project model existed — the engine infers a

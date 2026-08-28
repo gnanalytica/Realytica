@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import type { CaseDocument, RegisterSearch } from '@realytica/shared';
+import type { CaseDocument, RecordFetchAttempt, RegisterSearch } from '@realytica/shared';
 import { REFERENCE_DATA, buildBoundary, classifyDocument, extractFields, parseBoundary, runScreen } from '@realytica/shared';
 import type { BoundarySource } from '@realytica/shared';
 import { MANUAL_ROUTES, RECORD_DOCUMENT_KIND, recordProviderFor } from '@realytica/agents';
@@ -51,6 +51,18 @@ recordsRouter.get('/', (_req, res) => {
  * real answer about the case — what is now unknown, and how to get it — and
  * making the client treat it as a transport failure would lose that.
  */
+/**
+ * Record what just happened, whatever it was.
+ *
+ * Called on BOTH branches. A failure that is not written down is a failure
+ * the next reader repeats, and the local state the card kept instead did not
+ * survive a reload.
+ */
+function noteAttempt(found: { recordFetchAttempts?: RecordFetchAttempt[] }, attempt: RecordFetchAttempt): void {
+  const others = (found.recordFetchAttempts ?? []).filter((a) => a.kind !== attempt.kind);
+  found.recordFetchAttempts = [...others, attempt];
+}
+
 recordsRouter.post<{ id: string }>('/', async (req, res) => {
   const found = findCase(req.params.id);
   if (!found) {
@@ -75,10 +87,30 @@ recordsRouter.post<{ id: string }>('/', async (req, res) => {
     period: parsed.data.period,
   });
 
+  const attemptedAt = new Date().toISOString();
+
   if (!outcome.ok) {
+    noteAttempt(found, {
+      kind: parsed.data.kind,
+      attemptedAt,
+      by: provider.id,
+      outcome: 'gap',
+      // The provider's own reason, kept as it came. Every one of the five is
+      // a different next step for the reader, and a "nil result" — the
+      // register answered and holds nothing — is not among them: that is a
+      // successful search and lands in `registerSearches`.
+      reason: outcome.gap.reason,
+      leavesUnknown: outcome.gap.leavesUnknown,
+      manualRoute: outcome.gap.manualRoute,
+      ...(outcome.gap.detail ? { detail: outcome.gap.detail } : {}),
+    });
+    found.updatedAt = attemptedAt;
+    await store.save();
     res.json({ ok: false, gap: outcome.gap });
     return;
   }
+
+  noteAttempt(found, { kind: parsed.data.kind, attemptedAt, by: provider.id, outcome: 'retrieved' });
 
   const record = outcome.record;
   const now = new Date().toISOString();

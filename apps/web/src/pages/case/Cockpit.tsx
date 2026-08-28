@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileBarChart2, FileText, Maximize2, PanelRight, Send, ShieldQuestion, Waypoints } from 'lucide-react';
+import { ArrowLeft, FileBarChart2, FileText, ListChecks, Maximize2, PanelRight, Send, ShieldQuestion, Waypoints } from 'lucide-react';
 import {
   DD_DOMAIN_KEYS,
   DD_DOMAIN_PROFILES,
@@ -20,6 +20,7 @@ import { money } from '../../lib/format';
 import { DossierPane } from './cockpit/DossierPane';
 import { RequestsPane } from './cockpit/RequestsPane';
 import { ReviewQueue, pendingReviewCount } from './cockpit/ReviewQueue';
+import { ProceduresPane, blockedStepCount } from './cockpit/ProceduresPane';
 import { CASE_GROUP_PANES, SCREENING_GROUPS, ScreeningPane, screeningBadge } from './cockpit/ScreeningPane';
 import { LEGACY_TAB_REDIRECT, findGroup } from './groups';
 import { LensBar } from '../../components/LensBar';
@@ -70,6 +71,8 @@ export default function Cockpit() {
     ? 'screening'
     : paneParam === 'review'
       ? 'review'
+      : paneParam === 'procedures'
+        ? 'procedures'
       : paneParam === 'graph'
       ? 'graph'
       : paneParam === 'requests'
@@ -227,6 +230,7 @@ export default function Cockpit() {
   }, [caseData]);
 
   const pendingReviews = caseData ? pendingReviewCount(caseData) : 0;
+  const blockedSteps = caseData ? blockedStepCount(caseData) : 0;
 
   const requestSummary = useMemo(
     () => summariseRequests(caseData?.requests ?? [], new Date().toISOString()),
@@ -380,6 +384,27 @@ export default function Cockpit() {
           </ul>
           <div className="mx-3.5 my-2 h-px bg-hairline" />
           <ul className="flex flex-col gap-px px-1.5">
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  setFocusMode(false);
+                  setParam({ pane: 'procedures', doc: null, view: null });
+                }}
+                aria-current={paneMode === 'procedures' ? 'true' : undefined}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
+                  paneMode === 'procedures' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
+                )}
+              >
+                <ListChecks size={13} /> Procedures
+                {blockedSteps > 0 ? (
+                  <span className="tabular ml-auto rounded-full bg-warning/25 px-1.5 text-[10.5px] text-ink">
+                    {blockedSteps}
+                  </span>
+                ) : null}
+              </button>
+            </li>
             <li>
               <button
                 type="button"
@@ -564,7 +589,9 @@ export default function Cockpit() {
         {/* right pane */}
         {spec.rightPane ? (
           <section aria-label="Work surface" className="flex min-w-0 flex-1 flex-col bg-surface-1">
-            {paneMode === 'review' ? (
+            {paneMode === 'procedures' ? (
+              <ProceduresPane caseData={caseData} />
+            ) : paneMode === 'review' ? (
               <ReviewQueue caseData={caseData} onChanged={refresh} />
             ) : paneMode === 'screening' && screeningGroup ? (
               <ScreeningPane

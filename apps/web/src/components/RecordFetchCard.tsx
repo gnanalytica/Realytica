@@ -27,6 +27,22 @@ type FetchState =
   | { status: 'document'; fileName: string }
   | { status: 'gap'; leavesUnknown: string; manualRoute: string; detail?: string };
 
+/**
+ * The five gap reasons in the reader's language.
+ *
+ * Kept as a closed map rather than prettifying the enum: "not_configured" and
+ * "refused" call for completely different next steps — one is ours to fix,
+ * the other is the vendor's — and a generic "could not fetch" would flatten
+ * that into a shrug.
+ */
+const GAP_REASON: Record<string, string> = {
+  not_configured: 'no records vendor is configured for this deployment',
+  out_of_coverage: 'the vendor does not cover this record here',
+  refused: 'the vendor refused the request',
+  unreachable: 'the vendor could not be reached',
+  insufficient_identifiers: 'the request was missing an identifier the vendor requires',
+};
+
 export function RecordFetchCard({
   caseData,
   onChanged,
@@ -52,6 +68,7 @@ export function RecordFetchCard({
   if (!data) return null;
   const { provider, manualRoutes } = data;
   const searches = caseData.registerSearches ?? [];
+  const attempts = caseData.recordFetchAttempts ?? [];
 
   const run = async (kind: string) => {
     setBusy(kind);
@@ -87,6 +104,7 @@ export function RecordFetchCard({
           .map(([kind, route]) => {
           const canFetch = provider.configured && provider.capabilities.kinds.includes(kind);
           const search = searches.find((s) => s.kind === kind);
+          const attempt = attempts.find((a) => a.kind === kind);
           const result = state[kind];
           const isOpen = expanded.has(kind);
           return (
@@ -103,6 +121,14 @@ export function RecordFetchCard({
                   <Badge tone={search.nilResult ? 'good' : 'neutral'}>
                     {search.nilResult ? 'Nil as at' : 'Searched'} {relativeTime(search.retrievedAt)}
                   </Badge>
+                )}
+                {/* A refused or unreachable attempt is a state of the case, and
+                    it says it here rather than only in the local state of
+                    whoever happened to press the button. Shown only when there
+                    is no successful search: once the record HAS arrived, when
+                    it last failed is history. */}
+                {!search && attempt?.outcome === 'gap' && (
+                  <Badge tone="warning">Tried {relativeTime(attempt.attemptedAt)}</Badge>
                 )}
                 {canFetch && (
                   <Button
@@ -132,6 +158,21 @@ export function RecordFetchCard({
                 <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-relaxed text-ink">
                   <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-good" />
                   <span>{result.fileName} added to the case.</span>
+                </p>
+              )}
+
+              {/* The persisted attempt, when nothing has been run this session.
+                  Without it a reader cannot tell a record nobody has tried
+                  from one that has refused four times — which is the fact
+                  that decides between trying again and taking the manual
+                  route. */}
+              {!result && !search && attempt?.outcome === 'gap' && (
+                <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-relaxed text-ink-secondary">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0 text-warning" />
+                  <span>
+                    Last tried {relativeTime(attempt.attemptedAt)} — {GAP_REASON[attempt.reason ?? ''] ?? 'it did not answer'}.
+                    {attempt.detail ? ` ${attempt.detail}` : ''}
+                  </span>
                 </p>
               )}
 
