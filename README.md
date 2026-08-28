@@ -365,6 +365,20 @@ change here and no redeploy. Budgets, per-key spend limits and the cost
 dashboard are the proxy's, which is the right home for them — they are
 infrastructure, not case data.
 
+**Running across several vendors' free tiers** is the same mechanism: give two
+deployments the same `model_name` and they are one pool, and a key that returns
+429 is cooled down and skipped rather than retried on every request. Measured
+against the proxy with a backend rigged to be out of quota — of four requests,
+exactly one touched the exhausted key. Declare each deployment's real `rpm` and
+the router steers away from a nearly-spent key before it fails at all;
+`fallbacks` sends a whole exhausted tier up to the next one as a last resort.
+`litellm/config.yaml` carries the worked example.
+
+The one rule, and it binds only the extraction tier: **every deployment in that
+pool must be able to receive a document** — Anthropic and Gemini can, an
+`openai/…` model cannot and drops it silently, so a text-only vendor in that
+pool means whichever requests land on it read a deed they were never sent.
+
 **There is one wire format and no second provider in this codebase, and that
 is a measured decision.** Reaching another vendor used to mean a second
 implementation here, speaking the only shared format available — OpenAI's chat
