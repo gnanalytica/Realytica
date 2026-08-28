@@ -97,7 +97,7 @@ export interface OpenAiCompatibleConfig {
   baseUrl: string;
   /** Empty for an endpoint that needs none — see the note in `readConfig`. */
   apiKey: string;
-  /** Extra headers, e.g. OpenRouter's `HTTP-Referer`/`X-Title`. */
+  /** Sent with every request — attribution, and whatever a test supplies. */
   headers: Record<string, string>;
   timeoutMs: number;
   /** Retries *after* the first attempt, on 429 and 5xx only. */
@@ -105,8 +105,6 @@ export interface OpenAiCompatibleConfig {
   retryBaseMs: number;
   /** Whether this endpoint is trusted to enforce `strict` on tool schemas. */
   strictTools: boolean;
-  /** Models the deployment has declared, purely for the observability view. */
-  models?: string[];
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -119,39 +117,17 @@ const MAX_RETRY_AFTER_MS = 30_000;
 /** The in-app tool loop's ceiling when a caller names none. An unbounded loop is an unbounded bill. */
 export const DEFAULT_MAX_TOOL_ITERATIONS = 8;
 
-function readHeaders(): Record<string, string> {
-  const raw = readEnv('OPENAI_HEADERS');
-  if (!raw) return {};
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a JSON object');
-    const out: Record<string, string> = {};
-    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof value === 'string') out[key] = value;
-    }
-    return out;
-  } catch (e) {
-    // Ignored rather than thrown, exactly as routing.ts treats a malformed
-    // route: a typo in a deployment variable must not take the agent layer
-    // down, and the warning names what was dropped so it is findable.
-    warnOnce(
-      'openai:headers',
-      `Ignoring REALYTICA_OPENAI_HEADERS — expected a JSON object of string headers (${e instanceof Error ? e.message : String(e)}).`,
-    );
-    return {};
-  }
-}
-
-function readPositiveInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const n = Number.parseInt(raw, 10);
-  if (!Number.isFinite(n) || n < 0) {
-    warnOnce(`openai:${name}`, `Ignoring ${name}="${raw}" — expected a non-negative integer. Using ${fallback}.`);
-    return fallback;
-  }
-  return n;
-}
+/**
+ * Attribution headers.
+ *
+ * OpenRouter shows the calling app on its dashboards and rankings from these,
+ * and every other endpoint ignores them. Fixed rather than configurable: they
+ * identify this application, which is not something a deployment decides.
+ */
+const ATTRIBUTION_HEADERS: Record<string, string> = {
+  'http-referer': 'https://github.com/gnanalytica/Realytica',
+  'x-title': 'Realytica',
+};
 
 /**
  * The endpoint this deployment points at, or null when none is configured.
@@ -166,18 +142,14 @@ function readPositiveInt(name: string, fallback: number): number {
 export function readConfig(): OpenAiCompatibleConfig | null {
   const endpoint = baseUrl();
   if (!endpoint) return null;
-  const models = readEnv('OPENAI_MODELS')?.split(',')
-    .map(m => m.trim())
-    .filter(Boolean);
   return {
     baseUrl: endpoint.replace(/\/+$/, ''),
     apiKey: apiKeyFor('openai_compatible') ?? '',
-    headers: readHeaders(),
-    timeoutMs: readPositiveInt('REALYTICA_OPENAI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS),
-    maxRetries: readPositiveInt('REALYTICA_OPENAI_MAX_RETRIES', DEFAULT_MAX_RETRIES),
-    retryBaseMs: readPositiveInt('REALYTICA_OPENAI_RETRY_BASE_MS', DEFAULT_RETRY_BASE_MS),
+    headers: ATTRIBUTION_HEADERS,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxRetries: DEFAULT_MAX_RETRIES,
+    retryBaseMs: DEFAULT_RETRY_BASE_MS,
     strictTools: readEnv('OPENAI_STRICT_TOOLS') === '1',
-    ...(models && models.length > 0 ? { models } : {}),
   };
 }
 
@@ -645,7 +617,6 @@ class OpenAiCompatibleProvider implements LlmProvider {
         toolLoop: false,
         strictTools: config?.strictTools ?? false,
       },
-      ...(config?.models ? { models: config.models } : {}),
     };
   }
 
@@ -838,7 +809,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
       } catch (e) {
         if (controller.signal.aborted) {
           throw new ProviderCallError(
-            `The request to ${url} timed out after ${config.timeoutMs}ms. Raise REALYTICA_OPENAI_TIMEOUT_MS if this endpoint is legitimately slow.`,
+            `The request to ${url} timed out after ${config.timeoutMs}ms.`,
             { retries: attempt },
           );
         }

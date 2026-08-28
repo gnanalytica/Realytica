@@ -61,7 +61,7 @@ import { readEnv } from './env';
  *     rather than once per case. Tiering it is most of the saving; leaving it
  *     on the frontier model would make the rest of this change cosmetic.
  *
- * That is a trade, not a certainty. `REALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment`
+ * That is a trade, not a certainty. `REALYTICA_ROUTE_DOCUMENT_INTELLIGENCE`
  * reverses it for a deployment whose documents are worse than ours, and the
  * per-agent cost breakdown makes the price of reversing it visible.
  */
@@ -79,7 +79,7 @@ export const AGENT_TIERS: Record<AgentKind, ModelTier> = {
   // and the highest-frequency agent here — one call per chat turn — so the
   // tier that fits the work is also the one that keeps a conversation from
   // costing more than the diligence. Move it with
-  // REALYTICA_TIER_INTAKE_CONCIERGE if a deployment finds it reads thin.
+  // REALYTICA_ROUTE_INTAKE_CONCIERGE if a deployment finds it reads thin.
   intake_concierge: 'extraction',
 
   /** Reads a case's shape and emits a task list. Structured, bounded, and its failure is already survivable — the orchestrator falls back to the fixed pipeline. */
@@ -121,22 +121,17 @@ export function modelForTier(tier: ModelTier): string {
 }
 
 /**
- * The tier an agent runs on, after any per-agent override.
+ * The tier an agent runs on.
  *
- * `REALYTICA_TIER_<AGENT>` (e.g. `REALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment`)
- * moves a single agent between tiers. An unrecognised value is ignored rather
- * than throwing: a typo in a deployment env var must not take the agent layer
- * down, and the warning says exactly what was ignored.
+ * Fixed, and deliberately not configurable. A tier is a statement about the
+ * KIND of work an agent does — mechanical extraction, reasoning, judgement —
+ * which is a property of the agent, not of the deployment. An operator who
+ * wants document intelligence on a stronger model wants a different model, and
+ * `REALYTICA_ROUTE_DOCUMENT_INTELLIGENCE` says exactly that; moving it to the
+ * judgment tier said it sideways, and left the run records claiming the agent
+ * had changed what it was for.
  */
 export function tierFor(agent: AgentKind): ModelTier {
-  const raw = readEnv(`TIER_${agent.toUpperCase()}`);
-  if (raw === 'extraction' || raw === 'reasoning' || raw === 'judgment') return raw;
-  if (raw !== undefined && raw !== '') {
-    warnOnce(
-      `tier:${agent}:${raw}`,
-      `Ignoring REALYTICA_TIER_${agent.toUpperCase()}="${raw}" — not one of extraction/reasoning/judgment. Using ${AGENT_TIERS[agent]}.`,
-    );
-  }
   return AGENT_TIERS[agent];
 }
 

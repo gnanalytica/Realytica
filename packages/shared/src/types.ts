@@ -3419,8 +3419,6 @@ export interface ProviderDescriptor {
   /** False when the provider has no credentials configured. */
   configured: boolean;
   capabilities: ProviderCapabilities;
-  /** Models this deployment has declared for the provider, where it enumerates them. */
-  models?: string[];
 }
 
 /** Where a routing decision came from. A surprising route must be explicable. */

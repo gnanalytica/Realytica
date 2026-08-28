@@ -343,8 +343,7 @@ started:
 | --- | --- |
 | `provider:model` on any route | Sends one route to a specific provider regardless of the endpoint, e.g. `anthropic:claude-haiku-4-5-20251001` for document intelligence while everything else runs on a gateway. Name that provider's own key (`REALYTICA_ANTHROPIC_API_KEY`) alongside it — `REALYTICA_API_KEY` belongs to the endpoint that issued it and is never sent elsewhere. |
 | `REALYTICA_ROUTE_<AGENT>` | Route one agent, overriding everything else. |
-| `REALYTICA_TIER_<AGENT>` | Move one agent between tiers, e.g. `REALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment` for a deployment whose scans are poor. |
-| `REALYTICA_OPENAI_HEADERS` / `_TIMEOUT_MS` / `_MAX_RETRIES` / `_STRICT_TOOLS=1` | Per-endpoint transport settings. |
+| `REALYTICA_OPENAI_STRICT_TOOLS=1` | Declares that this endpoint enforces `strict` on tool schemas. Off by default, and left off unless you have checked: a capability that holds only when the vendor happens to comply is worse than one that is honestly false. |
 | `REALYTICA_AGENTS_DISABLED=1` | Turn the agent layer off entirely. |
 
 Precedence, most specific first: `REALYTICA_ROUTE_<AGENT>` →
