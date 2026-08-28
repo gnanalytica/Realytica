@@ -512,7 +512,23 @@ export function getClient(): Anthropic | null {
   if (cached) return cached;
   if (readEnv('AGENTS_DISABLED') === '1') return null;
   try {
-    cached = new Anthropic();
+    /*
+     * `REALYTICA_ANTHROPIC_API_KEY` is an explicit override; the bare
+     * `ANTHROPIC_API_KEY` is the SDK's own and is left to it.
+     *
+     * Both work because the asymmetry was a trap. Every other credential in
+     * this app is `REALYTICA_`-prefixed — `REALYTICA_OPENAI_API_KEY` among
+     * them — because we read those ourselves; this one was not, because the
+     * SDK reads it. Which is a true distinction and an invisible one: setting
+     * the prefixed name raised no error, changed nothing, and left the
+     * capability endpoint still reporting `no_credentials`.
+     *
+     * Constructing bare when the override is absent is what preserves the
+     * rest of the SDK's chain — `ANTHROPIC_AUTH_TOKEN`, and an `ant auth
+     * login` profile on disk, neither of which is an API key at all.
+     */
+    const override = readEnv('ANTHROPIC_API_KEY');
+    cached = override ? new Anthropic({ apiKey: override }) : new Anthropic();
     return cached;
   } catch {
     return null;
@@ -521,6 +537,11 @@ export function getClient(): Anthropic | null {
 
 function hasCredentials(): boolean {
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) return true;
+  // The prefixed override has to be recognised HERE too, or setting it gives
+  // a working client behind a capability endpoint that still says there are
+  // no credentials — the app would answer questions while telling every
+  // screen it cannot.
+  if (readEnv('ANTHROPIC_API_KEY')) return true;
   // An `ant auth login` profile lives on disk; the SDK finds it without an env var.
   return process.env.ANTHROPIC_PROFILE !== undefined || readEnv('AGENTS_ASSUME_AUTH') === '1';
 }

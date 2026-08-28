@@ -87,7 +87,7 @@ and needs none of them:
 | Variable | Effect |
 | --- | --- |
 | `BLOB_READ_WRITE_TOKEN` | Set automatically by attaching a Vercel Blob store. Switches storage from the filesystem to Blob, which is what makes a serverless deployment durable. |
-| `ANTHROPIC_API_KEY` | Turns on the agent layer. Without it every agent route answers `503 no_credentials` and the rest of the app is unaffected. |
+| `ANTHROPIC_API_KEY` | Turns on the agent layer. Without it every agent route answers `503 no_credentials` and the rest of the app is unaffected. `REALYTICA_ANTHROPIC_API_KEY` is accepted as an explicit override, for a host where the bare name is already taken by something else — either one works. |
 | `REALYTICA_AGENT_WEB_SEARCH=1` | Lets the research and explorer agents reach the public web. Off by default: enabling it is a permission, and only external-safe case context is ever sent. |
 | `REALYTICA_DATA_DIR` | Filesystem adapter only. Where the JSON store and uploaded documents live. |
 | `REALYTICA_GOOGLE_MAPS_API_KEY` | Turns on geocoding, Street View and nearby amenities. Absent, the site context reports named gaps rather than empty results. |
