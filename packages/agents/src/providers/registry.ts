@@ -126,7 +126,7 @@ export function missingCredentialsReason(route: AgentRoute, clause: string): str
   const head =
     route.provider === 'anthropic'
       ? 'Anthropic credentials are not configured'
-      : `No OpenAI-compatible endpoint is configured for route ${formatRoute(route.provider, route.model)} (set REALYTICA_OPENAI_BASE_URL, and REALYTICA_OPENAI_API_KEY where the endpoint needs one)`;
+      : `No OpenAI-compatible endpoint is configured for route ${formatRoute(route.provider, route.model)} (set REALYTICA_BASE_URL, and REALYTICA_API_KEY where the endpoint needs one)`;
   return `${head} — ${clause}`;
 }
 
@@ -134,8 +134,8 @@ export function missingCredentialsReason(route: AgentRoute, clause: string): str
 export function missingCredentialsDetail(route: AgentRoute, clause?: string): string {
   const head =
     route.provider === 'anthropic'
-      ? 'Anthropic credentials are not configured for this deployment (no ANTHROPIC_API_KEY, auth token, or `ant auth login` profile was found)'
-      : `No OpenAI-compatible endpoint is configured for this deployment (route ${formatRoute(route.provider, route.model)} needs REALYTICA_OPENAI_BASE_URL, and REALYTICA_OPENAI_API_KEY where the endpoint needs one)`;
+      ? 'Anthropic credentials are not configured for this deployment (no REALYTICA_API_KEY, ANTHROPIC_API_KEY, auth token, or `ant auth login` profile was found)'
+      : `No OpenAI-compatible endpoint is configured for this deployment (route ${formatRoute(route.provider, route.model)} needs REALYTICA_BASE_URL, and REALYTICA_API_KEY where the endpoint needs one)`;
   return clause ? `${head} — ${clause}` : `${head}.`;
 }
 

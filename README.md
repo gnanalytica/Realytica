@@ -87,7 +87,8 @@ and needs none of them:
 | Variable | Effect |
 | --- | --- |
 | `BLOB_READ_WRITE_TOKEN` | Set automatically by attaching a Vercel Blob store. Switches storage from the filesystem to Blob, which is what makes a serverless deployment durable. |
-| `ANTHROPIC_API_KEY` | Turns on the agent layer. Without it every agent route answers `503 no_credentials` and the rest of the app is unaffected. `REALYTICA_ANTHROPIC_API_KEY` is accepted as an explicit override, for a host where the bare name is already taken by something else — either one works. |
+| `REALYTICA_API_KEY` | Turns on the agent layer. Without it — or without an endpoint that needs no key — every agent route answers `503 no_credentials` and the rest of the app is unaffected. The bare `ANTHROPIC_API_KEY` also works when no `REALYTICA_BASE_URL` is set, since the Anthropic SDK reads it itself. |
+| `REALYTICA_BASE_URL` | Points the whole roster at an OpenAI-compatible endpoint instead of Anthropic — OpenRouter, LiteLLM, Groq, Together, DeepSeek, vLLM, Ollama. Set it and `REALYTICA_API_KEY` is that endpoint's key and the model names are its ids. |
 | `REALYTICA_AGENT_WEB_SEARCH=1` | Lets the research and explorer agents reach the public web. Off by default: enabling it is a permission, and only external-safe case context is ever sent. |
 | `REALYTICA_DATA_DIR` | Filesystem adapter only. Where the JSON store and uploaded documents live. |
 | `REALYTICA_GOOGLE_MAPS_API_KEY` | Turns on geocoding, Street View and nearby amenities. Absent, the site context reports named gaps rather than empty results. |
@@ -291,7 +292,7 @@ dependency** — with no credentials configured the app behaves exactly as it do
 today, and the Intelligence tab explains what is missing rather than breaking.
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...     # or: ant auth login
+export REALYTICA_API_KEY=sk-ant-...     # or: ant auth login
 export REALYTICA_AGENT_WEB_SEARCH=1      # optional; enables the research agent
 pnpm dev
 ```
@@ -324,24 +325,35 @@ about 66%.
 
 Configuration:
 
-| Variable | Effect |
-| --- | --- |
-| `REALYTICA_MODEL_EXTRACTION` / `_REASONING` / `_JUDGMENT` | Route one tier. Accepts `model` or `provider:model`. |
-| `REALYTICA_TIER_<AGENT>` | Move one agent between tiers, e.g. `REALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment` for a deployment whose scans are poor. |
-| `REALYTICA_ROUTE_<AGENT>` | Route one agent, overriding everything else. |
-| `REALYTICA_AGENT_MODEL` | Collapses every tier onto one route. What you reach for to pin the roster during an incident. |
-| `REALYTICA_AGENTS_DISABLED=1` | Turn the agent layer off entirely. |
-
-**Providers are not locked in.** A route is written `provider:model`, or bare
-`model` for Anthropic — so every existing configuration keeps working and keeps
-meaning what it meant:
+**Configuration is one key, one endpoint, and one model per tier.** Five
+variables, and two of them have defaults:
 
 ```bash
-REALYTICA_MODEL_REASONING=openai_compatible:meta-llama/llama-3.3-70b-instruct
-REALYTICA_ROUTE_DOCUMENT_INTELLIGENCE=anthropic:claude-haiku-4-5-20251001
-REALYTICA_OPENAI_BASE_URL=https://openrouter.ai/api/v1   # or a self-hosted LiteLLM
-REALYTICA_OPENAI_API_KEY=...
+REALYTICA_API_KEY=sk-or-v1-...
+REALYTICA_BASE_URL=https://openrouter.ai/api/v1   # omit → Anthropic direct
+REALYTICA_MODEL_EXTRACTION=google/gemini-2.5-flash
+REALYTICA_MODEL_REASONING=meta-llama/llama-3.3-70b-instruct
+REALYTICA_MODEL_JUDGMENT=anthropic/claude-sonnet-4.5
 ```
+
+The endpoint decides the provider, so there is nothing to prefix: set
+`REALYTICA_BASE_URL` and the three model names are that gateway's own ids; leave
+it unset and they are Anthropic's. Model ids are passed through verbatim, so
+Ollama tags (`llama3.3:70b`) and OpenRouter variants
+(`anthropic/claude-sonnet-4.5:beta`) work as written. Swapping vendors is one
+key and three names.
+
+Everything below is an escape hatch — reach for it when you need it, not to get
+started:
+
+| Variable | Effect |
+| --- | --- |
+| `provider:model` on any route | Sends one route to a specific provider regardless of the endpoint, e.g. `anthropic:claude-haiku-4-5-20251001` for document intelligence while everything else runs on a gateway. Name that provider's own key (`REALYTICA_ANTHROPIC_API_KEY`) alongside it — `REALYTICA_API_KEY` belongs to the endpoint that issued it and is never sent elsewhere. |
+| `REALYTICA_ROUTE_<AGENT>` | Route one agent, overriding everything else. |
+| `REALYTICA_TIER_<AGENT>` | Move one agent between tiers, e.g. `REALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment` for a deployment whose scans are poor. |
+| `REALYTICA_AGENT_MODEL` | Collapses every tier onto one route. What you reach for to pin the roster during an incident. |
+| `REALYTICA_OPENAI_HEADERS` / `_TIMEOUT_MS` / `_MAX_RETRIES` / `_STRICT_TOOLS=1` | Per-endpoint transport settings. |
+| `REALYTICA_AGENTS_DISABLED=1` | Turn the agent layer off entirely. |
 
 Precedence, most specific first: `REALYTICA_ROUTE_<AGENT>` → `REALYTICA_AGENT_MODEL`
 → `REALYTICA_MODEL_<TIER>` → the built-in default. Every route records where its

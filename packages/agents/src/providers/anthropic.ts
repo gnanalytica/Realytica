@@ -398,7 +398,7 @@ class AnthropicProvider implements LlmProvider {
       // here means the deployment changed under a run. Thrown rather than
       // returned so it lands in the same catch as any other transport failure.
       throw new ProviderCallError(
-        'Anthropic credentials are not configured — check ANTHROPIC_API_KEY or run `ant auth login`.',
+        'Anthropic credentials are not configured — set REALYTICA_API_KEY or run `ant auth login`.',
       );
     }
     return client;

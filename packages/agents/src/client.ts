@@ -9,6 +9,7 @@ import type {
   ModelTier,
   ModelTierAssignment,
 } from '@realytica/shared';
+import { apiKeyFor, baseUrl, defaultProviderId } from './config';
 import { readEnv } from './env';
 
 /**
@@ -513,21 +514,16 @@ export function getClient(): Anthropic | null {
   if (readEnv('AGENTS_DISABLED') === '1') return null;
   try {
     /*
-     * `REALYTICA_ANTHROPIC_API_KEY` is an explicit override; the bare
-     * `ANTHROPIC_API_KEY` is the SDK's own and is left to it.
+     * `apiKeyFor` resolves the one-key case (`REALYTICA_API_KEY`, when
+     * Anthropic is the default provider) and the explicit
+     * `REALYTICA_ANTHROPIC_API_KEY`. The bare `ANTHROPIC_API_KEY` is the SDK's
+     * own and is left to it.
      *
-     * Both work because the asymmetry was a trap. Every other credential in
-     * this app is `REALYTICA_`-prefixed — `REALYTICA_OPENAI_API_KEY` among
-     * them — because we read those ourselves; this one was not, because the
-     * SDK reads it. Which is a true distinction and an invisible one: setting
-     * the prefixed name raised no error, changed nothing, and left the
-     * capability endpoint still reporting `no_credentials`.
-     *
-     * Constructing bare when the override is absent is what preserves the
-     * rest of the SDK's chain — `ANTHROPIC_AUTH_TOKEN`, and an `ant auth
-     * login` profile on disk, neither of which is an API key at all.
+     * Constructing bare when neither is set is what preserves the rest of the
+     * SDK's chain — `ANTHROPIC_AUTH_TOKEN`, and an `ant auth login` profile on
+     * disk, neither of which is an API key at all.
      */
-    const override = readEnv('ANTHROPIC_API_KEY');
+    const override = apiKeyFor('anthropic');
     cached = override ? new Anthropic({ apiKey: override }) : new Anthropic();
     return cached;
   } catch {
@@ -535,13 +531,27 @@ export function getClient(): Anthropic | null {
   }
 }
 
+/**
+ * Whether anything can serve a call at all.
+ *
+ * Asked of the DEFAULT provider, not of Anthropic. A deployment pointed at a
+ * gateway has no Anthropic key by design, and answering for Anthropic there
+ * reported `no_credentials` on a perfectly configured install — the agent
+ * layer would refuse every route while the endpoint it was told to use sat
+ * there working.
+ *
+ * The gateway arm asks only for the endpoint: vLLM and Ollama routinely run
+ * unauthenticated on a private network, so requiring a key would lock out two
+ * of the endpoints this path exists to serve.
+ */
 function hasCredentials(): boolean {
+  if (defaultProviderId() === 'openai_compatible') return baseUrl() !== undefined;
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) return true;
-  // The prefixed override has to be recognised HERE too, or setting it gives
-  // a working client behind a capability endpoint that still says there are
-  // no credentials — the app would answer questions while telling every
-  // screen it cannot.
-  if (readEnv('ANTHROPIC_API_KEY')) return true;
+  // The prefixed and one-key spellings have to be recognised HERE too, or
+  // setting one gives a working client behind a capability endpoint that still
+  // says there are no credentials — the app would answer questions while
+  // telling every screen it cannot.
+  if (apiKeyFor('anthropic')) return true;
   // An `ant auth login` profile lives on disk; the SDK finds it without an env var.
   return process.env.ANTHROPIC_PROFILE !== undefined || readEnv('AGENTS_ASSUME_AUTH') === '1';
 }
@@ -572,7 +582,7 @@ export function agentCapability(): AgentCapability {
 
 /** Narrows an unknown throw into a message worth showing a user. */
 export function describeError(e: unknown): string {
-  if (e instanceof Anthropic.AuthenticationError) return 'Anthropic credentials rejected — check ANTHROPIC_API_KEY or run `ant auth login`.';
+  if (e instanceof Anthropic.AuthenticationError) return 'Anthropic credentials rejected — check REALYTICA_API_KEY or run `ant auth login`.';
   if (e instanceof Anthropic.RateLimitError) return 'Rate limited by the Anthropic API — try again shortly.';
   if (e instanceof Anthropic.BadRequestError) return `Request rejected: ${e.message}`;
   if (e instanceof Anthropic.APIConnectionError) return 'Could not reach the Anthropic API — check network access.';

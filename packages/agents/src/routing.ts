@@ -1,5 +1,6 @@
 import type { AgentCapability, AgentKind, AgentRoute, CapabilityGap, ModelTier, ProviderId } from '@realytica/shared';
 import { AGENT_TIERS, agentCapability, tierFor, warnOnce } from './client';
+import { baseUrl, defaultProviderId, isProviderId } from './config';
 
 /**
  * Which provider and model each agent runs on, and where that decision came
@@ -21,31 +22,40 @@ import { AGENT_TIERS, agentCapability, tierFor, warnOnce } from './client';
 /* ==================================================================== */
 
 /**
- * A route is written `provider:model`, or bare `model` for Anthropic.
+ * A route is a model name, optionally prefixed with a provider.
  *
- * The bare form is what every existing deployment already has in
- * `REALYTICA_MODEL_REASONING` and friends, so those keep working untouched and
- * mean exactly what they meant before.
+ * The bare form is the common path and means *the default provider* — which is
+ * Anthropic, or the OpenAI-compatible endpoint when `REALYTICA_BASE_URL` is
+ * set. So pointing the deployment at a gateway is one variable and the three
+ * model names are that gateway's own ids, with no prefix to repeat:
  *
  *   claude-opus-5
- *   anthropic:claude-opus-5
- *   openai_compatible:anthropic/claude-haiku-4.5
- *   openai_compatible:meta-llama/llama-3.3-70b-instruct
+ *   meta-llama/llama-3.3-70b-instruct
+ *   llama3.3:70b
  *
- * The model half is passed through verbatim, including slashes — an
- * OpenRouter model id is `vendor/model` and splitting on anything but the
- * first colon would mangle it.
+ * The prefix stays available for the one configuration it is genuinely needed
+ * for — most agents on a gateway, one on a vendor directly:
+ *
+ *   anthropic:claude-opus-5
+ *   openai_compatible:deepseek/deepseek-chat
+ *
+ * A colon is only read as a prefix when what precedes it is a provider we
+ * have. Ollama writes its tags `llama3.3:70b` and OpenRouter its variants
+ * `anthropic/claude-sonnet-4.5:beta`; treating every colon as a provider
+ * separator rejected both as malformed, silently, leaving the tier on its
+ * default. The model half is otherwise passed through verbatim, slashes
+ * included.
  */
 export function parseRoute(raw: string): { provider: ProviderId; model: string } | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const colon = trimmed.indexOf(':');
-  if (colon === -1) return { provider: 'anthropic', model: trimmed };
-  const provider = trimmed.slice(0, colon);
-  const model = trimmed.slice(colon + 1).trim();
-  if (!model) return null;
-  if (provider === 'anthropic' || provider === 'openai_compatible') return { provider, model };
-  return null;
+  if (colon > 0) {
+    const prefix = trimmed.slice(0, colon);
+    const rest = trimmed.slice(colon + 1).trim();
+    if (isProviderId(prefix)) return rest ? { provider: prefix, model: rest } : null;
+  }
+  return { provider: defaultProviderId(), model: trimmed };
 }
 
 export function formatRoute(provider: ProviderId, model: string): string {
@@ -62,10 +72,19 @@ const TIER_ROUTE_ENV: Record<ModelTier, string> = {
   judgment: 'REALYTICA_MODEL_JUDGMENT',
 };
 
-const TIER_DEFAULT_ROUTES: Record<ModelTier, string> = {
-  extraction: 'anthropic:claude-haiku-4-5-20251001',
-  reasoning: 'anthropic:claude-sonnet-5',
-  judgment: 'anthropic:claude-opus-5',
+/**
+ * The model each tier runs when nothing names one.
+ *
+ * Anthropic ids, because that is the default provider. They are also valid
+ * OpenRouter ids for the same models, which makes the commonest gateway work
+ * unconfigured — but no other gateway serves these names, so falling through
+ * to a default while pointed at one is worth saying out loud rather than
+ * letting the operator discover it as a 404 mid-run.
+ */
+const TIER_DEFAULT_MODELS: Record<ModelTier, string> = {
+  extraction: 'claude-haiku-4-5-20251001',
+  reasoning: 'claude-sonnet-5',
+  judgment: 'claude-opus-5',
 };
 
 function readRoute(name: string): { provider: ProviderId; model: string } | null {
@@ -78,7 +97,7 @@ function readRoute(name: string): { provider: ProviderId; model: string } | null
     // dropped so the mistake is findable.
     warnOnce(
       `route:${name}:${raw}`,
-      `Ignoring ${name}="${raw}" — expected "model" or "provider:model" with provider one of anthropic/openai_compatible.`,
+      `Ignoring ${name}="${raw}" — expected a model name, optionally prefixed "anthropic:" or "openai_compatible:".`,
     );
     return null;
   }
@@ -111,9 +130,16 @@ export function routeFor(agent: AgentKind): AgentRoute {
   const perTier = readRoute(TIER_ROUTE_ENV[tier]);
   if (perTier) return { agent, tier, ...perTier, source: 'tier_env', expectedGaps: [] };
 
-  // The default is a literal this module owns; parseRoute cannot fail on it.
-  const fallback = parseRoute(TIER_DEFAULT_ROUTES[tier]) ?? { provider: 'anthropic' as const, model: 'claude-opus-5' };
-  return { agent, tier, ...fallback, source: 'default', expectedGaps: [] };
+  const provider = defaultProviderId();
+  const model = TIER_DEFAULT_MODELS[tier];
+  if (provider === 'openai_compatible') {
+    warnOnce(
+      `route:default:${tier}`,
+      `${TIER_ROUTE_ENV[tier]} is unset, so the ${tier} tier falls back to "${model}" against ${baseUrl()}. `
+        + 'Set it to a model id that endpoint serves.',
+    );
+  }
+  return { agent, tier, provider, model, source: 'default', expectedGaps: [] };
 }
 
 /** Every agent's route. Used by the capability probe and the observability view. */

@@ -85,6 +85,7 @@ import type {
   LlmStopReason,
   LlmToolRequest,
 } from './types';
+import { apiKeyFor, baseUrl } from '../config';
 import { readEnv } from '../env';
 
 /* ==================================================================== */
@@ -163,14 +164,14 @@ function readPositiveInt(name: string, fallback: number): number {
  * send.
  */
 export function readConfig(): OpenAiCompatibleConfig | null {
-  const baseUrl = readEnv('OPENAI_BASE_URL')?.trim();
-  if (!baseUrl) return null;
+  const endpoint = baseUrl();
+  if (!endpoint) return null;
   const models = readEnv('OPENAI_MODELS')?.split(',')
     .map(m => m.trim())
     .filter(Boolean);
   return {
-    baseUrl: baseUrl.replace(/\/+$/, ''),
-    apiKey: readEnv('OPENAI_API_KEY')?.trim() ?? '',
+    baseUrl: endpoint.replace(/\/+$/, ''),
+    apiKey: apiKeyFor('openai_compatible') ?? '',
     headers: readHeaders(),
     timeoutMs: readPositiveInt('REALYTICA_OPENAI_TIMEOUT_MS', DEFAULT_TIMEOUT_MS),
     maxRetries: readPositiveInt('REALYTICA_OPENAI_MAX_RETRIES', DEFAULT_MAX_RETRIES),
@@ -885,7 +886,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
     const config = readConfig();
     if (!config) {
       throw new ProviderCallError(
-        'No OpenAI-compatible endpoint is configured — set REALYTICA_OPENAI_BASE_URL (and REALYTICA_OPENAI_API_KEY where the endpoint needs one).',
+        'No OpenAI-compatible endpoint is configured — set REALYTICA_BASE_URL (and REALYTICA_API_KEY where the endpoint needs one).',
       );
     }
     return config;

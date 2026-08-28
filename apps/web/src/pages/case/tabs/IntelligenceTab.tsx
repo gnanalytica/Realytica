@@ -185,10 +185,10 @@ function CapabilityExplainer({ capability }: { capability: AgentCapability }) {
         <p>{capabilityReasonText(capability.reason)}</p>
         {capability.reason === 'no_credentials' ? (
           <p>
-            Set <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">ANTHROPIC_API_KEY</code> (or{' '}
-            <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">ANTHROPIC_AUTH_TOKEN</code>, or run{' '}
-            <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">ant auth login</code>) for the API
-            process and restart it.
+            Set <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">REALYTICA_API_KEY</code> for the
+            API process and restart it. To run against something other than Anthropic, set{' '}
+            <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">REALYTICA_BASE_URL</code> to an
+            OpenAI-compatible endpoint alongside it.
           </p>
         ) : null}
         <p className="font-medium text-ink">
