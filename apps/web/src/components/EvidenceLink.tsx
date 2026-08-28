@@ -37,11 +37,22 @@ export function EvidenceLink({
   ids,
   evidence,
   onOpen,
+  onOpenDocument,
   compact,
 }: {
   ids: string[];
   evidence: EvidenceItem[];
   onOpen?: (ids: string[]) => void;
+  /**
+   * Open the document a piece of evidence came out of, at its own page.
+   *
+   * This is what turns a citation from a claim about a source into the
+   * source. Offered only for `sourceType: 'document'`, where `sourceRef` is
+   * the document id — an external dataset or a comparable has no page in this
+   * case to open, and a button that opened "something" would teach a reader
+   * that the others are broken rather than different.
+   */
+  onOpenDocument?: (documentId: string) => void;
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -116,7 +127,18 @@ export function EvidenceLink({
                       <span className="text-[11px] text-ink-muted">{fmtDate(e.capturedAt)}</span>
                     </div>
                     <p className="text-[13px] leading-relaxed text-ink">{e.statement}</p>
-                    <div className="text-xs text-ink-secondary">{e.sourceLabel}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-xs text-ink-secondary">{e.sourceLabel}</span>
+                      {onOpenDocument && e.sourceType === 'document' && e.sourceRef ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenDocument(e.sourceRef)}
+                          className="shrink-0 rounded-full bg-brand-soft px-2.5 py-0.5 text-[11px] font-medium text-brand"
+                        >
+                          Open the document
+                        </button>
+                      ) : null}
+                    </div>
                     <ProgressBar
                       value={e.confidence * 100}
                       tone={confidenceTone(e.confidence)}

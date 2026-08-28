@@ -217,7 +217,7 @@ function RfiButton({ caseData, domain }: { caseData: TabProps['caseData']; domai
   );
 }
 
-function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: TabProps & { domain: DdDomain }) {
+export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: TabProps & { domain: DdDomain }) {
   const profile = DD_DOMAIN_PROFILES[domain];
   const { data: reference } = useAsync(() => api.reference(), []);
 

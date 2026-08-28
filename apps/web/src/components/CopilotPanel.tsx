@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent, KeyboardEvent } from 'react';
+import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { ArrowUp, MessageCircle, SearchX, Sparkles, Trash2 } from 'lucide-react';
 import type { CopilotTurn, EvidenceItem, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
@@ -20,11 +20,14 @@ function TurnBubble({
   evidence,
   verification,
   onOpenNode,
+  onOpenDocument,
 }: {
   turn: CopilotTurn;
   evidence: EvidenceItem[];
   verification?: VerificationSummary;
   onOpenNode?: (nodeId: string) => void;
+  /** Open a cited document in the proof pane. */
+  onOpenDocument?: (documentId: string) => void;
 }) {
   // A critic flag has to travel with the claim it concerns. Surfacing it only
   // in the verification panel would let someone read an unsupported answer
@@ -80,7 +83,7 @@ function TurnBubble({
         ) : null}
         {turn.citedEvidenceIds.length > 0 ? (
           <div className="mt-1.5">
-            <EvidenceLink ids={turn.citedEvidenceIds} evidence={evidence} />
+            <EvidenceLink ids={turn.citedEvidenceIds} evidence={evidence} onOpenDocument={onOpenDocument} />
           </div>
         ) : null}
         {onOpenNode && turn.citedNodeIds && turn.citedNodeIds.length > 0 ? (
@@ -149,6 +152,8 @@ export function CopilotPanel({
   disabledReason,
   verification,
   onOpenNode,
+  onOpenDocument,
+  fallback,
 }: {
   conversation: CopilotTurn[];
   evidence: EvidenceItem[];
@@ -161,6 +166,18 @@ export function CopilotPanel({
   verification?: VerificationSummary;
   /** When set, graph-node citations render as chips that focus the explorer. */
   onOpenNode?: (nodeId: string) => void;
+  /** Open a cited document in the proof pane. */
+  onOpenDocument?: (documentId: string) => void;
+  /**
+   * What this column shows when there is no copilot to talk to.
+   *
+   * Chat is the centre of the cockpit, so on a deployment with no model
+   * configured the most prominent element on every case page was an apology.
+   * A dead hero is worse than no hero: it makes a working product look
+   * broken. The fallback is the case's own next steps — the thing the reader
+   * would have asked the copilot for first.
+   */
+  fallback?: ReactNode;
 }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -206,7 +223,9 @@ export function CopilotPanel({
       ) : null}
 
       <div ref={scrollRef} className="flex max-h-[26rem] min-h-[9rem] flex-col gap-2.5 overflow-y-auto pr-1">
-        {showEmptyState ? (
+        {showEmptyState && disabled && fallback ? (
+          fallback
+        ) : showEmptyState ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 py-6 text-center">
             <MessageCircle size={22} className="text-ink-muted" aria-hidden="true" />
             <p className="text-[13px] font-medium text-ink">Ask the copilot about this case</p>
@@ -225,7 +244,14 @@ export function CopilotPanel({
         ) : (
           <>
             {conversation.map((turn) => (
-              <TurnBubble verification={verification} key={turn.id} turn={turn} evidence={evidence} onOpenNode={onOpenNode} />
+              <TurnBubble
+                verification={verification}
+                key={turn.id}
+                turn={turn}
+                evidence={evidence}
+                onOpenNode={onOpenNode}
+                onOpenDocument={onOpenDocument}
+              />
             ))}
             {busy ? <TypingIndicator /> : null}
           </>

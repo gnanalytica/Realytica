@@ -4,6 +4,8 @@ import { buildDepartmentDossier, buildDepartmentReview } from '@realytica/shared
 import type { DdDomain, PropertyCase, ReferenceData } from '@realytica/shared';
 import { DOCUMENT_KIND_LABEL, relativeTime, severityTone, titleCase } from '../../../lib/format';
 import { Badge, Card, CardBody, CardHeader, EmptyState, Tile, cn } from '../../../components/ui/kit';
+import { DomainWorkboard } from '../tabs/DomainWorkboardTab';
+import type { TabProps } from '../tab-props';
 import { DepartmentVisuals } from './visuals';
 
 /**
@@ -25,6 +27,7 @@ export function DossierPane({
   onRunReview,
   reviewBusy,
   reviewDisabled,
+  work,
 }: {
   caseData: PropertyCase;
   domain: DdDomain;
@@ -36,6 +39,17 @@ export function DossierPane({
   onRunReview: (question: string) => void;
   reviewBusy: boolean;
   reviewDisabled: boolean;
+  /**
+   * Everything the department's working half needs.
+   *
+   * The dossier answers "what do we know here and what proves it"; the
+   * workboard below is where the department is WORKED — its statutory checks,
+   * its open risks and findings, and the two actions that change the case:
+   * fetching a record from the portal and raising the request for one. Those
+   * lived in a second shell until the shells were merged, and for a while
+   * afterwards they lived nowhere at all.
+   */
+  work: TabProps;
 }) {
   const dossier = useMemo(
     () => buildDepartmentDossier(caseData, domain, { refData: refData ?? undefined, now: new Date().toISOString() }),
@@ -211,35 +225,7 @@ export function DossierPane({
           </section>
         ) : null}
 
-        {dossier.connectors.length > 0 ? (
-          <section>
-            <h3 className="mb-1.5 flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
-              <Plug size={12} /> Portals &amp; authorities
-            </h3>
-            <ul className="flex flex-col gap-1.5">
-              {dossier.connectors.map((c) => (
-                <li key={c.key} className="rounded-lg border border-[var(--ring)] bg-surface px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[12.5px] font-medium text-ink">{c.label}</span>
-                    <span className="ml-auto truncate text-[10.5px] text-ink-muted">{c.authority}</span>
-                    {c.url ? (
-                      <a
-                        href={c.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        aria-label={`Open ${c.label}`}
-                        className="shrink-0 text-ink-muted hover:text-brand"
-                      >
-                        <ExternalLink size={12} />
-                      </a>
-                    ) : null}
-                  </div>
-                  <p className="mt-1 text-[11.5px] leading-relaxed text-ink-secondary">{c.settles}</p>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
+        <DomainWorkboard {...work} domain={domain} />
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileBarChart2, FileText, Maximize2, PanelRight, Send, Waypoints } from 'lucide-react';
+import { ArrowLeft, FileBarChart2, FileText, Maximize2, PanelRight, Send, ShieldQuestion, Waypoints } from 'lucide-react';
 import {
   DD_DOMAIN_KEYS,
   DD_DOMAIN_PROFILES,
@@ -19,6 +19,7 @@ import { Badge, Button, Callout, Skeleton, cn, useToast } from '../../components
 import { money } from '../../lib/format';
 import { DossierPane } from './cockpit/DossierPane';
 import { RequestsPane } from './cockpit/RequestsPane';
+import { ReviewQueue, pendingReviewCount } from './cockpit/ReviewQueue';
 import { CASE_GROUP_PANES, SCREENING_GROUPS, ScreeningPane, screeningBadge } from './cockpit/ScreeningPane';
 import { LEGACY_TAB_REDIRECT, findGroup } from './groups';
 import { LensBar } from '../../components/LensBar';
@@ -67,7 +68,9 @@ export default function Cockpit() {
   const screeningGroup = (CASE_GROUP_PANES as readonly string[]).includes(requestedPane ?? '') ? requestedPane : null;
   const paneMode = screeningGroup
     ? 'screening'
-    : paneParam === 'graph'
+    : paneParam === 'review'
+      ? 'review'
+      : paneParam === 'graph'
       ? 'graph'
       : paneParam === 'requests'
         ? 'requests'
@@ -222,6 +225,8 @@ export default function Cockpit() {
     }
     return out;
   }, [caseData]);
+
+  const pendingReviews = caseData ? pendingReviewCount(caseData) : 0;
 
   const requestSummary = useMemo(
     () => summariseRequests(caseData?.requests ?? [], new Date().toISOString()),
@@ -380,6 +385,27 @@ export default function Cockpit() {
                 type="button"
                 onClick={() => {
                   setFocusMode(false);
+                  setParam({ pane: 'review', doc: null, view: null });
+                }}
+                aria-current={paneMode === 'review' ? 'true' : undefined}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
+                  paneMode === 'review' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
+                )}
+              >
+                <ShieldQuestion size={13} /> Review
+                {pendingReviews > 0 ? (
+                  <span className="tabular ml-auto rounded-full bg-brand px-1.5 text-[10.5px] text-[var(--brand-ink)]">
+                    {pendingReviews}
+                  </span>
+                ) : null}
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  setFocusMode(false);
                   setParam({ pane: 'documents', doc: null, view: null });
                 }}
                 aria-current={screeningGroup === 'documents' ? 'true' : undefined}
@@ -473,6 +499,31 @@ export default function Cockpit() {
               disabled={canAnswer === false}
               disabledReason={canAnswer === false ? 'No model is configured for this deployment.' : undefined}
               verification={caseData.intelligence?.verification}
+              onOpenNode={nodeId => setParam({ pane: 'graph', doc: null, node: nodeId })}
+              onOpenDocument={id => openProof(id)}
+              fallback={
+                <div className="flex flex-col gap-2 py-2">
+                  <p className="text-[12.5px] font-medium text-ink">Next steps on this case</p>
+                  {(caseData.result?.actions ?? []).filter(a => !a.done).slice(0, 6).map(a => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setParam({ pane: 'report', view: 'actions', doc: null })}
+                      className="rounded-lg bg-surface px-3 py-2 text-left ring-1 ring-inset ring-[var(--ring)] hover:ring-brand/40"
+                    >
+                      <span className="block text-[12.5px] text-ink">{a.title}</span>
+                      <span className="mt-0.5 block text-[11px] text-ink-muted">
+                        {a.priority.replace(/_/g, ' ')} · {a.owner}
+                      </span>
+                    </button>
+                  ))}
+                  {(caseData.result?.actions ?? []).filter(a => !a.done).length === 0 ? (
+                    <p className="text-[12px] text-ink-muted">
+                      Nothing outstanding from the screen. Run a department review once a model is configured.
+                    </p>
+                  ) : null}
+                </div>
+              }
             />
           </div>
         </section>
@@ -513,7 +564,9 @@ export default function Cockpit() {
         {/* right pane */}
         {spec.rightPane ? (
           <section aria-label="Work surface" className="flex min-w-0 flex-1 flex-col bg-surface-1">
-            {paneMode === 'screening' && screeningGroup ? (
+            {paneMode === 'review' ? (
+              <ReviewQueue caseData={caseData} onChanged={refresh} />
+            ) : paneMode === 'screening' && screeningGroup ? (
               <ScreeningPane
                 groupKey={screeningGroup}
                 viewKey={searchParams.get('view') ?? (tabParam ? LEGACY_TAB_REDIRECT[tabParam]?.view ?? null : null)}
@@ -561,6 +614,15 @@ export default function Cockpit() {
                 onRunReview={(question) => void handleAsk(question)}
                 reviewBusy={asking}
                 reviewDisabled={canAnswer === false}
+                work={{
+                  caseData,
+                  result: caseData.result ?? null,
+                  refresh,
+                  runScreen: async () => { await api.runScreen(caseData.id); await refresh(); },
+                  running: false,
+                  goToTab: key => setParam({ pane: key, doc: null, view: null }),
+                  lens,
+                }}
               />
             )}
           </section>
