@@ -337,10 +337,20 @@ where a model name becomes an actual vendor, and every API key lives there
 instead of here:
 
 ```bash
-cp litellm/.env.example litellm/.env    # your vendor keys go in this file
+cp litellm/.env.example litellm/.env    # vendor keys, and a UI login
 docker compose up -d
-open http://localhost:4000/ui           # virtual keys, budgets, spend
+open http://localhost:4000/ui           # models, keys, budgets, spend
 ```
+
+The UI is where the vendor decisions actually live once it is running: add a
+model and its API key without editing a file or restarting (`store_model_in_db`
+is on, so it persists in Postgres), mint the virtual key Realytica uses, set a
+monthly budget and rate limit per key, and watch spend per key, per model and
+per day. `litellm/config.yaml` is the checked-in baseline; the UI is how you
+try something. Around 150 providers are supported — Anthropic, Gemini, OpenAI,
+DeepSeek, Kimi (Moonshot), Hugging Face, Groq, Together, Mistral, xAI, Bedrock,
+Vertex, Ollama and the rest — and `config.yaml` carries commented entries for
+the common ones.
 
 ```bash
 REALYTICA_BASE_URL=http://localhost:4000

@@ -59,10 +59,28 @@ model_list:
   #     model: deepseek/deepseek-chat
   #     api_key: os.environ/DEEPSEEK_API_KEY
   #
+  # - model_name: kimi
+  #   litellm_params:
+  #     model: moonshot/kimi-k2-0905-preview
+  #     api_key: os.environ/MOONSHOT_API_KEY
+  #
+  # A Hugging Face model, through Inference Providers. Point `api_base` at a
+  # dedicated Inference Endpoint instead when you have one.
+  # - model_name: hf-qwen
+  #   litellm_params:
+  #     model: huggingface/Qwen/Qwen3-32B
+  #     api_key: os.environ/HUGGINGFACE_API_KEY
+  #
   # - model_name: local-llama
   #   litellm_params:
   #     model: ollama/llama3.3
   #     api_base: http://host.docker.internal:11434
+  #
+  # Roughly 150 providers are supported — OpenAI, Azure, Bedrock, Vertex,
+  # Groq, Together, Mistral, xAI, Perplexity, Fireworks, Cerebras, SambaNova,
+  # Nebius, OpenRouter and the rest. `litellm --help` and the provider docs
+  # have the exact `provider/model` spelling; the shape is always the three
+  # lines above.
 
 litellm_settings:
   # A vendor outage should degrade the run, not end it. Ordered, and only
@@ -72,7 +90,11 @@ litellm_settings:
   request_timeout: 120
 
 general_settings:
-  # Spend is tracked per virtual key. Budgets, rate limits and the dashboard
-  # all live in the admin UI at http://localhost:4000/ui — this file only
-  # declares what exists, not who may spend on it.
+  # Lets the admin UI at http://localhost:4000/ui add models and their API keys
+  # into the database, without editing this file and without a restart. This
+  # file is then the checked-in baseline and the UI is how you experiment; a
+  # model added there outlives a redeploy because it lives in Postgres.
+  #
+  # Budgets, rate limits, virtual keys and the spend dashboard are all in that
+  # UI too. This file declares what exists, never who may spend on it.
   store_model_in_db: true
