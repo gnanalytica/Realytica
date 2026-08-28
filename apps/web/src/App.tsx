@@ -9,7 +9,6 @@ import Observability from './pages/Observability';
 import Prompts from './pages/Prompts';
 import Intake from './pages/Intake';
 import Cockpit from './pages/case/Cockpit';
-import CaseWorkspace from './pages/case/CaseWorkspace';
 import Landing from './pages/Landing';
 
 export default function App() {
@@ -30,9 +29,19 @@ export default function App() {
           <Route path="app" element={<Intake />} />
           <Route path="cases" element={<Dashboard />} />
           <Route path="cases/new" element={<NewCase />} />
-          <Route path="cases/:caseId" element={<CaseWorkspace />} />
+          {/*
+            * One shell. The cockpit IS the case: screening, departments,
+            * documents, requests, graph and report are panes within it,
+            * rather than a second tabbed workspace that rendered the eight
+            * departments a second time and carried a second chat.
+            *
+            * `:tab` still resolves so that every link already pasted into a
+            * message — and every navigation the copilot itself emits —
+            * lands on the equivalent pane instead of a 404.
+            */}
+          <Route path="cases/:caseId" element={<Cockpit />} />
           <Route path="cases/:caseId/cockpit" element={<Cockpit />} />
-          <Route path="cases/:caseId/:tab" element={<CaseWorkspace />} />
+          <Route path="cases/:caseId/:tab" element={<Cockpit />} />
           <Route path="compare" element={<Compare />} />
           <Route path="observability" element={<Observability />} />
           <Route path="prompts" element={<Prompts />} />

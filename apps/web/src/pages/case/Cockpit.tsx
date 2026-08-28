@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileText, Maximize2, PanelRight, Send, Waypoints } from 'lucide-react';
+import { ArrowLeft, FileBarChart2, FileText, Maximize2, PanelRight, Send, Waypoints } from 'lucide-react';
 import {
   DD_DOMAIN_KEYS,
   DD_DOMAIN_PROFILES,
@@ -19,6 +19,11 @@ import { Badge, Button, Callout, Skeleton, cn, useToast } from '../../components
 import { money } from '../../lib/format';
 import { DossierPane } from './cockpit/DossierPane';
 import { RequestsPane } from './cockpit/RequestsPane';
+import { CASE_GROUP_PANES, SCREENING_GROUPS, ScreeningPane, screeningBadge } from './cockpit/ScreeningPane';
+import { LEGACY_TAB_REDIRECT, findGroup } from './groups';
+import { LensBar } from '../../components/LensBar';
+import { resolveLens } from '@realytica/shared';
+import type { LensKey } from '@realytica/shared';
 import { ProofPane } from './cockpit/ProofPane';
 import GraphExplorerTab from './tabs/GraphExplorerTab';
 import { CommandBar } from './cockpit/CommandBar';
@@ -38,7 +43,7 @@ import type { CockpitLayout } from './cockpit/layout';
  * so a colleague can be sent exactly what you are looking at.
  */
 export default function Cockpit() {
-  const { caseId } = useParams<{ caseId: string }>();
+  const { caseId, tab: tabParam } = useParams<{ caseId: string; tab?: string }>();
   const navigate = useNavigate();
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -52,14 +57,57 @@ export default function Cockpit() {
     : 'land';
   const openDocumentId = searchParams.get('doc');
   const paneParam = searchParams.get('pane');
-  const paneMode =
-    paneParam === 'graph' ? 'graph' : paneParam === 'requests' ? 'requests' : openDocumentId ? 'document' : 'dossier';
+  /*
+   * A screening group is addressed as `pane=<group>` rather than through a
+   * separate parameter, so every surface in the cockpit is reachable by one
+   * name and a pasted link means one thing.
+   */
+  const legacyTab = tabParam && tabParam !== 'cockpit' ? (LEGACY_TAB_REDIRECT[tabParam]?.group ?? tabParam) : null;
+  const requestedPane = paneParam ?? legacyTab;
+  const screeningGroup = (CASE_GROUP_PANES as readonly string[]).includes(requestedPane ?? '') ? requestedPane : null;
+  const paneMode = screeningGroup
+    ? 'screening'
+    : paneParam === 'graph'
+      ? 'graph'
+      : paneParam === 'requests'
+        ? 'requests'
+        : openDocumentId
+          ? 'document'
+          : 'dossier';
 
   /*
    * The layout follows the task: opening a document or the graph narrows the
    * chat by itself. `focus` is the only one a person chooses, so it is the
    * only one held in state rather than derived.
    */
+  /*
+   * The reading lens. Held as an override over the case's saved value so a
+   * switch is instant and a failed save costs the reader nothing — the lens
+   * is a presentation choice, not case truth.
+   */
+  const [lensOverride, setLensOverride] = useState<LensKey | null>(null);
+  const [lensBusy, setLensBusy] = useState(false);
+  const lens: LensKey = lensOverride ?? resolveLens({
+    lens: caseData?.lens,
+    defaultLens: caseData?.result?.assessment?.defaultLens,
+    persona: caseData?.persona,
+  });
+  const chooseLens = useCallback(
+    async (next: LensKey) => {
+      if (!caseData) return;
+      setLensOverride(next);
+      setLensBusy(true);
+      try {
+        await api.setLens(caseData.id, next);
+      } catch {
+        /* presentation only — a failed save is not worth interrupting a read */
+      } finally {
+        setLensBusy(false);
+      }
+    },
+    [caseData],
+  );
+
   const [focusMode, setFocusMode] = useState(false);
   const layout: CockpitLayout =
     focusMode ? 'focus' : paneMode === 'dossier' || paneMode === 'requests' ? 'cockpit' : 'study';
@@ -211,8 +259,8 @@ export default function Cockpit() {
     <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col">
       {/* case bar */}
       <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-hairline px-5 py-2.5">
-        <Link to={`/cases/${caseData.id}`} className="text-[11.5px] text-ink-secondary hover:text-ink">
-          Property screen
+        <Link to="/cases" className="text-[11.5px] text-ink-secondary hover:text-ink">
+          Your cases
         </Link>
         <span className="text-ink-muted">·</span>
         <span className="text-[13.5px] font-semibold text-ink">{caseData.reference}</span>
@@ -226,6 +274,10 @@ export default function Cockpit() {
           <Badge tone="neutral">Not screened</Badge>
         )}
         <div className="flex-grow" />
+        {/* The lens travels with the screening views it reorders, so it sits
+            in the case bar rather than above a tab strip that no longer
+            exists. */}
+        <LensBar lens={lens} onChange={chooseLens} busy={lensBusy} />
         <button
           type="button"
           onClick={() => setCommandOpen(true)}
@@ -250,7 +302,45 @@ export default function Cockpit() {
 
       <div className="flex min-h-0 flex-1">
         {/* rail */}
-        <nav aria-label="Departments" className="flex w-[180px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline bg-surface-1 py-3">
+        <nav aria-label="Case navigation" className="flex w-[180px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline bg-surface-1 py-3">
+          <div className="px-3.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-muted">Screening</div>
+          <ul className="flex flex-col gap-px px-1.5">
+            {SCREENING_GROUPS.map(key => {
+              const group = findGroup(key);
+              if (!group) return null;
+              const badge = screeningBadge(key, caseData, caseData.result ?? null);
+              const on = screeningGroup === key;
+              return (
+                <li key={key}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusMode(false);
+                      setParam({ pane: key, doc: null, view: null });
+                    }}
+                    aria-current={on ? 'true' : undefined}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[12.5px]',
+                      on ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
+                    )}
+                  >
+                    <span>{group.label}</span>
+                    {badge ? (
+                      <span
+                        className={cn(
+                          'tabular rounded-full px-1.5 text-[10.5px]',
+                          badge.blocking ? 'bg-critical text-white' : 'bg-warning/25 text-ink',
+                        )}
+                      >
+                        {badge.count}
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="mx-3.5 my-2 h-px bg-hairline" />
           <div className="px-3.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-muted">Engagement</div>
           <ul className="flex flex-col gap-px px-1.5">
             {DD_DOMAIN_KEYS.map(d => {
@@ -285,6 +375,25 @@ export default function Cockpit() {
           </ul>
           <div className="mx-3.5 my-2 h-px bg-hairline" />
           <ul className="flex flex-col gap-px px-1.5">
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  setFocusMode(false);
+                  setParam({ pane: 'documents', doc: null, view: null });
+                }}
+                aria-current={screeningGroup === 'documents' ? 'true' : undefined}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
+                  screeningGroup === 'documents' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
+                )}
+              >
+                <FileText size={13} /> Documents
+                <span className="tabular ml-auto rounded-full bg-surface-3 px-1.5 text-[10.5px] text-ink-secondary">
+                  {caseData.documents.length}
+                </span>
+              </button>
+            </li>
             <li>
               <button
                 type="button"
@@ -330,10 +439,17 @@ export default function Cockpit() {
             <li>
               <button
                 type="button"
-                onClick={() => navigate(`/cases/${caseData.id}/report`)}
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px] text-ink-secondary hover:text-ink"
+                onClick={() => {
+                  setFocusMode(false);
+                  setParam({ pane: 'report', doc: null, view: null });
+                }}
+                aria-current={screeningGroup === 'report' ? 'true' : undefined}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
+                  screeningGroup === 'report' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
+                )}
               >
-                <FileText size={13} /> Report
+                <FileBarChart2 size={13} /> Report
               </button>
             </li>
           </ul>
@@ -397,7 +513,20 @@ export default function Cockpit() {
         {/* right pane */}
         {spec.rightPane ? (
           <section aria-label="Work surface" className="flex min-w-0 flex-1 flex-col bg-surface-1">
-            {paneMode === 'requests' ? (
+            {paneMode === 'screening' && screeningGroup ? (
+              <ScreeningPane
+                groupKey={screeningGroup}
+                viewKey={searchParams.get('view') ?? (tabParam ? LEGACY_TAB_REDIRECT[tabParam]?.view ?? null : null)}
+                onSelectView={v => setParam({ view: v })}
+                caseData={caseData}
+                result={caseData.result ?? null}
+                refresh={refresh}
+                runScreen={async () => { await api.runScreen(caseData.id); await refresh(); }}
+                running={false}
+                goToTab={key => setParam({ pane: key, doc: null, view: null })}
+                lens={lens}
+              />
+            ) : paneMode === 'requests' ? (
               <RequestsPane caseData={caseData} onChanged={refresh} onOpenDocument={(id) => openProof(id)} />
             ) : paneMode === 'graph' ? (
               /* The explorer is the same component the Diligence view uses —
