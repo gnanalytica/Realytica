@@ -37,13 +37,22 @@
  *   a claim, and no claim or judgement may ever rest on one. `addEdge` refuses
  *   the wrong direction outright, so the rule is enforced rather than
  *   documented.
+ *
+ * `layer` and `origin` answer different questions and must not be conflated.
+ * `layer` is WHAT A NODE IS — a reason is not a fact, which is what the
+ * one-way rule and the visual treatment key off. `origin` is WHERE IT LIVES —
+ * everything this function emits is `derived`, because this function is a pure
+ * projection of the case store and a rebuild reproduces it exactly. `authored`
+ * is reserved for records written straight into the graph and held nowhere
+ * else, which a persistence layer must never drop on a rebuild. Nothing here
+ * produces one yet; an analyst annotating a node will.
  */
 
 import type { EvidenceItem, PropertyCase, TitleEdgeKind, TitleGraph, TitleNodeKind } from '../types';
 import { buildTitleGraph } from './build';
 import { detectContradictions } from './contradictions';
 import { stableDigest } from './ontology';
-import { DD_DOMAIN_KEYS, DD_DOMAIN_PROFILES, domainForCheck, domainForRiskCategory, domainForSystem, domainsForDocumentKind } from '../dd-domains';
+import { DD_DOMAIN_KEYS, DD_DOMAIN_PROFILES, domainForCheck, domainForRecordKind, domainForRiskCategory, domainForSystem, domainsForDocumentKind } from '../dd-domains';
 import type { DdDomain } from '../dd-domains';
 
 /* ==================================================================== */
@@ -71,7 +80,22 @@ export type DdNodeKind =
   | 'question'
   | 'answer'
   | 'thought'
-  | 'followup';
+  | 'followup'
+  /** A route to closing a gap: what the proof-pathways agent worked out. */
+  | 'pathway'
+  /** A finding from outside the case file, with the source it came from. */
+  | 'research'
+  /** A ranked conclusion an agent drew across the case. */
+  | 'insight'
+  /**
+   * A search that was carried out — including one that found nothing.
+   *
+   * "We searched the encumbrance register for 1998-2026 and it returned nil"
+   * is a finding, not an absence of one, and it is the sentence a report needs
+   * in order to say the title is clear. Without a node for it the graph can
+   * show what we hold and never what we looked for.
+   */
+  | 'search';
 
 export type DdEdgeKind =
   | TitleEdgeKind // carried through verbatim from the title graph
@@ -100,7 +124,11 @@ export type DdEdgeKind =
   /** any node -> the episode that produced it. */
   | 'recorded_in'
   /** anything with a domain -> its department. */
-  | 'belongs_to';
+  | 'belongs_to'
+  /** pathway -> the gap it would close. */
+  | 'would_resolve'
+  /** search -> the register or authority it was run against. */
+  | 'searched';
 
 const LAYER_BY_KIND: Record<DdNodeKind, DdLayer> = {
   party: 'entity',
@@ -125,6 +153,14 @@ const LAYER_BY_KIND: Record<DdNodeKind, DdLayer> = {
   answer: 'deliberation',
   thought: 'deliberation',
   followup: 'deliberation',
+  pathway: 'deliberation',
+  research: 'deliberation',
+  insight: 'deliberation',
+  // A search is EVIDENCE, not reasoning: it records what was actually done and
+  // what came back. A nil result is a fact about the register, and a report
+  // that says "no encumbrance found" has to be able to rest on it — which the
+  // one-way rule would forbid if it sat in deliberation.
+  search: 'evidence',
 };
 
 export function ddLayerFor(kind: DdNodeKind): DdLayer {
@@ -132,16 +168,21 @@ export function ddLayerFor(kind: DdNodeKind): DdLayer {
 }
 
 /**
- * Where a node came from, and therefore what may be done to it.
+ * Where a node LIVES — not what kind of thing it is. See `DdLayer` for that.
  *
- * `derived` nodes are a function of the case's stores. Rebuilding replaces
- * them wholesale, and losing them costs a rebuild rather than data — which is
- * what lets any persistence layer underneath be treated as an index rather
- * than a source of truth.
+ * `derived` nodes are a pure function of the case store, so a rebuild
+ * reproduces them exactly and a persistence layer holding them is an index
+ * rather than a source of truth. Losing them costs a rebuild.
  *
- * `authored` nodes were written once by a person or an agent and can never be
- * regenerated, because the input that produced them was a conversation rather
- * than a document. They are the ones a store must not lose.
+ * `authored` nodes were written straight into the graph and exist nowhere
+ * else — an analyst's annotation, a link somebody drew by hand. A sync must
+ * never touch them, because for those the graph IS the record.
+ *
+ * The distinction is about storage, and a reason recorded in a chat transcript
+ * is `derived`: the transcript is on the case and rebuilds it. Whether a node
+ * is reasoning rather than fact is `layer`, and getting these two the wrong
+ * way round means either the visuals lie about what is verified or a rebuild
+ * quietly duplicates every agent output that ever ran.
  */
 export type DdOrigin = 'derived' | 'authored';
 
@@ -197,9 +238,9 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
   const nodes = new Map<string, DdNode>();
   const edges = new Map<string, DdEdge>();
 
-  // Defaulted rather than demanded, because every caller below reads a case
-  // store and is derived by construction. The deliberation pass is the only
-  // producer of authored nodes and says so explicitly at each one.
+  // Every node this function makes is derived: it reads the case store and
+  // nothing else. `origin` is still on the type because the persistence layer
+  // needs it, and an `append` from outside the projection will set it.
   const addNode = (node: Omit<DdNode, 'origin'> & { origin?: DdOrigin }): DdNode => {
     const existing = nodes.get(node.id);
     if (existing) return existing;
@@ -214,12 +255,14 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
     const from = nodes.get(fromNodeId);
     const to = nodes.get(toNodeId);
     if (!from || !to) return;
-    // The one-way join, enforced rather than documented. Deliberation may cite
-    // a fact; a fact may never rest on deliberation. Without this the graph
-    // would let an unreviewed chat answer become the support under a finding
-    // that reaches a bank, which is the whole reason the layer was kept out
-    // before — the fix is direction, not exclusion.
-    if (from.origin === 'derived' && to.origin === 'authored') return;
+    // The one-way join, enforced rather than documented, and keyed on LAYER
+    // because that is the question being asked: may a conclusion rest on a
+    // reason? No. Deliberation may cite a fact; a fact may never rest on
+    // deliberation. Without this the graph would let an unreviewed chat answer
+    // become the support under a finding that reaches a bank, which is the
+    // whole reason the layer was kept out before — the fix is direction, not
+    // exclusion.
+    if (from.layer !== 'deliberation' && to.layer === 'deliberation') return;
     const id = mintEdgeId(kind, fromNodeId, toNodeId);
     if (!edges.has(id)) edges.set(id, { id, kind, fromNodeId, toNodeId, label });
   };
@@ -453,7 +496,6 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
       // Truncated for the label only. The full text stays in the transcript,
       // which the node names — a graph label is a handle, not a store.
       label: summarise(turn.text),
-      origin: 'authored',
       attributes: {
         turnId: turn.id,
         at: turn.at,
@@ -484,8 +526,7 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
         kind: 'thought',
         layer: 'deliberation',
         label: `${call.name}: ${summarise(call.summary)}`,
-        origin: 'authored',
-        attributes: { turnId: turn.id, tool: call.name, at: turn.at },
+          attributes: { turnId: turn.id, tool: call.name, at: turn.at },
       });
       addEdge('follows', thoughtId, id, 'informed');
     }
@@ -508,7 +549,6 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
       kind: 'followup',
       layer: 'deliberation',
       label: request.what,
-      origin: 'authored',
       ...(domain ? { domain } : {}),
       attributes: {
         requestId: request.id,
@@ -529,6 +569,126 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
       addNode({ id: deptId, kind: 'department', layer: 'entity', label: DD_DOMAIN_PROFILES[domain].label, domain, attributes: { domain } });
       addEdge('belongs_to', id, deptId, 'belongs to');
     }
+  }
+
+  /* -- What was looked for, including what came back empty --------------- */
+
+  // A register search belongs in evidence rather than deliberation because a
+  // report rests on it: "the encumbrance register returned nil for 1998-2026"
+  // is what lets a conclusion of clear title be stated at all. Recording only
+  // what we HOLD, and never what we LOOKED FOR, is how a diligence file comes
+  // to look thorough while being silent about its own scope.
+  for (const search of propertyCase.registerSearches ?? []) {
+    const id = mintId('search', `${search.kind}|${search.by}|${search.retrievedAt}`);
+    addNode({
+      id,
+      kind: 'search',
+      layer: 'evidence',
+      label: search.nilResult ? `${search.label} — nil result` : search.label,
+      domain: domainForRecordKind(search.kind),
+      attributes: {
+        searchKind: search.kind,
+        by: search.by,
+        authority: search.authority,
+        retrievedAt: search.retrievedAt,
+        nilResult: search.nilResult === true,
+        ...(search.period ? { period: `${search.period.fromYear}-${search.period.toYear}` } : {}),
+      },
+    });
+    if (primaryParcelId) addEdge('about', id, primaryParcelId, 'searched for');
+  }
+
+  // A fetch that failed is scope too — an unreachable portal is why a check
+  // stayed open, and a reader deserves that rather than a silent gap.
+  for (const attempt of propertyCase.recordFetchAttempts ?? []) {
+    const id = mintId('search', `attempt|${attempt.kind}|${attempt.attemptedAt}`);
+    addNode({
+      id,
+      kind: 'search',
+      layer: 'evidence',
+      label: attempt.outcome === 'retrieved' ? `Fetched ${attempt.kind}` : `Could not fetch ${attempt.kind}`,
+      domain: domainForRecordKind(attempt.kind),
+      attributes: {
+        searchKind: attempt.kind,
+        outcome: attempt.outcome,
+        by: attempt.by,
+        attemptedAt: attempt.attemptedAt,
+        ...(attempt.reason ? { reason: attempt.reason } : {}),
+        // What stays unknown because this failed, and the manual way round it.
+        // A gap a reader can act on is worth more than a gap they can only see.
+        ...(attempt.leavesUnknown ? { leavesUnknown: attempt.leavesUnknown } : {}),
+        ...(attempt.manualRoute ? { manualRoute: attempt.manualRoute } : {}),
+      },
+    });
+    if (primaryParcelId) addEdge('about', id, primaryParcelId, 'attempted for');
+  }
+
+  /* -- Agent output: how to close a gap, what was found, what follows ---- */
+
+  const intelligence = propertyCase.intelligence;
+
+  for (const pathway of intelligence?.pathways ?? []) {
+    const id = mintId('pathway', pathway.id);
+    const recommended = pathway.routes.find(r => r.id === pathway.recommendedRouteId) ?? pathway.routes[0];
+    addNode({
+      id,
+      kind: 'pathway',
+      layer: 'deliberation',
+      label: `Close: ${pathway.targetLabel}`,
+      attributes: {
+        pathwayId: pathway.id,
+        targetKind: pathway.targetKind,
+        targetKey: pathway.targetKey,
+        whyItMatters: summarise(pathway.whyItMatters),
+        routeCount: pathway.routes.length,
+        ...(recommended
+          ? { recommendedRoute: recommended.title, authority: recommended.authority, feasibility: recommended.feasibility }
+          : {}),
+      },
+    });
+    // What closing it would unblock. Dropped when the named node is not in the
+    // graph, same rule as every other citation.
+    for (const resolved of pathway.wouldResolve) addEdge('would_resolve', id, resolved, 'would resolve');
+  }
+
+  for (const finding of intelligence?.research ?? []) {
+    const id = mintId('research', finding.id);
+    addNode({
+      id,
+      kind: 'research',
+      layer: 'deliberation',
+      label: summarise(finding.claim),
+      attributes: {
+        researchId: finding.id,
+        confidence: finding.confidence,
+        corroboration: finding.corroboration,
+        contradictsEngine: finding.contradictsEngine,
+        retrievedAt: finding.retrievedAt,
+        // The source is the whole point of an external claim: without it this
+        // is a model assertion wearing a citation's clothes.
+        ...(finding.sourceUrl ? { sourceUrl: finding.sourceUrl } : {}),
+        ...(finding.sourceTitle ? { sourceTitle: finding.sourceTitle } : {}),
+      },
+    });
+    if (primaryParcelId) addEdge('about', id, primaryParcelId, 'about');
+  }
+
+  for (const insight of intelligence?.insights ?? []) {
+    const id = mintId('insight', insight.id);
+    addNode({
+      id,
+      kind: 'insight',
+      layer: 'deliberation',
+      label: insight.title,
+      attributes: {
+        insightId: insight.id,
+        category: insight.category,
+        importance: insight.importance,
+        inferred: insight.inferred,
+        body: summarise(insight.body, 240),
+      },
+    });
+    for (const evidenceId of insight.evidenceIds) addEdge('cites', id, evidenceId, 'cites');
   }
 
   return { caseId: propertyCase.id, builtAt: now, nodes: [...nodes.values()], edges: [...edges.values()] };

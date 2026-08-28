@@ -426,13 +426,16 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
                         'absolute flex items-center gap-1.5 rounded-lg px-2 text-left transition-opacity',
                         isSelected ? 'ring-2 ring-brand' : 'ring-1 ring-[var(--ring)]',
                         lit ? 'opacity-100' : 'opacity-25',
-                        // Authored nodes are drawn as a note rather than a
-                        // record: no shadow, a dashed edge, a recessed ground.
-                        // The distinction has to survive a screenshot — a
+                        // Reasoning is drawn as a note rather than a record:
+                        // no shadow, a dashed edge, a recessed ground. The
+                        // distinction has to survive a screenshot — a
                         // reasoning step and a verified fact reaching a bank
                         // must not look alike, and colour alone would put the
                         // weight on tone, which already means severity here.
-                        node.origin === 'authored'
+                        // Keyed on layer: whether a node happens to be stored
+                        // in the graph or projected into it is not something a
+                        // reader should be able to see.
+                        node.layer === 'deliberation'
                           ? 'border border-dashed border-[var(--ring)] bg-sunken'
                           : 'bg-surface shadow-sm',
                       )}
@@ -441,7 +444,7 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
                         top: y,
                         width: NODE_W,
                         height: NODE_H,
-                        borderLeft: `3px ${node.origin === 'authored' ? 'dashed' : 'solid'} ${TONE_ACCENT[tone]}`,
+                        borderLeft: `3px ${node.layer === 'deliberation' ? 'dashed' : 'solid'} ${TONE_ACCENT[tone]}`,
                       }}
                     >
                       <NodeIcon node={node} />

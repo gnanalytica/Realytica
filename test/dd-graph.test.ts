@@ -268,7 +268,10 @@ describe('deliberation enters the graph, one way', () => {
     const g = buildDdGraph(c, NOW);
     const kinds = g.nodes.filter(n => n.layer === 'deliberation').map(n => n.kind).sort();
     assert.deepEqual(kinds, ['answer', 'question']);
-    assert.ok(g.nodes.every(n => n.layer !== 'deliberation' || n.origin === 'authored'));
+    // Projected, therefore `derived` — the transcript is on the case and a
+    // rebuild reproduces these exactly. `layer` is what says they are
+    // reasoning; `origin` only says where they are stored.
+    assert.ok(g.nodes.every(n => n.origin === 'derived'));
   });
 
   it('reuses the citations the turn already carried, rather than re-deriving them', () => {
@@ -327,7 +330,69 @@ describe('deliberation enters the graph, one way', () => {
     const g = buildDdGraph(ddCase(), NOW);
     const departments = g.nodes.filter(n => n.kind === 'department');
     assert.ok(departments.length > 0);
-    assert.ok(departments.every(d => d.origin === 'derived'), 'a department is a fact about the roster, not an opinion');
+    assert.ok(departments.every(d => d.layer === 'entity'), 'a department is a thing that exists, not an opinion');
     assert.ok(g.edges.some(e => e.kind === 'belongs_to'));
+  });
+});
+
+describe('everything the case knows reaches the graph', () => {
+  it('records a search that found nothing as evidence, not as an absence', () => {
+    // "The encumbrance register returned nil for 1998-2026" is what lets a
+    // conclusion of clear title be stated at all. A graph that shows only what
+    // we HOLD, never what we LOOKED FOR, reads as thorough while being silent
+    // about its own scope.
+    const base = ddCase();
+    const c: PropertyCase = {
+      ...base,
+      registerSearches: [{
+        kind: 'encumbrance_certificate', label: 'Encumbrance certificate', by: 'Sub-Registrar',
+        authority: 'primary_register', retrievedAt: NOW, nilResult: true,
+        period: { fromYear: 1998, toYear: 2026 }, refresh: 'on_transaction',
+      }],
+    };
+    const g = buildDdGraph(c, NOW);
+    const search = g.nodes.find(n => n.kind === 'search');
+    assert.ok(search, 'the search is in the graph');
+    assert.equal(search.layer, 'evidence', 'a report has to be able to rest on it');
+    assert.equal(search.attributes.nilResult, true);
+    assert.match(search.label, /nil result/);
+  });
+
+  it('records a fetch that failed, with what it leaves unknown', () => {
+    const base = ddCase();
+    const c: PropertyCase = {
+      ...base,
+      recordFetchAttempts: [{
+        kind: 'khata_extract', attemptedAt: NOW, by: 'BBMP portal', outcome: 'gap',
+        reason: 'portal returned 503', leavesUnknown: 'current khata holder',
+        manualRoute: 'Apply in person at the ward office',
+      }],
+    };
+    const g = buildDdGraph(c, NOW);
+    const attempt = g.nodes.find(n => n.attributes.outcome === 'gap');
+    assert.ok(attempt, 'an unreachable portal is why a check stayed open');
+    assert.equal(attempt.attributes.leavesUnknown, 'current khata holder');
+    assert.ok(attempt.attributes.manualRoute, 'a gap a reader can act on beats one they can only see');
+  });
+
+  it('carries a research finding with the source that backs it', () => {
+    const base = ddCase();
+    const c: PropertyCase = {
+      ...base,
+      intelligence: {
+        runs: [], explorations: [], pathways: [], insights: [], conversation: [],
+        research: [{
+          id: 'rf-1', claim: 'Metro Phase 3 alignment passes 400m east', sourceUrl: 'https://example.test/a',
+          sourceTitle: 'BMRCL notice', retrievedAt: NOW, relevance: 'access', confidence: 0.8,
+          corroboration: 'single_source', contradictsEngine: false,
+        }],
+      },
+    };
+    const g = buildDdGraph(c, NOW);
+    const research = g.nodes.find(n => n.kind === 'research');
+    assert.ok(research);
+    assert.equal(research.layer, 'deliberation', 'an external claim is not case evidence');
+    // Without the source this is a model assertion wearing a citation's clothes.
+    assert.equal(research.attributes.sourceUrl, 'https://example.test/a');
   });
 });
