@@ -10,8 +10,8 @@
 
 import {
   REFERENCE_DATA,
-  SEED_CASES,
-  SEED_DOCUMENT_FILENAMES,
+  FIXTURE_CASES,
+  FIXTURE_DOCUMENT_FILENAMES,
   classifyDocument,
   extractFields,
   runScreen,
@@ -27,14 +27,14 @@ import type { CaseDocument, ProjectBrief, PropertyCase, PropertyIdentity, Screen
  */
 export const NOW = '2026-08-26T00:00:00.000Z';
 
-export function seedFor(match: string): (typeof SEED_CASES)[number] {
-  const seed = SEED_CASES.find(s => s.identity.label.includes(match));
+export function seedFor(match: string): (typeof FIXTURE_CASES)[number] {
+  const seed = FIXTURE_CASES.find(s => s.identity.label.includes(match));
   if (!seed) throw new Error(`No seed case matching "${match}"`);
   return seed;
 }
 
 export function documentsFor(identity: PropertyIdentity, label: string, caseId = 'test-case', uploadedAt = NOW): CaseDocument[] {
-  const names = SEED_DOCUMENT_FILENAMES[label] ?? [];
+  const names = FIXTURE_DOCUMENT_FILENAMES[label] ?? [];
   return names.map((fileName, i) => {
     const doc: CaseDocument = {
       id: `doc-${i}`,

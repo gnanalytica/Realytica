@@ -11,6 +11,7 @@ export * from './lenses';
 export * from './staleness';
 export * from './engine';
 export * from './seed';
+export * from './fixtures';
 export * from './packs/karnataka';
 export * from './graph';
 export * from './playbooks';

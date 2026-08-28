@@ -8,7 +8,7 @@ import type {
   ExtractedField,
   PropertyIdentity,
 } from '@realytica/shared';
-import { SEED_CASES, SEED_DOCUMENT_FILENAMES, classifyDocument, extractFields } from '@realytica/shared';
+import { FIXTURE_CASES, FIXTURE_DOCUMENT_FILENAMES, classifyDocument, extractFields } from '@realytica/shared';
 import type { EvalAnswer } from './score';
 
 /**
@@ -334,13 +334,13 @@ export function buildDocumentExtractionCases(params: EvalCorpusParams): EvalCase
 }
 
 function documentExtractionCasesWithTruth(params: EvalCorpusParams): EvalCaseWithTruth[] {
-  const seeds = params.seedCases ?? SEED_CASES;
+  const seeds = params.seedCases ?? FIXTURE_CASES;
   const cases: EvalCaseWithTruth[] = [];
 
   for (const seed of seeds) {
     const identity = seed.identity;
     const caseSlug = slugify(identity.label);
-    const fileNames = SEED_DOCUMENT_FILENAMES[identity.label] ?? [];
+    const fileNames = FIXTURE_DOCUMENT_FILENAMES[identity.label] ?? [];
 
     fileNames.forEach((fileName, index) => {
       const document = synthesiseDocument({ caseSlug, index, fileName, now: params.now });
@@ -532,7 +532,7 @@ export function buildAdversarialAbsenceCases(params: EvalCorpusParams): EvalCase
 }
 
 function adversarialAbsenceCasesWithTruth(params: EvalCorpusParams): EvalCaseWithTruth[] {
-  const seeds = params.seedCases ?? SEED_CASES;
+  const seeds = params.seedCases ?? FIXTURE_CASES;
   const byLabel = new Map(seeds.map(seed => [seed.identity.label, seed.identity]));
   const cases: EvalCaseWithTruth[] = [];
 
