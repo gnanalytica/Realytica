@@ -24,6 +24,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ProviderDescriptor } from '@realytica/shared';
 import { agentCapability, baseRequestFor, estimateUsage, getClient } from '../client';
+import { anthropicBaseUrl } from '../config';
 import { ProviderCallError } from './types';
 import type {
   LlmCitation,
@@ -314,9 +315,14 @@ class AnthropicProvider implements LlmProvider {
     // token, an `ant auth login` profile on disk and the global kill switch.
     // Re-deriving that here would give two answers to one question.
     const capability = agentCapability();
+    const base = anthropicBaseUrl();
     return {
       id: 'anthropic',
-      label: 'Anthropic',
+      // Named for where the calls actually land. A deployment fronted by
+      // LiteLLM reaches five vendors through this provider, and a panel that
+      // still said "Anthropic" would be describing the format, not the route.
+      label: base ? 'Anthropic format (proxied)' : 'Anthropic',
+      ...(base ? { baseUrl: base } : {}),
       configured: capability.available,
       capabilities: { ...ANTHROPIC_CAPABILITIES },
     };

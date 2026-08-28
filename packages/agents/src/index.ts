@@ -25,6 +25,7 @@ export * from './agents/planner';
 export * from './agents/critic';
 
 export * from './routing';
+export * from './config';
 export * from './providers';
 export * from './telemetry';
 export * from './eval';

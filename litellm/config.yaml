@@ -1,0 +1,74 @@
+# LiteLLM proxy — every vendor Realytica can reach, and the names it reaches
+# them by.
+#
+# Realytica names three models (extraction, reasoning, judgment) and nothing
+# else. This file is where those names become actual vendors, so swapping one
+# is an edit here and a restart, with no change to the application.
+#
+# Add a vendor by adding an entry. The `model_name` is what Realytica asks for;
+# `litellm_params.model` is LiteLLM's own `provider/model` id. Keys come from
+# the environment (see .env.example), never from this file — it is committed.
+
+model_list:
+  # --- The three tiers ----------------------------------------------------
+  # Mechanical work: reading a scanned deed into typed fields. Runs once per
+  # document rather than once per case and puts whole PDFs into the input, so
+  # it is the heaviest agent per case and the one worth pointing somewhere
+  # cheap. Claude for now because it is the only model verified to return
+  # citations a page reference can be checked against.
+  - model_name: realytica-extraction
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Most of the roster: planning, proof pathways, market research, the
+  # orchestrator. Reasoning over material already in hand.
+  - model_name: realytica-reasoning
+    litellm_params:
+      model: anthropic/claude-sonnet-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # The critic, the copilot and the title graph — the three that form an
+  # opinion someone will act on.
+  - model_name: realytica-judgment
+    litellm_params:
+      model: anthropic/claude-opus-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # --- Alternatives, ready to swap in above -------------------------------
+  # Uncomment, set the key in .env, and point a tier at the model_name.
+  #
+  # Gemini's free tier is the cheapest way to run the extraction tier. Verify
+  # a scanned PDF end to end before trusting it there: the Anthropic-format
+  # endpoint carries a document block, but whether LiteLLM's translation
+  # delivers it to Gemini as a readable page — and whether citations come back
+  # at all — is not something to assume. `pnpm probe:litellm` checks exactly
+  # this and prints what came back.
+  #
+  # - model_name: gemini-flash
+  #   litellm_params:
+  #     model: gemini/gemini-2.5-flash
+  #     api_key: os.environ/GEMINI_API_KEY
+  #
+  # - model_name: deepseek-chat
+  #   litellm_params:
+  #     model: deepseek/deepseek-chat
+  #     api_key: os.environ/DEEPSEEK_API_KEY
+  #
+  # - model_name: local-llama
+  #   litellm_params:
+  #     model: ollama/llama3.3
+  #     api_base: http://host.docker.internal:11434
+
+litellm_settings:
+  # A vendor outage should degrade the run, not end it. Ordered, and only
+  # between models of comparable capability — a fallback that silently drops
+  # citations would turn an outage into a quality problem nobody sees.
+  num_retries: 2
+  request_timeout: 120
+
+general_settings:
+  # Spend is tracked per virtual key. Budgets, rate limits and the dashboard
+  # all live in the admin UI at http://localhost:4000/ui — this file only
+  # declares what exists, not who may spend on it.
+  store_model_in_db: true

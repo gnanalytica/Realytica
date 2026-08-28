@@ -1,0 +1,53 @@
+# The model gateway, and the database it keeps its keys and spend in.
+#
+# Realytica itself is not in here — it runs with `pnpm dev` and talks to this
+# over localhost. Keeping them separate is the point: the proxy is a long-lived
+# service with its own storage, and the app is a build that ships to Vercel as
+# serverless functions. They cannot be the same process.
+#
+#   cp litellm/.env.example litellm/.env   # fill in your vendor keys
+#   docker compose up -d
+#   open http://localhost:4000/ui          # budgets, spend, virtual keys
+#
+# Then point Realytica at it (see README):
+#   REALYTICA_ANTHROPIC_BASE_URL=http://localhost:4000
+#   REALYTICA_API_KEY=<a virtual key issued in the UI>
+
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    ports:
+      - '4000:4000'
+    env_file:
+      - litellm/.env
+    environment:
+      DATABASE_URL: postgresql://litellm:litellm@litellm-db:5432/litellm
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    command: ['--config', '/app/config.yaml', '--port', '4000']
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+
+  # Without this the proxy still routes, but there are no virtual keys, no
+  # budgets, no spend tracking and no UI — authentication falls back to the
+  # master key alone. Those four are most of the reason to run a proxy, so the
+  # database is not optional here even though LiteLLM will start without one.
+  litellm-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm
+      POSTGRES_DB: litellm
+    volumes:
+      - litellm-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U litellm']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  litellm-db:

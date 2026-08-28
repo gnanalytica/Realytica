@@ -87,8 +87,9 @@ and needs none of them:
 | Variable | Effect |
 | --- | --- |
 | `BLOB_READ_WRITE_TOKEN` | Set automatically by attaching a Vercel Blob store. Switches storage from the filesystem to Blob, which is what makes a serverless deployment durable. |
-| `REALYTICA_API_KEY` | Turns on the agent layer. Without it — or without an endpoint that needs no key — every agent route answers `503 no_credentials` and the rest of the app is unaffected. The bare `ANTHROPIC_API_KEY` also works when no `REALYTICA_BASE_URL` is set, since the Anthropic SDK reads it itself. |
-| `REALYTICA_BASE_URL` | Points the whole roster at an OpenAI-compatible endpoint instead of Anthropic — OpenRouter, LiteLLM, Groq, Together, DeepSeek, vLLM, Ollama. Set it and `REALYTICA_API_KEY` is that endpoint's key and the model names are its ids. |
+| `REALYTICA_API_KEY` | Turns on the agent layer. Without it — or without an endpoint that needs no key — every agent route answers `503 no_credentials` and the rest of the app is unaffected. The bare `ANTHROPIC_API_KEY` also works when no base URL is set, since the Anthropic SDK reads it itself. |
+| `REALYTICA_ANTHROPIC_BASE_URL` | Sends Anthropic-format calls to a proxy instead of to Anthropic. This is the LiteLLM seat — see the agent section for why it, and not the OpenAI-compatible one, is the way to reach other vendors. |
+| `REALYTICA_BASE_URL` | Points the whole roster at a plain OpenAI-compatible endpoint instead. Costs PDF input and verified citations, which that format cannot express. |
 | `REALYTICA_AGENT_WEB_SEARCH=1` | Lets the research and explorer agents reach the public web. Off by default: enabling it is a permission, and only external-safe case context is ever sent. |
 | `REALYTICA_DATA_DIR` | Filesystem adapter only. Where the JSON store and uploaded documents live. |
 | `REALYTICA_GOOGLE_MAPS_API_KEY` | Turns on geocoding, Street View and nearby amenities. Absent, the site context reports named gaps rather than empty results. |
@@ -285,7 +286,7 @@ dependency** — with no credentials configured the app behaves exactly as it do
 today, and the Intelligence tab explains what is missing rather than breaking.
 
 ```bash
-export REALYTICA_API_KEY=sk-ant-...     # or: ant auth login
+export REALYTICA_API_KEY=sk-ant-...      # or: ant auth login
 export REALYTICA_AGENT_WEB_SEARCH=1      # optional; enables the research agent
 pnpm dev
 ```
@@ -318,31 +319,68 @@ about 66%.
 
 Configuration:
 
-**Configuration is one key, one endpoint, and one model per tier.** Five
-variables, and two of them have defaults:
+**Configuration is one key and one model per tier.** Two of the five have
+defaults, so the minimum is a key:
 
 ```bash
-REALYTICA_API_KEY=sk-or-v1-...
-REALYTICA_BASE_URL=https://openrouter.ai/api/v1   # omit → Anthropic direct
-REALYTICA_MODEL_EXTRACTION=google/gemini-2.5-flash
-REALYTICA_MODEL_REASONING=meta-llama/llama-3.3-70b-instruct
-REALYTICA_MODEL_JUDGMENT=anthropic/claude-sonnet-4.5
+REALYTICA_API_KEY=sk-ant-...           # or: ant auth login
+REALYTICA_MODEL_EXTRACTION=claude-haiku-4-5-20251001
+REALYTICA_MODEL_REASONING=claude-sonnet-5
+REALYTICA_MODEL_JUDGMENT=claude-opus-5
 ```
 
-The endpoint decides the provider, so there is nothing to prefix: set
-`REALYTICA_BASE_URL` and the three model names are that gateway's own ids; leave
-it unset and they are Anthropic's. Model ids are passed through verbatim, so
-Ollama tags (`llama3.3:70b`) and OpenRouter variants
-(`anthropic/claude-sonnet-4.5:beta`) work as written. Swapping vendors is one
-key and three names.
+That talks to Anthropic and needs nothing else running.
 
-Everything below is an escape hatch — reach for it when you need it, not to get
-started:
+**To use any other vendor, put a gateway in front rather than teaching this
+app a second vendor.** `docker-compose.yml` in the repo root runs
+[LiteLLM](https://docs.litellm.ai) and its database; `litellm/config.yaml` is
+where a model name becomes an actual vendor, and every API key lives there
+instead of here:
+
+```bash
+cp litellm/.env.example litellm/.env    # your vendor keys go in this file
+docker compose up -d
+open http://localhost:4000/ui           # virtual keys, budgets, spend
+```
+
+```bash
+REALYTICA_ANTHROPIC_BASE_URL=http://localhost:4000
+REALYTICA_API_KEY=<a virtual key issued in the UI>
+REALYTICA_MODEL_EXTRACTION=realytica-extraction   # names from litellm/config.yaml
+REALYTICA_MODEL_REASONING=realytica-reasoning
+REALYTICA_MODEL_JUDGMENT=realytica-judgment
+```
+
+Swapping a vendor is then an edit to `config.yaml` and a restart, with no
+change here and no redeploy. Budgets, per-key spend limits and the cost
+dashboard are the proxy's, which is the right home for them — they are
+infrastructure, not case data.
+
+**Why the *Anthropic* base URL and not the OpenAI one.** LiteLLM serves both
+formats, and they are not equivalent for this product. Anthropic's format
+carries a document block and a citation request; the OpenAI chat-completions
+format has no field for either, so a model reached that way cannot be sent a
+scanned deed and cannot return a page reference the provider checked. Pointing
+the Anthropic client at the proxy keeps PDF input, verified citations, prompt
+caching and adaptive thinking on calls that end up at any vendor.
+
+That last claim is the whole premise and it is worth checking rather than
+believing. `pnpm probe:litellm --model <name>` sends a real one-page PDF
+through the proxy and reports three things separately — whether the document
+reached the model, whether citations came back, and whether they are verified
+— because a proxy can deliver the bytes and quietly drop the citation request,
+which looks like success right up until a page number in a report turns out to
+be a guess.
+
+`REALYTICA_BASE_URL` still points at a plain OpenAI-compatible endpoint
+(OpenRouter, Groq, Ollama) for a deployment that wants no proxy and accepts
+losing those two capabilities. Everything below is an escape hatch — reach for
+it when you need it, not to get started:
 
 | Variable | Effect |
 | --- | --- |
 | `provider:model` on any route | Sends one route to a specific provider regardless of the endpoint, e.g. `anthropic:claude-haiku-4-5-20251001` for document intelligence while everything else runs on a gateway. Name that provider's own key (`REALYTICA_ANTHROPIC_API_KEY`) alongside it — `REALYTICA_API_KEY` belongs to the endpoint that issued it and is never sent elsewhere. |
-| `REALYTICA_ROUTE_<AGENT>` | Route one agent, overriding everything else. |
+| `REALYTICA_ROUTE_<AGENT>` | Route one agent, overriding everything else. With a gateway in front this is rarely needed — routing is what the gateway is for. |
 | `REALYTICA_OPENAI_STRICT_TOOLS=1` | Declares that this endpoint enforces `strict` on tool schemas. Off by default, and left off unless you have checked: a capability that holds only when the vendor happens to comply is worse than one that is honestly false. |
 | `REALYTICA_AGENTS_DISABLED=1` | Turn the agent layer off entirely. |
 

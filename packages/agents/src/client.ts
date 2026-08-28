@@ -9,7 +9,7 @@ import type {
   ModelTier,
   ModelTierAssignment,
 } from '@realytica/shared';
-import { apiKeyFor, baseUrl, defaultProviderId, tierRoute } from './config';
+import { anthropicBaseUrl, apiKeyFor, baseUrl, defaultProviderId, tierRoute } from './config';
 import { warnOnce } from './warn';
 
 export { warnOnce };
@@ -490,8 +490,13 @@ export function getClient(): Anthropic | null {
      * SDK's chain — `ANTHROPIC_AUTH_TOKEN`, and an `ant auth login` profile on
      * disk, neither of which is an API key at all.
      */
-    const override = apiKeyFor('anthropic');
-    cached = override ? new Anthropic({ apiKey: override }) : new Anthropic();
+    const apiKey = apiKeyFor('anthropic');
+    const base = anthropicBaseUrl();
+    // Built from an options object only where there is something to put in it:
+    // passing `apiKey: undefined` explicitly would defeat the SDK's own
+    // resolution chain, which is the whole reason the bare constructor exists.
+    const options = { ...(apiKey ? { apiKey } : {}), ...(base ? { baseURL: base } : {}) };
+    cached = Object.keys(options).length > 0 ? new Anthropic(options) : new Anthropic();
     return cached;
   } catch {
     return null;
@@ -513,6 +518,10 @@ export function getClient(): Anthropic | null {
  */
 function hasCredentials(): boolean {
   if (defaultProviderId() === 'openai_compatible') return baseUrl() !== undefined;
+  // A proxy in front of Anthropic's format authenticates with its own key, and
+  // some run without one at all on a private network — the endpoint being
+  // configured is the credential.
+  if (anthropicBaseUrl()) return true;
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) return true;
   // The prefixed and one-key spellings have to be recognised HERE too, or
   // setting one gives a working client behind a capability endpoint that still

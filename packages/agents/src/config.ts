@@ -50,6 +50,26 @@ export function baseUrl(): string | undefined {
 }
 
 /**
+ * Where Anthropic-format calls go, when not to Anthropic.
+ *
+ * This is the LiteLLM seat. A LiteLLM proxy serves `/v1/messages` in
+ * Anthropic's own format and routes it onward to any vendor it is configured
+ * for, so pointing the Anthropic client here keeps the full capability set —
+ * PDF input, verified document citations, prompt caching, adaptive thinking —
+ * on calls that end up at Gemini or DeepSeek. The OpenAI-compatible format has
+ * no field for a file or a citation, so the same models reached through
+ * `REALYTICA_BASE_URL` cannot offer either.
+ *
+ * Separate from `baseUrl()` because they are different protocols at different
+ * paths, and a deployment can legitimately set only one. With LiteLLM in front
+ * you set only this one: the default provider stays `anthropic`, and LiteLLM
+ * does the fanning out.
+ */
+export function anthropicBaseUrl(): string | undefined {
+  return trimmed(readEnv('ANTHROPIC_BASE_URL'));
+}
+
+/**
  * The provider a bare model name means.
  *
  * Read at call time rather than captured at module load: the tests set and
