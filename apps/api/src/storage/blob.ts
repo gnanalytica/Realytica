@@ -15,15 +15,6 @@ import type { StorageAdapter } from './types';
  */
 
 const STORE_PATHNAME = 'store/realytica.json';
-/**
- * The pre-rename store pathname. A Blob store written before the Realytica
- * rename holds every case here, so reads fall back to it when the current
- * pathname resolves to nothing. Writes always go to `STORE_PATHNAME`, so the
- * first save after this deploy migrates the data; the old blob is left
- * untouched rather than deleted, so nothing is lost if the migration needs
- * to be reversed.
- */
-const LEGACY_STORE_PATHNAME = 'store/valytica.json';
 const UPLOADS_PREFIX = 'uploads/';
 
 function documentPathname(caseId: string, key: string): string {
@@ -168,16 +159,7 @@ async function readPathname(pathname: string): Promise<StoreData | null> {
 
 async function readStore(): Promise<StoreData | null> {
   try {
-    const current = await readPathname(STORE_PATHNAME);
-    if (current) return current;
-    const legacy = await readPathname(LEGACY_STORE_PATHNAME);
-    if (legacy) {
-      console.info(
-        `[storage/blob] read the pre-rename store at ${LEGACY_STORE_PATHNAME}; ` +
-          `the next save will write ${STORE_PATHNAME} and leave the original in place.`,
-      );
-    }
-    return legacy;
+    return await readPathname(STORE_PATHNAME);
   } catch (err) {
     console.warn(`[storage/blob] failed to read the store, starting from an empty store: ${(err as Error).message}`);
     return null;

@@ -95,13 +95,6 @@ and needs none of them:
 | `REALYTICA_GOOGLE_MAPS_API_KEY` (again, for context) | Note the parcel outline needs none of this — a KML or GeoJSON boundary is a file you supply, and it works with no mapping provider configured. |
 | `REALYTICA_RECORDS_BASE_URL` / `_API_KEY` / `_KINDS` | Connects a statutory-records vendor. All three are required — `_KINDS` is a comma-separated coverage list and is deliberately not defaulted, because a provider that claims a record kind it cannot deliver manufactures a failed fetch where an honest one would name the manual route. Optional alongside: `_LABEL`, `_REGIONS`, `_AUTH_HEADER`, `_TIMEOUT_MS`, `_MONITOR=1`. |
 
-Every `REALYTICA_*` variable in this README is also read under the older
-`VALYTICA_*` prefix the product shipped with, so an existing deployment keeps
-working untouched. `REALYTICA_*` wins where both are set. The same applies to
-persisted state: the store file is now `realytica.json` and browser
-preferences use a `realytica.` prefix, with the previous names read as a
-fallback so no case data and no saved preference is orphaned by the rename.
-
 ### Other commands
 
 ```bash
@@ -351,14 +344,13 @@ started:
 | `provider:model` on any route | Sends one route to a specific provider regardless of the endpoint, e.g. `anthropic:claude-haiku-4-5-20251001` for document intelligence while everything else runs on a gateway. Name that provider's own key (`REALYTICA_ANTHROPIC_API_KEY`) alongside it — `REALYTICA_API_KEY` belongs to the endpoint that issued it and is never sent elsewhere. |
 | `REALYTICA_ROUTE_<AGENT>` | Route one agent, overriding everything else. |
 | `REALYTICA_TIER_<AGENT>` | Move one agent between tiers, e.g. `REALYTICA_TIER_DOCUMENT_INTELLIGENCE=judgment` for a deployment whose scans are poor. |
-| `REALYTICA_AGENT_MODEL` | Collapses every tier onto one route. What you reach for to pin the roster during an incident. |
 | `REALYTICA_OPENAI_HEADERS` / `_TIMEOUT_MS` / `_MAX_RETRIES` / `_STRICT_TOOLS=1` | Per-endpoint transport settings. |
 | `REALYTICA_AGENTS_DISABLED=1` | Turn the agent layer off entirely. |
 
-Precedence, most specific first: `REALYTICA_ROUTE_<AGENT>` → `REALYTICA_AGENT_MODEL`
-→ `REALYTICA_MODEL_<TIER>` → the built-in default. Every route records where its
+Precedence, most specific first: `REALYTICA_ROUTE_<AGENT>` →
+`REALYTICA_MODEL_<TIER>` → the built-in default. Every route records where its
 decision came from, because a surprising route is otherwise an archaeology
-exercise across four variables, and the one time that matters is during an
+exercise across the environment, and the one time that matters is during an
 incident.
 
 **The abstraction declares capabilities rather than flattening to what every

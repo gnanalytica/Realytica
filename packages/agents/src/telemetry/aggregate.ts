@@ -41,8 +41,9 @@ import type {
   ProviderPerformance,
   TelemetrySummary,
 } from '@realytica/shared';
-import { modelForTier, sumUsage, warnOnce } from '../client';
-import { formatRoute, parseRoute } from '../routing';
+import { sumUsage, warnOnce } from '../client';
+import { tierRoute } from '../config';
+import { formatRoute } from '../routing';
 import {
   createCoverageAccumulator,
   priceTokens,
@@ -493,10 +494,10 @@ export function summariseCaseCost(
 /**
  * Where the judgment tier currently points.
  *
- * Read through `modelForTier` and `parseRoute` rather than restated, so this
- * honours `REALYTICA_AGENT_MODEL`, `REALYTICA_MODEL_JUDGMENT` and the
- * `provider:model` route syntax with no second implementation to keep in step.
+ * Read through `tierRoute` rather than restated, so the "what this would have
+ * cost on one model" comparison tracks the deployment's actual judgment route
+ * with no second implementation to keep in step.
  */
 function defaultJudgmentRoute(): { provider: ProviderId; model: string } {
-  return parseRoute(modelForTier('judgment')) ?? { provider: 'anthropic', model: 'claude-opus-5' };
+  return tierRoute('judgment');
 }

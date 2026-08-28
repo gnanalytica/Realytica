@@ -77,15 +77,6 @@ describe('reading vendor config', () => {
     assert.deepEqual(config.kinds, ['encumbrance_certificate']);
     assert.equal(config.baseUrl, 'https://vendor.example/api');
   });
-
-  it('still reads under the old VALYTICA_ prefix', () => {
-    const config = readAggregatorConfig({
-      VALYTICA_RECORDS_BASE_URL: 'https://old.example',
-      VALYTICA_RECORDS_API_KEY: 'k',
-      VALYTICA_RECORDS_KINDS: 'khata_extract',
-    });
-    assert.ok(config);
-  });
 });
 
 describe('an aggregator is a secondary source, and says so', () => {

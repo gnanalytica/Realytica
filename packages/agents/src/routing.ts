@@ -1,6 +1,8 @@
 import type { AgentCapability, AgentKind, AgentRoute, CapabilityGap, ModelTier, ProviderId } from '@realytica/shared';
 import { AGENT_TIERS, agentCapability, tierFor, warnOnce } from './client';
-import { baseUrl, defaultProviderId, isProviderId } from './config';
+import { formatRoute, parseRoute, tierRoute } from './config';
+
+export { formatRoute, parseRoute } from './config';
 
 /**
  * Which provider and model each agent runs on, and where that decision came
@@ -17,129 +19,33 @@ import { baseUrl, defaultProviderId, isProviderId } from './config';
  * environment variables, and the one time that matters is during an incident.
  */
 
-/* ==================================================================== */
-/* Route syntax                                                          */
-/* ==================================================================== */
-
 /**
- * A route is a model name, optionally prefixed with a provider.
- *
- * The bare form is the common path and means *the default provider* — which is
- * Anthropic, or the OpenAI-compatible endpoint when `REALYTICA_BASE_URL` is
- * set. So pointing the deployment at a gateway is one variable and the three
- * model names are that gateway's own ids, with no prefix to repeat:
- *
- *   claude-opus-5
- *   meta-llama/llama-3.3-70b-instruct
- *   llama3.3:70b
- *
- * The prefix stays available for the one configuration it is genuinely needed
- * for — most agents on a gateway, one on a vendor directly:
- *
- *   anthropic:claude-opus-5
- *   openai_compatible:deepseek/deepseek-chat
- *
- * A colon is only read as a prefix when what precedes it is a provider we
- * have. Ollama writes its tags `llama3.3:70b` and OpenRouter its variants
- * `anthropic/claude-sonnet-4.5:beta`; treating every colon as a provider
- * separator rejected both as malformed, silently, leaving the tier on its
- * default. The model half is otherwise passed through verbatim, slashes
- * included.
- */
-export function parseRoute(raw: string): { provider: ProviderId; model: string } | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const colon = trimmed.indexOf(':');
-  if (colon > 0) {
-    const prefix = trimmed.slice(0, colon);
-    const rest = trimmed.slice(colon + 1).trim();
-    if (isProviderId(prefix)) return rest ? { provider: prefix, model: rest } : null;
-  }
-  return { provider: defaultProviderId(), model: trimmed };
-}
-
-export function formatRoute(provider: ProviderId, model: string): string {
-  return `${provider}:${model}`;
-}
-
-/* ==================================================================== */
-/* Resolution                                                            */
-/* ==================================================================== */
-
-const TIER_ROUTE_ENV: Record<ModelTier, string> = {
-  extraction: 'REALYTICA_MODEL_EXTRACTION',
-  reasoning: 'REALYTICA_MODEL_REASONING',
-  judgment: 'REALYTICA_MODEL_JUDGMENT',
-};
-
-/**
- * The model each tier runs when nothing names one.
- *
- * Anthropic ids, because that is the default provider. They are also valid
- * OpenRouter ids for the same models, which makes the commonest gateway work
- * unconfigured — but no other gateway serves these names, so falling through
- * to a default while pointed at one is worth saying out loud rather than
- * letting the operator discover it as a 404 mid-run.
- */
-const TIER_DEFAULT_MODELS: Record<ModelTier, string> = {
-  extraction: 'claude-haiku-4-5-20251001',
-  reasoning: 'claude-sonnet-5',
-  judgment: 'claude-opus-5',
-};
-
-function readRoute(name: string): { provider: ProviderId; model: string } | null {
-  const raw = process.env[name];
-  if (!raw) return null;
-  const parsed = parseRoute(raw);
-  if (!parsed) {
-    // Ignored rather than thrown: a typo in a deployment variable must not
-    // take the agent layer down, and the warning names exactly what was
-    // dropped so the mistake is findable.
-    warnOnce(
-      `route:${name}:${raw}`,
-      `Ignoring ${name}="${raw}" — expected a model name, optionally prefixed "anthropic:" or "openai_compatible:".`,
-    );
-    return null;
-  }
-  return parsed;
-}
-
-/**
- * The route for one agent, most specific override first.
+ * The route for one agent, most specific first.
  *
  *   1. `REALYTICA_ROUTE_<AGENT>`   — this one agent, anywhere
- *   2. `REALYTICA_AGENT_MODEL`     — collapses the whole roster onto one route
- *   3. `REALYTICA_MODEL_<TIER>`    — every agent on that tier
- *   4. the built-in default for the tier
+ *   2. `REALYTICA_MODEL_<TIER>`    — every agent on that tier
+ *   3. the built-in default for the tier
  *
- * `REALYTICA_AGENT_MODEL` sits above the tier variables rather than below them
- * because that is what it already meant: the switch an operator throws to pin
- * everything during an incident. Demoting it would silently un-pin two thirds
- * of the roster on deployments that rely on it. The per-agent override sits
- * above it so a single exception is still expressible while pinned.
+ * The syntax and the tier table both live in `config.ts`; this file is only
+ * the precedence between them.
  */
 export function routeFor(agent: AgentKind): AgentRoute {
   const tier = tierFor(agent);
 
-  const perAgent = readRoute(`REALYTICA_ROUTE_${agent.toUpperCase()}`);
-  if (perAgent) return { agent, tier, ...perAgent, source: 'agent_env', expectedGaps: [] };
-
-  const global = readRoute('REALYTICA_AGENT_MODEL');
-  if (global) return { agent, tier, ...global, source: 'global_env', expectedGaps: [] };
-
-  const perTier = readRoute(TIER_ROUTE_ENV[tier]);
-  if (perTier) return { agent, tier, ...perTier, source: 'tier_env', expectedGaps: [] };
-
-  const provider = defaultProviderId();
-  const model = TIER_DEFAULT_MODELS[tier];
-  if (provider === 'openai_compatible') {
+  const name = `REALYTICA_ROUTE_${agent.toUpperCase()}`;
+  const raw = process.env[name];
+  if (raw) {
+    const parsed = parseRoute(raw);
+    if (parsed) return { agent, tier, ...parsed, source: 'agent_env', expectedGaps: [] };
+    // Ignored rather than thrown: a typo in a deployment variable must not
+    // take the agent layer down, and the warning names what was dropped.
     warnOnce(
-      `route:default:${tier}`,
-      `${TIER_ROUTE_ENV[tier]} is unset, so the ${tier} tier falls back to "${model}" against ${baseUrl()}. `
-        + 'Set it to a model id that endpoint serves.',
+      `route:${name}:${raw}`,
+      `Ignoring ${name}="${raw}" — expected a model name, optionally prefixed "anthropic:" or "openai_compatible:".`,
     );
   }
-  return { agent, tier, provider, model, source: 'default', expectedGaps: [] };
+
+  return { agent, tier, ...tierRoute(tier), source: 'tier_env', expectedGaps: [] };
 }
 
 /** Every agent's route. Used by the capability probe and the observability view. */

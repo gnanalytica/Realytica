@@ -75,16 +75,6 @@ export const DATA_DIR = resolveDataDir();
 export const DATA_FILE = path.join(DATA_DIR, 'realytica.json');
 export const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 
-/**
- * The pre-rename store filename. A checkout that ran the app before the
- * Realytica rename has its cases in this file and nowhere else, so reads fall
- * back to it when the current name is absent. Writes always go to
- * `DATA_FILE`, which migrates the data on the first save without ever
- * touching (or deleting) the old file — if this turns out to be the wrong
- * call, the original is still sitting there intact.
- */
-const LEGACY_DATA_FILE = path.join(DATA_DIR, 'valytica.json');
-
 /** Directory that holds uploaded files for one case. Always built from a
  * case id we already found in the store — never from a raw path param. */
 export function caseUploadDir(caseId: string): string {
@@ -113,16 +103,7 @@ async function readFile(file: string): Promise<StoreData | null> {
 }
 
 async function readStore(): Promise<StoreData | null> {
-  const current = await readFile(DATA_FILE);
-  if (current) return current;
-  const legacy = await readFile(LEGACY_DATA_FILE);
-  if (legacy) {
-    console.info(
-      `[storage/filesystem] read the pre-rename store at ${LEGACY_DATA_FILE}; ` +
-        `the next save will write ${DATA_FILE} and leave the original in place.`,
-    );
-  }
-  return legacy;
+  return readFile(DATA_FILE);
 }
 
 // Concurrent `save()` calls (two requests resolving close together) are real

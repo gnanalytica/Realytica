@@ -9,7 +9,10 @@ import type {
   ModelTier,
   ModelTierAssignment,
 } from '@realytica/shared';
-import { apiKeyFor, baseUrl, defaultProviderId } from './config';
+import { apiKeyFor, baseUrl, defaultProviderId, tierRoute } from './config';
+import { warnOnce } from './warn';
+
+export { warnOnce };
 import { readEnv } from './env';
 
 /**
@@ -104,35 +107,17 @@ export const AGENT_TIERS: Record<AgentKind, ModelTier> = {
 /* Tier → model                                                          */
 /* ==================================================================== */
 
-const TIER_DEFAULT_MODELS: Record<ModelTier, string> = {
-  extraction: 'claude-haiku-4-5-20251001',
-  reasoning: 'claude-sonnet-5',
-  judgment: 'claude-opus-5',
-};
-
-const TIER_ENV_VARS: Record<ModelTier, string> = {
-  extraction: 'REALYTICA_MODEL_EXTRACTION',
-  reasoning: 'REALYTICA_MODEL_REASONING',
-  judgment: 'REALYTICA_MODEL_JUDGMENT',
-};
-
 /**
  * Resolves a tier to the model id that will actually be sent.
  *
- * Read from `process.env` on every call rather than snapshotted at module
- * load, so a process that sets these late — a script, a test harness, a
- * serverless handler that reads config before invoking — sees what it set.
- *
- * `REALYTICA_AGENT_MODEL` outranks the per-tier variables and collapses every
- * tier onto one model. It predates tiering, is documented in the README, and
- * is what an operator reaches for to pin the whole roster during an incident;
- * a change that quietly reduced it to "the judgment model" would silently
- * un-pin two thirds of the roster on an existing deployment.
+ * Delegates to `tierRoute` rather than reading the variables again. It used to
+ * have its own copy of the tier table and its own env reads, which meant the
+ * pricing comparison and the model shown in the UI could name a model no call
+ * was made on — the two resolutions agreed only for as long as nobody edited
+ * one of them.
  */
 export function modelForTier(tier: ModelTier): string {
-  const globalOverride = readEnv('AGENT_MODEL');
-  if (globalOverride) return globalOverride;
-  return process.env[TIER_ENV_VARS[tier]] || TIER_DEFAULT_MODELS[tier];
+  return tierRoute(tier).model;
 }
 
 /**
@@ -171,10 +156,9 @@ export function modelTierAssignments(): ModelTierAssignment[] {
 /**
  * The judgment-tier model, resolved once at module load.
  *
- * Kept exported and kept at this name because it is part of this package's
- * published surface and is still the right answer for "what model is this
- * deployment fronting" — but every actual request now goes through
- * `modelFor(agent)`, which is per-agent and reads env live.
+ * "What model is this deployment fronting", for a caller that has no agent in
+ * hand. Every actual request goes through `modelFor(agent)`, which is
+ * per-agent and reads env live.
  */
 export const AGENT_MODEL = modelForTier('judgment');
 
@@ -236,18 +220,6 @@ const RATES: Record<string, { input: number; output: number }> = {
 /** The most expensive rate we know, used as the deliberate fallback for an unpriced model. */
 const FALLBACK_RATE_MODEL = 'claude-opus-5';
 
-const warned = new Set<string>();
-
-/**
- * One warning per distinct cause per process. The proof-pathways fan-out
- * prices once per gap, so an unpriced model would otherwise emit a warning
- * per concurrent call and bury itself in its own noise.
- */
-export function warnOnce(key: string, message: string): void {
-  if (warned.has(key)) return;
-  warned.add(key);
-  console.warn(`[realytica/agents] ${message}`);
-}
 
 /**
  * The rate for a model id, or a loud fallback.

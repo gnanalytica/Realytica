@@ -3428,7 +3428,6 @@ export type RouteSource =
   | 'default'
   | 'tier_env'
   | 'agent_env'
-  | 'global_env'
   | 'request';
 
 /** One resolved decision: which provider and model this agent runs on. */

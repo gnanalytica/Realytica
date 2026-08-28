@@ -19,14 +19,11 @@ import { agentCapability } from '../packages/agents/src/client';
 const OWNED = [
   'REALYTICA_BASE_URL',
   'REALYTICA_API_KEY',
-  'REALYTICA_OPENAI_BASE_URL',
-  'REALYTICA_OPENAI_API_KEY',
   'REALYTICA_ANTHROPIC_API_KEY',
   'REALYTICA_MODEL_EXTRACTION',
   'REALYTICA_MODEL_REASONING',
   'REALYTICA_MODEL_JUDGMENT',
   'REALYTICA_ROUTE_DOCUMENT_INTELLIGENCE',
-  'REALYTICA_AGENT_MODEL',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_PROFILE',
@@ -61,11 +58,6 @@ describe('the default provider follows the endpoint', () => {
       provider: 'openai_compatible',
       model: 'meta-llama/llama-3.3-70b-instruct',
     });
-  });
-
-  it('still honours the older REALYTICA_OPENAI_BASE_URL spelling', () => {
-    only({ REALYTICA_OPENAI_BASE_URL: 'http://127.0.0.1:11434/v1' });
-    assert.equal(defaultProviderId(), 'openai_compatible');
   });
 });
 
