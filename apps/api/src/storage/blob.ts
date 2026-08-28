@@ -47,14 +47,50 @@ function documentPathname(caseId: string, key: string): string {
  */
 const BLOB_ACCESS = 'private' as const;
 
-function requireToken(): string {
+/**
+ * How this deployment proves it may touch the store.
+ *
+ * There are two schemes and which one you get is decided by the store, not by
+ * you. Connecting a **public** store to a project writes a static
+ * `BLOB_READ_WRITE_TOKEN`. Connecting a **private** one does not: it writes
+ * `BLOB_STORE_ID`, and the credential is the per-invocation `VERCEL_OIDC_TOKEN`
+ * the platform injects at runtime. So a private store that is correctly
+ * connected shows NO read-write token in `vercel env ls`, which looks exactly
+ * like a connection that failed.
+ *
+ * Both are supported because both are real: the static token is what a
+ * non-Vercel host or a local script has, OIDC is what a private store on
+ * Vercel has, and preferring the static one when present keeps every existing
+ * deployment working unchanged.
+ *
+ * Read per call rather than memoised at module load. An OIDC token is
+ * short-lived and refreshed per invocation — caching it would work for the
+ * first request an instance serves and fail for the rest, which is the
+ * hardest shape of bug to see in a warm-instance serverless runtime.
+ */
+interface BlobAuth {
+  /** Spread into every SDK call: either `{ token }` or `{ oidcToken, storeId }`. */
+  options: { token?: string; oidcToken?: string; storeId?: string };
+  /** The bearer value for a direct `fetch` of a private blob URL. */
+  bearer: string;
+}
+
+function requireAuth(): BlobAuth {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) {
-    // `./index.ts` only ever selects this adapter when the token is set, so
-    // reaching here means it was unset out from under us mid-process.
-    throw new Error('BLOB_READ_WRITE_TOKEN is not set — the Vercel Blob adapter cannot operate without it.');
-  }
-  return token;
+  if (token) return { options: { token }, bearer: token };
+
+  const oidcToken = process.env.VERCEL_OIDC_TOKEN;
+  const storeId = process.env.BLOB_STORE_ID;
+  if (oidcToken && storeId) return { options: { oidcToken, storeId }, bearer: oidcToken };
+
+  // `./index.ts` only selects this adapter when one of the two is configured,
+  // so reaching here means it was unset out from under us mid-process. The
+  // message names both schemes, because "the token is missing" sent the last
+  // person looking for a variable a private store never issues.
+  throw new Error(
+    'Vercel Blob is not authenticated — set BLOB_READ_WRITE_TOKEN, or run on Vercel with ' +
+      'BLOB_STORE_ID set and VERCEL_OIDC_TOKEN available (the private-store path).',
+  );
 }
 
 /**
@@ -76,11 +112,11 @@ interface ResolvedBlob {
 // pathname alone.
 const knownUrls = new Map<string, string>();
 
-async function resolveBlob(pathname: string, token: string): Promise<ResolvedBlob | null> {
+async function resolveBlob(pathname: string, auth: BlobAuth): Promise<ResolvedBlob | null> {
   const cached = knownUrls.get(pathname);
   if (cached) {
     try {
-      const meta: HeadBlobResult = await head(cached, { token });
+      const meta: HeadBlobResult = await head(cached, auth.options);
       return { url: meta.url, uploadedAt: meta.uploadedAt };
     } catch {
       // The cached URL no longer resolves — e.g. the blob was deleted since,
@@ -94,7 +130,7 @@ async function resolveBlob(pathname: string, token: string): Promise<ResolvedBlo
   // to start with this exact string — nothing in this adapter ever creates
   // such a name, but the explicit `.find` below (rather than trusting
   // `blobs[0]`) means that assumption isn't load-bearing.
-  const { blobs } = await list({ prefix: pathname, token, limit: 10 });
+  const { blobs } = await list({ prefix: pathname, ...auth.options, limit: 10 });
   const match: ListBlobResultBlob | undefined = blobs.find((b) => b.pathname === pathname);
   if (!match) return null;
   knownUrls.set(pathname, match.url);
@@ -118,7 +154,7 @@ async function resolveBlob(pathname: string, token: string): Promise<ResolvedBlo
  * write can silently return the previous version and lose the change that
  * was just made.
  */
-async function fetchFresh(resolved: ResolvedBlob, token: string): Promise<Response> {
+async function fetchFresh(resolved: ResolvedBlob, auth: BlobAuth): Promise<Response> {
   const bustParam = `v=${resolved.uploadedAt.getTime()}`;
   const url = `${resolved.url}${resolved.url.includes('?') ? '&' : '?'}${bustParam}`;
   // A private blob's URL is not a credential — the read is authenticated by
@@ -127,13 +163,13 @@ async function fetchFresh(resolved: ResolvedBlob, token: string): Promise<Respon
   // already carry the token. That asymmetry is worth naming: it makes a
   // misconfiguration look like "the file exists but is empty" rather than
   // like an auth error.
-  return fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  return fetch(url, { headers: { Authorization: `Bearer ${auth.bearer}` } });
 }
 
-async function readPathname(pathname: string, token: string): Promise<StoreData | null> {
-  const resolved = await resolveBlob(pathname, token);
+async function readPathname(pathname: string, auth: BlobAuth): Promise<StoreData | null> {
+  const resolved = await resolveBlob(pathname, auth);
   if (!resolved) return null;
-  const res = await fetchFresh(resolved, token);
+  const res = await fetchFresh(resolved, auth);
   if (!res.ok) return null;
   const text = await res.text();
   if (!text.trim()) return null;
@@ -141,11 +177,11 @@ async function readPathname(pathname: string, token: string): Promise<StoreData 
 }
 
 async function readStore(): Promise<StoreData | null> {
-  const token = requireToken();
+  const auth = requireAuth();
   try {
-    const current = await readPathname(STORE_PATHNAME, token);
+    const current = await readPathname(STORE_PATHNAME, auth);
     if (current) return current;
-    const legacy = await readPathname(LEGACY_STORE_PATHNAME, token);
+    const legacy = await readPathname(LEGACY_STORE_PATHNAME, auth);
     if (legacy) {
       console.info(
         `[storage/blob] read the pre-rename store at ${LEGACY_STORE_PATHNAME}; ` +
@@ -160,7 +196,7 @@ async function readStore(): Promise<StoreData | null> {
 }
 
 async function writeStore(data: StoreData): Promise<void> {
-  const token = requireToken();
+  const auth = requireAuth();
   // Two flags, both load-bearing.
   //
   // `addRandomSuffix: false` keeps the store at a stable pathname — the default
@@ -176,13 +212,13 @@ async function writeStore(data: StoreData): Promise<void> {
     addRandomSuffix: false,
     allowOverwrite: true,
     contentType: 'application/json',
-    token,
+    ...auth.options,
   });
   knownUrls.set(STORE_PATHNAME, result.url);
 }
 
 async function putDocument(caseId: string, key: string, bytes: Buffer, contentType: string): Promise<void> {
-  const token = requireToken();
+  const auth = requireAuth();
   const pathname = documentPathname(caseId, key);
   // Same rationale as `writeStore`: a stable pathname so the bytes can be found
   // again, and overwrite allowed so re-uploading over an existing document id
@@ -192,36 +228,36 @@ async function putDocument(caseId: string, key: string, bytes: Buffer, contentTy
     addRandomSuffix: false,
     allowOverwrite: true,
     contentType,
-    token,
+    ...auth.options,
   });
   knownUrls.set(pathname, result.url);
 }
 
 async function getDocument(caseId: string, key: string): Promise<Buffer | null> {
-  const token = requireToken();
+  const auth = requireAuth();
   const pathname = documentPathname(caseId, key);
-  const resolved = await resolveBlob(pathname, token);
+  const resolved = await resolveBlob(pathname, auth);
   if (!resolved) return null;
-  const res = await fetchFresh(resolved, token);
+  const res = await fetchFresh(resolved, auth);
   if (!res.ok) return null;
   const bytes = await res.arrayBuffer();
   return Buffer.from(bytes);
 }
 
 async function deleteDocument(caseId: string, key: string): Promise<void> {
-  const token = requireToken();
+  const auth = requireAuth();
   const pathname = documentPathname(caseId, key);
-  const resolved = await resolveBlob(pathname, token);
+  const resolved = await resolveBlob(pathname, auth);
   knownUrls.delete(pathname);
-  if (resolved) await del(resolved.url, { token });
+  if (resolved) await del(resolved.url, auth.options);
 }
 
 /** List every blob under a prefix, following `list()`'s cursor to completion. */
-async function listAll(prefix: string, token: string): Promise<ListBlobResultBlob[]> {
+async function listAll(prefix: string, auth: BlobAuth): Promise<ListBlobResultBlob[]> {
   const found: ListBlobResultBlob[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const page = await list({ prefix, cursor, limit: 1000, token });
+    const page = await list({ prefix, cursor, limit: 1000, ...auth.options });
     found.push(...page.blobs);
     if (!page.hasMore) break;
     cursor = page.cursor;
@@ -230,19 +266,19 @@ async function listAll(prefix: string, token: string): Promise<ListBlobResultBlo
 }
 
 async function deleteCaseDocuments(caseId: string): Promise<void> {
-  const token = requireToken();
+  const auth = requireAuth();
   const prefix = documentPathname(caseId, '');
-  const found = await listAll(prefix, token);
+  const found = await listAll(prefix, auth);
   if (found.length === 0) return;
-  await del(found.map((b) => b.url), { token });
+  await del(found.map((b) => b.url), auth.options);
   for (const b of found) knownUrls.delete(b.pathname);
 }
 
 async function deleteAllDocuments(): Promise<void> {
-  const token = requireToken();
-  const found = await listAll(UPLOADS_PREFIX, token);
+  const auth = requireAuth();
+  const found = await listAll(UPLOADS_PREFIX, auth);
   if (found.length === 0) return;
-  await del(found.map((b) => b.url), { token });
+  await del(found.map((b) => b.url), auth.options);
   for (const b of found) knownUrls.delete(b.pathname);
 }
 

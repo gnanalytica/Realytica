@@ -65,7 +65,7 @@ function resolveDataDir(): string {
   console.warn(
     `[storage/filesystem] ${preferred} is not writable — falling back to ${fallback}. ` +
       'This storage is temporary and data will not survive a restart. ' +
-      'Set BLOB_READ_WRITE_TOKEN (attach a Vercel Blob store) or REALYTICA_DATA_DIR for durable storage.',
+      'Connect a Vercel Blob store (which sets BLOB_STORE_ID, or BLOB_READ_WRITE_TOKEN for a public store) or set REALYTICA_DATA_DIR for durable storage.',
   );
   return fallback;
 }
