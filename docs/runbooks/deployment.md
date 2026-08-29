@@ -11,7 +11,7 @@ the screening engine is deterministic and runs with no accounts at all.
 | 1 | **Vercel** | Hosting. You have this. | Hobby |
 | 2 | **Vercel Blob** | Durable case store and uploaded documents. **Required in production** — without it every cold start reports an empty database and re-seeds the demo. | included |
 | 3 | **OpenRouter** | Every model, one key, Anthropic wire format. | yes, plus `:free` models |
-| 4 | **Neo4j Aura** | The reasoning graph. Optional — see the caveat below. | yes, pauses after 72h idle |
+| 4 | **Neo4j Aura** | The reasoning graph. **Required in production** — the app refuses to boot without it. | yes, pauses after 72h idle |
 | 5 | **Google Maps Platform** | Geocoding, Street View, nearby amenities. Optional: without it the site context reports named gaps rather than empty results. | monthly credit |
 
 Skip the statutory-records vendor. `REALYTICA_RECORDS_*` fronts an aggregator
@@ -58,20 +58,35 @@ To run against Anthropic directly instead of OpenRouter, drop
 `REALYTICA_BASE_URL` and make `REALYTICA_API_KEY` an Anthropic key. Nothing
 else changes.
 
-## The one caveat worth knowing before you skip Neo4j
+## Which store owns what
 
-**On Vercel the graph journal is ephemeral.** It writes to
-`REALYTICA_DATA_DIR`, which on a serverless host falls back to `/tmp` and does
-not survive a cold start. The case store is unaffected — that goes to Blob.
+Three stores, and they are not alternatives — each holds something the others
+structurally cannot.
 
-Today this is harmless: every node in the graph is `derived`, so a cold start
-rebuilds it from the case store on the next save and nothing is lost. It stops
-being harmless the moment anything writes an `authored` node — an analyst
-annotating a node, a link drawn by hand — because for those the graph is the
-only copy.
+| Store | Holds | Why not one of the others |
+|---|---|---|
+| **Vercel Blob** | the document BYTES — the scanned deed, the site photo | a graph database is not a file store |
+| **Case store** (JSON, in Blob) | the record: what was uploaded, extracted, screened, concluded | a nested aggregate read whole; the graph is a projection OF this, so it cannot also be derived from it |
+| **Neo4j** | the reasoning graph: relationships, traversal, and the annotations | the only store that answers "what is connected to what" and "what did we believe in March" |
 
-So: **Neo4j is optional until the graph holds something that is not derived.**
-Set it now if you would rather not have to remember that later.
+So Blob does not compete with Neo4j. It holds the files, and the record the
+graph is built from.
+
+**Neo4j is required in production, and the app enforces it.** On a serverless
+host the journal adapter writes to `/tmp`, which does not survive a cold start.
+An annotation written there would be accepted, reported as saved, and lost —
+the worst outcome available. So a deployment with `VERCEL=1` and no
+`REALYTICA_NEO4J_URL` refuses to boot and names the variables to set. A deploy
+that fails loudly is fixed in a minute; one that loses notes quietly is found
+weeks later by the person whose notes are gone.
+
+Configured but *unreachable* is treated completely differently: the app keeps
+serving, because the deterministic screen is the product's floor and a graph
+outage must not stop a valuer creating a case. Writes fail and are logged, the
+derived half rebuilds when the store returns, and annotations attempted during
+the outage are refused with a 503 rather than accepted.
+
+Locally the journal is the default and needs no account.
 
 ## Verify after deploying
 
