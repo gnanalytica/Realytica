@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, Download, FileText } from 'lucide-react';
 import type { CaseDocument, ExtractedField } from '@realytica/shared';
 import { DocumentViewer } from '../../../components/viewer/DocumentViewer';
+import { OriginalScript } from '../../../components/OriginalScript';
 import { documentFileUrl } from '../../../components/viewer/source';
 import { Button, cn } from '../../../components/ui/kit';
 import { DOCUMENT_KIND_LABEL, relativeTime, titleCase } from '../../../lib/format';
@@ -101,6 +102,7 @@ export function ProofPane({
                       <span className="block text-[12.5px] font-medium text-ink">
                         {f.value}
                         {f.unit ? <span className="font-normal text-ink-secondary"> {f.unit}</span> : null}
+                        <OriginalScript original={f.originalValue} script={f.originalScript} className="ml-1.5 font-normal text-ink-secondary" />
                       </span>
                       <span className="tabular mt-0.5 block text-[10.5px] text-ink-muted">
                         {Math.round(f.confidence * 100)}% · {titleCase(f.method)}

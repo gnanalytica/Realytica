@@ -39,6 +39,9 @@ import type {
   TechnicalFindingReviewState,
   TelemetrySummary,
   UpdateCaseRequest,
+  DdEdge,
+  DdGraph,
+  DdNode,
 } from '@realytica/shared';
 
 const BASE = '/api';
@@ -423,6 +426,26 @@ export const api = {
    * like the run graph.
    */
   caseTitleGraph: (id: string) => request<TitleGraph>(`/cases/${id}/title-graph`),
+
+  /**
+   * The STORED reasoning graph, which is not the same as the one the client
+   * builds. It carries the annotations, which exist nowhere else, and `asOf`
+   * answers what the case looked like at an instant — neither of which a
+   * rebuild from the current case can produce.
+   */
+  caseGraph: (id: string, asOf?: string) =>
+    request<{ graph: DdGraph | null; adapter: string; reason?: string }>(
+      `/cases/${id}/graph${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ''}`,
+    ),
+
+  annotateGraphNode: (
+    id: string,
+    body: { nodeId: string; text: string; author?: string; linkedNodeId?: string },
+  ) =>
+    request<{ node: DdNode; edges: DdEdge[] }>(`/cases/${id}/graph/annotations`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   /* --- Conversational intake --------------------------------------- */
 

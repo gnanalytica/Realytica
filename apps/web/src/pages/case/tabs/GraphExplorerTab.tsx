@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Building2, Camera, FileText, HelpCircle, Lightbulb, Maximize2, MessageSquare, Minus, Plus, Search, Waypoints, X } from 'lucide-react';
 import { DD_DOMAIN_PROFILES, buildDdGraph, findNodes, trace } from '@realytica/shared';
-import type { DdGraph, DdLayer, DdNode, DdSubgraph } from '@realytica/shared';
+import type { DdEdge, DdGraph, DdLayer, DdNode, DdSubgraph } from '@realytica/shared';
+import { api } from '../../../lib/api';
 import { Badge, Callout, Input, Select, cn } from '../../../components/ui/kit';
 import { computeFit, zoomAbout, MAX_ZOOM, MIN_ZOOM } from '../../../components/canvas/Canvas';
 import type { Transform } from '../../../components/canvas/Canvas';
@@ -160,7 +161,54 @@ function edgePath(from: PlacedNode, to: PlacedNode): string {
 }
 
 export default function GraphExplorerTab({ caseData, result }: TabProps) {
-  const graph = useMemo(() => buildDdGraph(caseData, caseData.updatedAt), [caseData]);
+  const derived = useMemo(() => buildDdGraph(caseData, caseData.updatedAt), [caseData]);
+
+  /*
+   * Annotations come from the STORE; everything else is built here.
+   *
+   * The derived half is a pure projection of the case the client already
+   * holds, so fetching it would be a round trip for data in memory — the
+   * canvas draws immediately. Annotations cannot be derived from anything:
+   * they were written into the graph and live only there, so they are fetched
+   * and merged in when they arrive. A failed fetch leaves the canvas correct
+   * and short of notes rather than empty.
+   */
+  const [authored, setAuthored] = useState<{ nodes: DdNode[]; edges: DdEdge[] }>({ nodes: [], edges: [] });
+  useEffect(() => {
+    let live = true;
+    api
+      .caseGraph(caseData.id)
+      .then(({ graph: stored }) => {
+        if (!live || !stored) return;
+        const nodes = stored.nodes.filter(n => n.origin === 'authored');
+        const ids = new Set(nodes.map(n => n.id));
+        setAuthored({
+          nodes,
+          edges: stored.edges.filter(e => ids.has(e.fromNodeId) || ids.has(e.toNodeId)),
+        });
+      })
+      .catch(() => {
+        /* the graph store is unreachable; the derived canvas is still correct */
+      });
+    return () => {
+      live = false;
+    };
+  }, [caseData.id, caseData.updatedAt]);
+
+  const graph = useMemo(() => {
+    if (authored.nodes.length === 0) return derived;
+    const have = new Set(derived.nodes.map(n => n.id));
+    // An edge to a node this build does not have is dropped, the same rule the
+    // projection applies: a note pointing at something no longer on the case
+    // is a dangling citation, and the note itself is still shown.
+    const nodes = [...derived.nodes, ...authored.nodes.filter(n => !have.has(n.id))];
+    const all = new Set(nodes.map(n => n.id));
+    return {
+      ...derived,
+      nodes,
+      edges: [...derived.edges, ...authored.edges.filter(e => all.has(e.fromNodeId) && all.has(e.toNodeId))],
+    };
+  }, [derived, authored]);
   const layout = useMemo(() => layoutDdGraph(graph), [graph]);
   const placedById = useMemo(() => new Map(layout.nodes.map(p => [p.node.id, p])), [layout]);
 
@@ -476,7 +524,16 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
         </div>
 
         {selected ? (
-          <TraceInspector node={selected} cone={cone} onSelect={setSelectedId} onClose={() => setSelectedId(null)} />
+          <TraceInspector
+            node={selected}
+            cone={cone}
+            caseId={caseData.id}
+            onSelect={setSelectedId}
+            onClose={() => setSelectedId(null)}
+            onAnnotated={(node, edges) =>
+              setAuthored(prev => ({ nodes: [...prev.nodes, node], edges: [...prev.edges, ...edges] }))
+            }
+          />
         ) : null}
       </div>
     </div>
@@ -529,13 +586,17 @@ function ExplorerButton({
 function TraceInspector({
   node,
   cone,
+  caseId,
   onSelect,
   onClose,
+  onAnnotated,
 }: {
   node: DdNode;
   cone: DdSubgraph | undefined;
+  caseId: string;
   onSelect: (id: string) => void;
   onClose: () => void;
+  onAnnotated: (node: DdNode, edges: DdEdge[]) => void;
 }) {
   const support = (cone?.nodes ?? []).filter(n => n.id !== node.id);
   const byLayer = (layer: DdLayer) => support.filter(n => n.layer === layer);
@@ -543,6 +604,29 @@ function TraceInspector({
     node.layer === 'judgement' && !(cone?.edges ?? []).some(e => e.toNodeId === node.id && (e.kind === 'evidences' || e.kind === 'produces'));
 
   const attributeRows = Object.entries(node.attributes).filter(([k]) => k !== 'mergeKey' && k !== 'domains');
+
+  const [noteText, setNoteText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+
+  const saveNote = async () => {
+    const text = noteText.trim();
+    if (!text || saving) return;
+    setSaving(true);
+    setNoteError(null);
+    try {
+      const { node: created, edges } = await api.annotateGraphNode(caseId, { nodeId: node.id, text });
+      onAnnotated(created, edges);
+      setNoteText('');
+    } catch (err) {
+      // Kept in the box on failure. This is the only copy — clearing it on a
+      // 503 would discard what the analyst just wrote, and the store being
+      // unreachable is exactly when that happens.
+      setNoteError(err instanceof Error ? err.message : 'Could not save the note.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <aside className="flex max-h-[34rem] flex-col gap-3 overflow-y-auto rounded-xl bg-surface p-3.5 ring-1 ring-[var(--ring)]" aria-label="Node inspector">
@@ -609,9 +693,43 @@ function TraceInspector({
         )}
       </div>
 
+      {/*
+        The one thing on this panel that WRITES, and the only thing in the
+        graph that a rebuild cannot produce. Everything above is derived from
+        the case and will come back on its own; a note will not, which is why
+        it is stored in the graph rather than projected into it — and why a
+        failed save keeps the text in the box.
+      */}
+      <div className="border-t border-hairline pt-2.5">
+        <label htmlFor="graph-note" className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+          Add a note
+        </label>
+        <textarea
+          id="graph-note"
+          value={noteText}
+          onChange={e => setNoteText(e.target.value)}
+          rows={2}
+          placeholder="What you know about this that the documents do not say"
+          className="mt-1 w-full resize-y rounded-lg bg-sunken px-2 py-1.5 text-[12px] text-ink ring-1 ring-[var(--ring)] placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-brand"
+        />
+        <div className="mt-1.5 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void saveNote()}
+            disabled={!noteText.trim() || saving}
+            className="rounded-md bg-brand px-2.5 py-1 text-[11.5px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? 'Saving…' : 'Save note'}
+          </button>
+          <span className="text-[10.5px] text-ink-faint">Kept in the graph, not on the case. Survives every rebuild.</span>
+        </div>
+        {noteError ? <p className="mt-1 text-[11px] text-critical">{noteError}</p> : null}
+      </div>
+
       <p className="text-[10.5px] leading-relaxed text-ink-faint">
         This cone is the copilot's own trace_conclusion answer for this node — ask it to trace "{node.label}" in chat
-        and it walks the same edges.
+        and it walks the same edges. Ask it <span className="font-medium">why</span> and it reads the recorded
+        reasoning, including notes added here.
       </p>
     </aside>
   );

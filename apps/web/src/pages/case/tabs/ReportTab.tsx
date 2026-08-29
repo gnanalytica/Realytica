@@ -395,7 +395,7 @@ function judgementTone(j: GraphReportJudgement): Tone {
  * conclusion whose support cannot be seen.
  */
 function TracedJudgementRow({ judgement }: { judgement: GraphReportJudgement }) {
-  const { node, claims, evidence, contradictions, unevidenced } = judgement;
+  const { node, claims, evidence, contradictions, reasoning, unevidenced } = judgement;
   const badge = (node.attributes.verdict ?? node.attributes.severity ?? node.kind) as string;
   return (
     <div className="rounded-lg border border-hairline p-3">
@@ -429,6 +429,33 @@ function TracedJudgementRow({ judgement }: { judgement: GraphReportJudgement }) 
           No evidence chain in the graph derives this conclusion — it rests on the screen's own computation, not on a
           document on file.
         </p>
+      ) : null}
+      {/*
+        Reasoning is set apart from the support above by a rule and a heading,
+        not merged into it. "This rests on the sale deed at page 3" and "we
+        discussed this on Tuesday" are different kinds of statement, and a
+        reader has to be able to tell which they are looking at — a report that
+        runs them together has quietly promoted a conversation to evidence.
+        Nothing is said when nobody discussed it: most conclusions are
+        mechanical, and a "no reasoning recorded" line under every one of them
+        would read as a defect rather than as the norm.
+      */}
+      {reasoning.length > 0 ? (
+        <div className="mt-2 border-t border-hairline pt-2">
+          <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+            How this was reached
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {reasoning.map((r) => (
+              <li key={r.id} className="text-[11.5px] leading-relaxed text-ink-secondary">
+                <span className="text-ink-faint">{titleCase(r.kind)}:</span> {r.label}
+                {typeof r.attributes.at === 'string' && r.attributes.at ? (
+                  <span className="text-ink-faint"> · {String(r.attributes.at).slice(0, 10)}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
     </div>
   );
@@ -1311,7 +1338,11 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
             subtitle={
               `${graphReport.totals.judgements} conclusion${graphReport.totals.judgements === 1 ? '' : 's'}` +
               (graphReport.totals.unevidenced > 0 ? ` · ${graphReport.totals.unevidenced} with no evidence chain` : '') +
-              (graphReport.totals.contradictions > 0 ? ` · ${graphReport.totals.contradictions} live contradiction${graphReport.totals.contradictions === 1 ? '' : 's'}` : '')
+              (graphReport.totals.contradictions > 0 ? ` · ${graphReport.totals.contradictions} live contradiction${graphReport.totals.contradictions === 1 ? '' : 's'}` : '') +
+              // Reported as a count rather than a warning: reasoning is not
+              // owed on a mechanical conclusion, and a reader wants to know
+              // how much of this file has a recorded rationale behind it.
+              (graphReport.totals.discussed > 0 ? ` · ${graphReport.totals.discussed} with recorded reasoning` : '')
             }
             open={openFor('traceability')}
           >

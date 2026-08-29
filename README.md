@@ -95,6 +95,13 @@ direction outright, so the rule is enforced, not documented. Authored nodes are
 drawn as notes — dashed, recessed, no shadow — so a reasoning step and a
 verified fact never look alike in a screenshot.
 
+**The graph store holds one thing that is not a copy: annotations.** A note an
+analyst writes on a node, from the graph explorer's inspector, is `authored` —
+it exists nowhere else and survives every rebuild. Everything else in the graph
+is `derived` and the explorer builds it client-side, so the canvas draws
+immediately and the notes are merged in when they arrive; a graph store that is
+unreachable leaves the canvas correct and short of notes rather than empty.
+
 It is **written on every save**, for the cases that actually moved — a case
 whose `updatedAt` has not changed cannot have produced a different graph.
 Awaited rather than fired off, because on serverless the process can freeze the

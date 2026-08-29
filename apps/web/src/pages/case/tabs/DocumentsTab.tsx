@@ -46,6 +46,7 @@ import { useAsync } from '../../../lib/useAsync';
 import { DOCUMENT_KIND_LABEL, fileSize, relativeTime, titleCase } from '../../../lib/format';
 import type { TabProps } from '../tab-props';
 import { RecordFetchCard } from '../../../components/RecordFetchCard';
+import { OriginalScript } from '../../../components/OriginalScript';
 import { SplitProse } from '../../../components/ui/prose';
 import { DocumentPreview } from '../../../components/DocumentPreview';
 
@@ -711,7 +712,10 @@ function ExtractedFieldsTable({
             return (
               <tr key={f.key} className="border-t border-hairline/70">
                 <td className="py-1.5 pr-3 text-ink-secondary">{f.label}</td>
-                <td className="py-1.5 pr-3 font-medium text-ink">{f.value}</td>
+                <td className="py-1.5 pr-3 font-medium text-ink">
+                  {f.value}
+                  <OriginalScript original={f.originalValue} script={f.originalScript} />
+                </td>
                 <td className="py-1.5 pr-3 text-ink-muted">{f.unit ?? '—'}</td>
                 <td className="py-1.5 pr-3">
                   <span className="tabular text-ink-secondary">{Math.round(f.confidence * 100)}%</span>
