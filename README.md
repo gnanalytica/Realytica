@@ -119,7 +119,21 @@ are separate calls on purpose: evidence is what a conclusion rests on and
 belongs in a report, deliberation is how we got there and belongs in an audit
 trail. The copilot reaches `why` through `recall_reasoning`, which **says the
 record is silent** when nothing discussed a node — a model handed an empty list
-fills the silence with a rationale nobody gave.
+fills the silence with a rationale nobody gave. `buildGraphReport` carries both
+per judgement, in separate fields: a renderer that merges them has promoted a
+conversation to evidence.
+
+**Documents are not all in English** (`packages/shared/src/script.ts`). A
+Karnataka deed is routinely in Kannada, a Telangana one in Telugu, usually
+mixed with English on the same page. Two rules, both about not losing
+information the moment it is understood. A NAME keeps both forms — the English
+reading in `value`, the page's own text in `originalValue` — because a
+transliteration is a claim, two different Kannada names can romanise
+identically, and the registrar's index holds the original. An IDENTIFIER is
+never romanised at all: Indic digits are converted (೧೨೩ and 123 are the same
+number) and letters are left alone, because there is no English spelling of a
+survey number, only the survey number. The quote is always in the document's
+own script — a quote a reader cannot find on the page is not a quote.
 
 **Environment variables**, all optional — the screening engine is deterministic
 and needs none of them:

@@ -12,12 +12,20 @@
  * Actions are deliberately not report lines here. An action mitigates a risk
  * — its derivation runs outward, not downward — so it has no cone to print,
  * and the recommended-actions section already renders them with their risks.
+ *
+ * Each judgement also carries its RECORDED REASONING, kept strictly separate
+ * from its support. Evidence is what a conclusion rests on and belongs in the
+ * body; reasoning is how it was reached and belongs in an audit trail. Putting
+ * a chat message in the same list as a registered deed is precisely what the
+ * one-way rule exists to prevent, so `reasoning` is a different field and a
+ * caller that prints them together is choosing to.
  */
 
 import { DD_DOMAIN_KEYS, DD_DOMAIN_PROFILES } from '../dd-domains';
 import type { DdDomain } from '../dd-domains';
 import type { DdGraph, DdNode } from './dd-graph';
 import { trace } from './dd-graph';
+import { why } from './why';
 
 export interface GraphReportJudgement {
   node: DdNode;
@@ -27,8 +35,24 @@ export interface GraphReportJudgement {
   evidence: DdNode[];
   /** Contradictions touching the cone. Never dropped: a trace that hides a live disagreement is a clean-looking lie. */
   contradictions: DdNode[];
+  /**
+   * The recorded reasoning around this conclusion — never its support.
+   *
+   * Separate from `claims` and `evidence` on purpose. A reader must be able to
+   * tell "this rests on the sale deed at page 3" from "we discussed this on
+   * Tuesday", and a report that renders them as one list has quietly promoted
+   * a conversation to evidence.
+   */
+  reasoning: DdNode[];
   /** True when nothing in the graph derives this conclusion. */
   unevidenced: boolean;
+  /**
+   * True when the conclusion is evidenced but nobody wrote down why it was
+   * reached that way. Not a defect — most conclusions are mechanical — but it
+   * is the difference between an audit trail that is empty and one that was
+   * never asked for.
+   */
+  undiscussed: boolean;
 }
 
 export interface GraphReportSection {
@@ -42,7 +66,7 @@ export interface GraphReport {
   builtAt: string;
   /** Only domains that actually hold judgements — an empty section is not a section. */
   sections: GraphReportSection[];
-  totals: { judgements: number; unevidenced: number; contradictions: number };
+  totals: { judgements: number; unevidenced: number; contradictions: number; discussed: number };
 }
 
 /** Kinds that state a conclusion about the property, in print order within equal severity. */
@@ -74,12 +98,19 @@ export function buildGraphReport(graph: DdGraph): GraphReport {
       e => e.toNodeId === node.id && (e.kind === 'evidences' || e.kind === 'produces'),
     );
     if (unevidenced) unevidencedTotal += 1;
+    // Depth 1: what actually discussed this conclusion, not the whole thread
+    // it sat in. A report is not a transcript, and following the conversation
+    // outward would attach every unrelated turn to every finding.
+    const discussion = why(graph, node.id, 1);
+    const reasoning = discussion?.steps.map(step => step.node) ?? [];
     const judgement: GraphReportJudgement = {
       node,
       claims: support.filter(n => n.kind === 'fact'),
       evidence: support.filter(n => n.layer === 'evidence'),
       contradictions,
+      reasoning,
       unevidenced,
+      undiscussed: reasoning.length === 0,
     };
     const domain = node.domain ?? 'risk';
     const list = byDomain.get(domain);
@@ -89,6 +120,7 @@ export function buildGraphReport(graph: DdGraph): GraphReport {
 
   const sections: GraphReportSection[] = [];
   let total = 0;
+  let discussedTotal = 0;
   for (const domain of DD_DOMAIN_KEYS) {
     const judgements = byDomain.get(domain);
     if (!judgements || judgements.length === 0) continue;
@@ -100,6 +132,7 @@ export function buildGraphReport(graph: DdGraph): GraphReport {
         a.node.id.localeCompare(b.node.id),
     );
     total += judgements.length;
+    discussedTotal += judgements.filter(j => !j.undiscussed).length;
     const profile = DD_DOMAIN_PROFILES[domain];
     sections.push({ domain, label: profile.label, question: profile.question, judgements });
   }
@@ -107,6 +140,11 @@ export function buildGraphReport(graph: DdGraph): GraphReport {
   return {
     builtAt: graph.builtAt,
     sections,
-    totals: { judgements: total, unevidenced: unevidencedTotal, contradictions: contradictionIds.size },
+    totals: {
+      judgements: total,
+      unevidenced: unevidencedTotal,
+      contradictions: contradictionIds.size,
+      discussed: discussedTotal,
+    },
   };
 }

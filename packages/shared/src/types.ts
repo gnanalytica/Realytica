@@ -1,3 +1,4 @@
+import type { DocScript } from './script';
 /**
  * Realytica domain contract.
  *
@@ -484,6 +485,17 @@ export interface ExtractedField {
   label: string;
   value: string;
   unit?: string;
+  /**
+   * The value exactly as the page writes it, when the page is not in English.
+   *
+   * Absent for an English document, where `value` is a copy rather than a
+   * reading. Present alongside — never instead of — `value` otherwise: a
+   * transliteration is a claim, two different Kannada names can romanise
+   * identically, and the register a lawyer will check holds the original.
+   */
+  originalValue?: string;
+  /** The script `originalValue` is written in, when there is one. */
+  originalScript?: DocScript;
   /** 0..1 */
   confidence: number;
   sourceDocumentId: string;

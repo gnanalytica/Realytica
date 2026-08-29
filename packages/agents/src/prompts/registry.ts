@@ -332,6 +332,27 @@ document (a Karnataka/Bengaluru property case). Do the following:
    catalogue, classify it "unclassified" or "other" and return few or no
    fields rather than guessing.
 
+7. LANGUAGE. Many of these documents are in Kannada, Telugu, Tamil or
+   Devanagari, often mixed with English on the same page. Read them.
+   - "quote" is ALWAYS in the document's own script, never translated. A
+     quote a reader cannot find on the page is not a quote.
+   - For a name, place or description not written in English, put your
+     English reading in "value" AND the exact original text in
+     "originalValue". Both, always. Two different Kannada names can romanise
+     to the same English spelling, and the registrar's index holds the
+     original — a report naming only the romanised form gives a lawyer
+     nothing to check against.
+   - For an IDENTIFIER — a survey number, document number, khata number,
+     registration number — copy the characters exactly and do NOT romanise
+     them. Indic digits are fine to write as Latin digits, because ೧೨೩ and
+     123 are the same number. Letters are not: there is no English spelling
+     of an identifier, only the identifier.
+   - When the page is already in English, "originalValue" is null. Do not
+     invent an original.
+   - Do not decline a document because it is not in English. Report low
+     confidence for what you genuinely cannot read, field by field, and say
+     which script in "notes".
+
 Then call the {{toolName}} tool exactly once with your full result.`;
 
 const PLANNER_SYSTEM_CONTENT_V1 = `{{grounding}}

@@ -74,7 +74,7 @@ import type {
   PromptUsage,
   PropertyIdentity,
 } from '@realytica/shared';
-import { KHATA_TYPE_LABEL } from '@realytica/shared';
+import { KHATA_TYPE_LABEL, prepareValue } from '@realytica/shared';
 import { describeError } from '../client';
 import { PROMPT_KEYS, resolvePrompt, type ResolvedPrompt } from '../prompts';
 import { describeGap } from '../routing';
@@ -220,7 +220,7 @@ function buildExtractionTool(): LlmSchemaTool {
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['key', 'label', 'value', 'unit', 'confidence', 'quote'],
+            required: ['key', 'label', 'value', 'unit', 'confidence', 'quote', 'originalValue'],
             properties: {
               key: { type: 'string', description: 'Short camelCase identifier, e.g. "registrationNumber".' },
               label: { type: 'string', description: 'Human-readable label, e.g. "Registration number".' },
@@ -229,7 +229,15 @@ function buildExtractionTool(): LlmSchemaTool {
               confidence: { type: 'number', minimum: 0, maximum: 1, description: 'Your honest confidence that this value is correct.' },
               quote: {
                 type: 'string',
-                description: 'A verbatim excerpt (<=20 words), copied exactly from the document, that states or directly supports this value.',
+                description:
+                  'A verbatim excerpt (<=20 words), copied exactly from the document, that states or directly supports this value. ' +
+                  'Copy it in the ORIGINAL script — never a translation. A quote a reader cannot find on the page is not a quote.',
+              },
+              originalValue: {
+                type: ['string', 'null'],
+                description:
+                  'When the document is not in English: the value exactly as written on the page, in its own script. Null when the ' +
+                  'page is already in English and `value` is a copy rather than a reading.',
               },
             },
           },
@@ -552,6 +560,10 @@ const FieldSchema = z.object({
   unit: z.string().nullable(),
   confidence: z.number().min(0).max(1),
   quote: z.string(),
+  // Nullish rather than required: a model that omits it for an English page
+  // is behaving correctly, and rejecting the whole extraction over an absent
+  // optional would lose every other field on the document with it.
+  originalValue: z.string().nullish(),
 });
 
 const ExtractionOutputSchema = z.object({
@@ -866,11 +878,20 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       disagreementNotes.push(disagreement.note);
     }
 
+    // `prepareValue` decides what `value` becomes. For an identifier it keeps
+    // the characters and only normalises Indic digits — there is no English
+    // spelling of a survey number, only the survey number. For a name it keeps
+    // both forms, because a transliteration is a reading and the register a
+    // lawyer checks holds the original.
+    const scripted = prepareValue(raw.key, raw.value, raw.originalValue ?? undefined);
+    const carriesOriginal = scripted.original !== scripted.value && scripted.script !== 'latin';
+
     fields.push({
       key: raw.key,
       label: raw.label,
-      value: raw.value,
+      value: scripted.value,
       unit: raw.unit ?? undefined,
+      ...(carriesOriginal ? { originalValue: scripted.original, originalScript: scripted.script } : {}),
       confidence,
       sourceDocumentId: document.id,
       sourcePage,
@@ -881,7 +902,10 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     const pageSuffix = sourcePage ? `, p.${sourcePage}` : '';
     evidence.push({
       id: `ev-doc-${document.id}-${evidenceSeq}`,
-      statement: `${raw.label}: ${raw.value}${raw.unit ? ` ${raw.unit}` : ''} (from ${document.fileName}${pageSuffix}).`,
+      // The original travels into the ledger statement too, so a report
+      // quoting this evidence carries the text a registrar would match on
+      // rather than only our reading of it.
+      statement: `${raw.label}: ${scripted.value}${raw.unit ? ` ${raw.unit}` : ''}${carriesOriginal ? ` [${scripted.original}]` : ''} (from ${document.fileName}${pageSuffix}).`,
       sourceType: 'document',
       sourceRef: document.id,
       sourceLabel: sourcePage ? `${document.fileName}, p.${sourcePage}` : document.fileName,

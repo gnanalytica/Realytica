@@ -396,3 +396,38 @@ describe('everything the case knows reaches the graph', () => {
     assert.equal(research.attributes.sourceUrl, 'https://example.test/a');
   });
 });
+
+describe('the report separates what a conclusion rests on from how it was reached', () => {
+  it('attaches reasoning without letting it become evidence', () => {
+    // The line a report has to hold: "this rests on the sale deed at page 3"
+    // is not the same statement as "we discussed this on Tuesday", and a
+    // renderer that puts them in one list has promoted a conversation to
+    // evidence.
+    const base = ddCase();
+    const risk = base.result?.risks?.[0];
+    assert.ok(risk, 'fixture should carry a risk');
+    const c = withConversation(base, [
+      turn({ id: 't1', role: 'user', text: 'Why is this flagged?' }),
+      turn({ id: 't2', role: 'assistant', text: 'Because the schedule does not close', citedNodeIds: [risk.id] }),
+    ]);
+    const report = buildGraphReport(buildDdGraph(c, NOW));
+    const line = report.sections.flatMap(s => s.judgements).find(j => j.node.id === risk.id);
+    assert.ok(line, 'the risk is a report line');
+    assert.ok(line.reasoning.some(n => n.kind === 'answer'), 'the reasoning is attached');
+    assert.equal(line.undiscussed, false);
+    // And it stayed out of the support.
+    assert.ok(line.evidence.every(n => n.layer === 'evidence'));
+    assert.ok(line.claims.every(n => n.kind === 'fact'));
+  });
+
+  it('marks a conclusion nobody discussed, without treating it as a defect', () => {
+    // Most conclusions are mechanical and want no commentary. The distinction
+    // worth reporting is between an audit trail that is empty and one that was
+    // never asked for.
+    const report = buildGraphReport(buildDdGraph(ddCase(), NOW));
+    const lines = report.sections.flatMap(s => s.judgements);
+    assert.ok(lines.length > 0);
+    assert.ok(lines.every(j => j.undiscussed), 'nothing was discussed on a fresh case');
+    assert.equal(report.totals.discussed, 0);
+  });
+});
