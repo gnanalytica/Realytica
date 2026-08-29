@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { ArrowUp, CheckCircle2, MessageCircle, SearchX, Sparkles, Trash2 } from 'lucide-react';
-import type { CopilotTurn, DdNode, EvidenceItem, VerificationSummary } from '@realytica/shared';
+import type { AgentStep, CopilotTurn, DdNode, EvidenceItem, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
 import { Badge, Button, Callout, Textarea, cn } from './ui/kit';
@@ -159,13 +159,41 @@ function TurnBubble({
   );
 }
 
-function TypingIndicator() {
+/**
+ * What the agent is doing, while it does it.
+ *
+ * Three dots covered a loop of up to eight tool iterations — reading a deed,
+ * walking the graph, pulling the compliance checks — and a wait that long
+ * with no account of itself is indistinguishable from a hang. The server has
+ * always emitted these steps; nothing was listening.
+ *
+ * The dots stay for the gap before the first step arrives, and on a
+ * deployment where the response is buffered rather than streamed, which is
+ * the same thing from here.
+ */
+function TypingIndicator({ steps }: { steps: AgentStep[] }) {
+  const current = steps[steps.length - 1];
+  // Tool steps only. `message` and `plan` steps carry the model's own
+  // narration, which is the answer being drafted — showing it here would
+  // print a rough version of the reply above the reply.
+  const done = steps.filter(s => s.kind === 'tool_result').length;
+
   return (
     <div className="flex justify-start">
-      <div className="flex items-center gap-1 rounded-xl rounded-tl-sm bg-sunken px-3 py-3 ring-1 ring-inset ring-[var(--ring)]">
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-muted [animation-delay:0ms]" />
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-muted [animation-delay:150ms]" />
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-muted [animation-delay:300ms]" />
+      <div className="flex max-w-[85%] flex-col gap-1.5 rounded-xl rounded-tl-sm bg-sunken px-3 py-2.5 ring-1 ring-inset ring-[var(--ring)]">
+        <div className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-muted [animation-delay:0ms]" />
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-muted [animation-delay:150ms]" />
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-muted [animation-delay:300ms]" />
+          {current ? (
+            <span className="ml-1 min-w-0 truncate text-[12px] text-ink-secondary">{current.label}</span>
+          ) : null}
+        </div>
+        {done > 0 ? (
+          <span className="text-[11px] text-ink-faint">
+            {done} source{done === 1 ? '' : 's'} read
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -211,6 +239,7 @@ export function CopilotPanel({
   fill,
   nodes,
   appliedByTurn,
+  steps,
 }: {
   conversation: CopilotTurn[];
   evidence: EvidenceItem[];
@@ -249,6 +278,8 @@ export function CopilotPanel({
    * with the response, and the case row is the record of the change itself.
    */
   appliedByTurn?: Record<string, string[]>;
+  /** Live progress for the turn in flight, newest last. */
+  steps?: AgentStep[];
 }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -348,7 +379,7 @@ export function CopilotPanel({
                 onOpenDocument={onOpenDocument}
               />
             ))}
-            {busy ? <TypingIndicator /> : null}
+            {busy ? <TypingIndicator steps={steps ?? []} /> : null}
           </>
         )}
       </div>

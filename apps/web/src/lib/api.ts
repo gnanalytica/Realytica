@@ -63,6 +63,106 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+export interface CopilotAnswer {
+  userTurn: CopilotTurn;
+  assistantTurn: CopilotTurn;
+  /** One line per user command the turn executed (the authorship law's acting half). */
+  appliedCommands?: string[];
+  /** Views the person asked chat to open; the caller navigates to the first. */
+  navigations?: { target: string }[];
+}
+
+/**
+ * Read the copilot's NDJSON response, reporting progress as it arrives.
+ *
+ * Written to survive not streaming. A proxy that buffers the whole body
+ * delivers every line in one chunk, and this reads them in order and ends at
+ * the same result — so a deployment where streaming does not work behaves
+ * exactly as it did before, with the steps arriving all at once at the end
+ * instead of never. That is the property that made streaming worth adding on
+ * the existing route rather than a second one.
+ *
+ * A partial line at a chunk boundary is normal and is why the buffer is kept
+ * across reads: a 4KB chunk will routinely split a step in half, and parsing
+ * eagerly would throw on valid output.
+ */
+async function askCopilotStreaming(
+  id: string,
+  question: string,
+  viewContext?: string,
+  onStep?: (step: AgentStep) => void,
+): Promise<CopilotAnswer> {
+  const res = await fetch(`${BASE}/cases/${id}/agents/copilot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, viewContext }),
+  });
+
+  // A failure BEFORE the first line is still an ordinary status + JSON body:
+  // validation, a missing case, no credentials. Only a failure after the
+  // stream opened arrives as an error line.
+  if (!res.ok) {
+    let message = `${res.status} ${res.statusText}`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiRequestError(message, res.status);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new ApiRequestError('The copilot response could not be read.', 502);
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let answer: CopilotAnswer | null = null;
+  let failure: string | null = null;
+
+  const consume = (raw: string): void => {
+    const text = raw.trim();
+    if (!text) return;
+    let parsed: { type?: string; step?: AgentStep; error?: string } & Partial<CopilotAnswer>;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // A line we cannot parse is not worth failing the answer over — the
+      // result line is what matters and it is parsed on its own.
+      return;
+    }
+    if (parsed.type === 'step' && parsed.step) onStep?.(parsed.step);
+    else if (parsed.type === 'error') failure = parsed.error ?? 'The copilot failed.';
+    else if (parsed.type === 'result' && parsed.userTurn && parsed.assistantTurn) {
+      answer = {
+        userTurn: parsed.userTurn,
+        assistantTurn: parsed.assistantTurn,
+        appliedCommands: parsed.appliedCommands,
+        navigations: parsed.navigations,
+      };
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const l of lines) consume(l);
+  }
+  consume(buffer);
+
+  if (failure) throw new ApiRequestError(failure, 502);
+  if (!answer) {
+    // The stream ended without a result and without an error — a killed
+    // function, a dropped connection. Saying so beats returning a half-built
+    // object the caller would render as an answer.
+    throw new ApiRequestError('The copilot stopped before it answered. Please retry.', 502);
+  }
+  return answer;
+}
+
 export class ApiRequestError extends Error {
   constructor(message: string, public status: number) {
     super(message);
@@ -295,18 +395,8 @@ export const api = {
       body: JSON.stringify({ agents }),
     }),
 
-  askCopilot: (id: string, question: string, viewContext?: string) =>
-    request<{
-      userTurn: CopilotTurn;
-      assistantTurn: CopilotTurn;
-      /** One line per user command the turn executed (the authorship law's acting half). */
-      appliedCommands?: string[];
-      /** Views the person asked chat to open; the caller navigates to the first. */
-      navigations?: { target: string }[];
-    }>(`/cases/${id}/agents/copilot`, {
-      method: 'POST',
-      body: JSON.stringify({ question, viewContext }),
-    }),
+  askCopilot: (id: string, question: string, viewContext?: string, onStep?: (step: AgentStep) => void) =>
+    askCopilotStreaming(id, question, viewContext, onStep),
 
   clearConversation: (id: string) => request<void>(`/cases/${id}/agents/conversation`, { method: 'DELETE' }),
 

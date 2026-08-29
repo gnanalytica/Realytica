@@ -11,7 +11,7 @@ import {
   domainForSystem,
   summariseRequests,
 } from '@realytica/shared';
-import type { DdDomain } from '@realytica/shared';
+import type { AgentStep, DdDomain } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { agentAvailable } from '../../lib/agent-availability';
@@ -163,13 +163,23 @@ export default function Cockpit() {
    * of the truth next to the first.
    */
   const [appliedByTurn, setAppliedByTurn] = useState<Record<string, string[]>>({});
+  const [steps, setSteps] = useState<AgentStep[]>([]);
 
   const handleAsk = useCallback(
     async (question: string) => {
       if (!caseData) return;
       setAsking(true);
+      // Cleared per question, not accumulated: this is what is happening now,
+      // and the finished turn's own tool badges are the record of what
+      // happened before.
+      setSteps([]);
       try {
-        const response = await api.askCopilot(caseData.id, question, `${DD_DOMAIN_PROFILES[domain].label} · cockpit`);
+        const response = await api.askCopilot(
+          caseData.id,
+          question,
+          `${DD_DOMAIN_PROFILES[domain].label} · cockpit`,
+          step => setSteps(prev => [...prev, step]),
+        );
         await refresh();
         const target = response.navigations?.[0]?.target;
         const asDomain = target?.replace('diligence?view=', '');
@@ -182,6 +192,7 @@ export default function Cockpit() {
         }
       } finally {
         setAsking(false);
+        setSteps([]);
       }
     },
     [caseData, domain, refresh, goDomain, toast],
@@ -579,6 +590,7 @@ export default function Cockpit() {
               fill
               nodes={graphNodes}
               appliedByTurn={appliedByTurn}
+              steps={steps}
               conversation={caseData.intelligence?.conversation ?? []}
               evidence={caseData.result?.evidence ?? []}
               suggestions={canAnswer === false ? [] : suggestions}

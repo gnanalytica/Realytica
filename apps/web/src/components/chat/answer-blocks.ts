@@ -98,6 +98,19 @@ const DIVIDER = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 /** A line that is only a heading if it is short and ends in a colon. */
 const HEADING = /^([A-Z][^.!?]{0,60}):\s*$/;
 
+/**
+ * An ATX heading — `## Something`.
+ *
+ * Added after watching a real answer come back from
+ * `nvidia/nemotron-3-super-120b-a12b:free`, which opened each of its two
+ * findings with `## 1. Aerodrome height restriction …`. The models on this
+ * deployment are not asked to format and do it anyway, so the parser reads
+ * the convention they actually reach for rather than the one we might have
+ * specified. The leading number is left in the text: it is the model's own
+ * ordering of its answer, not ours to renumber.
+ */
+const ATX = /^#{1,4}\s+(.+?)\s*#*$/;
+
 export function parseAnswer(text: string, isNode: (id: string) => boolean): Block[] {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const blocks: Block[] = [];
@@ -167,6 +180,13 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean): Bloc
       }
       blocks.push({ kind: 'numbers', items });
       i = j - 1;
+      continue;
+    }
+
+    const atx = ATX.exec(trimmed);
+    if (atx) {
+      flush();
+      blocks.push({ kind: 'heading', spans: parseInline(atx[1], isNode) });
       continue;
     }
 

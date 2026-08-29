@@ -119,6 +119,20 @@ describe('blocks', () => {
     assert.deepEqual(kinds(blocks), ['paragraph']);
   });
 
+  it('reads the markdown heading the models actually emit', () => {
+    // Observed live: nvidia/nemotron-3-super-120b-a12b:free opened each
+    // finding with `## 1. …`. Nothing asks it to; it does it anyway.
+    const blocks = parseAnswer('## 1. Aerodrome height restriction\nThe site adjoins the approach funnel.', NO_NODES);
+    assert.deepEqual(kinds(blocks), ['heading', 'paragraph']);
+    const head = blocks[0] as Extract<Block, { kind: 'heading' }>;
+    assert.equal(text(head.spans), '1. Aerodrome height restriction');
+  });
+
+  it('does not read a hash inside a sentence as a heading', () => {
+    const blocks = parseAnswer('The plot is Site No. #118 in the layout.', NO_NODES);
+    assert.deepEqual(kinds(blocks), ['paragraph']);
+  });
+
   it('returns nothing for an empty answer rather than an empty paragraph', () => {
     assert.deepEqual(parseAnswer('', NO_NODES), []);
     assert.deepEqual(parseAnswer('   \n\n  ', NO_NODES), []);
