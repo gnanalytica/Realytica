@@ -104,9 +104,33 @@ enable exactly these — they are what the code calls:
 | **Distance Matrix API** | travel time to amenities |
 | **Places API (New)** | nearby amenities — `places.googleapis.com/v1`, which is a **different** enablement from the legacy Places API. Enabling the old one leaves this failing. |
 
-Then Credentials → create an **API key**, and restrict it: HTTP referrer or IP
-as fits your deployment, and **restrict it to the five APIs above**. An
-unrestricted Maps key found in a bundle or a log is somebody else's billing.
+Then Credentials → create an **API key**, and set **Application restriction:
+None**, **API restriction: the five APIs above**.
+
+That first setting looks wrong and is not. Every Maps call in this app is made
+by the API function, not the browser — `site-context.ts` proxies Street View
+and static-map imagery through our own route precisely so the key is never
+published to a page. A server request carries no `Referer`, so an
+**HTTP-referrer-restricted key fails every one of them**, and it does so in
+two different voices depending on the endpoint: Geocoding and Distance Matrix
+answer `REQUEST_DENIED — API keys with referer restrictions cannot be used
+with this API`, while Places (New) answers `403
+API_KEY_HTTP_REFERRER_BLOCKED`. Neither sentence appears in the site-context
+UI, which simply reports the amenity gaps as unknown.
+
+IP restriction is the theoretically better answer and is not available here:
+Vercel functions egress from a shared pool with no stable address to list.
+
+So the API restriction is the whole of the protection, and it is worth
+getting exact — a key restricted to these five buys an attacker geocoding,
+not the rest of the project. Keep it out of the web bundle (it is only ever
+read server-side, and the `REALYTICA_` prefix is not exposed to Vite), and
+rotate it if it reaches a log.
+
+A key that already carries a referrer restriction cannot be repaired by
+adding APIs to it; change the application restriction to None, or mint a
+second key for the server and leave the first to whatever browser code
+needs it.
 
 → `REALYTICA_GOOGLE_MAPS_API_KEY`
 
