@@ -28,7 +28,6 @@ import type {
   LandConversionStatus,
   LayoutApproval,
   LocalityReference,
-  PersonaKey,
   PlotAttributes,
   PlotFacing,
   PropertyIdentity,
@@ -36,7 +35,7 @@ import type {
   ReferenceData,
   Tenure,
 } from '@realytica/shared';
-import { COUNTRY_PACKS_META, PERSONAS, PROPERTY_TYPES } from '@realytica/shared';
+import { COUNTRY_PACKS_META, PROPERTY_TYPES } from '@realytica/shared';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { PROPERTY_TYPE_LABEL, money, pct } from '../lib/format';
@@ -306,7 +305,6 @@ function initialPlot(): PlotFormState {
 
 interface FormState {
   country: CountryCode;
-  persona: PersonaKey | null;
   ownerName: string;
   label: string;
   state: string;
@@ -339,7 +337,6 @@ function nameFromEmail(email: string): string {
 function initialForm(): FormState {
   return {
     country: 'IN',
-    persona: null,
     ownerName: nameFromEmail('sandeep@gnanalytica.com'),
     label: '',
     state: '',
@@ -528,7 +525,6 @@ export default function NewCase() {
   function validateStep(index: number): Record<string, string> {
     const e: Record<string, string> = {};
     if (index === 0) {
-      if (!form.persona) e.persona = 'Choose the persona this case is being screened for.';
       if (!form.ownerName.trim()) e.ownerName = 'Enter the name of the case owner.';
     }
     if (index === 1) {
@@ -586,7 +582,6 @@ export default function NewCase() {
   }
 
   async function handleCreate() {
-    if (!form.persona) return;
     setCreating(true);
     try {
       // Convert once, from the authoritative text the user last typed, using the
@@ -638,7 +633,6 @@ export default function NewCase() {
       const body: CreateCaseRequest = {
         identity,
         ownerName: form.ownerName.trim(),
-        persona: form.persona,
         notes: form.notes.trim() || undefined,
       };
       const created = await api.createCase(body);
@@ -753,25 +747,6 @@ export default function NewCase() {
                         {CURRENCY_BY_COUNTRY[c.country]} · {c.phase}
                       </span>
                     </span>
-                  </button>
-                ))}
-              </div>
-            </Field>
-
-            <Field label="Persona" required error={errors.persona} hint="Recorded on the case and learned by the memory layer. It does not change what the screen shows.">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {PERSONAS.map((p) => (
-                  <button
-                    key={p.key}
-                    type="button"
-                    onClick={() => set('persona', p.key)}
-                    className={cn(
-                      'flex flex-col gap-1 rounded-lg p-3 text-left ring-1 ring-inset transition-colors',
-                      form.persona === p.key ? 'bg-brand-soft ring-2 ring-brand' : 'bg-surface ring-[var(--ring)] hover:bg-sunken',
-                    )}
-                  >
-                    <span className="text-[13px] font-semibold text-ink">{p.label}</span>
-                    <span className="text-xs leading-snug text-ink-secondary">{p.description}</span>
                   </button>
                 ))}
               </div>
@@ -1303,7 +1278,6 @@ export default function NewCase() {
             <CardBody>
               <dl>
                 <KeyValue label="Country" value={form.country === 'IN' ? 'India' : 'Netherlands'} />
-                <KeyValue label="Persona" value={PERSONAS.find((p) => p.key === form.persona)?.label ?? '—'} />
                 <KeyValue label="Owner" value={form.ownerName || '—'} />
                 <KeyValue label="Label" value={form.label || '—'} />
                 <KeyValue

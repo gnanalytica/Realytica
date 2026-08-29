@@ -12,7 +12,6 @@ import type {
   KarnatakaJurisdiction,
   KhataType,
   LandConversionStatus,
-  PersonaKey,
   PropertyType,
 } from './types';
 import {
@@ -113,29 +112,6 @@ export const DOCUMENT_KIND_LABEL: Record<DocumentKind, string> = {
 };
 
 export const CASE_STATUSES: CaseStatus[] = ['draft', 'collecting', 'analysing', 'screened', 'archived'];
-
-export const PERSONAS: { key: PersonaKey; label: string; description: string }[] = [
-  {
-    key: 'property_investor',
-    label: 'Property Investor',
-    description: 'Buying to hold or flip; wants a fast read on value, yield and downside risk.',
-  },
-  {
-    key: 'developer_acquisition_manager',
-    label: 'Developer / Acquisition Manager',
-    description: 'Screening acquisition or development opportunities for commercial viability.',
-  },
-  {
-    key: 'property_adviser',
-    label: 'Property Adviser / Consultant',
-    description: 'Advising a client and needs a defensible, evidence-backed view to hand over.',
-  },
-  {
-    key: 'valuation_firm',
-    label: 'Valuation Firm',
-    description: 'Producing or sanity-checking a valuation and wants anchors, comparables and evidence.',
-  },
-];
 
 /** Metadata about the two country packs shipped in the MVP (Phase 1 India, Phase 3 Netherlands). */
 export const COUNTRY_PACKS_META: {
@@ -251,7 +227,7 @@ export const KEY_USER_JOBS: SpecEntry[] = [
 ];
 
 export const MVP_SCOPE: SpecEntry[] = [
-  { title: 'Property case creation', description: 'Start a case for a specific property under a persona and owner.' },
+  { title: 'Property case creation', description: 'Start a case for a specific property and owner.' },
   { title: 'Property identification', description: 'Capture address, parcel id, type, tenure and areas.' },
   { title: 'Document upload', description: 'Attach the documents a buyer typically holds or can obtain.' },
   { title: 'Document classification', description: 'Automatically identify what kind of document was uploaded.' },

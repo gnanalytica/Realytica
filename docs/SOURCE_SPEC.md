@@ -46,11 +46,16 @@ Make property decisions clearer, faster and evidence-driven.
 
 ## Target customers
 
-**Primary MVP personas:** Property Investor; Developer / Acquisition Manager;
+**Primary MVP customers:** Property Investor; Developer / Acquisition Manager;
 Property Adviser / Consultant; Valuation Firm.
 
-**Secondary personas:** lenders, NBFCs, banks, family offices, real estate funds,
+**Secondary customers:** lenders, NBFCs, banks, family offices, real estate funds,
 buyer-side agents, legal diligence firms, project consultants, asset managers.
+
+These are market segments, not a concept in the system. The product used to
+store a `persona` on every case and ask for one at creation; it steered
+nothing, so it was removed. Who a case is worked for is expressed by the
+engagement department, which is chosen by navigating to it.
 
 ## Key user jobs
 

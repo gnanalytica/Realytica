@@ -1,4 +1,4 @@
-import type { CreateCaseRequest, IntakeField, IntakeSession, PersonaKey, ProjectBrief, ReferenceData } from '@realytica/shared';
+import type { CreateCaseRequest, IntakeField, IntakeSession, ProjectBrief, ReferenceData } from '@realytica/shared';
 import { assessmentFitCaution } from '@realytica/shared';
 import { draftIdentity, draftProjectKind } from './fields';
 import { readDraft } from './readout';
@@ -27,10 +27,9 @@ export interface CommitReady {
   unconfirmed: IntakeField[];
 }
 
-const DEFAULT_PERSONA: PersonaKey = 'property_investor';
 
 export function commitDraft(
-  session: Pick<IntakeSession, 'fields' | 'documents' | 'ownerName' | 'persona' | 'caseId'>,
+  session: Pick<IntakeSession, 'fields' | 'documents' | 'ownerName' | 'caseId'>,
   refData: ReferenceData,
   now: string,
 ): CommitReady | CommitRefusal {
@@ -101,7 +100,6 @@ export function commitDraft(
     request: {
       identity,
       ownerName: session.ownerName?.trim() || 'Unnamed',
-      persona: session.persona ?? DEFAULT_PERSONA,
       notes: noteLines.join('\n'),
       project,
     },

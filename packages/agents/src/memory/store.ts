@@ -151,8 +151,7 @@ export const DEFAULT_CARDINALITY: Record<string, PredicateCardinality> = {
   authority: 'single',
   recommended_for: 'multi',
 
-  /* user_preference — one persona, many observed dispositions. */
-  persona: 'single',
+  /* user_preference — dispositions observed over many cases. */
   accepts_risk_category: 'multi',
   mitigates_risk_category: 'multi',
   accepts_risk_code: 'multi',

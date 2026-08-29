@@ -50,7 +50,6 @@ const WHITEFIELD_APARTMENT: CreateCaseRequest = {
     },
   },
   ownerName: 'Meera Krishnan',
-  persona: 'property_investor',
   notes: 'Considering this as a rental-yield play. Want a clear read on fair value and resale liquidity before making an offer.',
 };
 
@@ -86,7 +85,6 @@ const GACHIBOWLI_LEASEHOLD_OFFICE: CreateCaseRequest = {
     },
   },
   ownerName: 'Suresh Achar',
-  persona: 'developer_acquisition_manager',
   notes: 'Seller claims stable IT-tenant income and quotes a premium price on that basis. Title and building-compliance paperwork is thin — verify before committing anything.',
 };
 
@@ -139,7 +137,6 @@ const GUNJUR_GRAM_PANCHAYAT_SITE: CreateCaseRequest = {
     },
   },
   ownerName: 'Ganesh Naik',
-  persona: 'property_investor',
   notes:
     'Broker is pushing this as an under-the-radar bargain near the Sarjapur growth corridor. Seller has only a sale agreement and a panchayat Form 9/11 — no khata, no EC, no conversion order. Want an honest read before paying even the token booking amount.',
 };
@@ -188,7 +185,6 @@ const DEVANAHALLI_BDA_SITE: CreateCaseRequest = {
     },
   },
   ownerName: 'Chandrashekar Gowda',
-  persona: 'property_investor',
   notes:
     'A clean, BDA-approved site in a land-banking corridor near the airport. Looking for a straightforward read on land value and whether the paperwork is genuinely in order before committing.',
 };
@@ -214,7 +210,6 @@ const ZUIDAS_OFFICE: CreateCaseRequest = {
     currency: 'EUR',
   },
   ownerName: 'Bram de Groot',
-  persona: 'valuation_firm',
   notes: 'Sense-checking an internal valuation ahead of a client engagement.',
 };
 
@@ -239,7 +234,6 @@ const DE_PIJP_APARTMENT: CreateCaseRequest = {
     currency: 'EUR',
   },
   ownerName: 'Sanne Bakker',
-  persona: 'property_adviser',
   notes: "Advising a first-time buy-to-let client. Want a clear read on yield and condition risk given the building's age.",
 };
 

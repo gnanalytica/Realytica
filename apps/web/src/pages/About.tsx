@@ -17,7 +17,6 @@ import {
   KEY_USER_JOBS,
   MVP_SCOPE,
   OUT_OF_SCOPE,
-  PERSONAS,
   PRODUCT_FAMILY,
   PRODUCT_PRINCIPLES,
   ROLLOUT_PHASES,
@@ -101,18 +100,6 @@ export default function About() {
           ))}
         </div>
       </section>
-
-      <Card>
-        <CardHeader title="Who it's for" subtitle="Primary MVP personas — who the screen is built for." icon={<Users2 size={16} />} />
-        <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {PERSONAS.map((p) => (
-            <div key={p.key} className="rounded-lg bg-sunken p-3">
-              <p className="text-[13px] font-semibold text-ink">{p.label}</p>
-              <p className="mt-1 text-xs leading-relaxed text-ink-secondary">{p.description}</p>
-            </div>
-          ))}
-        </CardBody>
-      </Card>
 
       <Card>
         <CardHeader title="Eight key user jobs" subtitle="What a person needs Property Screen to tell them." icon={<ListChecks size={16} />} />

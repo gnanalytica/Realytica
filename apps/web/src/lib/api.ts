@@ -17,7 +17,6 @@ import type {
   PromptDescriptor,
   PromptInvariantCheck,
   PropertyCase,
-  PersonaKey,
   ReferenceData,
   RiskStatus,
   RunGraph,
@@ -498,7 +497,7 @@ export const api = {
    * press — never something a turn can trigger. Returns the screened case, so
    * the figures the conversation showed are the figures that land.
    */
-  commitIntake: (id: string, body: { ownerName?: string; persona?: PersonaKey } = {}) =>
+  commitIntake: (id: string, body: { ownerName?: string } = {}) =>
     request<IntakeEnvelope & { case: PropertyCase; unconfirmed: IntakeSession['fields'] }>(`/intake/${id}/commit`, {
       method: 'POST',
       body: JSON.stringify(body),

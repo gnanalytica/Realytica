@@ -35,12 +35,6 @@ export type Tenure = 'freehold' | 'leasehold' | 'unknown';
 
 export type CaseStatus = 'draft' | 'collecting' | 'analysing' | 'screened' | 'archived';
 
-export type PersonaKey =
-  | 'property_investor'
-  | 'developer_acquisition_manager'
-  | 'property_adviser'
-  | 'valuation_firm';
-
 /* ------------------------------------------------------------------ */
 /* Project kind & assessment profile                                   */
 /* ------------------------------------------------------------------ */
@@ -1884,14 +1878,6 @@ export interface PropertyCase {
   identity: PropertyIdentity;
   status: CaseStatus;
   /**
-   * Written for a demand-side buyer — an investor, an adviser, a valuation
-   * firm — when the product's audience is the supply side. It steers no
-   * screen: the engagement department does that, and a department is chosen
-   * by navigating to it rather than declared up front. Its one live reader
-   * is the memory layer, which learns preferences per persona.
-   */
-  persona: PersonaKey;
-  /**
    * How much about this property may be said to something outside Realytica.
    * Absent means nobody has chosen, which resolves to the safe default — see
    * `resolveDisclosure`. A permissive setting must never be reachable by
@@ -2232,7 +2218,6 @@ export interface ComparisonResult {
 export interface CreateCaseRequest {
   identity: PropertyIdentity;
   ownerName: string;
-  persona: PersonaKey;
   notes?: string;
   /**
    * What is being done with the property, when the creator knows. Omitted,
@@ -2245,7 +2230,6 @@ export interface CreateCaseRequest {
 export interface UpdateCaseRequest {
   identity?: Partial<PropertyIdentity>;
   status?: CaseStatus;
-  persona?: PersonaKey;
   ownerName?: string;
   notes?: string;
 }
@@ -3988,5 +3972,4 @@ export interface IntakeSession {
   caseId?: string;
   /** Who the case will belong to. */
   ownerName?: string;
-  persona?: PersonaKey;
 }

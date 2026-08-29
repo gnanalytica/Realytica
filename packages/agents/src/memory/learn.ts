@@ -283,7 +283,6 @@ const SINGLE_VALUED_IN_BATCH = new Set([
   'would_have_answered',
   'feasibility',
   'authority',
-  'persona',
 ]);
 
 /* ==================================================================== */
@@ -552,17 +551,6 @@ export function extractFactsFromCase(c: PropertyCase, opts: ExtractFactsOptions)
   /* --- user preference ---------------------------------------------- */
 
   const user = userSubject(c.ownerName);
-  drafts.push({
-    scope: 'user_preference',
-    subject: user,
-    predicate: 'persona',
-    object: c.persona,
-    validFrom: c.createdAt,
-    // The user picked this themselves; there is nothing to be uncertain about
-    // beyond their having changed their mind, which supersession handles.
-    confidence: 0.95,
-    sourceRef: 'identity',
-  });
 
   if (result) {
     for (const risk of result.risks) {
