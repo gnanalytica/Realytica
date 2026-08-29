@@ -103,7 +103,7 @@ export default function About() {
       </section>
 
       <Card>
-        <CardHeader title="Who it's for" subtitle="Primary MVP personas — each drives a different lens on the same screen." icon={<Users2 size={16} />} />
+        <CardHeader title="Who it's for" subtitle="Primary MVP personas — who the screen is built for." icon={<Users2 size={16} />} />
         <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {PERSONAS.map((p) => (
             <div key={p.key} className="rounded-lg bg-sunken p-3">

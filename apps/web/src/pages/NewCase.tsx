@@ -758,7 +758,7 @@ export default function NewCase() {
               </div>
             </Field>
 
-            <Field label="Persona" required error={errors.persona} hint="Drives which value anchors and risk lenses the screen leads with.">
+            <Field label="Persona" required error={errors.persona} hint="Recorded on the case and learned by the memory layer. It does not change what the screen shows.">
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {PERSONAS.map((p) => (
                   <button

@@ -25,7 +25,6 @@ import type {
   StalenessReport,
   TitleGraph,
   DisclosureLevel,
-  LensKey,
   ProjectIntent,
   ProjectKind,
   ScreenResult,
@@ -177,8 +176,6 @@ export const api = {
   documentFileUrl,
 
   /** Change who the case is written for. Does not re-screen — see the route. */
-  setLens: (id: string, lens: LensKey) =>
-    request<PropertyCase>(`/cases/${id}`, { method: 'PATCH', body: JSON.stringify({ lens }) }),
 
   /**
    * Set how much about this property may leave the system. Does not re-run

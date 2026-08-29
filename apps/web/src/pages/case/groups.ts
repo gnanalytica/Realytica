@@ -1,6 +1,4 @@
 import type { ComponentType } from 'react';
-import { LENS_PROFILES, SITE_CONSTRAINT_KEYS, openTechnicalFindingCounts } from '@realytica/shared';
-import type { LensKey, LensSection, PropertyCase, ScreenResult } from '@realytica/shared';
 import type { TabProps } from './tab-props';
 import SnapshotTab from './tabs/SnapshotTab';
 import OfferTab from './tabs/OfferTab';
@@ -56,7 +54,7 @@ export const CASE_GROUPS: CaseGroup[] = [
     question: 'Is this worth pursuing, and what is wrong with it?',
     views: [
       { key: 'summary', label: 'Summary', component: SnapshotTab },
-      { key: 'risks', label: 'Risks', component: RisksTab },
+      { key: 'risks', label: 'Risk register', component: RisksTab },
       { key: 'missing', label: "What's missing", component: CompletenessTab },
       // Location sits under Overview rather than in a group of its own: it is
       // context for "is this worth pursuing", not an answer in itself. It is
@@ -73,7 +71,7 @@ export const CASE_GROUPS: CaseGroup[] = [
       // "what is wrong with it", so it lands here rather than earning a
       // sixth group. Opt-in: most cases have nothing here, which is why it
       // is not in NEEDS_SCREEN below — it does not depend on a screen run.
-      { key: 'technical', label: 'Technical DD', component: TechnicalDiligenceTab },
+      { key: 'technical', label: 'Building condition', component: TechnicalDiligenceTab },
     ],
   },
   {
@@ -108,7 +106,7 @@ export const CASE_GROUPS: CaseGroup[] = [
     question: 'Is the title clean and the use lawful?',
     views: [
       { key: 'title', label: 'Title', component: TitleTab },
-      { key: 'compliance', label: 'Compliance', component: ComplianceTab },
+      { key: 'compliance', label: 'Lawful use', component: ComplianceTab },
       // Answering the constraint declarations and reading the findings they
       // produce are two different activities. Stacked in one view, a reader
       // browsing findings scrolled through a form and a reader filling in the
@@ -142,144 +140,6 @@ export const NEEDS_SCREEN = new Set(['risks', 'missing', 'range', 'offer', 'cost
 
 export function findGroup(key: string | undefined): CaseGroup | undefined {
   return CASE_GROUPS.find(g => g.key === key);
-}
-
-/**
- * What a view has waiting in it, without opening it.
- *
- * The view rail was a row of unlabelled pills: nothing on it told a reader
- * that Site constraints had five unanswered questions or that Costs had
- * nothing in it at all, so finding out meant clicking through every view in
- * every group. A case is a document with sections, and the sections should
- * say what state they are in.
- *
- * `count` is a number worth acting on, never a total for its own sake — five
- * unanswered constraints is a prompt, fourteen compliance checks is
- * furniture. `empty` marks a view with genuinely nothing to show, which is
- * different from a view with nothing wrong: the first is a gap, the second is
- * an answer.
- */
-export interface ViewState {
-  count?: number;
-  tone?: 'critical' | 'warning' | 'brand' | 'neutral';
-  /** Shown as the chip's title attribute — the reason the count is there. */
-  note?: string;
-  empty?: boolean;
-}
-
-export function viewState(viewKey: string, caseData: PropertyCase, result: ScreenResult | null): ViewState {
-  if (!result) return {};
-  switch (viewKey) {
-    case 'risks': {
-      const open = result.risks.filter(r => r.status === 'open');
-      const critical = open.filter(r => r.severity === 'critical').length;
-      if (critical > 0) return { count: critical, tone: 'critical', note: `${critical} open critical risk${critical === 1 ? '' : 's'}` };
-      return open.length > 0 ? { count: open.length, tone: 'warning', note: `${open.length} open risks` } : {};
-    }
-    case 'missing': {
-      const n = result.completeness.missingCritical.length;
-      return n > 0 ? { count: n, tone: 'warning', note: `${n} critical document${n === 1 ? '' : 's'} missing` } : {};
-    }
-    case 'location':
-      return caseData.siteContext ? {} : { empty: true, note: 'No mapping provider has placed this property yet' };
-    case 'technical': {
-      const findings = caseData.technicalFindings ?? [];
-      const proposed = findings.filter(f => f.reviewState === 'proposed').length;
-      if (proposed > 0) return { count: proposed, tone: 'brand', note: `${proposed} drafted finding${proposed === 1 ? '' : 's'} awaiting review` };
-      const counts = openTechnicalFindingCounts(findings);
-      if (counts.openCritical > 0) return { count: counts.openCritical, tone: 'critical', note: `${counts.openCritical} open critical technical finding${counts.openCritical === 1 ? '' : 's'}` };
-      if (counts.open > 0) return { count: counts.open, tone: 'warning', note: `${counts.open} open technical finding${counts.open === 1 ? '' : 's'}` };
-      return {};
-    }
-    case 'costs':
-      return result.transactionCosts
-        ? {}
-        : { empty: true, note: 'No State Pack could price the duty on this property' };
-    case 'constraints': {
-      const n = result.stateCompliance
-        ? result.stateCompliance.checks.filter(c => c.verdict === 'unknown' && (SITE_CONSTRAINT_KEYS as string[]).includes(c.key)).length
-        : 0;
-      return n > 0 ? { count: n, tone: 'warning', note: `${n} constraint${n === 1 ? '' : 's'} nobody has answered` } : {};
-    }
-    case 'compliance': {
-      const n = result.stateCompliance?.checks.filter(c => c.verdict === 'blocker').length ?? 0;
-      return n > 0 ? { count: n, tone: 'critical', note: `${n} blocker${n === 1 ? '' : 's'}` } : {};
-    }
-    case 'title': {
-      // Contradictions and chain breaks are both findings on the title, and
-      // counting only contradictions left a case showing two chain breaks
-      // wearing a clean chip. A break is the more common of the two and the
-      // one more likely to stop a transaction, so it cannot be the one that
-      // goes unbadged.
-      const graph = result.titleGraph;
-      if (!graph) return {};
-      const contradictions = graph.contradictions.length;
-      const breaks = graph.chains.reduce((sum, chain) => sum + chain.breaks.length, 0);
-      const total = contradictions + breaks;
-      if (total === 0) return {};
-      const parts = [
-        contradictions > 0 ? `${contradictions} contradiction${contradictions === 1 ? '' : 's'}` : null,
-        breaks > 0 ? `${breaks} chain break${breaks === 1 ? '' : 's'}` : null,
-      ].filter(Boolean);
-      return { count: total, tone: contradictions > 0 ? 'critical' : 'warning', note: parts.join(' and ') };
-    }
-    case 'files':
-      return caseData.documents.length === 0
-        ? { empty: true, note: 'Nothing uploaded yet' }
-        : { count: caseData.documents.length, tone: 'neutral', note: `${caseData.documents.length} on file` };
-    case 'actions': {
-      const n = result.actions.filter(a => !a.done).length;
-      return n > 0 ? { count: n, tone: 'brand', note: `${n} still open` } : {};
-    }
-    default:
-      return {};
-  }
-}
-
-/**
- * Which group answers each lens section, so a lens's section order becomes a
- * group order. Several sections land in one group — that is expected: the
- * first of a lens's sections to name a group is what pulls that group
- * forward, and the rest are already there.
- */
-const SECTION_GROUP: Record<LensSection, string> = {
-  value: 'value',
-  offer: 'value',
-  costs: 'value',
-  title: 'legal',
-  compliance: 'legal',
-  planning: 'legal',
-  site: 'overview',
-  constraints: 'legal',
-  documents: 'documents',
-  actions: 'report',
-  risks: 'overview',
-  evidence: 'documents',
-};
-
-/**
- * The five groups, ordered for one reader.
- *
- * Chat always leads and Overview always comes second, whatever the lens: the
- * conversation is the way into the case, and the overview is where a critical
- * finding is visible to everyone regardless of whose category it falls in.
- * Ordering those away would let a lens bury the one thing no lens may bury.
- * Everything after them follows the lens.
- */
-export function groupsForLens(lens: LensKey): CaseGroup[] {
-  // Overview is pinned for every lens: the verdict and the open critical
-  // items are what no reader's ordering may bury behind the report.
-  const pinned = new Set(['overview']);
-  const wanted = LENS_PROFILES[lens].sections.map(s => SECTION_GROUP[s]);
-  const rest = CASE_GROUPS.filter(g => !pinned.has(g.key));
-  const ordered: CaseGroup[] = [];
-  for (const key of wanted) {
-    const group = rest.find(g => g.key === key);
-    if (group && !ordered.includes(group)) ordered.push(group);
-  }
-  for (const g of rest) if (!ordered.includes(g)) ordered.push(g);
-  const head = CASE_GROUPS.filter(g => pinned.has(g.key));
-  return [...head, ...ordered];
 }
 
 /**

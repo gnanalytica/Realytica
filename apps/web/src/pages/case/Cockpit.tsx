@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileBarChart2, FileText, ListChecks, Maximize2, PanelRight, Send, ShieldQuestion, Waypoints } from 'lucide-react';
+import { ArrowLeft, ListChecks, Maximize2, PanelRight, Send, ShieldQuestion, Waypoints } from 'lucide-react';
 import {
   DD_DOMAIN_KEYS,
   DD_DOMAIN_PROFILES,
@@ -15,17 +15,14 @@ import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { agentAvailable } from '../../lib/agent-availability';
 import { CopilotPanel } from '../../components/CopilotPanel';
-import { Badge, Button, Callout, Skeleton, cn, useToast } from '../../components/ui/kit';
+import { Badge, Callout, Skeleton, cn, useToast } from '../../components/ui/kit';
 import { money } from '../../lib/format';
 import { DossierPane } from './cockpit/DossierPane';
 import { RequestsPane } from './cockpit/RequestsPane';
 import { ReviewQueue, pendingReviewCount } from './cockpit/ReviewQueue';
 import { ProceduresPane, blockedStepCount } from './cockpit/ProceduresPane';
-import { CASE_GROUP_PANES, SCREENING_GROUPS, ScreeningPane, screeningBadge } from './cockpit/ScreeningPane';
+import { SCREENING_GROUPS, ScreeningPane, screeningBadge } from './cockpit/ScreeningPane';
 import { LEGACY_TAB_REDIRECT, findGroup } from './groups';
-import { LensBar } from '../../components/LensBar';
-import { resolveLens } from '@realytica/shared';
-import type { LensKey } from '@realytica/shared';
 import { ProofPane } from './cockpit/ProofPane';
 import GraphExplorerTab from './tabs/GraphExplorerTab';
 import { CommandBar } from './cockpit/CommandBar';
@@ -66,7 +63,7 @@ export default function Cockpit() {
    */
   const legacyTab = tabParam && tabParam !== 'cockpit' ? (LEGACY_TAB_REDIRECT[tabParam]?.group ?? tabParam) : null;
   const requestedPane = paneParam ?? legacyTab;
-  const screeningGroup = (CASE_GROUP_PANES as readonly string[]).includes(requestedPane ?? '') ? requestedPane : null;
+  const screeningGroup = (SCREENING_GROUPS as readonly string[]).includes(requestedPane ?? '') ? requestedPane : null;
   const paneMode = screeningGroup
     ? 'screening'
     : paneParam === 'review'
@@ -86,33 +83,6 @@ export default function Cockpit() {
    * chat by itself. `focus` is the only one a person chooses, so it is the
    * only one held in state rather than derived.
    */
-  /*
-   * The reading lens. Held as an override over the case's saved value so a
-   * switch is instant and a failed save costs the reader nothing — the lens
-   * is a presentation choice, not case truth.
-   */
-  const [lensOverride, setLensOverride] = useState<LensKey | null>(null);
-  const [lensBusy, setLensBusy] = useState(false);
-  const lens: LensKey = lensOverride ?? resolveLens({
-    lens: caseData?.lens,
-    defaultLens: caseData?.result?.assessment?.defaultLens,
-    persona: caseData?.persona,
-  });
-  const chooseLens = useCallback(
-    async (next: LensKey) => {
-      if (!caseData) return;
-      setLensOverride(next);
-      setLensBusy(true);
-      try {
-        await api.setLens(caseData.id, next);
-      } catch {
-        /* presentation only — a failed save is not worth interrupting a read */
-      } finally {
-        setLensBusy(false);
-      }
-    },
-    [caseData],
-  );
 
   const [focusMode, setFocusMode] = useState(false);
   const layout: CockpitLayout =
@@ -283,10 +253,6 @@ export default function Cockpit() {
           <Badge tone="neutral">Not screened</Badge>
         )}
         <div className="flex-grow" />
-        {/* The lens travels with the screening views it reorders, so it sits
-            in the case bar rather than above a tab strip that no longer
-            exists. */}
-        <LensBar lens={lens} onChange={chooseLens} busy={lensBusy} />
         <button
           type="button"
           onClick={() => setCommandOpen(true)}
@@ -334,39 +300,6 @@ export default function Cockpit() {
                     )}
                   >
                     <span>{group.label}</span>
-                    {badge ? (
-                      <span
-                        className={cn(
-                          'tabular rounded-full px-1.5 text-[10.5px]',
-                          badge.blocking ? 'bg-critical text-white' : 'bg-warning/25 text-ink',
-                        )}
-                      >
-                        {badge.count}
-                      </span>
-                    ) : null}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          <div className="mx-3.5 my-2 h-px bg-hairline" />
-          <div className="px-3.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-muted">Engagement</div>
-          <ul className="flex flex-col gap-px px-1.5">
-            {DD_DOMAIN_KEYS.map(d => {
-              const badge = badges.get(d);
-              const activeDept = paneMode === 'dossier' && d === domain;
-              return (
-                <li key={d}>
-                  <button
-                    type="button"
-                    onClick={() => goDomain(d)}
-                    aria-current={activeDept ? 'true' : undefined}
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[12.5px]',
-                      activeDept ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
-                    )}
-                  >
-                    <span>{DD_DOMAIN_PROFILES[d].label}</span>
                     {badge ? (
                       <span
                         className={cn(
@@ -431,25 +364,6 @@ export default function Cockpit() {
                 type="button"
                 onClick={() => {
                   setFocusMode(false);
-                  setParam({ pane: 'documents', doc: null, view: null });
-                }}
-                aria-current={screeningGroup === 'documents' ? 'true' : undefined}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
-                  screeningGroup === 'documents' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
-                )}
-              >
-                <FileText size={13} /> Documents
-                <span className="tabular ml-auto rounded-full bg-surface-3 px-1.5 text-[10.5px] text-ink-secondary">
-                  {caseData.documents.length}
-                </span>
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusMode(false);
                   setParam({ pane: 'requests', doc: null });
                 }}
                 aria-current={paneMode === 'requests' ? 'true' : undefined}
@@ -485,22 +399,6 @@ export default function Cockpit() {
                 )}
               >
                 <Waypoints size={13} /> Knowledge graph
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusMode(false);
-                  setParam({ pane: 'report', doc: null, view: null });
-                }}
-                aria-current={screeningGroup === 'report' ? 'true' : undefined}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
-                  screeningGroup === 'report' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
-                )}
-              >
-                <FileBarChart2 size={13} /> Report
               </button>
             </li>
           </ul>
@@ -604,7 +502,6 @@ export default function Cockpit() {
                 runScreen={async () => { await api.runScreen(caseData.id); await refresh(); }}
                 running={false}
                 goToTab={key => setParam({ pane: key, doc: null, view: null })}
-                lens={lens}
               />
             ) : paneMode === 'requests' ? (
               <RequestsPane caseData={caseData} onChanged={refresh} onOpenDocument={(id) => openProof(id)} />
@@ -621,7 +518,6 @@ export default function Cockpit() {
                   runScreen={async () => { await api.runScreen(caseData.id); await refresh(); }}
                   running={false}
                   goToTab={(key) => navigate(`/cases/${caseData.id}/${key}`)}
-                  lens={caseData.lens ?? 'developer'}
                 />
               </div>
             ) : openDocument ? (
@@ -632,25 +528,74 @@ export default function Cockpit() {
                 onClose={() => setParam({ doc: null, page: null })}
               />
             ) : (
-              <DossierPane
-                caseData={caseData}
-                domain={domain}
-                refData={REFERENCE_DATA}
-                onOpenProof={openProof}
-                onAddDocument={() => navigate(`/cases/${caseData.id}/documents`)}
-                onRunReview={(question) => void handleAsk(question)}
-                reviewBusy={asking}
-                reviewDisabled={canAnswer === false}
-                work={{
-                  caseData,
-                  result: caseData.result ?? null,
-                  refresh,
-                  runScreen: async () => { await api.runScreen(caseData.id); await refresh(); },
-                  running: false,
-                  goToTab: key => setParam({ pane: key, doc: null, view: null }),
-                  lens,
-                }}
-              />
+              <div className="flex h-full min-h-0 flex-col">
+                {/*
+                  The department strip.
+
+                  These eight were rail rows until they were the middle third
+                  of a seventeen-row column that also held case sections and
+                  whole-case surfaces — three different kinds of destination
+                  separated only by a hairline. They are a facet of one case
+                  rather than places to go: you switch department the way you
+                  switch a filter on a table, repeatedly and while looking at
+                  the thing it changes. So they sit directly above what they
+                  scope, and only while a dossier is what is on screen.
+                */}
+                <nav
+                  aria-label="Engagement department"
+                  className="flex shrink-0 flex-wrap items-center gap-1 border-b border-hairline px-4 py-2"
+                >
+                  {DD_DOMAIN_KEYS.map(d => {
+                    const badge = badges.get(d);
+                    const on = d === domain;
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => goDomain(d)}
+                        aria-current={on ? 'true' : undefined}
+                        title={DD_DOMAIN_PROFILES[d].question}
+                        className={cn(
+                          'flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12.5px] transition-colors duration-base',
+                          on ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:bg-surface-2 hover:text-ink',
+                        )}
+                      >
+                        {DD_DOMAIN_PROFILES[d].label}
+                        {badge ? (
+                          <span
+                            className={cn(
+                              'tabular rounded-full px-1.5 text-[10.5px]',
+                              badge.blocking ? 'bg-critical text-white' : 'bg-warning/25 text-ink',
+                            )}
+                          >
+                            {badge.count}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </nav>
+                <div className="min-h-0 flex-1">
+                  <DossierPane
+                    caseData={caseData}
+                    domain={domain}
+                    refData={REFERENCE_DATA}
+                    onOpenProof={openProof}
+                    onAddDocument={() => navigate(`/cases/${caseData.id}/documents`)}
+                    onRunReview={(question) => void handleAsk(question)}
+                    reviewBusy={asking}
+                    reviewDisabled={canAnswer === false}
+                    work={{
+                      caseData,
+                      result: caseData.result ?? null,
+                      refresh,
+                      runScreen: async () => { await api.runScreen(caseData.id); await refresh(); },
+                      running: false,
+                      goToTab: key => setParam({ pane: key, doc: null, view: null }),
+                    }}
+                  />
+                </div>
+              </div>
             )}
           </section>
         ) : null}
