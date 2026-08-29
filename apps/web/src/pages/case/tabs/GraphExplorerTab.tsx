@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, Camera, FileText, HelpCircle, Lightbulb, Maximize2, MessageSquare, Minus, Plus, Search, Waypoints, X } from 'lucide-react';
+import { Building2, Camera, FileText, HelpCircle, History, Lightbulb, Maximize2, MessageSquare, Minus, Plus, Search, Waypoints, X } from 'lucide-react';
 import { DD_DOMAIN_PROFILES, buildDdGraph, findNodes, trace } from '@realytica/shared';
 import type { DdEdge, DdGraph, DdLayer, DdNode, DdSubgraph } from '@realytica/shared';
 import { api } from '../../../lib/api';
-import { Badge, Callout, Input, Select, cn } from '../../../components/ui/kit';
+import { Badge, Button, Callout, Input, Select, cn } from '../../../components/ui/kit';
 import { computeFit, zoomAbout, MAX_ZOOM, MIN_ZOOM } from '../../../components/canvas/Canvas';
 import type { Transform } from '../../../components/canvas/Canvas';
 import { useMeasure } from '../../../components/charts/primitives';
@@ -195,7 +195,52 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
     };
   }, [caseData.id, caseData.updatedAt]);
 
-  const graph = useMemo(() => {
+  /*
+   * As-of: the one question only the store can answer.
+   *
+   * The projection above knows what the case says NOW — it is rebuilt from
+   * the case on every render, so it cannot represent a past state however it
+   * is filtered. The store can, because a sync closes an edge rather than
+   * deleting it. So this is not a filter over the live graph: setting a date
+   * REPLACES the canvas with what the store returns for that instant, and
+   * clearing it goes back to the projection.
+   *
+   * Mixing the two would be worse than not having it. A past graph drawn
+   * with today's nodes merged in is a picture of a moment that never
+   * existed, and the whole reason to ask "what did we believe when we signed
+   * the March report" is that the answer has to be defensible.
+   */
+  const [asOf, setAsOf] = useState<string>('');
+  const [past, setPast] = useState<DdGraph | null>(null);
+  const [pastState, setPastState] = useState<'idle' | 'loading' | 'unavailable'>('idle');
+  useEffect(() => {
+    if (!asOf) {
+      setPast(null);
+      setPastState('idle');
+      return;
+    }
+    let live = true;
+    setPastState('loading');
+    // End of the chosen day: a date alone means "as things stood that day",
+    // and asking at 00:00 would answer for the day before.
+    api
+      .caseGraph(caseData.id, `${asOf}T23:59:59.999Z`)
+      .then(({ graph: stored }) => {
+        if (!live) return;
+        setPast(stored);
+        setPastState(stored ? 'idle' : 'unavailable');
+      })
+      .catch(() => {
+        if (!live) return;
+        setPast(null);
+        setPastState('unavailable');
+      });
+    return () => {
+      live = false;
+    };
+  }, [caseData.id, asOf]);
+
+  const live = useMemo(() => {
     if (authored.nodes.length === 0) return derived;
     const have = new Set(derived.nodes.map(n => n.id));
     // An edge to a node this build does not have is dropped, the same rule the
@@ -209,6 +254,8 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
       edges: [...derived.edges, ...authored.edges.filter(e => all.has(e.fromNodeId) && all.has(e.toNodeId))],
     };
   }, [derived, authored]);
+  const graph = past ?? live;
+  const historic = past !== null;
   const layout = useMemo(() => layoutDdGraph(graph), [graph]);
   const placedById = useMemo(() => new Map(layout.nodes.map(p => [p.node.id, p])), [layout]);
 
@@ -346,11 +393,44 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
             </option>
           ))}
         </Select>
+        <label className="flex items-center gap-1.5 text-[11.5px] text-ink-muted">
+          <History size={13} className="shrink-0" />
+          <span className="whitespace-nowrap">As of</span>
+          <input
+            type="date"
+            value={asOf}
+            max={caseData.updatedAt.slice(0, 10)}
+            onChange={e => setAsOf(e.target.value)}
+            aria-label="Show the graph as it stood on this date"
+            className="h-8 rounded-lg bg-surface px-2 text-[12px] text-ink ring-1 ring-[var(--ring)] focus:outline-none focus:ring-2 focus:ring-brand"
+          />
+          {asOf ? (
+            <Button size="sm" variant="ghost" onClick={() => setAsOf('')}>
+              Now
+            </Button>
+          ) : null}
+        </label>
         <span className="tabular text-[11.5px] text-ink-muted">
           {graph.nodes.length} nodes · {graph.edges.length} edges
           {contradictions > 0 ? ` · ${contradictions} contradiction${contradictions === 1 ? '' : 's'}` : ''}
         </span>
       </div>
+
+      {historic ? (
+        <Callout tone="warning" title={`As things stood on ${asOf}`}>
+          This is the stored graph at that instant, not the current one — edges closed after it are open here and edges
+          closed before it are gone. Notes you add are always written to the present.
+        </Callout>
+      ) : null}
+      {pastState === 'loading' ? (
+        <p className="text-[11.5px] text-ink-muted">Reading the graph store…</p>
+      ) : null}
+      {pastState === 'unavailable' ? (
+        <Callout tone="neutral" title="Nothing stored for that date">
+          The graph store holds no record of this case at that instant — either it had not been indexed yet, or the
+          store is unreachable. Showing the current graph.
+        </Callout>
+      ) : null}
 
       {!result ? (
         <Callout tone="neutral" title="Screened cases have more graph">
@@ -528,6 +608,7 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
             node={selected}
             cone={cone}
             caseId={caseData.id}
+            historic={historic}
             onSelect={setSelectedId}
             onClose={() => setSelectedId(null)}
             onAnnotated={(node, edges) =>
@@ -584,6 +665,7 @@ function ExplorerButton({
  * exactly what this product must not present quietly.
  */
 function TraceInspector({
+  historic,
   node,
   cone,
   caseId,
@@ -591,6 +673,7 @@ function TraceInspector({
   onClose,
   onAnnotated,
 }: {
+  historic: boolean;
   node: DdNode;
   cone: DdSubgraph | undefined;
   caseId: string;
@@ -701,6 +784,20 @@ function TraceInspector({
         failed save keeps the text in the box.
       */}
       <div className="border-t border-hairline pt-2.5">
+        {historic ? (
+          /*
+           * No writing into the past. A note is always written to the
+           * present, so offering the box here would either attach it to a
+           * node that may no longer exist or silently record it against a
+           * date the reader is not looking at. Both are worse than the
+           * control being absent and saying why.
+           */
+          <p className="text-[11.5px] leading-relaxed text-ink-muted">
+            Notes are written to the present. Switch back to <span className="font-medium text-ink-secondary">Now</span>{' '}
+            to add one.
+          </p>
+        ) : (
+          <>
         <label htmlFor="graph-note" className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
           Add a note
         </label>
@@ -724,6 +821,8 @@ function TraceInspector({
           <span className="text-[10.5px] text-ink-faint">Kept in the graph, not on the case. Survives every rebuild.</span>
         </div>
         {noteError ? <p className="mt-1 text-[11px] text-critical">{noteError}</p> : null}
+          </>
+        )}
       </div>
 
       <p className="text-[10.5px] leading-relaxed text-ink-faint">
