@@ -26,6 +26,27 @@ import type { GraphAdapter } from './types';
 
 let driver: Driver | null = null;
 
+/**
+ * The database to run against, or undefined for the server's default.
+ *
+ * Aura hands out a credentials file naming a database, and on a free instance
+ * that name is the instance id rather than `neo4j` — so a session opened
+ * without one runs against whatever the server calls default, which is not
+ * necessarily the database the credentials describe. That failure is not
+ * loud: the write either errors with a database name nobody set, or succeeds
+ * somewhere nobody looks.
+ */
+function database(): string | undefined {
+  const name = process.env.REALYTICA_NEO4J_DATABASE?.trim();
+  return name ? name : undefined;
+}
+
+/** Every session goes through here, so the database cannot be set in one place and forgotten in another. */
+function openSession() {
+  const name = database();
+  return name ? client().session({ database: name }) : client().session();
+}
+
 function client(): Driver {
   if (driver) return driver;
   const url = process.env.REALYTICA_NEO4J_URL;
@@ -105,7 +126,7 @@ export const neo4jAdapter: GraphAdapter = {
   kind: 'neo4j',
 
   async sync(graph: DdGraph): Promise<void> {
-    const session = client().session();
+    const session = openSession();
     try {
       const authored = new Set(graph.nodes.filter(n => n.origin === 'authored').map(n => n.id));
       const derivedNodes = graph.nodes.filter(n => n.origin === 'derived');
@@ -154,7 +175,7 @@ export const neo4jAdapter: GraphAdapter = {
   async append(caseId: string, nodes: DdNode[], edges: DdEdge[]): Promise<void> {
     const authored = nodes.filter(n => n.origin === 'authored');
     if (authored.length === 0 && edges.length === 0) return;
-    const session = client().session();
+    const session = openSession();
     try {
       await session.executeWrite(async tx => {
         if (authored.length > 0) await tx.run(WRITE_NODES, { rows: nodeParams(caseId, authored) });
@@ -166,7 +187,7 @@ export const neo4jAdapter: GraphAdapter = {
   },
 
   async read(caseId: string, asOf?: string): Promise<DdGraph | null> {
-    const session = client().session();
+    const session = openSession();
     try {
       const nodeResult = await session.executeRead(tx =>
         tx.run(
@@ -202,7 +223,7 @@ export const neo4jAdapter: GraphAdapter = {
   },
 
   async purge(caseId: string): Promise<void> {
-    const session = client().session();
+    const session = openSession();
     try {
       await session.executeWrite(tx => tx.run(`MATCH (n:Dd { caseId: $caseId }) DETACH DELETE n`, { caseId }));
     } finally {

@@ -64,7 +64,18 @@ Check one before trusting a tier to it: `pnpm probe:model --model <name>`.
    `neo4j+s://xxxxxxxx.databases.neo4j.io` — the `+s` is TLS and the driver
    handles the scheme as given, so paste it whole.
 
-→ `REALYTICA_NEO4J_URL`, `REALYTICA_NEO4J_USER` (`neo4j`), `REALYTICA_NEO4J_PASSWORD`
+**Use the downloaded file rather than assuming the values.** On a free
+instance Aura does not use `neo4j` for either the username or the database —
+both are the instance id, e.g. `c24f4a74`. A session opened without naming the
+database runs against whatever the server calls default, which is not
+necessarily the one the credentials describe, and that fails quietly: the write
+either errors naming a database nobody set, or succeeds somewhere nobody looks.
+
+→ `REALYTICA_NEO4J_URL`, `REALYTICA_NEO4J_USER`, `REALYTICA_NEO4J_PASSWORD`,
+`REALYTICA_NEO4J_DATABASE`
+
+`REALYTICA_NEO4J_DATABASE` may be left unset when the credentials say `neo4j`;
+set it to whatever `NEO4J_DATABASE` in the file says otherwise.
 
 The app creates its own constraints and indexes on first boot. Nothing to
 prepare in the console.
@@ -107,9 +118,10 @@ REALYTICA_MODEL_REASONING=google/gemini-2.5-flash
 REALYTICA_MODEL_JUDGMENT=anthropic/claude-sonnet-4.5
 
 # 4. Neo4j Aura, if you want the graph to persist across instances
-REALYTICA_NEO4J_URL=neo4j+s://xxxxx.databases.neo4j.io
-REALYTICA_NEO4J_USER=neo4j
+REALYTICA_NEO4J_URL=neo4j+s://xxxxxxxx.databases.neo4j.io
+REALYTICA_NEO4J_USER=xxxxxxxx        # NOT always "neo4j" — read the credentials file
 REALYTICA_NEO4J_PASSWORD=...
+REALYTICA_NEO4J_DATABASE=xxxxxxxx    # omit only if the file says "neo4j"
 
 # 5. Google Maps, if you want site context
 REALYTICA_GOOGLE_MAPS_API_KEY=...
