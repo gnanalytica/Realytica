@@ -62,7 +62,7 @@ export function SchematicYieldCard({ yieldResult, country }: { yieldResult: Sche
           </div>
         </Tile>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatTile label="Buildable" value={area(y.achievableFarAreaSqm)} icon={<Layers size={14} />} tone="brand" />
           <StatTile label="Saleable" value={area(y.saleableAreaSqm)} icon={<Ruler size={14} />} />
           <StatTile

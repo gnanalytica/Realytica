@@ -290,7 +290,7 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
                 {band.label}
               </Badge>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Stat label="Clear" value={counts.clear} tone="good" />
               <Stat label="Attention" value={counts.attention} tone="warning" />
               <Stat label="Blocker" value={counts.blocker} tone="critical" />

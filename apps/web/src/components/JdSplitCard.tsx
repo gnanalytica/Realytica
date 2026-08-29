@@ -32,7 +32,7 @@ export function JdSplitCard({ split, evidence }: { split: JdSplitAssessment; evi
         action={<Badge tone={meta.tone}>{meta.label}</Badge>}
       />
       <CardBody className="flex flex-col gap-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <StatTile label="Landowner's share" value={pct(split.offeredOwnerSharePct, 1)} hint="As the JDA states it" tone="brand" />
           <StatTile label="That share is worth" value={money(split.offeredShareValue, split.currency)} hint="Of the scheme's gross realisation" />
           <StatTile

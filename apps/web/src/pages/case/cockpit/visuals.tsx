@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { openTechnicalFindingCounts, totalOpenEstimatedCost, domainForRiskCategory, domainForSystem, buildDepartmentDossier } from '@realytica/shared';
-import type { DdDomain, PropertyCase, TechnicalSystem } from '@realytica/shared';
+import type { DdDomain, PropertyCase, RiskSeverity, TechnicalSystem } from '@realytica/shared';
 import { TECHNICAL_SYSTEM_LABEL } from '@realytica/shared';
 import { money } from '../../../lib/format';
-import { Card, CardBody, CardHeader } from '../../../components/ui/kit';
+import { Card, CardBody, CardHeader, cn } from '../../../components/ui/kit';
 
 /**
  * A department's own picture.
@@ -450,6 +450,118 @@ function Stat({ label, value, tone }: { label: string; value: string | number; t
     <div className="rounded-xl border border-[var(--ring)] bg-surface px-3 py-2.5">
       <div className="text-[10px] uppercase tracking-[0.05em] text-ink-muted">{label}</div>
       <div className={`tabular mt-0.5 text-[19px] font-semibold ${tone === 'critical' ? 'text-critical' : 'text-ink'}`}>{value}</div>
+    </div>
+  );
+}
+
+/* ==================================================================== */
+/* Every department — what is open here, at a glance                     */
+/* ==================================================================== */
+
+/**
+ * This department's open items as one bar, by severity.
+ *
+ * The workboard listed them: one row per item, a severity badge, a department
+ * badge, a title — which is a table of contents for work, not a picture of
+ * it. Reading "how bad is this department" off it meant counting badges. A
+ * bar answers that before it is read, and each band is a control, so the
+ * count is also the way in.
+ *
+ * Drawn only from what the file holds, like everything else here: a
+ * department with nothing open renders nothing rather than an empty axis,
+ * because an empty department is a coverage fact and drawing a zeroed chart
+ * would dress it up as a clean bill.
+ */
+export function SeveritySpread({
+  counts,
+  onSelect,
+  selected,
+}: {
+  counts: { severity: RiskSeverity; n: number }[];
+  onSelect?: (severity: RiskSeverity | null) => void;
+  selected?: RiskSeverity | null;
+}) {
+  const present = counts.filter(c => c.n > 0);
+  const total = present.reduce((sum, c) => sum + c.n, 0);
+  if (total === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-sunken" role="img" aria-label={ariaFor(present, total)}>
+        {present.map(c => (
+          <span
+            key={c.severity}
+            className="h-full first:rounded-l-full last:rounded-r-full"
+            style={{ width: `${(c.n / total) * 100}%`, background: SEVERITY_FILL[c.severity] }}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {present.map(c => {
+          const on = selected === c.severity;
+          return (
+            <button
+              key={c.severity}
+              type="button"
+              onClick={() => onSelect?.(on ? null : c.severity)}
+              disabled={!onSelect}
+              aria-pressed={onSelect ? on : undefined}
+              className={cn(
+                'flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11.5px] ring-1 ring-inset coarse:min-h-11',
+                on ? 'bg-brand-soft text-brand ring-brand/30' : 'bg-surface text-ink-secondary ring-[var(--ring)]',
+                onSelect && !on && 'hover:text-ink',
+              )}
+            >
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: SEVERITY_FILL[c.severity] }} />
+              <span className="capitalize">{c.severity}</span>
+              <span className="tabular font-semibold text-ink">{c.n}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const SEVERITY_FILL: Record<RiskSeverity, string> = {
+  critical: 'rgb(var(--status-critical-rgb))',
+  serious: 'rgb(var(--status-serious-rgb))',
+  warning: 'rgb(var(--status-warning-rgb))',
+  info: 'rgb(var(--brand-rgb))',
+};
+
+function ariaFor(present: { severity: RiskSeverity; n: number }[], total: number): string {
+  return `${total} open item${total === 1 ? '' : 's'}: ${present.map(c => `${c.n} ${c.severity}`).join(', ')}`;
+}
+
+/**
+ * How much of what this department needs is actually on file.
+ *
+ * A count of documents held, beside a count still required, is two numbers a
+ * reader has to divide. This is the division — and it names the shortfall
+ * rather than only the proportion, because "7 of 11" is what somebody chases
+ * and "64%" is not.
+ */
+export function CoverageMeter({ held, required }: { held: number; required: number }) {
+  const total = held + required;
+  if (total === 0) return null;
+  const pct = Math.round((held / total) * 100);
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[11.5px] text-ink-secondary">
+          <span className="tabular font-semibold text-ink">{held}</span> of {total} on file
+        </span>
+        <span className={cn('text-[11.5px]', required > 0 ? 'text-warning' : 'text-good')}>
+          {required > 0 ? `${required} still to obtain` : 'Nothing outstanding'}
+        </span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-sunken">
+        <span
+          className="block h-full rounded-full bg-brand transition-[width] duration-base ease-state"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }

@@ -14,13 +14,14 @@ import {
   technicalDocumentGaps,
   totalOpenEstimatedCost,
 } from '@realytica/shared';
-import type { ComplianceCheck, ComplianceVerdict, DdDomain, DdWatcherAlert, RiskFlag, TechnicalFinding } from '@realytica/shared';
+import type { ComplianceCheck, ComplianceVerdict, DdDomain, DdWatcherAlert, RiskFlag, RiskSeverity, TechnicalFinding } from '@realytica/shared';
 import type { ComponentType } from 'react';
 import type { TabProps } from '../tab-props';
 import { api } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
 import { DOCUMENT_KIND_LABEL, money, severityTone, titleCase } from '../../../lib/format';
 import { RecordFetchCard } from '../../../components/RecordFetchCard';
+import { CoverageMeter, SeveritySpread } from '../cockpit/visuals';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Modal, SectionTitle, StatTile, Tile, cn, useToast } from '../../../components/ui/kit';
 
 /**
@@ -259,6 +260,21 @@ export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: 
   }, [result, risks]);
 
   const openRisks = risks.filter(r => r.status === 'open');
+
+  const [severityFilter, setSeverityFilter] = useState<RiskSeverity | null>(null);
+  const severitySpread = useMemo(() => {
+    const order: RiskSeverity[] = ['critical', 'serious', 'warning', 'info'];
+    return order.map(severity => ({ severity, n: openRisks.filter(r => r.severity === severity).length }));
+  }, [openRisks]);
+  // Worst first, so the list under the bar leads with what the bar's darkest
+  // band is about.
+  const visibleRisks = useMemo(() => {
+    const rank: Record<RiskSeverity, number> = { critical: 0, serious: 1, warning: 2, info: 3 };
+    return openRisks
+      .filter(r => !severityFilter || r.severity === severityFilter)
+      .slice()
+      .sort((a, b) => rank[a.severity] - rank[b.severity]);
+  }, [openRisks, severityFilter]);
   const blockers = checks.filter(c => c.verdict === 'blocker').length;
   const unanswered = checks.filter(c => c.verdict === 'unknown').length;
   const openFindings = findings.filter(f => f.status === 'open');
@@ -289,7 +305,7 @@ export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: 
       ) : (
         <>
           {/* 1 — status strip */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <StatTile label="Blockers" value={blockers} tone={blockers > 0 ? 'critical' : 'neutral'} />
             <StatTile label="Open risks" value={openRisks.length} tone={openRisks.length > 0 ? 'warning' : 'neutral'} />
             <StatTile label={domain === 'risk' ? 'Open actions' : 'Open findings'} value={domain === 'risk' ? relatedActions.length : openFindings.length} tone="neutral" />
@@ -300,18 +316,45 @@ export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: 
             )}
           </div>
 
-          {/* Risk domain rollup: the severity matrix across departments */}
-          {domain === 'risk' && openRisks.length > 0 && (
+          {/*
+            What is open here, as a shape before it is a list.
+            
+            This was one row per risk — a severity badge, a department badge
+            and a title — which is a table of contents for the work rather
+            than a picture of it, and answering "how bad is this department"
+            off it meant counting badges. The bar answers that before it is
+            read, and its bands filter the list underneath, so the summary is
+            also the way into the detail rather than a thing above it.
+          */}
+          {openRisks.length > 0 && (
             <Card>
-              <CardHeader title="Where the open risk sits" subtitle="Every department's open risks by severity — the pre-meeting board" icon={<ShieldAlert size={16} />} />
-              <CardBody className="flex flex-col gap-1">
-                {openRisks.map(r => (
-                  <div key={r.id} className="flex flex-wrap items-baseline gap-2 border-b border-hairline py-1.5 last:border-b-0">
-                    <Badge tone={severityTone(r.severity)}>{titleCase(r.severity)}</Badge>
-                    <Badge tone="neutral">{DD_DOMAIN_PROFILES[domainForRiskCategory(r.category)].label}</Badge>
-                    <span className="text-[13px] text-ink">{r.title}</span>
-                  </div>
-                ))}
+              <CardHeader
+                title={domain === 'risk' ? 'Where the open risk sits' : `Open risk in ${profile.label}`}
+                subtitle={`${openRisks.length} open · worst first`}
+                icon={<ShieldAlert size={16} />}
+              />
+              <CardBody className="flex flex-col gap-3">
+                <SeveritySpread counts={severitySpread} selected={severityFilter} onSelect={setSeverityFilter} />
+                <ul className="flex flex-col">
+                  {visibleRisks.map(r => (
+                    <li key={r.id} className="flex flex-wrap items-baseline gap-2 border-b border-hairline py-1.5 last:border-b-0">
+                      <Badge tone={severityTone(r.severity)}>{titleCase(r.severity)}</Badge>
+                      {domain === 'risk' ? (
+                        <Badge tone="neutral">{DD_DOMAIN_PROFILES[domainForRiskCategory(r.category)].label}</Badge>
+                      ) : null}
+                      <span className="min-w-0 flex-1 text-[13px] text-ink">{r.title}</span>
+                    </li>
+                  ))}
+                </ul>
+                {severityFilter && visibleRisks.length < openRisks.length ? (
+                  <button
+                    type="button"
+                    onClick={() => setSeverityFilter(null)}
+                    className="self-start text-[11.5px] text-brand hover:underline coarse:min-h-11"
+                  >
+                    Show the other {openRisks.length - visibleRisks.length}
+                  </button>
+                ) : null}
               </CardBody>
             </Card>
           )}
@@ -332,6 +375,8 @@ export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: 
                 icon={<FileCheck2 size={16} />}
               />
               <CardBody className="flex flex-col gap-3">
+                {/* Two numbers a reader had to divide, divided. */}
+                <CoverageMeter held={documents.length} required={docGaps.length} />
                 {documents.length > 0 && (
                   <ul className="flex flex-col gap-1">
                     {documents.map(d => (

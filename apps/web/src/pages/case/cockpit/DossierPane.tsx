@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
-import { AlarmClock, ExternalLink, FileText, FileWarning, Plug, Sparkles } from 'lucide-react';
-import { buildDepartmentDossier, buildDepartmentReview } from '@realytica/shared';
+import { AlarmClock, ExternalLink, FileText, FileWarning, ListChecks, Plug, Sparkles } from 'lucide-react';
+import { DD_DOMAIN_PROFILES, buildDepartmentDossier, buildDepartmentReview } from '@realytica/shared';
 import type { DdDomain, PropertyCase, ReferenceData } from '@realytica/shared';
 import { DOCUMENT_KIND_LABEL, relativeTime, severityTone, titleCase } from '../../../lib/format';
-import { Badge, Card, CardBody, CardHeader, EmptyState, Tile, cn } from '../../../components/ui/kit';
+import { Badge, Card, CardBody, CardHeader, Disclosure, EmptyState, Tile, cn } from '../../../components/ui/kit';
 import { DomainWorkboard } from '../tabs/DomainWorkboardTab';
 import type { TabProps } from '../tab-props';
 import { DepartmentVisuals } from './visuals';
@@ -126,6 +126,16 @@ export function DossierPane({
           </Card>
         ) : null}
 
+        {/*
+          The picture first.
+          
+          This was rendered between the fact list and the gaps: the only
+          visual element in the pane, and the last thing a reader reached.
+          A department's shape is what its charts say, and the facts are what
+          you check once the shape has told you where to look.
+        */}
+        <DepartmentVisuals caseData={caseData} domain={domain} />
+
         {dossier.facts.length > 0 ? (
           <section>
             <h3 className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
@@ -175,13 +185,9 @@ export function DossierPane({
           </section>
         ) : null}
 
-        <DepartmentVisuals caseData={caseData} domain={domain} />
 
         {dossier.gaps.length > 0 ? (
-          <div className="rounded-xl bg-surface-2 p-3 ring-1 ring-[var(--ring)]">
-            <p className="mb-1.5 flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
-              <FileWarning size={12} /> Still to obtain · {dossier.gaps.length}
-            </p>
+          <Disclosure title="Still to obtain" count={dossier.gaps.length} tone="warning" icon={<FileWarning size={13} />}>
             <ul className="flex flex-col gap-0.5">
               {dossier.gaps.map((gap) => (
                 <li key={gap.id} className="text-[12.5px] text-ink-secondary">
@@ -189,15 +195,16 @@ export function DossierPane({
                 </li>
               ))}
             </ul>
-          </div>
+          </Disclosure>
         ) : null}
 
         {dossier.documents.length > 0 ? (
-          <section>
-            <h3 className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
-              Documents in this department{' '}
-              <span className="font-normal normal-case tracking-normal text-ink-muted">· {dossier.documents.length}</span>
-            </h3>
+          <Disclosure
+            title="Documents in this department"
+            count={dossier.documents.length}
+            icon={<FileText size={13} />}
+            defaultOpen={dossier.documents.length <= 4}
+          >
             <ul className="flex flex-col gap-1.5">
               {dossier.documents.map((doc) => (
                 <li key={doc.id}>
@@ -222,10 +229,18 @@ export function DossierPane({
                 </li>
               ))}
             </ul>
-          </section>
+          </Disclosure>
         ) : null}
 
-        <DomainWorkboard {...work} domain={domain} />
+        {/*
+          The workboard is the department's working detail, and this pane's
+          own content is its summary. Folded by default it stops one scroll
+          from carrying both — and it says how much is behind it, so folding
+          costs nothing a reader has to open it to learn.
+        */}
+        <Disclosure title={`Work in ${DD_DOMAIN_PROFILES[domain].label}`} icon={<ListChecks size={13} />}>
+          <DomainWorkboard {...work} domain={domain} />
+        </Disclosure>
       </div>
     </div>
   );

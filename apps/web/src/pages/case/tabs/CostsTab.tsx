@@ -107,7 +107,7 @@ function AcquisitionCostCard({
           price is lower. Most buyers only discover this at the sub-registrar&rsquo;s office.
         </Callout>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Stat label="Dutiable value" value={money(costs.dutiableValue, costs.currency)} />
           <Stat
             label="Basis used"

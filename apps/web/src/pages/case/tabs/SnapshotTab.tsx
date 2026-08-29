@@ -688,7 +688,7 @@ function MarketStrip({ market, currency, identity }: { market: MarketContext; cu
             </Callout>
           </div>
         ) : null}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Stat
             label={`${isLand ? 'Median land rate' : 'Median price'} / ${unitLabel}`}
             value={formatRate(rateToShow, areaUnit, currency)}

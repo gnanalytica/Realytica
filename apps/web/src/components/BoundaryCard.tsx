@@ -116,7 +116,7 @@ export function BoundaryCard({ caseData, onChanged }: { caseData: PropertyCase; 
               <Fact label="Measured" value={formatArea(boundary.computedAreaSqm, unit)} />
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Fact label="Frontage (longest edge)" value={`${boundary.longestEdgeM} m`} />
               <Fact label="Shortest edge" value={`${boundary.shortestEdgeM} m`} />
               <Fact label="Perimeter" value={`${Math.round(boundary.perimeterM)} m`} />

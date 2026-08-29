@@ -463,7 +463,7 @@ export default function TechnicalDiligenceTab({ caseData, refresh }: TabProps) {
         />
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <StatTile label="Open critical" value={counts.openCritical} tone={counts.openCritical > 0 ? 'critical' : 'neutral'} />
             <StatTile label="Open serious" value={counts.openSerious} tone={counts.openSerious > 0 ? 'warning' : 'neutral'} />
             <StatTile label="Mitigated" value={counts.mitigated} tone="neutral" />

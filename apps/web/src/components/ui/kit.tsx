@@ -896,3 +896,63 @@ export function ToastHost({ children }: { children: ReactNode }) {
     </ToastCtx.Provider>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* Disclosure                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A section that folds.
+ *
+ * A `<details>` rather than conditional rendering, for the same reason the
+ * report's sections are: the browser's own find-in-page and the print
+ * stylesheet can both reach inside a closed one, and neither can reach
+ * content React never rendered. A folded section is still in the document,
+ * still findable, still printed — folded, not filtered, which is the rule
+ * everywhere in this application that hides anything.
+ *
+ * `count` is on the summary on purpose. A fold that does not say how much is
+ * behind it makes the reader open it to find out, which costs more than the
+ * fold saved.
+ */
+export function Disclosure({
+  title,
+  count,
+  icon,
+  defaultOpen = false,
+  tone,
+  children,
+}: {
+  title: ReactNode;
+  count?: number;
+  icon?: ReactNode;
+  defaultOpen?: boolean;
+  /** Colours the count, for a section whose contents are a problem. */
+  tone?: Tone;
+  children: ReactNode;
+}) {
+  return (
+    <details open={defaultOpen} className="group rounded-xl bg-surface ring-1 ring-inset ring-[var(--ring)] print-open">
+      <summary
+        className={cn(
+          'flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2.5 text-[12.5px] font-medium text-ink coarse:min-h-11',
+          'hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
+          '[&::-webkit-details-marker]:hidden',
+        )}
+      >
+        <ChevronDown
+          size={14}
+          className="shrink-0 text-ink-muted transition-transform duration-quick ease-state group-open:rotate-180"
+        />
+        {icon}
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+        {count !== undefined ? (
+          <span className={cn('tabular shrink-0 rounded-full px-1.5 text-[11px]', count > 0 ? toneChip(tone ?? 'neutral') : 'text-ink-muted')}>
+            {count}
+          </span>
+        ) : null}
+      </summary>
+      <div className="border-t border-hairline px-3 py-3">{children}</div>
+    </details>
+  );
+}
