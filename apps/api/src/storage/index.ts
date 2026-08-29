@@ -22,7 +22,7 @@ import { filesystemAdapter } from './filesystem';
  * with the package uninstalled and no token set still boots fine.
  */
 async function selectAdapter(): Promise<StorageAdapter> {
-  if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID) {
+  if (process.env.BLOB_READ_WRITE_TOKEN?.trim() || process.env.BLOB_STORE_ID?.trim()) {
     const { blobAdapter } = await import('./blob');
     return blobAdapter;
   }

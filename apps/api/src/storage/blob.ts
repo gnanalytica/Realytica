@@ -76,7 +76,9 @@ const BLOB_ACCESS = 'private' as const;
  * knows which of the three schemes it tried.
  */
 function blobOptions(): { token?: string } {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  // Trimmed: a token pasted with its line ending is an invalid HTTP header
+  // value, and the resulting error names the header rather than the paste.
+  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
   return token ? { token } : {};
 }
 

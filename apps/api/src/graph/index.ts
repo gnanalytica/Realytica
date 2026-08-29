@@ -33,7 +33,7 @@ function isServerless(): boolean {
 }
 
 async function selectAdapter(): Promise<GraphAdapter> {
-  if (!process.env.REALYTICA_NEO4J_URL) {
+  if (!process.env.REALYTICA_NEO4J_URL?.trim()) {
     if (isServerless()) {
       throw new Error(
         'REALYTICA_NEO4J_URL is not set. On a serverless host the journal adapter writes to /tmp, '

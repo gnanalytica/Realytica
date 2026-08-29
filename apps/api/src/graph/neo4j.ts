@@ -49,10 +49,20 @@ function openSession() {
 
 function client(): Driver {
   if (driver) return driver;
-  const url = process.env.REALYTICA_NEO4J_URL;
+  /*
+   * Trimmed, all of them. A credential pasted with a trailing newline is
+   * ordinary — a dashboard textarea, a `printf` with one `\n` too many, a copy
+   * that took the line ending with it — and every one of these fails opaquely
+   * when it happens. A URL with a newline reports "could not perform
+   * discovery, no routing servers available", which reads as a network or
+   * instance problem and sends you to look at the wrong thing entirely; a
+   * password with one is an authentication failure against a password that
+   * looks correct in the dashboard.
+   */
+  const url = process.env.REALYTICA_NEO4J_URL?.trim();
   if (!url) throw new Error('REALYTICA_NEO4J_URL is not set');
-  const user = process.env.REALYTICA_NEO4J_USER ?? 'neo4j';
-  const password = process.env.REALYTICA_NEO4J_PASSWORD ?? '';
+  const user = process.env.REALYTICA_NEO4J_USER?.trim() || 'neo4j';
+  const password = process.env.REALYTICA_NEO4J_PASSWORD?.trim() ?? '';
   driver = neo4j.driver(url, neo4j.auth.basic(user, password));
   return driver;
 }
