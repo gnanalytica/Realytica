@@ -20,6 +20,76 @@ at all — `_KINDS` is deliberately not defaulted, because a provider claiming a
 record kind it cannot deliver manufactures a failed fetch where an honest one
 would name the manual route.
 
+## Setting each one up
+
+Console wording drifts; what does not is the value you are looking for and
+where it goes. Each step below ends with the variable it produces.
+
+### 1-2. Vercel and Blob
+
+The project is already on Vercel. For storage, open the project → **Storage** →
+create or connect a **Blob** store. Connecting it writes the variables itself:
+`BLOB_STORE_ID` for a private store, `BLOB_READ_WRITE_TOKEN` for a public one.
+Set neither by hand. A private store authenticates per invocation with
+`VERCEL_OIDC_TOKEN`, which the platform injects at runtime.
+
+Prefer **private**. The bytes behind these URLs are somebody's title deed, and
+a public blob URL is a permanently unauthenticated credential: whoever holds it
+reads the file forever, with no session and nothing in an access log tying it
+to a person.
+
+### 3. OpenRouter — the model endpoint
+
+1. Sign up at [openrouter.ai](https://openrouter.ai).
+2. **Keys** → create a key. Copy it once; it is not shown again.
+3. Optionally set a credit limit on the key while you are there — a spend cap
+   is easier to set now than to wish for later.
+4. Add credit only when you want paid models. Models with a `:free` suffix
+   need none.
+
+→ `REALYTICA_API_KEY`, plus `REALYTICA_BASE_URL=https://openrouter.ai/api`
+
+Model names are OpenRouter's own (`anthropic/claude-haiku-4.5`,
+`google/gemini-2.5-flash`), and go in the three `REALYTICA_MODEL_*` variables.
+Check one before trusting a tier to it: `pnpm probe:model --model <name>`.
+
+### 4. Neo4j Aura — the graph
+
+1. Sign up at [console.neo4j.io](https://console.neo4j.io).
+2. Create a **free instance**. It takes a couple of minutes to start.
+3. **The password is shown once**, on creation, with a download button. Take
+   the download. There is no way to retrieve it afterwards — only to reset it,
+   which invalidates whatever you already deployed.
+4. Copy the connection URI. It looks like
+   `neo4j+s://xxxxxxxx.databases.neo4j.io` — the `+s` is TLS and the driver
+   handles the scheme as given, so paste it whole.
+
+→ `REALYTICA_NEO4J_URL`, `REALYTICA_NEO4J_USER` (`neo4j`), `REALYTICA_NEO4J_PASSWORD`
+
+The app creates its own constraints and indexes on first boot. Nothing to
+prepare in the console.
+
+### 5. Google Maps — optional, and five APIs rather than one
+
+A key alone is not enough: each API is enabled separately, and a disabled one
+fails at the call rather than at setup. In
+[console.cloud.google.com](https://console.cloud.google.com) → APIs & Services,
+enable exactly these — they are what the code calls:
+
+| API | Used for |
+|---|---|
+| **Geocoding API** | address → coordinate |
+| **Street View Static API** | the site photo, and its metadata check |
+| **Maps Static API** | the map image on the case |
+| **Distance Matrix API** | travel time to amenities |
+| **Places API (New)** | nearby amenities — `places.googleapis.com/v1`, which is a **different** enablement from the legacy Places API. Enabling the old one leaves this failing. |
+
+Then Credentials → create an **API key**, and restrict it: HTTP referrer or IP
+as fits your deployment, and **restrict it to the five APIs above**. An
+unrestricted Maps key found in a bundle or a log is somebody else's billing.
+
+→ `REALYTICA_GOOGLE_MAPS_API_KEY`
+
 ## Where each value goes
 
 **Vercel → Project → Settings → Environment Variables**, ticked for
