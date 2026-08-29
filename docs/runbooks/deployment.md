@@ -53,6 +53,15 @@ Model names are OpenRouter's own (`anthropic/claude-haiku-4.5`,
 `google/gemini-2.5-flash`), and go in the three `REALYTICA_MODEL_*` variables.
 Check one before trusting a tier to it: `pnpm probe:model --model <name>`.
 
+**Free models can read a document.** Measured against a live key: OpenRouter
+extracts a PDF server-side before dispatch, so `minimax/minimax-m3:free`
+answered with the value planted in a one-page deed even though it advertises
+no file input. What free models do NOT return is a verified citation — the
+per-call gap catches that and the page reference becomes the model's own word.
+They also share an upstream rate-limit pool, so a run can 429 or hit a
+"provider overloaded" from the vendor behind them. Fine for evaluating the
+product; not what a signed report should rest on.
+
 ### 4. Neo4j Aura — the graph
 
 1. Sign up at [console.neo4j.io](https://console.neo4j.io).

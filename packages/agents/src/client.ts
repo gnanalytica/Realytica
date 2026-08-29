@@ -161,12 +161,30 @@ export const AGENT_MODEL = modelForTier('judgment');
  * that silently dies on a safety decline would cost more in re-runs than it
  * saved.
  */
+/**
+ * The parameters every call carries, minus the ones only Anthropic implements.
+ *
+ * `fallbacks` and its `betas` header are Anthropic's own server-side model
+ * fallback. A gateway serving the same wire format does not implement them and
+ * is right to reject them — OpenRouter answers `expected array, received
+ * string` on `fallbacks` and refuses the whole request, so with a base URL
+ * configured EVERY call 400s. Not a degraded feature: nothing works at all,
+ * and the error names a field the operator never set.
+ *
+ * Dropped rather than translated, because a gateway does its own routing and
+ * fallback. Asking it to also honour Anthropic's would be two schedulers
+ * disagreeing about which model answered.
+ *
+ * `thinking` is kept: it is part of the Messages API a gateway claims to
+ * serve, and a gateway that cannot honour it should ignore it rather than
+ * refuse the request.
+ */
 export function baseRequestFor(agent: AgentKind) {
+  const proxied = baseUrl() !== undefined;
   return {
     model: modelFor(agent),
     thinking: { type: 'adaptive' as const },
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default' as const,
+    ...(proxied ? {} : { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const }),
   };
 }
 
