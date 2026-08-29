@@ -235,7 +235,7 @@ function HeaderCard({
         }
       />
       <CardBody className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:grid-cols-4">
           <Stat label="Status" value={capability.available ? 'Available' : 'Unavailable'} tone={capability.available ? 'good' : 'neutral'} />
           <Stat label="Model" value={capability.available ? capability.model : '—'} />
           <Stat label="Last run" value={intel.lastRunAt ? relativeTime(intel.lastRunAt) : 'Never'} />

@@ -428,7 +428,7 @@ export function DepartmentVisuals({ caseData, domain }: { caseData: PropertyCase
   return (
     <div className="flex flex-col gap-3">
       {domain === 'technical' && counts.open > 0 ? (
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Stat label="Critical" value={counts.openCritical} tone={counts.openCritical > 0 ? 'critical' : undefined} />
           <Stat label="Open" value={counts.open} />
           <Stat label="Costed" value={exposure === undefined ? '—' : money(exposure, caseData.identity.currency, { compact: true })} />

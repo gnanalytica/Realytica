@@ -174,6 +174,9 @@ export function Button({ variant = 'secondary', size = 'md', icon, loading, clas
         'inline-flex select-none items-center justify-center gap-1.5 rounded-lg font-medium',
         INTERACTIVE,
         'cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
+        // Visual height stays as designed; a coarse pointer gets a 44px hit
+        // area instead. See the `coarse:` note in tailwind.config.js.
+        'coarse:min-h-11',
         size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-9 px-3.5 text-[13px]',
         variant === 'primary' && 'bg-brand text-[var(--brand-ink)] hover:bg-brand-strong',
         variant === 'secondary' &&
@@ -545,8 +548,15 @@ export function Field({
  * show it has the caret however you got to it, because the ring is telling you
  * where your typing will go rather than where the keyboard is.
  */
+/*
+ * `coarse:text-base` is not a size preference — it is what stops iOS Safari
+ * zooming the whole page the moment a field takes focus. Safari does that for
+ * any input under 16px and does not zoom back out, so a valuer filling a form
+ * on a phone ends up panning a magnified page between every field. 13px is
+ * right under a mouse and unusable on a phone for that one reason.
+ */
 const CONTROL =
-  'w-full rounded-lg bg-surface px-2.5 text-[13px] text-ink ring-1 ring-inset ring-[var(--ring)] ' +
+  'w-full rounded-lg bg-surface px-2.5 text-[13px] coarse:text-base coarse:min-h-11 text-ink ring-1 ring-inset ring-[var(--ring)] ' +
   'transition-[box-shadow,border-color] duration-quick ease-state ' +
   'hover:ring-[var(--text-muted)] ' +
   'placeholder:text-ink-muted focus:ring-2 focus:ring-brand disabled:opacity-60 disabled:hover:ring-[var(--ring)]';
@@ -587,7 +597,7 @@ export function Toggle({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="inline-flex items-center gap-2 text-[13px] text-ink"
+      className="inline-flex items-center gap-2 text-[13px] text-ink coarse:min-h-11"
     >
       <span
         className={cn(
@@ -621,13 +631,13 @@ export function Checkbox({
   disabled?: boolean;
 }) {
   return (
-    <label className={cn('inline-flex cursor-pointer items-start gap-2 text-[13px] text-ink', disabled && 'cursor-not-allowed opacity-50')}>
+    <label className={cn('inline-flex cursor-pointer items-start gap-2 py-0.5 text-[13px] text-ink coarse:min-h-11 coarse:items-center coarse:py-2', disabled && 'cursor-not-allowed opacity-50')}>
       <input
         type="checkbox"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-[var(--axis)] text-brand focus:ring-brand"
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-[var(--axis)] text-brand focus:ring-brand coarse:mt-0 coarse:h-5 coarse:w-5"
       />
       {label ? <span className="min-w-0">{label}</span> : null}
     </label>
@@ -657,7 +667,7 @@ export function Tabs({ tabs, active, onChange, className }: { tabs: TabDef[]; ac
             aria-selected={on}
             onClick={() => onChange(t.key)}
             className={cn(
-              '-mb-px flex shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium',
+              '-mb-px flex shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium coarse:min-h-11',
               // No `active:scale` on a tab: the underline is the feedback, and
               // a shrinking tab in a fixed row nudges its neighbours.
               'transition-[color,border-color] duration-quick ease-state',
@@ -799,7 +809,7 @@ export function Modal({
       >
         <header className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <h2 className="text-[13px] font-semibold text-ink">{title}</h2>
-          <button onClick={onClose} className="rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Close">
+          <button onClick={onClose} className="rounded p-1 coarse:p-3 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Close">
             <X size={15} />
           </button>
         </header>

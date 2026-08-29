@@ -364,3 +364,31 @@
     list-style: none;
   }
 }
+
+/*
+ * A readable floor for the hand-set micro sizes, on touch only.
+ *
+ * The app sets type in absolute pixels — 10px, 10.5px, 11px, 11.5px across
+ * roughly 450 places — which is legible on a desktop monitor at arm's length
+ * and is not legible on a phone held at reading distance in daylight. Fixing
+ * it at each site would be 450 edits and would flatten a density the desktop
+ * layout depends on, so the floor is applied here and only under
+ * `pointer: coarse`, the same question the `coarse:` Tailwind variant asks.
+ *
+ * It matches on the class attribute because that is where Tailwind's
+ * arbitrary values end up literally (`class="… text-[10px] …"`). That makes
+ * it fragile in exactly one way worth knowing: a NEW arbitrary size below
+ * 12px will not be caught until it is listed here. Prefer one of the four
+ * that already exist.
+ */
+@media (pointer: coarse) {
+  [class*='text-[10px]'],
+  [class*='text-[10.5px]'] {
+    font-size: 12px;
+  }
+
+  [class*='text-[11px]'],
+  [class*='text-[11.5px]'] {
+    font-size: 12.5px;
+  }
+}

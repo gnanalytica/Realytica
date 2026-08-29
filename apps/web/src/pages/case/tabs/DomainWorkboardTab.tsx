@@ -289,7 +289,7 @@ export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: 
       ) : (
         <>
           {/* 1 — status strip */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:grid-cols-4">
             <StatTile label="Blockers" value={blockers} tone={blockers > 0 ? 'critical' : 'neutral'} />
             <StatTile label="Open risks" value={openRisks.length} tone={openRisks.length > 0 ? 'warning' : 'neutral'} />
             <StatTile label={domain === 'risk' ? 'Open actions' : 'Open findings'} value={domain === 'risk' ? relatedActions.length : openFindings.length} tone="neutral" />

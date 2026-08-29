@@ -157,7 +157,7 @@ export default function RisksTab({ caseData, result, refresh, runScreen, running
           icon={<ShieldAlert size={16} />}
         />
         <CardBody className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-center">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:grid-cols-4">
             {SEVERITIES.map((s) => (
               <Stat key={s} label={titleCase(s)} value={counts.bySeverity[s]} tone={severityTone(s)} />
             ))}

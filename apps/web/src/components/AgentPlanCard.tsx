@@ -109,7 +109,7 @@ export function AgentPlanCard({ plan, actualSpendUsd }: { plan: AgentPlan | unde
           <>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <p className="max-w-2xl text-[13px] leading-relaxed text-ink">{plan.caseAssessment}</p>
-              <div className="grid shrink-0 grid-cols-2 gap-4">
+              <div className="grid shrink-0 grid-cols-1 sm:grid-cols-2 gap-4">
                 <Stat label="Estimated cost" value={formatUsd(plan.estimatedCostUsd)} />
                 <Stat
                   label="Actual so far"

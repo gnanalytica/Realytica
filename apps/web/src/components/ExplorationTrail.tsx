@@ -196,7 +196,7 @@ function SessionCard({
 
       {open ? (
         <div className="flex flex-col gap-4 border-t border-hairline px-4 py-3.5">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:grid-cols-4">
             <div>
               <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">Iterations</div>
               <div className="mt-0.5 text-[15px] font-semibold text-ink">{session.iterations}</div>

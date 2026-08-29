@@ -98,7 +98,7 @@ export default function Dashboard() {
   if (loading && !cases) {
     return (
       <div className="space-y-5">
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i} className="p-4">
               <Skeleton className="h-3 w-20" />
@@ -167,7 +167,7 @@ export default function Dashboard() {
         * as numbers. The other two are counts and stay neutral, because a
         * count is not a verdict.
         */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile label="Total cases" value={stats.total} icon={<Layers size={15} />} />
         <StatTile
           label="Screened"

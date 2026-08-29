@@ -377,7 +377,8 @@ export default function Landing() {
             </MarginNote>
           }
         >
-          <table className="w-full border-collapse text-left">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[380px] border-collapse text-left">
             <thead>
               <tr className="border-b border-ink/20">
                 <th className="pb-2 pr-6 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-ink-muted">Check</th>
@@ -393,6 +394,7 @@ export default function Landing() {
               ))}
             </tbody>
           </table>
+          </div>
           <p className="m-0 mt-5 max-w-[62ch] text-[13px] leading-relaxed text-ink-muted">
             Alongside these sit {SITE_CONSTRAINT_KEYS.length} restrictions that never appear in a deed — an aerodrome
             height cap, a transmission corridor, a highway control line — and the flood catchment the locality drains

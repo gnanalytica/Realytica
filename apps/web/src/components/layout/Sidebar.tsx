@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { ChevronsLeft, ChevronsRight, Gauge, GitCompare, Info, LayoutDashboard, MessageSquare, ScrollText, X } from 'lucide-react';
 import { cn } from '../ui/kit';
@@ -31,6 +32,26 @@ const NAV_ITEMS: NavItem[] = [
  * remembered in localStorage by the parent); becomes an overlay drawer below `lg`.
  */
 export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }: SidebarProps) {
+  /*
+   * Escape closes it, and the page behind it stops scrolling while it is
+   * open. A drawer without either is one a keyboard user cannot dismiss and
+   * one that scrolls the wrong thing under a thumb — both invisible to a
+   * mouse on a desktop, which is why they were missing.
+   */
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCloseMobile();
+    };
+    window.addEventListener('keydown', onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [mobileOpen, onCloseMobile]);
+
   return (
     <>
       {mobileOpen ? (
@@ -63,7 +84,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
             type="button"
             onClick={onCloseMobile}
             aria-label="Close navigation"
-            className="ml-auto rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink lg:hidden"
+            className="ml-auto rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink coarse:p-3 lg:hidden"
           >
             <X size={16} />
           </button>

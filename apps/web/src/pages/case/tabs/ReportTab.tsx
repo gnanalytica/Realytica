@@ -628,7 +628,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
               {identity.addressLine}, {identity.locality}, {identity.city}, {identity.state} {identity.postalCode}
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1 border-t border-hairline pt-3 sm:grid-cols-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 border-t border-hairline pt-3 sm:grid-cols-4">
             <KeyValue label="Case reference" value={caseData.reference} />
             <KeyValue label="Prepared for" value={caseData.ownerName} />
             <KeyValue label="Generated" value={date(result.generatedAt, 'long')} />
@@ -672,7 +672,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
 
         {/* Indicative value */}
         <Section n={nextSection()} title="Indicative value" subtitle="A range, never a point — uncertainty is the point" open={openFor('value')}>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:grid-cols-4">
             <KeyValue label="Range" value={`${money(result.indicativeValue.low, currency)} – ${money(result.indicativeValue.high, currency)}`} />
             <KeyValue label="Mid" value={money(result.indicativeValue.mid, currency)} mono />
             <KeyValue label="Spread" value={`± ${pct(result.indicativeValue.spreadPct, 1)}`} mono />
@@ -786,7 +786,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
             subtitle={`What this would realise inside ${result.forcedSale.marketingPeriodDays} days`}
             action={<Badge tone={result.forcedSale.lendable ? 'neutral' : 'critical'}>{result.forcedSale.lendable ? `−${result.forcedSale.discountPct}%` : 'Not a lending figure'}</Badge>}
           >
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:grid-cols-3">
               <KeyValue label="Forced-sale value" value={money(result.forcedSale.value, currency)} mono />
               <KeyValue label="Discount from mid" value={`− ${pct(result.forcedSale.discountPct, 1)}`} mono />
               <KeyValue label="Marketing window" value={`${result.forcedSale.marketingPeriodDays} days`} mono />
@@ -973,7 +973,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
                   <span className="text-base text-ink-muted">/100</span>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
                 <KeyValue label="Clear" value={stateCompliance.checks.filter((c) => c.verdict === 'clear').length} mono />
                 <KeyValue label="Attention" value={stateCompliance.checks.filter((c) => c.verdict === 'attention').length} mono />
                 <KeyValue label="Blocker" value={complianceBlockers.length} mono />
@@ -1042,7 +1042,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
               Stamp duty and registration fees are computed on whichever is higher: the agreed sale consideration or
               the government&rsquo;s statutory guidance value for the locality — never on the lower figure.
             </Callout>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:grid-cols-4">
               <KeyValue
                 label="Dutiable value"
                 value={money(transactionCosts.dutiableValue, transactionCosts.currency)}
@@ -1110,7 +1110,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           >
             {result.waterExposure && (
               <>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:grid-cols-3">
                   <KeyValue label="Flood exposure" value={titleCase(result.waterExposure.floodExposure)} />
                   <KeyValue label="Valley system" value={VALLEY_LABEL[result.waterExposure.valley]} />
                   <KeyValue label="Lake chain" value={result.waterExposure.lakeChain} />
@@ -1139,7 +1139,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
 
         {/* Planning position */}
         <Section n={nextSection()} title="Planning position" open={openFor('planning')}>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:grid-cols-4">
             <KeyValue label="Zoning" value={result.planning.zoning} />
             <KeyValue label="Development potential" value={titleCase(result.planning.developmentPotential)} />
             <KeyValue label="Buildable potential" value={formatArea(result.planning.buildablePotentialSqm, areaUnit)} mono />

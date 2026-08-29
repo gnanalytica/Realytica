@@ -269,7 +269,7 @@ export default function ValuationTab({ caseData, result, refresh, running }: Tab
               </Callout>
             </div>
           ) : null}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:grid-cols-4">
             <Stat label={`Subject ${isLand ? 'land rate' : 'price'} low / ${unitLabel}`} value={formatRate(iv.perSqm.low, areaUnit, currency)} />
             <Stat
               label={`Subject ${isLand ? 'land rate' : 'price'} mid / ${unitLabel}`}

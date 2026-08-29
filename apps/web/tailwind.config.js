@@ -151,5 +151,26 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    /*
+     * `coarse:` — a media variant for touch, not a width breakpoint.
+     *
+     * The two are routinely conflated and they are different questions. `sm:`
+     * asks how much room there is; this asks what is doing the pointing. A
+     * 32px control is comfortable under a mouse and misses under a thumb, and
+     * that is true of a 1024px tablet as much as a 375px phone — so a width
+     * breakpoint would fix the phone and leave the tablet, while making every
+     * desktop control bigger would give up the density this product is for
+     * (see the aesthetic note in the design spec: data-dense where data
+     * lives).
+     *
+     * WCAG 2.5.8 asks for 24px minimum and 2.5.5 for 44px enhanced. The
+     * primitives below take 44 on coarse pointers, because a valuer standing
+     * at a property with one hand on a gate is the actual use.
+     */
+    ({ addVariant }) => {
+      addVariant('coarse', '@media (pointer: coarse)');
+      addVariant('fine', '@media (pointer: fine)');
+    },
+  ],
 };

@@ -189,7 +189,7 @@ export default function CaseCard({ data, selected, onToggleSelect, onDeleted }: 
             )}
           </div>
 
-          <div className="mt-auto grid grid-cols-2 gap-3 pt-1">
+          <div className="mt-auto grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
             <ProgressBar
               value={data.confidenceScore ?? 0}
               tone={data.confidenceBand ? confidenceTone(data.confidenceBand) : 'neutral'}
