@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
-import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
+import { createContext, forwardRef, useContext, useEffect, useId, useRef, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, Info, Loader2, ShieldAlert, X, XCircle } from 'lucide-react';
 
 export const cn = clsx;
@@ -565,9 +565,17 @@ export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputEleme
   return <input {...rest} className={cn(CONTROL, 'h-9', className)} />;
 }
 
-export function Textarea({ className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...rest} className={cn(CONTROL, 'min-h-[76px] py-2 leading-relaxed', className)} />;
-}
+/*
+ * Ref-forwarding, because an auto-growing composer has to measure its own
+ * scrollHeight and there is no way to do that through a wrapper that swallows
+ * the ref. Input and Select do not forward one because nothing needs it yet;
+ * add it when something does rather than on principle.
+ */
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function Textarea({ className, ...rest }, ref) {
+    return <textarea ref={ref} {...rest} className={cn(CONTROL, 'min-h-[76px] py-2 leading-relaxed', className)} />;
+  },
+);
 
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (

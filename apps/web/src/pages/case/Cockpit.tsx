@@ -5,6 +5,7 @@ import {
   DD_DOMAIN_KEYS,
   DD_DOMAIN_PROFILES,
   REFERENCE_DATA,
+  buildDdGraph,
   domainForCheck,
   domainForRiskCategory,
   domainForSystem,
@@ -153,6 +154,16 @@ export default function Cockpit() {
     [setParam],
   );
 
+  /*
+   * Kept for the life of the screen rather than persisted.
+   *
+   * The change itself is durable — it is on the case row, which is the real
+   * record. This is only the note in the conversation saying which turn made
+   * it, and inventing a schema change to store that would put a second copy
+   * of the truth next to the first.
+   */
+  const [appliedByTurn, setAppliedByTurn] = useState<Record<string, string[]>>({});
+
   const handleAsk = useCallback(
     async (question: string) => {
       if (!caseData) return;
@@ -164,7 +175,10 @@ export default function Cockpit() {
         const asDomain = target?.replace('diligence?view=', '');
         if (asDomain && (DD_DOMAIN_KEYS as readonly string[]).includes(asDomain)) goDomain(asDomain as DdDomain);
         if (response.appliedCommands && response.appliedCommands.length > 0) {
+          // Toast AND transcript: the toast is the acknowledgement that it
+          // happened now, the card is the record that it happened at all.
           toast(response.appliedCommands.join(' · '), 'good');
+          setAppliedByTurn(prev => ({ ...prev, [response.assistantTurn.id]: response.appliedCommands ?? [] }));
         }
       } finally {
         setAsking(false);
@@ -258,6 +272,39 @@ export default function Cockpit() {
   const desktop = useMediaQuery(DESKTOP_QUERY);
 
   /** What the work tab is currently showing, so its label can say so. */
+  /*
+   * The graph, so a bracketed id in an answer can render as its label.
+   *
+   * Built from the case the client already holds — the same pure projection
+   * the explorer draws — so this costs a memo rather than a round trip, and
+   * it cannot disagree with what the explorer shows when the chip is clicked.
+   */
+  const graphNodes = useMemo(
+    () => (caseData ? buildDdGraph(caseData, caseData.updatedAt).nodes : []),
+    [caseData],
+  );
+
+  /*
+   * Follow-ups drawn from the case, not a constant.
+   *
+   * There was one hardcoded suggestion — "what is worst in <department> right
+   * now" — offered on every case in every state, including one with nothing
+   * on it. These are conditional on the case actually having the thing they
+   * ask about, so a chip never opens a question the file cannot answer.
+   */
+  const suggestions = useMemo(() => {
+    if (!caseData) return [];
+    const out: string[] = [];
+    const risks = (caseData.result?.risks ?? []).filter(r => r.status === 'open');
+    const critical = risks.filter(r => r.severity === 'critical');
+    if (critical.length > 0) out.push(`Why is "${critical[0].title}" critical, and what settles it?`);
+    else if (risks.length > 0) out.push(`What is worst in ${DD_DOMAIN_PROFILES[domain].label.toLowerCase()} right now?`);
+    if (caseData.result?.indicativeValue) out.push('What is the value range resting on?');
+    if ((caseData.documents ?? []).length > 0) out.push('What is missing that would change the answer?');
+    if ((caseData.result?.actions ?? []).some(a => !a.done)) out.push('What should I do first?');
+    return out.slice(0, 3);
+  }, [caseData, domain]);
+
   const paneLabel =
     paneMode === 'procedures' ? 'Procedures'
     : paneMode === 'review' ? 'Review'
@@ -527,13 +574,14 @@ export default function Cockpit() {
           )}
           style={desktop ? (spec.chat === null ? { flexGrow: 1 } : { width: chatWidth, flexShrink: 0 }) : undefined}
         >
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex min-h-0 flex-1 flex-col p-4">
             <CopilotPanel
+              fill
+              nodes={graphNodes}
+              appliedByTurn={appliedByTurn}
               conversation={caseData.intelligence?.conversation ?? []}
               evidence={caseData.result?.evidence ?? []}
-              suggestions={
-                canAnswer === false ? [] : [`What is worst in ${DD_DOMAIN_PROFILES[domain].label.toLowerCase()} right now?`]
-              }
+              suggestions={canAnswer === false ? [] : suggestions}
               onAsk={handleAsk}
               busy={asking}
               disabled={canAnswer === false}
@@ -544,6 +592,13 @@ export default function Cockpit() {
                 setParam({ pane: 'graph', doc: null, node: nodeId });
               }}
               onOpenDocument={id => openProof(id)}
+              onOpenEvidence={id => {
+                // An evidence chip whose source is a document opens that
+                // document; one from a dataset or a comparable has no page to
+                // open, so it stays inert rather than opening "something".
+                const item = (caseData.result?.evidence ?? []).find(e => e.id === id);
+                if (item?.sourceType === 'document') openProof(item.sourceRef);
+              }}
               fallback={
                 <div className="flex flex-col gap-2 py-2">
                   <p className="text-[12.5px] font-medium text-ink">Next steps on this case</p>
