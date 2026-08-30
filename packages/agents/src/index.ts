@@ -8,6 +8,9 @@
  */
 
 export * from './env';
+// The endpoint, key and tier table — a script measuring a model has to be
+// able to ask which model is configured.
+export * from './config';
 export * from './client';
 export * from './context';
 export * from './tools/case-tools';

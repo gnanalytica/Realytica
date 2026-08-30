@@ -117,17 +117,88 @@ export function isIdentifierKey(key: string): boolean {
 }
 
 /**
+ * Recover an identifier the model transliterated, from the page it read.
+ *
+ * Measured, not supposed. `pnpm eval:multilingual` sends three synthetic
+ * Indic deeds through the extraction prompt and scores each language rule
+ * separately; the Telugu survey number `౨౧౪/అ` comes back as `214/A`. The
+ * digits are converted correctly — that part is asked for — and the LETTER is
+ * transliterated, which the prompt explicitly forbids in the same sentence.
+ *
+ * That failure is the worst shape this product has. `214/A` is a well-formed
+ * survey number that names a different plot, it passes every downstream check
+ * because there is nothing wrong with it, and no reader can catch it without
+ * the original page. A missing identifier is a gap somebody chases; a plausible
+ * wrong one is a wrong valuation nobody questions.
+ *
+ * A prompt cannot fix it — it already says so, in the imperative, one clause
+ * before the model does it anyway. So the page decides. This looks for the
+ * identifier the model reported in the text it was reading, allowing any
+ * single character where the model wrote a letter, and prefers what the page
+ * actually says.
+ *
+ * Deliberately conservative in three ways, because a wrong "correction" would
+ * be the same class of failure with our name on it:
+ *
+ * - AMBIGUITY ABSTAINS. More than one candidate on the page and the model's
+ *   value stands. Picking one would be guessing about the thing this exists
+ *   to stop guessing about.
+ * - DIGITS MUST MATCH EXACTLY. Only letter positions are allowed to differ,
+ *   so this can never turn 214 into 216.
+ * - IT ONLY EVER MOVES TOWARD THE PAGE. If the page's form is itself pure
+ *   Latin, there is nothing to recover and the value is returned unchanged.
+ */
+export function recoverIdentifierFromSource(value: string, sourceText: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || sourceText.length === 0) return value;
+  // Nothing to recover unless the model produced a Latin letter — a value
+  // that is already in the page's script, or has no letters at all, is fine.
+  if (!/\p{Script=Latin}/u.test(trimmed)) return value;
+
+  // Compare against a digit-normalised page so `౨౧౪` and `214` line up; the
+  // matched text is taken from THIS string, so the recovered identifier
+  // carries Latin digits exactly as the rules require.
+  const haystack = normalizeDigits(sourceText);
+
+  const pattern = Array.from(normalizeDigits(trimmed))
+    .map(ch => {
+      if (/\p{L}/u.test(ch)) return '\\p{L}';
+      return ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    })
+    .join('');
+
+  let found: string[];
+  try {
+    found = Array.from(haystack.matchAll(new RegExp(pattern, 'gu')), m => m[0]);
+  } catch {
+    // An identifier that will not compile into a pattern is not one worth
+    // guessing about.
+    return value;
+  }
+
+  const distinct = Array.from(new Set(found));
+  if (distinct.length !== 1) return value;
+  const candidate = distinct[0];
+  // Only accept a candidate that is actually MORE original than what we have.
+  if (candidate === normalizeDigits(trimmed)) return value;
+  if (!/\p{L}/u.test(candidate) || /^[\p{Script=Latin}\P{L}]*$/u.test(candidate)) return value;
+  return candidate;
+}
+
+/**
  * Prepare one extracted value for storage.
  *
  * An identifier keeps its characters and only has its digits normalised. A
  * name or a description keeps both forms. Nothing is discarded either way —
  * the distinction is only about which string becomes `value`.
  */
-export function prepareValue(key: string, value: string, original?: string): ScriptedValue {
+export function prepareValue(key: string, value: string, original?: string, sourceText?: string): ScriptedValue {
   if (isIdentifierKey(key)) {
     const source = original ?? value;
-    const normalised = normalizeDigits(source);
-    return { value: normalised, original: source, script: scriptOf(source), transliterated: false };
+    // The page wins over the reading — see `recoverIdentifierFromSource`.
+    const recovered = sourceText ? recoverIdentifierFromSource(source, sourceText) : source;
+    const normalised = normalizeDigits(recovered);
+    return { value: normalised, original: recovered, script: scriptOf(recovered), transliterated: false };
   }
   return scriptedValue(value, original);
 }
