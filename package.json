@@ -17,19 +17,24 @@
     "start": "pnpm -F @realytica/api start",
     "typecheck": "tsc -p packages/shared && tsc -p packages/agents && tsc -p apps/api && tsc -p apps/web && tsc -p tsconfig.test.json",
     "test": "tsx --test \"test/**/*.test.ts\"",
-    "check": "pnpm typecheck && pnpm test",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/web/dist",
     "deploy:build": "pnpm install --frozen-lockfile && pnpm build",
     "probe:model": "mkdir -p node_modules/.cache && esbuild scripts/probe-model.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/probe-model.mjs --log-level=error && node node_modules/.cache/probe-model.mjs",
     "eval": "mkdir -p node_modules/.cache && esbuild scripts/run-eval.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/run-eval.mjs --log-level=error && node node_modules/.cache/run-eval.mjs",
-    "eval:multilingual": "mkdir -p node_modules/.cache && esbuild scripts/eval-multilingual.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/eval-multilingual.mjs --log-level=error && node node_modules/.cache/eval-multilingual.mjs"
+    "eval:multilingual": "mkdir -p node_modules/.cache && esbuild scripts/eval-multilingual.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/eval-multilingual.mjs --log-level=error && node node_modules/.cache/eval-multilingual.mjs",
+    "lint": "eslint apps/web"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.5",
     "concurrently": "^9.1.2",
     "esbuild": "^0.24.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.68.0"
   },
   "dependencies": {
     "@realytica/agents": "workspace:*",
