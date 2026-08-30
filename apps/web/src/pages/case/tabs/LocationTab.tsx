@@ -281,7 +281,7 @@ export default function LocationTab({ caseData, refresh }: TabProps) {
             )}
             {grouped.map(group => (
               <div key={group.kind}>
-                <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{KIND_LABEL[group.kind]}</h4>
+                <h4 className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">{KIND_LABEL[group.kind]}</h4>
                 <ul className="m-0 list-none p-0">
                   {group.items.map(a => (
                     <AmenityRow key={a.id} amenity={a} />

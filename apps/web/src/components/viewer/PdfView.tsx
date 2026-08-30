@@ -206,18 +206,18 @@ export function PdfView({
           type="button"
           onClick={() => { const n = Math.max(1, current - 1); setCurrent(n); scrollToPage(n); }}
           disabled={current <= 1}
-          className="rounded px-2 py-0.5 text-[11.5px] text-ink-secondary disabled:text-ink-muted"
+          className="rounded px-2 py-0.5 text-mini text-ink-secondary disabled:text-ink-muted"
         >
           Previous
         </button>
-        <span className="tabular text-[11.5px] text-ink-secondary">
+        <span className="tabular text-mini text-ink-secondary">
           Page {current} of {pageCount}
         </span>
         <button
           type="button"
           onClick={() => { const n = Math.min(pageCount, current + 1); setCurrent(n); scrollToPage(n); }}
           disabled={current >= pageCount}
-          className="rounded px-2 py-0.5 text-[11.5px] text-ink-secondary disabled:text-ink-muted"
+          className="rounded px-2 py-0.5 text-mini text-ink-secondary disabled:text-ink-muted"
         >
           Next
         </button>
@@ -226,7 +226,7 @@ export function PdfView({
           <button
             type="button"
             onClick={() => { setCurrent(matches[0].page); scrollToPage(matches[0].page); }}
-            className="rounded-full bg-warning/25 px-2 py-0.5 text-[11px] text-ink"
+            className="rounded-full bg-warning/25 px-2 py-0.5 text-mini text-ink"
           >
             Found on page {matches[0].page}
           </button>
@@ -234,21 +234,21 @@ export function PdfView({
         <button
           type="button"
           onClick={() => { setFitWidth(false); setScale((s) => Math.max(0.5, +(s - 0.25).toFixed(2))); }}
-          className="rounded px-2 py-0.5 text-[11.5px] text-ink-secondary"
+          className="rounded px-2 py-0.5 text-mini text-ink-secondary"
         >
           −
         </button>
         <button
           type="button"
           onClick={() => setFitWidth(true)}
-          className="rounded px-2 py-0.5 text-[11.5px] text-ink-secondary"
+          className="rounded px-2 py-0.5 text-mini text-ink-secondary"
         >
           Fit
         </button>
         <button
           type="button"
           onClick={() => { setFitWidth(false); setScale((s) => Math.min(4, +(s + 0.25).toFixed(2))); }}
-          className="rounded px-2 py-0.5 text-[11.5px] text-ink-secondary"
+          className="rounded px-2 py-0.5 text-mini text-ink-secondary"
         >
           +
         </button>
@@ -385,7 +385,7 @@ function PdfPage({
             />
           ))
         : null}
-      <span className="tabular absolute -top-0.5 right-1 rounded-b bg-ink/60 px-1.5 text-[10px] text-white">
+      <span className="tabular absolute -top-0.5 right-1 rounded-b bg-ink/60 px-1.5 text-micro text-white">
         {pageNumber}
       </span>
     </div>

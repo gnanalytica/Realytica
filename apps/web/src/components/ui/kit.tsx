@@ -113,7 +113,7 @@ export function CardBody({ className, children }: { className?: string; children
 export function SectionTitle({ children, hint }: { children: ReactNode; hint?: ReactNode }) {
   return (
     <div className="mb-2 flex items-baseline justify-between gap-3">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted">{children}</h3>
+      <h3 className="text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">{children}</h3>
       {hint ? <span className="text-xs text-ink-muted">{hint}</span> : null}
     </div>
   );
@@ -213,7 +213,7 @@ export function Badge({
     <span
       title={title}
       className={cn(
-        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-4 whitespace-nowrap',
+        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-mini font-medium leading-4 whitespace-nowrap',
         TONE_CHIP[tone],
         className,
       )}
@@ -245,7 +245,7 @@ export function Stat({
 }) {
   return (
     <div className={cn('min-w-0', className)} title={hint}>
-      <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</div>
+      <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</div>
       <div
         className={cn('mt-1 truncate font-semibold leading-tight tracking-tight', valueSizeClass(value, 'stat'), TONE_TEXT[tone])}
         title={hint ?? (typeof value === 'string' ? value : undefined)}
@@ -369,7 +369,7 @@ export function StatTile({
   return (
     <Tile tone={tone} className={cn('p-4', className)}>
       <div className="flex items-start justify-between gap-3">
-        <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</span>
+        <span className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</span>
         {icon ? <span className={cn('shrink-0', TONE_TEXT[tone])}>{icon}</span> : null}
       </div>
       {/*
@@ -846,7 +846,7 @@ export function Tooltip({ label, children, className }: { label: ReactNode; chil
         <span
           id={id}
           role="tooltip"
-          className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-1.5 w-max max-w-[16rem] -translate-x-1/2 rounded-md bg-[var(--text-primary)] px-2 py-1 text-[11px] leading-snug text-[var(--text-inverse)] shadow-pop"
+          className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-1.5 w-max max-w-[16rem] -translate-x-1/2 rounded-md bg-[var(--text-primary)] px-2 py-1 text-mini leading-snug text-[var(--text-inverse)] shadow-pop"
         >
           {label}
         </span>
@@ -947,7 +947,7 @@ export function Disclosure({
         {icon}
         <span className="min-w-0 flex-1 truncate">{title}</span>
         {count !== undefined ? (
-          <span className={cn('tabular shrink-0 rounded-full px-1.5 text-[11px]', count > 0 ? toneChip(tone ?? 'neutral') : 'text-ink-muted')}>
+          <span className={cn('tabular shrink-0 rounded-full px-1.5 text-mini', count > 0 ? toneChip(tone ?? 'neutral') : 'text-ink-muted')}>
             {count}
           </span>
         ) : null}

@@ -154,7 +154,7 @@ export default function PlanningTab({ caseData, result, runScreen, running, goTo
           )}
           {planning.restrictions.length > 0 ? (
             <div>
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Restrictions</p>
+              <p className="mb-1.5 text-mini font-semibold uppercase tracking-wide text-ink-muted">Restrictions</p>
               <ul className="flex flex-col gap-1.5">
                 {planning.restrictions.map((r, i) => (
                   <li key={i} className="flex items-start gap-2 text-xs leading-relaxed text-ink-secondary">

@@ -10,7 +10,7 @@ import { relativeTime } from '../lib/format';
 
 function AgentTag({ at }: { at: string }) {
   return (
-    <div className="mt-1.5 flex items-center gap-1 text-[10px] text-ink-muted">
+    <div className="mt-1.5 flex items-center gap-1 text-micro text-ink-muted">
       <Sparkles size={9} /> Agent-generated · {relativeTime(at)}
     </div>
   );
@@ -67,11 +67,11 @@ function TurnBubble({
     return (
       <div className="flex justify-start">
         <div className="max-w-[85%] rounded-xl rounded-tl-sm bg-brand-soft px-3 py-2.5 ring-1 ring-inset ring-brand/25">
-          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-brand">
+          <div className="mb-1 flex items-center gap-1.5 text-mini font-semibold text-brand">
             <SearchX size={12} /> No answer — the evidence doesn&rsquo;t support one
           </div>
           <p className="text-[13px] leading-relaxed text-ink">{turn.text}</p>
-          <p className="mt-1 text-[11px] text-ink-secondary">
+          <p className="mt-1 text-mini text-ink-secondary">
             That&rsquo;s a legitimate outcome, not an error — nothing on file backs a confident answer yet.
           </p>
           <AgentTag at={turn.at} />
@@ -116,7 +116,7 @@ function TurnBubble({
         */}
         {applied && applied.length > 0 ? (
           <div className="mt-2 rounded-lg bg-good/10 px-2.5 py-2 ring-1 ring-inset ring-good/25">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-good">
+            <div className="flex items-center gap-1.5 text-mini font-semibold text-good">
               <CheckCircle2 size={12} /> Applied to the case
             </div>
             <ul className="mt-1 flex flex-col gap-0.5">
@@ -145,7 +145,7 @@ function TurnBubble({
               <button
                 key={nodeId}
                 onClick={() => onOpenNode(nodeId)}
-                className="rounded-full bg-surface px-2 py-0.5 text-[10.5px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:text-ink"
+                className="rounded-full bg-surface px-2 py-0.5 text-micro text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:text-ink"
                 title="Focus this node in the graph explorer"
               >
                 {nodeLabel(nodeId)}
@@ -190,7 +190,7 @@ function TypingIndicator({ steps }: { steps: AgentStep[] }) {
           ) : null}
         </div>
         {done > 0 ? (
-          <span className="text-[11px] text-ink-faint">
+          <span className="text-mini text-ink-faint">
             {done} source{done === 1 ? '' : 's'} read
           </span>
         ) : null}
@@ -206,7 +206,7 @@ function SuggestionChip({ text, disabled, onClick }: { text: string; disabled?: 
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'rounded-full bg-sunken px-2.5 py-1 text-[11px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]',
+        'rounded-full bg-sunken px-2.5 py-1 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]',
         'hover:bg-brand-soft hover:text-brand disabled:cursor-not-allowed disabled:opacity-50',
       )}
     >
@@ -240,6 +240,7 @@ export function CopilotPanel({
   nodes,
   appliedByTurn,
   steps,
+  onOpenCommands,
 }: {
   conversation: CopilotTurn[];
   evidence: EvidenceItem[];
@@ -280,6 +281,8 @@ export function CopilotPanel({
   appliedByTurn?: Record<string, string[]>;
   /** Live progress for the turn in flight, newest last. */
   steps?: AgentStep[];
+  /** Open the command bar — bound to `/` on an empty composer. */
+  onOpenCommands?: () => void;
 }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -313,6 +316,23 @@ export function CopilotPanel({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>): void {
+    /*
+     * `/` on an empty composer opens the command bar.
+     *
+     * Both surfaces are the person acting and they already share a
+     * vocabulary; this is the convention every chat product has taught
+     * people to expect, and without it the only way to reach the bar was a
+     * keyboard shortcut with no discoverable affordance — and none at all on
+     * a phone, which has no ⌘K.
+     *
+     * Only on an EMPTY composer. Mid-sentence a slash is a date, a ratio or
+     * a survey number, and stealing it would make "plot 112/3" unaskable.
+     */
+    if (e.key === '/' && text.length === 0 && onOpenCommands) {
+      e.preventDefault();
+      onOpenCommands();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void submit(text);
@@ -402,7 +422,7 @@ export function CopilotPanel({
         */}
         <Textarea
           aria-label="Ask the copilot"
-          placeholder={disabled ? 'Copilot unavailable' : 'Ask about this case…'}
+          placeholder={disabled ? 'Copilot unavailable' : onOpenCommands ? 'Ask about this case, or / for commands' : 'Ask about this case…'}
           value={text}
           rows={1}
           disabled={disabled || busy}

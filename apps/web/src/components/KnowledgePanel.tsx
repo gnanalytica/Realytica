@@ -58,12 +58,12 @@ function SourceRow({ source }: { source: DataSourceDescriptor }) {
       </button>
       {open && (
         <div className="mt-2 space-y-1.5 pl-[23px]">
-          <p className="text-[11px] leading-relaxed text-ink-secondary">
+          <p className="text-mini leading-relaxed text-ink-secondary">
             <span className="font-semibold uppercase tracking-wide text-ink-muted">Would answer</span>{' '}
             {source.whatItWouldHaveAnswered}
           </p>
           {source.manualRoute && (
-            <p className="text-[11px] leading-relaxed text-ink-muted">
+            <p className="text-mini leading-relaxed text-ink-muted">
               <span className="font-semibold uppercase tracking-wide">By hand</span> {source.manualRoute}
             </p>
           )}
@@ -111,7 +111,7 @@ export function SourcesCard({
           <SourceRow key={s.id} source={s} />
         ))}
         {latest && (
-          <p className="mt-3 text-[11px] text-ink-muted">
+          <p className="mt-3 text-mini text-ink-muted">
             Last checked {relativeTime(latest.startedAt)} — {latest.records.length} record(s) ingested,{' '}
             {latest.attempted.filter((a) => a.outcome === 'unreachable').length} source(s) unreachable.
           </p>
@@ -192,7 +192,7 @@ export function MemoryCard({ recall, onTeach, teaching }: MemoryCardProps) {
           <>
             {[...byScope].map(([scope, facts]) => (
               <div key={scope} className="mb-3 last:mb-0">
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">
                   {scope.replace(/_/g, ' ')}
                 </p>
                 {facts.map((f) => (
@@ -202,7 +202,7 @@ export function MemoryCard({ recall, onTeach, teaching }: MemoryCardProps) {
                       <span className="text-ink-secondary">{f.predicate.replace(/_/g, ' ')}</span>{' '}
                       <span className="text-ink">{f.object}</span>
                     </span>
-                    <span className={cn('tabular shrink-0 text-[11px]', f.confidence >= 0.8 ? 'text-ink-muted' : 'text-warning')}>
+                    <span className={cn('tabular shrink-0 text-mini', f.confidence >= 0.8 ? 'text-ink-muted' : 'text-warning')}>
                       {(f.confidence * 100).toFixed(0)}%
                     </span>
                   </div>
@@ -214,7 +214,7 @@ export function MemoryCard({ recall, onTeach, teaching }: MemoryCardProps) {
                 Teach from this case
               </Button>
             ) : null}
-            <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
+            <p className="mt-2 text-mini leading-relaxed text-ink-muted">
               Consulted {recall.consultedSubjects.length} subject(s).
               {recall.excludedCount > 0 &&
                 ` ${recall.excludedCount} further item(s) were held back as superseded by a later correction, or outside their validity window.`}

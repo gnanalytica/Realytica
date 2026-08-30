@@ -91,7 +91,7 @@ export function AssessmentMethodCard({
         </Tile>
 
         <div>
-          <h4 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">Why this method</h4>
+          <h4 className="text-mini font-semibold uppercase tracking-[0.08em] text-ink-subtle">Why this method</h4>
           <ul className="mt-1.5 space-y-1">
             {project.inference.basis.map((b) => (
               <li key={b} className="flex gap-2 text-[13px] leading-relaxed text-ink-muted">
@@ -157,7 +157,7 @@ export function AssessmentMethodCard({
                     {active ? <Check size={14} className="mt-0.5 shrink-0 text-brand" /> : <span className="mt-0.5 w-[14px] shrink-0" />}
                     <span>
                       <span className="block text-[13px] font-medium text-ink">{ASSESSMENT_PROFILES[kind].label}</span>
-                      <span className="block text-[11.5px] leading-snug text-ink-subtle">{ASSESSMENT_PROFILES[kind].summary}</span>
+                      <span className="block text-mini leading-snug text-ink-subtle">{ASSESSMENT_PROFILES[kind].summary}</span>
                     </span>
                   </button>
                 );
@@ -167,11 +167,11 @@ export function AssessmentMethodCard({
         )}
 
         <div>
-          <h4 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">What the decision turns on</h4>
+          <h4 className="text-mini font-semibold uppercase tracking-[0.08em] text-ink-subtle">What the decision turns on</h4>
           <ol className="mt-1.5 space-y-1.5">
             {profile.decisionBasis.map((b, i) => (
               <li key={b} className="flex gap-2.5 text-[13px] leading-relaxed text-ink-muted">
-                <span className="mt-px font-mono text-[11px] tabular-nums text-ink-faint">{String(i + 1).padStart(2, '0')}</span>
+                <span className="mt-px font-mono text-mini tabular-nums text-ink-faint">{String(i + 1).padStart(2, '0')}</span>
                 {b}
               </li>
             ))}
@@ -184,7 +184,7 @@ export function AssessmentMethodCard({
             onClick={() => setShowMethods((v) => !v)}
             className="flex w-full items-center justify-between rounded-md py-1 text-left"
           >
-            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+            <span className="text-mini font-semibold uppercase tracking-[0.08em] text-ink-subtle">
               Valuation methods in play
             </span>
             <ChevronDown size={14} className={cn('text-ink-faint transition-transform duration-base', showMethods && 'rotate-180')} />
@@ -199,12 +199,12 @@ export function AssessmentMethodCard({
                       <span className="text-[13px] font-medium text-ink">{methodLabel(anchors, stance.method)}</span>
                       <Badge tone={ROLE_TONE[stance.role]}>{ROLE_LABEL[stance.role]}</Badge>
                       {anchor && (
-                        <span className="font-mono text-[11px] tabular-nums text-ink-faint">
+                        <span className="font-mono text-mini tabular-nums text-ink-faint">
                           {pct(anchor.weight * 100, 0)} of the blend
                         </span>
                       )}
                       {!anchor && stance.role !== 'not_applicable' && (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-ink-faint">
+                        <span className="inline-flex items-center gap-1 text-mini text-ink-faint">
                           <HelpCircle size={11} /> no anchor produced — the data it needs is missing
                         </span>
                       )}

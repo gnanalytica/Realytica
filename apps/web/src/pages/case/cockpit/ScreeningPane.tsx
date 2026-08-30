@@ -43,7 +43,7 @@ export function ScreeningPane({
         <h2 className="text-[13px] font-semibold text-ink">{group.label}</h2>
         {/* The group's question, not a restatement of its name — it is what
             the views below have in common and why they sit together. */}
-        <p className="mt-0.5 text-[11.5px] text-ink-muted">{group.question}</p>
+        <p className="mt-0.5 text-mini text-ink-muted">{group.question}</p>
         {group.views.length > 1 ? (
           <div className="mt-2.5 flex flex-wrap gap-1">
             {group.views.map(v => (
@@ -53,7 +53,7 @@ export function ScreeningPane({
                 onClick={() => onSelectView(v.key)}
                 aria-current={v.key === view.key ? 'true' : undefined}
                 className={cn(
-                  'rounded-full px-2.5 py-1 text-[11.5px]',
+                  'rounded-full px-2.5 py-1 text-mini',
                   v.key === view.key ? 'bg-brand text-[var(--brand-ink)] font-medium' : 'bg-surface-3 text-ink-secondary hover:text-ink',
                 )}
               >

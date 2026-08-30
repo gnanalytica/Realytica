@@ -266,7 +266,7 @@ export function Legend({ items, className }: { items: LegendItem[]; className?: 
   return (
     <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1', className)} role="list">
       {items.map((it) => (
-        <span key={it.label} role="listitem" className="inline-flex items-center gap-1.5 text-[11px] text-ink-secondary">
+        <span key={it.label} role="listitem" className="inline-flex items-center gap-1.5 text-mini text-ink-secondary">
           {it.shape === 'line' ? (
             <span className="inline-block h-[2px] w-3 shrink-0 rounded-full" style={{ background: it.color }} />
           ) : (
@@ -301,7 +301,7 @@ export function ChartTooltip({ state, containerWidth }: { state: TooltipState | 
   const top = Math.max(state.y, 0);
   return (
     <div
-      className="pointer-events-none absolute z-10 max-w-[15rem] -translate-x-1/2 -translate-y-[calc(100%+10px)] rounded-md bg-[var(--text-primary)] px-2.5 py-1.5 text-[11px] leading-snug text-[var(--text-inverse)] shadow-pop"
+      className="pointer-events-none absolute z-10 max-w-[15rem] -translate-x-1/2 -translate-y-[calc(100%+10px)] rounded-md bg-[var(--text-primary)] px-2.5 py-1.5 text-mini leading-snug text-[var(--text-inverse)] shadow-pop"
       style={{ left, top }}
     >
       {state.content}

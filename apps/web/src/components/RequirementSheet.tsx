@@ -82,7 +82,7 @@ export function RequirementSheet({ profile, reference }: { profile: AssessmentPr
         <div className="flex flex-col gap-4 text-[13px] leading-relaxed">
           <p className="text-ink-secondary">{profile.headlineQuestion}</p>
           <div>
-            <h4 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">Documents required</h4>
+            <h4 className="text-mini font-semibold uppercase tracking-[0.08em] text-ink-subtle">Documents required</h4>
             <ul className="mt-1.5 space-y-1">
               {profile.requiredDocuments.map(kind => (
                 <li key={kind} className="flex gap-2 text-ink-secondary">
@@ -93,7 +93,7 @@ export function RequirementSheet({ profile, reference }: { profile: AssessmentPr
             </ul>
           </div>
           <div>
-            <h4 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">Checks the conclusion depends on</h4>
+            <h4 className="text-mini font-semibold uppercase tracking-[0.08em] text-ink-subtle">Checks the conclusion depends on</h4>
             <ul className="mt-1.5 space-y-1">
               {profile.criticalChecks.map(key => (
                 <li key={key} className="flex gap-2 text-ink-secondary">

@@ -100,7 +100,7 @@ export default function CaseCard({ data, selected, onToggleSelect, onDeleted }: 
               label={<span className="sr-only">Select {data.reference} for comparison</span>}
             />
             <button type="button" onClick={openCase} className="min-w-0 text-left">
-              <div className="truncate font-mono text-[11px] text-ink-muted">{data.reference}</div>
+              <div className="truncate font-mono text-mini text-ink-muted">{data.reference}</div>
               <div className="truncate text-[13px] font-semibold text-ink">{data.label}</div>
             </button>
           </div>
@@ -172,7 +172,7 @@ export default function CaseCard({ data, selected, onToggleSelect, onDeleted }: 
           </div>
 
           <div>
-            <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">Indicative value</div>
+            <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">Indicative value</div>
             {screened ? (
               <>
                 <div className="tabular mt-0.5 text-[15px] font-semibold text-ink">
@@ -181,7 +181,7 @@ export default function CaseCard({ data, selected, onToggleSelect, onDeleted }: 
                     : `~ ${money(data.indicativeMid, data.currency)}`}
                 </div>
                 {typeof data.indicativeMid === 'number' ? (
-                  <div className="tabular text-[11px] text-ink-muted">mid {money(data.indicativeMid, data.currency)}</div>
+                  <div className="tabular text-mini text-ink-muted">mid {money(data.indicativeMid, data.currency)}</div>
                 ) : null}
               </>
             ) : (
@@ -205,7 +205,7 @@ export default function CaseCard({ data, selected, onToggleSelect, onDeleted }: 
           </div>
         </button>
 
-        <div className="flex items-center justify-between border-t border-hairline pt-2 text-[11px] text-ink-muted">
+        <div className="flex items-center justify-between border-t border-hairline pt-2 text-mini text-ink-muted">
           <span>
             {data.documentCount} document{data.documentCount === 1 ? '' : 's'}
           </span>

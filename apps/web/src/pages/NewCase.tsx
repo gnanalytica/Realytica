@@ -197,7 +197,7 @@ function CompassPicker({ value, onChange }: { value: PlotFacing; onChange: (v: P
             className={cn(
               'relative flex h-10 w-10 items-center justify-center rounded-lg text-xs font-semibold ring-1 ring-inset transition-colors',
               active ? 'bg-brand-soft text-brand ring-2 ring-brand' : 'bg-surface text-ink-secondary ring-[var(--ring)] hover:bg-sunken',
-              cell.value === 'unknown' && 'text-[10px]',
+              cell.value === 'unknown' && 'text-micro',
             )}
           >
             {cell.label}

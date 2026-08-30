@@ -79,14 +79,14 @@ export default function ProvenanceBar({ evidence, onSelect, selected }: Provenan
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
         {counts.map(r => (
-          <span key={r.source} className="flex items-center gap-1.5 text-[11px] text-ink-secondary">
+          <span key={r.source} className="flex items-center gap-1.5 text-mini text-ink-secondary">
             <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: FILL[r.source] }} />
             {LABEL[r.source]} <span className="tabular text-ink">{r.n}</span>
           </span>
         ))}
       </div>
       {inferred > 0 ? (
-        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-secondary">
+        <p className="mt-1.5 text-mini leading-relaxed text-ink-secondary">
           {inferred} of {total} {inferred === 1 ? 'item is' : 'items are'} the model's own reasoning rather than
           something on file. Those are labelled wherever they appear and are the first thing to check against a source.
         </p>

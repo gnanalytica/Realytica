@@ -45,6 +45,25 @@ export default {
         grid: 'var(--gridline)',
         axis: 'var(--axis)',
       },
+      /*
+       * The small end of the type scale, as tokens rather than 459 hand-set
+       * pixel values.
+       *
+       * There were four sizes between 10 and 11.5px, which is not a scale —
+       * a half-pixel distinction at that size is not a distinction anybody
+       * can see, and having four of them meant no single place to change how
+       * small "small" is. Two named steps replace them.
+       *
+       * The values resolve from CSS custom properties so `index.css` can
+       * raise both under `pointer: coarse` in one block. That is the whole
+       * reason for the indirection: 10px is legible on a monitor at arm's
+       * length and is not legible on a phone in daylight, and Tailwind's
+       * fontSize scale cannot itself be conditional on a media query.
+       */
+      fontSize: {
+        micro: ['var(--text-micro)', { lineHeight: 'var(--leading-micro)' }],
+        mini: ['var(--text-mini)', { lineHeight: 'var(--leading-mini)' }],
+      },
       fontFamily: {
         sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'sans-serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],

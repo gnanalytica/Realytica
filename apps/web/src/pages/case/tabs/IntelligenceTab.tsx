@@ -185,9 +185,9 @@ function CapabilityExplainer({ capability }: { capability: AgentCapability }) {
         <p>{capabilityReasonText(capability.reason)}</p>
         {capability.reason === 'no_credentials' ? (
           <p>
-            Set <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">REALYTICA_API_KEY</code> for the
+            Set <code className="rounded bg-sunken px-1 py-0.5 font-mono text-mini text-ink">REALYTICA_API_KEY</code> for the
             API process and restart it. To run against something other than Anthropic, point{' '}
-            <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px] text-ink">REALYTICA_BASE_URL</code> at a
+            <code className="rounded bg-sunken px-1 py-0.5 font-mono text-mini text-ink">REALYTICA_BASE_URL</code> at a
             gateway that speaks the same format — see the README.
           </p>
         ) : null}
@@ -448,7 +448,7 @@ function ProofRouteRow({
 
       {route.steps.length > 0 ? (
         <div className="mt-2">
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+          <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">
             {blocked ? 'Steps (not currently actionable)' : 'Steps'}
           </p>
           <ol className={cn('list-inside list-decimal space-y-0.5 text-xs', blocked ? 'text-ink-muted line-through' : 'text-ink-secondary')}>
@@ -461,7 +461,7 @@ function ProofRouteRow({
 
       {route.prerequisites.length > 0 ? (
         <div className="mt-2">
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Prerequisites</p>
+          <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">Prerequisites</p>
           <ul className="list-inside list-disc space-y-0.5 text-xs text-ink-secondary">
             {route.prerequisites.map((s, i) => (
               <li key={i}>{s}</li>
@@ -472,7 +472,7 @@ function ProofRouteRow({
 
       {!blocked && route.risks.length > 0 ? (
         <div className="mt-2">
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">How this can fail</p>
+          <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">How this can fail</p>
           <ul className="list-inside list-disc space-y-0.5 text-xs text-ink-secondary">
             {route.risks.map((s, i) => (
               <li key={i}>{s}</li>
@@ -482,7 +482,7 @@ function ProofRouteRow({
       ) : null}
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-hairline pt-2">
-        <span className="text-[11px] text-ink-muted">Confidence {Math.round(route.confidence * 100)}%</span>
+        <span className="text-mini text-ink-muted">Confidence {Math.round(route.confidence * 100)}%</span>
         <EvidenceLink ids={route.evidenceIds} evidence={evidence} onOpen={onOpenEvidence} />
       </div>
     </div>
@@ -549,7 +549,7 @@ function PathwayCard({
             <div className="grid gap-2 sm:grid-cols-2">
               {pathway.unlocks.length > 0 ? (
                 <div className="rounded-lg bg-sunken p-2.5">
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Unlocks</p>
+                  <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">Unlocks</p>
                   <ul className="list-inside list-disc space-y-0.5 text-xs text-ink-secondary">
                     {pathway.unlocks.map((u, i) => (
                       <li key={i}>{u}</li>
@@ -559,7 +559,7 @@ function PathwayCard({
               ) : null}
               {pathway.wouldResolve.length > 0 ? (
                 <div className="rounded-lg bg-sunken p-2.5">
-                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Would resolve</p>
+                  <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">Would resolve</p>
                   <ul className="list-inside list-disc space-y-0.5 text-xs text-ink-secondary">
                     {pathway.wouldResolve.map((u, i) => (
                       <li key={i}>{u}</li>
@@ -610,7 +610,7 @@ function PathwaysCard({
             const Icon = TARGET_KIND_ICON[g.kind];
             return (
               <div key={g.kind} className="flex flex-col gap-3">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted">
+                <div className="flex items-center gap-1.5 text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">
                   <Icon size={12} aria-hidden="true" />
                   {TARGET_KIND_LABEL[g.kind]}
                   <span className="font-normal normal-case tracking-normal text-ink-muted">({g.items.length})</span>
@@ -666,7 +666,7 @@ function ResearchCard({ findings, verification }: { findings: ResearchFinding[];
                         Contradicts the engine
                       </Badge>
                     ) : null}
-                    <span className="ml-auto shrink-0 text-[11px] text-ink-muted">{relativeTime(f.retrievedAt)}</span>
+                    <span className="ml-auto shrink-0 text-mini text-ink-muted">{relativeTime(f.retrievedAt)}</span>
                   </div>
                   <p className="mt-1.5 text-[13px] leading-relaxed text-ink">{f.claim}</p>
                   <p className="mt-1 text-xs text-ink-secondary">{f.relevance}</p>
@@ -683,7 +683,7 @@ function ResearchCard({ findings, verification }: { findings: ResearchFinding[];
                     ) : (
                       <span className="text-xs italic text-ink-muted">No source link recorded</span>
                     )}
-                    <span className="shrink-0 text-[11px] text-ink-muted">Confidence {Math.round(f.confidence * 100)}%</span>
+                    <span className="shrink-0 text-mini text-ink-muted">Confidence {Math.round(f.confidence * 100)}%</span>
                   </div>
                   {flagged ? (
                     <div className="mt-2">

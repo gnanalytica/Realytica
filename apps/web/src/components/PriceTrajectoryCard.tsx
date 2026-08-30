@@ -37,12 +37,12 @@ export function PriceTrajectoryCard({ trajectory }: { trajectory: PriceTrajector
             return (
               <li key={`${point.at}-${i}`} className="flex items-baseline justify-between gap-3 border-b border-hairline py-2 last:border-b-0">
                 <div className="min-w-0">
-                  <span className="font-mono text-[11px] tabular-nums text-ink-muted">{date(point.at)}</span>
+                  <span className="font-mono text-mini tabular-nums text-ink-muted">{date(point.at)}</span>
                   <span className={indicative ? 'ml-2 text-xs font-medium text-ink' : 'ml-2 text-xs text-ink-secondary'}>{point.label}</span>
                 </div>
                 <div className="flex shrink-0 items-baseline gap-2">
                   {changePct !== undefined ? (
-                    <span className="font-mono text-[11px] tabular-nums text-ink-muted">{pct(changePct, 0, true)}</span>
+                    <span className="font-mono text-mini tabular-nums text-ink-muted">{pct(changePct, 0, true)}</span>
                   ) : null}
                   <span className="font-mono text-sm font-semibold tabular-nums text-ink">{money(point.amount, trajectory.currency)}</span>
                   {indicative ? <Badge tone="brand">today</Badge> : null}

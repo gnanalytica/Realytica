@@ -242,7 +242,7 @@ export default function RisksTab({ caseData, result, refresh, runScreen, running
             <span className="text-[12.5px] text-ink-secondary">
               Every open finding, worst first.
             </span>
-            <span className="text-[11.5px] text-ink-faint">
+            <span className="text-mini text-ink-faint">
               {filtered.length} finding{filtered.length === 1 ? '' : 's'}
             </span>
           </div>
@@ -341,7 +341,7 @@ function RiskCard({
                 {titleCase(risk.severity)}
               </Badge>
               <Badge tone="neutral">{titleCase(risk.category)}</Badge>
-              <span className="font-mono text-[11px] text-ink-muted">{risk.code}</span>
+              <span className="font-mono text-mini text-ink-muted">{risk.code}</span>
               {risk.status !== 'open' ? (
                 <Badge tone={risk.status === 'mitigated' ? 'good' : 'neutral'}>{titleCase(risk.status)}</Badge>
               ) : null}
@@ -355,11 +355,11 @@ function RiskCard({
           <SplitProse text={risk.description} alwaysOpen={risk.severity === 'critical'} />
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg bg-sunken p-3">
-              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Impact</p>
+              <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">Impact</p>
               <Prose size="sm">{risk.impact}</Prose>
             </div>
             <div className="rounded-lg bg-sunken p-3">
-              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Mitigation</p>
+              <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">Mitigation</p>
               <Prose size="sm">{risk.mitigation}</Prose>
             </div>
           </div>

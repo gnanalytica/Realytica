@@ -80,7 +80,7 @@ function ExposureBySystem({ caseData }: { caseData: PropertyCase }) {
             );
           })}
         </svg>
-        <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">
+        <p className="mt-1 text-mini leading-relaxed text-ink-muted">
           Estimates, not quotations.
           {uncosted > 0 ? ` ${uncosted} open finding${uncosted === 1 ? '' : 's'} carr${uncosted === 1 ? 'ies' : 'y'} no figure yet.` : ''}
         </p>
@@ -138,13 +138,13 @@ function SeverityMatrix({ caseData }: { caseData: PropertyCase }) {
         <div className="grid grid-cols-[104px_repeat(4,minmax(0,1fr))] gap-1">
           <div />
           {SEVERITIES.map(s => (
-            <div key={s} className="pb-1 text-center text-[10px] capitalize text-ink-muted">
+            <div key={s} className="pb-1 text-center text-micro capitalize text-ink-muted">
               {s}
             </div>
           ))}
           {DOMAIN_ROWS.map(domain => (
             <div key={domain} className="contents">
-              <div className="pr-2 text-right text-[11.5px] leading-[28px] text-ink-secondary">{DOMAIN_SHORT[domain]}</div>
+              <div className="pr-2 text-right text-mini leading-[28px] text-ink-secondary">{DOMAIN_SHORT[domain]}</div>
               {SEVERITIES.map(severity => {
                 const n = grid.cells.get(`${domain}:${severity}`) ?? 0;
                 return (
@@ -162,11 +162,11 @@ function SeverityMatrix({ caseData }: { caseData: PropertyCase }) {
           ))}
         </div>
         <div className="mt-3 flex items-center gap-2">
-          <span className="text-[10.5px] text-ink-muted">Fewer</span>
+          <span className="text-micro text-ink-muted">Fewer</span>
           {RAMP.slice(1).map(c => (
             <span key={c} className="h-2.5 w-6 rounded-[3px]" style={{ background: c }} />
           ))}
-          <span className="text-[10.5px] text-ink-muted">More</span>
+          <span className="text-micro text-ink-muted">More</span>
         </div>
       </CardBody>
     </Card>
@@ -222,11 +222,11 @@ function ChainOfCustody({ caseData }: { caseData: PropertyCase }) {
           })}
         </svg>
         {breaks > 0 ? (
-          <p className="mt-1 text-[11.5px] leading-relaxed text-critical">
+          <p className="mt-1 text-mini leading-relaxed text-critical">
             {breaks} break{breaks === 1 ? '' : 's'} in this chain — {chain.breaks[0].statement}
           </p>
         ) : (
-          <p className="mt-1 text-[11px] text-ink-muted">No break detected between the instruments on file.</p>
+          <p className="mt-1 text-mini text-ink-muted">No break detected between the instruments on file.</p>
         )}
       </CardBody>
     </Card>
@@ -314,7 +314,7 @@ function ValueByMethod({ caseData }: { caseData: PropertyCase }) {
           ) : null}
         </svg>
         {asking && indicative && asking > indicative.high ? (
-          <p className="mt-1 text-[11.5px] leading-relaxed text-ink-secondary">
+          <p className="mt-1 text-mini leading-relaxed text-ink-secondary">
             The asking price sits above the indicative range — a gap to explain or negotiate, not a number to argue with.
           </p>
         ) : null}
@@ -380,7 +380,7 @@ function BoundaryAndExtent({ caseData }: { caseData: PropertyCase }) {
         ) : null}
         {stated.length > 0 ? (
           <div>
-            <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+            <div className="mb-1 text-micro font-semibold uppercase tracking-[0.06em] text-ink-muted">
               What the documents state
             </div>
             <ul className="flex flex-col gap-1">
@@ -392,7 +392,7 @@ function BoundaryAndExtent({ caseData }: { caseData: PropertyCase }) {
                     {f.unit ? ` ${f.unit}` : ''}
                   </span>
                   {f.varies ? (
-                    <span className="ml-auto rounded-full bg-warning/25 px-2 py-0.5 text-[10.5px] text-ink">
+                    <span className="ml-auto rounded-full bg-warning/25 px-2 py-0.5 text-micro text-ink">
                       {f.values?.length} versions
                     </span>
                   ) : null}
@@ -400,7 +400,7 @@ function BoundaryAndExtent({ caseData }: { caseData: PropertyCase }) {
               ))}
             </ul>
             {boundary ? (
-              <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
+              <p className="mt-2 text-mini leading-relaxed text-ink-muted">
                 The outline&rsquo;s own area is stated above it. Where it and a document disagree, that difference is the
                 finding — reconciling them is a survey question, not an arithmetic one.
               </p>
@@ -448,7 +448,7 @@ export function DepartmentVisuals({ caseData, domain }: { caseData: PropertyCase
 function Stat({ label, value, tone }: { label: string; value: string | number; tone?: 'critical' }) {
   return (
     <div className="rounded-xl border border-[var(--ring)] bg-surface px-3 py-2.5">
-      <div className="text-[10px] uppercase tracking-[0.05em] text-ink-muted">{label}</div>
+      <div className="text-micro uppercase tracking-[0.05em] text-ink-muted">{label}</div>
       <div className={`tabular mt-0.5 text-[19px] font-semibold ${tone === 'critical' ? 'text-critical' : 'text-ink'}`}>{value}</div>
     </div>
   );
@@ -507,7 +507,7 @@ export function SeveritySpread({
               disabled={!onSelect}
               aria-pressed={onSelect ? on : undefined}
               className={cn(
-                'flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11.5px] ring-1 ring-inset coarse:min-h-11',
+                'flex items-center gap-1.5 rounded-full px-2 py-0.5 text-mini ring-1 ring-inset coarse:min-h-11',
                 on ? 'bg-brand-soft text-brand ring-brand/30' : 'bg-surface text-ink-secondary ring-[var(--ring)]',
                 onSelect && !on && 'hover:text-ink',
               )}
@@ -549,10 +549,10 @@ export function CoverageMeter({ held, required }: { held: number; required: numb
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[11.5px] text-ink-secondary">
+        <span className="text-mini text-ink-secondary">
           <span className="tabular font-semibold text-ink">{held}</span> of {total} on file
         </span>
-        <span className={cn('text-[11.5px]', required > 0 ? 'text-warning' : 'text-good')}>
+        <span className={cn('text-mini', required > 0 ? 'text-warning' : 'text-good')}>
           {required > 0 ? `${required} still to obtain` : 'Nothing outstanding'}
         </span>
       </div>

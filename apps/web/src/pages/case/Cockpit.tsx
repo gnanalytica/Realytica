@@ -370,7 +370,7 @@ export default function Cockpit() {
         >
           <Menu size={16} />
         </button>
-        <Link to="/cases" className="text-[11.5px] text-ink-secondary hover:text-ink">
+        <Link to="/cases" className="text-mini text-ink-secondary hover:text-ink">
           Your cases
         </Link>
         <span className="text-ink-muted">·</span>
@@ -388,7 +388,7 @@ export default function Cockpit() {
         <button
           type="button"
           onClick={() => setCommandOpen(true)}
-          className="rounded-lg border border-[var(--ring)] bg-surface px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink"
+          className="rounded-lg border border-[var(--ring)] bg-surface px-2.5 py-1 text-mini text-ink-muted hover:text-ink"
         >
           Run a command <span className="hidden font-mono lg:inline">⌘K</span>
         </button>
@@ -400,7 +400,7 @@ export default function Cockpit() {
           className={cn(
             // A three-column control, hidden where there are not three
             // columns — the mobile tabs already do what it does.
-            'hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px] lg:flex',
+            'hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 text-mini lg:flex',
             focusMode ? 'border-brand bg-brand-soft text-brand' : 'border-[var(--ring)] bg-surface text-ink-secondary hover:text-ink',
           )}
         >
@@ -448,7 +448,7 @@ export default function Cockpit() {
           >
             <X size={16} />
           </button>
-          <div className="px-3.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-muted">Screening</div>
+          <div className="px-3.5 pb-1.5 text-micro font-semibold uppercase tracking-[0.07em] text-ink-muted">Screening</div>
           <ul className="flex flex-col gap-px px-1.5">
             {SCREENING_GROUPS.map(key => {
               const group = findGroup(key);
@@ -473,7 +473,7 @@ export default function Cockpit() {
                     {badge ? (
                       <span
                         className={cn(
-                          'tabular rounded-full px-1.5 text-[10.5px]',
+                          'tabular rounded-full px-1.5 text-micro',
                           badge.blocking ? 'bg-critical text-white' : 'bg-warning/25 text-ink',
                         )}
                       >
@@ -502,7 +502,7 @@ export default function Cockpit() {
               >
                 <ListChecks size={13} /> Procedures
                 {blockedSteps > 0 ? (
-                  <span className="tabular ml-auto rounded-full bg-warning/25 px-1.5 text-[10.5px] text-ink">
+                  <span className="tabular ml-auto rounded-full bg-warning/25 px-1.5 text-micro text-ink">
                     {blockedSteps}
                   </span>
                 ) : null}
@@ -523,7 +523,7 @@ export default function Cockpit() {
               >
                 <ShieldQuestion size={13} /> Review
                 {pendingReviews > 0 ? (
-                  <span className="tabular ml-auto rounded-full bg-brand px-1.5 text-[10.5px] text-[var(--brand-ink)]">
+                  <span className="tabular ml-auto rounded-full bg-brand px-1.5 text-micro text-[var(--brand-ink)]">
                     {pendingReviews}
                   </span>
                 ) : null}
@@ -546,7 +546,7 @@ export default function Cockpit() {
                 {requestSummary.outstanding > 0 ? (
                   <span
                     className={cn(
-                      'tabular ml-auto rounded-full px-1.5 text-[10.5px]',
+                      'tabular ml-auto rounded-full px-1.5 text-micro',
                       requestSummary.overdue > 0 ? 'bg-critical text-white' : 'bg-surface-3 text-ink-secondary',
                     )}
                   >
@@ -591,6 +591,7 @@ export default function Cockpit() {
               nodes={graphNodes}
               appliedByTurn={appliedByTurn}
               steps={steps}
+              onOpenCommands={() => setCommandOpen(true)}
               conversation={caseData.intelligence?.conversation ?? []}
               evidence={caseData.result?.evidence ?? []}
               suggestions={canAnswer === false ? [] : suggestions}
@@ -625,7 +626,7 @@ export default function Cockpit() {
                       className="rounded-lg bg-surface px-3 py-2 text-left ring-1 ring-inset ring-[var(--ring)] hover:ring-brand/40"
                     >
                       <span className="block text-[12.5px] text-ink">{a.title}</span>
-                      <span className="mt-0.5 block text-[11px] text-ink-muted">
+                      <span className="mt-0.5 block text-mini text-ink-muted">
                         {a.priority.replace(/_/g, ' ')} · {a.owner}
                       </span>
                     </button>
@@ -760,7 +761,7 @@ export default function Cockpit() {
                         {badge ? (
                           <span
                             className={cn(
-                              'tabular rounded-full px-1.5 text-[10.5px]',
+                              'tabular rounded-full px-1.5 text-micro',
                               badge.blocking ? 'bg-critical text-white' : 'bg-warning/25 text-ink',
                             )}
                           >

@@ -54,7 +54,7 @@ export default function ConfidenceGauge({ score, band, size = 168, label = 'Conf
           {titleCase(band)}
         </text>
       </svg>
-      <div className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</div>
+      <div className="mt-0.5 text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</div>
     </div>
   );
 }

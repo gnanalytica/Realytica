@@ -152,7 +152,7 @@ export default function ActionsTab({ caseData, result, refresh, runScreen, runni
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <span className="text-[12.5px] text-ink-secondary">Everything this case is waiting on, soonest first.</span>
-            <span className="text-[11.5px] text-ink-faint">
+            <span className="text-mini text-ink-faint">
               {actions.filter((a) => !a.done).length} open · {actions.length} total
             </span>
           </div>

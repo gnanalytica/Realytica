@@ -128,7 +128,7 @@ export default function CostWaterfallChart({ costs, askingPrice, height }: CostW
               <text
                 x={x1 + 6}
                 y={y + BAR_H / 2 + 4}
-                className="fill-[var(--text-secondary)] text-[11px] tabular"
+                className="fill-[var(--text-secondary)] text-mini tabular"
               >
                 {money(r.amount, costs.currency, { compact: true })}
               </text>
@@ -147,7 +147,7 @@ export default function CostWaterfallChart({ costs, askingPrice, height }: CostW
         </TickText>
       </ChartSvg>
       <ChartTooltip state={tooltip} containerWidth={W} />
-      <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">
+      <p className="mt-1 text-mini leading-relaxed text-ink-secondary">
         {money(costs.total, costs.currency)} on top of the price — {pct(costs.totalPctOfPrice, 1)} — computed on a
         dutiable value of {money(costs.dutiableValue, costs.currency)}
         {costs.dutiableBasis === 'statutory_guidance_value'

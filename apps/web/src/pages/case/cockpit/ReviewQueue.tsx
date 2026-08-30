@@ -41,7 +41,7 @@ export function ReviewQueue({ caseData, onChanged }: { caseData: PropertyCase; o
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-b border-hairline bg-surface-2 px-5 py-3">
         <h2 className="text-[13px] font-semibold text-ink">Review</h2>
-        <p className="mt-0.5 text-[11.5px] text-ink-muted">
+        <p className="mt-0.5 text-mini text-ink-muted">
           What the model proposed and nobody has ruled on. Nothing here is part of the case until you say so.
         </p>
       </div>
@@ -61,12 +61,12 @@ export function ReviewQueue({ caseData, onChanged }: { caseData: PropertyCase; o
                 <li key={f.id} className="rounded-lg bg-brand-soft/40 p-3 ring-1 ring-inset ring-brand/30">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Badge tone={severityTone(f.severity)}>{f.severity}</Badge>
-                    <span className="text-[11px] text-ink-muted">
+                    <span className="text-mini text-ink-muted">
                       {DD_DOMAIN_PROFILES[domain].label} · {TECHNICAL_SYSTEM_LABEL[f.system]}
                     </span>
-                    {f.zone ? <span className="text-[11px] text-ink-muted">· {f.zone}</span> : null}
+                    {f.zone ? <span className="text-mini text-ink-muted">· {f.zone}</span> : null}
                     {f.estimatedCost ? (
-                      <span className="tabular ml-auto text-[11.5px] text-ink-secondary">
+                      <span className="tabular ml-auto text-mini text-ink-secondary">
                         {money(f.estimatedCost, caseData.identity.currency, { compact: true })}
                       </span>
                     ) : null}
@@ -77,7 +77,7 @@ export function ReviewQueue({ caseData, onChanged }: { caseData: PropertyCase; o
                       look it up — it is most of what makes a finding rulable
                       rather than merely plausible. */}
                   {f.codeCitation ? (
-                    <p className="mt-1 font-mono text-[11px] text-ink-muted">{f.codeCitation}</p>
+                    <p className="mt-1 font-mono text-mini text-ink-muted">{f.codeCitation}</p>
                   ) : null}
                   <div className="mt-2.5 flex gap-2">
                     <Button size="sm" onClick={() => void rule(f.id, 'accepted')} loading={busy === f.id}>

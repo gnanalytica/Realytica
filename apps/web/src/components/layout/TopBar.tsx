@@ -75,7 +75,7 @@ export default function TopBar({ onOpenMobile }: TopBarProps) {
       <div className="ml-auto flex shrink-0 items-center gap-2.5">
         <Tooltip label={healthLabel}>
           <span
-            className="flex items-center gap-1.5 rounded-full bg-sunken px-2 py-1 text-[11px] font-medium text-ink-secondary ring-1 ring-inset ring-[var(--ring)]"
+            className="flex items-center gap-1.5 rounded-full bg-sunken px-2 py-1 text-mini font-medium text-ink-secondary ring-1 ring-inset ring-[var(--ring)]"
             aria-live="polite"
           >
             <Dot tone={apiStatus === 'offline' ? 'critical' : apiStatus === 'checking' ? 'neutral' : 'good'} />

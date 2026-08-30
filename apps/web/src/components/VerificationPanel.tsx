@@ -88,7 +88,7 @@ export function CriticFlagBanner({ finding, compact }: { finding: CriticFinding;
     >
       <div className="flex flex-wrap items-center gap-1.5">
         <AlertOctagon size={13} className={tone === 'critical' ? 'text-critical' : 'text-ink'} aria-hidden="true" />
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink">
+        <span className="text-mini font-semibold uppercase tracking-wide text-ink">
           Critic flagged this claim — {VERDICT_LABEL[finding.verdict]}
         </span>
       </div>
@@ -98,7 +98,7 @@ export function CriticFlagBanner({ finding, compact }: { finding: CriticFinding;
           {finding.unsupportedSpecifics.map((s, i) => (
             <li
               key={i}
-              className="rounded bg-surface px-1.5 py-0.5 font-mono text-[10.5px] text-critical ring-1 ring-inset ring-critical/30"
+              className="rounded bg-surface px-1.5 py-0.5 font-mono text-micro text-critical ring-1 ring-inset ring-critical/30"
             >
               {s}
             </li>
@@ -138,7 +138,7 @@ function FindingCard({ finding }: { finding: CriticFinding }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className="text-[11px] text-ink-muted">{Math.round(finding.confidence * 100)}%</span>
+          <span className="text-mini text-ink-muted">{Math.round(finding.confidence * 100)}%</span>
           {expanded ? <ChevronUp size={14} className="text-ink-muted" /> : <ChevronDown size={14} className="text-ink-muted" />}
         </div>
       </button>
@@ -150,7 +150,7 @@ function FindingCard({ finding }: { finding: CriticFinding }) {
 
           {finding.unsupportedSpecifics.length > 0 ? (
             <div className="rounded-lg bg-critical/10 p-3 ring-1 ring-inset ring-critical/40">
-              <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-critical">
+              <p className="mb-1.5 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-wide text-critical">
                 <AlertOctagon size={12} aria-hidden="true" />
                 Specifics the evidence does not support ({finding.unsupportedSpecifics.length})
               </p>
@@ -164,7 +164,7 @@ function FindingCard({ finding }: { finding: CriticFinding }) {
                   </li>
                 ))}
               </ul>
-              <p className="mt-1.5 text-[11px] text-ink-secondary">
+              <p className="mt-1.5 text-mini text-ink-secondary">
                 A reader acting on this claim would be acting on these figures or codes specifically — none of them trace to
                 the case's evidence.
               </p>
@@ -173,10 +173,10 @@ function FindingCard({ finding }: { finding: CriticFinding }) {
 
           {finding.checkedAgainst.length > 0 ? (
             <div>
-              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Checked against</p>
+              <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">Checked against</p>
               <ul className="flex flex-wrap gap-1.5">
                 {finding.checkedAgainst.map((c, i) => (
-                  <li key={i} className="rounded-md bg-sunken px-1.5 py-0.5 text-[11px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+                  <li key={i} className="rounded-md bg-sunken px-1.5 py-0.5 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
                     {c}
                   </li>
                 ))}
@@ -230,11 +230,11 @@ export function VerificationPanel({ verification }: { verification: Verification
               </div>
               <div className="flex shrink-0 gap-4">
                 <div>
-                  <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">Checked</div>
+                  <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">Checked</div>
                   <div className="mt-1 text-2xl font-semibold leading-tight text-ink">{verification.checkedCount}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">Flagged</div>
+                  <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">Flagged</div>
                   <div className={cn('mt-1 text-2xl font-semibold leading-tight', flaggedCount > 0 ? 'text-critical' : 'text-ink')}>
                     {flaggedCount}
                   </div>

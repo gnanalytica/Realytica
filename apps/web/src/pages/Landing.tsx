@@ -110,7 +110,7 @@ function Spread({ children, margin }: { children: ReactNode; margin?: ReactNode 
 function MarginNote({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="border-l-2 border-hairline pl-3">
-      <p className="m-0 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{label}</p>
+      <p className="m-0 font-mono text-micro uppercase tracking-[0.12em] text-ink-muted">{label}</p>
       <p className="m-0 mt-1 text-[13px] leading-relaxed text-ink-secondary">{children}</p>
     </div>
   );
@@ -141,7 +141,7 @@ function EvidenceLedger() {
   return (
     <Tile className="p-5">
       <div ref={ref} className="font-mono text-[13px]">
-      <div className="flex items-baseline justify-between border-b border-ink/20 pb-2 text-[10px] uppercase tracking-[0.12em] text-ink-muted">
+      <div className="flex items-baseline justify-between border-b border-ink/20 pb-2 text-micro uppercase tracking-[0.12em] text-ink-muted">
         <span>Source</span>
         <span>States</span>
       </div>
@@ -247,7 +247,7 @@ export default function Landing() {
         <div className="mx-auto flex max-w-5xl items-baseline justify-between gap-4 px-6 py-4">
           <span className="flex items-baseline gap-3">
             <span className="font-display text-[17px] tracking-tight text-ink">Realytica</span>
-            <span className="hidden font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted sm:inline">
+            <span className="hidden font-mono text-mini uppercase tracking-[0.12em] text-ink-muted sm:inline">
               Property screen · Karnataka
             </span>
           </span>
@@ -276,7 +276,7 @@ export default function Landing() {
           in the DOM, correct in the computed style, and invisible. */}
       <section className="relative isolate mx-auto max-w-5xl px-6 pb-16 pt-12 sm:pt-16">
         <span aria-hidden="true" className="pointer-events-none absolute inset-x-[-50vw] top-[-3.5rem] -z-10 h-[620px] bg-band" />
-        <div className="mb-10 flex items-baseline justify-between font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">
+        <div className="mb-10 flex items-baseline justify-between font-mono text-mini uppercase tracking-[0.12em] text-ink-muted">
           <span>Ref. specimen</span>
           <span>Evidence before assertion</span>
         </div>
@@ -287,7 +287,7 @@ export default function Landing() {
               <dl className="m-0 space-y-3">
               {SPEC.map((item, i) => (
                 <div key={item.label} className="animate-fade-in flex flex-wrap items-baseline justify-between gap-x-3 border-b border-hairline pb-2" style={{ animationDelay: `${520 + i * 60}ms` }}>
-                  <dt className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">{item.label}</dt>
+                  <dt className="font-mono text-micro uppercase tracking-[0.1em] text-ink-muted">{item.label}</dt>
                   {/* Wraps rather than crowding the rule: "Karnataka / Bengaluru"
                       is wider than the column and looked broken pinned to the edge. */}
                   <dd className="m-0 font-mono text-[12px] tabular-nums text-ink">{item.value}</dd>
@@ -321,7 +321,7 @@ export default function Landing() {
             </a>
           </div>
 
-          <p className="m-0 mt-6 animate-fade-in font-mono text-[11px] text-ink-muted" style={{ animationDelay: '480ms' }}>
+          <p className="m-0 mt-6 animate-fade-in font-mono text-mini text-ink-muted" style={{ animationDelay: '480ms' }}>
             Runs on the deterministic engine alone. No AI key required.
           </p>
         </Spread>
@@ -373,7 +373,7 @@ export default function Landing() {
             <MarginNote label="One check, in full">
               <span className="block text-ink">{SPECIMEN_CHECK.label}</span>
               <span className="mt-1.5 block">{SPECIMEN_CHECK.description}</span>
-              <span className="mt-1.5 block font-mono text-[11px] text-ink-muted">{SPECIMEN_CHECK.statute}</span>
+              <span className="mt-1.5 block font-mono text-mini text-ink-muted">{SPECIMEN_CHECK.statute}</span>
             </MarginNote>
           }
         >
@@ -381,15 +381,15 @@ export default function Landing() {
           <table className="w-full min-w-[380px] border-collapse text-left">
             <thead>
               <tr className="border-b border-ink/20">
-                <th className="pb-2 pr-6 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-ink-muted">Check</th>
-                <th className="pb-2 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-ink-muted">Cited to</th>
+                <th className="pb-2 pr-6 font-mono text-micro font-normal uppercase tracking-[0.12em] text-ink-muted">Check</th>
+                <th className="pb-2 font-mono text-micro font-normal uppercase tracking-[0.12em] text-ink-muted">Cited to</th>
               </tr>
             </thead>
             <tbody>
               {KARNATAKA_PACK.titleChecks.map(check => (
                 <tr key={check.key} className="border-b border-hairline align-baseline transition-colors duration-quick hover:bg-sunken">
                   <td className="py-2.5 pr-6 text-[14px] text-ink">{check.label}</td>
-                  <td className="py-2.5 font-mono text-[11px] leading-snug text-ink-muted">{statuteHead(check.statute)}</td>
+                  <td className="py-2.5 font-mono text-mini leading-snug text-ink-muted">{statuteHead(check.statute)}</td>
                 </tr>
               ))}
             </tbody>
@@ -479,7 +479,7 @@ export default function Landing() {
 
       {/* --------------------------------------------------------- Colophon */}
       <footer className="border-t border-ink/20">
-        <div className="mx-auto flex max-w-5xl flex-col gap-1 px-6 py-8 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between">
+        <div className="mx-auto flex max-w-5xl flex-col gap-1 px-6 py-8 font-mono text-mini uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between">
           <span>Realytica · Engine v{ENGINE_VERSION}</span>
           <span>A screen, not a legal opinion</span>
         </div>

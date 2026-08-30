@@ -61,7 +61,7 @@ function PriceLadder({ offer }: { offer: OfferAdvice }) {
             rung.key === 'target' && !blocked ? 'border-brand/40 bg-brand-soft' : 'border-hairline bg-sunken',
           )}
         >
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{rung.label}</p>
+          <p className="m-0 text-mini font-semibold uppercase tracking-wide text-ink-muted">{rung.label}</p>
           <p className="m-0 mt-0.5 text-[22px] font-semibold tabular-nums tracking-tight text-ink">
             {money(rung.value, offer.currency)}
           </p>
@@ -95,7 +95,7 @@ function ForcedSaleCard({ forced }: { forced: ForcedSaleValue }) {
         </Callout>
 
         <div>
-          <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Where the discount comes from</h4>
+          <h4 className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">Where the discount comes from</h4>
           <ul className="m-0 list-none space-y-2 p-0">
             {forced.components.map(component => (
               <li key={component.key} className="border-b border-hairline pb-2 last:border-0 last:pb-0">

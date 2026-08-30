@@ -343,11 +343,11 @@ export const RunNode = forwardRef<HTMLButtonElement, RunNodeProps>(function RunN
         </div>
       ) : (
         <>
-          <p className="mt-0.5 truncate pl-[19px] font-mono text-[10px] leading-4 text-ink-muted">
+          <p className="mt-0.5 truncate pl-[19px] font-mono text-micro leading-4 text-ink-muted">
             {route ?? KIND_LABEL[node.kind]}
           </p>
 
-          <div className="mt-auto flex items-baseline gap-1.5 pl-[19px] text-[11px] leading-4">
+          <div className="mt-auto flex items-baseline gap-1.5 pl-[19px] text-mini leading-4">
             <Badge tone={tone}>{statusText}</Badge>
             <span className="tabular truncate text-ink-secondary">
               {ms(node.durationMs)}
@@ -385,7 +385,7 @@ export const RunNode = forwardRef<HTMLButtonElement, RunNodeProps>(function RunN
               </Badge>
             ) : null}
             {broken.length === 0 && grounding.length === 0 && cost.length === 0 && node.outputs.length > 0 ? (
-              <span className="truncate text-[10px] text-ink-muted">
+              <span className="truncate text-micro text-ink-muted">
                 {node.outputs.length} output{node.outputs.length === 1 ? '' : 's'}
                 {outputCount > 0 ? ` · ${outputCount} item${outputCount === 1 ? '' : 's'}` : ''}
               </span>

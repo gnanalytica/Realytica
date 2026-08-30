@@ -64,7 +64,7 @@ export default function AreaReconcileChart({
           const isShorter = r.value === Math.min(measuredSqm, statedSqm);
           return (
             <div key={r.key} className="flex items-center" style={{ height: ROW_H }}>
-              <span className="shrink-0 text-right text-[11.5px] text-ink-secondary" style={{ width: LABEL_W }}>
+              <span className="shrink-0 text-right text-mini text-ink-secondary" style={{ width: LABEL_W }}>
                 {r.label}
               </span>
               <div className="ml-2 flex flex-1 items-center">
@@ -98,7 +98,7 @@ export default function AreaReconcileChart({
                   />
                 ) : null}
               </div>
-              <span className="ml-2 w-24 shrink-0 text-right font-mono text-[11.5px] tabular-nums text-ink">
+              <span className="ml-2 w-24 shrink-0 text-right font-mono text-mini tabular-nums text-ink">
                 {formatArea(r.value)}
               </span>
             </div>
@@ -106,7 +106,7 @@ export default function AreaReconcileChart({
         })}
       </div>
 
-      <p className="m-0 mt-1 text-[11.5px] leading-relaxed text-ink-secondary">
+      <p className="m-0 mt-1 text-mini leading-relaxed text-ink-secondary">
         <span className="font-semibold tabular-nums text-ink">{formatArea(Math.abs(gap))}</span>{' '}
         {shortfall ? 'less than the record' : 'more than the record'} — {Math.abs(gapPct).toFixed(1)}%.{' '}
         {material

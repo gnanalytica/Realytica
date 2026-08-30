@@ -93,7 +93,7 @@ function ChainLinkRow({ link }: { link: TitleChain['links'][number] }) {
       <div className="min-w-0 flex-1 pb-5">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <p className="text-sm font-medium text-ink">{link.label}</p>
-          <span className={cn('tabular text-[11px]', link.at ? 'text-ink-muted' : 'text-warning')}>
+          <span className={cn('tabular text-mini', link.at ? 'text-ink-muted' : 'text-warning')}>
             {formatDate(link.at)}
           </span>
           {link.extentSqm !== undefined && (
@@ -137,7 +137,7 @@ function ChainBreakRow({ chainBreak }: { chainBreak: ChainBreak }) {
         </div>
         <p className="mt-1 text-xs leading-relaxed text-ink">{chainBreak.statement}</p>
         {chainBreak.resolvedBy.length > 0 && (
-          <p className="mt-1.5 text-[11px] leading-relaxed text-ink-muted">
+          <p className="mt-1.5 text-mini leading-relaxed text-ink-muted">
             <span className="font-semibold uppercase tracking-wide">Closes with</span>{' '}
             {chainBreak.resolvedBy.join('; ')}
           </p>
@@ -235,7 +235,7 @@ function ContradictionCard({ contradiction }: { contradiction: GraphContradictio
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[26rem] text-left text-xs">
             <thead>
-              <tr className="border-b border-hairline text-[11px] uppercase tracking-wide text-ink-muted">
+              <tr className="border-b border-hairline text-mini uppercase tracking-wide text-ink-muted">
                 <th className="pb-1.5 pr-3 font-semibold">Source</th>
                 <th className="pb-1.5 pr-3 font-semibold">Field</th>
                 <th className="pb-1.5 pr-3 font-semibold">Says</th>
@@ -246,7 +246,7 @@ function ContradictionCard({ contradiction }: { contradiction: GraphContradictio
               {contradiction.claims.map((claim, i) => (
                 <tr key={`${claim.sourceRef}-${claim.fieldKey}-${i}`} className="border-b border-hairline last:border-0">
                   <td className="py-1.5 pr-3 align-top text-ink-secondary">{claim.sourceLabel}</td>
-                  <td className="py-1.5 pr-3 align-top font-mono text-[11px] text-ink-muted">{claim.fieldKey}</td>
+                  <td className="py-1.5 pr-3 align-top font-mono text-mini text-ink-muted">{claim.fieldKey}</td>
                   <td className="tabular py-1.5 pr-3 align-top font-medium text-ink">
                     {claim.value}
                     {claim.unit ? ` ${claim.unit}` : ''}
@@ -258,7 +258,7 @@ function ContradictionCard({ contradiction }: { contradiction: GraphContradictio
           </table>
         </div>
         {contradiction.resolvedBy.length > 0 && (
-          <p className="mt-3 text-[11px] leading-relaxed text-ink-muted">
+          <p className="mt-3 text-mini leading-relaxed text-ink-muted">
             <span className="font-semibold uppercase tracking-wide">Resolves with</span>{' '}
             {contradiction.resolvedBy.join('; ')}
           </p>
@@ -282,13 +282,13 @@ function ContradictionCard({ contradiction }: { contradiction: GraphContradictio
 function ResolutionPathRow({ path, rank }: { path: ResolutionPath; rank: number }) {
   return (
     <div className="flex gap-3 border-b border-hairline py-3 last:border-0">
-      <div className="tabular flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[11px] font-semibold text-brand">
+      <div className="tabular flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-mini font-semibold text-brand">
         {rank}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-sm font-medium text-ink">{path.obtain}</p>
-          <span className="tabular shrink-0 text-[11px] text-ink-muted">
+          <span className="tabular shrink-0 text-mini text-ink-muted">
             closes {path.resolves.length} finding{path.resolves.length === 1 ? '' : 's'}
           </span>
         </div>
@@ -298,7 +298,7 @@ function ResolutionPathRow({ path, rank }: { path: ResolutionPath; rank: number 
         <p className="mt-1.5 text-xs leading-relaxed text-ink-secondary">{path.rationale}</p>
         <div className="mt-2 flex items-center gap-2">
           <ProgressBar value={Math.round(path.impact * 100)} tone="brand" className="flex-1" />
-          <span className="tabular w-10 shrink-0 text-right text-[11px] text-ink-muted">
+          <span className="tabular w-10 shrink-0 text-right text-mini text-ink-muted">
             {Math.round(path.impact * 100)}%
           </span>
         </div>
@@ -374,7 +374,7 @@ export default function TitleTab({ caseData, result }: TabProps) {
           than discarded, because a model repeatedly proposing a link the evidence will not carry is itself worth seeing.
           <ul className="mt-2 space-y-1">
             {rejected.slice(0, 5).map((p) => (
-              <li key={p.id} className="text-[11px] text-ink-muted">
+              <li key={p.id} className="text-mini text-ink-muted">
                 <span className="font-mono">{p.kind}</span> {p.fromMergeKey} → {p.toMergeKey} —{' '}
                 {p.rejectionReason ?? p.outcome.replace(/_/g, ' ')}
               </li>

@@ -34,7 +34,7 @@ const DEPTH_LEVEL: Record<TaskDepth, number> = { skip: 0, light: 1, standard: 2,
 function DepthBadge({ depth }: { depth: TaskDepth }) {
   if (depth === 'skip') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-sunken px-1.5 py-0.5 text-[11px] font-medium text-ink-muted ring-1 ring-inset ring-[var(--ring)]">
+      <span className="inline-flex items-center gap-1 rounded-md bg-sunken px-1.5 py-0.5 text-mini font-medium text-ink-muted ring-1 ring-inset ring-[var(--ring)]">
         <MinusCircle size={11} aria-hidden="true" />
         {DEPTH_LABEL.skip}
       </span>
@@ -43,7 +43,7 @@ function DepthBadge({ depth }: { depth: TaskDepth }) {
   const level = DEPTH_LEVEL[depth];
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-md bg-brand-soft px-1.5 py-0.5 text-[11px] font-medium text-brand ring-1 ring-inset ring-brand/25"
+      className="inline-flex items-center gap-1.5 rounded-md bg-brand-soft px-1.5 py-0.5 text-mini font-medium text-brand ring-1 ring-inset ring-brand/25"
       title={`${DEPTH_LABEL[depth]} pass`}
     >
       <span className="flex items-center gap-0.5" aria-hidden="true">
@@ -64,7 +64,7 @@ function TaskRow({ task, runsConcurrentlyWith }: { task: PlannedTask; runsConcur
           {AGENT_LABEL[task.agent]}
         </span>
         <DepthBadge depth={task.depth} />
-        <span className="ml-auto shrink-0 text-[11px] text-ink-muted">
+        <span className="ml-auto shrink-0 text-mini text-ink-muted">
           Step {task.order}
           {runsConcurrentlyWith > 0 ? ` · concurrent with ${runsConcurrentlyWith}` : ''}
         </span>
@@ -73,7 +73,7 @@ function TaskRow({ task, runsConcurrentlyWith }: { task: PlannedTask; runsConcur
       {task.focus.length > 0 ? (
         <ul className="mt-2 flex flex-wrap gap-1.5">
           {task.focus.map((f, i) => (
-            <li key={i} className="rounded-md bg-surface px-1.5 py-0.5 text-[11px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+            <li key={i} className="rounded-md bg-surface px-1.5 py-0.5 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
               {f}
             </li>
           ))}
@@ -121,7 +121,7 @@ export function AgentPlanCard({ plan, actualSpendUsd }: { plan: AgentPlan | unde
 
             {sortedTasks.length > 0 ? (
               <div>
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted">
+                <p className="mb-2 text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">
                   Scheduled tasks ({sortedTasks.length})
                 </p>
                 <ul className="flex flex-col gap-2">
@@ -135,7 +135,7 @@ export function AgentPlanCard({ plan, actualSpendUsd }: { plan: AgentPlan | unde
             <div className="rounded-lg ring-1 ring-inset ring-[var(--ring)]">
               <div className="flex items-center gap-1.5 border-b border-hairline px-3 py-2">
                 <ShieldCheck size={13} className="text-ink-muted" aria-hidden="true" />
-                <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted">
+                <p className="text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">
                   Deliberately not done ({plan.deliberateOmissions.length})
                 </p>
               </div>
@@ -155,7 +155,7 @@ export function AgentPlanCard({ plan, actualSpendUsd }: { plan: AgentPlan | unde
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-muted">
+            <div className="flex flex-wrap items-center gap-1.5 text-mini text-ink-muted">
               <Badge tone="neutral">Plan produced by the planner agent</Badge>
               <span>— model judgement about this case, not a documented fact.</span>
             </div>

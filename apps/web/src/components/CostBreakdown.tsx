@@ -68,7 +68,7 @@ export function CostBreakdown({ cost }: { cost: CaseCostSummary }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[34rem] text-left text-xs">
             <thead>
-              <tr className="border-b border-hairline text-[11px] uppercase tracking-wide text-ink-muted">
+              <tr className="border-b border-hairline text-mini uppercase tracking-wide text-ink-muted">
                 <th className="pb-1.5 pr-3 font-semibold">Agent</th>
                 <th className="pb-1.5 pr-3 font-semibold">Tier</th>
                 <th className="pb-1.5 pr-3 font-semibold">Model</th>
@@ -84,7 +84,7 @@ export function CostBreakdown({ cost }: { cost: CaseCostSummary }) {
                   <td className="py-1.5 pr-3 align-top">
                     <Badge tone={TIER_TONE[row.tier]}>{row.tier}</Badge>
                   </td>
-                  <td className="py-1.5 pr-3 align-top font-mono text-[11px] text-ink-muted">{row.model}</td>
+                  <td className="py-1.5 pr-3 align-top font-mono text-mini text-ink-muted">{row.model}</td>
                   <td className="tabular py-1.5 pr-3 text-right align-top text-ink-secondary">
                     {tokens(row.usage.inputTokens)}
                     {row.usage.cacheReadTokens > 0 && (

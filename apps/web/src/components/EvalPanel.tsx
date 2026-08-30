@@ -63,7 +63,7 @@ function RankRow({ rank, row, best }: { rank: number; row: EvalRanking; best: nu
             {row.fabrications} fabrication{row.fabrications === 1 ? '' : 's'}
           </Badge>
         )}
-        <span className="tabular ml-auto text-[11px] text-ink-muted">
+        <span className="tabular ml-auto text-mini text-ink-muted">
           {usd(row.totalCostUsd)} · {Math.round(row.meanDurationMs)}ms
         </span>
       </div>
@@ -73,9 +73,9 @@ function RankRow({ rank, row, best }: { rank: number; row: EvalRanking; best: nu
           tone={!clean ? 'critical' : row.meanScore >= 0.9 ? 'good' : row.meanScore >= 0.75 ? 'warning' : 'serious'}
           className="flex-1"
         />
-        <span className="tabular w-12 shrink-0 text-right text-[11px] text-ink">{(row.meanScore * 100).toFixed(1)}%</span>
+        <span className="tabular w-12 shrink-0 text-right text-mini text-ink">{(row.meanScore * 100).toFixed(1)}%</span>
       </div>
-      <p className="mt-1 text-[11px] text-ink-muted">
+      <p className="mt-1 text-mini text-ink-muted">
         <span className="tabular font-medium text-ink-secondary">
           {Number.isFinite(row.scorePerUsd) ? row.scorePerUsd.toFixed(1) : '—'}
         </span>{' '}
@@ -102,7 +102,7 @@ function FailureList({ results }: { results: EvalRunResult[] }) {
             Fabricated fields
           </p>
           {fabricated.slice(0, 6).map((r) => (
-            <p key={`${r.evalCaseId}-${r.model}`} className="text-[11px] leading-relaxed text-ink-secondary">
+            <p key={`${r.evalCaseId}-${r.model}`} className="text-mini leading-relaxed text-ink-secondary">
               <span className="font-mono">{r.model}</span> on {r.evalCaseId}:{' '}
               {(r.score?.fields ?? [])
                 .filter((f) => f.fabricated)
@@ -114,7 +114,7 @@ function FailureList({ results }: { results: EvalRunResult[] }) {
         </div>
       )}
       {failed.length > 0 && (
-        <p className="text-[11px] leading-relaxed text-ink-muted">
+        <p className="text-mini leading-relaxed text-ink-muted">
           {failed.length} run(s) failed outright and were excluded from the means rather than scored zero — a crashed
           call is not a wrong answer.
         </p>
@@ -180,7 +180,7 @@ export function EvalPanel({
           />
         ) : (
           <>
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-ink-muted">
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-mini text-ink-muted">
               <Badge tone="neutral">{TASK_LABEL[comparison.taskKind]}</Badge>
               <span>{comparison.results.length} run(s) across {comparison.routes.length} route(s)</span>
               {comparison.skipped.length > 0 && (
@@ -193,9 +193,9 @@ export function EvalPanel({
             <FailureList results={comparison.results} />
             {comparison.skipped.length > 0 && (
               <div className="mt-3 rounded-lg bg-sunken p-2.5">
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Skipped</p>
+                <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">Skipped</p>
                 {comparison.skipped.map((s) => (
-                  <p key={s.evalCaseId} className="text-[11px] leading-relaxed text-ink-secondary">
+                  <p key={s.evalCaseId} className="text-mini leading-relaxed text-ink-secondary">
                     {s.evalCaseId} — {s.reason}
                   </p>
                 ))}

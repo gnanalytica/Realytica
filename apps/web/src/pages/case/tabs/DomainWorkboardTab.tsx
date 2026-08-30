@@ -107,7 +107,7 @@ function WatcherCard({ alerts }: { alerts: DdWatcherAlert[] }) {
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={severityTone(alert.severity)}>{titleCase(alert.severity)}</Badge>
               <span className="text-[13px] font-semibold text-ink">{alert.label}</span>
-              <span className="ml-auto tabular text-[11.5px] text-ink-muted">{alert.ageDays} days</span>
+              <span className="ml-auto tabular text-mini text-ink-muted">{alert.ageDays} days</span>
             </div>
             <p className="mt-1 text-[12.5px] leading-relaxed text-ink-secondary">{alert.what}</p>
             <p className="mt-1 text-[12px] text-ink-muted">{alert.refresh}</p>
@@ -139,7 +139,7 @@ function ConnectorsCard({ domain }: { domain: DdDomain }) {
               <button type="button" onClick={() => setOpenKey(open ? null : c.key)} className="flex w-full flex-wrap items-center gap-2 text-left" aria-expanded={open}>
                 <ChevronDown size={13} className={cn('shrink-0 text-ink-faint transition-transform', open && 'rotate-180')} />
                 <span className="text-[13px] font-semibold text-ink">{c.label}</span>
-                <span className="ml-auto truncate text-[11.5px] text-ink-muted">{c.authority}</span>
+                <span className="ml-auto truncate text-mini text-ink-muted">{c.authority}</span>
                 {c.url ? (
                   <a
                     href={c.url}
@@ -350,7 +350,7 @@ export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: 
                   <button
                     type="button"
                     onClick={() => setSeverityFilter(null)}
-                    className="self-start text-[11.5px] text-brand hover:underline coarse:min-h-11"
+                    className="self-start text-mini text-brand hover:underline coarse:min-h-11"
                   >
                     Show the other {openRisks.length - visibleRisks.length}
                   </button>
@@ -382,14 +382,14 @@ export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: 
                     {documents.map(d => (
                       <li key={d.id} className="flex items-baseline justify-between gap-3 text-[13px]">
                         <span className="truncate text-ink">{d.fileName}</span>
-                        <span className="shrink-0 text-[11.5px] text-ink-muted">{DOCUMENT_KIND_LABEL[d.kind]}</span>
+                        <span className="shrink-0 text-mini text-ink-muted">{DOCUMENT_KIND_LABEL[d.kind]}</span>
                       </li>
                     ))}
                   </ul>
                 )}
                 {docGaps.length > 0 && (
                   <div className="rounded-lg bg-surface-2 p-2.5 ring-1 ring-[var(--ring)]">
-                    <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                    <p className="mb-1 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-wide text-ink-muted">
                       <FileWarning size={12} /> Still to obtain
                     </p>
                     <ul className="flex flex-col gap-0.5">

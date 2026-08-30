@@ -147,7 +147,7 @@ export function DocumentPreview({ caseId, doc, onClose, page, actions }: Documen
             <h2 className="m-0 truncate text-[14px] font-semibold text-ink" title={doc.fileName}>
               {doc.fileName}
             </h2>
-            <p className="m-0 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-muted">
+            <p className="m-0 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-mini text-ink-muted">
               <Badge tone={doc.kindConfirmedByUser ? 'good' : 'neutral'}>{DOCUMENT_KIND_LABEL[doc.kind]}</Badge>
               <span>{fileSize(doc.sizeBytes)}</span>
               {doc.pages ? <span>· {doc.pages} page{doc.pages === 1 ? '' : 's'}</span> : null}

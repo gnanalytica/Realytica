@@ -393,7 +393,7 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
             </option>
           ))}
         </Select>
-        <label className="flex items-center gap-1.5 text-[11.5px] text-ink-muted">
+        <label className="flex items-center gap-1.5 text-mini text-ink-muted">
           <History size={13} className="shrink-0" />
           <span className="whitespace-nowrap">As of</span>
           <input
@@ -410,7 +410,7 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
             </Button>
           ) : null}
         </label>
-        <span className="tabular text-[11.5px] text-ink-muted">
+        <span className="tabular text-mini text-ink-muted">
           {graph.nodes.length} nodes · {graph.edges.length} edges
           {contradictions > 0 ? ` · ${contradictions} contradiction${contradictions === 1 ? '' : 's'}` : ''}
         </span>
@@ -423,7 +423,7 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
         </Callout>
       ) : null}
       {pastState === 'loading' ? (
-        <p className="text-[11.5px] text-ink-muted">Reading the graph store…</p>
+        <p className="text-mini text-ink-muted">Reading the graph store…</p>
       ) : null}
       {pastState === 'unavailable' ? (
         <Callout tone="neutral" title="Nothing stored for that date">
@@ -502,7 +502,7 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
                   <div
                     key={`cap-${lane.layer}`}
                     aria-hidden="true"
-                    className="absolute truncate text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted"
+                    className="absolute truncate text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted"
                     style={{ left: lane.x, top: PADDING, width: lane.width }}
                   >
                     {LAYER_LABEL[lane.layer]}
@@ -577,8 +577,8 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
                     >
                       <NodeIcon node={node} />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[11.5px] font-medium leading-tight text-ink">{node.label}</span>
-                        <span className="block truncate text-[10px] text-ink-muted">
+                        <span className="block truncate text-mini font-medium leading-tight text-ink">{node.label}</span>
+                        <span className="block truncate text-micro text-ink-muted">
                           {titleCase(node.kind)}
                           {node.domain ? ` · ${DD_DOMAIN_PROFILES[node.domain].label}` : ''}
                         </span>
@@ -720,7 +720,7 @@ function TraceInspector({
             {node.domain ? <Badge tone="brand">{DD_DOMAIN_PROFILES[node.domain].label}</Badge> : null}
           </div>
           <p className="mt-1.5 text-[13px] font-medium leading-snug text-ink">{node.label}</p>
-          <p className="mt-0.5 font-mono text-[10px] text-ink-faint">{node.id}</p>
+          <p className="mt-0.5 font-mono text-micro text-ink-faint">{node.id}</p>
         </div>
         <button onClick={onClose} aria-label="Close inspector" className="shrink-0 rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink">
           <X size={14} />
@@ -728,7 +728,7 @@ function TraceInspector({
       </div>
 
       {attributeRows.length > 0 ? (
-        <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-[11.5px]">
+        <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-mini">
           {attributeRows.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-ink-muted">{titleCase(k.replace(/([A-Z])/g, ' $1'))}</dt>
@@ -747,7 +747,7 @@ function TraceInspector({
       ) : null}
 
       <div className="flex flex-col gap-2">
-        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">How we know — the derivation cone</h4>
+        <h4 className="text-mini font-semibold uppercase tracking-wide text-ink-muted">How we know — the derivation cone</h4>
         {support.length === 0 ? (
           <p className="text-[12px] text-ink-muted">Nothing else in the graph connects to this node.</p>
         ) : (
@@ -756,7 +756,7 @@ function TraceInspector({
             if (rows.length === 0) return null;
             return (
               <div key={layer}>
-                <p className="mb-1 text-[10.5px] font-medium uppercase tracking-wide text-ink-faint">{LAYER_LABEL[layer]}</p>
+                <p className="mb-1 text-micro font-medium uppercase tracking-wide text-ink-faint">{LAYER_LABEL[layer]}</p>
                 <ul className="flex flex-col gap-1">
                   {rows.map(n => (
                     <li key={n.id}>
@@ -792,13 +792,13 @@ function TraceInspector({
            * date the reader is not looking at. Both are worse than the
            * control being absent and saying why.
            */
-          <p className="text-[11.5px] leading-relaxed text-ink-muted">
+          <p className="text-mini leading-relaxed text-ink-muted">
             Notes are written to the present. Switch back to <span className="font-medium text-ink-secondary">Now</span>{' '}
             to add one.
           </p>
         ) : (
           <>
-        <label htmlFor="graph-note" className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+        <label htmlFor="graph-note" className="text-micro font-semibold uppercase tracking-[0.06em] text-ink-muted">
           Add a note
         </label>
         <textarea
@@ -814,18 +814,18 @@ function TraceInspector({
             type="button"
             onClick={() => void saveNote()}
             disabled={!noteText.trim() || saving}
-            className="rounded-md bg-brand px-2.5 py-1 text-[11.5px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-md bg-brand px-2.5 py-1 text-mini font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {saving ? 'Saving…' : 'Save note'}
           </button>
-          <span className="text-[10.5px] text-ink-faint">Kept in the graph, not on the case. Survives every rebuild.</span>
+          <span className="text-micro text-ink-faint">Kept in the graph, not on the case. Survives every rebuild.</span>
         </div>
-        {noteError ? <p className="mt-1 text-[11px] text-critical">{noteError}</p> : null}
+        {noteError ? <p className="mt-1 text-mini text-critical">{noteError}</p> : null}
           </>
         )}
       </div>
 
-      <p className="text-[10.5px] leading-relaxed text-ink-faint">
+      <p className="text-micro leading-relaxed text-ink-faint">
         This cone is the copilot's own trace_conclusion answer for this node — ask it to trace "{node.label}" in chat
         and it walks the same edges. Ask it <span className="font-medium">why</span> and it reads the recorded
         reasoning, including notes added here.

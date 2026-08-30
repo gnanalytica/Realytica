@@ -64,7 +64,7 @@ function FindingCard({ finding }: { finding: DiscoveryFinding }) {
       <p className="mt-2 text-[12px] leading-relaxed text-ink-muted">
         <span className="font-medium">Matched on:</span> {finding.matchedOn}
       </p>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-hairline pt-2 text-[11.5px] text-ink-muted">
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-hairline pt-2 text-mini text-ink-muted">
         {finding.sourceUrl ? (
           <a
             href={finding.sourceUrl}
@@ -167,7 +167,7 @@ export default function ResearchTab({ caseData, refresh }: TabProps) {
 
           {sweep && sweep.lookedForNotFound.length > 0 && (
             <div className="rounded-lg bg-surface-2 p-3 ring-1 ring-[var(--ring)]">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+              <p className="m-0 text-mini font-semibold uppercase tracking-wide text-ink-muted">
                 Searched for and not found
               </p>
               <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-ink-secondary">
@@ -179,7 +179,7 @@ export default function ResearchTab({ caseData, refresh }: TabProps) {
 
           {sweep && sweep.notLookedFor.length > 0 && (
             <div className="rounded-lg bg-warning/10 p-3 ring-1 ring-warning/35">
-              <p className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+              <p className="m-0 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-wide text-ink-muted">
                 <Lock size={12} /> Not searched for — the disclosure level forbids it
               </p>
               <ul className="m-0 mt-1.5 flex list-none flex-col gap-1.5 p-0">
@@ -195,7 +195,7 @@ export default function ResearchTab({ caseData, refresh }: TabProps) {
 
           {sweep && sweep.unreachable.length > 0 && (
             <div className="rounded-lg bg-surface-2 p-3 ring-1 ring-[var(--ring)]">
-              <p className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+              <p className="m-0 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-wide text-ink-muted">
                 <ShieldQuestion size={12} /> Registries a search cannot reach at all
               </p>
               <ul className="m-0 mt-1.5 flex list-none flex-col gap-1.5 p-0">
@@ -219,7 +219,7 @@ export default function ResearchTab({ caseData, refresh }: TabProps) {
               </summary>
               <ul className="m-0 flex list-none flex-col gap-1 border-t border-[var(--ring)] p-3">
                 {sweep.queriesRun.map((q) => (
-                  <li key={q} className="font-mono text-[11.5px] leading-relaxed text-ink-muted">
+                  <li key={q} className="font-mono text-mini leading-relaxed text-ink-muted">
                     {q}
                   </li>
                 ))}

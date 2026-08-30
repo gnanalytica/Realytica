@@ -68,7 +68,7 @@ export function EvidenceLink({
 
   if (matched.length === 0) {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] italic text-ink-muted">
+      <span className="inline-flex items-center gap-1 text-mini italic text-ink-muted">
         source unavailable
       </span>
     );
@@ -82,12 +82,12 @@ export function EvidenceLink({
       {matched.slice(0, 3).map((e) => (
         <div key={e.id}>
           <div className="font-medium">{e.statement}</div>
-          <div className="text-[10px] opacity-75">
+          <div className="text-micro opacity-75">
             {e.sourceLabel} · {Math.round(e.confidence * 100)}% confidence
           </div>
         </div>
       ))}
-      {matched.length > 3 ? <div className="text-[10px] opacity-75">+{matched.length - 3} more</div> : null}
+      {matched.length > 3 ? <div className="text-micro opacity-75">+{matched.length - 3} more</div> : null}
     </div>
   );
 
@@ -104,7 +104,7 @@ export function EvidenceLink({
           onClick={handleClick}
           aria-label={`View ${chipLabel} of evidence`}
           className={cn(
-            'inline-flex items-center gap-1 rounded-md bg-brand-soft px-1.5 py-0.5 text-[11px] font-medium text-brand',
+            'inline-flex items-center gap-1 rounded-md bg-brand-soft px-1.5 py-0.5 text-mini font-medium text-brand',
             'ring-1 ring-inset ring-brand/25 transition-colors hover:bg-brand/15',
           )}
         >
@@ -124,7 +124,7 @@ export function EvidenceLink({
                       <Badge tone="neutral" icon={<Icon size={11} />}>
                         {SOURCE_LABEL[e.sourceType]}
                       </Badge>
-                      <span className="text-[11px] text-ink-muted">{fmtDate(e.capturedAt)}</span>
+                      <span className="text-mini text-ink-muted">{fmtDate(e.capturedAt)}</span>
                     </div>
                     <p className="text-[13px] leading-relaxed text-ink">{e.statement}</p>
                     <div className="flex items-center gap-2">
@@ -133,7 +133,7 @@ export function EvidenceLink({
                         <button
                           type="button"
                           onClick={() => onOpenDocument(e.sourceRef)}
-                          className="shrink-0 rounded-full bg-brand-soft px-2.5 py-0.5 text-[11px] font-medium text-brand"
+                          className="shrink-0 rounded-full bg-brand-soft px-2.5 py-0.5 text-mini font-medium text-brand"
                         >
                           Open the document
                         </button>

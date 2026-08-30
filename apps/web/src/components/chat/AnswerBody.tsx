@@ -104,7 +104,7 @@ export function AnswerBody({
 
 function BlockView({ block, render }: { block: Block; render: (spans: Inline[]) => ReactNode[] }) {
   if (block.kind === 'heading') {
-    return <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">{render(block.spans)}</p>;
+    return <p className="text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">{render(block.spans)}</p>;
   }
   if (block.kind === 'bullets') {
     return (
@@ -123,7 +123,7 @@ function BlockView({ block, render }: { block: Block; render: (spans: Inline[]) 
       <ol className="flex flex-col gap-1">
         {block.items.map((item, i) => (
           <li key={i} className="flex gap-2">
-            <span className="tabular mt-px shrink-0 text-[11.5px] font-semibold text-ink-muted">{i + 1}.</span>
+            <span className="tabular mt-px shrink-0 text-mini font-semibold text-ink-muted">{i + 1}.</span>
             <span className="min-w-0">{render(item)}</span>
           </li>
         ))}

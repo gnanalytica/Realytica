@@ -66,7 +66,7 @@ export function DisclosureCard({
                   <span className="mt-0.5 block text-[12px] leading-relaxed text-ink-secondary">{d.who}</span>
                   {active && (
                     <span className="mt-2 block rounded-md bg-surface p-2.5 ring-1 ring-[var(--ring)]">
-                      <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Sends</span>
+                      <span className="block text-mini font-semibold uppercase tracking-wide text-ink-muted">Sends</span>
                       <ul className="m-0 mt-1 list-none p-0">
                         {d.sends.map((line) => (
                           <li key={line} className="text-[12px] leading-relaxed text-ink-secondary">
@@ -74,7 +74,7 @@ export function DisclosureCard({
                           </li>
                         ))}
                       </ul>
-                      <span className="mt-2 block text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                      <span className="mt-2 block text-mini font-semibold uppercase tracking-wide text-ink-muted">
                         Cost of this choice
                       </span>
                       <span className="block text-[12px] leading-relaxed text-ink-secondary">{d.cost}</span>
@@ -121,7 +121,7 @@ export function DisclosureCard({
         )}
 
         <div className="rounded-lg bg-surface-2 p-3 ring-1 ring-[var(--ring)]">
-          <p className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+          <p className="m-0 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-wide text-ink-muted">
             <Lock size={12} /> Never sent, whatever you choose
           </p>
           <ul className="m-0 mt-1.5 list-none p-0">

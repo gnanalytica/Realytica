@@ -127,7 +127,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
           >
             {collapsed ? <ChevronsRight size={15} /> : <ChevronsLeft size={15} />}
           </button>
-          <div className={cn('text-[11px] leading-snug text-ink-muted', collapsed && 'lg:hidden')}>
+          <div className={cn('text-mini leading-snug text-ink-muted', collapsed && 'lg:hidden')}>
             <p className="font-medium text-ink-secondary">Property Screen · MVP</p>
             <p className="mt-0.5">Diligence / Project / Portfolio — later phases</p>
           </div>

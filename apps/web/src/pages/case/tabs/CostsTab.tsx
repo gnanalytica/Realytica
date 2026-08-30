@@ -55,7 +55,7 @@ function CostTable({ lines, currency }: { lines: TransactionCostBreakdown['lines
     <div className="overflow-x-auto rounded-lg ring-1 ring-[var(--ring)]">
       <table className="w-full min-w-[520px] border-collapse text-[13px]">
         <thead>
-          <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-[0.05em] text-ink-muted">
+          <tr className="border-b border-hairline text-left text-mini uppercase tracking-[0.05em] text-ink-muted">
             <th className="px-3 py-2">Line item</th>
             <th className="px-3 py-2">Rate</th>
             <th className="px-3 py-2">Note</th>

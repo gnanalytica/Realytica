@@ -133,7 +133,7 @@ export default function NodeInspector({
           <Icon size={15} className="mt-0.5 shrink-0 text-ink-muted" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             <h2 className="text-[13px] font-semibold leading-tight tracking-tight text-ink">{node.label}</h2>
-            <p className="mt-0.5 text-[11px] text-ink-muted">{KIND_LABEL[node.kind]}</p>
+            <p className="mt-0.5 text-mini text-ink-muted">{KIND_LABEL[node.kind]}</p>
           </div>
           <Badge tone={statusToneFor(node, run)}>{statusLabelFor(node, run)}</Badge>
           <button
@@ -163,7 +163,7 @@ export default function NodeInspector({
                 {node.tier ? <KeyValue label="Tier" value={<Badge tone="neutral">{node.tier}</Badge>} /> : null}
               </dl>
               {node.tier ? (
-                <p className="mt-2 flex gap-1.5 text-[11px] leading-relaxed text-ink-secondary">
+                <p className="mt-2 flex gap-1.5 text-mini leading-relaxed text-ink-secondary">
                   <ServerCog size={12} className="mt-0.5 shrink-0 text-ink-muted" aria-hidden="true" />
                   {TIER_RATIONALE[node.tier]}
                 </p>
@@ -214,7 +214,7 @@ export default function NodeInspector({
               ) : null}
             </dl>
             {money === null && isModelStep(node) ? (
-              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-muted">
+              <p className="mt-1.5 text-mini leading-relaxed text-ink-muted">
                 This deployment has no published rates for this route, so the call is excluded from every total rather
                 than counted as free.
               </p>
@@ -228,7 +228,7 @@ export default function NodeInspector({
                 {cost.map((gap) => (
                   <li key={gap} className="rounded-lg bg-sunken p-2.5">
                     <Badge tone="warning">{GAP_LABEL[gap]}</Badge>
-                    <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">{GAP_CONSEQUENCE[gap]}</p>
+                    <p className="mt-1 text-mini leading-relaxed text-ink-secondary">{GAP_CONSEQUENCE[gap]}</p>
                   </li>
                 ))}
               </ul>
@@ -250,20 +250,20 @@ export default function NodeInspector({
                     )}
                   >
                     <div className="flex items-baseline gap-2">
-                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink">{usage.promptKey}</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-mini text-ink">{usage.promptKey}</span>
                       <Badge tone={usage.invariantsBroken.length > 0 ? 'critical' : 'neutral'}>v{usage.version}</Badge>
                       <Link
                         to={promptHref(usage)}
-                        className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-brand hover:underline"
+                        className="inline-flex shrink-0 items-center gap-0.5 text-mini font-medium text-brand hover:underline"
                       >
                         Open <ArrowUpRight size={11} />
                       </Link>
                     </div>
-                    <p className="mt-1 truncate font-mono text-[10px] text-ink-muted" title={usage.contentHash}>
+                    <p className="mt-1 truncate font-mono text-micro text-ink-muted" title={usage.contentHash}>
                       {usage.contentHash}
                     </p>
                     {usage.invariantsBroken.length > 0 ? (
-                      <p className="mt-1.5 text-[11px] leading-relaxed text-critical">
+                      <p className="mt-1.5 text-mini leading-relaxed text-critical">
                         Failed {usage.invariantsBroken.length} guardrail check
                         {usage.invariantsBroken.length === 1 ? '' : 's'}:{' '}
                         {usage.invariantsBroken.join(', ')}
@@ -278,7 +278,7 @@ export default function NodeInspector({
           <section className="mb-4">
             <SectionTitle hint={node.outputs.length > 0 ? `${node.outputs.length}` : undefined}>Produced</SectionTitle>
             {node.outputs.length === 0 ? (
-              <p className="text-[11px] leading-relaxed text-ink-muted">
+              <p className="text-mini leading-relaxed text-ink-muted">
                 {node.status === 'failed'
                   ? 'Nothing — this step failed before it produced anything.'
                   : 'This step carried nothing forward of its own.'}
@@ -291,11 +291,11 @@ export default function NodeInspector({
                       <Boxes size={12} className="shrink-0 text-ink-muted" aria-hidden="true" />
                       <span className="min-w-0 flex-1 text-xs font-medium text-ink">{output.label}</span>
                       {output.count !== undefined ? (
-                        <span className="tabular shrink-0 text-[11px] font-semibold text-ink-secondary">{output.count}</span>
+                        <span className="tabular shrink-0 text-mini font-semibold text-ink-secondary">{output.count}</span>
                       ) : null}
                     </div>
                     {output.summary ? (
-                      <p className="mt-1 pl-[18px] text-[11px] leading-relaxed text-ink-secondary">{output.summary}</p>
+                      <p className="mt-1 pl-[18px] text-mini leading-relaxed text-ink-secondary">{output.summary}</p>
                     ) : null}
                   </li>
                 ))}
@@ -306,7 +306,7 @@ export default function NodeInspector({
           {run ? <RunSteps run={run} /> : null}
 
           {node.runId && !run ? (
-            <p className="text-[11px] leading-relaxed text-ink-muted">
+            <p className="text-mini leading-relaxed text-ink-muted">
               Step-by-step detail for run <span className="font-mono">{node.runId}</span> is not loaded on this case.
             </p>
           ) : null}
@@ -335,7 +335,7 @@ function GuardrailAlert({ broken }: { broken: string[] }) {
       <ShieldAlert size={15} className="mt-0.5 shrink-0 text-critical" aria-hidden="true" />
       <div className="min-w-0">
         <p className="text-xs font-semibold text-critical">Produced under weakened guardrails</p>
-        <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">
+        <p className="mt-1 text-mini leading-relaxed text-ink-secondary">
           The prompt version this step ran on failed {broken.length} guardrail check
           {broken.length === 1 ? '' : 's'} ({broken.join(', ')}). Those checks are what forbid inventing a document, a
           statute or a figure, so anything below should be verified against the source before it is relied on.
@@ -354,12 +354,12 @@ function GroundingAlert({ gaps }: { gaps: NonNullable<RunGraphNode['capabilityGa
         <p className="text-xs font-semibold text-critical">Ran without full grounding</p>
         <ul className="mt-1 space-y-1.5">
           {gaps.map((gap) => (
-            <li key={gap} className="text-[11px] leading-relaxed text-ink-secondary">
+            <li key={gap} className="text-mini leading-relaxed text-ink-secondary">
               <span className="font-medium text-ink">{GAP_LABEL[gap]}.</span> {GAP_CONSEQUENCE[gap]}
             </li>
           ))}
         </ul>
-        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-secondary">
+        <p className="mt-1.5 text-mini leading-relaxed text-ink-secondary">
           This changes what the output means, not just what it costs.
         </p>
       </div>
@@ -389,7 +389,7 @@ function RunSteps({ run }: { run: AgentRun }) {
         </span>
       </SectionTitle>
       {run.error ? (
-        <p className="mb-2 flex gap-1.5 rounded-lg bg-critical/10 p-2.5 text-[11px] leading-relaxed text-critical ring-1 ring-inset ring-critical/40">
+        <p className="mb-2 flex gap-1.5 rounded-lg bg-critical/10 p-2.5 text-mini leading-relaxed text-critical ring-1 ring-inset ring-critical/40">
           <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
           {run.error}
         </p>
@@ -399,21 +399,21 @@ function RunSteps({ run }: { run: AgentRun }) {
           <li key={step.id} className="flex gap-2 border-b border-hairline py-1.5 last:border-0">
             <span className={cn('mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-current', STEP_TONE[step.kind])} aria-hidden="true" />
             <div className="min-w-0 flex-1">
-              <p className={cn('text-[11px] leading-snug', step.kind === 'error' ? 'text-critical' : 'text-ink')}>
+              <p className={cn('text-mini leading-snug', step.kind === 'error' ? 'text-critical' : 'text-ink')}>
                 {step.label}
                 {step.toolName ? (
-                  <span className="ml-1.5 rounded bg-sunken px-1 py-0.5 font-mono text-[10px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+                  <span className="ml-1.5 rounded bg-sunken px-1 py-0.5 font-mono text-micro text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
                     {step.toolName}
                   </span>
                 ) : null}
               </p>
-              {step.detail ? <p className="mt-0.5 text-[10px] leading-snug text-ink-muted">{step.detail}</p> : null}
+              {step.detail ? <p className="mt-0.5 text-micro leading-snug text-ink-muted">{step.detail}</p> : null}
             </div>
           </li>
         ))}
       </ol>
       {run.producedEvidenceIds.length > 0 ? (
-        <p className="mt-2 flex items-center gap-1 text-[11px] text-ink-muted">
+        <p className="mt-2 flex items-center gap-1 text-mini text-ink-muted">
           <ExternalLink size={11} aria-hidden="true" />
           Contributed {run.producedEvidenceIds.length} item{run.producedEvidenceIds.length === 1 ? '' : 's'} to the
           evidence ledger.

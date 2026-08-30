@@ -78,7 +78,7 @@ function complianceBand(score: number, blockerCount: number): { label: string; t
 function InfoBlock({ title, children }: { title: string; children: string }) {
   return (
     <div className="rounded-lg bg-sunken p-3">
-      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{title}</p>
+      <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">{title}</p>
       <Prose size="sm">{children}</Prose>
     </div>
   );
@@ -123,7 +123,7 @@ function ComplianceCheckCard({
           </Badge>
           <span className="text-[13px] font-semibold text-ink">{check.label}</span>
           <span
-            className="ml-auto rounded-md bg-sunken px-1.5 py-0.5 font-mono text-[10.5px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]"
+            className="ml-auto rounded-md bg-sunken px-1.5 py-0.5 font-mono text-micro text-ink-secondary ring-1 ring-inset ring-[var(--ring)]"
             title="Governing statute / rule"
           >
             {check.statute}
@@ -322,7 +322,7 @@ export default function ComplianceTab({ caseData, result, refresh, runScreen, ru
               * read first.
               */
             <details className="rounded-lg bg-sunken p-3 print-open group">
-              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-mini font-semibold uppercase tracking-wide text-ink-muted">
                 <Library size={12} /> Registries these checks are written against
                 <span className="font-normal normal-case tracking-normal text-ink-faint">({compliance.datasets.length})</span>
                 <ChevronDown size={11} className="ml-auto transition-transform duration-base group-open:rotate-180" />
@@ -591,7 +591,7 @@ function CheckTable({
                 * card. The full citation is on hover and in the expanded body.
                 */}
               <span
-                className="hidden max-w-[210px] shrink-0 truncate rounded bg-sunken px-1.5 py-0.5 font-mono text-[10.5px] text-ink-secondary sm:inline"
+                className="hidden max-w-[210px] shrink-0 truncate rounded bg-sunken px-1.5 py-0.5 font-mono text-micro text-ink-secondary sm:inline"
                 title={check.statute}
               >
                 {check.statute}
@@ -608,7 +608,7 @@ function CheckTable({
                 <SplitProse text={check.finding} alwaysOpen />
                 {/* The citation in full — the row's chip truncates it, and a
                     tooltip is not where a statutory reference should live. */}
-                <p className="m-0 mt-1.5 font-mono text-[10.5px] leading-relaxed text-ink-muted">{check.statute}</p>
+                <p className="m-0 mt-1.5 font-mono text-micro leading-relaxed text-ink-muted">{check.statute}</p>
                 <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
                   <InfoBlock title="Consequence">{check.consequence}</InfoBlock>
                   <InfoBlock title="Next step">{check.nextStep}</InfoBlock>

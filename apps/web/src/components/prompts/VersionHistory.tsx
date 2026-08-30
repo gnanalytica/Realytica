@@ -113,12 +113,12 @@ export function VersionHistory({
                 ) : (
                   <Badge tone="good">All guardrails kept</Badge>
                 )}
-                <span className="ml-auto text-[11px] text-ink-muted" title={date(version.createdAt, 'long')}>
+                <span className="ml-auto text-mini text-ink-muted" title={date(version.createdAt, 'long')}>
                   {relativeTime(version.createdAt)}
                 </span>
               </div>
 
-              <p className="mt-1 font-mono text-[10px] text-ink-muted">
+              <p className="mt-1 font-mono text-micro text-ink-muted">
                 {date(version.createdAt, 'long')} · {version.contentHash.slice(0, 12)}
               </p>
 
@@ -130,10 +130,10 @@ export function VersionHistory({
 
               {broken.length > 0 ? (
                 <div className="mt-2 rounded-md bg-critical/10 p-2 ring-1 ring-inset ring-critical/40">
-                  <p className="text-[11px] font-semibold text-critical">
+                  <p className="text-mini font-semibold text-critical">
                     Drops: {broken.map((b) => b.label).join(', ')}
                   </p>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-ink-secondary">
+                  <p className="mt-0.5 text-mini leading-relaxed text-ink-secondary">
                     {isActive
                       ? 'This is the text in force now, so findings being produced are not covered by the anti-fabrication guarantee.'
                       : 'Making this version active would put that text in force.'}
@@ -143,7 +143,7 @@ export function VersionHistory({
 
               <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                 {isActive ? (
-                  <span className="text-[11px] font-medium text-brand">In force for every run of this prompt</span>
+                  <span className="text-mini font-medium text-brand">In force for every run of this prompt</span>
                 ) : (
                   <Button
                     size="sm"
@@ -193,7 +193,7 @@ export function VersionHistory({
 
               {version.builtIn ? (
                 <p
-                  className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-ink-secondary"
+                  className="mt-2 flex items-start gap-1.5 text-mini leading-relaxed text-ink-secondary"
                   data-testid="built-in-note"
                 >
                   <Lock size={12} className="mt-0.5 shrink-0 text-ink-muted" />
@@ -205,7 +205,7 @@ export function VersionHistory({
                   </span>
                 </p>
               ) : isActive ? (
-                <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
+                <p className="mt-2 text-mini leading-relaxed text-ink-muted">
                   A version that is in force cannot be deleted — switch to another version first, so no run is ever
                   left pointing at text that is no longer here.
                 </p>

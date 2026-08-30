@@ -115,7 +115,7 @@ export function Finding({
         <button
           type="button"
           onClick={() => setOpen(v => !v)}
-          className="flex w-fit items-center gap-1 text-[11.5px] font-medium text-brand hover:underline"
+          className="flex w-fit items-center gap-1 text-mini font-medium text-brand hover:underline"
         >
           {open ? 'Less' : 'Why'}
           <ChevronDown size={11} className={cn('transition-transform duration-base', open && 'rotate-180')} />

@@ -296,7 +296,7 @@ export default function ValuationTab({ caseData, result, refresh, running }: Tab
           <div className="overflow-x-auto rounded-lg ring-1 ring-[var(--ring)]">
             <table className="w-full min-w-[760px] border-collapse text-[13px]">
               <thead>
-                <tr className="border-b border-hairline bg-sunken text-left text-[11px] uppercase tracking-wide text-ink-muted">
+                <tr className="border-b border-hairline bg-sunken text-left text-mini uppercase tracking-wide text-ink-muted">
                   <th className="w-8 px-3 py-2" />
                   <th className="px-3 py-2">Comparable</th>
                   {SORT_COLUMNS.map((col) => (
@@ -372,7 +372,7 @@ function ComparableRow({
         <td className="px-3 py-2 align-top">
           <div className="font-medium text-ink">{comparable.label}</div>
           <div className="text-xs text-ink-muted">{comparable.address}</div>
-          <div className="mt-0.5 text-[11px] text-ink-muted">{comparable.source}</div>
+          <div className="mt-0.5 text-mini text-ink-muted">{comparable.source}</div>
         </td>
         <td className="tabular px-3 py-2 align-top font-medium text-ink">{formatRate(comparable.adjustedPricePerSqm, areaUnit, currency)}</td>
         <td className="tabular px-3 py-2 align-top text-ink-secondary">{comparable.distanceKm.toFixed(1)} km</td>
@@ -382,7 +382,7 @@ function ComparableRow({
           <div className="w-20">
             <ProgressBar value={comparable.similarity * 100} tone="brand" showValue={false} />
           </div>
-          <div className="tabular mt-1 text-[11px] text-ink-muted">{Math.round(comparable.similarity * 100)}%</div>
+          <div className="tabular mt-1 text-mini text-ink-muted">{Math.round(comparable.similarity * 100)}%</div>
         </td>
       </tr>
       {expanded ? (

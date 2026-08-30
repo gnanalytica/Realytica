@@ -73,12 +73,12 @@ function StepRow({ step, pulse }: { step: AgentStep; pulse?: boolean }) {
         <p className={cn('text-xs leading-snug text-ink', step.kind === 'error' && 'text-critical')}>
           {step.label}
           {step.toolName ? (
-            <span className="ml-1.5 rounded bg-sunken px-1 py-0.5 font-mono text-[10px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+            <span className="ml-1.5 rounded bg-sunken px-1 py-0.5 font-mono text-micro text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
               {step.toolName}
             </span>
           ) : null}
         </p>
-        {step.detail ? <p className="mt-0.5 text-[11px] leading-snug text-ink-secondary">{step.detail}</p> : null}
+        {step.detail ? <p className="mt-0.5 text-mini leading-snug text-ink-secondary">{step.detail}</p> : null}
       </div>
     </li>
   );
@@ -113,10 +113,10 @@ function RunCard({ run, defaultOpen }: { run: AgentRun; defaultOpen?: boolean })
         <Bot size={14} className="shrink-0 text-ink-muted" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{titleCase(run.agent)}</span>
         <Badge tone={tone}>{STATUS_LABEL[run.status]}</Badge>
-        <span className="hidden shrink-0 items-center gap-1 text-[11px] text-ink-muted sm:flex">
+        <span className="hidden shrink-0 items-center gap-1 text-mini text-ink-muted sm:flex">
           <Clock size={11} /> {formatDuration(run.startedAt, run.finishedAt)}
         </span>
-        <span className="hidden shrink-0 text-[11px] text-ink-muted md:inline">
+        <span className="hidden shrink-0 text-mini text-ink-muted md:inline">
           <RunUsage usage={run.usage} />
         </span>
       </button>
@@ -138,12 +138,12 @@ function RunCard({ run, defaultOpen }: { run: AgentRun; defaultOpen?: boolean })
             <p className="text-xs text-ink-muted">No recorded steps.</p>
           )}
           {run.producedEvidenceIds.length > 0 ? (
-            <p className="mt-2 text-[11px] text-ink-muted">
+            <p className="mt-2 text-mini text-ink-muted">
               Contributed {run.producedEvidenceIds.length} evidence item{run.producedEvidenceIds.length === 1 ? '' : 's'} to
               the case ledger.
             </p>
           ) : null}
-          <div className="mt-2 flex items-center gap-3 text-[11px] text-ink-muted sm:hidden">
+          <div className="mt-2 flex items-center gap-3 text-mini text-ink-muted sm:hidden">
             <span className="flex items-center gap-1">
               <Clock size={11} /> {formatDuration(run.startedAt, run.finishedAt)}
             </span>

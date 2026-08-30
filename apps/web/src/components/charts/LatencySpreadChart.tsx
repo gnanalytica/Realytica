@@ -84,7 +84,7 @@ export default function LatencySpreadChart({ rows, height }: LatencySpreadChartP
               </TickText>
               <line x1={x(r.medianDurationMs)} y1={y} x2={x(r.p95DurationMs)} y2={y} stroke="var(--series-4)" strokeWidth={6} strokeLinecap="round" opacity={0.5} />
               <circle cx={x(r.medianDurationMs)} cy={y} r={5} fill="var(--series-1)" />
-              <text x={x(r.p95DurationMs) + 8} y={y + 4} className="fill-[var(--text-muted)] text-[10px] tabular">
+              <text x={x(r.p95DurationMs) + 8} y={y + 4} className="fill-[var(--text-muted)] text-micro tabular">
                 {secs(r.p95DurationMs)}
               </text>
               <title>{`${route}: median ${secs(r.medianDurationMs)}, p95 ${secs(r.p95DurationMs)}, ${r.calls} call(s)`}</title>
@@ -93,7 +93,7 @@ export default function LatencySpreadChart({ rows, height }: LatencySpreadChartP
         })}
         <BaselineAxis x1={LABEL_W} y1={axisY} x2={W - 46} y2={axisY} />
       </ChartSvg>
-      <div className="mt-1 flex items-center gap-3 text-[11px] text-ink-secondary">
+      <div className="mt-1 flex items-center gap-3 text-mini text-ink-secondary">
         <span className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full" style={{ background: 'var(--series-1)' }} /> median
         </span>
