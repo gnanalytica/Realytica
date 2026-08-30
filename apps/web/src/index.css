@@ -364,3 +364,25 @@
     list-style: none;
   }
 }
+
+/*
+ * The small end of the type scale.
+ *
+ * Two steps, raised together under a coarse pointer. Tailwind's `fontSize`
+ * scale reads these (see `micro` / `mini` in tailwind.config.js), so a
+ * component asks for `text-micro` and gets 10px under a mouse and 12px under
+ * a thumb without knowing either number.
+ */
+:root {
+  --text-micro: 10px;
+  --leading-micro: 1.35;
+  --text-mini: 11px;
+  --leading-mini: 1.45;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --text-micro: 12px;
+    --text-mini: 12.5px;
+  }
+}

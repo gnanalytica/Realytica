@@ -251,7 +251,7 @@ export function PromptDiff({ prompt, className }: { prompt: PromptDescriptor; cl
     <div className={cn('flex flex-col gap-3', className)}>
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-[12rem] flex-1">
-          <span className="mb-1 block text-[11px] font-medium text-ink-secondary">From (baseline)</span>
+          <span className="mb-1 block text-mini font-medium text-ink-secondary">From (baseline)</span>
           <Select value={left?.id ?? ''} onChange={(e) => setLeftId(e.target.value)} aria-label="Baseline version">
             {versions.map((v) => (
               <option key={v.id} value={v.id}>
@@ -273,7 +273,7 @@ export function PromptDiff({ prompt, className }: { prompt: PromptDescriptor; cl
           Swap
         </Button>
         <label className="min-w-[12rem] flex-1">
-          <span className="mb-1 block text-[11px] font-medium text-ink-secondary">To</span>
+          <span className="mb-1 block text-mini font-medium text-ink-secondary">To</span>
           <Select value={right?.id ?? ''} onChange={(e) => setRightId(e.target.value)} aria-label="Compared version">
             {versions.map((v) => (
               <option key={v.id} value={v.id}>
@@ -292,7 +292,7 @@ export function PromptDiff({ prompt, className }: { prompt: PromptDescriptor; cl
           </p>
           <ul className="mt-1 space-y-0.5">
             {guardrailsLost.map((g) => (
-              <li key={g.id} className="text-[11px] leading-relaxed text-ink-secondary">
+              <li key={g.id} className="text-mini leading-relaxed text-ink-secondary">
                 <span className="font-medium text-ink">{g.label}</span> — {g.rationale}
               </li>
             ))}
@@ -325,7 +325,7 @@ export function PromptDiff({ prompt, className }: { prompt: PromptDescriptor; cl
         </div>
       ) : (
         <div className="max-h-[60vh] overflow-auto rounded-lg ring-1 ring-inset ring-[var(--ring)]">
-          <table className="w-full border-collapse font-mono text-[11.5px] leading-[1.6]">
+          <table className="w-full border-collapse font-mono text-mini leading-[1.6]">
             <caption className="sr-only">
               Line diff from {left ? `version ${left.version}` : 'nothing'} to{' '}
               {right ? `version ${right.version}` : 'nothing'}
@@ -334,7 +334,7 @@ export function PromptDiff({ prompt, className }: { prompt: PromptDescriptor; cl
               {shown.map((row, index) =>
                 row.op === 'gap' ? (
                   <tr key={`gap-${index}`} className="bg-sunken">
-                    <td colSpan={4} className="px-3 py-1 text-center text-[10.5px] text-ink-muted">
+                    <td colSpan={4} className="px-3 py-1 text-center text-micro text-ink-muted">
                       &middot;&middot;&middot; {row.count} unchanged line{row.count > 1 ? 's' : ''} &middot;&middot;&middot;
                     </td>
                   </tr>
@@ -346,10 +346,10 @@ export function PromptDiff({ prompt, className }: { prompt: PromptDescriptor; cl
                       row.op === 'remove' && 'bg-critical/10',
                     )}
                   >
-                    <td className="w-10 select-none border-r border-hairline px-1.5 text-right align-top text-[10px] text-ink-muted">
+                    <td className="w-10 select-none border-r border-hairline px-1.5 text-right align-top text-micro text-ink-muted">
                       {row.leftNo ?? ''}
                     </td>
-                    <td className="w-10 select-none border-r border-hairline px-1.5 text-right align-top text-[10px] text-ink-muted">
+                    <td className="w-10 select-none border-r border-hairline px-1.5 text-right align-top text-micro text-ink-muted">
                       {row.rightNo ?? ''}
                     </td>
                     <td
@@ -380,7 +380,7 @@ export function PromptDiff({ prompt, className }: { prompt: PromptDescriptor; cl
         </div>
       )}
 
-      <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-ink-muted">
+      <p className="flex items-start gap-1.5 text-mini leading-relaxed text-ink-muted">
         <GitCompareArrows size={12} className="mt-0.5 shrink-0" />
         <span>
           Markers rather than colour carry the meaning: <span className="font-mono">+</span> is a line this version

@@ -400,7 +400,7 @@ export function InvariantList({
                   <span className="text-[13px] font-medium text-ink">{e.label}</span>
                   <span
                     className={cn(
-                      'text-[11px] font-semibold uppercase tracking-[0.06em]',
+                      'text-mini font-semibold uppercase tracking-[0.06em]',
                       e.state === 'dropped' && 'text-critical',
                       e.state === 'kept' && 'text-[var(--status-good-text)]',
                       e.state === 'unassessed' && 'text-ink-secondary',
@@ -408,13 +408,13 @@ export function InvariantList({
                   >
                     {STATE_WORD[e.state]}
                   </span>
-                  <span className="font-mono text-[10px] text-ink-muted">{e.id}</span>
+                  <span className="font-mono text-micro text-ink-muted">{e.id}</span>
                 </div>
                 {!dense || e.state !== 'kept' ? (
                   <p className="mt-0.5 text-xs leading-relaxed text-ink-secondary">{e.rationale}</p>
                 ) : null}
                 {e.state === 'dropped' && e.missing && e.missing.length > 0 ? (
-                  <p className="mt-1 text-[11px] leading-relaxed text-critical">
+                  <p className="mt-1 text-mini leading-relaxed text-critical">
                     Missing placeholder{e.missing.length > 1 ? 's' : ''}:{' '}
                     {e.missing.map((m) => (
                       <span key={m} className="font-mono">
@@ -424,12 +424,12 @@ export function InvariantList({
                   </p>
                 ) : null}
                 {e.state === 'dropped' && e.looksFor && !e.missing ? (
-                  <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">
+                  <p className="mt-1 text-mini leading-relaxed text-ink-secondary">
                     This version no longer contains {e.looksFor}.
                   </p>
                 ) : null}
                 {e.state === 'unassessed' ? (
-                  <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">
+                  <p className="mt-1 text-mini leading-relaxed text-ink-secondary">
                     This build has no rule for this guardrail, so the editor cannot tell you whether the draft keeps
                     it. It is not being reported as kept. Saving records it as unmet unless the server checks it.
                   </p>
@@ -556,8 +556,8 @@ export function GuardrailWaiver({
                   label={
                     <span>
                       <span className="font-medium text-ink">{d.label}</span>{' '}
-                      <span className="font-mono text-[10px] text-ink-muted">{d.id}</span>
-                      <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-secondary">{d.rationale}</span>
+                      <span className="font-mono text-micro text-ink-muted">{d.id}</span>
+                      <span className="mt-0.5 block text-mini leading-relaxed text-ink-secondary">{d.rationale}</span>
                     </span>
                   }
                 />

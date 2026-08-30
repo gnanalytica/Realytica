@@ -171,8 +171,8 @@ export default function ResidualWaterfallChart({ residual, formatArea, formatRat
                 y={y + BAR_H / 2 + 4}
                 className={
                   isResult
-                    ? 'fill-[var(--text-primary)] text-[11px] font-semibold tabular'
-                    : 'fill-[var(--text-secondary)] text-[11px] tabular'
+                    ? 'fill-[var(--text-primary)] text-mini font-semibold tabular'
+                    : 'fill-[var(--text-secondary)] text-mini tabular'
                 }
               >
                 {money(step.amount, currency, { compact: true })}
@@ -199,7 +199,7 @@ export default function ResidualWaterfallChart({ residual, formatArea, formatRat
         />
       </ChartSvg>
 
-      <p className="mt-1 text-[11px] text-ink-muted">
+      <p className="mt-1 text-mini text-ink-muted">
         {formatArea(residual.areaSqm)} of {residual.areaBasis} at {formatRate(residual.ratePerSqm)}
       </p>
 

@@ -93,7 +93,7 @@ export function CopilotDock({
           </div>
           {/* The one line that makes this pane different from the chat tab:
               it says what "here" will mean in the next question. */}
-          <p className="mt-0.5 truncate text-[11px] text-ink-muted">Looking at: {viewContext}</p>
+          <p className="mt-0.5 truncate text-mini text-ink-muted">Looking at: {viewContext}</p>
         </div>
         <Button
           variant="ghost"

@@ -41,13 +41,6 @@ export const tenureSchema = z.enum(['freehold', 'leasehold', 'unknown']);
 
 export const caseStatusSchema = z.enum(['draft', 'collecting', 'analysing', 'screened', 'archived']);
 
-export const personaKeySchema = z.enum([
-  'property_investor',
-  'developer_acquisition_manager',
-  'property_adviser',
-  'valuation_firm',
-]);
-
 // `satisfies` gives us a compile-time check that this list stays in sync
 // with the DocumentKind union in packages/shared/src/types.ts.
 export const documentKindSchema = z.enum([
@@ -250,11 +243,9 @@ export const propertyIdentitySchema = z.object({
 export const createCaseSchema = z.object({
   identity: propertyIdentitySchema,
   ownerName: z.string().min(1),
-  persona: personaKeySchema,
   notes: z.string().optional(),
 });
 
-export const lensKeySchema = z.enum(['developer', 'engineering', 'architect', 'project_manager']);
 
 export const disclosureLevelSchema = z.enum(['locality_only', 'property_identifiers', 'full_address']);
 
@@ -278,8 +269,6 @@ export const fetchRecordBodySchema = z.object({
 export const updateCaseSchema = z.object({
   identity: propertyIdentitySchema.partial().optional(),
   status: caseStatusSchema.optional(),
-  persona: personaKeySchema.optional(),
-  lens: lensKeySchema.optional(),
   disclosure: disclosureLevelSchema.optional(),
   ownerName: z.string().min(1).optional(),
   notes: z.string().optional(),

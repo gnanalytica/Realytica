@@ -57,7 +57,7 @@ function Spread({ children, margin }: { children: ReactNode; margin?: ReactNode 
 function MarginNote({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="border-l-2 border-hairline pl-3">
-      <p className="m-0 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-muted">{label}</p>
+      <p className="m-0 font-mono text-micro uppercase tracking-[0.12em] text-ink-muted">{label}</p>
       <p className="m-0 mt-1 text-[13px] leading-relaxed text-ink-secondary">{children}</p>
     </div>
   );
@@ -84,7 +84,7 @@ function RegisterLedger() {
   return (
     <Tile className="p-5">
       <div ref={ref} className="font-mono text-[13px]">
-      <div className="flex items-baseline justify-between border-b border-ink/20 pb-2 text-[10px] uppercase tracking-[0.12em] text-ink-muted">
+      <div className="flex items-baseline justify-between border-b border-ink/20 pb-2 text-micro uppercase tracking-[0.12em] text-ink-muted">
         <span>Register</span>
         <span>States</span>
       </div>
@@ -159,7 +159,7 @@ export default function Landing() {
         <div className="mx-auto flex max-w-5xl items-baseline justify-between gap-4 px-6 py-4">
           <span className="flex items-baseline gap-3">
             <span className="font-display text-[17px] tracking-tight text-ink">Realytica</span>
-            <span className="hidden font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted sm:inline">
+            <span className="hidden font-mono text-mini uppercase tracking-[0.12em] text-ink-muted sm:inline">
               Due diligence · project intelligence
             </span>
           </span>
@@ -175,7 +175,7 @@ export default function Landing() {
 
       <section className="relative isolate mx-auto max-w-5xl px-6 pb-16 pt-12 sm:pt-16">
         <span aria-hidden="true" className="pointer-events-none absolute inset-x-[-50vw] top-[-3.5rem] -z-10 h-[620px] bg-band" />
-        <div className="mb-10 flex items-baseline justify-between font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">
+        <div className="mb-10 flex items-baseline justify-between font-mono text-mini uppercase tracking-[0.12em] text-ink-muted">
           <span>Ref. operating model</span>
           <span>Manual first · AI later</span>
         </div>
@@ -186,7 +186,7 @@ export default function Landing() {
               <dl className="m-0 space-y-3">
               {SPEC.map((item, i) => (
                 <div key={item.label} className="animate-fade-in flex flex-wrap items-baseline justify-between gap-x-3 border-b border-hairline pb-2" style={{ animationDelay: `${520 + i * 60}ms` }}>
-                  <dt className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">{item.label}</dt>
+                  <dt className="font-mono text-micro uppercase tracking-[0.1em] text-ink-muted">{item.label}</dt>
                   <dd className="m-0 font-mono text-[12px] tabular-nums text-ink">{item.value}</dd>
                 </div>
               ))}
@@ -218,7 +218,7 @@ export default function Landing() {
             </a>
           </div>
 
-          <p className="m-0 mt-6 animate-fade-in font-mono text-[11px] text-ink-muted" style={{ animationDelay: '480ms' }}>
+          <p className="m-0 mt-6 animate-fade-in font-mono text-mini text-ink-muted" style={{ animationDelay: '480ms' }}>
             Manual system of record. No AI key required.
           </p>
         </Spread>
@@ -255,17 +255,18 @@ export default function Landing() {
             <MarginNote label="One scope, in full">
               <span className="block text-ink">{SCOPE_DEFINITIONS[0].label}</span>
               <span className="mt-1.5 block">{SCOPE_DEFINITIONS[0].purpose}</span>
-              <span className="mt-1.5 block font-mono text-[11px] text-ink-muted">
+              <span className="mt-1.5 block font-mono text-mini text-ink-muted">
                 {CHECK_DEFINITIONS.filter(c => c.scopeKey === SCOPE_DEFINITIONS[0].key).length} checks in the library
               </span>
             </MarginNote>
           }
         >
-          <table className="w-full border-collapse text-left">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[380px] border-collapse text-left">
             <thead>
               <tr className="border-b border-ink/20">
-                <th className="pb-2 pr-6 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-ink-muted">DD type</th>
-                <th className="pb-2 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-ink-muted">Default scopes</th>
+                <th className="pb-2 pr-6 font-mono text-micro font-normal uppercase tracking-[0.12em] text-ink-muted">DD type</th>
+                <th className="pb-2 font-mono text-micro font-normal uppercase tracking-[0.12em] text-ink-muted">Default scopes</th>
               </tr>
             </thead>
             <tbody>
@@ -279,6 +280,7 @@ export default function Landing() {
               ))}
             </tbody>
           </table>
+          </div>
           <p className="m-0 mt-5 max-w-[62ch] text-[13px] leading-relaxed text-ink-muted">
             Custom DDs start empty and take the scopes you add. Recommended types follow the project’s current lifecycle
             stage; they do not overwrite prior assessments when the stage changes.
@@ -358,7 +360,7 @@ export default function Landing() {
       </SectionBand>
 
       <footer className="border-t border-ink/20">
-        <div className="mx-auto flex max-w-5xl flex-col gap-1 px-6 py-8 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between">
+        <div className="mx-auto flex max-w-5xl flex-col gap-1 px-6 py-8 font-mono text-mini uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between">
           <span>Realytica · Due diligence OS</span>
           <span>A system of record, not a legal opinion</span>
         </div>

@@ -344,7 +344,7 @@ export default function DocumentsTab({ caseData, result, refresh }: TabProps) {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] border-collapse text-[13px]">
                 <thead>
-                  <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-wide text-ink-muted">
+                  <tr className="border-b border-hairline text-left text-mini uppercase tracking-wide text-ink-muted">
                     <th className="w-8 px-3 py-2" />
                     <th className="px-3 py-2">Document</th>
                     <th className="px-3 py-2">Size</th>
@@ -559,7 +559,7 @@ function DocRow({
                 {doc.fileName}
               </button>
               {doc.captureZone || doc.captureSystem || doc.captureLat !== undefined || doc.captureTakenAt ? (
-                <div className="mt-0.5 truncate text-[11px] text-ink-muted">
+                <div className="mt-0.5 truncate text-mini text-ink-muted">
                   Captured:{' '}
                   {[
                     doc.captureSystem ? TECHNICAL_SYSTEM_LABEL[doc.captureSystem] : null,
@@ -595,13 +595,13 @@ function DocRow({
               </option>
             ))}
           </Select>
-          {doc.kindConfirmedByUser ? <div className="mt-1 text-[10px] text-ink-muted">Confirmed by user</div> : null}
+          {doc.kindConfirmedByUser ? <div className="mt-1 text-micro text-ink-muted">Confirmed by user</div> : null}
         </td>
         <td className="px-3 py-2 align-top">
           <div className="w-24">
             <ProgressBar value={doc.classificationConfidence * 100} tone={needsReview ? 'warning' : 'good'} showValue={false} />
           </div>
-          <div className="tabular mt-1 text-[11px] text-ink-muted">{Math.round(doc.classificationConfidence * 100)}%</div>
+          <div className="tabular mt-1 text-mini text-ink-muted">{Math.round(doc.classificationConfidence * 100)}%</div>
         </td>
         <td className="px-3 py-2 text-right align-top">
           <button
@@ -649,7 +649,7 @@ function CaptureEditor({
   };
   return (
     <div className="mb-3 flex flex-wrap items-end gap-3 rounded-lg bg-surface p-2.5 ring-1 ring-inset ring-[var(--ring)]">
-      <label className="flex flex-col gap-1 text-[11px] font-medium text-ink-muted">
+      <label className="flex flex-col gap-1 text-mini font-medium text-ink-muted">
         Asset system
         <Select
           value={doc.captureSystem ?? ''}
@@ -665,7 +665,7 @@ function CaptureEditor({
           ))}
         </Select>
       </label>
-      <label className="flex flex-col gap-1 text-[11px] font-medium text-ink-muted">
+      <label className="flex flex-col gap-1 text-mini font-medium text-ink-muted">
         Zone
         <Input
           value={zone}
@@ -697,7 +697,7 @@ function ExtractedFieldsTable({
     <div className="overflow-x-auto">
       <table className="w-full min-w-[520px] border-collapse text-[12px]">
         <thead>
-          <tr className="text-left text-[10px] uppercase tracking-wide text-ink-muted">
+          <tr className="text-left text-micro uppercase tracking-wide text-ink-muted">
             <th className="py-1 pr-3 font-medium">Label</th>
             <th className="py-1 pr-3 font-medium">Value</th>
             <th className="py-1 pr-3 font-medium">Unit</th>
@@ -737,7 +737,7 @@ function ExtractedFieldsTable({
                   <button
                     type="button"
                     onClick={() => onOpenSource(f.sourcePage)}
-                    className="text-[11.5px] text-brand hover:underline"
+                    className="text-mini text-brand hover:underline"
                   >
                     {f.sourcePage ? `Page ${f.sourcePage}` : 'Open'}
                   </button>

@@ -1,5 +1,6 @@
+import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronsLeft, ChevronsRight, BookOpen, FolderTree, Gauge, Info, ScrollText, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, BookOpen, FolderTree, Gauge, GitCompare, Info, LayoutDashboard, ScrollText, X } from 'lucide-react';
 import { cn } from '../ui/kit';
 
 export interface SidebarProps {
@@ -22,6 +23,8 @@ const PROJECT_ITEMS: NavItem[] = [
 ];
 
 const MORE_ITEMS: NavItem[] = [
+  { to: '/cases', label: 'Property cases', icon: LayoutDashboard, end: false },
+  { to: '/compare', label: 'Compare', icon: GitCompare, end: false },
   { to: '/observability', label: 'AI activity', icon: Gauge, end: false },
   { to: '/prompts', label: 'AI instructions', icon: ScrollText, end: false },
   { to: '/about', label: 'About', icon: Info, end: false },
@@ -73,6 +76,26 @@ function NavGroup({
  * remembered in localStorage by the parent); becomes an overlay drawer below `lg`.
  */
 export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }: SidebarProps) {
+  /*
+   * Escape closes it, and the page behind it stops scrolling while it is
+   * open. A drawer without either is one a keyboard user cannot dismiss and
+   * one that scrolls the wrong thing under a thumb — both invisible to a
+   * mouse on a desktop, which is why they were missing.
+   */
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCloseMobile();
+    };
+    window.addEventListener('keydown', onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [mobileOpen, onCloseMobile]);
+
   return (
     <>
       {mobileOpen ? (
@@ -105,7 +128,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
             type="button"
             onClick={onCloseMobile}
             aria-label="Close navigation"
-            className="ml-auto rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink lg:hidden"
+            className="ml-auto rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink coarse:p-3 lg:hidden"
           >
             <X size={16} />
           </button>
@@ -125,7 +148,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
           >
             {collapsed ? <ChevronsRight size={15} /> : <ChevronsLeft size={15} />}
           </button>
-          <div className={cn('text-[11px] leading-snug text-ink-muted', collapsed && 'lg:hidden')}>
+          <div className={cn('text-mini leading-snug text-ink-muted', collapsed && 'lg:hidden')}>
             <p className="font-medium text-ink-secondary">Due diligence OS · MVP</p>
             <p className="mt-0.5">Manual system of record. AI later.</p>
           </div>

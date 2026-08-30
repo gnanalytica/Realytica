@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
-import { AlarmClock, ExternalLink, FileText, FileWarning, Plug, Sparkles } from 'lucide-react';
-import { buildDepartmentDossier, buildDepartmentReview } from '@realytica/shared';
+import { AlarmClock, ExternalLink, FileText, FileWarning, ListChecks, Plug, Sparkles } from 'lucide-react';
+import { DD_DOMAIN_PROFILES, buildDepartmentDossier, buildDepartmentReview } from '@realytica/shared';
 import type { DdDomain, PropertyCase, ReferenceData } from '@realytica/shared';
 import { DOCUMENT_KIND_LABEL, relativeTime, severityTone, titleCase } from '../../../lib/format';
-import { Badge, Card, CardBody, CardHeader, EmptyState, Tile, cn } from '../../../components/ui/kit';
+import { Badge, Card, CardBody, CardHeader, Disclosure, EmptyState, Tile, cn } from '../../../components/ui/kit';
 import { DomainWorkboard } from '../tabs/DomainWorkboardTab';
 import type { TabProps } from '../tab-props';
 import { DepartmentVisuals } from './visuals';
@@ -69,13 +69,13 @@ export function DossierPane({
       <div className="flex items-center gap-3 border-b border-hairline px-5 py-3">
         <div className="min-w-0">
           <div className="text-[13.5px] font-semibold text-ink">{dossier.label}</div>
-          <div className="mt-0.5 truncate text-[11px] text-ink-muted">{dossier.question}</div>
+          <div className="mt-0.5 truncate text-mini text-ink-muted">{dossier.question}</div>
         </div>
         <div className="flex-grow" />
         <button
           type="button"
           onClick={onAddDocument}
-          className="rounded-full border border-[var(--ring)] bg-surface px-3 py-1 text-[11.5px] text-ink-secondary hover:text-ink"
+          className="rounded-full border border-[var(--ring)] bg-surface px-3 py-1 text-mini text-ink-secondary hover:text-ink"
         >
           Add document
         </button>
@@ -88,7 +88,7 @@ export function DossierPane({
           disabled={reviewBusy || reviewDisabled || !review.runnable}
           title={review.runnable ? `Reviews ${review.summary}` : `Nothing is filed to ${dossier.label} yet`}
           className={cn(
-            'flex items-center gap-1.5 rounded-full px-3 py-1 text-[11.5px] font-medium',
+            'flex items-center gap-1.5 rounded-full px-3 py-1 text-mini font-medium',
             reviewBusy || reviewDisabled || !review.runnable
               ? 'cursor-not-allowed bg-surface-3 text-ink-muted'
               : 'bg-brand text-[var(--brand-ink)]',
@@ -117,7 +117,7 @@ export function DossierPane({
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone={severityTone(w.severity)}>{titleCase(w.severity)}</Badge>
                     <span className="text-[13px] font-semibold text-ink">{w.label}</span>
-                    <span className="tabular ml-auto text-[11px] text-ink-muted">{w.ageDays} days</span>
+                    <span className="tabular ml-auto text-mini text-ink-muted">{w.ageDays} days</span>
                   </div>
                   <p className="mt-1 text-[12.5px] leading-relaxed text-ink-secondary">{w.what}</p>
                 </Tile>
@@ -126,9 +126,19 @@ export function DossierPane({
           </Card>
         ) : null}
 
+        {/*
+          The picture first.
+          
+          This was rendered between the fact list and the gaps: the only
+          visual element in the pane, and the last thing a reader reached.
+          A department's shape is what its charts say, and the facts are what
+          you check once the shape has told you where to look.
+        */}
+        <DepartmentVisuals caseData={caseData} domain={domain} />
+
         {dossier.facts.length > 0 ? (
           <section>
-            <h3 className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+            <h3 className="mb-1 text-micro font-semibold uppercase tracking-[0.06em] text-ink-muted">
               What we know{' '}
               <span className="font-normal normal-case tracking-normal text-ink-muted">· click a source to open the proof</span>
             </h3>
@@ -175,13 +185,9 @@ export function DossierPane({
           </section>
         ) : null}
 
-        <DepartmentVisuals caseData={caseData} domain={domain} />
 
         {dossier.gaps.length > 0 ? (
-          <div className="rounded-xl bg-surface-2 p-3 ring-1 ring-[var(--ring)]">
-            <p className="mb-1.5 flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
-              <FileWarning size={12} /> Still to obtain · {dossier.gaps.length}
-            </p>
+          <Disclosure title="Still to obtain" count={dossier.gaps.length} tone="warning" icon={<FileWarning size={13} />}>
             <ul className="flex flex-col gap-0.5">
               {dossier.gaps.map((gap) => (
                 <li key={gap.id} className="text-[12.5px] text-ink-secondary">
@@ -189,15 +195,16 @@ export function DossierPane({
                 </li>
               ))}
             </ul>
-          </div>
+          </Disclosure>
         ) : null}
 
         {dossier.documents.length > 0 ? (
-          <section>
-            <h3 className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
-              Documents in this department{' '}
-              <span className="font-normal normal-case tracking-normal text-ink-muted">· {dossier.documents.length}</span>
-            </h3>
+          <Disclosure
+            title="Documents in this department"
+            count={dossier.documents.length}
+            icon={<FileText size={13} />}
+            defaultOpen={dossier.documents.length <= 4}
+          >
             <ul className="flex flex-col gap-1.5">
               {dossier.documents.map((doc) => (
                 <li key={doc.id}>
@@ -211,21 +218,29 @@ export function DossierPane({
                   >
                     <FileText size={13} className="shrink-0 text-ink-muted" />
                     <span className="min-w-0 flex-grow truncate text-[12.5px] text-ink">{doc.fileName}</span>
-                    <span className="shrink-0 text-[10.5px] text-ink-muted">{DOCUMENT_KIND_LABEL[doc.kind]}</span>
+                    <span className="shrink-0 text-micro text-ink-muted">{DOCUMENT_KIND_LABEL[doc.kind]}</span>
                     {doc.factCount > 0 ? (
-                      <span className="tabular shrink-0 rounded-[5px] bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-secondary">
+                      <span className="tabular shrink-0 rounded-[5px] bg-surface-2 px-1.5 py-0.5 text-micro text-ink-secondary">
                         {doc.factCount} facts
                       </span>
                     ) : null}
-                    <span className="shrink-0 text-[10.5px] text-ink-faint">{relativeTime(doc.uploadedAt)}</span>
+                    <span className="shrink-0 text-micro text-ink-faint">{relativeTime(doc.uploadedAt)}</span>
                   </button>
                 </li>
               ))}
             </ul>
-          </section>
+          </Disclosure>
         ) : null}
 
-        <DomainWorkboard {...work} domain={domain} />
+        {/*
+          The workboard is the department's working detail, and this pane's
+          own content is its summary. Folded by default it stops one scroll
+          from carrying both — and it says how much is behind it, so folding
+          costs nothing a reader has to open it to learn.
+        */}
+        <Disclosure title={`Work in ${DD_DOMAIN_PROFILES[domain].label}`} icon={<ListChecks size={13} />}>
+          <DomainWorkboard {...work} domain={domain} />
+        </Disclosure>
       </div>
     </div>
   );
@@ -253,7 +268,7 @@ function SourceChips({
           type="button"
           onClick={() => onOpenProof(s.documentId, s.page)}
           title={`Open ${s.documentName}${s.page ? `, page ${s.page}` : ''}`}
-          className="rounded-[5px] bg-brand-soft px-1.5 py-0.5 text-[10px] text-brand hover:underline"
+          className="rounded-[5px] bg-brand-soft px-1.5 py-0.5 text-micro text-brand hover:underline"
         >
           {shortName(s.documentName)}
           {s.page ? ` p.${s.page}` : ''}

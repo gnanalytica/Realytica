@@ -57,7 +57,6 @@ casesRouter.post('/', async (req, res) => {
     reference: store.nextReference(),
     identity: parsed.data.identity,
     status: 'draft',
-    persona: parsed.data.persona,
     ownerName: parsed.data.ownerName,
     createdAt: now,
     updatedAt: now,
@@ -92,11 +91,6 @@ casesRouter.patch('/:id', async (req, res) => {
   const body = parsed.data;
   if (body.identity) found.identity = { ...found.identity, ...body.identity };
   if (body.status) found.status = body.status;
-  if (body.persona) found.persona = body.persona;
-  // No re-screen: the lens changes who the case is written for, never what
-  // the case found. If choosing a reader could move a number, the numbers
-  // would be presentation rather than analysis.
-  if (body.lens) found.lens = body.lens;
   // Widening disclosure changes what may leave the system on the *next*
   // search. It never retroactively re-runs anything: findings already on the
   // case were produced under the level in force when they were found, and

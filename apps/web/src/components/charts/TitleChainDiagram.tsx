@@ -155,7 +155,7 @@ export default function TitleChainDiagram({ graph, summary, height }: TitleChain
               key={c.kind}
               x={PAD + ci * (NODE_W + COL_GAP)}
               y={PAD + 10}
-              className="fill-[var(--text-muted)] text-[10px] font-medium uppercase tracking-wide"
+              className="fill-[var(--text-muted)] text-micro font-medium uppercase tracking-wide"
             >
               {c.label}
             </text>
@@ -208,10 +208,10 @@ export default function TitleChainDiagram({ graph, summary, height }: TitleChain
                   strokeWidth={isFlagged ? 2 : 1}
                 />
                 <rect x={p.x} y={p.y} width={3} height={NODE_H} rx={1.5} fill={KIND_FILL[p.node.kind]} />
-                <text x={p.x + 10} y={p.y + 18} className="fill-[var(--text-primary)] text-[11px] font-medium">
+                <text x={p.x + 10} y={p.y + 18} className="fill-[var(--text-primary)] text-mini font-medium">
                   {p.node.label.length > 21 ? `${p.node.label.slice(0, 20)}…` : p.node.label}
                 </text>
-                <text x={p.x + 10} y={p.y + 32} className="fill-[var(--text-muted)] text-[10px]">
+                <text x={p.x + 10} y={p.y + 32} className="fill-[var(--text-muted)] text-micro">
                   {p.node.assertedBy.length} source{p.node.assertedBy.length === 1 ? '' : 's'}
                 </text>
                 <title>{`${p.node.label} — ${p.node.kind}, asserted by ${p.node.assertedBy.length} source(s)`}</title>
@@ -223,12 +223,12 @@ export default function TitleChainDiagram({ graph, summary, height }: TitleChain
 
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         {COLUMNS.filter(c => graph.nodes.some(n => n.kind === c.kind)).map(c => (
-          <span key={c.kind} className="flex items-center gap-1.5 text-[11px] text-ink-secondary">
+          <span key={c.kind} className="flex items-center gap-1.5 text-mini text-ink-secondary">
             <span className="h-2 w-2 rounded-[2px]" style={{ background: KIND_FILL[c.kind] }} />
             {c.label}
           </span>
         ))}
-        <span className="flex items-center gap-1.5 text-[11px] text-ink-secondary">
+        <span className="flex items-center gap-1.5 text-mini text-ink-secondary">
           <svg width="16" height="6" aria-hidden>
             <line x1="0" y1="3" x2="16" y2="3" stroke="var(--gridline)" strokeWidth="1.4" strokeDasharray="3 3" />
           </svg>
@@ -236,7 +236,7 @@ export default function TitleChainDiagram({ graph, summary, height }: TitleChain
         </span>
       </div>
       {summary && summary.chains.some(c => c.breaks.length > 0) ? (
-        <p className="mt-2 text-[11px] leading-relaxed text-ink-secondary">
+        <p className="mt-2 text-mini leading-relaxed text-ink-secondary">
           <Badge tone="critical">Outlined in red</Badge> — a parcel whose chain of title has a break. What the break is,
           and how to close it, is listed below.
         </p>

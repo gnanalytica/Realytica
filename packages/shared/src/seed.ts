@@ -69,7 +69,6 @@ const JAYANAGAR_INDEPENDENT_HOUSE: CreateCaseRequest = {
     },
   },
   ownerName: 'Lakshmi Narayan Rao',
-  persona: 'property_investor',
   notes:
     'Family-owned since 1978 and sold after a partition among three heirs. I need the chain from the original conveyance to the present sellers, confirmation that every heir has released their share, and an e-khata position before I commit — the khata is A but has never been digitised.',
 };
@@ -120,7 +119,6 @@ const INDIRANAGAR_RETAIL_BUILDING: CreateCaseRequest = {
     },
   },
   ownerName: 'Ashwin Commercial Holdings',
-  persona: 'developer_acquisition_manager',
   notes:
     'Three retail tenants in occupation, all on unregistered eleven-month agreements. I want to know what survives the sale, whether the building is assessed commercially, and whether the second and third floors were sanctioned — the third looks like a later addition.',
 };
@@ -171,7 +169,6 @@ const WHITEFIELD_GATED_COMMUNITY: CreateCaseRequest = {
     },
   },
   ownerName: 'Rohit Sabharwal',
-  persona: 'property_adviser',
   notes:
     'Advising the buyer. Beyond title I need the common-area position: STP consent, DG and substation approvals, lift licences, the fire NOC for an 18-floor tower, and whether the association has taken over from the promoter. The promoter has produced buffer clearances for the block; I want them read rather than taken on the cover letter.',
 };
@@ -215,7 +212,6 @@ const BELLANDUR_IT_FLOOR: CreateCaseRequest = {
     },
   },
   ownerName: 'Northbridge Capital Advisors',
-  persona: 'valuation_firm',
   notes:
     'Valuing an assignment of the leasehold interest with the fitout in place. I need the head lease terms, the balance term and escalation, the occupancy and fire position for the whole block, and the CEIG approval for the floor’s electrical installation.',
 };

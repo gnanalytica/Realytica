@@ -1,33 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileBarChart2, FileText, ListChecks, Maximize2, PanelRight, Send, ShieldQuestion, Waypoints } from 'lucide-react';
+import { ArrowLeft, ListChecks, Maximize2, Menu, MessageSquare, PanelRight, Send, ShieldQuestion, SquareStack, Waypoints, X } from 'lucide-react';
 import {
   DD_DOMAIN_KEYS,
   DD_DOMAIN_PROFILES,
   REFERENCE_DATA,
+  buildDdGraph,
   domainForCheck,
   domainForRiskCategory,
   domainForSystem,
   summariseRequests,
 } from '@realytica/shared';
-import type { DdDomain } from '@realytica/shared';
+import type { AgentStep, DdDomain } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { agentAvailable } from '../../lib/agent-availability';
 import { CopilotPanel } from '../../components/CopilotPanel';
-import { Badge, Button, Callout, Skeleton, cn, useToast } from '../../components/ui/kit';
+import { Badge, Callout, Skeleton, cn, useToast } from '../../components/ui/kit';
 import { money } from '../../lib/format';
 import { DossierPane } from './cockpit/DossierPane';
 import { RequestsPane } from './cockpit/RequestsPane';
 import { ReviewQueue, pendingReviewCount } from './cockpit/ReviewQueue';
 import { ProceduresPane, blockedStepCount } from './cockpit/ProceduresPane';
-import { CASE_GROUP_PANES, SCREENING_GROUPS, ScreeningPane, screeningBadge } from './cockpit/ScreeningPane';
+import { SCREENING_GROUPS, ScreeningPane, screeningBadge } from './cockpit/ScreeningPane';
 import { LEGACY_TAB_REDIRECT, findGroup } from './groups';
-import { LensBar } from '../../components/LensBar';
-import { resolveLens } from '@realytica/shared';
-import type { LensKey } from '@realytica/shared';
 import { ProofPane } from './cockpit/ProofPane';
 import GraphExplorerTab from './tabs/GraphExplorerTab';
+import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { CommandBar } from './cockpit/CommandBar';
 import { LAYOUTS, LAYOUT_LABEL, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
 import type { CockpitLayout } from './cockpit/layout';
@@ -66,7 +65,7 @@ export default function Cockpit() {
    */
   const legacyTab = tabParam && tabParam !== 'cockpit' ? (LEGACY_TAB_REDIRECT[tabParam]?.group ?? tabParam) : null;
   const requestedPane = paneParam ?? legacyTab;
-  const screeningGroup = (CASE_GROUP_PANES as readonly string[]).includes(requestedPane ?? '') ? requestedPane : null;
+  const screeningGroup = (SCREENING_GROUPS as readonly string[]).includes(requestedPane ?? '') ? requestedPane : null;
   const paneMode = screeningGroup
     ? 'screening'
     : paneParam === 'review'
@@ -86,35 +85,9 @@ export default function Cockpit() {
    * chat by itself. `focus` is the only one a person chooses, so it is the
    * only one held in state rather than derived.
    */
-  /*
-   * The reading lens. Held as an override over the case's saved value so a
-   * switch is instant and a failed save costs the reader nothing — the lens
-   * is a presentation choice, not case truth.
-   */
-  const [lensOverride, setLensOverride] = useState<LensKey | null>(null);
-  const [lensBusy, setLensBusy] = useState(false);
-  const lens: LensKey = lensOverride ?? resolveLens({
-    lens: caseData?.lens,
-    defaultLens: caseData?.result?.assessment?.defaultLens,
-    persona: caseData?.persona,
-  });
-  const chooseLens = useCallback(
-    async (next: LensKey) => {
-      if (!caseData) return;
-      setLensOverride(next);
-      setLensBusy(true);
-      try {
-        await api.setLens(caseData.id, next);
-      } catch {
-        /* presentation only — a failed save is not worth interrupting a read */
-      } finally {
-        setLensBusy(false);
-      }
-    },
-    [caseData],
-  );
 
   const [focusMode, setFocusMode] = useState(false);
+  const [mobilePane, setMobilePane] = useState<'chat' | 'work'>('chat');
   const layout: CockpitLayout =
     focusMode ? 'focus' : paneMode === 'dossier' || paneMode === 'requests' ? 'cockpit' : 'study';
 
@@ -173,26 +146,53 @@ export default function Cockpit() {
   const openProof = useCallback(
     (documentId: string, page?: number) => {
       setFocusMode(false);
+      // On one column the work surface is behind a tab, so opening a proof
+      // there without switching to it looks like the citation did nothing.
+      setMobilePane('work');
       setParam({ doc: documentId, page: page ? String(page) : null, pane: null });
     },
     [setParam],
   );
 
+  /*
+   * Kept for the life of the screen rather than persisted.
+   *
+   * The change itself is durable — it is on the case row, which is the real
+   * record. This is only the note in the conversation saying which turn made
+   * it, and inventing a schema change to store that would put a second copy
+   * of the truth next to the first.
+   */
+  const [appliedByTurn, setAppliedByTurn] = useState<Record<string, string[]>>({});
+  const [steps, setSteps] = useState<AgentStep[]>([]);
+
   const handleAsk = useCallback(
     async (question: string) => {
       if (!caseData) return;
       setAsking(true);
+      // Cleared per question, not accumulated: this is what is happening now,
+      // and the finished turn's own tool badges are the record of what
+      // happened before.
+      setSteps([]);
       try {
-        const response = await api.askCopilot(caseData.id, question, `${DD_DOMAIN_PROFILES[domain].label} · cockpit`);
+        const response = await api.askCopilot(
+          caseData.id,
+          question,
+          `${DD_DOMAIN_PROFILES[domain].label} · cockpit`,
+          step => setSteps(prev => [...prev, step]),
+        );
         await refresh();
         const target = response.navigations?.[0]?.target;
         const asDomain = target?.replace('diligence?view=', '');
         if (asDomain && (DD_DOMAIN_KEYS as readonly string[]).includes(asDomain)) goDomain(asDomain as DdDomain);
         if (response.appliedCommands && response.appliedCommands.length > 0) {
+          // Toast AND transcript: the toast is the acknowledgement that it
+          // happened now, the card is the record that it happened at all.
           toast(response.appliedCommands.join(' · '), 'good');
+          setAppliedByTurn(prev => ({ ...prev, [response.assistantTurn.id]: response.appliedCommands ?? [] }));
         }
       } finally {
         setAsking(false);
+        setSteps([]);
       }
     },
     [caseData, domain, refresh, goDomain, toast],
@@ -237,6 +237,67 @@ export default function Cockpit() {
     [caseData],
   );
 
+  const desktop = useMediaQuery(DESKTOP_QUERY);
+
+  const graphNodes = useMemo(
+    () => (caseData ? buildDdGraph(caseData, caseData.updatedAt).nodes : []),
+    [caseData],
+  );
+
+  /*
+   * Follow-ups drawn from the case, not a constant.
+   *
+   * There was one hardcoded suggestion — "what is worst in <department> right
+   * now" — offered on every case in every state, including one with nothing
+   * on it. These are conditional on the case actually having the thing they
+   * ask about, so a chip never opens a question the file cannot answer.
+   */
+  const suggestions = useMemo(() => {
+    if (!caseData) return [];
+    const out: string[] = [];
+    const risks = (caseData.result?.risks ?? []).filter(r => r.status === 'open');
+    const critical = risks.filter(r => r.severity === 'critical');
+    if (critical.length > 0) out.push(`Why is "${critical[0].title}" critical, and what settles it?`);
+    else if (risks.length > 0) out.push(`What is worst in ${DD_DOMAIN_PROFILES[domain].label.toLowerCase()} right now?`);
+    if (caseData.result?.indicativeValue) out.push('What is the value range resting on?');
+    if ((caseData.documents ?? []).length > 0) out.push('What is missing that would change the answer?');
+    if ((caseData.result?.actions ?? []).some(a => !a.done)) out.push('What should I do first?');
+    return out.slice(0, 3);
+  }, [caseData, domain]);
+
+  const [railOpen, setRailOpen] = useState(false);
+
+  // Choosing a destination is the end of using the rail, so it closes itself
+  // — and it takes you to the thing you chose, which on one column means
+  // switching to the work tab. A drawer that closed onto the chat you were
+  // already looking at would read as the tap having done nothing.
+  const leaveRail = useCallback(() => {
+    setRailOpen(false);
+    setMobilePane('work');
+  }, []);
+
+  // Escape closes it, and the page behind it does not scroll while it is
+  // open — both of which a drawer needs and neither of which comes free.
+  useEffect(() => {
+    if (!railOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setRailOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [railOpen]);
+
+  // A viewport that grows back to desktop must not leave a drawer stranded
+  // over a layout that no longer has one.
+  useEffect(() => {
+    if (desktop) setRailOpen(false);
+  }, [desktop]);
+
   if (loading && !caseData) {
     return (
       <div className="p-6">
@@ -264,11 +325,60 @@ export default function Cockpit() {
   const citedPage = searchParams.get('page');
   const spec = LAYOUTS[layout];
 
+  /**
+   * What the work tab is currently showing, so its label can say so.
+   *
+   * Not a hook, and below the guards on purpose: it reads `openDocument`,
+   * which is resolved from a case that may not exist yet.
+   */
+  const paneLabel =
+    paneMode === 'procedures' ? 'Procedures'
+    : paneMode === 'review' ? 'Review'
+    : paneMode === 'requests' ? 'Requests'
+    : paneMode === 'graph' ? 'Graph'
+    : openDocument ? 'Document'
+    : paneMode === 'screening' && screeningGroup ? findGroup(screeningGroup)?.label ?? 'Work'
+    : DD_DOMAIN_PROFILES[domain].label;
+
+
+  /*
+   * Below `lg` the cockpit is not three columns; it is one.
+   *
+   * The desktop shape is a 180px rail plus a chat column with a 320px floor
+   * plus whatever is left — about 500px of unshrinkable content before the
+   * work surface gets a pixel. On a 375px phone that does not degrade, it
+   * clips: `<main>` is `overflow-x-hidden`, so the right pane is simply not
+   * reachable. Two columns of 187px would be no better; squeezing both
+   * produces two unusable halves, which is the reasoning already written down
+   * in NodeInspector for the same problem.
+   *
+   * So the rail becomes an off-canvas drawer, and chat and work become two
+   * tabs over one full-width column. This is a JS branch rather than Tailwind
+   * classes because the chat width is an inline `style` — dragged and
+   * persisted — and no CSS breakpoint can override an inline style.
+   */
+  /** What the work tab is currently showing, so its label can say so. */
+  /*
+   * The graph, so a bracketed id in an answer can render as its label.
+   *
+   * Built from the case the client already holds — the same pure projection
+   * the explorer draws — so this costs a memo rather than a round trip, and
+   * it cannot disagree with what the explorer shows when the chip is clicked.
+   */
   return (
     <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col">
       {/* case bar */}
       <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-hairline px-5 py-2.5">
-        <Link to="/cases" className="text-[11.5px] text-ink-secondary hover:text-ink">
+        <button
+          type="button"
+          onClick={() => setRailOpen(true)}
+          aria-label="Open case navigation"
+          aria-expanded={railOpen}
+          className="-ml-1 rounded-lg p-1.5 text-ink-secondary hover:bg-sunken hover:text-ink lg:hidden"
+        >
+          <Menu size={16} />
+        </button>
+        <Link to="/cases" className="text-mini text-ink-secondary hover:text-ink">
           Your cases
         </Link>
         <span className="text-ink-muted">·</span>
@@ -283,16 +393,12 @@ export default function Cockpit() {
           <Badge tone="neutral">Not screened</Badge>
         )}
         <div className="flex-grow" />
-        {/* The lens travels with the screening views it reorders, so it sits
-            in the case bar rather than above a tab strip that no longer
-            exists. */}
-        <LensBar lens={lens} onChange={chooseLens} busy={lensBusy} />
         <button
           type="button"
           onClick={() => setCommandOpen(true)}
-          className="rounded-lg border border-[var(--ring)] bg-surface px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink"
+          className="rounded-lg border border-[var(--ring)] bg-surface px-2.5 py-1 text-mini text-ink-muted hover:text-ink"
         >
-          Run a command <span className="font-mono">⌘K</span>
+          Run a command <span className="hidden font-mono lg:inline">⌘K</span>
         </button>
         <button
           type="button"
@@ -300,7 +406,9 @@ export default function Cockpit() {
           title={focusMode ? 'Leave focus' : 'Focus the conversation (⌘.)'}
           aria-pressed={focusMode}
           className={cn(
-            'flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px]',
+            // A three-column control, hidden where there are not three
+            // columns — the mobile tabs already do what it does.
+            'hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 text-mini lg:flex',
             focusMode ? 'border-brand bg-brand-soft text-brand' : 'border-[var(--ring)] bg-surface text-ink-secondary hover:text-ink',
           )}
         >
@@ -310,9 +418,45 @@ export default function Cockpit() {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {/* rail */}
-        <nav aria-label="Case navigation" className="flex w-[180px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline bg-surface-1 py-3">
-          <div className="px-3.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-muted">Screening</div>
+        {railOpen ? (
+          <div
+            className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+            onClick={() => setRailOpen(false)}
+            aria-hidden="true"
+          />
+        ) : null}
+        {/* rail — a column at lg, a drawer below it */}
+        <nav
+          aria-label="Case navigation"
+          aria-hidden={!desktop && !railOpen}
+          className={cn(
+            'flex w-[180px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline bg-surface-1 py-3',
+            'fixed inset-y-0 left-0 z-50 transition-transform duration-base ease-state',
+            'lg:static lg:z-auto lg:translate-x-0 lg:shadow-none',
+            railOpen ? 'translate-x-0 shadow-pop' : '-translate-x-full lg:translate-x-0',
+          )}
+          /*
+           * Delegated rather than wired into each of the nine destinations.
+           * Every one of them is a <button> inside one of the two <ul>s, so
+           * one handler here cannot miss one — and a tenth added later is
+           * covered without anybody remembering to. The close button is
+           * outside both lists, which is what keeps it from being treated as
+           * a destination.
+           */
+          onClick={e => {
+            if (desktop) return;
+            if ((e.target as HTMLElement).closest('ul')) leaveRail();
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setRailOpen(false)}
+            aria-label="Close case navigation"
+            className="mx-1.5 mb-1 flex items-center justify-end rounded-lg p-2 text-ink-muted hover:bg-sunken hover:text-ink lg:hidden"
+          >
+            <X size={16} />
+          </button>
+          <div className="px-3.5 pb-1.5 text-micro font-semibold uppercase tracking-[0.07em] text-ink-muted">Screening</div>
           <ul className="flex flex-col gap-px px-1.5">
             {SCREENING_GROUPS.map(key => {
               const group = findGroup(key);
@@ -337,40 +481,7 @@ export default function Cockpit() {
                     {badge ? (
                       <span
                         className={cn(
-                          'tabular rounded-full px-1.5 text-[10.5px]',
-                          badge.blocking ? 'bg-critical text-white' : 'bg-warning/25 text-ink',
-                        )}
-                      >
-                        {badge.count}
-                      </span>
-                    ) : null}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          <div className="mx-3.5 my-2 h-px bg-hairline" />
-          <div className="px-3.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-muted">Engagement</div>
-          <ul className="flex flex-col gap-px px-1.5">
-            {DD_DOMAIN_KEYS.map(d => {
-              const badge = badges.get(d);
-              const activeDept = paneMode === 'dossier' && d === domain;
-              return (
-                <li key={d}>
-                  <button
-                    type="button"
-                    onClick={() => goDomain(d)}
-                    aria-current={activeDept ? 'true' : undefined}
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[12.5px]',
-                      activeDept ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
-                    )}
-                  >
-                    <span>{DD_DOMAIN_PROFILES[d].label}</span>
-                    {badge ? (
-                      <span
-                        className={cn(
-                          'tabular rounded-full px-1.5 text-[10.5px]',
+                          'tabular rounded-full px-1.5 text-micro',
                           badge.blocking ? 'bg-critical text-white' : 'bg-warning/25 text-ink',
                         )}
                       >
@@ -399,7 +510,7 @@ export default function Cockpit() {
               >
                 <ListChecks size={13} /> Procedures
                 {blockedSteps > 0 ? (
-                  <span className="tabular ml-auto rounded-full bg-warning/25 px-1.5 text-[10.5px] text-ink">
+                  <span className="tabular ml-auto rounded-full bg-warning/25 px-1.5 text-micro text-ink">
                     {blockedSteps}
                   </span>
                 ) : null}
@@ -420,29 +531,10 @@ export default function Cockpit() {
               >
                 <ShieldQuestion size={13} /> Review
                 {pendingReviews > 0 ? (
-                  <span className="tabular ml-auto rounded-full bg-brand px-1.5 text-[10.5px] text-[var(--brand-ink)]">
+                  <span className="tabular ml-auto rounded-full bg-brand px-1.5 text-micro text-[var(--brand-ink)]">
                     {pendingReviews}
                   </span>
                 ) : null}
-              </button>
-            </li>
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusMode(false);
-                  setParam({ pane: 'documents', doc: null, view: null });
-                }}
-                aria-current={screeningGroup === 'documents' ? 'true' : undefined}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
-                  screeningGroup === 'documents' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
-                )}
-              >
-                <FileText size={13} /> Documents
-                <span className="tabular ml-auto rounded-full bg-surface-3 px-1.5 text-[10.5px] text-ink-secondary">
-                  {caseData.documents.length}
-                </span>
               </button>
             </li>
             <li>
@@ -462,7 +554,7 @@ export default function Cockpit() {
                 {requestSummary.outstanding > 0 ? (
                   <span
                     className={cn(
-                      'tabular ml-auto rounded-full px-1.5 text-[10.5px]',
+                      'tabular ml-auto rounded-full px-1.5 text-micro',
                       requestSummary.overdue > 0 ? 'bg-critical text-white' : 'bg-surface-3 text-ink-secondary',
                     )}
                   >
@@ -487,45 +579,48 @@ export default function Cockpit() {
                 <Waypoints size={13} /> Knowledge graph
               </button>
             </li>
-            <li>
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusMode(false);
-                  setParam({ pane: 'report', doc: null, view: null });
-                }}
-                aria-current={screeningGroup === 'report' ? 'true' : undefined}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
-                  screeningGroup === 'report' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
-                )}
-              >
-                <FileBarChart2 size={13} /> Report
-              </button>
-            </li>
           </ul>
         </nav>
 
         {/* chat — the centre */}
         <section
           aria-label="Conversation"
-          className="flex min-w-0 flex-col border-r border-hairline"
-          style={spec.chat === null ? { flexGrow: 1 } : { width: chatWidth, flexShrink: 0 }}
+          className={cn(
+            'min-w-0 flex-col border-r border-hairline',
+            // One column below lg: whichever tab is chosen takes all of it.
+            desktop || mobilePane === 'chat' ? 'flex' : 'hidden',
+            !desktop && 'flex-1',
+          )}
+          style={desktop ? (spec.chat === null ? { flexGrow: 1 } : { width: chatWidth, flexShrink: 0 }) : undefined}
         >
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex min-h-0 flex-1 flex-col p-4">
             <CopilotPanel
+              fill
+              nodes={graphNodes}
+              appliedByTurn={appliedByTurn}
+              steps={steps}
+              onOpenCommands={() => setCommandOpen(true)}
+              caseData={caseData}
               conversation={caseData.intelligence?.conversation ?? []}
               evidence={caseData.result?.evidence ?? []}
-              suggestions={
-                canAnswer === false ? [] : [`What is worst in ${DD_DOMAIN_PROFILES[domain].label.toLowerCase()} right now?`]
-              }
+              suggestions={canAnswer === false ? [] : suggestions}
               onAsk={handleAsk}
               busy={asking}
               disabled={canAnswer === false}
               disabledReason={canAnswer === false ? 'No model is configured for this deployment.' : undefined}
               verification={caseData.intelligence?.verification}
-              onOpenNode={nodeId => setParam({ pane: 'graph', doc: null, node: nodeId })}
+              onOpenNode={nodeId => {
+                setMobilePane('work');
+                setParam({ pane: 'graph', doc: null, node: nodeId });
+              }}
               onOpenDocument={id => openProof(id)}
+              onOpenEvidence={id => {
+                // An evidence chip whose source is a document opens that
+                // document; one from a dataset or a comparable has no page to
+                // open, so it stays inert rather than opening "something".
+                const item = (caseData.result?.evidence ?? []).find(e => e.id === id);
+                if (item?.sourceType === 'document') openProof(item.sourceRef);
+              }}
               fallback={
                 <div className="flex flex-col gap-2 py-2">
                   <p className="text-[12.5px] font-medium text-ink">Next steps on this case</p>
@@ -533,11 +628,14 @@ export default function Cockpit() {
                     <button
                       key={a.id}
                       type="button"
-                      onClick={() => setParam({ pane: 'report', view: 'actions', doc: null })}
+                      onClick={() => {
+                        setMobilePane('work');
+                        setParam({ pane: 'report', view: 'actions', doc: null });
+                      }}
                       className="rounded-lg bg-surface px-3 py-2 text-left ring-1 ring-inset ring-[var(--ring)] hover:ring-brand/40"
                     >
                       <span className="block text-[12.5px] text-ink">{a.title}</span>
-                      <span className="mt-0.5 block text-[11px] text-ink-muted">
+                      <span className="mt-0.5 block text-mini text-ink-muted">
                         {a.priority.replace(/_/g, ' ')} · {a.owner}
                       </span>
                     </button>
@@ -554,7 +652,7 @@ export default function Cockpit() {
         </section>
 
         {/* the divider only exists when there is something to divide */}
-        {spec.rightPane ? (
+        {spec.rightPane && desktop ? (
           <div
             role="separator"
             aria-orientation="vertical"
@@ -587,8 +685,14 @@ export default function Cockpit() {
         ) : null}
 
         {/* right pane */}
-        {spec.rightPane ? (
-          <section aria-label="Work surface" className="flex min-w-0 flex-1 flex-col bg-surface-1">
+        {spec.rightPane || !desktop ? (
+          <section
+            aria-label="Work surface"
+            className={cn(
+              'min-w-0 flex-1 flex-col bg-surface-1',
+              desktop || mobilePane === 'work' ? 'flex' : 'hidden',
+            )}
+          >
             {paneMode === 'procedures' ? (
               <ProceduresPane caseData={caseData} />
             ) : paneMode === 'review' ? (
@@ -604,7 +708,6 @@ export default function Cockpit() {
                 runScreen={async () => { await api.runScreen(caseData.id); await refresh(); }}
                 running={false}
                 goToTab={key => setParam({ pane: key, doc: null, view: null })}
-                lens={lens}
               />
             ) : paneMode === 'requests' ? (
               <RequestsPane caseData={caseData} onChanged={refresh} onOpenDocument={(id) => openProof(id)} />
@@ -621,7 +724,6 @@ export default function Cockpit() {
                   runScreen={async () => { await api.runScreen(caseData.id); await refresh(); }}
                   running={false}
                   goToTab={(key) => navigate(`/cases/${caseData.id}/${key}`)}
-                  lens={caseData.lens ?? 'developer'}
                 />
               </div>
             ) : openDocument ? (
@@ -632,29 +734,112 @@ export default function Cockpit() {
                 onClose={() => setParam({ doc: null, page: null })}
               />
             ) : (
-              <DossierPane
-                caseData={caseData}
-                domain={domain}
-                refData={REFERENCE_DATA}
-                onOpenProof={openProof}
-                onAddDocument={() => navigate(`/cases/${caseData.id}/documents`)}
-                onRunReview={(question) => void handleAsk(question)}
-                reviewBusy={asking}
-                reviewDisabled={canAnswer === false}
-                work={{
-                  caseData,
-                  result: caseData.result ?? null,
-                  refresh,
-                  runScreen: async () => { await api.runScreen(caseData.id); await refresh(); },
-                  running: false,
-                  goToTab: key => setParam({ pane: key, doc: null, view: null }),
-                  lens,
-                }}
-              />
+              <div className="flex h-full min-h-0 flex-col">
+                {/*
+                  The department strip.
+
+                  These eight were rail rows until they were the middle third
+                  of a seventeen-row column that also held case sections and
+                  whole-case surfaces — three different kinds of destination
+                  separated only by a hairline. They are a facet of one case
+                  rather than places to go: you switch department the way you
+                  switch a filter on a table, repeatedly and while looking at
+                  the thing it changes. So they sit directly above what they
+                  scope, and only while a dossier is what is on screen.
+                */}
+                <nav
+                  aria-label="Engagement department"
+                  className="flex shrink-0 flex-wrap items-center gap-1 border-b border-hairline px-4 py-2"
+                >
+                  {DD_DOMAIN_KEYS.map(d => {
+                    const badge = badges.get(d);
+                    const on = d === domain;
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => goDomain(d)}
+                        aria-current={on ? 'true' : undefined}
+                        title={DD_DOMAIN_PROFILES[d].question}
+                        className={cn(
+                          'flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12.5px] transition-colors duration-base',
+                          on ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:bg-surface-2 hover:text-ink',
+                        )}
+                      >
+                        {DD_DOMAIN_PROFILES[d].label}
+                        {badge ? (
+                          <span
+                            className={cn(
+                              'tabular rounded-full px-1.5 text-micro',
+                              badge.blocking ? 'bg-critical text-white' : 'bg-warning/25 text-ink',
+                            )}
+                          >
+                            {badge.count}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </nav>
+                <div className="min-h-0 flex-1">
+                  <DossierPane
+                    caseData={caseData}
+                    domain={domain}
+                    refData={REFERENCE_DATA}
+                    onOpenProof={openProof}
+                    onAddDocument={() => navigate(`/cases/${caseData.id}/documents`)}
+                    onRunReview={(question) => void handleAsk(question)}
+                    reviewBusy={asking}
+                    reviewDisabled={canAnswer === false}
+                    work={{
+                      caseData,
+                      result: caseData.result ?? null,
+                      refresh,
+                      runScreen: async () => { await api.runScreen(caseData.id); await refresh(); },
+                      running: false,
+                      goToTab: key => setParam({ pane: key, doc: null, view: null }),
+                    }}
+                  />
+                </div>
+              </div>
             )}
           </section>
         ) : null}
       </div>
+
+      {/*
+        The one-column switch, at the bottom because that is where a thumb
+        already is. Two destinations only: the conversation, and whatever the
+        rail last pointed at. Naming the second after the current pane rather
+        than calling it "Work" is what makes the tap predictable — a person
+        who just chose Documents in the drawer should see the word Documents
+        here, not a generic label they have to open to identify.
+      */}
+      <nav
+        aria-label="Cockpit panes"
+        className="flex shrink-0 border-t border-hairline bg-surface-1 lg:hidden"
+      >
+        {([
+          { key: 'chat' as const, label: 'Conversation', icon: <MessageSquare size={15} /> },
+          { key: 'work' as const, label: paneLabel, icon: <SquareStack size={15} /> },
+        ]).map(t => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setMobilePane(t.key)}
+            aria-current={mobilePane === t.key ? 'true' : undefined}
+            className={cn(
+              'flex min-h-11 flex-1 items-center justify-center gap-1.5 border-t-2 px-3 py-2 text-[12.5px] font-medium',
+              mobilePane === t.key
+                ? 'border-brand text-brand'
+                : 'border-transparent text-ink-secondary',
+            )}
+          >
+            {t.icon}
+            <span className="truncate">{t.label}</span>
+          </button>
+        ))}
+      </nav>
 
       <CommandBar
         open={commandOpen}

@@ -122,9 +122,9 @@ function CasePicker({
           >
             <Checkbox checked={checked} disabled={disabled} onChange={(next) => onToggle(c.id, next)} />
             <div className="min-w-0">
-              <div className="truncate font-mono text-[10px] text-ink-muted">{c.reference}</div>
+              <div className="truncate font-mono text-micro text-ink-muted">{c.reference}</div>
               <div className="truncate text-[13px] font-medium text-ink">{c.label}</div>
-              <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-ink-secondary">
+              <div className="mt-0.5 flex flex-wrap items-center gap-1 text-mini text-ink-secondary">
                 <span>{c.city}</span>
                 <span className="text-ink-muted">·</span>
                 <span>{PROPERTY_TYPE_LABEL[c.propertyType]}</span>
@@ -316,7 +316,7 @@ function CompareScreen({ caseIds }: { caseIds: string[] }) {
       <div className="flex flex-wrap items-center gap-2">
         {chipCases.map((c) => (
           <span key={c.id} className="inline-flex items-center gap-1.5 rounded-full bg-surface py-1 pl-3 pr-1.5 text-xs ring-1 ring-inset ring-[var(--ring)]">
-            <span className="font-mono text-[10px] text-ink-muted">{c.reference}</span>
+            <span className="font-mono text-micro text-ink-muted">{c.reference}</span>
             <span className="font-medium text-ink">{c.label}</span>
             <button
               type="button"
@@ -399,7 +399,7 @@ function CompareScreen({ caseIds }: { caseIds: string[] }) {
               <CardBody className="flex items-start gap-3">
                 <Sparkles size={18} className="mt-0.5 shrink-0 text-brand" />
                 <div className="min-w-0">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Recommended shortlist</div>
+                  <div className="text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">Recommended shortlist</div>
                   <div className="mt-0.5 text-[15px] font-semibold text-ink">
                     {result.cases.find((c) => c.id === result.shortlist?.caseId)?.reference ?? result.shortlist.caseId} —{' '}
                     {result.cases.find((c) => c.id === result.shortlist?.caseId)?.label}
@@ -453,7 +453,7 @@ function CompareScreen({ caseIds }: { caseIds: string[] }) {
                           // Each mini band is drawn on its own scale, so the
                           // endpoints are labelled — otherwise two very different
                           // magnitudes read as comparable bar lengths.
-                          <div className="tabular flex items-baseline justify-between gap-2 text-[11px] text-ink-muted">
+                          <div className="tabular flex items-baseline justify-between gap-2 text-mini text-ink-muted">
                             <span>{money(rv.indicativeValue.low, rv.indicativeValue.currency)}</span>
                             <span className="font-medium text-ink-secondary">
                               mid {money(rv.indicativeValue.mid, rv.indicativeValue.currency)}
@@ -461,7 +461,7 @@ function CompareScreen({ caseIds }: { caseIds: string[] }) {
                             <span>{money(rv.indicativeValue.high, rv.indicativeValue.currency)}</span>
                           </div>
                         ) : (
-                          <div className="flex h-[72px] items-center justify-center text-[11px] text-ink-muted">Not yet screened</div>
+                          <div className="flex h-[72px] items-center justify-center text-mini text-ink-muted">Not yet screened</div>
                         )}
                       </div>
                     );
@@ -481,7 +481,7 @@ function CompareScreen({ caseIds }: { caseIds: string[] }) {
               <table className="w-full min-w-[560px] border-collapse text-[13px]">
                 <thead>
                   <tr>
-                    <th className="sticky left-0 top-0 z-20 min-w-[180px] border-b border-r border-hairline bg-surface px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-muted">
+                    <th className="sticky left-0 top-0 z-20 min-w-[180px] border-b border-r border-hairline bg-surface px-3 py-2 text-left text-mini font-semibold uppercase tracking-[0.05em] text-ink-muted">
                       Metric
                     </th>
                     {result.cases.map((c) => (
@@ -489,9 +489,9 @@ function CompareScreen({ caseIds }: { caseIds: string[] }) {
                         key={c.id}
                         className="sticky top-0 z-10 min-w-[140px] border-b border-hairline bg-surface px-3 py-2 text-left align-top"
                       >
-                        <div className="truncate font-mono text-[10px] text-ink-muted">{c.reference}</div>
+                        <div className="truncate font-mono text-micro text-ink-muted">{c.reference}</div>
                         <div className="truncate text-[13px] font-semibold text-ink">{c.label}</div>
-                        <div className="text-[11px] text-ink-muted">{c.currency}</div>
+                        <div className="text-mini text-ink-muted">{c.currency}</div>
                       </th>
                     ))}
                   </tr>
@@ -523,7 +523,7 @@ function CompareScreen({ caseIds }: { caseIds: string[] }) {
                                   {formatRowValue(row, value, c.currency, areaUnit)}
                                 </span>
                               </div>
-                              {cell?.note ? <div className="mt-0.5 text-[11px] text-ink-muted">{cell.note}</div> : null}
+                              {cell?.note ? <div className="mt-0.5 text-mini text-ink-muted">{cell.note}</div> : null}
                             </td>
                           );
                         })}

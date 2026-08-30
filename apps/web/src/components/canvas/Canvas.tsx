@@ -6,6 +6,7 @@ import { cn } from '../ui/kit';
 import { useMeasure } from '../charts/primitives';
 import type { GraphLayout, PositionedNode } from './layout';
 import { RunNode } from './RunNode';
+import { usePinchZoom } from './usePinchZoom';
 
 /**
  * The pan/zoom viewport.
@@ -205,6 +206,19 @@ export default function Canvas({ layout, selectedId, onSelect, runsById, ariaLab
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
+
+  /* ---------------- pinch to zoom ----------------------------------- */
+
+  usePinchZoom(
+    viewportRef,
+    useCallback((factor: number, cx: number, cy: number, dx: number, dy: number) => {
+      adjustedRef.current = true;
+      setView(v => {
+        const zoomed = zoomAbout(v, v.k * factor, cx, cy);
+        return { ...zoomed, x: zoomed.x + dx, y: zoomed.y + dy };
+      });
+    }, []),
+  );
 
   /* ---------------- drag to pan ------------------------------------ */
 
@@ -424,7 +438,7 @@ export default function Canvas({ layout, selectedId, onSelect, runsById, ariaLab
               <div
                 key={`caption-${lane.lane}`}
                 aria-hidden="true"
-                className="absolute truncate text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted"
+                className="absolute truncate text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted"
                 style={{
                   left: lane.x,
                   top: layout.options.padding,
@@ -530,7 +544,7 @@ export default function Canvas({ layout, selectedId, onSelect, runsById, ariaLab
           </CanvasButton>
         </div>
 
-        <div className="pointer-events-none absolute bottom-3 right-3 rounded-md bg-surface/90 px-1.5 py-0.5 text-[10px] font-medium tabular text-ink-muted ring-1 ring-[var(--ring)]">
+        <div className="pointer-events-none absolute bottom-3 right-3 rounded-md bg-surface/90 px-1.5 py-0.5 text-micro font-medium tabular text-ink-muted ring-1 ring-[var(--ring)]">
           {Math.round(view.k * 100)}%
         </div>
       </div>

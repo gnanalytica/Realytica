@@ -52,7 +52,7 @@ export function WaterExposureCard({ water, locality }: { water: WaterExposureRef
 
         {water.knownInundationPoints.length > 0 && (
           <div>
-            <h4 className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+            <h4 className="mb-1 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-wide text-ink-muted">
               <Droplets size={12} /> Reported inundation in this locality
             </h4>
             <p className="m-0 text-[13px] leading-relaxed text-ink-secondary">{water.knownInundationPoints.join(' · ')}</p>
@@ -60,7 +60,7 @@ export function WaterExposureCard({ water, locality }: { water: WaterExposureRef
         )}
 
         <div className="rounded-lg bg-sunken p-3">
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Where this comes from</p>
+          <p className="m-0 text-mini font-semibold uppercase tracking-wide text-ink-muted">Where this comes from</p>
           <p className="m-0 mt-1 text-[12px] leading-relaxed text-ink-secondary">
             {water.source}. Carried as of {water.asOf}.
           </p>

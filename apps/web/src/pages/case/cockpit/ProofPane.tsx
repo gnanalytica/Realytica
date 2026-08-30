@@ -53,7 +53,7 @@ export function ProofPane({
         <FileText size={14} className="text-ink-muted" />
         <div className="min-w-0">
           <div className="truncate text-[13px] font-semibold text-ink">{doc.fileName}</div>
-          <div className="text-[11px] text-ink-muted">
+          <div className="text-mini text-ink-muted">
             {DOCUMENT_KIND_LABEL[doc.kind]} · {relativeTime(doc.uploadedAt)}
             {page ? ` · cited at page ${page}` : ''}
           </div>
@@ -63,7 +63,7 @@ export function ProofPane({
           href={documentFileUrl(caseId, doc.id)}
           download={doc.fileName}
           title="Download the original file"
-          className="flex items-center gap-1.5 rounded-full border border-hairline px-2.5 py-1 text-[11.5px] text-ink-secondary hover:text-ink"
+          className="flex items-center gap-1.5 rounded-full border border-hairline px-2.5 py-1 text-mini text-ink-secondary hover:text-ink"
         >
           <Download size={12} /> Original
         </a>
@@ -78,7 +78,7 @@ export function ProofPane({
         </div>
 
         <aside className="flex w-[264px] shrink-0 flex-col border-l border-hairline bg-surface-2">
-          <h3 className="border-b border-hairline px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+          <h3 className="border-b border-hairline px-4 py-2.5 text-micro font-semibold uppercase tracking-[0.06em] text-ink-muted">
             What this establishes
           </h3>
           {doc.extracted.length === 0 ? (
@@ -98,13 +98,13 @@ export function ProofPane({
                         on ? 'bg-brand-soft' : 'hover:bg-surface-3',
                       )}
                     >
-                      <span className="block text-[11px] text-ink-secondary">{f.label}</span>
+                      <span className="block text-mini text-ink-secondary">{f.label}</span>
                       <span className="block text-[12.5px] font-medium text-ink">
                         {f.value}
                         {f.unit ? <span className="font-normal text-ink-secondary"> {f.unit}</span> : null}
                         <OriginalScript original={f.originalValue} script={f.originalScript} className="ml-1.5 font-normal text-ink-secondary" />
                       </span>
-                      <span className="tabular mt-0.5 block text-[10.5px] text-ink-muted">
+                      <span className="tabular mt-0.5 block text-micro text-ink-muted">
                         {Math.round(f.confidence * 100)}% · {titleCase(f.method)}
                         {f.sourcePage ? ` · p.${f.sourcePage}` : ' · page not recorded'}
                       </span>
@@ -114,7 +114,7 @@ export function ProofPane({
               })}
             </ul>
           )}
-          <p className="border-t border-hairline px-4 py-2.5 text-[10.5px] leading-relaxed text-ink-muted">
+          <p className="border-t border-hairline px-4 py-2.5 text-micro leading-relaxed text-ink-muted">
             Selecting a fact goes to its page and marks where the value appears. Nothing is marked when the words are not
             found there.
           </p>

@@ -51,7 +51,6 @@ export async function seedDemoData(): Promise<number> {
       reference: store.nextReference(),
       identity: seed.identity,
       status: 'draft',
-      persona: seed.persona,
       ownerName: seed.ownerName,
       createdAt: now,
       updatedAt: now,

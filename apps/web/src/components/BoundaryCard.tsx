@@ -159,7 +159,7 @@ export function BoundaryCard({ caseData, onChanged }: { caseData: PropertyCase; 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[11px] font-medium uppercase tracking-[0.05em] text-ink-muted">{label}</div>
+      <div className="text-mini font-medium uppercase tracking-[0.05em] text-ink-muted">{label}</div>
       <div className="mt-0.5 font-mono text-[13px] tabular-nums text-ink">{value}</div>
     </div>
   );

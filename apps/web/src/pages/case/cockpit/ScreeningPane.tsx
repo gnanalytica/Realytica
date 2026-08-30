@@ -1,4 +1,4 @@
-import type { LensKey, PropertyCase, ScreenResult } from '@realytica/shared';
+import type { PropertyCase, ScreenResult } from '@realytica/shared';
 import type { TabProps } from '../tab-props';
 import { CASE_GROUPS, NEEDS_SCREEN, findGroup } from '../groups';
 import { Button, EmptyState, cn } from '../../../components/ui/kit';
@@ -43,7 +43,7 @@ export function ScreeningPane({
         <h2 className="text-[13px] font-semibold text-ink">{group.label}</h2>
         {/* The group's question, not a restatement of its name — it is what
             the views below have in common and why they sit together. */}
-        <p className="mt-0.5 text-[11.5px] text-ink-muted">{group.question}</p>
+        <p className="mt-0.5 text-mini text-ink-muted">{group.question}</p>
         {group.views.length > 1 ? (
           <div className="mt-2.5 flex flex-wrap gap-1">
             {group.views.map(v => (
@@ -53,7 +53,7 @@ export function ScreeningPane({
                 onClick={() => onSelectView(v.key)}
                 aria-current={v.key === view.key ? 'true' : undefined}
                 className={cn(
-                  'rounded-full px-2.5 py-1 text-[11.5px]',
+                  'rounded-full px-2.5 py-1 text-mini',
                   v.key === view.key ? 'bg-brand text-[var(--brand-ink)] font-medium' : 'bg-surface-3 text-ink-secondary hover:text-ink',
                 )}
               >
@@ -85,19 +85,22 @@ export function ScreeningPane({
   );
 }
 
-/** Which groups the cockpit's Screening section offers, in reading order. */
-export const SCREENING_GROUPS = ['overview', 'value', 'legal'] as const;
-
 /**
- * Every group the cockpit can show in its right pane.
+ * The groups the cockpit's Screening section offers, in reading order — and
+ * the complete set of groups its right pane can show. One list, because two
+ * were one list too many.
  *
- * Wider than the Screening section: Documents and Report get their own rail
- * entries further down, beside Requests and the graph, because they are
- * things you do rather than questions you ask. Pane resolution reads this
- * list, so a `pane=` value and an old `/cases/:id/<tab>` link resolve to the
- * same surface.
+ * Documents and Report used to be missing from the first and present in the
+ * second: they were `CASE_GROUPS` entries all along, setting the same `pane`
+ * parameter as their neighbours, but the rail listed them separately at the
+ * bottom beside Requests and the graph, on the reasoning that they are things
+ * you do rather than questions you ask. The rail then had two entry points
+ * into the same group system, styled differently and eleven rows apart, and
+ * whichever list a future group was added to it would be missing from the
+ * other. Pane resolution reads this, so a `pane=` value and an old
+ * `/cases/:id/<tab>` link still resolve to the same surface.
  */
-export const CASE_GROUP_PANES = ['overview', 'value', 'legal', 'documents', 'report'] as const;
+export const SCREENING_GROUPS = ['overview', 'value', 'legal', 'documents', 'report'] as const;
 
 /**
  * The rail badge for a screening group — the same counts the workspace's tab
@@ -112,6 +115,10 @@ export function screeningBadge(
     const n = result?.risks.filter(r => r.severity === 'critical' && r.status === 'open').length ?? 0;
     return n > 0 ? { count: n, blocking: true } : undefined;
   }
+  if (groupKey === 'documents') {
+    const n = caseData.documents.length;
+    return n > 0 ? { count: n, blocking: false } : undefined;
+  }
   if (groupKey === 'legal') {
     const titleFindings = result?.titleGraph
       ? result.titleGraph.contradictions.length + result.titleGraph.chains.reduce((n, c) => n + c.breaks.length, 0)
@@ -123,4 +130,3 @@ export function screeningBadge(
   return undefined;
 }
 
-export type { LensKey };

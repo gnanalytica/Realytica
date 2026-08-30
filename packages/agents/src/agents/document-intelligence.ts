@@ -878,12 +878,26 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       disagreementNotes.push(disagreement.note);
     }
 
-    // `prepareValue` decides what `value` becomes. For an identifier it keeps
-    // the characters and only normalises Indic digits — there is no English
-    // spelling of a survey number, only the survey number. For a name it keeps
-    // both forms, because a transliteration is a reading and the register a
-    // lawyer checks holds the original.
-    const scripted = prepareValue(raw.key, raw.value, raw.originalValue ?? undefined);
+    /*
+     * `prepareValue` decides what `value` becomes. For an identifier it keeps
+     * the characters and only normalises Indic digits — there is no English
+     * spelling of a survey number, only the survey number. For a name it keeps
+     * both forms, because a transliteration is a reading and the register a
+     * lawyer checks holds the original.
+     *
+     * The QUOTE is handed to it as the page, and that is what makes the
+     * identifier rule enforced rather than merely asked for. `pnpm
+     * eval:multilingual` measures a model that has just been told not to
+     * transliterate an identifier returning `౨౧౪/అ` as `214/A` — a
+     * well-formed survey number naming a different plot, which passes every
+     * downstream check because there is nothing wrong with it.
+     *
+     * The quote rather than the whole document on purpose: it is narrower, so
+     * two candidate identifiers on one page cannot make the recovery abstain,
+     * and it is the text the model itself said it was reading, so recovering
+     * from it cannot import something from elsewhere on the page.
+     */
+    const scripted = prepareValue(raw.key, raw.value, raw.originalValue ?? undefined, raw.quote);
     const carriesOriginal = scripted.original !== scripted.value && scripted.script !== 'latin';
 
     fields.push({

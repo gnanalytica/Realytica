@@ -174,7 +174,7 @@ function AddFindingForm({
               }}
             />
           </div>
-          <p className="mb-1.5 text-[11px] leading-relaxed text-ink-subtle">
+          <p className="mb-1.5 text-mini leading-relaxed text-ink-subtle">
             Photos captured here arrive already mapped to {TECHNICAL_SYSTEM_LABEL[draft.system]}
             {draft.zone.trim() ? ` in ${draft.zone.trim()}` : ''} and attach to this finding.
           </p>
@@ -192,7 +192,7 @@ function AddFindingForm({
                     <Camera size={13} className="shrink-0 text-ink-faint" />
                     <span className="truncate text-[12.5px] text-ink-secondary">{doc.fileName}</span>
                     {doc.captureZone || doc.captureSystem ? (
-                      <span className="ml-auto shrink-0 text-[10.5px] text-ink-faint">
+                      <span className="ml-auto shrink-0 text-micro text-ink-faint">
                         {[doc.captureSystem ? TECHNICAL_SYSTEM_LABEL[doc.captureSystem] : null, doc.captureZone].filter(Boolean).join(' · ')}
                       </span>
                     ) : null}
@@ -350,7 +350,7 @@ function FindingRow({
         // FINANCIAL enrichments — always a person's own entry, never the
         // copilot's: see the field comments on TechnicalFinding for why.
         <div className="mt-2.5 flex flex-wrap items-end gap-2 border-t border-hairline pt-2.5">
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-ink-muted">
+          <label className="flex flex-col gap-0.5 text-mini font-medium text-ink-muted">
             Est. cost to fix ({currency})
             <Input
               type="number"
@@ -363,7 +363,7 @@ function FindingRow({
               className="!h-7 w-32 text-[12.5px]"
             />
           </label>
-          <label className="flex flex-col gap-0.5 text-[11px] font-medium text-ink-muted">
+          <label className="flex flex-col gap-0.5 text-mini font-medium text-ink-muted">
             Owner
             <Input
               value={ownerDraft}
@@ -403,7 +403,7 @@ function DocumentChecklist({ caseId, phase, provided, onToggled }: { caseId: str
       <CardBody className="flex flex-col gap-4">
         {bySystem.map((group) => (
           <div key={group.system}>
-            <h4 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{TECHNICAL_SYSTEM_LABEL[group.system]}</h4>
+            <h4 className="text-mini font-semibold uppercase tracking-[0.08em] text-ink-subtle">{TECHNICAL_SYSTEM_LABEL[group.system]}</h4>
             <ul className="mt-1.5 flex flex-col gap-1.5">
               {group.items.map((item) => (
                 <li key={item.id} className="flex items-center justify-between gap-3">

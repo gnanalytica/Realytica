@@ -282,7 +282,7 @@ function EvidenceRow({
           <div className="mb-1 flex flex-wrap items-center gap-1.5">
             <Badge tone="neutral">{SOURCE_LABEL[evidence.sourceType]}</Badge>
             {onOpenDocuments ? (
-              <button type="button" onClick={onOpenDocuments} className="text-[11px] text-brand hover:underline">
+              <button type="button" onClick={onOpenDocuments} className="text-mini text-brand hover:underline">
                 Open document
               </button>
             ) : null}

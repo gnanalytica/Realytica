@@ -110,7 +110,7 @@ export function PromptList({ prompts, selectedKey, onSelect, className }: Prompt
   return (
     <div className={cn('flex min-h-0 flex-col', className)}>
       <div className="flex items-center gap-2 border-b border-hairline px-3 py-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted">
+        <span className="text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">
           {prompts.length} prompt{prompts.length === 1 ? '' : 's'}
         </span>
         <Select
@@ -138,10 +138,10 @@ export function PromptList({ prompts, selectedKey, onSelect, className }: Prompt
             return (
               <section key={agent}>
                 <header className="sticky top-0 z-10 flex items-center gap-2 bg-sunken px-3 py-1.5">
-                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-secondary">
+                  <h3 className="text-mini font-semibold uppercase tracking-[0.07em] text-ink-secondary">
                     {AGENT_LABEL[agent] ?? agent}
                   </h3>
-                  <span className="text-[11px] text-ink-muted">{items.length}</span>
+                  <span className="text-mini text-ink-muted">{items.length}</span>
                   {compromised.length > 0 ? (
                     <Badge tone="critical" className="ml-auto" icon={<ShieldAlert size={11} />}>
                       {compromised.length} unguarded
@@ -178,9 +178,9 @@ export function PromptList({ prompts, selectedKey, onSelect, className }: Prompt
                                 {ROLE_LABEL[prompt.role]}
                               </Badge>
                             </div>
-                            <p className="mt-0.5 truncate font-mono text-[10.5px] text-ink-muted">{prompt.key}</p>
+                            <p className="mt-0.5 truncate font-mono text-micro text-ink-muted">{prompt.key}</p>
 
-                            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-secondary">
+                            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-mini text-ink-secondary">
                               {active ? (
                                 <span>
                                   Active <span className="font-medium text-ink">v{active.version}</span> · {active.label}
@@ -194,21 +194,21 @@ export function PromptList({ prompts, selectedKey, onSelect, className }: Prompt
                             </div>
 
                             {unresolved ? (
-                              <p className="mt-1.5 flex items-start gap-1 text-[11px] font-medium leading-relaxed text-critical">
+                              <p className="mt-1.5 flex items-start gap-1 text-mini font-medium leading-relaxed text-critical">
                                 <ShieldAlert size={12} className="mt-0.5 shrink-0" />
                                 This prompt points at a version that is not in its own history. Nothing here can be
                                 treated as checked.
                               </p>
                             ) : broken.length > 0 ? (
                               <p
-                                className="mt-1.5 flex items-start gap-1 text-[11px] font-medium leading-relaxed text-critical"
+                                className="mt-1.5 flex items-start gap-1 text-mini font-medium leading-relaxed text-critical"
                                 data-testid={`prompt-broken-${prompt.key}`}
                               >
                                 <ShieldAlert size={12} className="mt-0.5 shrink-0" />
                                 Guardrail dropped: {broken.map((b) => b.label).join(', ')}
                               </p>
                             ) : (
-                              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-muted">
+                              <p className="mt-1.5 text-mini leading-relaxed text-ink-muted">
                                 All {active.invariants.length} guardrail{active.invariants.length === 1 ? '' : 's'} kept
                               </p>
                             )}

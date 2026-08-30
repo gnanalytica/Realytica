@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { openTechnicalFindingCounts, totalOpenEstimatedCost, domainForRiskCategory, domainForSystem, buildDepartmentDossier } from '@realytica/shared';
-import type { DdDomain, PropertyCase, TechnicalSystem } from '@realytica/shared';
+import type { DdDomain, PropertyCase, RiskSeverity, TechnicalSystem } from '@realytica/shared';
 import { TECHNICAL_SYSTEM_LABEL } from '@realytica/shared';
 import { money } from '../../../lib/format';
-import { Card, CardBody, CardHeader } from '../../../components/ui/kit';
+import { Card, CardBody, CardHeader, cn } from '../../../components/ui/kit';
 
 /**
  * A department's own picture.
@@ -80,7 +80,7 @@ function ExposureBySystem({ caseData }: { caseData: PropertyCase }) {
             );
           })}
         </svg>
-        <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">
+        <p className="mt-1 text-mini leading-relaxed text-ink-muted">
           Estimates, not quotations.
           {uncosted > 0 ? ` ${uncosted} open finding${uncosted === 1 ? '' : 's'} carr${uncosted === 1 ? 'ies' : 'y'} no figure yet.` : ''}
         </p>
@@ -138,13 +138,13 @@ function SeverityMatrix({ caseData }: { caseData: PropertyCase }) {
         <div className="grid grid-cols-[104px_repeat(4,minmax(0,1fr))] gap-1">
           <div />
           {SEVERITIES.map(s => (
-            <div key={s} className="pb-1 text-center text-[10px] capitalize text-ink-muted">
+            <div key={s} className="pb-1 text-center text-micro capitalize text-ink-muted">
               {s}
             </div>
           ))}
           {DOMAIN_ROWS.map(domain => (
             <div key={domain} className="contents">
-              <div className="pr-2 text-right text-[11.5px] leading-[28px] text-ink-secondary">{DOMAIN_SHORT[domain]}</div>
+              <div className="pr-2 text-right text-mini leading-[28px] text-ink-secondary">{DOMAIN_SHORT[domain]}</div>
               {SEVERITIES.map(severity => {
                 const n = grid.cells.get(`${domain}:${severity}`) ?? 0;
                 return (
@@ -162,11 +162,11 @@ function SeverityMatrix({ caseData }: { caseData: PropertyCase }) {
           ))}
         </div>
         <div className="mt-3 flex items-center gap-2">
-          <span className="text-[10.5px] text-ink-muted">Fewer</span>
+          <span className="text-micro text-ink-muted">Fewer</span>
           {RAMP.slice(1).map(c => (
             <span key={c} className="h-2.5 w-6 rounded-[3px]" style={{ background: c }} />
           ))}
-          <span className="text-[10.5px] text-ink-muted">More</span>
+          <span className="text-micro text-ink-muted">More</span>
         </div>
       </CardBody>
     </Card>
@@ -222,11 +222,11 @@ function ChainOfCustody({ caseData }: { caseData: PropertyCase }) {
           })}
         </svg>
         {breaks > 0 ? (
-          <p className="mt-1 text-[11.5px] leading-relaxed text-critical">
+          <p className="mt-1 text-mini leading-relaxed text-critical">
             {breaks} break{breaks === 1 ? '' : 's'} in this chain — {chain.breaks[0].statement}
           </p>
         ) : (
-          <p className="mt-1 text-[11px] text-ink-muted">No break detected between the instruments on file.</p>
+          <p className="mt-1 text-mini text-ink-muted">No break detected between the instruments on file.</p>
         )}
       </CardBody>
     </Card>
@@ -314,7 +314,7 @@ function ValueByMethod({ caseData }: { caseData: PropertyCase }) {
           ) : null}
         </svg>
         {asking && indicative && asking > indicative.high ? (
-          <p className="mt-1 text-[11.5px] leading-relaxed text-ink-secondary">
+          <p className="mt-1 text-mini leading-relaxed text-ink-secondary">
             The asking price sits above the indicative range — a gap to explain or negotiate, not a number to argue with.
           </p>
         ) : null}
@@ -380,7 +380,7 @@ function BoundaryAndExtent({ caseData }: { caseData: PropertyCase }) {
         ) : null}
         {stated.length > 0 ? (
           <div>
-            <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+            <div className="mb-1 text-micro font-semibold uppercase tracking-[0.06em] text-ink-muted">
               What the documents state
             </div>
             <ul className="flex flex-col gap-1">
@@ -392,7 +392,7 @@ function BoundaryAndExtent({ caseData }: { caseData: PropertyCase }) {
                     {f.unit ? ` ${f.unit}` : ''}
                   </span>
                   {f.varies ? (
-                    <span className="ml-auto rounded-full bg-warning/25 px-2 py-0.5 text-[10.5px] text-ink">
+                    <span className="ml-auto rounded-full bg-warning/25 px-2 py-0.5 text-micro text-ink">
                       {f.values?.length} versions
                     </span>
                   ) : null}
@@ -400,7 +400,7 @@ function BoundaryAndExtent({ caseData }: { caseData: PropertyCase }) {
               ))}
             </ul>
             {boundary ? (
-              <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
+              <p className="mt-2 text-mini leading-relaxed text-ink-muted">
                 The outline&rsquo;s own area is stated above it. Where it and a document disagree, that difference is the
                 finding — reconciling them is a survey question, not an arithmetic one.
               </p>
@@ -428,7 +428,7 @@ export function DepartmentVisuals({ caseData, domain }: { caseData: PropertyCase
   return (
     <div className="flex flex-col gap-3">
       {domain === 'technical' && counts.open > 0 ? (
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Stat label="Critical" value={counts.openCritical} tone={counts.openCritical > 0 ? 'critical' : undefined} />
           <Stat label="Open" value={counts.open} />
           <Stat label="Costed" value={exposure === undefined ? '—' : money(exposure, caseData.identity.currency, { compact: true })} />
@@ -448,8 +448,176 @@ export function DepartmentVisuals({ caseData, domain }: { caseData: PropertyCase
 function Stat({ label, value, tone }: { label: string; value: string | number; tone?: 'critical' }) {
   return (
     <div className="rounded-xl border border-[var(--ring)] bg-surface px-3 py-2.5">
-      <div className="text-[10px] uppercase tracking-[0.05em] text-ink-muted">{label}</div>
+      <div className="text-micro uppercase tracking-[0.05em] text-ink-muted">{label}</div>
       <div className={`tabular mt-0.5 text-[19px] font-semibold ${tone === 'critical' ? 'text-critical' : 'text-ink'}`}>{value}</div>
+    </div>
+  );
+}
+
+/* ==================================================================== */
+/* Every department — what is open here, at a glance                     */
+/* ==================================================================== */
+
+/**
+ * This department's open items as one bar, by severity.
+ *
+ * The workboard listed them: one row per item, a severity badge, a department
+ * badge, a title — which is a table of contents for work, not a picture of
+ * it. Reading "how bad is this department" off it meant counting badges. A
+ * bar answers that before it is read, and each band is a control, so the
+ * count is also the way in.
+ *
+ * Drawn only from what the file holds, like everything else here: a
+ * department with nothing open renders nothing rather than an empty axis,
+ * because an empty department is a coverage fact and drawing a zeroed chart
+ * would dress it up as a clean bill.
+ */
+export interface Segment {
+  key: string;
+  label: string;
+  n: number;
+  fill: string;
+}
+
+/**
+ * A count, as a proportion you can click.
+ *
+ * One component rather than one per thing counted. Risks by severity, checks
+ * by verdict and actions by horizon are the same question asked three times —
+ * how is this pile distributed, and let me see one part of it — and three
+ * near-identical bars would drift apart the first time one of them was
+ * improved.
+ *
+ * Empty segments are dropped rather than drawn at zero width, which keeps the
+ * legend to the things that are actually there. A pile with nothing in it
+ * renders nothing at all: an empty department is a coverage fact, and a
+ * zeroed bar dresses it up as a clean bill.
+ */
+export function ProportionBar({
+  segments,
+  onSelect,
+  selected,
+}: {
+  segments: Segment[];
+  onSelect?: (key: string | null) => void;
+  selected?: string | null;
+}) {
+  const present = segments.filter(seg => seg.n > 0);
+  const total = present.reduce((sum, seg) => sum + seg.n, 0);
+  if (total === 0) return null;
+
+  const aria = `${total} item${total === 1 ? '' : 's'}: ${present.map(seg => `${seg.n} ${seg.label}`).join(', ')}`;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-sunken" role="img" aria-label={aria}>
+        {present.map(seg => (
+          <span
+            key={seg.key}
+            className="h-full first:rounded-l-full last:rounded-r-full"
+            style={{ width: `${(seg.n / total) * 100}%`, background: seg.fill }}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {present.map(seg => {
+          const on = selected === seg.key;
+          return (
+            <button
+              key={seg.key}
+              type="button"
+              onClick={() => onSelect?.(on ? null : seg.key)}
+              disabled={!onSelect}
+              aria-pressed={onSelect ? on : undefined}
+              className={cn(
+                'flex items-center gap-1.5 rounded-full px-2 py-0.5 text-mini ring-1 ring-inset coarse:min-h-11',
+                on ? 'bg-brand-soft text-brand ring-brand/30' : 'bg-surface text-ink-secondary ring-[var(--ring)]',
+                onSelect && !on && 'hover:text-ink',
+              )}
+            >
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: seg.fill }} />
+              <span className="capitalize">{seg.label}</span>
+              <span className="tabular font-semibold text-ink">{seg.n}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Risks by severity — the bar above, with this product's severity palette. */
+export function SeveritySpread({
+  counts,
+  onSelect,
+  selected,
+}: {
+  counts: { severity: RiskSeverity; n: number }[];
+  onSelect?: (severity: RiskSeverity | null) => void;
+  selected?: RiskSeverity | null;
+}) {
+  return (
+    <ProportionBar
+      segments={counts.map(c => ({ key: c.severity, label: c.severity, n: c.n, fill: SEVERITY_FILL[c.severity] }))}
+      selected={selected ?? null}
+      onSelect={onSelect ? key => onSelect(key as RiskSeverity | null) : undefined}
+    />
+  );
+}
+
+/** Fills for the other two piles, from the same status palette. */
+export const VERDICT_FILL: Record<string, string> = {
+  clear: 'rgb(var(--status-good-rgb))',
+  attention: 'rgb(var(--status-warning-rgb))',
+  blocker: 'rgb(var(--status-critical-rgb))',
+  unknown: 'var(--axis)',
+};
+
+export const PRIORITY_FILL: Record<string, string> = {
+  now: 'rgb(var(--status-critical-rgb))',
+  before_offer: 'rgb(var(--status-warning-rgb))',
+  before_completion: 'rgb(var(--brand-rgb))',
+};
+
+const SEVERITY_FILL: Record<RiskSeverity, string> = {
+  critical: 'rgb(var(--status-critical-rgb))',
+  serious: 'rgb(var(--status-serious-rgb))',
+  warning: 'rgb(var(--status-warning-rgb))',
+  info: 'rgb(var(--brand-rgb))',
+};
+
+function ariaFor(present: { severity: RiskSeverity; n: number }[], total: number): string {
+  return `${total} open item${total === 1 ? '' : 's'}: ${present.map(c => `${c.n} ${c.severity}`).join(', ')}`;
+}
+
+/**
+ * How much of what this department needs is actually on file.
+ *
+ * A count of documents held, beside a count still required, is two numbers a
+ * reader has to divide. This is the division — and it names the shortfall
+ * rather than only the proportion, because "7 of 11" is what somebody chases
+ * and "64%" is not.
+ */
+export function CoverageMeter({ held, required }: { held: number; required: number }) {
+  const total = held + required;
+  if (total === 0) return null;
+  const pct = Math.round((held / total) * 100);
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-mini text-ink-secondary">
+          <span className="tabular font-semibold text-ink">{held}</span> of {total} on file
+        </span>
+        <span className={cn('text-mini', required > 0 ? 'text-warning' : 'text-good')}>
+          {required > 0 ? `${required} still to obtain` : 'Nothing outstanding'}
+        </span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-sunken">
+        <span
+          className="block h-full rounded-full bg-brand transition-[width] duration-base ease-state"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }

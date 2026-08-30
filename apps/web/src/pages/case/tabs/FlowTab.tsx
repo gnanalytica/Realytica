@@ -223,7 +223,7 @@ export default function FlowTab({ caseData, runScreen, running, graph, loading, 
 
 function Legend() {
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-[11px] text-ink-secondary">
+    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-mini text-ink-secondary">
       <LegendEdge label="Ran after" colour="var(--axis)" />
       <LegendEdge label="Fed data to" colour="var(--brand)" />
       <LegendEdge label="Caused a re-run" colour="var(--status-serious)" dashed />

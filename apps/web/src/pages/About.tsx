@@ -52,7 +52,7 @@ export default function About() {
   return (
     <div className="mx-auto max-w-4xl space-y-8 pb-16">
       <section className="space-y-2 pt-2 text-center">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">Realytica</p>
+        <p className="text-mini font-semibold uppercase tracking-[0.14em] text-brand">Realytica</p>
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{VISION}</h1>
         <p className="text-[13px] text-ink-secondary">{POSITIONING}</p>
         <p className="text-xs text-ink-muted">Due diligence OS · manual-first · AI drafts optional</p>
@@ -70,7 +70,7 @@ export default function About() {
         <CardBody className="overflow-x-auto">
           <table className="w-full min-w-[480px] border-collapse text-left">
             <thead>
-              <tr className="border-b border-hairline text-[11px] uppercase tracking-wide text-ink-muted">
+              <tr className="border-b border-hairline text-mini uppercase tracking-wide text-ink-muted">
                 <th className="py-2 pr-4 font-medium">Product</th>
                 <th className="py-2 font-medium">What it answers</th>
               </tr>
@@ -92,7 +92,7 @@ export default function About() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {PRODUCT_PRINCIPLES.map((p, i) => (
             <Card key={p.title} className="p-3.5">
-              <div className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-brand-soft text-[11px] font-semibold text-brand">
+              <div className="mb-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-brand-soft text-mini font-semibold text-brand">
                 {i + 1}
               </div>
               <p className="text-[13px] font-semibold text-ink">{p.title}</p>
@@ -120,7 +120,7 @@ export default function About() {
           <ol className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
             {KEY_USER_JOBS.map((job, i) => (
               <li key={job.title} className="flex gap-2.5">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sunken text-[11px] font-semibold text-ink-secondary">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sunken text-mini font-semibold text-ink-secondary">
                   {i + 1}
                 </span>
                 <span className="min-w-0 text-[13px] leading-relaxed text-ink-secondary">
@@ -176,7 +176,7 @@ export default function About() {
                 <div className="flex flex-col items-center">
                   <div
                     className={cn(
-                      'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                      'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-mini font-semibold',
                       i === 0 ? 'bg-brand text-brand-ink' : 'bg-sunken text-ink-muted',
                     )}
                   >
@@ -187,7 +187,7 @@ export default function About() {
                 <div className="min-w-0 pt-0.5">
                   <p className="text-[13px] font-semibold text-ink">
                     {phase.title}
-                    {i === 0 ? <span className="ml-2 rounded-full bg-brand-soft px-1.5 py-0.5 text-[10px] font-semibold text-brand">This build</span> : null}
+                    {i === 0 ? <span className="ml-2 rounded-full bg-brand-soft px-1.5 py-0.5 text-micro font-semibold text-brand">This build</span> : null}
                   </p>
                   <p className="mt-0.5 text-xs leading-relaxed text-ink-secondary">{phase.description}</p>
                 </div>

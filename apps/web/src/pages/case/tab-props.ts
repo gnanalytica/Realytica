@@ -1,4 +1,4 @@
-import type { LensKey, PropertyCase, ScreenResult } from '@realytica/shared';
+import type { PropertyCase, ScreenResult } from '@realytica/shared';
 
 /**
  * Every tab inside the case workspace receives exactly this prop object.
@@ -15,10 +15,4 @@ export interface TabProps {
   running: boolean;
   /** Jump to another tab by key, e.g. 'documents'. */
   goToTab: (key: string) => void;
-  /**
-   * Who the case is being read by. A view uses it to decide what leads and
-   * what folds away — never to decide what to show at all. Every finding is
-   * reachable under every lens.
-   */
-  lens: LensKey;
 }

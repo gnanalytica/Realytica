@@ -197,7 +197,7 @@ export default function Intake() {
                   </div>
                 ) : null}
                 {turn.captured?.length ? (
-                  <p className="mt-2 border-t border-hairline pt-2 text-[11px] text-ink-secondary">
+                  <p className="mt-2 border-t border-hairline pt-2 text-mini text-ink-secondary">
                     Recorded: {turn.captured.map((c) => `${c.label} — ${displayValue(c, areaUnit)}`).join('; ')}
                   </p>
                 ) : null}
@@ -263,7 +263,7 @@ export default function Intake() {
           </Button>
         </div>
         {gap ? (
-          <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
+          <p className="mt-2 text-mini leading-relaxed text-ink-muted">
             <span className="font-medium text-ink-secondary">{gap.label}</span> — {gap.consequence}
           </p>
         ) : null}

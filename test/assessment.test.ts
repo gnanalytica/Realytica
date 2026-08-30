@@ -214,7 +214,6 @@ describe('the profile reaches the anchors', () => {
     const documents = [...documentsFor(identity, seed.identity.label), jdaDoc()];
     const { result } = screenSeed(SITE, { documents });
     assert.equal(result.project?.kind, 'joint_development');
-    assert.equal(result.assessment?.defaultLens, 'developer');
     const asking = result.anchors.find(a => a.method === 'asking_price_adjusted');
     assert.equal(asking, undefined, 'a share deal has no asking price to adjust');
   });

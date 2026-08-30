@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
-import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
+import { createContext, forwardRef, useContext, useEffect, useId, useRef, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, Info, Loader2, ShieldAlert, X, XCircle } from 'lucide-react';
 
 export const cn = clsx;
@@ -113,7 +113,7 @@ export function CardBody({ className, children }: { className?: string; children
 export function SectionTitle({ children, hint }: { children: ReactNode; hint?: ReactNode }) {
   return (
     <div className="mb-2 flex items-baseline justify-between gap-3">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted">{children}</h3>
+      <h3 className="text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">{children}</h3>
       {hint ? <span className="text-xs text-ink-muted">{hint}</span> : null}
     </div>
   );
@@ -174,6 +174,9 @@ export function Button({ variant = 'secondary', size = 'md', icon, loading, clas
         'inline-flex select-none items-center justify-center gap-1.5 rounded-lg font-medium',
         INTERACTIVE,
         'cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
+        // Visual height stays as designed; a coarse pointer gets a 44px hit
+        // area instead. See the `coarse:` note in tailwind.config.js.
+        'coarse:min-h-11',
         size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-9 px-3.5 text-[13px]',
         variant === 'primary' && 'bg-brand text-[var(--brand-ink)] hover:bg-brand-strong',
         variant === 'secondary' &&
@@ -210,7 +213,7 @@ export function Badge({
     <span
       title={title}
       className={cn(
-        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-4 whitespace-nowrap',
+        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-mini font-medium leading-4 whitespace-nowrap',
         TONE_CHIP[tone],
         className,
       )}
@@ -242,7 +245,7 @@ export function Stat({
 }) {
   return (
     <div className={cn('min-w-0', className)} title={hint}>
-      <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</div>
+      <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</div>
       <div
         className={cn('mt-1 truncate font-semibold leading-tight tracking-tight', valueSizeClass(value, 'stat'), TONE_TEXT[tone])}
         title={hint ?? (typeof value === 'string' ? value : undefined)}
@@ -366,7 +369,7 @@ export function StatTile({
   return (
     <Tile tone={tone} className={cn('p-4', className)}>
       <div className="flex items-start justify-between gap-3">
-        <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</span>
+        <span className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</span>
         {icon ? <span className={cn('shrink-0', TONE_TEXT[tone])}>{icon}</span> : null}
       </div>
       {/*
@@ -545,8 +548,15 @@ export function Field({
  * show it has the caret however you got to it, because the ring is telling you
  * where your typing will go rather than where the keyboard is.
  */
+/*
+ * `coarse:text-base` is not a size preference — it is what stops iOS Safari
+ * zooming the whole page the moment a field takes focus. Safari does that for
+ * any input under 16px and does not zoom back out, so a valuer filling a form
+ * on a phone ends up panning a magnified page between every field. 13px is
+ * right under a mouse and unusable on a phone for that one reason.
+ */
 const CONTROL =
-  'w-full rounded-lg bg-surface px-2.5 text-[13px] text-ink ring-1 ring-inset ring-[var(--ring)] ' +
+  'w-full rounded-lg bg-surface px-2.5 text-[13px] coarse:text-base coarse:min-h-11 text-ink ring-1 ring-inset ring-[var(--ring)] ' +
   'transition-[box-shadow,border-color] duration-quick ease-state ' +
   'hover:ring-[var(--text-muted)] ' +
   'placeholder:text-ink-muted focus:ring-2 focus:ring-brand disabled:opacity-60 disabled:hover:ring-[var(--ring)]';
@@ -555,9 +565,17 @@ export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputEleme
   return <input {...rest} className={cn(CONTROL, 'h-9', className)} />;
 }
 
-export function Textarea({ className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...rest} className={cn(CONTROL, 'min-h-[76px] py-2 leading-relaxed', className)} />;
-}
+/*
+ * Ref-forwarding, because an auto-growing composer has to measure its own
+ * scrollHeight and there is no way to do that through a wrapper that swallows
+ * the ref. Input and Select do not forward one because nothing needs it yet;
+ * add it when something does rather than on principle.
+ */
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function Textarea({ className, ...rest }, ref) {
+    return <textarea ref={ref} {...rest} className={cn(CONTROL, 'min-h-[76px] py-2 leading-relaxed', className)} />;
+  },
+);
 
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
@@ -587,7 +605,7 @@ export function Toggle({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="inline-flex items-center gap-2 text-[13px] text-ink"
+      className="inline-flex items-center gap-2 text-[13px] text-ink coarse:min-h-11"
     >
       <span
         className={cn(
@@ -621,13 +639,13 @@ export function Checkbox({
   disabled?: boolean;
 }) {
   return (
-    <label className={cn('inline-flex cursor-pointer items-start gap-2 text-[13px] text-ink', disabled && 'cursor-not-allowed opacity-50')}>
+    <label className={cn('inline-flex cursor-pointer items-start gap-2 py-0.5 text-[13px] text-ink coarse:min-h-11 coarse:items-center coarse:py-2', disabled && 'cursor-not-allowed opacity-50')}>
       <input
         type="checkbox"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-[var(--axis)] text-brand focus:ring-brand"
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-[var(--axis)] text-brand focus:ring-brand coarse:mt-0 coarse:h-5 coarse:w-5"
       />
       {label ? <span className="min-w-0">{label}</span> : null}
     </label>
@@ -657,7 +675,7 @@ export function Tabs({ tabs, active, onChange, className }: { tabs: TabDef[]; ac
             aria-selected={on}
             onClick={() => onChange(t.key)}
             className={cn(
-              '-mb-px flex shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium',
+              '-mb-px flex shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium coarse:min-h-11',
               // No `active:scale` on a tab: the underline is the feedback, and
               // a shrinking tab in a fixed row nudges its neighbours.
               'transition-[color,border-color] duration-quick ease-state',
@@ -799,7 +817,7 @@ export function Modal({
       >
         <header className="flex items-center justify-between border-b border-hairline px-4 py-3">
           <h2 className="text-[13px] font-semibold text-ink">{title}</h2>
-          <button onClick={onClose} className="rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Close">
+          <button onClick={onClose} className="rounded p-1 coarse:p-3 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Close">
             <X size={15} />
           </button>
         </header>
@@ -828,7 +846,7 @@ export function Tooltip({ label, children, className }: { label: ReactNode; chil
         <span
           id={id}
           role="tooltip"
-          className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-1.5 w-max max-w-[16rem] -translate-x-1/2 rounded-md bg-[var(--text-primary)] px-2 py-1 text-[11px] leading-snug text-[var(--text-inverse)] shadow-pop"
+          className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-1.5 w-max max-w-[16rem] -translate-x-1/2 rounded-md bg-[var(--text-primary)] px-2 py-1 text-mini leading-snug text-[var(--text-inverse)] shadow-pop"
         >
           {label}
         </span>
@@ -876,5 +894,65 @@ export function ToastHost({ children }: { children: ReactNode }) {
         })}
       </div>
     </ToastCtx.Provider>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Disclosure                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A section that folds.
+ *
+ * A `<details>` rather than conditional rendering, for the same reason the
+ * report's sections are: the browser's own find-in-page and the print
+ * stylesheet can both reach inside a closed one, and neither can reach
+ * content React never rendered. A folded section is still in the document,
+ * still findable, still printed — folded, not filtered, which is the rule
+ * everywhere in this application that hides anything.
+ *
+ * `count` is on the summary on purpose. A fold that does not say how much is
+ * behind it makes the reader open it to find out, which costs more than the
+ * fold saved.
+ */
+export function Disclosure({
+  title,
+  count,
+  icon,
+  defaultOpen = false,
+  tone,
+  children,
+}: {
+  title: ReactNode;
+  count?: number;
+  icon?: ReactNode;
+  defaultOpen?: boolean;
+  /** Colours the count, for a section whose contents are a problem. */
+  tone?: Tone;
+  children: ReactNode;
+}) {
+  return (
+    <details open={defaultOpen} className="group rounded-xl bg-surface ring-1 ring-inset ring-[var(--ring)] print-open">
+      <summary
+        className={cn(
+          'flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2.5 text-[12.5px] font-medium text-ink coarse:min-h-11',
+          'hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
+          '[&::-webkit-details-marker]:hidden',
+        )}
+      >
+        <ChevronDown
+          size={14}
+          className="shrink-0 text-ink-muted transition-transform duration-quick ease-state group-open:rotate-180"
+        />
+        {icon}
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+        {count !== undefined ? (
+          <span className={cn('tabular shrink-0 rounded-full px-1.5 text-mini', count > 0 ? toneChip(tone ?? 'neutral') : 'text-ink-muted')}>
+            {count}
+          </span>
+        ) : null}
+      </summary>
+      <div className="border-t border-hairline px-3 py-3">{children}</div>
+    </details>
   );
 }

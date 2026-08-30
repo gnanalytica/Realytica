@@ -70,7 +70,7 @@ export function DocumentViewer({
           <p className="text-[12.5px] text-ink-secondary">
             This record has no file behind it.
           </p>
-          <p className="max-w-[420px] text-[11.5px] text-ink-muted">
+          <p className="max-w-[420px] text-mini text-ink-muted">
             The case names <span className="text-ink-secondary">{doc.fileName}</span> and holds what was extracted from it,
             but the bytes were never uploaded — every document in the seeded demo case is in this state. Upload the file to
             read it here.
@@ -124,13 +124,13 @@ export function DocumentViewer({
         <p className="text-[12.5px] text-ink-secondary">
           Nothing here can render a {state.contentType.replace(/^application\//, '')} file.
         </p>
-        <p className="max-w-[420px] text-[11.5px] text-ink-muted">
+        <p className="max-w-[420px] text-mini text-ink-muted">
           It is stored and can be downloaded unchanged — but it is not being shown, rather than shown approximately.
         </p>
         <a
           href={documentFileUrl(caseId, doc.id)}
           download={doc.fileName}
-          className="flex items-center gap-1.5 rounded-full bg-brand px-3 py-1 text-[11.5px] font-medium text-[var(--brand-ink)]"
+          className="flex items-center gap-1.5 rounded-full bg-brand px-3 py-1 text-mini font-medium text-[var(--brand-ink)]"
         >
           <Download size={12} /> Download {doc.fileName}
         </a>

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, Camera, FileText, HelpCircle, Lightbulb, Maximize2, MessageSquare, Minus, Plus, Search, Waypoints, X } from 'lucide-react';
+import { Building2, Camera, FileText, HelpCircle, History, Lightbulb, Maximize2, MessageSquare, Minus, Plus, Search, Waypoints, X } from 'lucide-react';
 import { DD_DOMAIN_PROFILES, buildDdGraph, findNodes, trace } from '@realytica/shared';
 import type { DdEdge, DdGraph, DdLayer, DdNode, DdSubgraph } from '@realytica/shared';
 import { api } from '../../../lib/api';
-import { Badge, Callout, Input, Select, cn } from '../../../components/ui/kit';
+import { Badge, Button, Callout, Input, Select, cn } from '../../../components/ui/kit';
 import { computeFit, zoomAbout, MAX_ZOOM, MIN_ZOOM } from '../../../components/canvas/Canvas';
+import { usePinchZoom } from '../../../components/canvas/usePinchZoom';
 import type { Transform } from '../../../components/canvas/Canvas';
 import { useMeasure } from '../../../components/charts/primitives';
 import { titleCase } from '../../../lib/format';
@@ -195,7 +196,52 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
     };
   }, [caseData.id, caseData.updatedAt]);
 
-  const graph = useMemo(() => {
+  /*
+   * As-of: the one question only the store can answer.
+   *
+   * The projection above knows what the case says NOW — it is rebuilt from
+   * the case on every render, so it cannot represent a past state however it
+   * is filtered. The store can, because a sync closes an edge rather than
+   * deleting it. So this is not a filter over the live graph: setting a date
+   * REPLACES the canvas with what the store returns for that instant, and
+   * clearing it goes back to the projection.
+   *
+   * Mixing the two would be worse than not having it. A past graph drawn
+   * with today's nodes merged in is a picture of a moment that never
+   * existed, and the whole reason to ask "what did we believe when we signed
+   * the March report" is that the answer has to be defensible.
+   */
+  const [asOf, setAsOf] = useState<string>('');
+  const [past, setPast] = useState<DdGraph | null>(null);
+  const [pastState, setPastState] = useState<'idle' | 'loading' | 'unavailable'>('idle');
+  useEffect(() => {
+    if (!asOf) {
+      setPast(null);
+      setPastState('idle');
+      return;
+    }
+    let live = true;
+    setPastState('loading');
+    // End of the chosen day: a date alone means "as things stood that day",
+    // and asking at 00:00 would answer for the day before.
+    api
+      .caseGraph(caseData.id, `${asOf}T23:59:59.999Z`)
+      .then(({ graph: stored }) => {
+        if (!live) return;
+        setPast(stored);
+        setPastState(stored ? 'idle' : 'unavailable');
+      })
+      .catch(() => {
+        if (!live) return;
+        setPast(null);
+        setPastState('unavailable');
+      });
+    return () => {
+      live = false;
+    };
+  }, [caseData.id, asOf]);
+
+  const live = useMemo(() => {
     if (authored.nodes.length === 0) return derived;
     const have = new Set(derived.nodes.map(n => n.id));
     // An edge to a node this build does not have is dropped, the same rule the
@@ -209,6 +255,8 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
       edges: [...derived.edges, ...authored.edges.filter(e => all.has(e.fromNodeId) && all.has(e.toNodeId))],
     };
   }, [derived, authored]);
+  const graph = past ?? live;
+  const historic = past !== null;
   const layout = useMemo(() => layoutDdGraph(graph), [graph]);
   const placedById = useMemo(() => new Map(layout.nodes.map(p => [p.node.id, p])), [layout]);
 
@@ -293,6 +341,20 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
     if (size.width > 0) setView(computeFit(layout.bounds, size.width, size.height));
   }, [layout, size.width, size.height]);
 
+  // The same gesture the run canvas takes — the explorer is the view most
+  // worth having on a phone, since it is the only one that shows a whole case
+  // at once, and stepping the zoom from two buttons was all it offered.
+  usePinchZoom(
+    viewportRef,
+    useCallback((factor: number, cx: number, cy: number, dx: number, dy: number) => {
+      adjustedRef.current = true;
+      setView(v => {
+        const zoomed = zoomAbout(v, v.k * factor, cx, cy);
+        return { ...zoomed, x: zoomed.x + dx, y: zoomed.y + dy };
+      });
+    }, []),
+  );
+
   const zoomByCentre = useCallback(
     (factor: number) => {
       adjustedRef.current = true;
@@ -346,11 +408,44 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
             </option>
           ))}
         </Select>
-        <span className="tabular text-[11.5px] text-ink-muted">
+        <label className="flex items-center gap-1.5 text-mini text-ink-muted">
+          <History size={13} className="shrink-0" />
+          <span className="whitespace-nowrap">As of</span>
+          <input
+            type="date"
+            value={asOf}
+            max={caseData.updatedAt.slice(0, 10)}
+            onChange={e => setAsOf(e.target.value)}
+            aria-label="Show the graph as it stood on this date"
+            className="h-8 rounded-lg bg-surface px-2 text-[12px] text-ink ring-1 ring-[var(--ring)] focus:outline-none focus:ring-2 focus:ring-brand"
+          />
+          {asOf ? (
+            <Button size="sm" variant="ghost" onClick={() => setAsOf('')}>
+              Now
+            </Button>
+          ) : null}
+        </label>
+        <span className="tabular text-mini text-ink-muted">
           {graph.nodes.length} nodes · {graph.edges.length} edges
           {contradictions > 0 ? ` · ${contradictions} contradiction${contradictions === 1 ? '' : 's'}` : ''}
         </span>
       </div>
+
+      {historic ? (
+        <Callout tone="warning" title={`As things stood on ${asOf}`}>
+          This is the stored graph at that instant, not the current one — edges closed after it are open here and edges
+          closed before it are gone. Notes you add are always written to the present.
+        </Callout>
+      ) : null}
+      {pastState === 'loading' ? (
+        <p className="text-mini text-ink-muted">Reading the graph store…</p>
+      ) : null}
+      {pastState === 'unavailable' ? (
+        <Callout tone="neutral" title="Nothing stored for that date">
+          The graph store holds no record of this case at that instant — either it had not been indexed yet, or the
+          store is unreachable. Showing the current graph.
+        </Callout>
+      ) : null}
 
       {!result ? (
         <Callout tone="neutral" title="Screened cases have more graph">
@@ -422,7 +517,7 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
                   <div
                     key={`cap-${lane.layer}`}
                     aria-hidden="true"
-                    className="absolute truncate text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted"
+                    className="absolute truncate text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted"
                     style={{ left: lane.x, top: PADDING, width: lane.width }}
                   >
                     {LAYER_LABEL[lane.layer]}
@@ -497,8 +592,8 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
                     >
                       <NodeIcon node={node} />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[11.5px] font-medium leading-tight text-ink">{node.label}</span>
-                        <span className="block truncate text-[10px] text-ink-muted">
+                        <span className="block truncate text-mini font-medium leading-tight text-ink">{node.label}</span>
+                        <span className="block truncate text-micro text-ink-muted">
                           {titleCase(node.kind)}
                           {node.domain ? ` · ${DD_DOMAIN_PROFILES[node.domain].label}` : ''}
                         </span>
@@ -528,6 +623,7 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
             node={selected}
             cone={cone}
             caseId={caseData.id}
+            historic={historic}
             onSelect={setSelectedId}
             onClose={() => setSelectedId(null)}
             onAnnotated={(node, edges) =>
@@ -584,6 +680,7 @@ function ExplorerButton({
  * exactly what this product must not present quietly.
  */
 function TraceInspector({
+  historic,
   node,
   cone,
   caseId,
@@ -591,6 +688,7 @@ function TraceInspector({
   onClose,
   onAnnotated,
 }: {
+  historic: boolean;
   node: DdNode;
   cone: DdSubgraph | undefined;
   caseId: string;
@@ -637,7 +735,7 @@ function TraceInspector({
             {node.domain ? <Badge tone="brand">{DD_DOMAIN_PROFILES[node.domain].label}</Badge> : null}
           </div>
           <p className="mt-1.5 text-[13px] font-medium leading-snug text-ink">{node.label}</p>
-          <p className="mt-0.5 font-mono text-[10px] text-ink-faint">{node.id}</p>
+          <p className="mt-0.5 font-mono text-micro text-ink-faint">{node.id}</p>
         </div>
         <button onClick={onClose} aria-label="Close inspector" className="shrink-0 rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink">
           <X size={14} />
@@ -645,7 +743,7 @@ function TraceInspector({
       </div>
 
       {attributeRows.length > 0 ? (
-        <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-[11.5px]">
+        <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-mini">
           {attributeRows.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-ink-muted">{titleCase(k.replace(/([A-Z])/g, ' $1'))}</dt>
@@ -664,7 +762,7 @@ function TraceInspector({
       ) : null}
 
       <div className="flex flex-col gap-2">
-        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">How we know — the derivation cone</h4>
+        <h4 className="text-mini font-semibold uppercase tracking-wide text-ink-muted">How we know — the derivation cone</h4>
         {support.length === 0 ? (
           <p className="text-[12px] text-ink-muted">Nothing else in the graph connects to this node.</p>
         ) : (
@@ -673,7 +771,7 @@ function TraceInspector({
             if (rows.length === 0) return null;
             return (
               <div key={layer}>
-                <p className="mb-1 text-[10.5px] font-medium uppercase tracking-wide text-ink-faint">{LAYER_LABEL[layer]}</p>
+                <p className="mb-1 text-micro font-medium uppercase tracking-wide text-ink-faint">{LAYER_LABEL[layer]}</p>
                 <ul className="flex flex-col gap-1">
                   {rows.map(n => (
                     <li key={n.id}>
@@ -701,7 +799,21 @@ function TraceInspector({
         failed save keeps the text in the box.
       */}
       <div className="border-t border-hairline pt-2.5">
-        <label htmlFor="graph-note" className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+        {historic ? (
+          /*
+           * No writing into the past. A note is always written to the
+           * present, so offering the box here would either attach it to a
+           * node that may no longer exist or silently record it against a
+           * date the reader is not looking at. Both are worse than the
+           * control being absent and saying why.
+           */
+          <p className="text-mini leading-relaxed text-ink-muted">
+            Notes are written to the present. Switch back to <span className="font-medium text-ink-secondary">Now</span>{' '}
+            to add one.
+          </p>
+        ) : (
+          <>
+        <label htmlFor="graph-note" className="text-micro font-semibold uppercase tracking-[0.06em] text-ink-muted">
           Add a note
         </label>
         <textarea
@@ -717,16 +829,18 @@ function TraceInspector({
             type="button"
             onClick={() => void saveNote()}
             disabled={!noteText.trim() || saving}
-            className="rounded-md bg-brand px-2.5 py-1 text-[11.5px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-md bg-brand px-2.5 py-1 text-mini font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {saving ? 'Saving…' : 'Save note'}
           </button>
-          <span className="text-[10.5px] text-ink-faint">Kept in the graph, not on the case. Survives every rebuild.</span>
+          <span className="text-micro text-ink-faint">Kept in the graph, not on the case. Survives every rebuild.</span>
         </div>
-        {noteError ? <p className="mt-1 text-[11px] text-critical">{noteError}</p> : null}
+        {noteError ? <p className="mt-1 text-mini text-critical">{noteError}</p> : null}
+          </>
+        )}
       </div>
 
-      <p className="text-[10.5px] leading-relaxed text-ink-faint">
+      <p className="text-micro leading-relaxed text-ink-faint">
         This cone is the copilot's own trace_conclusion answer for this node — ask it to trace "{node.label}" in chat
         and it walks the same edges. Ask it <span className="font-medium">why</span> and it reads the recorded
         reasoning, including notes added here.

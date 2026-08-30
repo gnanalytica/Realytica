@@ -12,8 +12,8 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { LENS_PROFILES, buildDdGraph, buildGraphReport } from '@realytica/shared';
-import type { GraphReportJudgement, LensKey, LensSection } from '@realytica/shared';
+import { buildDdGraph, buildGraphReport } from '@realytica/shared';
+import type { GraphReportJudgement } from '@realytica/shared';
 import type {
   ActionPriority,
   Comparable,
@@ -30,7 +30,6 @@ import type {
 } from '@realytica/shared';
 import { SITE_CONSTRAINT_KEYS } from '@realytica/shared';
 import {
-  area,
   confidenceTone,
   date,
   money,
@@ -173,7 +172,7 @@ const PRINT_STYLE = `
     break-inside: avoid;
   }
   /*
-   * A collapsed section still prints. The lens decides what a reader opens
+   * A collapsed section still prints. Folding decides what a reader opens
    * with on screen; it must not decide what a lender receives — a report is
    * only a report if it is complete.
    */
@@ -196,90 +195,37 @@ details.report-section > summary::-webkit-details-marker {
 `;
 
 /**
- * How many report sections open by default, over and above the ones that
- * always do.
+ * The sections a report opens with.
  *
- * Counted in *report* sections rather than lens sections, which is the fix
- * for a rule that looked right and was not: "open the lens's first four
- * sections" opened eleven of seventeen for a developer, because six report
- * sections — the range, the offer, the forced sale, the basis, the
- * comparables, the drivers — all map to `value`. Ranking the report's own
- * sections by where their lens section falls, then taking the top few, keeps
- * the promise the rule was making.
+ * A fixed set, and deliberately not derived from whatever the reader last
+ * clicked in the rail. The report is the one surface here that is read by
+ * someone who is not navigating this application at all — it is sent to a
+ * lender, a partner or a board — so its shape has to be a property of the
+ * document rather than of the sender's session. The previous rule ranked
+ * sections by the reader's declared lens; when the lens went, the honest
+ * replacement was one order, not a new thing to derive it from.
+ *
+ * Cover, recommendation and scope open because a folded verdict is not a
+ * report and a reader must not have to click to learn what the document does
+ * not cover. The other five are the questions every recipient has: what is it
+ * worth, what should we offer, what is wrong with it, does it comply, and
+ * what happens next. Everything else prints in full and starts folded — a
+ * collapsed section is still in the document.
  */
-const REPORT_LEAD_SECTIONS = 5;
+const OPEN_BY_DEFAULT = new Set([
+  'cover',
+  'recommendation',
+  'scope',
+  'value',
+  'offer',
+  'risks',
+  'compliance',
+  'actions',
+]);
 
-/**
- * Sections that open under every lens.
- *
- * The cover and the recommendation because a folded verdict is not a report,
- * and the scope note because a reader must not have to click to find out what
- * this document is not.
- */
-/**
- * Every section of the report, in the order it is printed, tagged with the
- * lens section it answers.
- *
- * Declared as a list rather than inferred from the JSX so the ranking below
- * can be computed once, before anything renders. The two must agree — a
- * section tagged here but not rendered simply never opens; a section rendered
- * without a tag falls through to `'evidence'`, the least-privileged rank, and
- * starts folded, which is the safe direction to fail in.
- */
-const REPORT_SECTION_ORDER: { id: string; section: LensSection | 'always' }[] = [
-  { id: 'cover', section: 'always' },
-  { id: 'recommendation', section: 'always' },
-  { id: 'value', section: 'value' },
-  { id: 'offer', section: 'offer' },
-  { id: 'forcedSale', section: 'value' },
-  { id: 'basis', section: 'value' },
-  { id: 'comparables', section: 'value' },
-  { id: 'drivers', section: 'value' },
-  { id: 'risks', section: 'risks' },
-  { id: 'compliance', section: 'compliance' },
-  { id: 'costs', section: 'costs' },
-  { id: 'constraints', section: 'constraints' },
-  { id: 'planning', section: 'planning' },
-  { id: 'completeness', section: 'documents' },
-  { id: 'confidence', section: 'evidence' },
-  { id: 'traceability', section: 'evidence' },
-  { id: 'actions', section: 'actions' },
-  { id: 'appendix', section: 'evidence' },
-  { id: 'scope', section: 'always' },
-];
-
-/**
- * At most this many report sections per lens section may open.
- *
- * Without it a developer opened five sections and every one of them was
- * `value` — the range, the forced sale, the basis, the comparables and the
- * drivers — while "What to offer", the thing a developer opens the report
- * for, stayed folded behind them. One lens section must not be able to spend
- * the whole budget.
- */
-const MAX_OPEN_PER_SECTION = 2;
-
-/**
- * Decide which sections a reader opens with.
- *
- * Walk this reader's lens sections in their order, take up to two report
- * sections from each in document order, and stop once the budget is spent.
- * `always` sections are outside the count.
- */
-function makeOpenFor(lens: LensKey, expandAll: boolean): (id: string) => boolean {
+function makeOpenFor(expandAll: boolean): (id: string) => boolean {
   if (expandAll) return () => true;
-  const open = new Set<string>(REPORT_SECTION_ORDER.filter(r => r.section === 'always').map(r => r.id));
-  let budget = REPORT_LEAD_SECTIONS;
-  for (const lensSection of LENS_PROFILES[lens].sections) {
-    if (budget <= 0) break;
-    const inSection = REPORT_SECTION_ORDER.filter(r => r.section === lensSection);
-    for (const report of inSection.slice(0, MAX_OPEN_PER_SECTION)) {
-      if (budget <= 0) break;
-      open.add(report.id);
-      budget -= 1;
-    }
-  }
-  return (id: string) => open.has(id);
+  return (id: string) => OPEN_BY_DEFAULT.has(id);
 }
 
 /**
@@ -289,15 +235,14 @@ function makeOpenFor(lens: LensKey, expandAll: boolean): (id: string) => boolean
  * of a screen — nineteen of them, most of a metre of scroll — because a
  * report has to be complete: a section left out of a document someone sends
  * to a lender is a section that does not exist. But complete is not the same
- * as all-open, and which sections a reader opens with depends on which reader
- * they are, so `open` comes from the lens.
+ * as all-open, so `open` comes from the fixed lead set above.
  *
  * The collapse is a `<details>` rather than conditional rendering, for one
  * reason that matters more than it looks: the browser's own find-in-page and
  * the print stylesheet can both reach inside a closed `<details>`, and cannot
  * reach content React never rendered. A collapsed section is still in the
  * document, still printed, still findable — folded, not filtered, which is
- * the same rule the lenses follow everywhere else.
+ * the rule everywhere in this application that hides anything.
  */
 function Section({
   n,
@@ -359,18 +304,18 @@ function ComplianceCheckRow({ check }: { check: ComplianceCheck }) {
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={complianceVerdictTone(check.verdict)}>{COMPLIANCE_VERDICT_LABEL[check.verdict]}</Badge>
         <span className="text-[13px] font-medium text-ink">{check.label}</span>
-        <span className="ml-auto rounded bg-sunken px-1.5 py-0.5 font-mono text-[10.5px] text-ink-secondary">
+        <span className="ml-auto rounded bg-sunken px-1.5 py-0.5 font-mono text-micro text-ink-secondary">
           {check.statute}
         </span>
       </div>
       <p className="mt-1.5 text-[13px] leading-relaxed text-ink-secondary">{check.finding}</p>
       <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-muted">Consequence</div>
+          <div className="text-mini font-semibold uppercase tracking-[0.05em] text-ink-muted">Consequence</div>
           <p className="text-xs text-ink-secondary">{check.consequence}</p>
         </div>
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-muted">Next step</div>
+          <div className="text-mini font-semibold uppercase tracking-[0.05em] text-ink-muted">Next step</div>
           <p className="text-xs text-ink-secondary">{check.nextStep}</p>
         </div>
       </div>
@@ -417,15 +362,15 @@ function TracedJudgementRow({ judgement }: { judgement: GraphReportJudgement }) 
         </ul>
       ) : null}
       {evidence.length > 0 ? (
-        <p className="mt-1 text-[11px] text-ink-muted">On file: {evidence.map((e) => e.label).join(' · ')}</p>
+        <p className="mt-1 text-mini text-ink-muted">On file: {evidence.map((e) => e.label).join(' · ')}</p>
       ) : null}
       {contradictions.map((c) => (
-        <p key={c.id} className="mt-1 text-[11px] font-medium text-critical">
+        <p key={c.id} className="mt-1 text-mini font-medium text-critical">
           Live contradiction in this chain: {c.label}
         </p>
       ))}
       {unevidenced ? (
-        <p className="mt-1 text-[11px] text-ink-muted">
+        <p className="mt-1 text-mini text-ink-muted">
           No evidence chain in the graph derives this conclusion — it rests on the screen's own computation, not on a
           document on file.
         </p>
@@ -442,12 +387,12 @@ function TracedJudgementRow({ judgement }: { judgement: GraphReportJudgement }) 
       */}
       {reasoning.length > 0 ? (
         <div className="mt-2 border-t border-hairline pt-2">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+          <p className="text-micro font-semibold uppercase tracking-[0.06em] text-ink-muted">
             How this was reached
           </p>
           <ul className="mt-1 space-y-0.5">
             {reasoning.map((r) => (
-              <li key={r.id} className="text-[11.5px] leading-relaxed text-ink-secondary">
+              <li key={r.id} className="text-mini leading-relaxed text-ink-secondary">
                 <span className="text-ink-faint">{titleCase(r.kind)}:</span> {r.label}
                 {typeof r.attributes.at === 'string' && r.attributes.at ? (
                   <span className="text-ink-faint"> · {String(r.attributes.at).slice(0, 10)}</span>
@@ -465,7 +410,7 @@ function TracedJudgementRow({ judgement }: { judgement: GraphReportJudgement }) 
 /* Report                                                              */
 /* ------------------------------------------------------------------ */
 
-export default function ReportTab({ caseData, result, runScreen, running, goToTab, lens }: TabProps) {
+export default function ReportTab({ caseData, result, runScreen, running, goToTab }: TabProps) {
   const toast = useToast();
   const areaUnit = useAreaUnitFor(caseData.identity.country);
   const unitLabel = areaUnit === 'sqft' ? 'sq ft' : 'm²';
@@ -483,14 +428,12 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
   /*
    * Which sections this reader opens with.
    *
-   * The report carries all nineteen — that is what makes it a report — but a
-   * developer opening it to nineteen expanded sections has to scroll past the
-   * planning envelope to reach the offer, and an architect has to scroll past
-   * the offer to reach the envelope. The lens's leading sections start open;
-   * the rest start folded, one click and a find-in-page away, and always
-   * printed.
+   * The report carries all nineteen — that is what makes it a report — but
+   * opening to nineteen expanded sections means scrolling past the planning
+   * envelope to reach the offer. The lead sections start open; the rest start
+   * folded, one click and a find-in-page away, and always printed.
    */
-  const openFor = makeOpenFor(lens, expandAll);
+  const openFor = makeOpenFor(expandAll);
 
   if (!result) {
     return (
@@ -656,9 +599,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <h1 className="text-[15px] font-semibold text-ink">Property Screen report</h1>
           <p className="text-xs text-ink-secondary">{caseData.reference} · generated {date(result.generatedAt, 'long')}</p>
           <p className="mt-0.5 text-xs text-ink-muted">
-            Opened for the <span className="font-medium text-ink-secondary">{LENS_PROFILES[lens].label.toLowerCase()}</span>:{' '}
-            {LENS_PROFILES[lens].question} Every section is in the document and every section prints — the folded ones are
-            the ones another reader came for.
+            Every section is in the document and every section prints. The folded ones are the detail behind what is
+            already open.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -680,7 +622,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         {/* Cover */}
         <Section n={nextSection()} title="Cover" open={openFor('cover')}>
           <div className="text-center">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-muted">Realytica Property Screen</div>
+            <div className="text-mini font-semibold uppercase tracking-[0.2em] text-ink-muted">Realytica Property Screen</div>
             <h2 className="mt-2 text-xl font-semibold tracking-tight text-ink">{identity.label}</h2>
             <p className="mt-1 text-[13px] text-ink-secondary">
               {identity.addressLine}, {identity.locality}, {identity.city}, {identity.state} {identity.postalCode}
@@ -701,13 +643,13 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
               <VerdictIcon size={26} />
             </span>
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Verdict</div>
+              <div className="text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">Verdict</div>
               <div className={`text-2xl font-semibold leading-tight ${toneText(verdictColor)}`}>{VERDICT_LABEL[result.recommendation.verdict]}</div>
             </div>
           </div>
           <p className="text-[14px] leading-relaxed text-ink">{result.recommendation.headline}</p>
           <div>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Reasoning</div>
+            <div className="mb-1 text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">Reasoning</div>
             <ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink-secondary">
               {result.recommendation.reasoning.map((r, i) => (
                 <li key={i}>{r}</li>
@@ -715,7 +657,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
             </ul>
           </div>
           <div>
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Conditions that must clear</div>
+            <div className="mb-1 text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">Conditions that must clear</div>
             {result.recommendation.conditions.length > 0 ? (
               <ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink-secondary">
                 {result.recommendation.conditions.map((c, i) => (
@@ -813,7 +755,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
             )}
             {result.offer.preconditions.length > 0 && (
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-muted">
+                <div className="text-mini font-semibold uppercase tracking-[0.05em] text-ink-muted">
                   Must be true before any offer
                 </div>
                 <ul className="mt-1 list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink-secondary">
@@ -878,7 +820,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <TableWrap>
             <table className="w-full min-w-[560px] border-collapse text-[13px]">
               <thead>
-                <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-[0.05em] text-ink-muted">
+                <tr className="border-b border-hairline text-left text-mini uppercase tracking-[0.05em] text-ink-muted">
                   <th className="px-3 py-2">Method</th>
                   <th className="px-3 py-2">Range</th>
                   <th className="px-3 py-2">Weight</th>
@@ -891,7 +833,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
                   <tr key={a.id} className="border-b border-hairline last:border-0 align-top">
                     <td className="px-3 py-2 font-medium text-ink">
                       {a.label}
-                      <div className="text-[11px] text-ink-muted">{titleCase(a.method)}</div>
+                      <div className="text-mini text-ink-muted">{titleCase(a.method)}</div>
                     </td>
                     <td className="px-3 py-2 tabular text-ink-secondary">
                       {money(a.low, currency)} – {money(a.high, currency)}
@@ -912,7 +854,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <TableWrap>
             <table className="w-full min-w-[720px] border-collapse text-[13px]">
               <thead>
-                <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-[0.05em] text-ink-muted">
+                <tr className="border-b border-hairline text-left text-mini uppercase tracking-[0.05em] text-ink-muted">
                   <th className="px-3 py-2">Comparable</th>
                   <th className="px-3 py-2">Transacted</th>
                   <th className="px-3 py-2">Area</th>
@@ -927,7 +869,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
                   <tr key={c.id} className="border-b border-hairline last:border-0 align-top">
                     <td className="px-3 py-2 font-medium text-ink">
                       {c.label}
-                      <div className="text-[11px] text-ink-muted">
+                      <div className="text-mini text-ink-muted">
                         {c.address} · {c.distanceKm.toFixed(1)} km · {c.source}
                       </div>
                     </td>
@@ -955,7 +897,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {Array.from(driversByCategory.entries()).map(([category, drivers]) => (
               <div key={category} className="rounded-lg border border-hairline p-3">
-                <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">{titleCase(category)}</div>
+                <div className="mb-1.5 text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">{titleCase(category)}</div>
                 <div className="space-y-2">
                   {drivers.map((d) => (
                     <div key={d.id} className="flex items-start gap-2">
@@ -1000,11 +942,11 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
                 <p className="mt-1.5 text-[13px] leading-relaxed text-ink-secondary">{r.description}</p>
                 <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-muted">Impact</div>
+                    <div className="text-mini font-semibold uppercase tracking-[0.05em] text-ink-muted">Impact</div>
                     <p className="text-xs text-ink-secondary">{r.impact}</p>
                   </div>
                   <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-muted">Mitigation</div>
+                    <div className="text-mini font-semibold uppercase tracking-[0.05em] text-ink-muted">Mitigation</div>
                     <p className="text-xs text-ink-secondary">{r.mitigation}</p>
                   </div>
                 </div>
@@ -1025,7 +967,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           >
             <div className="flex flex-wrap items-center gap-6">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Compliance score</div>
+                <div className="text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">Compliance score</div>
                 <div className="text-3xl font-semibold text-ink">
                   {stateCompliance.score}
                   <span className="text-base text-ink-muted">/100</span>
@@ -1041,7 +983,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
 
             {complianceBlockers.length > 0 ? (
               <div>
-                <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-critical">
+                <div className="mb-1.5 text-mini font-semibold uppercase tracking-[0.06em] text-critical">
                   Blockers — resolve before proceeding
                 </div>
                 <div className="space-y-2">
@@ -1058,7 +1000,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
 
             {complianceRest.length > 0 ? (
               <div>
-                <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Other checks</div>
+                <div className="mb-1.5 text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">Other checks</div>
                 <div className="space-y-2">
                   {complianceRest.map((c) => (
                     <ComplianceCheckRow key={c.key} check={c} />
@@ -1068,7 +1010,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
             ) : null}
 
             <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Unresolved checks</div>
+              <div className="mb-1 text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">Unresolved checks</div>
               {complianceUnresolved.length > 0 ? (
                 <ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink-secondary">
                   {complianceUnresolved.map((u, i) => (
@@ -1116,7 +1058,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
             <TableWrap>
               <table className="w-full min-w-[520px] border-collapse text-[13px]">
                 <thead>
-                  <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-[0.05em] text-ink-muted">
+                  <tr className="border-b border-hairline text-left text-mini uppercase tracking-[0.05em] text-ink-muted">
                     <th className="px-3 py-2">Line item</th>
                     <th className="px-3 py-2">Rate</th>
                     <th className="px-3 py-2">Note</th>
@@ -1214,7 +1156,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Permitted uses</div>
+              <div className="mb-1 text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">Permitted uses</div>
               <div className="flex flex-wrap gap-1">
                 {result.planning.permittedUses.map((u, i) => (
                   <Badge key={i} tone="neutral">
@@ -1224,7 +1166,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
               </div>
             </div>
             <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Restrictions</div>
+              <div className="mb-1 text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">Restrictions</div>
               {result.planning.restrictions.length > 0 ? (
                 <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-ink-secondary">
                   {result.planning.restrictions.map((r, i) => (
@@ -1237,7 +1179,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
             </div>
           </div>
           <p className="text-[13px] leading-relaxed text-ink-secondary">{result.planning.statusNote}</p>
-          <p className="text-[11px] text-ink-muted">Last checked {date(result.planning.lastCheckedAt)}</p>
+          <p className="text-mini text-ink-muted">Last checked {date(result.planning.lastCheckedAt)}</p>
         </Section>
 
         {/* Document completeness */}
@@ -1255,7 +1197,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
           <TableWrap>
             <table className="w-full min-w-[480px] border-collapse text-[13px]">
               <thead>
-                <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-[0.05em] text-ink-muted">
+                <tr className="border-b border-hairline text-left text-mini uppercase tracking-[0.05em] text-ink-muted">
                   <th className="px-3 py-2">Requirement</th>
                   <th className="px-3 py-2">Required</th>
                   <th className="px-3 py-2">Present</th>
@@ -1299,12 +1241,12 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
         <Section n={nextSection()} title="Confidence" subtitle="Stated as arithmetic, not a black box" open={openFor('confidence')}>
           <div className="flex flex-wrap items-center gap-6">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Score</div>
+              <div className="text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">Score</div>
               <div className={`text-3xl font-semibold ${toneText(confidenceTone(result.confidence.band))}`}>{result.confidence.score}<span className="text-base text-ink-muted">/100</span></div>
               <Badge tone={confidenceTone(result.confidence.band)}>{titleCase(result.confidence.band)} confidence</Badge>
             </div>
             <div className="min-w-[220px] flex-1">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Factor breakdown</div>
+              <div className="mb-1 text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">Factor breakdown</div>
               <div className="space-y-1 text-[13px]">
                 {result.confidence.factors.map((f: ConfidenceFactor) => (
                   <div key={f.key} className="flex items-baseline justify-between gap-3 border-b border-hairline py-1 last:border-0">
@@ -1320,7 +1262,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
                   <span className="tabular">{factorSum} pts</span>
                 </div>
                 {factorSum !== result.confidence.score ? (
-                  <p className="text-[11px] text-ink-muted">Reported score ({result.confidence.score}) differs from the factor sum — a baseline or rounding term applies upstream.</p>
+                  <p className="text-mini text-ink-muted">Reported score ({result.confidence.score}) differs from the factor sum — a baseline or rounding term applies upstream.</p>
                 ) : null}
               </div>
             </div>
@@ -1350,8 +1292,8 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
               {graphReport.sections.map((section) => (
                 <div key={section.domain}>
                   <div className="mb-1.5 flex flex-wrap items-baseline gap-2">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">{section.label}</span>
-                    <span className="text-[11px] text-ink-faint">{section.question}</span>
+                    <span className="text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">{section.label}</span>
+                    <span className="text-mini text-ink-faint">{section.question}</span>
                   </div>
                   <div className="space-y-2">
                     {section.judgements.map((j) => (
@@ -1372,7 +1314,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
               if (list.length === 0) return null;
               return (
                 <div key={priority}>
-                  <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">{titleCase(priority)}</div>
+                  <div className="mb-1.5 text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">{titleCase(priority)}</div>
                   <div className="space-y-2">
                     {list.map((a: RecommendedAction) => (
                       <div key={a.id} className="rounded-lg border border-hairline p-3">
@@ -1386,7 +1328,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
                         </div>
                         <p className="mt-1 text-[13px] leading-relaxed text-ink-secondary">{a.description}</p>
                         {a.unblocks.length > 0 ? (
-                          <p className="mt-1 text-[11px] text-ink-muted">Unblocks: {a.unblocks.join('; ')}</p>
+                          <p className="mt-1 text-mini text-ink-muted">Unblocks: {a.unblocks.join('; ')}</p>
                         ) : null}
                       </div>
                     ))}
@@ -1404,7 +1346,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
             <TableWrap>
               <table className="w-full min-w-[640px] border-collapse text-[13px]">
                 <thead>
-                  <tr className="border-b border-hairline text-left text-[11px] uppercase tracking-[0.05em] text-ink-muted">
+                  <tr className="border-b border-hairline text-left text-mini uppercase tracking-[0.05em] text-ink-muted">
                     <th className="px-3 py-2">Statement</th>
                     <th className="px-3 py-2">Source</th>
                     <th className="px-3 py-2">Confidence</th>
@@ -1417,7 +1359,7 @@ export default function ReportTab({ caseData, result, runScreen, running, goToTa
                       <td className="px-3 py-2 text-ink">{e.statement}</td>
                       <td className="px-3 py-2 text-ink-secondary">
                         {EVIDENCE_SOURCE_LABEL[e.sourceType]}
-                        <div className="text-[11px] text-ink-muted">{e.sourceLabel}</div>
+                        <div className="text-mini text-ink-muted">{e.sourceLabel}</div>
                       </td>
                       <td className="px-3 py-2 tabular text-ink-secondary">{pct(e.confidence * 100, 0)}</td>
                       <td className="px-3 py-2 tabular text-ink-secondary">{date(e.capturedAt)}</td>

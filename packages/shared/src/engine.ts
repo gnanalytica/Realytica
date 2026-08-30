@@ -4852,7 +4852,6 @@ export function runScreen(input: {
     reference: input.reference,
     identity,
     status: 'screened',
-    persona: 'property_investor',
     ownerName: '',
     createdAt: now,
     updatedAt: now,

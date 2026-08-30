@@ -173,7 +173,7 @@ export default function CompletenessTab({ result, runScreen, running, goToTab }:
                   {required.map((item) => (
                     <li key={item.key} className="group">
                       <ItemRow item={item} onOpenDocument={() => goToTab('documents')} />
-                      <div className="-mt-2.5 mb-1 pl-6 text-[11px] tabular text-ink-muted">
+                      <div className="-mt-2.5 mb-1 pl-6 text-mini tabular text-ink-muted">
                         {shareOf(item.weight, totalWeight)}% of score
                       </div>
                     </li>
@@ -192,7 +192,7 @@ export default function CompletenessTab({ result, runScreen, running, goToTab }:
                   {optional.map((item) => (
                     <li key={item.key} className="group">
                       <ItemRow item={item} onOpenDocument={() => goToTab('documents')} />
-                      <div className="-mt-2.5 mb-1 pl-6 text-[11px] tabular text-ink-muted">
+                      <div className="-mt-2.5 mb-1 pl-6 text-mini tabular text-ink-muted">
                         {shareOf(item.weight, totalWeight)}% of score
                       </div>
                     </li>
@@ -239,7 +239,7 @@ export default function CompletenessTab({ result, runScreen, running, goToTab }:
             <div className="flex items-start gap-2.5">
               <Zap size={16} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />
               <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-brand">
+                <p className="text-mini font-semibold uppercase tracking-wide text-brand">
                   Fastest way to raise confidence
                 </p>
                 <p className="mt-0.5 text-[13px] leading-relaxed text-ink">{confidence.biggestLever}</p>

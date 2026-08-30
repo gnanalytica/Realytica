@@ -87,7 +87,7 @@ export function DraftPanel({ readout, fields, onConfirm, onClear, onBuild, build
             <p className="text-[12.5px] leading-relaxed text-ink-secondary">{readout.assessment.headlineQuestion}</p>
             <ul className="flex flex-col gap-1">
               {readout.project.basis.map((b) => (
-                <li key={b} className="flex gap-2 text-[11.5px] leading-relaxed text-ink-muted">
+                <li key={b} className="flex gap-2 text-mini leading-relaxed text-ink-muted">
                   <span aria-hidden="true" className="mt-[6px] h-1 w-1 shrink-0 rounded-full bg-ink-faint" />
                   {b}
                 </li>
@@ -122,7 +122,7 @@ export function DraftPanel({ readout, fields, onConfirm, onClear, onBuild, build
               sub={`${preview.confidence.band} confidence (${preview.confidence.score}/100)`}
             />
             <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">Verdict</div>
+              <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">Verdict</div>
               <div
                 className={cn(
                   'mt-1 text-[15px] font-semibold leading-snug',
@@ -176,7 +176,7 @@ export function DraftPanel({ readout, fields, onConfirm, onClear, onBuild, build
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <span className="text-[13px] font-medium text-ink">{f.label}</span>
                   <span className="text-[13px] text-ink-secondary">{displayValue(f, areaUnit)}</span>
-                  {f.saidAs ? <span className="text-[11px] text-ink-muted">you said “{f.saidAs}”</span> : null}
+                  {f.saidAs ? <span className="text-mini text-ink-muted">you said “{f.saidAs}”</span> : null}
                   <Badge tone={f.confirmed ? 'neutral' : 'warning'} className="ml-auto">
                     {PROVENANCE_LABEL[f.provenance]}
                   </Badge>
@@ -187,7 +187,7 @@ export function DraftPanel({ readout, fields, onConfirm, onClear, onBuild, build
                  * judge is a fabricated particular with extra steps.
                  */}
                 {f.basis && !f.confirmed ? (
-                  <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">
+                  <p className="mt-1 text-mini leading-relaxed text-ink-secondary">
                     Worked out from {f.basis}. It counts toward the numbers above until you say otherwise.
                   </p>
                 ) : null}
@@ -221,7 +221,7 @@ export function DraftPanel({ readout, fields, onConfirm, onClear, onBuild, build
                   <span className="text-[13px] font-medium text-ink">{d.label}</span>
                   <Badge tone="critical" className="ml-auto">Critical</Badge>
                 </div>
-                <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">Settles: {d.settles}</p>
+                <p className="mt-1 text-mini leading-relaxed text-ink-secondary">Settles: {d.settles}</p>
               </div>
             ))}
             {received.map((d) => (
@@ -238,7 +238,7 @@ export function DraftPanel({ readout, fields, onConfirm, onClear, onBuild, build
         {readout.screenable ? 'Build the case' : 'Not enough to build yet'}
       </Button>
       {readout.screenable ? (
-        <p className="-mt-2 px-1 text-[11px] leading-relaxed text-ink-muted">
+        <p className="-mt-2 px-1 text-mini leading-relaxed text-ink-muted">
           Builds and screens it now. Everything still open becomes a named gap on the case rather than a blocker, and
           anything you left as an inference is written onto the case notes.
         </p>

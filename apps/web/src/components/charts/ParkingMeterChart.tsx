@@ -65,7 +65,7 @@ export default function ParkingMeterChart({ yieldResult: y, formatArea }: Parkin
           const pct = (filled / perLevel) * 100;
           return (
             <div key={levelIndex} className="flex items-center gap-2">
-              <span className="w-14 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink-muted">
+              <span className="w-14 shrink-0 text-right font-mono text-mini tabular-nums text-ink-muted">
                 B{levelIndex + 1}
               </span>
               <div className="flex-1 overflow-hidden rounded-md bg-sunken" style={{ height: LEVEL_H }}>
@@ -88,7 +88,7 @@ export default function ParkingMeterChart({ yieldResult: y, formatArea }: Parkin
                 * matters most. Its own column also keeps the counts aligned
                 * down the stack.
                 */}
-              <span className="w-[74px] shrink-0 text-right font-mono text-[11px] tabular-nums text-ink-secondary">
+              <span className="w-[74px] shrink-0 text-right font-mono text-mini tabular-nums text-ink-secondary">
                 {filled} / {perLevel}
               </span>
             </div>
@@ -96,7 +96,7 @@ export default function ParkingMeterChart({ yieldResult: y, formatArea }: Parkin
         })}
       </div>
 
-      <p className="mt-2 text-[11.5px] leading-relaxed text-ink-secondary">
+      <p className="mt-2 text-mini leading-relaxed text-ink-secondary">
         <span className="font-semibold tabular-nums text-ink">{required}</span> spaces required;{' '}
         <span className="font-semibold tabular-nums text-ink">{levels}</span> level
         {levels === 1 ? '' : 's'} at {perLevel} each holds{' '}
@@ -112,7 +112,7 @@ export default function ParkingMeterChart({ yieldResult: y, formatArea }: Parkin
           </>
         )}
       </p>
-      <p className="m-0 mt-1 text-[11px] text-ink-muted">
+      <p className="m-0 mt-1 text-mini text-ink-muted">
         Capacity assumes {formatArea(y.footprintSqm)} of basement plate per level at the norm&rsquo;s area per space.
         A real basement loses ramps, cores and services off that, so treat this as the optimistic count.
       </p>

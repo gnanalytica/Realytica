@@ -140,7 +140,7 @@ export default function PortfolioScatter({ cases, height }: PortfolioScatterProp
       </ChartSvg>
       <ChartTooltip state={tooltip} containerWidth={W} />
       {omitted > 0 ? (
-        <p className="mt-1 text-[11px] text-ink-secondary">
+        <p className="mt-1 text-mini text-ink-secondary">
           {omitted} case{omitted === 1 ? '' : 's'} not plotted — no indicative value until screened.
         </p>
       ) : null}

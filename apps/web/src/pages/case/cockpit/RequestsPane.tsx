@@ -81,7 +81,7 @@ export function RequestsPane({
       <div className="flex items-center gap-3 border-b border-hairline px-5 py-3">
         <div className="min-w-0">
           <div className="text-[13.5px] font-semibold text-ink">Requests</div>
-          <div className="mt-0.5 text-[11px] text-ink-muted">
+          <div className="mt-0.5 text-mini text-ink-muted">
             {summary.outstanding} outstanding
             {summary.overdue > 0 ? ` · ${summary.overdue} overdue` : ''}
             {summary.answered > 0 ? ` · ${summary.answered} answered` : ''}
@@ -124,13 +124,13 @@ export function RequestsPane({
                 {unasked.slice(0, 6).map(g => (
                   <li key={`${g.domain}:${g.what}`} className="flex items-baseline gap-2 text-[12.5px]">
                     <span className="text-ink">{g.what}</span>
-                    <span className="ml-auto shrink-0 text-[10.5px] text-ink-muted">
+                    <span className="ml-auto shrink-0 text-micro text-ink-muted">
                       {DD_DOMAIN_PROFILES[g.domain].label}
                     </span>
                   </li>
                 ))}
                 {unasked.length > 6 ? (
-                  <li className="text-[11.5px] text-ink-muted">and {unasked.length - 6} more</li>
+                  <li className="text-mini text-ink-muted">and {unasked.length - 6} more</li>
                 ) : null}
               </ul>
             </CardBody>
@@ -165,12 +165,12 @@ export function RequestsPane({
                       {late ? 'Overdue' : REQUEST_STATUS_LABEL[r.status]}
                     </Badge>
                     <span className="text-[13px] font-medium text-ink">{r.what}</span>
-                    <span className="ml-auto shrink-0 text-[10.5px] text-ink-muted">
+                    <span className="ml-auto shrink-0 text-micro text-ink-muted">
                       {DD_DOMAIN_PROFILES[r.domain as DdDomain]?.label ?? r.domain}
                     </span>
                   </div>
                   <p className="mt-1 text-[12px] leading-relaxed text-ink-secondary">{r.why}</p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-muted">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-mini text-ink-muted">
                     <span>{REQUEST_RECIPIENT_LABEL[r.recipient]}</span>
                     <span>·</span>
                     <span>raised {relativeTime(r.createdAt)}</span>

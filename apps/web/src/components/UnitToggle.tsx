@@ -49,7 +49,7 @@ export function UnitToggle({
             aria-pressed={active}
             onClick={() => setUnit(opt.value)}
             className={cn(
-              'rounded-md px-2 py-1 text-[11px] font-medium leading-4 transition-colors focus-visible:outline-none',
+              'rounded-md px-2 py-1 text-mini font-medium leading-4 transition-colors focus-visible:outline-none',
               active ? 'bg-surface text-ink shadow-card ring-1 ring-inset ring-[var(--ring)]' : 'text-ink-secondary hover:text-ink',
             )}
           >

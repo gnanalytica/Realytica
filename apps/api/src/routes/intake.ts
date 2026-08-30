@@ -246,7 +246,6 @@ intakeRouter.post<{ id: string }>('/:id/documents', upload.array('files', 5), as
 
 const commitSchema = z.object({
   ownerName: z.string().max(200).optional(),
-  persona: z.enum(['property_investor', 'developer_acquisition_manager', 'property_adviser', 'valuation_firm']).optional(),
 });
 
 /**
@@ -272,7 +271,6 @@ intakeRouter.post<{ id: string }>('/:id/commit', async (req, res) => {
     return;
   }
   if (parsed.data.ownerName) session.ownerName = parsed.data.ownerName;
-  if (parsed.data.persona) session.persona = parsed.data.persona;
 
   const now = new Date().toISOString();
   const outcome = commitDraft(session, REFERENCE_DATA, now);
@@ -301,7 +299,6 @@ intakeRouter.post<{ id: string }>('/:id/commit', async (req, res) => {
     reference: store.nextReference(),
     identity: outcome.request.identity,
     status: 'collecting',
-    persona: outcome.request.persona,
     // Carried from the conversation, so a case built from a chat where the
     // person said what they were building starts screened under that method
     // rather than under one inferred from scratch on the first run.

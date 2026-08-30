@@ -14,6 +14,37 @@ type SortKey = 'updated' | 'confidence' | 'value';
 const COUNTRY_LABEL: Record<CountryCode, string> = { IN: 'India', NL: 'Netherlands' };
 const MAX_COMPARE = 4;
 
+/**
+ * How a case gets started, offered the same way whether or not you have any.
+ *
+ * There was no create action on this page at all once it had cases in it —
+ * only in the empty state — so the only always-available route in was the
+ * nav item, which is why the intake chat became the app's front door and its
+ * 404 target. A page called "Your cases" that cannot start one is the reason
+ * something else had to.
+ *
+ * The chat leads because its argument is measured, not stylistic: the wizard
+ * asks six required fields before it accepts anything, three of which the
+ * screening engine does not read at that stage, while the chat puts a real
+ * indicative range and the real critical-document list in front of someone on
+ * the third answer. The form stays, quieter, because the second and tenth
+ * case are entered by somebody who already knows every value and wants
+ * fields, not a conversation.
+ */
+function StartCase({ size = 'md' }: { size?: 'sm' | 'md' }) {
+  const navigate = useNavigate();
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button variant="primary" size={size} icon={<Sparkles size={14} />} onClick={() => navigate('/app')}>
+        Start a case
+      </Button>
+      <Button variant="secondary" size={size} icon={<Plus size={14} />} onClick={() => navigate('/cases/new')}>
+        Fill in a form
+      </Button>
+    </div>
+  );
+}
+
 function formatCombinedValue(byCurrency: Map<CurrencyCode, number>): string {
   if (byCurrency.size === 0) return '—';
   return Array.from(byCurrency.entries())
@@ -98,7 +129,7 @@ export default function Dashboard() {
   if (loading && !cases) {
     return (
       <div className="space-y-5">
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i} className="p-4">
               <Skeleton className="h-3 w-20" />
@@ -141,11 +172,9 @@ export default function Dashboard() {
           title="No property cases yet"
           description="A property case bundles everything about one property — its identification, documents, and an evidence-based screen of whether it's worth pursuing."
           action={
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <Button variant="primary" icon={<Plus size={14} />} onClick={() => navigate('/cases/new')}>
-                Create a property case
-              </Button>
-              <Button variant="secondary" icon={<Sparkles size={14} />} loading={seeding} onClick={() => void handleSeedDemo()}>
+            <div className="flex flex-col items-center gap-2">
+              <StartCase />
+              <Button variant="ghost" size="sm" icon={<Sparkles size={13} />} loading={seeding} onClick={() => void handleSeedDemo()}>
                 Load demo cases
               </Button>
             </div>
@@ -157,6 +186,16 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5 pb-20">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[15px] font-semibold text-ink">Your cases</h1>
+          <p className="text-mini text-ink-secondary">
+            {stats.total} on file · {stats.screened} screened
+          </p>
+        </div>
+        <StartCase size="sm" />
+      </div>
+
       {/*
         * Toned tiles, not plain cards.
         *
@@ -167,7 +206,7 @@ export default function Dashboard() {
         * as numbers. The other two are counts and stay neutral, because a
         * count is not a verdict.
         */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile label="Total cases" value={stats.total} icon={<Layers size={15} />} />
         <StatTile
           label="Screened"

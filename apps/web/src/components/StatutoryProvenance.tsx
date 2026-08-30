@@ -31,7 +31,7 @@ export function StatutoryProvenance({
       <Tooltip label={`${source} — ${verifyNote}`}>
         <span
           tabIndex={0}
-          className="inline-flex min-w-0 cursor-help items-center gap-1 text-[11px] text-ink-muted"
+          className="inline-flex min-w-0 cursor-help items-center gap-1 text-mini text-ink-muted"
         >
           <Info size={11} className="shrink-0" aria-hidden="true" />
           <span className="truncate">
@@ -59,7 +59,7 @@ export function StatutoryProvenance({
    */
   return (
     <details className="print-open group">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-ink-muted">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-mini text-ink-muted">
         <Info size={12} className="shrink-0" aria-hidden="true" />
         {/*
           * Truncated closed, whole open. The source is often longer than the
@@ -72,7 +72,7 @@ export function StatutoryProvenance({
         </span>
         <ChevronDown size={11} className="no-print shrink-0 self-start transition-transform duration-base group-open:rotate-180" />
       </summary>
-      <p className="mt-1.5 border-l-2 border-[var(--ring)] pl-2.5 text-[11.5px] leading-relaxed text-ink-muted">
+      <p className="mt-1.5 border-l-2 border-[var(--ring)] pl-2.5 text-mini leading-relaxed text-ink-muted">
         {verifyNote}
       </p>
     </details>

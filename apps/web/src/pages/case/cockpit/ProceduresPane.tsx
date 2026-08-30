@@ -27,7 +27,7 @@ export function ProceduresPane({ caseData }: { caseData: PropertyCase }) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-b border-hairline bg-surface-2 px-5 py-3">
         <h2 className="text-[13px] font-semibold text-ink">Procedures</h2>
-        <p className="mt-0.5 text-[11.5px] text-ink-muted">
+        <p className="mt-0.5 text-mini text-ink-muted">
           The sequence a practitioner follows here, with each step&rsquo;s gate enforced rather than assumed.
         </p>
       </div>

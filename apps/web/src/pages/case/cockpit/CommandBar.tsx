@@ -28,6 +28,8 @@ type Command =
   | { kind: 'go'; id: string; label: string; hint: string; domain: DdDomain }
   | { kind: 'mark'; id: string; label: string; hint: string; itemId: string; provided: boolean }
   | { kind: 'risk'; id: string; label: string; hint: string; riskId: string; status: 'open' | 'mitigated' | 'accepted' }
+  | { kind: 'action'; id: string; label: string; hint: string; actionId: string; done: boolean }
+  | { kind: 'finding'; id: string; label: string; hint: string; findingId: string; reviewState: 'accepted' | 'rejected' }
   | { kind: 'ask'; id: string; label: string; hint: string };
 
 export function CommandBar({
@@ -87,16 +89,41 @@ export function CommandBar({
         });
       }
     }
+    /*
+     * The bar's vocabulary was a strict subset of the copilot's, and the
+     * missing half was the half that closes work: an action could be ticked
+     * off and a drafted finding accepted by ASKING for it in chat, but not by
+     * typing it here. Both surfaces are the person acting, so both should
+     * offer the same verbs — the design note above already says they speak
+     * one vocabulary, and it was only half true.
+     */
     for (const risk of caseData.result?.risks ?? []) {
-      if (risk.status !== 'open') continue;
+      if (risk.status === 'open') {
+        out.push({ kind: 'risk', id: `risk:mit:${risk.id}`, label: `Mark "${risk.title}" mitigated`, hint: 'Risk', riskId: risk.id, status: 'mitigated' });
+        out.push({ kind: 'risk', id: `risk:acc:${risk.id}`, label: `Accept "${risk.title}" as a known risk`, hint: 'Risk', riskId: risk.id, status: 'accepted' });
+      } else {
+        // Reopening matters more than it looks: a risk closed in error is
+        // otherwise only reachable by asking chat to undo it.
+        out.push({ kind: 'risk', id: `risk:open:${risk.id}`, label: `Reopen "${risk.title}"`, hint: 'Risk', riskId: risk.id, status: 'open' });
+      }
+    }
+    for (const action of caseData.result?.actions ?? []) {
       out.push({
-        kind: 'risk',
-        id: `risk:${risk.id}`,
-        label: `Mark "${risk.title}" mitigated`,
-        hint: 'Risk',
-        riskId: risk.id,
-        status: 'mitigated',
+        kind: 'action',
+        id: `action:${action.id}`,
+        label: action.done ? `Reopen "${action.title}"` : `Mark "${action.title}" done`,
+        hint: `${action.priority.replace(/_/g, ' ')} · ${action.owner}`,
+        actionId: action.id,
+        done: !action.done,
       });
+    }
+    for (const finding of caseData.technicalFindings ?? []) {
+      // Only a DRAFTED finding: accepting is what turns a model's claim into
+      // part of the case, and re-deciding a settled one is a different act
+      // that belongs on the finding itself, with its history in view.
+      if (finding.reviewState !== 'proposed') continue;
+      out.push({ kind: 'finding', id: `find:acc:${finding.id}`, label: `Accept "${finding.observation}"`, hint: 'Drafted finding', findingId: finding.id, reviewState: 'accepted' });
+      out.push({ kind: 'finding', id: `find:rej:${finding.id}`, label: `Reject "${finding.observation}"`, hint: 'Drafted finding', findingId: finding.id, reviewState: 'rejected' });
     }
     return out;
   }, [caseData]);
@@ -130,6 +157,16 @@ export function CommandBar({
         onClose();
       } else if (command.kind === 'mark') {
         await api.setTechnicalDocumentProvided(caseData.id, command.itemId, command.provided);
+        await onChanged();
+        toast(command.label, 'good');
+        onClose();
+      } else if (command.kind === 'action') {
+        await api.setActionDone(caseData.id, command.actionId, command.done);
+        await onChanged();
+        toast(command.label, 'good');
+        onClose();
+      } else if (command.kind === 'finding') {
+        await api.reviewTechnicalFinding(caseData.id, command.findingId, command.reviewState);
         await onChanged();
         toast(command.label, 'good');
         onClose();
@@ -198,14 +235,14 @@ export function CommandBar({
                   }`}
                 >
                   <span
-                    className={`text-[10px] font-semibold uppercase tracking-[0.05em] ${
+                    className={`text-micro font-semibold uppercase tracking-[0.05em] ${
                       c.kind === 'go' || c.kind === 'ask' ? 'text-ink-muted' : 'text-brand'
                     }`}
                   >
                     {c.kind === 'go' ? 'Go' : c.kind === 'ask' ? 'Ask' : 'Do'}
                   </span>
                   <span className="min-w-0 flex-grow truncate text-[12.5px] text-ink">{c.label}</span>
-                  <span className="shrink-0 text-[10.5px] text-ink-muted">{c.hint}</span>
+                  <span className="shrink-0 text-micro text-ink-muted">{c.hint}</span>
                 </button>
               </li>
             ))

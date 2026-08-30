@@ -7,7 +7,6 @@ export * from './emphasis';
 export * from './assessment';
 export * from './disclosure';
 export * from './discovery';
-export * from './lenses';
 export * from './staleness';
 export * from './engine';
 export * from './seed';

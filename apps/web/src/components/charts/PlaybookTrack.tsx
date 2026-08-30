@@ -69,7 +69,7 @@ export default function PlaybookTrack({ run, onSelectStep, selectedKey }: Playbo
                 </div>
                 <span
                   className={cn(
-                    'line-clamp-2 text-[11px] leading-snug',
+                    'line-clamp-2 text-mini leading-snug',
                     step.state === 'not_applicable' ? 'text-ink-muted' : 'text-ink-secondary',
                     isNext && 'font-semibold text-ink',
                   )}
@@ -82,7 +82,7 @@ export default function PlaybookTrack({ run, onSelectStep, selectedKey }: Playbo
         })}
       </ol>
       {firstBlocked ? (
-        <p className="mt-2 text-[11px] leading-relaxed text-ink-secondary">
+        <p className="mt-2 text-mini leading-relaxed text-ink-secondary">
           <span className="font-medium text-ink">Stops at &ldquo;{firstBlocked.label}&rdquo;.</span> {firstBlocked.finding}
         </p>
       ) : null}

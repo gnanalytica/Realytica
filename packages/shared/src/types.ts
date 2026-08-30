@@ -35,12 +35,6 @@ export type Tenure = 'freehold' | 'leasehold' | 'unknown';
 
 export type CaseStatus = 'draft' | 'collecting' | 'analysing' | 'screened' | 'archived';
 
-export type PersonaKey =
-  | 'property_investor'
-  | 'developer_acquisition_manager'
-  | 'property_adviser'
-  | 'valuation_firm';
-
 /* ------------------------------------------------------------------ */
 /* Project kind & assessment profile                                   */
 /* ------------------------------------------------------------------ */
@@ -93,17 +87,6 @@ export type ProjectIntent =
   | 'redevelop_existing'
   | 'unknown';
 
-/**
- * Who the assessment is written for. Four readers with genuinely different
- * questions, not four skins on one page:
- *
- * - `developer` decides whether to buy and at what number.
- * - `engineering` decides whether it can be built and what it costs to build.
- * - `architect` decides what envelope the statute actually permits.
- * - `project_manager` decides the sequence, the approvals and the dates.
- */
-export type LensKey = 'developer' | 'engineering' | 'architect' | 'project_manager';
-
 /** How a valuation method is being used on this project kind. */
 export type MethodRole = 'primary' | 'supporting' | 'sense_check' | 'not_applicable';
 
@@ -148,8 +131,6 @@ export interface AssessmentProfile {
   criticalChecks: string[];
   /** Documents the conclusion is not credible without. */
   requiredDocuments: DocumentKind[];
-  /** Who the report addresses unless the reader picks otherwise. */
-  defaultLens: LensKey;
 }
 
 /**
@@ -1897,19 +1878,6 @@ export interface PropertyCase {
   identity: PropertyIdentity;
   status: CaseStatus;
   /**
-   * @deprecated Superseded by `lens`. Written for a demand-side buyer — an
-   * investor, an adviser, a valuation firm — when the product's audience is
-   * the supply side. Kept only so cases stored before lenses existed still
-   * parse and still open somewhere sensible; see `lensFromPersona`.
-   */
-  persona: PersonaKey;
-  /**
-   * Who this case is being read by, which decides what leads and what folds
-   * away. Absent means nobody has chosen — `resolveLens` then takes the
-   * assessment profile's default, which is chosen from the project kind.
-   */
-  lens?: LensKey;
-  /**
    * How much about this property may be said to something outside Realytica.
    * Absent means nobody has chosen, which resolves to the safe default — see
    * `resolveDisclosure`. A permissive setting must never be reachable by
@@ -2250,7 +2218,6 @@ export interface ComparisonResult {
 export interface CreateCaseRequest {
   identity: PropertyIdentity;
   ownerName: string;
-  persona: PersonaKey;
   notes?: string;
   /**
    * What is being done with the property, when the creator knows. Omitted,
@@ -2263,7 +2230,6 @@ export interface CreateCaseRequest {
 export interface UpdateCaseRequest {
   identity?: Partial<PropertyIdentity>;
   status?: CaseStatus;
-  persona?: PersonaKey;
   ownerName?: string;
   notes?: string;
 }
@@ -4006,7 +3972,6 @@ export interface IntakeSession {
   documents: CaseDocument[];
   /** Set once the session has been committed and a case built from it. */
   caseId?: string;
-  /** Who the case will belong to, and the lens the screen leads with. */
+  /** Who the case will belong to. */
   ownerName?: string;
-  persona?: PersonaKey;
 }

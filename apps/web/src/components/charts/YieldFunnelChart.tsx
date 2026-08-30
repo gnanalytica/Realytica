@@ -182,8 +182,8 @@ export default function YieldFunnelChart({ yieldResult: y, formatArea, height }:
                 y={yPos + BAR_H / 2 + 4}
                 className={
                   stage.key === 'achievable'
-                    ? 'fill-[var(--text-primary)] text-[11px] font-semibold tabular'
-                    : 'fill-[var(--text-secondary)] text-[11px] tabular'
+                    ? 'fill-[var(--text-primary)] text-mini font-semibold tabular'
+                    : 'fill-[var(--text-secondary)] text-mini tabular'
                 }
               >
                 {formatArea(stage.value)}
@@ -199,7 +199,7 @@ export default function YieldFunnelChart({ yieldResult: y, formatArea, height }:
         * say is how much floor area that costs, which is the number a
         * developer actually prices. Colour alone never carries either.
         */}
-      <p className="mt-1 text-[11px] text-ink-muted">
+      <p className="mt-1 text-mini text-ink-muted">
         {worstLoss
           ? `Biggest single loss: ${formatArea(worstLoss.lost)} to ${worstLoss.stage.lossName}.`
           : 'Nothing is lost between the zoning envelope and what can be built.'}

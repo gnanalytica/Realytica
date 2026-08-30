@@ -60,7 +60,6 @@ export const ASSESSMENT_PROFILES: Record<ProjectKind, AssessmentProfile> = {
     ],
     criticalChecks: ['title_chain', 'encumbrance', 'land_conversion', 'khata_classification', 'acquisition_notification'],
     requiredDocuments: ['mother_deed', 'title_deed', 'encumbrance_certificate', 'conversion_certificate', 'khata_extract'],
-    defaultLens: 'developer',
   },
 
   plotted_development: {
@@ -83,7 +82,6 @@ export const ASSESSMENT_PROFILES: Record<ProjectKind, AssessmentProfile> = {
     ],
     criticalChecks: ['title_chain', 'land_conversion', 'layout_approval', 'rajakaluve_buffer', 'lake_buffer', 'acquisition_notification'],
     requiredDocuments: ['mother_deed', 'title_deed', 'conversion_certificate', 'encumbrance_certificate', 'khata_extract'],
-    defaultLens: 'developer',
   },
 
   villa_project: {
@@ -104,7 +102,6 @@ export const ASSESSMENT_PROFILES: Record<ProjectKind, AssessmentProfile> = {
     ],
     criticalChecks: ['title_chain', 'land_conversion', 'layout_approval', 'setback_compliance', 'rera_registration'],
     requiredDocuments: ['title_deed', 'conversion_certificate', 'approved_building_plan', 'commencement_certificate', 'rera_registration'],
-    defaultLens: 'developer',
   },
 
   apartment_project: {
@@ -126,7 +123,6 @@ export const ASSESSMENT_PROFILES: Record<ProjectKind, AssessmentProfile> = {
     ],
     criticalChecks: ['title_chain', 'land_conversion', 'far_headroom', 'road_width', 'rajakaluve_buffer', 'aerodrome_height', 'rera_registration'],
     requiredDocuments: ['title_deed', 'mother_deed', 'conversion_certificate', 'approved_building_plan', 'commencement_certificate', 'rera_registration'],
-    defaultLens: 'developer',
   },
 
   mixed_use_project: {
@@ -147,7 +143,6 @@ export const ASSESSMENT_PROFILES: Record<ProjectKind, AssessmentProfile> = {
     ],
     criticalChecks: ['title_chain', 'land_conversion', 'zoning_permitted_use', 'far_headroom', 'road_width', 'parking_provision', 'rera_registration'],
     requiredDocuments: ['title_deed', 'conversion_certificate', 'approved_building_plan', 'commencement_certificate', 'rera_registration'],
-    defaultLens: 'developer',
   },
 
   commercial_development: {
@@ -168,7 +163,6 @@ export const ASSESSMENT_PROFILES: Record<ProjectKind, AssessmentProfile> = {
     ],
     criticalChecks: ['title_chain', 'zoning_permitted_use', 'far_headroom', 'road_width', 'parking_provision', 'fire_noc'],
     requiredDocuments: ['title_deed', 'conversion_certificate', 'approved_building_plan', 'commencement_certificate', 'occupancy_certificate'],
-    defaultLens: 'developer',
   },
 
   industrial_development: {
@@ -189,7 +183,6 @@ export const ASSESSMENT_PROFILES: Record<ProjectKind, AssessmentProfile> = {
     ],
     criticalChecks: ['title_chain', 'land_conversion', 'zoning_permitted_use', 'road_width', 'pollution_consent'],
     requiredDocuments: ['title_deed', 'conversion_certificate', 'approved_building_plan', 'occupancy_certificate'],
-    defaultLens: 'engineering',
   },
 
   redevelopment: {
@@ -210,7 +203,6 @@ export const ASSESSMENT_PROFILES: Record<ProjectKind, AssessmentProfile> = {
     ],
     criticalChecks: ['title_chain', 'far_headroom', 'occupancy_certificate', 'setback_compliance', 'road_width'],
     requiredDocuments: ['title_deed', 'approved_building_plan', 'occupancy_certificate', 'khata_extract', 'property_tax_receipt'],
-    defaultLens: 'architect',
   },
 
   joint_development: {
@@ -231,7 +223,6 @@ export const ASSESSMENT_PROFILES: Record<ProjectKind, AssessmentProfile> = {
     ],
     criticalChecks: ['title_chain', 'encumbrance', 'jda_terms', 'power_of_attorney', 'land_conversion', 'rera_registration'],
     requiredDocuments: ['joint_development_agreement', 'mother_deed', 'title_deed', 'encumbrance_certificate', 'khata_extract'],
-    defaultLens: 'developer',
   },
 
   built_asset_purchase: {
@@ -253,7 +244,6 @@ export const ASSESSMENT_PROFILES: Record<ProjectKind, AssessmentProfile> = {
     ],
     criticalChecks: ['title_chain', 'encumbrance', 'occupancy_certificate', 'khata_classification', 'property_tax'],
     requiredDocuments: ['title_deed', 'sale_agreement', 'encumbrance_certificate', 'occupancy_certificate', 'khata_extract', 'property_tax_receipt'],
-    defaultLens: 'developer',
   },
 };
 

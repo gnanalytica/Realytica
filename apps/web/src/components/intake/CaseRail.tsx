@@ -41,7 +41,7 @@ export function CaseRail({ cases, highlight }: { cases: CaseSummary[]; highlight
               )}
             >
               <div className="flex items-baseline gap-2">
-                <span className="tabular text-[11px] font-medium text-ink-muted">{c.reference}</span>
+                <span className="tabular text-mini font-medium text-ink-muted">{c.reference}</span>
                 {c.verdict ? (
                   <Badge tone={VERDICT_TONE[c.verdict] ?? 'neutral'} className="ml-auto">
                     {c.verdict.replace(/_/g, ' ')}
@@ -51,14 +51,14 @@ export function CaseRail({ cases, highlight }: { cases: CaseSummary[]; highlight
                 )}
               </div>
               <p className="mt-0.5 truncate text-[13px] font-medium text-ink">{c.label}</p>
-              <p className="text-[11px] text-ink-secondary">
+              <p className="text-mini text-ink-secondary">
                 {c.locality}
                 {typeof c.indicativeLow === 'number' && typeof c.indicativeHigh === 'number'
                   ? ` · ${money(c.indicativeLow, c.currency, { compact: true })}–${money(c.indicativeHigh, c.currency, { compact: true })}`
                   : ''}
                 {c.openCriticalRisks > 0 ? ` · ${c.openCriticalRisks} critical` : ''}
               </p>
-              <p className="mt-0.5 text-[10px] text-ink-muted">{relativeTime(c.updatedAt)}</p>
+              <p className="mt-0.5 text-micro text-ink-muted">{relativeTime(c.updatedAt)}</p>
             </Link>
           ))
         )}

@@ -323,6 +323,52 @@ caseAgentsRouter.post<{ id: string }>('/copilot', async (req, res) => {
     citedEvidenceIds: [],
   };
 
+  /*
+   * Progress streams over this same POST as newline-delimited JSON.
+   *
+   * `runCopilot` has always taken an `onStep` callback and emitted richly
+   * through a loop of up to eight tool iterations; this route was the one
+   * caller that never passed it, so the reader watched three dots for the
+   * whole run with no idea whether it was reading a deed or had hung. The
+   * steps existed and were visible only afterwards, on another tab.
+   *
+   * NDJSON on the existing route rather than a second SSE endpoint, for two
+   * reasons. A separate stream would need a correlation id and a way to pair
+   * it with a POST nobody has sent yet. And this degrades safely: if a proxy
+   * buffers the response — which is exactly what happens on some CDN paths —
+   * the client receives the whole body at once, reads the last line, and gets
+   * precisely today's behaviour. Progress is an enhancement that cannot fail
+   * closed.
+   *
+   * The cost is that the status code is committed the moment the first line
+   * is written, so a failure after that is an `error` LINE rather than a 502.
+   * The client is written to treat both as the same failure.
+   */
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  /*
+   * `res`, not `req`.
+   *
+   * On a POST, `req`'s own 'close' fires when the request BODY has finished
+   * arriving — which is immediately, and long before the answer exists.
+   * Listening there set this true on every request and silently suppressed
+   * every line including the result, so the route returned HTTP 200 with zero
+   * bytes and the client reported that the copilot had stopped before
+   * answering. `res` closes when the client actually goes away, which is the
+   * question being asked. (The GET stream above listens on `req` and is
+   * correct there: a GET has no body, so its close IS the disconnect.)
+   */
+  let clientGone = false;
+  res.on('close', () => {
+    clientGone = true;
+  });
+  const line = (payload: unknown): void => {
+    if (clientGone) return;
+    res.write(`${JSON.stringify(payload)}\n`);
+  };
+
   try {
     const history = found.intelligence?.conversation ?? [];
     // Resolved here, not inside the agent: persistence belongs to the app, and
@@ -337,6 +383,7 @@ caseAgentsRouter.post<{ id: string }>('/copilot', async (req, res) => {
       memory,
       history,
       now,
+      onStep: (step: AgentStep) => line({ type: 'step', step }),
     });
     if (!found.intelligence) found.intelligence = emptyIntelligence();
     found.intelligence.conversation = [...found.intelligence.conversation, userTurn, assistantTurn];
@@ -363,10 +410,15 @@ caseAgentsRouter.post<{ id: string }>('/copilot', async (req, res) => {
     // above stay proposals; these are the other half.
     const appliedCommands = applyCopilotCommands(found, commands, now);
     found.updatedAt = new Date().toISOString();
+    // Saved BEFORE the result line, never after: the line is the client's
+    // signal that the turn is durable, and emitting it first would let a
+    // failed save reach the reader as a successful answer.
     await store.save();
-    res.json({ userTurn, assistantTurn, proposedFindings: newFindings, appliedCommands, navigations });
+    line({ type: 'result', userTurn, assistantTurn, proposedFindings: newFindings, appliedCommands, navigations });
+    res.end();
   } catch (e) {
-    res.status(502).json({ error: describeError(e) });
+    line({ type: 'error', error: describeError(e) });
+    res.end();
   }
 });
 

@@ -125,7 +125,7 @@ function CapabilityDots({ descriptor }: { descriptor: ProviderDescriptor }) {
           key={key}
           title={`${key}: ${on ? 'supported' : 'not supported'}`}
           className={cn(
-            'rounded px-1.5 py-0.5 text-[10px] font-medium',
+            'rounded px-1.5 py-0.5 text-micro font-medium',
             on ? 'bg-good-soft text-good' : 'bg-sunken text-ink-muted line-through',
           )}
         >
@@ -175,7 +175,7 @@ function RoutingCard({ routes, providers }: { routes: AgentRoute[]; providers: P
               <div className="mb-1.5 flex flex-wrap items-baseline gap-2">
                 <span className="text-sm font-medium text-ink">{p.label}</span>
                 <Badge tone={p.configured ? 'good' : 'neutral'}>{p.configured ? 'configured' : 'no credentials'}</Badge>
-                {p.baseUrl && <span className="font-mono text-[10px] text-ink-muted">{p.baseUrl}</span>}
+                {p.baseUrl && <span className="font-mono text-micro text-ink-muted">{p.baseUrl}</span>}
               </div>
               <CapabilityDots descriptor={p} />
             </div>
@@ -185,7 +185,7 @@ function RoutingCard({ routes, providers }: { routes: AgentRoute[]; providers: P
         <div className="overflow-x-auto">
           <table className="w-full min-w-[38rem] text-left text-xs">
             <thead>
-              <tr className="border-b border-hairline text-[11px] uppercase tracking-wide text-ink-muted">
+              <tr className="border-b border-hairline text-mini uppercase tracking-wide text-ink-muted">
                 <th className="pb-1.5 pr-3 font-semibold">Agent</th>
                 <th className="pb-1.5 pr-3 font-semibold">Tier</th>
                 <th className="pb-1.5 pr-3 font-semibold">Route</th>
@@ -202,13 +202,13 @@ function RoutingCard({ routes, providers }: { routes: AgentRoute[]; providers: P
                     <td className="py-1.5 pr-3 align-top">
                       <Badge tone="neutral">{r.tier}</Badge>
                     </td>
-                    <td className="py-1.5 pr-3 align-top font-mono text-[11px] text-ink-secondary">
+                    <td className="py-1.5 pr-3 align-top font-mono text-mini text-ink-secondary">
                       {r.model}
                     </td>
-                    <td className="py-1.5 pr-3 align-top text-[11px] text-ink-muted">{r.source.replace(/_/g, ' ')}</td>
+                    <td className="py-1.5 pr-3 align-top text-mini text-ink-muted">{r.source.replace(/_/g, ' ')}</td>
                     <td className="py-1.5 align-top">
                       {r.expectedGaps.length === 0 ? (
-                        <span className="text-[11px] text-ink-muted">
+                        <span className="text-mini text-ink-muted">
                           {!assessed && r.provider !== 'anthropic' ? 'not assessed' : '—'}
                         </span>
                       ) : (
@@ -221,7 +221,7 @@ function RoutingCard({ routes, providers }: { routes: AgentRoute[]; providers: P
                         </div>
                       )}
                       {grounding.length > 0 && (
-                        <p className="mt-1 text-[11px] leading-relaxed text-critical">
+                        <p className="mt-1 text-mini leading-relaxed text-critical">
                           This route changes what the output means, not just what it costs.
                         </p>
                       )}
@@ -256,7 +256,7 @@ function PerformanceTable({ rows }: { rows: ProviderPerformance[] }) {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[42rem] text-left text-xs">
               <thead>
-                <tr className="border-b border-hairline text-[11px] uppercase tracking-wide text-ink-muted">
+                <tr className="border-b border-hairline text-mini uppercase tracking-wide text-ink-muted">
                   <th className="pb-1.5 pr-3 font-semibold">Route</th>
                   <th className="pb-1.5 pr-3 text-right font-semibold">Calls</th>
                   <th className="pb-1.5 pr-3 text-right font-semibold">Median</th>
@@ -286,7 +286,7 @@ function PerformanceTable({ rows }: { rows: ProviderPerformance[] }) {
                     </td>
                     <td className="tabular py-1.5 text-right align-top font-medium text-ink">
                       {usd(r.totalUsage.estimatedCostUsd)}
-                      <span className="block text-[10px] font-normal text-ink-muted">
+                      <span className="block text-micro font-normal text-ink-muted">
                         {tokens(r.totalUsage.inputTokens)}/{tokens(r.totalUsage.outputTokens)}
                       </span>
                     </td>
@@ -350,10 +350,10 @@ function CallLog({ calls }: { calls: LlmCallRecord[] }) {
                 >
                   {c.outcome}
                 </Badge>
-                <span className="font-mono text-[10px] text-ink-muted">
+                <span className="font-mono text-micro text-ink-muted">
                   {c.model}
                 </span>
-                <span className="tabular ml-auto text-[11px] text-ink-muted">
+                <span className="tabular ml-auto text-mini text-ink-muted">
                   {ms(c.durationMs)}
                   {c.timeToFirstTokenMs !== undefined && ` (ttft ${ms(c.timeToFirstTokenMs)})`}
                   {' · '}
@@ -371,8 +371,8 @@ function CallLog({ calls }: { calls: LlmCallRecord[] }) {
                   ))}
                 </div>
               )}
-              {c.error && <p className="mt-1 text-[11px] leading-relaxed text-critical">{c.error}</p>}
-              {c.retries > 0 && <p className="mt-1 text-[11px] text-ink-muted">{c.retries} retry/retries</p>}
+              {c.error && <p className="mt-1 text-mini leading-relaxed text-critical">{c.error}</p>}
+              {c.retries > 0 && <p className="mt-1 text-mini text-ink-muted">{c.retries} retry/retries</p>}
             </div>
           ))
         )}
@@ -468,7 +468,7 @@ export default function Observability() {
           <div className="min-w-0">
             <p className="text-xs leading-relaxed text-ink">{summary.pricing.note}</p>
             {summary.pricing.unpricedRoutes.length > 0 && (
-              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-secondary">
+              <p className="mt-1.5 text-mini leading-relaxed text-ink-secondary">
                 Declare rates for{' '}
                 {summary.pricing.unpricedRoutes.map((r) => (
                   <span key={r} className="font-mono">
@@ -523,7 +523,7 @@ export default function Observability() {
         </>
       )}
 
-      <p className="flex items-start gap-2 text-[11px] leading-relaxed text-ink-muted">
+      <p className="flex items-start gap-2 text-mini leading-relaxed text-ink-muted">
         <AlertTriangle size={12} className="mt-0.5 shrink-0" />
         Costs are estimates from published per-token rates, not billed amounts. A route whose rates this deployment
         does not know is shown unpriced rather than as zero.

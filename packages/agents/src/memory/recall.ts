@@ -110,7 +110,7 @@ export function subjectsForCase(
     }
   }
 
-  // Always consulted, even on an empty draft case: the persona and the
+  // Always consulted, even on an empty draft case: the owner's own
   // dispositions attached to it are the one thing memory can offer before a
   // single document has been uploaded.
   collected.push(userSubject(c.ownerName));

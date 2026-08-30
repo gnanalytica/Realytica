@@ -141,13 +141,13 @@ export function PromptEditor({
         <h3 className="text-[13px] font-semibold text-ink">
           {mode === 'edit' ? `Editing v${base.version}` : `New version from v${base.version}`}
         </h3>
-        <span className="font-mono text-[10.5px] text-ink-muted">{prompt.key}</span>
+        <span className="font-mono text-micro text-ink-muted">{prompt.key}</span>
         {dirty ? (
           <Badge tone="warning" className="ml-auto">
             Unsaved changes
           </Badge>
         ) : (
-          <span className="ml-auto text-[11px] text-ink-muted">No changes yet</span>
+          <span className="ml-auto text-mini text-ink-muted">No changes yet</span>
         )}
       </div>
 
@@ -199,7 +199,7 @@ export function PromptEditor({
             <label htmlFor="prompt-content" className="text-xs font-medium text-ink-secondary">
               Prompt text
             </label>
-            <span className="tabular text-[11px] text-ink-muted">
+            <span className="tabular text-mini text-ink-muted">
               {lineCount} lines · {content.length} characters
             </span>
           </div>
@@ -211,7 +211,7 @@ export function PromptEditor({
             onChange={(e) => setContent(e.target.value)}
             className="h-[clamp(20rem,58vh,52rem)] resize-y font-mono text-[12px] leading-[1.65]"
           />
-          <p className="mt-1 text-[11px] leading-relaxed text-ink-muted">
+          <p className="mt-1 text-mini leading-relaxed text-ink-muted">
             Placeholders may be written <span className="font-mono">{'{{name}}'}</span> or{' '}
             <span className="font-mono">{'{name}'}</span>; both are recognised. Long prompts are expected — drag the
             corner to grow this box.
@@ -220,7 +220,7 @@ export function PromptEditor({
 
         <div className="flex min-w-0 flex-col gap-3">
           <div>
-            <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted">
+            <h4 className="mb-1.5 text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">
               Declared placeholders
             </h4>
             {prompt.variables.length === 0 ? (
@@ -253,7 +253,7 @@ export function PromptEditor({
                   {missing.length} declared placeholder{missing.length > 1 ? 's are' : ' is'} missing — this cannot be
                   saved
                 </p>
-                <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">
+                <p className="mt-1 text-mini leading-relaxed text-ink-secondary">
                   Without {missing.map((m) => `{{${m}}}`).join(', ')} the rendered prompt has a hole where a case fact
                   belongs. The model answers around it and the run fails in a way that looks like a model problem
                   rather than a template one. This is blocked rather than warned about for that reason.
@@ -263,7 +263,7 @@ export function PromptEditor({
           </div>
 
           <div>
-            <h4 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-muted">
+            <h4 className="mb-1.5 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">
               Guardrails
               <span className="font-normal normal-case tracking-normal text-ink-muted">(checked as you type)</span>
             </h4>
@@ -279,7 +279,7 @@ export function PromptEditor({
                 <ShieldAlert size={13} className="mt-0.5 shrink-0" />
                 This draft drops {dropped.length} guardrail{dropped.length > 1 ? 's' : ''}
               </p>
-              <p className="mt-1 text-[11px] leading-relaxed text-ink-secondary">{UNGUARDED_CONSEQUENCE}</p>
+              <p className="mt-1 text-mini leading-relaxed text-ink-secondary">{UNGUARDED_CONSEQUENCE}</p>
             </div>
           ) : unassessed.length > 0 ? (
             <Callout
@@ -308,7 +308,7 @@ export function PromptEditor({
           label={<span className="text-xs">Make this version active on save</span>}
         />
         {activate && dropped.length > 0 ? (
-          <span className="flex items-center gap-1 text-[11px] font-medium text-critical">
+          <span className="flex items-center gap-1 text-mini font-medium text-critical">
             <TriangleAlert size={12} /> This puts unguarded text in force immediately.
           </span>
         ) : null}

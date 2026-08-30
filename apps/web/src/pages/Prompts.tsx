@@ -484,7 +484,7 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
                   <button
                     type="button"
                     onClick={() => guard(() => setSelectedKey(p.key))}
-                    className="rounded-md bg-surface px-2 py-1 text-[11px] font-medium text-ink ring-1 ring-inset ring-critical/40 hover:bg-sunken"
+                    className="rounded-md bg-surface px-2 py-1 text-mini font-medium text-ink ring-1 ring-inset ring-critical/40 hover:bg-sunken"
                   >
                     {p.label} — {brokenChecks(activeVersion(p)).map((b) => b.label).join(', ') || 'active version missing'}
                   </button>
@@ -551,7 +551,7 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
               }
               subtitle={
                 <span className="block">
-                  <span className="font-mono text-[10.5px] text-ink-muted">{selected.key}</span> · {selected.description}
+                  <span className="font-mono text-micro text-ink-muted">{selected.key}</span> · {selected.description}
                 </span>
               }
               icon={<ScrollText size={16} />}
@@ -581,7 +581,7 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
                   </p>
                   <ul className="mt-1.5 space-y-1">
                     {selectedBroken.map((b) => (
-                      <li key={b.id} className="text-[11px] leading-relaxed text-ink-secondary">
+                      <li key={b.id} className="text-mini leading-relaxed text-ink-secondary">
                         <span className="font-medium text-ink">{b.label}</span> — {b.rationale}
                       </li>
                     ))}
@@ -636,7 +636,7 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
         )}
       </div>
 
-      <p className="flex items-start gap-2 text-[11px] leading-relaxed text-ink-muted">
+      <p className="flex items-start gap-2 text-mini leading-relaxed text-ink-muted">
         <Sparkles size={12} className="mt-0.5 shrink-0" />
         Guardrails shown against a stored version are the results recorded with that version. The editor's live check
         is an independent, coarser reading of the same rules — where the two disagree, the recorded result is the one
@@ -723,7 +723,7 @@ function PromptText({ prompt }: { prompt: PromptDescriptor }) {
             </option>
           ))}
         </Select>
-        <span className="tabular text-[11px] text-ink-muted">
+        <span className="tabular text-mini text-ink-muted">
           {lines.length} lines · {version.content.length} characters
         </span>
         {broken.length > 0 ? (
@@ -736,13 +736,13 @@ function PromptText({ prompt }: { prompt: PromptDescriptor }) {
       </div>
 
       <div className="max-h-[60vh] overflow-auto rounded-lg bg-sunken ring-1 ring-inset ring-[var(--ring)]">
-        <table className="w-full border-collapse font-mono text-[11.5px] leading-[1.6]">
+        <table className="w-full border-collapse font-mono text-mini leading-[1.6]">
           <tbody>
             {lines.map((line, index) => (
               <tr key={index}>
                 <td
                   className={cn(
-                    'w-10 select-none border-r border-hairline px-1.5 text-right align-top text-[10px] text-ink-muted',
+                    'w-10 select-none border-r border-hairline px-1.5 text-right align-top text-micro text-ink-muted',
                   )}
                 >
                   {index + 1}

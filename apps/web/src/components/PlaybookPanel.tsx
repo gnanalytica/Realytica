@@ -122,15 +122,15 @@ function StepRow({
           {splitLead(step.finding).rest && (
             <Prose size="sm" className="border-l-2 border-[var(--ring)] pl-2.5">{splitLead(step.finding).rest}</Prose>
           )}
-          <p className="text-[11px] italic leading-relaxed text-ink-muted">{step.question}</p>
+          <p className="text-mini italic leading-relaxed text-ink-muted">{step.question}</p>
           {step.blockedBy && step.blockedBy.length > 0 && (
-            <p className="text-[11px] leading-relaxed text-ink-secondary">
+            <p className="text-mini leading-relaxed text-ink-secondary">
               <span className="font-semibold uppercase tracking-wide text-ink-muted">Waiting on</span>{' '}
               {step.blockedBy.map((k) => stepsByKey.get(k)?.label ?? k).join(', ')}
             </p>
           )}
           {step.needs.length > 0 && (
-            <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-muted">
+            <p className="flex flex-wrap items-center gap-1.5 text-mini text-ink-muted">
               <span className="font-semibold uppercase tracking-wide">Needs</span>
               {step.needs.map((k) => (
                 <Badge key={k} tone="neutral">
@@ -140,7 +140,7 @@ function StepRow({
             </p>
           )}
           {step.citation && (
-            <p className="text-[11px] leading-relaxed text-ink-muted">
+            <p className="text-mini leading-relaxed text-ink-muted">
               <span className="font-semibold uppercase tracking-wide">Tested against</span> {step.citation}
             </p>
           )}
@@ -165,7 +165,7 @@ export function PlaybookCard({ run }: { run: PlaybookRun }) {
       <CardBody>
         <div className="mb-3 flex items-center gap-3">
           <ProgressBar value={Math.round(run.progressPct)} tone={VERDICT_TONE[run.verdict]} className="flex-1" />
-          <span className="tabular shrink-0 text-[11px] text-ink-muted">
+          <span className="tabular shrink-0 text-mini text-ink-muted">
             {Math.round(run.progressPct)}% of {evaluable} checkable step{evaluable === 1 ? '' : 's'}
             {blocked > 0 && ` · ${blocked} gated`}
           </span>

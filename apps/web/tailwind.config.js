@@ -45,6 +45,25 @@ export default {
         grid: 'var(--gridline)',
         axis: 'var(--axis)',
       },
+      /*
+       * The small end of the type scale, as tokens rather than 459 hand-set
+       * pixel values.
+       *
+       * There were four sizes between 10 and 11.5px, which is not a scale —
+       * a half-pixel distinction at that size is not a distinction anybody
+       * can see, and having four of them meant no single place to change how
+       * small "small" is. Two named steps replace them.
+       *
+       * The values resolve from CSS custom properties so `index.css` can
+       * raise both under `pointer: coarse` in one block. That is the whole
+       * reason for the indirection: 10px is legible on a monitor at arm's
+       * length and is not legible on a phone in daylight, and Tailwind's
+       * fontSize scale cannot itself be conditional on a media query.
+       */
+      fontSize: {
+        micro: ['var(--text-micro)', { lineHeight: 'var(--leading-micro)' }],
+        mini: ['var(--text-mini)', { lineHeight: 'var(--leading-mini)' }],
+      },
       fontFamily: {
         sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'sans-serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
@@ -151,5 +170,26 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    /*
+     * `coarse:` — a media variant for touch, not a width breakpoint.
+     *
+     * The two are routinely conflated and they are different questions. `sm:`
+     * asks how much room there is; this asks what is doing the pointing. A
+     * 32px control is comfortable under a mouse and misses under a thumb, and
+     * that is true of a 1024px tablet as much as a 375px phone — so a width
+     * breakpoint would fix the phone and leave the tablet, while making every
+     * desktop control bigger would give up the density this product is for
+     * (see the aesthetic note in the design spec: data-dense where data
+     * lives).
+     *
+     * WCAG 2.5.8 asks for 24px minimum and 2.5.5 for 44px enhanced. The
+     * primitives below take 44 on coarse pointers, because a valuer standing
+     * at a property with one hand on a gate is the actual use.
+     */
+    ({ addVariant }) => {
+      addVariant('coarse', '@media (pointer: coarse)');
+      addVariant('fine', '@media (pointer: fine)');
+    },
+  ],
 };

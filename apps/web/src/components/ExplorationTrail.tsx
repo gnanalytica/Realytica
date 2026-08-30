@@ -103,7 +103,7 @@ function LeadNode({ lead, childrenOf, depth }: { lead: ExplorationLead; children
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <span className="text-[11px] text-ink-muted">{Math.round(lead.confidence * 100)}%</span>
+            <span className="text-mini text-ink-muted">{Math.round(lead.confidence * 100)}%</span>
             {expanded ? <ChevronDown size={13} className="text-ink-muted" /> : <ChevronRight size={13} className="text-ink-muted" />}
           </div>
         </button>
@@ -114,12 +114,12 @@ function LeadNode({ lead, childrenOf, depth }: { lead: ExplorationLead; children
 
             {lead.queries.length > 0 ? (
               <div>
-                <p className="mb-1 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                <p className="mb-1 flex items-center gap-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">
                   <Search size={11} /> Queries run
                 </p>
                 <ul className="flex flex-wrap gap-1.5">
                   {lead.queries.map((q, i) => (
-                    <li key={i} className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-[10.5px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+                    <li key={i} className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-micro text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
                       {q}
                     </li>
                   ))}
@@ -129,7 +129,7 @@ function LeadNode({ lead, childrenOf, depth }: { lead: ExplorationLead; children
 
             {lead.visited.length > 0 ? (
               <div>
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Sources visited</p>
+                <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">Sources visited</p>
                 <ul className="flex flex-col gap-1">
                   {lead.visited.map((v, i) => (
                     <li key={i} className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -185,7 +185,7 @@ function SessionCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge tone={STOPPED_TONE[session.stoppedBecause]}>{STOPPED_LABEL[session.stoppedBecause]}</Badge>
-            <span className="flex items-center gap-1 text-[11px] text-ink-muted">
+            <span className="flex items-center gap-1 text-mini text-ink-muted">
               <Clock size={11} /> {relativeTime(session.startedAt)}
             </span>
           </div>
@@ -198,21 +198,21 @@ function SessionCard({
         <div className="flex flex-col gap-4 border-t border-hairline px-4 py-3.5">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">Iterations</div>
+              <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">Iterations</div>
               <div className="mt-0.5 text-[15px] font-semibold text-ink">{session.iterations}</div>
             </div>
             <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">Leads</div>
+              <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">Leads</div>
               <div className="mt-0.5 text-[15px] font-semibold text-ink">{session.leads.length}</div>
             </div>
             <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">Unreachable</div>
+              <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">Unreachable</div>
               <div className={cn('mt-0.5 text-[15px] font-semibold', session.unreachable.length > 0 ? 'text-serious' : 'text-ink')}>
                 {session.unreachable.length}
               </div>
             </div>
             <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-muted">Spend</div>
+              <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">Spend</div>
               <div className="mt-0.5 text-[15px] font-semibold text-ink">
                 {formatUsd(spentUsd)}
                 {requestedBudget ? <span className="font-normal text-ink-muted"> / {formatUsd(requestedBudget.maxCostUsd)} budget</span> : null}
@@ -222,7 +222,7 @@ function SessionCard({
 
           {/* Unreachable — deliberately placed before the leads, not after, and never muted. */}
           <div className="rounded-lg bg-serious/10 p-3 ring-1 ring-inset ring-serious/40">
-            <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink">
+            <p className="mb-1.5 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-wide text-ink">
               <Lock size={12} className="text-serious" aria-hidden="true" />
               Not checked ({session.unreachable.length})
             </p>
@@ -250,7 +250,7 @@ function SessionCard({
             <p className="text-xs italic text-ink-muted">No leads were opened this run.</p>
           ) : (
             <div>
-              <p className="mb-2 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+              <p className="mb-2 flex items-center gap-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">
                 <Compass size={12} /> Leads followed ({session.leads.length})
               </p>
               <div className="flex flex-col gap-2">
@@ -262,7 +262,7 @@ function SessionCard({
           )}
 
           <div className="rounded-lg bg-sunken p-3">
-            <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+            <p className="mb-1 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-wide text-ink-muted">
               <CircleHelp size={12} /> Open questions ({session.openQuestions.length})
             </p>
             {session.openQuestions.length === 0 ? (
