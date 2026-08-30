@@ -5,8 +5,8 @@
   "terminals": [
     {
       "name": "dev",
-      "command": "set -a; [ -f .env.local ] && . ./.env.local; set +a; pnpm dev",
-      "description": "Runs the web UI (Vite, http://localhost:5173) and the API (Express, http://localhost:5174) together. Sources .env.local (written by the Vercel env pull in the start step) so the API process receives REALYTICA_*/BLOB_* vars; a clean no-op when the file is absent. The Vite dev server proxies /api to the API."
+      "command": "set -a; [ -f .env ] && . ./.env; [ -f .env.local ] && . ./.env.local; set +a; pnpm dev",
+      "description": "Runs the web UI (Vite, http://localhost:5173) and the API (Express, http://localhost:5174) together. Sources .env then .env.local (either written by the Vercel env pull in the start step, or added manually) so the API process receives REALYTICA_*/BLOB_* vars; .env.local wins on conflict, and it is a clean no-op when both are absent. Both files are gitignored. The Vite dev server proxies /api to the API."
     }
   ],
   "ports": [
