@@ -472,6 +472,81 @@ function Stat({ label, value, tone }: { label: string; value: string | number; t
  * because an empty department is a coverage fact and drawing a zeroed chart
  * would dress it up as a clean bill.
  */
+export interface Segment {
+  key: string;
+  label: string;
+  n: number;
+  fill: string;
+}
+
+/**
+ * A count, as a proportion you can click.
+ *
+ * One component rather than one per thing counted. Risks by severity, checks
+ * by verdict and actions by horizon are the same question asked three times —
+ * how is this pile distributed, and let me see one part of it — and three
+ * near-identical bars would drift apart the first time one of them was
+ * improved.
+ *
+ * Empty segments are dropped rather than drawn at zero width, which keeps the
+ * legend to the things that are actually there. A pile with nothing in it
+ * renders nothing at all: an empty department is a coverage fact, and a
+ * zeroed bar dresses it up as a clean bill.
+ */
+export function ProportionBar({
+  segments,
+  onSelect,
+  selected,
+}: {
+  segments: Segment[];
+  onSelect?: (key: string | null) => void;
+  selected?: string | null;
+}) {
+  const present = segments.filter(seg => seg.n > 0);
+  const total = present.reduce((sum, seg) => sum + seg.n, 0);
+  if (total === 0) return null;
+
+  const aria = `${total} item${total === 1 ? '' : 's'}: ${present.map(seg => `${seg.n} ${seg.label}`).join(', ')}`;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-sunken" role="img" aria-label={aria}>
+        {present.map(seg => (
+          <span
+            key={seg.key}
+            className="h-full first:rounded-l-full last:rounded-r-full"
+            style={{ width: `${(seg.n / total) * 100}%`, background: seg.fill }}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {present.map(seg => {
+          const on = selected === seg.key;
+          return (
+            <button
+              key={seg.key}
+              type="button"
+              onClick={() => onSelect?.(on ? null : seg.key)}
+              disabled={!onSelect}
+              aria-pressed={onSelect ? on : undefined}
+              className={cn(
+                'flex items-center gap-1.5 rounded-full px-2 py-0.5 text-mini ring-1 ring-inset coarse:min-h-11',
+                on ? 'bg-brand-soft text-brand ring-brand/30' : 'bg-surface text-ink-secondary ring-[var(--ring)]',
+                onSelect && !on && 'hover:text-ink',
+              )}
+            >
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: seg.fill }} />
+              <span className="capitalize">{seg.label}</span>
+              <span className="tabular font-semibold text-ink">{seg.n}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Risks by severity — the bar above, with this product's severity palette. */
 export function SeveritySpread({
   counts,
   onSelect,
@@ -481,47 +556,28 @@ export function SeveritySpread({
   onSelect?: (severity: RiskSeverity | null) => void;
   selected?: RiskSeverity | null;
 }) {
-  const present = counts.filter(c => c.n > 0);
-  const total = present.reduce((sum, c) => sum + c.n, 0);
-  if (total === 0) return null;
-
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-sunken" role="img" aria-label={ariaFor(present, total)}>
-        {present.map(c => (
-          <span
-            key={c.severity}
-            className="h-full first:rounded-l-full last:rounded-r-full"
-            style={{ width: `${(c.n / total) * 100}%`, background: SEVERITY_FILL[c.severity] }}
-          />
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {present.map(c => {
-          const on = selected === c.severity;
-          return (
-            <button
-              key={c.severity}
-              type="button"
-              onClick={() => onSelect?.(on ? null : c.severity)}
-              disabled={!onSelect}
-              aria-pressed={onSelect ? on : undefined}
-              className={cn(
-                'flex items-center gap-1.5 rounded-full px-2 py-0.5 text-mini ring-1 ring-inset coarse:min-h-11',
-                on ? 'bg-brand-soft text-brand ring-brand/30' : 'bg-surface text-ink-secondary ring-[var(--ring)]',
-                onSelect && !on && 'hover:text-ink',
-              )}
-            >
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: SEVERITY_FILL[c.severity] }} />
-              <span className="capitalize">{c.severity}</span>
-              <span className="tabular font-semibold text-ink">{c.n}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    <ProportionBar
+      segments={counts.map(c => ({ key: c.severity, label: c.severity, n: c.n, fill: SEVERITY_FILL[c.severity] }))}
+      selected={selected ?? null}
+      onSelect={onSelect ? key => onSelect(key as RiskSeverity | null) : undefined}
+    />
   );
 }
+
+/** Fills for the other two piles, from the same status palette. */
+export const VERDICT_FILL: Record<string, string> = {
+  clear: 'rgb(var(--status-good-rgb))',
+  attention: 'rgb(var(--status-warning-rgb))',
+  blocker: 'rgb(var(--status-critical-rgb))',
+  unknown: 'var(--axis)',
+};
+
+export const PRIORITY_FILL: Record<string, string> = {
+  now: 'rgb(var(--status-critical-rgb))',
+  before_offer: 'rgb(var(--status-warning-rgb))',
+  before_completion: 'rgb(var(--brand-rgb))',
+};
 
 const SEVERITY_FILL: Record<RiskSeverity, string> = {
   critical: 'rgb(var(--status-critical-rgb))',

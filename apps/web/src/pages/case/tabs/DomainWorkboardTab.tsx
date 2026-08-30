@@ -14,15 +14,18 @@ import {
   technicalDocumentGaps,
   totalOpenEstimatedCost,
 } from '@realytica/shared';
-import type { ComplianceCheck, ComplianceVerdict, DdDomain, DdWatcherAlert, RiskFlag, RiskSeverity, TechnicalFinding } from '@realytica/shared';
+import type { ActionPriority, ComplianceCheck, ComplianceVerdict, DdDomain, DdWatcherAlert, RiskSeverity, TechnicalFinding } from '@realytica/shared';
 import type { ComponentType } from 'react';
 import type { TabProps } from '../tab-props';
 import { api } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
 import { DOCUMENT_KIND_LABEL, money, severityTone, titleCase } from '../../../lib/format';
 import { RecordFetchCard } from '../../../components/RecordFetchCard';
-import { CoverageMeter, SeveritySpread } from '../cockpit/visuals';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Modal, SectionTitle, StatTile, Tile, cn, useToast } from '../../../components/ui/kit';
+import { CoverageMeter, PRIORITY_FILL, ProportionBar, SeveritySpread, VERDICT_FILL } from '../cockpit/visuals';
+import { Badge, Button, Card, CardBody, CardHeader, Disclosure, EmptyState, Modal, SectionTitle, StatTile, Tile, cn, useToast } from '../../../components/ui/kit';
+
+const VERDICTS: ComplianceVerdict[] = ['clear', 'attention', 'blocker', 'unknown'];
+const PRIORITIES: ActionPriority[] = ['now', 'before_offer', 'before_completion'];
 
 /**
  * One workboard, eight departments.
@@ -63,16 +66,6 @@ function CheckRow({ check }: { check: ComplianceCheck }) {
         </div>
       )}
     </Tile>
-  );
-}
-
-function RiskRow({ risk }: { risk: RiskFlag }) {
-  return (
-    <div className="flex flex-wrap items-baseline gap-2 border-b border-hairline py-2 last:border-b-0">
-      <Badge tone={severityTone(risk.severity)}>{titleCase(risk.severity)}</Badge>
-      <span className="text-[13px] font-medium text-ink">{risk.title}</span>
-      <span className="ml-auto text-[12px] text-ink-muted">{titleCase(risk.status)}</span>
-    </div>
   );
 }
 
@@ -262,6 +255,7 @@ export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: 
   const openRisks = risks.filter(r => r.status === 'open');
 
   const [severityFilter, setSeverityFilter] = useState<RiskSeverity | null>(null);
+  const [verdictFilter, setVerdictFilter] = useState<string | null>(null);
   const severitySpread = useMemo(() => {
     const order: RiskSeverity[] = ['critical', 'serious', 'warning', 'info'];
     return order.map(severity => ({ severity, n: openRisks.filter(r => r.severity === severity).length }));
@@ -409,10 +403,17 @@ export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: 
           {checks.length > 0 && (
             <Card>
               <CardHeader title="Checks" subtitle={`${checks.filter(c => c.verdict === 'clear').length} clear of ${checks.length}`} icon={<ListChecks size={16} />} />
-              <CardBody className="flex flex-col gap-2">
-                {checks.map(c => (
-                  <CheckRow key={c.key} check={c} />
-                ))}
+              <CardBody className="flex flex-col gap-3">
+                <ProportionBar
+                  segments={VERDICTS.map(v => ({ key: v, label: v, n: checks.filter(c => c.verdict === v).length, fill: VERDICT_FILL[v] }))}
+                  selected={verdictFilter}
+                  onSelect={setVerdictFilter}
+                />
+                <div className="flex flex-col gap-2">
+                  {checks.filter(c => !verdictFilter || c.verdict === verdictFilter).map(c => (
+                    <CheckRow key={c.key} check={c} />
+                  ))}
+                </div>
               </CardBody>
             </Card>
           )}
@@ -429,29 +430,40 @@ export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: 
                   </button>
                 }
               />
-              <CardBody className="flex flex-col">
-                {findings.map(f => (
-                  <FindingSummaryRow key={f.id} finding={f} />
-                ))}
+              <CardBody>
+                <Disclosure title="Findings in this department" count={findings.length} defaultOpen={findings.length <= 5}>
+                  <div className="flex flex-col">
+                    {findings.map(f => (
+                      <FindingSummaryRow key={f.id} finding={f} />
+                    ))}
+                  </div>
+                </Disclosure>
               </CardBody>
             </Card>
           )}
-          {domain !== 'risk' && risks.length > 0 && (
-            <Card>
-              <CardHeader title="Risks" subtitle={`${openRisks.length} open`} />
-              <CardBody className="flex flex-col">
-                {risks.map(r => (
-                  <RiskRow key={r.id} risk={r} />
-                ))}
-              </CardBody>
-            </Card>
-          )}
+          {/*
+            No second risk card. The spread above shows this department's open
+            risks for EVERY domain now, so this was the same pile rendered
+            twice on one scroll — once as a bar you can filter and once as a
+            flat list underneath it. What it uniquely carried was the CLOSED
+            ones, which are a different question and belong with the history
+            rather than in the middle of the working board.
+          */}
 
           {/* 6 — actions */}
           {relatedActions.length > 0 && (
             <Card>
               <CardHeader title="Actions this department is waiting on" subtitle={`${relatedActions.length} open`} />
-              <CardBody className="flex flex-col gap-1">
+              <CardBody className="flex flex-col gap-3">
+                <ProportionBar
+                  segments={PRIORITIES.map(pr => ({
+                    key: pr,
+                    label: pr.replace(/_/g, ' '),
+                    n: relatedActions.filter(a => a.priority === pr).length,
+                    fill: PRIORITY_FILL[pr],
+                  }))}
+                />
+                <div className="flex flex-col gap-1">
                 {relatedActions.map(a => (
                   <div key={a.id} className="flex flex-wrap items-baseline gap-2 border-b border-hairline py-1.5 text-[13px] last:border-b-0">
                     <Badge tone="neutral">{titleCase(a.priority.replace(/_/g, ' '))}</Badge>
@@ -459,6 +471,7 @@ export function DomainWorkboard({ domain, caseData, result, refresh, goToTab }: 
                     <span className="ml-auto text-[12px] text-ink-muted">{titleCase(a.owner)}</span>
                   </div>
                 ))}
+                </div>
               </CardBody>
             </Card>
           )}

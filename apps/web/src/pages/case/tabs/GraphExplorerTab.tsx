@@ -6,6 +6,7 @@ import type { DdEdge, DdGraph, DdLayer, DdNode, DdSubgraph } from '@realytica/sh
 import { api } from '../../../lib/api';
 import { Badge, Button, Callout, Input, Select, cn } from '../../../components/ui/kit';
 import { computeFit, zoomAbout, MAX_ZOOM, MIN_ZOOM } from '../../../components/canvas/Canvas';
+import { usePinchZoom } from '../../../components/canvas/usePinchZoom';
 import type { Transform } from '../../../components/canvas/Canvas';
 import { useMeasure } from '../../../components/charts/primitives';
 import { titleCase } from '../../../lib/format';
@@ -339,6 +340,20 @@ export default function GraphExplorerTab({ caseData, result }: TabProps) {
     adjustedRef.current = false;
     if (size.width > 0) setView(computeFit(layout.bounds, size.width, size.height));
   }, [layout, size.width, size.height]);
+
+  // The same gesture the run canvas takes — the explorer is the view most
+  // worth having on a phone, since it is the only one that shows a whole case
+  // at once, and stepping the zoom from two buttons was all it offered.
+  usePinchZoom(
+    viewportRef,
+    useCallback((factor: number, cx: number, cy: number, dx: number, dy: number) => {
+      adjustedRef.current = true;
+      setView(v => {
+        const zoomed = zoomAbout(v, v.k * factor, cx, cy);
+        return { ...zoomed, x: zoomed.x + dx, y: zoomed.y + dy };
+      });
+    }, []),
+  );
 
   const zoomByCentre = useCallback(
     (factor: number) => {

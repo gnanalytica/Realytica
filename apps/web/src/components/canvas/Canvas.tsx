@@ -6,6 +6,7 @@ import { cn } from '../ui/kit';
 import { useMeasure } from '../charts/primitives';
 import type { GraphLayout, PositionedNode } from './layout';
 import { RunNode } from './RunNode';
+import { usePinchZoom } from './usePinchZoom';
 
 /**
  * The pan/zoom viewport.
@@ -205,6 +206,19 @@ export default function Canvas({ layout, selectedId, onSelect, runsById, ariaLab
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
+
+  /* ---------------- pinch to zoom ----------------------------------- */
+
+  usePinchZoom(
+    viewportRef,
+    useCallback((factor: number, cx: number, cy: number, dx: number, dy: number) => {
+      adjustedRef.current = true;
+      setView(v => {
+        const zoomed = zoomAbout(v, v.k * factor, cx, cy);
+        return { ...zoomed, x: zoomed.x + dx, y: zoomed.y + dy };
+      });
+    }, []),
+  );
 
   /* ---------------- drag to pan ------------------------------------ */
 
