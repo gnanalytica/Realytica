@@ -25,3 +25,4 @@ export * from './dd-dossier';
 export * from './requests';
 export * from './dd-review';
 export * from './script';
+export * from './operating-model';

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
-import { ArrowUp, MessageCircle, SearchX, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowUp, MessageCircle, Paperclip, SearchX, Sparkles, Trash2, X } from 'lucide-react';
 import type { CopilotTurn, EvidenceItem, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
@@ -21,6 +21,7 @@ function TurnBubble({
   verification,
   onOpenNode,
   onOpenDocument,
+  extras,
 }: {
   turn: CopilotTurn;
   evidence: EvidenceItem[];
@@ -28,6 +29,7 @@ function TurnBubble({
   onOpenNode?: (nodeId: string) => void;
   /** Open a cited document in the proof pane. */
   onOpenDocument?: (documentId: string) => void;
+  extras?: ReactNode;
 }) {
   // A critic flag has to travel with the claim it concerns. Surfacing it only
   // in the verification panel would let someone read an unsupported answer
@@ -88,7 +90,7 @@ function TurnBubble({
         ) : null}
         {onOpenNode && turn.citedNodeIds && turn.citedNodeIds.length > 0 ? (
           <div className="mt-1.5 flex flex-wrap gap-1">
-            {turn.citedNodeIds.map((nodeId) => (
+            {[...new Set(turn.citedNodeIds)].map((nodeId) => (
               <button
                 key={nodeId}
                 onClick={() => onOpenNode(nodeId)}
@@ -101,6 +103,7 @@ function TurnBubble({
           </div>
         ) : null}
         <AgentTag at={turn.at} />
+        {extras}
       </div>
     </div>
   );
@@ -154,11 +157,17 @@ export function CopilotPanel({
   onOpenNode,
   onOpenDocument,
   fallback,
+  fill,
+  emptyTitle,
+  emptyHint,
+  placeholder,
+  allowAttach,
+  renderTurnExtras,
 }: {
   conversation: CopilotTurn[];
   evidence: EvidenceItem[];
   suggestions: string[];
-  onAsk: (question: string) => Promise<void> | void;
+  onAsk: (question: string, files?: File[]) => Promise<void> | void;
   onClear?: () => void;
   busy?: boolean;
   disabled?: boolean;
@@ -178,22 +187,33 @@ export function CopilotPanel({
    * would have asked the copilot for first.
    */
   fallback?: ReactNode;
+  /** Fill the parent column instead of a capped message list. */
+  fill?: boolean;
+  emptyTitle?: string;
+  emptyHint?: string;
+  placeholder?: string;
+  allowAttach?: boolean;
+  renderTurnExtras?: (turn: CopilotTurn) => ReactNode;
 }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [conversation.length, busy]);
 
-  async function submit(question: string): Promise<void> {
+  async function submit(question: string, attached = files): Promise<void> {
     const trimmed = question.trim();
-    if (!trimmed || busy || disabled) return;
+    if (busy || disabled) return;
+    if (!trimmed && attached.length === 0) return;
     setError(null);
     setText('');
+    setFiles([]);
     try {
-      await onAsk(trimmed);
+      await onAsk(trimmed, attached.length ? attached : undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not reach the copilot — please retry.');
     }
@@ -214,7 +234,7 @@ export function CopilotPanel({
   const showEmptyState = conversation.length === 0 && !busy;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className={cn('flex flex-col gap-3', fill && 'h-full min-h-0')}>
       {disabled ? (
         <Callout tone="neutral" title="Copilot needs Anthropic credentials" collapsible>
           {disabledReason ?? 'Configure agent credentials to ask questions about this case.'} The rest of Realytica works
@@ -222,16 +242,22 @@ export function CopilotPanel({
         </Callout>
       ) : null}
 
-      <div ref={scrollRef} className="flex max-h-[26rem] min-h-[9rem] flex-col gap-2.5 overflow-y-auto pr-1">
+      <div
+        ref={scrollRef}
+        className={cn(
+          'flex flex-col gap-2.5 overflow-y-auto pr-1',
+          fill ? 'min-h-0 flex-1' : 'max-h-[26rem] min-h-[9rem]',
+        )}
+      >
         {showEmptyState && disabled && fallback ? (
           fallback
         ) : showEmptyState ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 py-6 text-center">
             <MessageCircle size={22} className="text-ink-muted" aria-hidden="true" />
-            <p className="text-[13px] font-medium text-ink">Ask the copilot about this case</p>
+            <p className="text-[13px] font-medium text-ink">{emptyTitle ?? 'Ask the copilot about this case'}</p>
             <p className="max-w-xs text-xs leading-relaxed text-ink-secondary">
-              It answers from the case&rsquo;s own evidence, and says so plainly when the evidence doesn&rsquo;t support an
-              answer.
+              {emptyHint ??
+                'It answers from the case’s own evidence, and says so plainly when the evidence doesn’t support an answer.'}
             </p>
             {suggestions.length > 0 ? (
               <div className="flex flex-wrap justify-center gap-1.5">
@@ -251,6 +277,7 @@ export function CopilotPanel({
                 evidence={evidence}
                 onOpenNode={onOpenNode}
                 onOpenDocument={onOpenDocument}
+                extras={turn.role === 'assistant' ? renderTurnExtras?.(turn) : undefined}
               />
             ))}
             {busy ? <TypingIndicator /> : null}
@@ -266,36 +293,84 @@ export function CopilotPanel({
         </div>
       ) : null}
 
-      <form onSubmit={handleSubmit} className="flex items-center gap-2">
-        <Input
-          aria-label="Ask the copilot"
-          placeholder={disabled ? 'Copilot unavailable' : 'Ask about this case…'}
-          value={text}
-          disabled={disabled || busy}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={handleKeyDown}
-        />
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={disabled || busy || !text.trim()}
-          loading={busy}
-          icon={<ArrowUp size={14} />}
-        >
-          Ask
-        </Button>
-        {onClear && conversation.length > 0 ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-label="Clear conversation"
-            title="Clear conversation"
-            disabled={disabled || busy}
-            icon={<Trash2 size={14} />}
-            onClick={onClear}
-          />
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        {files.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {files.map((f) => (
+              <span
+                key={`${f.name}-${f.size}-${f.lastModified}`}
+                className="inline-flex max-w-full items-center gap-1 rounded-full bg-sunken px-2 py-0.5 text-[11px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]"
+              >
+                <span className="truncate">{f.name}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${f.name}`}
+                  className="text-ink-muted hover:text-ink"
+                  onClick={() => setFiles((prev) => prev.filter((x) => x !== f))}
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
         ) : null}
+        <div className="flex items-center gap-2">
+          {allowAttach ? (
+            <>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                className="hidden"
+                accept=".pdf,.doc,.docx,.txt,.csv,.jpg,.jpeg,.png,.xlsx,.xls"
+                onChange={(e) => {
+                  const next = Array.from(e.target.files ?? []);
+                  if (next.length) setFiles((prev) => [...prev, ...next].slice(0, 10));
+                  e.target.value = '';
+                }}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label="Attach documents"
+                title="Attach documents"
+                disabled={disabled || busy}
+                icon={<Paperclip size={14} />}
+                onClick={() => fileRef.current?.click()}
+              />
+            </>
+          ) : null}
+          <Input
+            aria-label="Ask the copilot"
+            placeholder={disabled ? 'Copilot unavailable' : placeholder ?? 'Ask about this case…'}
+            value={text}
+            disabled={disabled || busy}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={disabled || busy || (!text.trim() && files.length === 0)}
+            loading={busy}
+            icon={<ArrowUp size={14} />}
+          >
+            Ask
+          </Button>
+          {onClear && conversation.length > 0 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label="Clear conversation"
+              title="Clear conversation"
+              disabled={disabled || busy}
+              icon={<Trash2 size={14} />}
+              onClick={onClear}
+            />
+          ) : null}
+        </div>
       </form>
       {error ? <p className="text-xs text-critical">{error}</p> : null}
     </div>

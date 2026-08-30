@@ -1,55 +1,57 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import AppShell from './components/layout/AppShell';
 import { ToastHost } from './components/ui/kit';
-import Dashboard from './pages/Dashboard';
-import NewCase from './pages/NewCase';
-import Compare from './pages/Compare';
 import About from './pages/About';
 import Observability from './pages/Observability';
 import Prompts from './pages/Prompts';
-import Intake from './pages/Intake';
-import Cockpit from './pages/case/Cockpit';
 import Landing from './pages/Landing';
+import ProjectList from './pages/projects/ProjectList';
+import NewProject from './pages/projects/NewProject';
+import ProjectLayout from './pages/projects/ProjectLayout';
+import Overview from './pages/projects/Overview';
+import Assets from './pages/projects/Assets';
+import Diligence from './pages/projects/Diligence';
+import DdWorkspace from './pages/projects/DdWorkspace';
+import ScopeWorkspace from './pages/projects/ScopeWorkspace';
+import { EvidenceRegister, FindingRegister } from './pages/projects/Registers';
+import { RisksActions, DecisionRegister } from './pages/projects/RisksDecisions';
+import Reports from './pages/projects/Reports';
+import Libraries from './pages/projects/Libraries';
+import Valuation from './pages/projects/Valuation';
+import ProjectGraph from './pages/projects/ProjectGraph';
+import AiDrafts from './pages/projects/AiDrafts';
+import ProjectCockpit from './pages/projects/ProjectCockpit';
 
 export default function App() {
   return (
     <ToastHost>
       <Routes>
-        {/*
-          * The landing page sits outside the app shell, at the root.
-          *
-          * It has no sidebar, no top bar and no case context, so wrapping it
-          * in `AppShell` would hand a first-time visitor the navigation of a
-          * product they have not entered yet. The app itself moves to /app;
-          * every deeper route keeps the path it always had, so existing links
-          * to a case still resolve.
-          */}
         <Route index element={<Landing />} />
         <Route element={<AppShell />}>
-          <Route path="app" element={<Intake />} />
-          <Route path="cases" element={<Dashboard />} />
-          <Route path="cases/new" element={<NewCase />} />
-          {/*
-            * One shell. The cockpit IS the case: screening, departments,
-            * documents, requests, graph and report are panes within it,
-            * rather than a second tabbed workspace that rendered the eight
-            * departments a second time and carried a second chat.
-            *
-            * `:tab` still resolves so that every link already pasted into a
-            * message — and every navigation the copilot itself emits —
-            * lands on the equivalent pane instead of a 404.
-            */}
-          <Route path="cases/:caseId" element={<Cockpit />} />
-          <Route path="cases/:caseId/cockpit" element={<Cockpit />} />
-          <Route path="cases/:caseId/:tab" element={<Cockpit />} />
-          <Route path="compare" element={<Compare />} />
+          <Route path="app" element={<Navigate to="/projects" replace />} />
+          <Route path="projects" element={<ProjectList />} />
+          <Route path="projects/new" element={<NewProject />} />
+          <Route path="projects/:projectId" element={<ProjectLayout />}>
+            <Route index element={<Overview />} />
+            <Route path="cockpit" element={<ProjectCockpit />} />
+            <Route path="assets" element={<Assets />} />
+            <Route path="dd" element={<Diligence />} />
+            <Route path="dd/:ddId" element={<DdWorkspace />} />
+            <Route path="dd/:ddId/scopes/:scopeId" element={<ScopeWorkspace />} />
+            <Route path="evidence" element={<EvidenceRegister />} />
+            <Route path="findings" element={<FindingRegister />} />
+            <Route path="risks" element={<RisksActions />} />
+            <Route path="decisions" element={<DecisionRegister />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="valuation" element={<Valuation />} />
+            <Route path="graph" element={<ProjectGraph />} />
+            <Route path="ai" element={<AiDrafts />} />
+          </Route>
+          <Route path="libraries" element={<Libraries />} />
           <Route path="observability" element={<Observability />} />
           <Route path="prompts" element={<Prompts />} />
           <Route path="about" element={<About />} />
-          {/* An unknown path inside the app returns to the app, not to the
-              marketing page — being ejected to a sales pitch is a worse
-              answer to a typo than landing on the chat. */}
-          <Route path="*" element={<Navigate to="/app" replace />} />
+          <Route path="*" element={<Navigate to="/projects" replace />} />
         </Route>
       </Routes>
     </ToastHost>

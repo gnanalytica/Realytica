@@ -35,6 +35,7 @@ export * from './sources';
 // Where a case is and what surrounds it. Context, never evidence of extent —
 // see `SiteContext` in the shared types.
 export * from './places';
+export { createWebSearchTool, createWebFetchTool, BLOCKED_HOSTNAMES } from './tools/exploration-tools';
 
 export * from './orchestrator';
 

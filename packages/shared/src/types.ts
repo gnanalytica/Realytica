@@ -2579,6 +2579,8 @@ export interface CopilotTurn {
   toolCalls?: { name: string; summary: string }[];
   /** Set when the agent declined to answer because the evidence does not support one. */
   refusedForLackOfEvidence?: boolean;
+  /** Wizard cards offered with this assistant turn. */
+  proposalIds?: string[];
 }
 
 /* ------------------------------------------------------------------ */

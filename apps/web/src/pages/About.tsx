@@ -26,10 +26,10 @@ import { api } from '../lib/api';
 import { Button, Callout, Card, CardBody, CardHeader, Modal, SectionTitle, cn, useToast } from '../components/ui/kit';
 
 /** Static product-page copy quoted directly from docs/SOURCE_SPEC.md — not part of the shared package. */
-const VISION = 'Make property decisions clearer, faster and evidence-driven.';
-const POSITIONING = 'Long-term positioning: property decision infrastructure.';
+const VISION = 'A living due diligence system of record for real estate and construction projects.';
+const POSITIONING = 'Manual-first. AI executes later on the same structured objects.';
 const NORTH_STAR =
-  'Realytica succeeds when the customer can go from "I have this property. I don’t know what to make of it." to "I understand what it is likely worth, why, what I need to worry about, what evidence supports that conclusion, and exactly what I need to do next."';
+  'Realytica succeeds when a project team can run progressive due diligence — with shared evidence, findings, risks, actions and decisions — without trapping intelligence in a static report, and without needing AI to operate.';
 
 export default function About() {
   const toast = useToast();
@@ -55,7 +55,7 @@ export default function About() {
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand">Realytica</p>
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{VISION}</h1>
         <p className="text-[13px] text-ink-secondary">{POSITIONING}</p>
-        <p className="text-xs text-ink-muted">Initial release: Realytica Property Screen · Initial markets: India and Netherlands</p>
+        <p className="text-xs text-ink-muted">Due diligence OS · manual-first · AI drafts optional</p>
       </section>
 
       <Card as="article" className="border-l-4 border-l-brand p-5">
@@ -66,7 +66,7 @@ export default function About() {
       </Card>
 
       <Card>
-        <CardHeader title="The product family" subtitle="Four products, one evidence discipline. This app builds the first." icon={<Landmark size={16} />} />
+        <CardHeader title="The product family" subtitle="One operating model. Engines and AI write into the same registers." icon={<Landmark size={16} />} />
         <CardBody className="overflow-x-auto">
           <table className="w-full min-w-[480px] border-collapse text-left">
             <thead>
@@ -115,7 +115,7 @@ export default function About() {
       </Card>
 
       <Card>
-        <CardHeader title="Eight key user jobs" subtitle="What a person needs Property Screen to tell them." icon={<ListChecks size={16} />} />
+        <CardHeader title="Eight key user jobs" subtitle="What the operating model has to let a DD team do without AI." icon={<ListChecks size={16} />} />
         <CardBody>
           <ol className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
             {KEY_USER_JOBS.map((job, i) => (

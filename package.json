@@ -2,7 +2,7 @@
   "name": "realytica",
   "private": true,
   "version": "0.1.0",
-  "description": "Realytica — AI-powered Property Intelligence. Local-first MVP: Realytica Property Screen.",
+  "description": "Realytica — due diligence operating system. Manual-first MVP: projects, concurrent DDs, shared registers.",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20.10"

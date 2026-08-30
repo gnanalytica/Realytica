@@ -1,4 +1,4 @@
-import type { IntakeSession, LlmCallRecord, MemoryFact, PropertyCase } from '@realytica/shared';
+import type { IntakeSession, LlmCallRecord, MemoryFact, PropertyCase, DdProject } from '@realytica/shared';
 import type { PromptStoreData } from '@realytica/agents';
 import { storageAdapter } from './storage';
 
@@ -18,6 +18,12 @@ export interface StoreData {
   cases: PropertyCase[];
   /** Monotonic counter used to mint human references like "VPS-0001". */
   nextReferenceSeq: number;
+  /**
+   * Due-diligence projects — the BRD operating model. Kept in the same
+   * document as cases so there is still one durability path.
+   */
+  projects?: DdProject[];
+  nextProjectSeq?: number;
   /**
    * Cross-case agent memory (see `@realytica/agents`'s `memory/`).
    *
@@ -77,7 +83,7 @@ export interface StoreData {
 export { DATA_DIR, UPLOADS_DIR, caseUploadDir } from './storage/filesystem';
 
 function emptyStore(): StoreData {
-  return { cases: [], nextReferenceSeq: 1 };
+  return { cases: [], nextReferenceSeq: 1, projects: [], nextProjectSeq: 1 };
 }
 
 /**
@@ -104,6 +110,11 @@ function normalizeStoreData(loaded: StoreData | null): StoreData {
     nextReferenceSeq:
       typeof loaded.nextReferenceSeq === 'number' && Number.isFinite(loaded.nextReferenceSeq)
         ? loaded.nextReferenceSeq
+        : 1,
+    projects: Array.isArray(loaded.projects) ? loaded.projects : [],
+    nextProjectSeq:
+      typeof loaded.nextProjectSeq === 'number' && Number.isFinite(loaded.nextProjectSeq)
+        ? loaded.nextProjectSeq
         : 1,
     memory: Array.isArray(loaded.memory) ? loaded.memory : undefined,
     telemetry: Array.isArray(loaded.telemetry) ? loaded.telemetry : undefined,
@@ -135,6 +146,13 @@ class Store {
     const seq = this.data.nextReferenceSeq;
     this.data.nextReferenceSeq += 1;
     return `VPS-${String(seq).padStart(4, '0')}`;
+  }
+
+  /** Mint the next project reference, e.g. "RYT-0001". */
+  nextProjectReference(): string {
+    const seq = this.data.nextProjectSeq ?? 1;
+    this.data.nextProjectSeq = seq + 1;
+    return `RYT-${String(seq).padStart(4, '0')}`;
   }
 
   /**

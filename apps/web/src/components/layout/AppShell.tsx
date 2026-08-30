@@ -33,6 +33,8 @@ export default function AppShell() {
     });
   }
 
+  const cockpit = location.pathname.includes('/cockpit');
+
   return (
     <AreaUnitProvider>
     <div className="flex min-h-full min-w-0">
@@ -44,8 +46,8 @@ export default function AppShell() {
       />
       <div className="flex min-h-full min-w-0 flex-1 flex-col">
         <TopBar onOpenMobile={() => setMobileOpen(true)} />
-        <main className="min-w-0 flex-1 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8">
-          <div className="mx-auto w-full max-w-[1400px]">
+        <main className={cockpit ? 'min-h-0 min-w-0 flex-1 overflow-hidden p-0' : 'min-w-0 flex-1 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8'}>
+          <div className={cockpit ? 'h-full min-h-0 w-full' : 'mx-auto w-full max-w-[1400px]'}>
             <Outlet />
           </div>
         </main>

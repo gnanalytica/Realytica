@@ -1,67 +1,24 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
-import { ENGINE_VERSION, KARNATAKA_PACK, REFERENCE_DATA, SITE_CONSTRAINT_KEYS } from '@realytica/shared';
+import {
+  CHECK_DEFINITIONS,
+  DD_TYPE_DEFINITIONS,
+  LIFECYCLE_STAGES,
+  PROJECT_ARCHETYPES,
+  SCOPE_DEFINITIONS,
+} from '@realytica/shared';
 import { useInView } from '../lib/useReveal';
 import { SectionBand, Tile, cn } from '../components/ui/kit';
 
 /**
  * The front door, as a specimen of the thing the product makes.
  *
- * --- What this page is, and what it deliberately is not -------------------
- *
- * The first version of this page was a SaaS landing page: sticky glass nav,
- * a centred eyebrow over a centred heading over a centred lead, three
- * icon-in-a-rounded-square cards, a radial gradient wash, a centred closing
- * call to action. Every one of those is the statistically average choice, and
- * together they produce a page that could have belonged to any company in any
- * category. It described the product accurately and looked like nothing.
- *
- * This one argues the same case by *being* the artefact instead. Realytica's
- * output is a numbered, hairline-ruled diligence report with statutes set in
- * monospace and an `as of` line in the margin under every figure that has
- * one. So: the page is left-aligned to a document measure and never centred;
- * there is not a single drop shadow or rounded card; the sections are
- * numbered the way the report numbers its own; provenance sits in a margin
- * column exactly as it does in the app; and the section that would normally
- * hold three feature cards holds the real check catalogue in a real table.
- *
- * The register shift is carried by a serif for display type against the app's
- * sans — registries, statutes and title opinions are set in serif, and the
- * page should feel like it comes from that world rather than from a product
- * launch.
- *
- * --- Every figure is read, none is claimed -------------------------------
- *
- * There is no outcome claim anywhere: no percentage faster, no satisfaction
- * score, no logos, no testimonials. The numbers are read out of the shipped
- * pack at render time, and the check table is the actual catalogue with the
- * actual statute citations — content a competitor cannot copy without
- * building the pack, and content that cannot go stale because it is not a
- * copy of anything.
- *
- * --- Motion is typesetting -----------------------------------------------
- *
- * Rules draw from the left. Display lines are set from below behind a mask.
- * Nothing fades up on scroll, because fade-up-on-scroll is the motion
- * equivalent of the layout this page replaced. All of it runs through the
- * app's existing keyframes so the global `prefers-reduced-motion` guard
- * covers it, and every reveal starts visible and hides only once it knows
- * the observer works.
+ * Realytica's output is a numbered, hairline-ruled diligence record: projects,
+ * concurrent assessments, and shared registers. The page is left-aligned to a
+ * document measure; sections are numbered the way a report numbers its own.
  */
 
-/* ==================================================================== */
-/* Document furniture                                                    */
-/* ==================================================================== */
-
-/**
- * One line of display type, set from below behind a mask.
- *
- * `overflow-hidden` on the outer span is what makes it a mask rather than a
- * slide, and the inner span carries the transform. `pb-[0.12em]` keeps
- * descenders from being clipped by the mask they are travelling behind — a
- * detail that is invisible when right and unmistakable when wrong.
- */
 function SetLine({ children, delay = 0, className }: { children: ReactNode; delay?: number; className?: string }) {
   return (
     <span className="block overflow-hidden pb-[0.12em]">
@@ -72,7 +29,6 @@ function SetLine({ children, delay = 0, className }: { children: ReactNode; dela
   );
 }
 
-/** A numbered section head, quoting the report's own numbering. */
 function SectionHead({ n, title, note }: { n: string; title: string; note?: string }) {
   const { ref, inView } = useInView<HTMLDivElement>();
   return (
@@ -89,14 +45,6 @@ function SectionHead({ n, title, note }: { n: string; title: string; note?: stri
   );
 }
 
-/**
- * The page's grid: a wide document column and a narrow margin column.
- *
- * Asymmetric on purpose. A symmetric two-column split reads as a landing
- * page; a text measure with an annotation rail beside it reads as a document,
- * which is the entire conceit. Below `lg` the margin column falls under the
- * text, which is what a printed marginal note does when it will not fit.
- */
 function Spread({ children, margin }: { children: ReactNode; margin?: ReactNode }) {
   return (
     <div className="grid gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_16rem]">
@@ -106,7 +54,6 @@ function Spread({ children, margin }: { children: ReactNode; margin?: ReactNode 
   );
 }
 
-/** A margin annotation, set the way the app sets its provenance lines. */
 function MarginNote({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="border-l-2 border-hairline pl-3">
@@ -116,17 +63,13 @@ function MarginNote({ label, children }: { label: string; children: ReactNode })
   );
 }
 
-/* ==================================================================== */
-/* 01 — the evidence chain, as a ledger                                  */
-/* ==================================================================== */
-
 const CHAIN = [
-  { source: 'Sale deed, p.3', claim: 'extent conveyed', value: '111.5 m²' },
-  { source: 'Khata extract', claim: 'area assessed', value: '111.5 m²' },
-  { source: 'Schedule of property', claim: '30 ft × 40 ft', value: '111.5 m²' },
+  { source: 'Finding', claim: 'Fire-escape width vs NBC', value: 'Open · high' },
+  { source: 'Construction Progress DD', claim: 'linked from Quality', value: 'Check #04' },
+  { source: 'Design DD', claim: 'same finding, not copied', value: 'Tower A' },
 ];
 
-function EvidenceLedger() {
+function RegisterLedger() {
   const { ref, inView } = useInView<HTMLDivElement>();
   const [step, setStep] = useState(CHAIN.length + 1);
 
@@ -142,7 +85,7 @@ function EvidenceLedger() {
     <Tile className="p-5">
       <div ref={ref} className="font-mono text-[13px]">
       <div className="flex items-baseline justify-between border-b border-ink/20 pb-2 text-[10px] uppercase tracking-[0.12em] text-ink-muted">
-        <span>Source</span>
+        <span>Register</span>
         <span>States</span>
       </div>
       {CHAIN.map((row, i) => (
@@ -166,67 +109,41 @@ function EvidenceLedger() {
           step > CHAIN.length ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0',
         )}
       >
-        <span className="text-good">Three sources, no conflict</span>
-        <span className="tabular-nums text-good">111.5 m²</span>
+        <span className="text-good">One finding, two DDs, one risk</span>
+        <span className="tabular-nums text-good">Shared</span>
       </div>
       </div>
     </Tile>
   );
 }
 
-/* ==================================================================== */
-/* Page                                                                  */
-/* ==================================================================== */
-
 const SPEC = [
-  { label: 'Engine', value: `v${ENGINE_VERSION}` },
-  { label: 'Jurisdiction', value: 'Karnataka / Bengaluru' },
-  { label: 'Statutory checks', value: String(KARNATAKA_PACK.titleChecks.length) },
-  { label: 'Restrictions beyond title', value: String(SITE_CONSTRAINT_KEYS.length) },
-  { label: 'Documents tracked', value: String(KARNATAKA_PACK.requiredDocuments.length) },
-  { label: 'Localities priced', value: String(REFERENCE_DATA.localities.filter(l => l.city === 'Bengaluru').length) },
+  { label: 'Project types', value: String(PROJECT_ARCHETYPES.length) },
+  { label: 'Lifecycle stages', value: String(LIFECYCLE_STAGES.length) },
+  { label: 'DD type templates', value: String(DD_TYPE_DEFINITIONS.length) },
+  { label: 'Reusable scopes', value: String(SCOPE_DEFINITIONS.length) },
+  { label: 'Library checks', value: String(CHECK_DEFINITIONS.length) },
+  { label: 'Shared registers', value: '6' },
 ];
-
-/**
- * The check set out in full beside the table.
- *
- * Khata classification, because it is the single biggest binary in a
- * Bengaluru title screen and the one a reader is most likely to have heard of
- * and least likely to understand the consequences of.
- */
-const SPECIMEN_CHECK = KARNATAKA_PACK.titleChecks.find(c => c.key === 'khata_classification') ?? KARNATAKA_PACK.titleChecks[0];
-
-/**
- * The first citation from a statute string, without its trailing gloss.
- *
- * The pack joins several instruments with semicolons where a check rests on
- * more than one. Printing all of them turns a scannable column into a second
- * paragraph; printing the first, with the count of the rest, keeps the column
- * a column and still says there is more behind it.
- */
-function statuteHead(statute: string): string {
-  const parts = statute.split(';').map(p => p.trim()).filter(Boolean);
-  return parts.length > 1 ? `${parts[0]} + ${parts.length - 1} more` : statute;
-}
 
 const REFUSALS = [
   {
     clause: 'i',
-    title: 'An unpriced cost is never zero.',
-    body: 'Where a charge is real but its size is not yet known, it is listed as unpriced with a sentence saying so. It is never folded into a total as nothing, and the offer advice carries a null rather than a figure.',
-    margin: 'The most expensive possible rounding error.',
+    title: 'AI is not required to operate.',
+    body: 'Every core workflow — project, asset tree, concurrent DDs, checks, registers, reports — must run with no model. AI later writes into these same objects; it does not replace them.',
+    margin: 'The BRD’s first principle.',
   },
   {
     clause: 'ii',
-    title: 'Not assessed is never fine.',
-    body: 'A check nobody has answered reports as unanswered, with its consequence spelled out and the document that would settle it named. It never renders as clear and it never quietly drops off a list.',
-    margin: 'Six of the checks below default to this state.',
+    title: 'A DD type is a template, not a tab.',
+    body: 'Acquisition, Construction Progress, Design, Regulatory and Cost & Schedule are presets you instantiate. They are not permanent folders that trap evidence inside a department.',
+    margin: 'Concurrent assessments against different targets.',
   },
   {
     clause: 'iii',
-    title: 'A pin is never a boundary.',
-    body: 'A geocoded marker is an address, and in Bengaluru it is frequently the centre of a village. The precision the geocoder reported travels with it everywhere it is drawn, and there is no draw-a-polygon-and-read-the-area tool.',
-    margin: 'An extent is settled by a surveyor’s sketch, not a mouse.',
+    title: 'An unissued figure is never a certified value.',
+    body: 'Indicative valuation is a later capability on this model. Until a registered valuer signs separately, the product does not pretend the range is a certificate.',
+    margin: 'Decision support, not a legal opinion.',
   },
 ];
 
@@ -236,49 +153,31 @@ const CTA_CLASSES =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-page';
 
 export default function Landing() {
-  // `overflow-x-clip`, not `overflow-hidden`: the band bleeds half a viewport
-  // past each edge so it can run under the masthead, and without clipping
-  // that became 195px of horizontal scroll on a phone. Clip rather than
-  // hidden so no scroll container is created and nothing inside is affected.
   return (
     <div className="min-h-screen overflow-x-clip bg-page">
-      {/* ------------------------------------------------------ Masthead */}
       <header className="border-b border-ink/20">
         <div className="mx-auto flex max-w-5xl items-baseline justify-between gap-4 px-6 py-4">
           <span className="flex items-baseline gap-3">
             <span className="font-display text-[17px] tracking-tight text-ink">Realytica</span>
             <span className="hidden font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted sm:inline">
-              Property screen · Karnataka
+              Due diligence · project intelligence
             </span>
           </span>
           <Link
-            to="/app"
+            to="/projects"
             className="group inline-flex items-baseline gap-2 border-b border-ink pb-0.5 text-[13px] font-medium text-ink transition-colors duration-quick hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
           >
-            Sign in
+            Open workspace
             <ArrowRight size={13} className="translate-y-px transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
           </Link>
         </div>
       </header>
 
-      {/* -------------------------------------------------------- Header */}
-      {/*
-        * The band wash under the opening.
-        *
-        * Two very low-opacity radial fields, one brand and one green, drawn
-        * from the token layer so they follow the theme. It gives the page a
-        * top rather than starting flat, and it is the only place on the page
-        * with a gradient this wide — a document has one masthead, not six.
-        */}
-      {/* `isolate` is load-bearing: `position: relative` with `z-index: auto`
-          creates no stacking context, so the band's `-z-10` escaped to the
-          root and painted behind the page's own opaque background — present
-          in the DOM, correct in the computed style, and invisible. */}
       <section className="relative isolate mx-auto max-w-5xl px-6 pb-16 pt-12 sm:pt-16">
         <span aria-hidden="true" className="pointer-events-none absolute inset-x-[-50vw] top-[-3.5rem] -z-10 h-[620px] bg-band" />
         <div className="mb-10 flex items-baseline justify-between font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">
-          <span>Ref. specimen</span>
-          <span>Evidence before assertion</span>
+          <span>Ref. operating model</span>
+          <span>Manual first · AI later</span>
         </div>
 
         <Spread
@@ -288,8 +187,6 @@ export default function Landing() {
               {SPEC.map((item, i) => (
                 <div key={item.label} className="animate-fade-in flex flex-wrap items-baseline justify-between gap-x-3 border-b border-hairline pb-2" style={{ animationDelay: `${520 + i * 60}ms` }}>
                   <dt className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-muted">{item.label}</dt>
-                  {/* Wraps rather than crowding the rule: "Karnataka / Bengaluru"
-                      is wider than the column and looked broken pinned to the edge. */}
                   <dd className="m-0 font-mono text-[12px] tabular-nums text-ink">{item.value}</dd>
                 </div>
               ))}
@@ -298,116 +195,103 @@ export default function Landing() {
           }
         >
           <h1 className="m-0 font-display text-[40px] font-normal leading-[1.06] tracking-[-0.015em] text-ink sm:text-[58px]">
-            <SetLine delay={40}>Know what you are</SetLine>
-            <SetLine delay={130}>buying before you</SetLine>
+            <SetLine delay={40}>Run diligence as a</SetLine>
+            <SetLine delay={130}>living project record,</SetLine>
             <SetLine delay={220}>
-              <span className="text-ink-secondary">pay for it.</span>
+              <span className="text-ink-secondary">not a static report.</span>
             </SetLine>
           </h1>
 
           <p className="m-0 mt-8 max-w-[58ch] animate-fade-in text-[16px] leading-[1.65] text-ink-secondary" style={{ animationDelay: '340ms' }}>
-            Upload the deeds. Realytica reconstructs the chain of title, reconciles every extent the documents claim,
-            runs the Karnataka statutory checks and tells you what to offer — with a source behind each figure, and a
-            plain sentence wherever there is not one.
+            Create the project and the asset tree. Start concurrent due diligence assessments from reusable scopes and
+            checks. Evidence, findings, risks, actions and decisions live once and link across DDs. AI comes later, on
+            this same model — it is not required to operate.
           </p>
 
           <div className="mt-9 flex animate-fade-in flex-wrap items-center gap-6" style={{ animationDelay: '420ms' }}>
-            <Link to="/app" className={CTA_CLASSES}>
-              Open a case
+            <Link to="/projects" className={CTA_CLASSES}>
+              Open the workspace
               <ArrowRight size={15} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
             </Link>
-            <a href="#checks" className="border-b border-hairline pb-0.5 text-[14px] text-ink-secondary transition-colors duration-quick hover:border-ink hover:text-ink">
-              Read the check list
+            <a href="#templates" className="border-b border-hairline pb-0.5 text-[14px] text-ink-secondary transition-colors duration-quick hover:border-ink hover:text-ink">
+              Read the DD templates
             </a>
           </div>
 
           <p className="m-0 mt-6 animate-fade-in font-mono text-[11px] text-ink-muted" style={{ animationDelay: '480ms' }}>
-            Runs on the deterministic engine alone. No AI key required.
+            Manual system of record. No AI key required.
           </p>
         </Spread>
       </section>
 
-      {/* ---------------------------------------------------- 01 What it reads */}
       <SectionBand ground="surface" className="border-y border-hairline">
       <section className="mx-auto max-w-5xl px-6 py-16">
         <SectionHead
           n="01"
-          title="What it reads"
-          note="Every figure the screen produces resolves to the document that states it. Where three sources describe one parcel, all three are quoted — and where they disagree, that disagreement is the finding."
+          title="What it records"
+          note="A due diligence assessment is an exercise at a point in time. Evidence, findings, risks, actions and decisions are reusable project reality — linked into DDs, not trapped inside them."
         />
         <Spread
           margin={
             <MarginNote label="Worked example">
-              The extent of a Devanahalli site, as three instruments on the same case state it. A fourth figure that
-              disagreed by more than 2% would open an <span className="font-mono text-[12px]">area_mismatch</span>.
+              A fire-escape finding on the Harohalli township sits once on the project register and participates in
+              Construction Progress and Design assessments. The report is a view of those records.
             </MarginNote>
           }
         >
-          <EvidenceLedger />
+          <RegisterLedger />
         </Spread>
       </section>
       </SectionBand>
 
-      {/* --------------------------------------------------- 02 What it checks */}
-      <section id="checks" className="mx-auto max-w-5xl scroll-mt-8 px-6 py-16">
+      <section id="templates" className="mx-auto max-w-5xl scroll-mt-8 px-6 py-16">
         <SectionHead
           n="02"
-          title="What it checks"
-          note={`The ${KARNATAKA_PACK.titleChecks.length} statutory checks the Karnataka pack carries, each returning a finding, a consequence and the next step — cited to the instrument it comes from. This is the catalogue itself, not a summary of it.`}
+          title="What it instantiates"
+          note={`${DD_TYPE_DEFINITIONS.length} DD type templates and ${SCOPE_DEFINITIONS.length} reusable scopes. Starting an assessment copies these into the project; editing an instance does not change the library.`}
         />
-        {/*
-          * Name and citation only.
-          *
-          * The first cut of this table printed every check's full description
-          * as well, and eleven paragraphs in a narrow column made the section
-          * three times taller than the rest of the page put together — a wall
-          * nobody would read, which is a worse outcome than saying less. A
-          * specimen shows the form of the thing, not all of it. What survives
-          * is the part a competitor cannot copy without building the pack:
-          * each check cited to the instrument it comes from. One check is set
-          * out in full in the margin so the depth is visible without the
-          * wall.
-          */}
         <Spread
           margin={
-            <MarginNote label="One check, in full">
-              <span className="block text-ink">{SPECIMEN_CHECK.label}</span>
-              <span className="mt-1.5 block">{SPECIMEN_CHECK.description}</span>
-              <span className="mt-1.5 block font-mono text-[11px] text-ink-muted">{SPECIMEN_CHECK.statute}</span>
+            <MarginNote label="One scope, in full">
+              <span className="block text-ink">{SCOPE_DEFINITIONS[0].label}</span>
+              <span className="mt-1.5 block">{SCOPE_DEFINITIONS[0].purpose}</span>
+              <span className="mt-1.5 block font-mono text-[11px] text-ink-muted">
+                {CHECK_DEFINITIONS.filter(c => c.scopeKey === SCOPE_DEFINITIONS[0].key).length} checks in the library
+              </span>
             </MarginNote>
           }
         >
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-ink/20">
-                <th className="pb-2 pr-6 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-ink-muted">Check</th>
-                <th className="pb-2 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-ink-muted">Cited to</th>
+                <th className="pb-2 pr-6 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-ink-muted">DD type</th>
+                <th className="pb-2 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-ink-muted">Default scopes</th>
               </tr>
             </thead>
             <tbody>
-              {KARNATAKA_PACK.titleChecks.map(check => (
-                <tr key={check.key} className="border-b border-hairline align-baseline transition-colors duration-quick hover:bg-sunken">
-                  <td className="py-2.5 pr-6 text-[14px] text-ink">{check.label}</td>
-                  <td className="py-2.5 font-mono text-[11px] leading-snug text-ink-muted">{statuteHead(check.statute)}</td>
+              {DD_TYPE_DEFINITIONS.filter(d => d.key !== 'custom').map(d => (
+                <tr key={d.key} className="border-b border-hairline align-baseline transition-colors duration-quick hover:bg-sunken">
+                  <td className="py-2.5 pr-6 text-[14px] text-ink">{d.label}</td>
+                  <td className="py-2.5 text-[12px] leading-snug text-ink-muted">
+                    {d.defaultScopes.map(k => SCOPE_DEFINITIONS.find(s => s.key === k)?.label ?? k).join(', ')}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
           <p className="m-0 mt-5 max-w-[62ch] text-[13px] leading-relaxed text-ink-muted">
-            Alongside these sit {SITE_CONSTRAINT_KEYS.length} restrictions that never appear in a deed — an aerodrome
-            height cap, a transmission corridor, a highway control line — and the flood catchment the locality drains
-            through.
+            Custom DDs start empty and take the scopes you add. Recommended types follow the project’s current lifecycle
+            stage; they do not overwrite prior assessments when the stage changes.
           </p>
         </Spread>
       </section>
 
-      {/* -------------------------------------------------- 03 What it refuses */}
       <SectionBand ground="sunken" className="border-y border-hairline">
       <section className="mx-auto max-w-5xl px-6 py-16">
         <SectionHead
           n="03"
           title="What it refuses to do"
-          note="Anything can produce a number. These are the three places where producing one would be worse than saying nothing, and they are enforced in the engine rather than promised in the copy."
+          note="The first release proves that a team can run progressive due diligence by hand. Anything that would force AI, a department silo, or a fake certificate is out."
         />
         <div className="space-y-8">
           {REFUSALS.map(item => (
@@ -425,32 +309,30 @@ export default function Landing() {
       </section>
       </SectionBand>
 
-      {/* ----------------------------------------------------------- 04 Scope */}
       <section className="mx-auto max-w-5xl px-6 py-16">
         <SectionHead n="04" title="Scope and limitations" />
         <Spread
           margin={
-            <MarginNote label="Registries consulted">
-              {KARNATAKA_PACK.datasets.join(' · ')}
+            <MarginNote label="First archetype">
+              Residential township — Harohalli is the sample. Other project types share the same operating model.
             </MarginNote>
           }
         >
           <div className="max-w-[62ch] space-y-4 text-[15px] leading-[1.7] text-ink-secondary">
             <p className="m-0">
-              A documentary property screen for Karnataka and Bengaluru, with a second pack covering the Netherlands. It
-              reasons over {KARNATAKA_PACK.datasets.length} named registries but does not query them live, and it says
-              so wherever that distinction changes what a finding means.
+              The operating model is the product: project setup, nested assets, stage history, concurrent DDs, shared
+              registers, dashboards, IBBI-structured indicative valuation, reusable engines, controlled AI drafts, and a
+              graph of data links. Reports are generated from those records.
             </p>
             <p className="m-0">
-              It is <span className="text-ink">not</span> a certified valuation, a legal title certificate, a formal
-              opinion, or an engineering inspection. It is the thing you do first — so that when you do pay a lawyer and
-              a surveyor, you already know what to ask them.
+              It is <span className="text-ink">not</span> a certified valuation, a legal title certificate, a BIM
+              comparator, or a live-registry product. Indicative valuation and AI drafts sit on the same project
+              registers and never replace a registered valuer or a human reviewer.
             </p>
           </div>
         </Spread>
       </section>
 
-      {/* ------------------------------------------------------------- Close */}
       <SectionBand ground="brand" className="border-t border-hairline">
       <section className="mx-auto max-w-5xl px-6 py-20">
         <Spread
@@ -461,13 +343,13 @@ export default function Landing() {
           }
         >
           <h2 className="m-0 max-w-[24ch] font-display text-[30px] font-normal leading-tight tracking-tight text-ink sm:text-[38px]">
-            Start with a conversation, not a form.
+            Start with a project, not a conversation.
           </h2>
           <p className="m-0 mt-4 max-w-[56ch] text-[15px] leading-relaxed text-ink-secondary">
-            Describe the property in your own words and upload whatever you have. Six worked cases are already loaded if
-            you would rather read one first.
+            Open the sample Harohalli township or create a project of your own. Libraries, registers and reports are
+            already wired. Neither path needs an AI key.
           </p>
-          <Link to="/app" className={cn(CTA_CLASSES, 'mt-8')}>
+          <Link to="/projects" className={cn(CTA_CLASSES, 'mt-8')}>
             Open the application
             <ArrowRight size={15} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
           </Link>
@@ -475,11 +357,10 @@ export default function Landing() {
       </section>
       </SectionBand>
 
-      {/* --------------------------------------------------------- Colophon */}
       <footer className="border-t border-ink/20">
         <div className="mx-auto flex max-w-5xl flex-col gap-1 px-6 py-8 font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between">
-          <span>Realytica · Engine v{ENGINE_VERSION}</span>
-          <span>A screen, not a legal opinion</span>
+          <span>Realytica · Due diligence OS</span>
+          <span>A system of record, not a legal opinion</span>
         </div>
       </footer>
     </div>

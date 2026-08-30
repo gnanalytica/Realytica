@@ -42,6 +42,44 @@ import type {
   DdEdge,
   DdGraph,
   DdNode,
+  DdProject,
+  ProjectSummary,
+  Asset,
+  DdAssessment,
+  CheckInstance,
+  EvidenceRecord,
+  FindingRecord,
+  RiskRecord,
+  ActionRecord,
+  DecisionRecord,
+  GeneratedReport,
+  StageRecord,
+  CreateProjectInput,
+  CreateAssetInput,
+  CreateAssessmentInput,
+  RecordCheckInput,
+  CreateEvidenceInput,
+  CreateFindingInput,
+  CreateRiskInput,
+  CreateActionInput,
+  CreateDecisionInput,
+  GenerateReportInput,
+  ChangeSincePrevious,
+  ScopeDefinition,
+  DdTypeDefinition,
+  CheckDefinition,
+  PatchProjectInput,
+  ProjectDashboard,
+  ProjectGraphNode,
+  ProjectGraphEdge,
+  ValuationRun,
+  ValuationSignOff,
+  CapabilityRun,
+  AiDraft,
+  AiDraftStatus,
+  EvidenceAttachment,
+  ProjectChatResult,
+  OrchestratorRun,
 } from '@realytica/shared';
 
 const BASE = '/api';
@@ -87,7 +125,8 @@ export interface UploadLimits {
 export interface HealthResponse {
   status: string;
   version: string;
-  cases: number;
+  cases?: number;
+  projects?: number;
   upload: UploadLimits;
 }
 
@@ -128,6 +167,10 @@ export interface IntakeEnvelope {
  */
 export function documentFileUrl(id: string, docId: string, opts?: { download?: boolean }): string {
   return `${BASE}/cases/${id}/documents/${docId}/file${opts?.download ? '?download=1' : ''}`;
+}
+
+export function evidenceFileUrl(projectId: string, evidenceId: string, fileId: string): string {
+  return `${BASE}/projects/${projectId}/evidence/${evidenceId}/files/${fileId}`;
 }
 
 export const api = {
@@ -512,6 +555,123 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  libraries: () =>
+    request<{
+      projectArchetypes: { key: string; label: string; examples: string }[];
+      lifecycleStages: { key: string; label: string; meaning: string }[];
+      scopes: ScopeDefinition[];
+      ddTypes: DdTypeDefinition[];
+      checks: CheckDefinition[];
+    }>('/libraries'),
+
+  listProjects: () => request<ProjectSummary[]>('/projects'),
+  getProject: (id: string) => request<DdProject>(`/projects/${id}`),
+  createProject: (body: CreateProjectInput & { actor?: string }) =>
+    request<DdProject>('/projects', { method: 'POST', body: JSON.stringify(body) }),
+  deleteProject: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
+  addAsset: (projectId: string, body: CreateAssetInput & { actor?: string }) =>
+    request<Asset>(`/projects/${projectId}/assets`, { method: 'POST', body: JSON.stringify(body) }),
+  changeStage: (
+    projectId: string,
+    body: { subject: 'project' | 'asset'; assetId?: string; stage: string; reason: string; evidenceIds?: string[]; actor?: string },
+  ) => request<StageRecord>(`/projects/${projectId}/stage`, { method: 'POST', body: JSON.stringify(body) }),
+  createAssessment: (projectId: string, body: CreateAssessmentInput & { actor?: string }) =>
+    request<DdAssessment>(`/projects/${projectId}/assessments`, { method: 'POST', body: JSON.stringify(body) }),
+  setAssessmentStatus: (projectId: string, ddId: string, status: string, actor?: string) =>
+    request<DdAssessment>(`/projects/${projectId}/assessments/${ddId}`, { method: 'PATCH', body: JSON.stringify({ status, actor }) }),
+  assessmentChanges: (projectId: string, ddId: string) =>
+    request<ChangeSincePrevious | null>(`/projects/${projectId}/assessments/${ddId}/changes`),
+  recordCheck: (projectId: string, checkId: string, body: RecordCheckInput & { actor?: string }) =>
+    request<{ check: CheckInstance; project: DdProject }>(`/projects/${projectId}/checks/${checkId}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  addEvidence: (projectId: string, body: CreateEvidenceInput & { actor?: string }) =>
+    request<EvidenceRecord>(`/projects/${projectId}/evidence`, { method: 'POST', body: JSON.stringify(body) }),
+  patchEvidence: (
+    projectId: string,
+    evidenceId: string,
+    body: { status: string; rejectionReason?: string; considered?: boolean; used?: boolean; actor?: string },
+  ) => request<EvidenceRecord>(`/projects/${projectId}/evidence/${evidenceId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  addFinding: (projectId: string, body: CreateFindingInput & { linkAssessmentIds?: string[]; actor?: string }) =>
+    request<FindingRecord>(`/projects/${projectId}/findings`, { method: 'POST', body: JSON.stringify(body) }),
+  linkFinding: (projectId: string, findingId: string, body: { assessmentIds?: string[]; assetIds?: string[]; evidenceIds?: string[] }) =>
+    request<FindingRecord>(`/projects/${projectId}/findings/${findingId}/links`, { method: 'POST', body: JSON.stringify(body) }),
+  patchFinding: (projectId: string, findingId: string, status: string) =>
+    request<FindingRecord>(`/projects/${projectId}/findings/${findingId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  addRisk: (projectId: string, body: CreateRiskInput & { actor?: string }) =>
+    request<RiskRecord>(`/projects/${projectId}/risks`, { method: 'POST', body: JSON.stringify(body) }),
+  patchRisk: (projectId: string, riskId: string, status: string) =>
+    request<RiskRecord>(`/projects/${projectId}/risks/${riskId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  addAction: (projectId: string, body: CreateActionInput & { actor?: string }) =>
+    request<ActionRecord>(`/projects/${projectId}/actions`, { method: 'POST', body: JSON.stringify(body) }),
+  patchAction: (projectId: string, actionId: string, status: string) =>
+    request<ActionRecord>(`/projects/${projectId}/actions/${actionId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  addDecision: (projectId: string, body: CreateDecisionInput & { actor?: string }) =>
+    request<DecisionRecord>(`/projects/${projectId}/decisions`, { method: 'POST', body: JSON.stringify(body) }),
+  patchDecision: (projectId: string, decisionId: string, status: string) =>
+    request<DecisionRecord>(`/projects/${projectId}/decisions/${decisionId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  generateReport: (projectId: string, body: GenerateReportInput) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports`, { method: 'POST', body: JSON.stringify(body) }),
+  patchProject: (projectId: string, body: PatchProjectInput & { actor?: string }) =>
+    request<DdProject>(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  projectDashboard: (projectId: string) => request<ProjectDashboard>(`/projects/${projectId}/dashboard`),
+  projectGraph: (projectId: string) =>
+    request<{ nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] }>(`/projects/${projectId}/graph`),
+  runValuation: (projectId: string, actor?: string) =>
+    request<ValuationRun>(`/projects/${projectId}/valuation`, { method: 'POST', body: JSON.stringify({ actor }) }),
+  patchValuation: (projectId: string, runId: string, signOff: ValuationSignOff) =>
+    request<ValuationRun>(`/projects/${projectId}/valuation/${runId}`, { method: 'PATCH', body: JSON.stringify({ signOff }) }),
+  snapshotCapabilities: (projectId: string) =>
+    request<CapabilityRun[]>(`/projects/${projectId}/capabilities`, { method: 'POST', body: JSON.stringify({}) }),
+  proposeAiDrafts: (projectId: string, actor?: string) =>
+    request<{ drafts: AiDraft[]; agent: { available: boolean; reason: string } }>(`/projects/${projectId}/ai/drafts`, {
+      method: 'POST',
+      body: JSON.stringify({ actor }),
+    }),
+  reviewAiDraft: (projectId: string, draftId: string, status: Extract<AiDraftStatus, 'in_review' | 'accepted' | 'rejected'>, reviewNote?: string) =>
+    request<AiDraft>(`/projects/${projectId}/ai/drafts/${draftId}`, { method: 'PATCH', body: JSON.stringify({ status, reviewNote }) }),
+  commitAiDraft: (projectId: string, draftId: string) =>
+    request<{ draft: AiDraft; recordId?: string }>(`/projects/${projectId}/ai/drafts/${draftId}/commit`, { method: 'POST', body: JSON.stringify({}) }),
+  projectChat: (projectId: string, body: { question: string; viewContext?: string; actor?: string }) =>
+    request<ProjectChatResult & { project: DdProject }>(`/projects/${projectId}/chat`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  projectChatFiles: (projectId: string, body: { files: File[]; question?: string; viewContext?: string; actor?: string }) => {
+    const form = new FormData();
+    body.files.forEach((f) => form.append('files', f));
+    if (body.question) form.append('question', body.question);
+    if (body.viewContext) form.append('viewContext', body.viewContext);
+    if (body.actor) form.append('actor', body.actor);
+    return request<ProjectChatResult & { project: DdProject }>(`/projects/${projectId}/chat/files`, {
+      method: 'POST',
+      body: form,
+    });
+  },
+  commitChatProposal: (projectId: string, proposalId: string) =>
+    request<ProjectChatResult & { project: DdProject }>(`/projects/${projectId}/chat/proposals/${proposalId}/commit`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  rejectChatProposal: (projectId: string, proposalId: string) =>
+    request<ProjectChatResult & { project: DdProject }>(`/projects/${projectId}/chat/proposals/${proposalId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  clearProjectChat: (projectId: string) => request<void>(`/projects/${projectId}/chat`, { method: 'DELETE' }),
+  orchestrateProject: (projectId: string, actor?: string) =>
+    request<{ run: OrchestratorRun; drafts: AiDraft[]; project: DdProject }>(`/projects/${projectId}/orchestrate`, {
+      method: 'POST',
+      body: JSON.stringify({ actor }),
+    }),
+  uploadEvidenceFiles: (projectId: string, evidenceId: string, files: File[]) => {
+    const form = new FormData();
+    files.forEach((f) => form.append('files', f));
+    return request<EvidenceAttachment[]>(`/projects/${projectId}/evidence/${evidenceId}/files`, { method: 'POST', body: form });
+  },
+  evidenceFileUrl,
 };
 
 /**

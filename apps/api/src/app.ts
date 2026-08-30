@@ -5,31 +5,20 @@ import { fileURLToPath } from 'node:url';
 import type { ErrorRequestHandler, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import { ENGINE_VERSION, compareCases } from '@realytica/shared';
+import { ENGINE_VERSION } from '@realytica/shared';
 import { store, initStore } from './store';
 import { initPrompts } from './prompts';
 import { initTelemetry } from './telemetry';
-import { casesRouter } from './routes/cases';
-import { documentsRouter, UPLOAD_LIMITS } from './routes/documents';
-import { recordsRouter } from './routes/records';
-import { screenRouter, projectRouter, risksRouter, actionsRouter } from './routes/screen';
-import { technicalFindingsRouter, technicalDocumentsRouter } from './routes/technical-findings';
-import { requestsRouter } from './routes/requests';
+import { UPLOAD_LIMITS } from './routes/documents';
 import { referenceRouter } from './routes/reference';
-import { demoRouter, seedDemoData } from './routes/demo';
-import { agentsCapabilityRouter, caseAgentsRouter } from './routes/agents';
-import { caseKnowledgeRouter, sourcesRouter } from './routes/knowledge';
+import { demoRouter, seedDemoProjects } from './routes/demo';
+import { librariesRouter, projectsRouter } from './routes/projects';
+import { agentsCapabilityRouter } from './routes/agents';
+import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
 import { promptsRouter } from './routes/prompts';
-import { flowRouter } from './routes/flow';
-import { titleGraphRouter } from './routes/title-graph';
-import { graphRouter } from './routes/graph';
-import { intakeRouter } from './routes/intake';
-import { siteContextRouter } from './routes/site-context';
-import { stalenessRouter } from './routes/staleness';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-import { compareBodySchema } from './schemas';
 import { readEnv } from '@realytica/agents';
 
 /**
@@ -64,56 +53,19 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     version: ENGINE_VERSION,
-    cases: store.data.cases.length,
+    projects: store.data.projects?.length ?? 0,
     upload: UPLOAD_LIMITS,
   });
 });
 
 app.use('/api/reference', referenceRouter);
+app.use('/api/libraries', librariesRouter);
+app.use('/api/projects', projectsRouter);
 app.use('/api/agents', agentsCapabilityRouter);
 app.use('/api/sources', sourcesRouter);
 app.use('/api/telemetry', telemetryRouter);
 app.use('/api/prompts', promptsRouter);
-app.use('/api/intake', intakeRouter);
-
-// Mounted before the generic /api/cases router so nested case sub-resources
-// resolve here first; :id is captured via mergeParams on each sub-router.
-app.use('/api/cases/:id/documents', documentsRouter);
-app.use('/api/cases/:id/records', recordsRouter);
-app.use('/api/cases/:id/screen', screenRouter);
-app.use('/api/cases/:id/project', projectRouter);
-app.use('/api/cases/:id/risks', risksRouter);
-app.use('/api/cases/:id/actions', actionsRouter);
-app.use('/api/cases/:id/technical-findings', technicalFindingsRouter);
-app.use('/api/cases/:id/technical-documents', technicalDocumentsRouter);
-app.use('/api/cases/:id/requests', requestsRouter);
-app.use('/api/cases/:id/agents', caseAgentsRouter);
-app.use('/api/cases/:id/knowledge', caseKnowledgeRouter);
-app.use('/api/cases/:id/flow', flowRouter);
-app.use('/api/cases/:id/title-graph', titleGraphRouter);
-app.use('/api/cases/:id/graph', graphRouter);
-app.use('/api/cases/:id/site-context', siteContextRouter);
-app.use('/api/cases/:id/staleness', stalenessRouter);
-app.use('/api/cases', casesRouter);
-
 app.use('/api/demo', demoRouter);
-
-app.post('/api/compare', (req, res) => {
-  const parsed = compareBodySchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
-    return;
-  }
-  const cases = parsed.data.caseIds
-    .map((id) => store.data.cases.find((c) => c.id === id))
-    .filter((c): c is NonNullable<typeof c> => c !== undefined);
-  if (cases.length !== parsed.data.caseIds.length) {
-    res.status(404).json({ error: 'One or more cases not found' });
-    return;
-  }
-  const result = compareCases(cases, new Date().toISOString());
-  res.json(result);
-});
 
 // 404 for any unmatched /api/* route.
 app.use('/api', (_req, res) => {
@@ -189,8 +141,8 @@ export async function initApp(): Promise<void> {
   await initPrompts();
   // Must run before the first model call, or that call goes unrecorded.
   initTelemetry();
-  if (store.data.cases.length === 0) {
-    const created = await seedDemoData();
-    console.log(`[boot] store was empty — auto-seeded ${created} demo case(s)`);
+  if (!store.data.projects?.length) {
+    const created = await seedDemoProjects();
+    console.log(`[boot] no projects — auto-seeded ${created} demo project(s)`);
   }
 }

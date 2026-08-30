@@ -4,17 +4,18 @@ import { Menu, Monitor, Moon, Sun } from 'lucide-react';
 import { api } from '../../lib/api';
 import { applyTheme, getStoredTheme, type ThemeMode } from '../../lib/theme';
 import { Dot, Tooltip } from '../ui/kit';
+import ProjectSwitcher from './ProjectSwitcher';
 
 export interface TopBarProps {
   onOpenMobile: () => void;
 }
 
 function pageTitle(pathname: string): string {
-  if (pathname === '/app') return 'Dashboard';
-  if (pathname.startsWith('/cases/new')) return 'New property case';
-  if (pathname.startsWith('/cases/')) return 'Case workspace';
-  if (pathname.startsWith('/compare')) return 'Compare cases';
+  if (pathname.startsWith('/projects')) return '';
+  if (pathname.startsWith('/libraries')) return 'Libraries';
   if (pathname.startsWith('/about')) return 'About Realytica';
+  if (pathname.startsWith('/observability')) return 'AI activity';
+  if (pathname.startsWith('/prompts')) return 'AI instructions';
   return 'Realytica';
 }
 
@@ -70,7 +71,11 @@ export default function TopBar({ onOpenMobile }: TopBarProps) {
         <Menu size={17} />
       </button>
 
-      <h1 className="min-w-0 truncate text-[14px] font-semibold tracking-tight text-ink">{pageTitle(location.pathname)}</h1>
+      {location.pathname.startsWith('/projects') ? (
+        <ProjectSwitcher />
+      ) : (
+        <h1 className="min-w-0 truncate text-[14px] font-semibold tracking-tight text-ink">{pageTitle(location.pathname)}</h1>
+      )}
 
       <div className="ml-auto flex shrink-0 items-center gap-2.5">
         <Tooltip label={healthLabel}>
