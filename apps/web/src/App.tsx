@@ -49,7 +49,18 @@ export default function App() {
           {/* An unknown path inside the app returns to the app, not to the
               marketing page — being ejected to a sales pitch is a worse
               answer to a typo than landing on the chat. */}
-          <Route path="*" element={<Navigate to="/app" replace />} />
+          {/*
+            * Unknown URLs land on the CASES, not on the intake chat.
+            *
+            * The chat was the index and the catch-all because it was the only
+            * always-available way to start a case — the dashboard offered one
+            * solely in its empty state. That is fixed above, and the ordering
+            * question is a different one: a returning valuer opens this to
+            * continue work, and a blank prompt every morning makes a working
+            * product read as a demo. A first visit still meets the chat, one
+            * click away and named for what it does.
+            */}
+          <Route path="*" element={<Navigate to="/cases" replace />} />
         </Route>
       </Routes>
     </ToastHost>

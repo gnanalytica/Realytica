@@ -18,9 +18,16 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  // Chat is the front door, so it is the index route and the first item.
-  { to: '/app', label: 'Chat', icon: MessageSquare, end: true },
+  /*
+   * Your cases first, and the intake named for its job.
+   *
+   * "Chat" named the MECHANISM, and sat two rows from a copilot inside every
+   * case that is also a chat and does something entirely different — answering
+   * about one file, with citations. Two nav-level things called chat is how a
+   * person ends up asking which one they are supposed to use.
+   */
   { to: '/cases', label: 'Your cases', icon: LayoutDashboard, end: false },
+  { to: '/app', label: 'Start a case', icon: MessageSquare, end: true },
   { to: '/compare', label: 'Compare', icon: GitCompare, end: false },
   { to: '/observability', label: 'AI activity', icon: Gauge, end: false },
   { to: '/prompts', label: 'AI instructions', icon: ScrollText, end: false },
