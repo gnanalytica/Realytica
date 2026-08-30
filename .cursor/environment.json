@@ -1,0 +1,15 @@
+{
+  "name": "Realytica",
+  "install": "corepack enable && pnpm install --frozen-lockfile",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "pnpm dev",
+      "description": "Runs the web UI (Vite, http://localhost:5173) and the API (Express, http://localhost:5174) together. The Vite dev server proxies /api to the API."
+    }
+  ],
+  "ports": [
+    { "name": "web", "port": 5173 },
+    { "name": "api", "port": 5174 }
+  ]
+}
