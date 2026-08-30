@@ -237,59 +237,8 @@ export default function Cockpit() {
     [caseData],
   );
 
-  if (loading && !caseData) {
-    return (
-      <div className="p-6">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="mt-4 h-96 w-full" />
-      </div>
-    );
-  }
-
-  if (error || !caseData) {
-    return (
-      <div className="mx-auto max-w-lg px-6 py-16">
-        <Callout tone="critical" title="Could not open this case">
-          {error ?? 'This case does not exist, or may have been deleted.'}
-        </Callout>
-        <Link to="/cases" className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-brand hover:underline">
-          <ArrowLeft size={14} /> Back to your cases
-        </Link>
-      </div>
-    );
-  }
-
-  const canAnswer = agentAvailable(capability, 'analyst_copilot');
-  const openDocument = openDocumentId ? caseData.documents.find(d => d.id === openDocumentId) ?? null : null;
-  const citedPage = searchParams.get('page');
-  const spec = LAYOUTS[layout];
-
-  /*
-   * Below `lg` the cockpit is not three columns; it is one.
-   *
-   * The desktop shape is a 180px rail plus a chat column with a 320px floor
-   * plus whatever is left — about 500px of unshrinkable content before the
-   * work surface gets a pixel. On a 375px phone that does not degrade, it
-   * clips: `<main>` is `overflow-x-hidden`, so the right pane is simply not
-   * reachable. Two columns of 187px would be no better; squeezing both
-   * produces two unusable halves, which is the reasoning already written down
-   * in NodeInspector for the same problem.
-   *
-   * So the rail becomes an off-canvas drawer, and chat and work become two
-   * tabs over one full-width column. This is a JS branch rather than Tailwind
-   * classes because the chat width is an inline `style` — dragged and
-   * persisted — and no CSS breakpoint can override an inline style.
-   */
   const desktop = useMediaQuery(DESKTOP_QUERY);
 
-  /** What the work tab is currently showing, so its label can say so. */
-  /*
-   * The graph, so a bracketed id in an answer can render as its label.
-   *
-   * Built from the case the client already holds — the same pure projection
-   * the explorer draws — so this costs a memo rather than a round trip, and
-   * it cannot disagree with what the explorer shows when the chip is clicked.
-   */
   const graphNodes = useMemo(
     () => (caseData ? buildDdGraph(caseData, caseData.updatedAt).nodes : []),
     [caseData],
@@ -316,14 +265,6 @@ export default function Cockpit() {
     return out.slice(0, 3);
   }, [caseData, domain]);
 
-  const paneLabel =
-    paneMode === 'procedures' ? 'Procedures'
-    : paneMode === 'review' ? 'Review'
-    : paneMode === 'requests' ? 'Requests'
-    : paneMode === 'graph' ? 'Graph'
-    : openDocument ? 'Document'
-    : paneMode === 'screening' && screeningGroup ? findGroup(screeningGroup)?.label ?? 'Work'
-    : DD_DOMAIN_PROFILES[domain].label;
   const [railOpen, setRailOpen] = useState(false);
 
   // Choosing a destination is the end of using the rail, so it closes itself
@@ -357,6 +298,73 @@ export default function Cockpit() {
     if (desktop) setRailOpen(false);
   }, [desktop]);
 
+  if (loading && !caseData) {
+    return (
+      <div className="p-6">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="mt-4 h-96 w-full" />
+      </div>
+    );
+  }
+
+  if (error || !caseData) {
+    return (
+      <div className="mx-auto max-w-lg px-6 py-16">
+        <Callout tone="critical" title="Could not open this case">
+          {error ?? 'This case does not exist, or may have been deleted.'}
+        </Callout>
+        <Link to="/cases" className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-brand hover:underline">
+          <ArrowLeft size={14} /> Back to your cases
+        </Link>
+      </div>
+    );
+  }
+
+  const canAnswer = agentAvailable(capability, 'analyst_copilot');
+  const openDocument = openDocumentId ? caseData.documents.find(d => d.id === openDocumentId) ?? null : null;
+  const citedPage = searchParams.get('page');
+  const spec = LAYOUTS[layout];
+
+  /**
+   * What the work tab is currently showing, so its label can say so.
+   *
+   * Not a hook, and below the guards on purpose: it reads `openDocument`,
+   * which is resolved from a case that may not exist yet.
+   */
+  const paneLabel =
+    paneMode === 'procedures' ? 'Procedures'
+    : paneMode === 'review' ? 'Review'
+    : paneMode === 'requests' ? 'Requests'
+    : paneMode === 'graph' ? 'Graph'
+    : openDocument ? 'Document'
+    : paneMode === 'screening' && screeningGroup ? findGroup(screeningGroup)?.label ?? 'Work'
+    : DD_DOMAIN_PROFILES[domain].label;
+
+
+  /*
+   * Below `lg` the cockpit is not three columns; it is one.
+   *
+   * The desktop shape is a 180px rail plus a chat column with a 320px floor
+   * plus whatever is left — about 500px of unshrinkable content before the
+   * work surface gets a pixel. On a 375px phone that does not degrade, it
+   * clips: `<main>` is `overflow-x-hidden`, so the right pane is simply not
+   * reachable. Two columns of 187px would be no better; squeezing both
+   * produces two unusable halves, which is the reasoning already written down
+   * in NodeInspector for the same problem.
+   *
+   * So the rail becomes an off-canvas drawer, and chat and work become two
+   * tabs over one full-width column. This is a JS branch rather than Tailwind
+   * classes because the chat width is an inline `style` — dragged and
+   * persisted — and no CSS breakpoint can override an inline style.
+   */
+  /** What the work tab is currently showing, so its label can say so. */
+  /*
+   * The graph, so a bracketed id in an answer can render as its label.
+   *
+   * Built from the case the client already holds — the same pure projection
+   * the explorer draws — so this costs a memo rather than a round trip, and
+   * it cannot disagree with what the explorer shows when the chip is clicked.
+   */
   return (
     <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col">
       {/* case bar */}
