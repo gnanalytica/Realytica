@@ -27,14 +27,26 @@ export type Inline =
   /** `[ev:xyz]` — an evidence id the answer cited in the flow of a sentence. */
   | { kind: 'evidence'; id: string }
   /** `[dd-risk-…]` — a graph node id, rendered with its real label. */
-  | { kind: 'node'; id: string };
+  | { kind: 'node'; id: string }
+  /**
+   * A bracketed token that is plainly one of our ids and resolves to nothing.
+   *
+   * Observed in real answers: `[dd-check-…bda_bmrda_acquisition]`, where the
+   * model abbreviated the id it was quoting. Left as prose it prints an
+   * ellipsis and an underscore-cased key in the middle of a sentence, which
+   * reads as a rendering fault. It is not dropped either — a reference the
+   * answer made and we cannot follow is a fact about the answer, and hiding
+   * it would present an unsupported claim as a clean one.
+   */
+  | { kind: 'dangling'; id: string };
 
 export type Block =
   | { kind: 'paragraph'; spans: Inline[] }
   | { kind: 'heading'; spans: Inline[] }
   | { kind: 'bullets'; items: Inline[][] }
   | { kind: 'numbers'; items: Inline[][] }
-  | { kind: 'table'; head: Inline[][]; rows: Inline[][][] };
+  | { kind: 'table'; head: Inline[][]; rows: Inline[][][] }
+  | { kind: 'rule' };
 
 const EVIDENCE_TOKEN = /\[ev:([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/;
 const NODE_TOKEN = /\[([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/;
@@ -69,8 +81,12 @@ export function parseInline(text: string, isNode: (id: string) => boolean): Inli
     // node — one citation rendering as two chips was a real bug in the
     // server-side extractor and the same trap exists here.
     const node = NODE_TOKEN.exec(rest);
-    if (node && !node[0].startsWith('[ev:') && isNode(node[1])) {
-      candidates.push({ at: node.index, len: node[0].length, span: { kind: 'node', id: node[1] } });
+    if (node && !node[0].startsWith('[ev:')) {
+      if (isNode(node[1])) {
+        candidates.push({ at: node.index, len: node[0].length, span: { kind: 'node', id: node[1] } });
+      } else if (looksLikeOurId(node[1])) {
+        candidates.push({ at: node.index, len: node[0].length, span: { kind: 'dangling', id: node[1] } });
+      }
     }
 
     if (candidates.length === 0) break;
@@ -83,6 +99,18 @@ export function parseInline(text: string, isNode: (id: string) => boolean): Inli
 
   if (rest.length > 0) out.push({ kind: 'text', text: rest });
   return out;
+}
+
+/**
+ * Whether a bracketed token is one of OUR ids rather than prose in brackets.
+ *
+ * Kept to the prefixes the projection actually emits. A model writing "[see
+ * above]" or "[sic]" must not produce a broken-reference chip, and the price
+ * of being wrong in that direction is much higher than leaving a genuine
+ * dangling id as text.
+ */
+function looksLikeOurId(token: string): boolean {
+  return /^(dd|ev)-/.test(token);
 }
 
 function splitRow(line: string): string[] {
@@ -149,6 +177,21 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean): Bloc
         i = j - 1;
         continue;
       }
+    }
+
+    /*
+     * A horizontal rule, which the models here write constantly.
+     *
+     * Observed in production output: a long answer separates its sections
+     * with a bare `---` line, and without this it printed as two literal
+     * dashes in the middle of the prose. Checked BEFORE the bullet rule,
+     * because `---` also matches `^[-*•]\s+` in spirit and a reader would
+     * get an empty bullet instead of a divider.
+     */
+    if (/^([-*_])\1{2,}$/.test(trimmed.replace(/\s+/g, ''))) {
+      flush();
+      blocks.push({ kind: 'rule' });
+      continue;
     }
 
     const bullet = /^[-*•]\s+(.*)$/.exec(trimmed);

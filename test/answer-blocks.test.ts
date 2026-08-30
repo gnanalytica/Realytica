@@ -46,10 +46,30 @@ describe('inline spans', () => {
     assert.equal(text(spans), 'As noted [see above] the chain breaks.');
   });
 
-  it('makes a chip only for an id the graph actually holds', () => {
+  it('makes a real chip only for an id the graph actually holds', () => {
     const spans = parseInline('Compare [dd-risk-1] and [dd-risk-2].', nodes('dd-risk-1'));
     assert.equal(spans.filter(s => s.kind === 'node').length, 1);
-    assert.ok(text(spans).includes('[dd-risk-2]'));
+    assert.equal(spans.filter(s => s.kind === 'dangling').length, 1);
+  });
+
+  it('marks one of our ids that resolves to nothing, rather than printing it', () => {
+    // Observed in a real answer: `[dd-check-…bda_bmrda_acquisition]`, where
+    // the model abbreviated the id. As prose it printed an ellipsis and an
+    // underscore-cased key mid-sentence and read as a rendering fault. It is
+    // marked rather than dropped — a reference we cannot follow is a fact
+    // about the answer, and hiding it would make an unsupported claim look
+    // clean.
+    const spans = parseInline('See [dd-check-x_y] for the position.', NO_NODES);
+    assert.equal(spans.filter(s => s.kind === 'dangling').length, 1);
+  });
+
+  it('leaves ordinary bracketed prose alone even when it resolves to nothing', () => {
+    // The cost of being wrong here is much higher than a stray dangling id:
+    // "[see above]" must never render as a broken-reference marker.
+    for (const phrase of ['[see above]', '[sic]', '[emphasis added]']) {
+      const spans = parseInline(`Note ${phrase} carefully.`, NO_NODES);
+      assert.equal(spans.filter(s => s.kind === 'dangling').length, 0, phrase);
+    }
   });
 
   it('reads bold and code', () => {
@@ -131,6 +151,18 @@ describe('blocks', () => {
   it('does not read a hash inside a sentence as a heading', () => {
     const blocks = parseAnswer('The plot is Site No. #118 in the layout.', NO_NODES);
     assert.deepEqual(kinds(blocks), ['paragraph']);
+  });
+
+  it('reads a bare --- as a divider, not as two dashes of prose', () => {
+    // Observed in production: long answers separate their sections this way,
+    // and it printed literally in the middle of the paragraph.
+    const blocks = parseAnswer('First point.\n\n---\n\nSecond point.', NO_NODES);
+    assert.deepEqual(kinds(blocks), ['paragraph', 'rule', 'paragraph']);
+  });
+
+  it('does not read a dashed list item as a divider', () => {
+    const blocks = parseAnswer('- one\n- two', NO_NODES);
+    assert.deepEqual(kinds(blocks), ['bullets']);
   });
 
   it('returns nothing for an empty answer rather than an empty paragraph', () => {

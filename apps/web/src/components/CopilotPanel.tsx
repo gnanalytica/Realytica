@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
-import { ArrowUp, CheckCircle2, MessageCircle, SearchX, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowUp, CheckCircle2, Info, MessageCircle, SearchX, Sparkles, Trash2 } from 'lucide-react';
 import type { AgentStep, CopilotTurn, DdNode, EvidenceItem, PropertyCase, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
@@ -44,6 +44,7 @@ function TurnBubble({
   const inlineEvidence = new Set(Array.from(turn.text.matchAll(/\[ev:([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/g), m => m[1]));
   const uncited = turn.citedEvidenceIds.filter(id => !inlineEvidence.has(id));
   const uncitedNodes = (turn.citedNodeIds ?? []).filter(id => !turn.text.includes(`[${id}]`));
+  const consulted = Array.from(new Set((turn.toolCalls ?? []).map(t => t.summary.trim()).filter(Boolean)));
   const nodeLabel = (id: string): string => {
     const found = (nodes ?? []).find(n => n.id === id);
     if (found) return found.label.length > 40 ? `${found.label.slice(0, 40)}…` : found.label;
@@ -55,8 +56,13 @@ function TurnBubble({
   const flagged = findFlaggedCriticFinding(verification, 'copilot_answer', turn.id);
   if (turn.role === 'user') {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-xl rounded-tr-sm bg-brand px-3 py-2 text-[13px] leading-relaxed text-[var(--brand-ink)]">
+      <div className="flex justify-end pl-8">
+        {/*
+          `whitespace-pre-wrap`, which the assistant side has always had and
+          this side never did — so a pasted multi-line question collapsed into
+          one run-on line and stopped resembling what the person typed.
+        */}
+        <div className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-tr-sm bg-brand px-3 py-2 text-[13px] leading-relaxed text-[var(--brand-ink)]">
           {turn.text}
         </div>
       </div>
@@ -68,8 +74,14 @@ function TurnBubble({
   // error styling other panels use for a broken state.
   if (turn.refusedForLackOfEvidence) {
     return (
-      <div className="flex justify-start">
-        <div className="max-w-[85%] rounded-xl rounded-tl-sm bg-brand-soft px-3 py-2.5 ring-1 ring-inset ring-brand/25">
+      <div className="flex gap-2.5">
+        <span
+          aria-hidden="true"
+          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand"
+        >
+          <SearchX size={12} />
+        </span>
+        <div className="min-w-0 flex-1 rounded-xl rounded-tl-sm bg-brand-soft px-3 py-2.5 ring-1 ring-inset ring-brand/25">
           <div className="mb-1 flex items-center gap-1.5 text-mini font-semibold text-brand">
             <SearchX size={12} /> No answer — the evidence doesn&rsquo;t support one
           </div>
@@ -84,8 +96,23 @@ function TurnBubble({
   }
 
   return (
-    <div className="flex justify-start">
-      <div className="max-w-[85%] rounded-xl rounded-tl-sm bg-sunken px-3 py-2.5 ring-1 ring-inset ring-[var(--ring)]">
+    <div className="flex gap-2.5">
+      {/*
+        A face for the other side of the conversation.
+        
+        Every assistant turn rendered as an unlabelled slab the width of the
+        column, so a long answer read as a document pane rather than as
+        something said to you — and two consecutive answers ran together with
+        nothing between them. The mark is small and constant; it is the
+        cheapest thing that makes a column of text read as a dialogue.
+      */}
+      <span
+        aria-hidden="true"
+        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand"
+      >
+        <Sparkles size={12} />
+      </span>
+      <div className="min-w-0 flex-1 rounded-xl rounded-tl-sm bg-sunken px-3 py-2.5 ring-1 ring-inset ring-[var(--ring)]">
         <AnswerBody
           text={turn.text}
           evidence={evidence}
@@ -93,11 +120,19 @@ function TurnBubble({
           onOpenEvidence={onOpenEvidence}
           onOpenNode={onOpenNode}
         />
-        {turn.toolCalls && turn.toolCalls.length > 0 ? (
+        {/*
+          Deduped. The agent loops up to eight times and routinely consults
+          the same tool twice — the observed answer showed "Looking up get
+          evidence by id" side by side with itself, which reads as a
+          rendering fault rather than as work. What a reader wants from this
+          row is WHICH sources were consulted, not how many round trips it
+          took to consult them.
+        */}
+        {consulted.length > 0 ? (
           <div className="mt-1.5 flex flex-wrap gap-1">
-            {turn.toolCalls.map((t, i) => (
-              <Badge key={i} tone="neutral">
-                {t.summary}
+            {consulted.map(label => (
+              <Badge key={label} tone="neutral">
+                {label}
               </Badge>
             ))}
           </div>
@@ -185,8 +220,14 @@ function TypingIndicator({ steps }: { steps: AgentStep[] }) {
   const done = steps.filter(s => s.kind === 'tool_result').length;
 
   return (
-    <div className="flex justify-start">
-      <div className="flex max-w-[85%] flex-col gap-1.5 rounded-xl rounded-tl-sm bg-sunken px-3 py-2.5 ring-1 ring-inset ring-[var(--ring)]">
+    <div className="flex gap-2.5">
+      <span
+        aria-hidden="true"
+        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand"
+      >
+        <Sparkles size={12} className="animate-pulse" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-xl rounded-tl-sm bg-sunken px-3 py-2.5 ring-1 ring-inset ring-[var(--ring)]">
         <div className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-muted [animation-delay:0ms]" />
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-muted [animation-delay:150ms]" />
@@ -362,12 +403,15 @@ export function CopilotPanel({
 
   return (
     <div className={cn('flex flex-col gap-3', fill && 'h-full min-h-0')}>
-      {disabled ? (
-        <Callout tone="neutral" title="Copilot needs Anthropic credentials" collapsible>
-          {disabledReason ?? 'Configure agent credentials to ask questions about this case.'} The rest of Realytica works
-          fully without it.
-        </Callout>
-      ) : null}
+      {/*
+        The unavailable notice moved DOWN, to the composer.
+        
+        Chat is the centre of the cockpit, so a banner above the conversation
+        made the most prominent element on every case page an apology for
+        something the reader cannot fix and did not ask about. It belongs
+        beside the box you would type in — which is where you find out, and
+        the only place the answer changes what you do next.
+      */}
 
       <div
         ref={scrollRef}
@@ -383,17 +427,46 @@ export function CopilotPanel({
         {showEmptyState && disabled && fallback ? (
           fallback
         ) : showEmptyState ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 py-6 text-center">
-            <MessageCircle size={22} className="text-ink-muted" aria-hidden="true" />
-            <p className="text-[13px] font-medium text-ink">Ask the copilot about this case</p>
-            <p className="max-w-xs text-xs leading-relaxed text-ink-secondary">
-              It answers from the case&rsquo;s own evidence, and says so plainly when the evidence doesn&rsquo;t support an
-              answer.
-            </p>
+          /*
+            An opening, not a placeholder.
+            
+            The suggestions were chips in a centred cluster, which reads as
+            decoration beside a caption. Stacked as full-width rows they read
+            as the first thing to do, and each one is drawn from what the case
+            actually holds — so this is the shortest description of the file
+            anybody gets, as well as the way in.
+          */
+          <div className="flex flex-1 flex-col justify-center gap-3 py-6">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand">
+                <Sparkles size={14} />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-ink">Ask about this case</p>
+                <p className="text-xs leading-relaxed text-ink-secondary">
+                  Answers come from its own evidence, with the source attached.
+                </p>
+              </div>
+            </div>
             {suggestions.length > 0 ? (
-              <div className="flex flex-wrap justify-center gap-1.5">
+              <div className="flex flex-col gap-1.5">
                 {suggestions.map((s) => (
-                  <SuggestionChip key={s} text={s} disabled={disabled} onClick={() => void submit(s)} />
+                  <button
+                    key={s}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => void submit(s)}
+                    className={cn(
+                      'group flex w-full items-center gap-2 rounded-lg bg-surface px-3 py-2 text-left text-[12.5px] text-ink-secondary',
+                      'ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick',
+                      'hover:bg-brand-soft hover:text-brand hover:ring-brand/30 disabled:cursor-not-allowed disabled:opacity-50',
+                      'coarse:min-h-11',
+                    )}
+                  >
+                    <MessageCircle size={13} className="shrink-0 text-ink-muted group-hover:text-brand" />
+                    <span className="min-w-0 flex-1">{s}</span>
+                    <ArrowUp size={12} className="shrink-0 rotate-45 text-ink-faint group-hover:text-brand" />
+                  </button>
                 ))}
               </div>
             ) : null}
@@ -401,9 +474,15 @@ export function CopilotPanel({
         ) : (
           <>
             {conversation.map((turn) => (
+              /*
+                `animate-rise-in` on each turn, which the design system
+                already defines and reduced-motion already neutralises. A
+                conversation where answers appear instantaneously reads as a
+                page repainting; a small rise reads as something arriving.
+              */
+              <div key={turn.id} className="animate-rise-in">
               <TurnBubble
                 verification={verification}
-                key={turn.id}
                 turn={turn}
                 evidence={evidence}
                 nodes={nodes}
@@ -413,6 +492,7 @@ export function CopilotPanel({
                 onOpenEvidence={onOpenEvidence}
                 onOpenDocument={onOpenDocument}
               />
+              </div>
             ))}
             {busy ? <TypingIndicator steps={steps ?? []} /> : null}
           </>
@@ -424,6 +504,15 @@ export function CopilotPanel({
           {suggestions.map((s) => (
             <SuggestionChip key={s} text={s} disabled={disabled || busy} onClick={() => void submit(s)} />
           ))}
+        </div>
+      ) : null}
+
+      {disabled ? (
+        <div className="flex items-start gap-2 rounded-lg bg-sunken px-2.5 py-2 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+          <Info size={13} className="mt-px shrink-0 text-ink-muted" />
+          <span>
+            {disabledReason ?? 'No model is configured for this deployment.'} Everything else on this case works.
+          </span>
         </div>
       ) : null}
 
