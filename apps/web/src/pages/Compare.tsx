@@ -30,6 +30,8 @@ import {
   cn,
   useToast,
 } from '../components/ui/kit';
+import { PageHero } from '../components/layout/PageHero';
+import { ParcelPlan } from '../components/visuals';
 import ValueRangeChart from '../components/charts/ValueRangeChart';
 
 const MIN_COMPARE = 2;
@@ -154,14 +156,12 @@ function PickerScreen({ preselected }: { preselected: string[] }) {
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 pb-16">
-      <div>
-        <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-ink">
-          <GitCompare size={18} className="text-ink-muted" /> Compare properties
-        </h1>
-        <p className="mt-1 text-[13px] text-ink-secondary">
-          Choose between 2 and {MAX_COMPARE} cases to compare their value, confidence, risk and completeness side by side.
-        </p>
-      </div>
+      <PageHero
+        eyebrow="Side by side"
+        title="Compare properties"
+        lead={`Choose between 2 and ${MAX_COMPARE} cases to compare their value, confidence, risk and completeness side by side.`}
+        art={<ParcelPlan seed="realytica-compare" className="h-[132px] w-full" hue="cyan" caption={false} />}
+      />
 
       <Card>
         <CardHeader
@@ -285,15 +285,17 @@ function CompareScreen({ caseIds }: { caseIds: string[] }) {
 
   return (
     <div className="space-y-4 pb-16">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-ink">
-            <GitCompare size={18} className="text-ink-muted" /> Compare properties
-          </h1>
-          <p className="mt-1 text-[13px] text-ink-secondary">
-            {result ? `${result.cases.length} cases · generated ${new Date(result.generatedAt).toLocaleString()}` : 'Loading comparison…'}
-          </p>
-        </div>
+      <PageHero
+        eyebrow="Side by side"
+        title="Compare properties"
+        lead={
+          result
+            ? `${result.cases.length} cases, generated ${new Date(result.generatedAt).toLocaleString()}. Every row is the same figure computed the same way, so a difference in the table is a difference in the property rather than in how it was measured.`
+            : 'Loading comparison…'
+        }
+        art={<ParcelPlan seed="realytica-compare" className="h-[132px] w-full" hue="cyan" caption={false} />}
+      />
+      <div className="flex flex-wrap items-start justify-end gap-3">
         <div className="flex items-center gap-2">
           <Button
             variant="secondary"

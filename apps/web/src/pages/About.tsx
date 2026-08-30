@@ -23,6 +23,7 @@ import {
 } from '@realytica/shared';
 import { api } from '../lib/api';
 import { Button, Callout, Card, CardBody, CardHeader, Modal, SectionTitle, cn, useToast } from '../components/ui/kit';
+import { AmbientField, BrandMark, RampRule } from '../components/visuals';
 
 /** Static product-page copy quoted directly from docs/SOURCE_SPEC.md — not part of the shared package. */
 const VISION = 'Make property decisions clearer, faster and evidence-driven.';
@@ -50,11 +51,27 @@ export default function About() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-8 pb-16">
-      <section className="space-y-2 pt-2 text-center">
-        <p className="text-mini font-semibold uppercase tracking-[0.14em] text-brand">Realytica</p>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{VISION}</h1>
-        <p className="text-[13px] text-ink-secondary">{POSITIONING}</p>
-        <p className="text-xs text-ink-muted">Initial release: Realytica Property Screen · Initial markets: India and Netherlands</p>
+      {/*
+        * The one page in the app that is allowed to be a statement.
+        *
+        * Everywhere else the ambient field is dialled back so it never
+        * competes with a figure. There are no figures here — this is the
+        * product saying what it is for — so it gets the field at full strength
+        * and the mark at display size, which is also what makes arriving here
+        * from the front door feel continuous rather than like leaving.
+        */}
+      <section className="relative isolate -mx-4 overflow-hidden rounded-2xl px-6 py-12 text-center sm:-mx-6">
+        <AmbientField variant="mesh" className="-z-10" />
+        <RampRule className="absolute inset-x-0 top-0" />
+        <BrandMark size={40} className="mx-auto animate-breathe" />
+        <p className="mt-4 font-mono text-mini uppercase tracking-[0.14em] text-brand">Realytica</p>
+        <h1 className="mx-auto mt-2 max-w-[24ch] font-display text-[28px] font-normal leading-tight tracking-tight text-ink sm:text-[36px]">
+          {VISION}
+        </h1>
+        <p className="mx-auto mt-3 max-w-[60ch] text-[14px] leading-relaxed text-ink-secondary">{POSITIONING}</p>
+        <p className="mt-3 font-mono text-mini text-ink-muted">
+          Initial release: Realytica Property Screen · Initial markets: India and Netherlands
+        </p>
       </section>
 
       <Card as="article" className="border-l-4 border-l-brand p-5">

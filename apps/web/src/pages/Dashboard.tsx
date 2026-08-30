@@ -8,6 +8,8 @@ import { useAsync } from '../lib/useAsync';
 import { CASE_STATUS_LABEL, PROPERTY_TYPE_LABEL, money } from '../lib/format';
 import { Button, Callout, Card, CardBody, CardHeader, EmptyState, Input, Select, Skeleton, StatTile, useToast } from '../components/ui/kit';
 import CaseCard from '../components/CaseCard';
+import { PageHero } from '../components/layout/PageHero';
+import { ParcelPlan } from '../components/visuals';
 
 type SortKey = 'updated' | 'confidence' | 'value';
 
@@ -166,35 +168,38 @@ export default function Dashboard() {
 
   if (list.length === 0) {
     return (
-      <Card>
+      <>
+        <PageHero
+          eyebrow="Portfolio"
+          title="Your cases"
+          lead="Every property you are looking at, with its verdict, its indicative range and how much of the paperwork has actually arrived."
+          actions={<StartCase />}
+          art={<ParcelPlan seed="realytica-empty-portfolio" className="h-[132px] w-full" caption={false} />}
+        />
+        <Card>
         <EmptyState
           icon={<FolderSearch size={32} />}
           title="No property cases yet"
           description="A property case bundles everything about one property — its identification, documents, and an evidence-based screen of whether it's worth pursuing."
           action={
-            <div className="flex flex-col items-center gap-2">
-              <StartCase />
-              <Button variant="ghost" size="sm" icon={<Sparkles size={13} />} loading={seeding} onClick={() => void handleSeedDemo()}>
-                Load demo cases
-              </Button>
-            </div>
+            <Button variant="ghost" size="sm" icon={<Sparkles size={13} />} loading={seeding} onClick={() => void handleSeedDemo()}>
+              Load demo cases
+            </Button>
           }
         />
-      </Card>
+        </Card>
+      </>
     );
   }
 
   return (
     <div className="space-y-5 pb-20">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-[15px] font-semibold text-ink">Your cases</h1>
-          <p className="text-mini text-ink-secondary">
-            {stats.total} on file · {stats.screened} screened
-          </p>
-        </div>
-        <StartCase size="sm" />
-      </div>
+      <PageHero
+        eyebrow="Portfolio"
+        title="Your cases"
+        lead={`${stats.total} on file · ${stats.screened} screened. Each card carries its own plot drawing, so the grid can be scanned by shape before it is read.`}
+        actions={<StartCase size="sm" />}
+      />
 
       {/*
         * Toned tiles, not plain cards.

@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes, CSSProperties, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 import { createContext, forwardRef, useContext, useEffect, useId, useRef, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, Info, Loader2, ShieldAlert, X, XCircle } from 'lucide-react';
 
@@ -313,6 +313,7 @@ export function Tile({
   rail,
   interactive,
   className,
+  style,
   children,
   as: As = 'div',
 }: {
@@ -321,11 +322,14 @@ export function Tile({
   rail?: boolean;
   interactive?: boolean;
   className?: string;
+  /** For a stagger — `animationDelay` — or a caller-supplied custom property. */
+  style?: CSSProperties;
   children: ReactNode;
   as?: 'div' | 'section' | 'article' | 'li';
 }) {
   return (
     <As
+      style={style}
       className={cn(
         'relative isolate overflow-hidden rounded-xl bg-tile shadow-tile ring-1 ring-[var(--ring)] print-block',
         interactive &&

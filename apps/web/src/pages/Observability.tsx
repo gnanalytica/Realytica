@@ -57,6 +57,7 @@ import {
   cn,
   type Tone,
 } from '../components/ui/kit';
+import { PageHero } from '../components/layout/PageHero';
 
 /**
  * Where every model call went, what it cost, and what it could not do.
@@ -417,12 +418,11 @@ export default function Observability() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5">
-      <div>
-        <h1 className="text-lg font-semibold text-ink">AI activity</h1>
-        <p className="mt-0.5 text-sm text-ink-secondary">
-          Where every model call went, what it cost, and what it could not do.
-        </p>
-      </div>
+      <PageHero
+        eyebrow="Machinery"
+        title="AI activity"
+        lead="Where every model call went, what it cost, and what it could not do — including the calls that came back without grounding, which are the ones worth reading."
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Calls" value={String(summary?.callCount ?? 0)} hint="in this window" tone="neutral" />

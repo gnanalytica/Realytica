@@ -6,6 +6,7 @@ import { BoundaryCard } from '../../../components/BoundaryCard';
 import { api } from '../../../lib/api';
 import { useAsync } from '../../../lib/useAsync';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Skeleton } from '../../../components/ui/kit';
+import { TerrainMap } from '../../../components/visuals';
 import { SplitProse } from '../../../components/ui/prose';
 
 /**
@@ -166,6 +167,20 @@ export default function LocationTab({ caseData, refresh }: TabProps) {
     return (
       <div className="flex flex-col gap-4">
         {outline}
+        {/*
+          * A drawn sheet where the real one is missing.
+          *
+          * It is generated from the case id and is explicitly not this place —
+          * so it is drawn without a pin, without a precision ring and without
+          * a name, which is the whole difference between scenery and a claim.
+          * What it does is stop this state from being a grey box with an
+          * apology in it, and it stays in the register of the tab it is
+          * standing in for.
+          */}
+        <div className="relative overflow-hidden rounded-xl ring-1 ring-[var(--ring)]">
+          <TerrainMap seed={caseData.id} bare className="h-32 w-full opacity-70" />
+          <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-t from-surface via-surface/40 to-transparent" />
+        </div>
         <EmptyState
           icon={<MapPin size={28} />}
           title={unconfigured ? 'No map for this deployment' : 'This address could not be placed on a map'}

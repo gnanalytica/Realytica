@@ -79,3 +79,36 @@ export function useReveal<T extends HTMLElement = HTMLDivElement>(options: { del
     },
   };
 }
+
+/**
+ * Whether the viewer has asked for less motion.
+ *
+ * The global CSS guard already collapses every animation to 1ms, which is the
+ * right default and covers most of the app. It cannot cover the cases where
+ * motion is not a decoration but the mechanism — a sequence that advances
+ * itself on a timer, a value that counts up. Collapsing those to 1ms leaves a
+ * reel that flicks through five scenes in half a second, which is worse than
+ * either playing it or not.
+ *
+ * So anything driven by JavaScript rather than by CSS asks here, and offers
+ * the same content as something you step through yourself.
+ *
+ * Subscribed rather than read once: the preference can be changed while the
+ * page is open, and a reel that keeps playing after somebody has just asked
+ * the operating system to stop animations is precisely the thing they were
+ * trying to stop.
+ */
+export function useReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setReduced(query.matches);
+    const onChange = (e: MediaQueryListEvent) => setReduced(e.matches);
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
+
+  return reduced;
+}

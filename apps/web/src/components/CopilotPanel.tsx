@@ -62,7 +62,12 @@ function TurnBubble({
           this side never did — so a pasted multi-line question collapsed into
           one run-on line and stopped resembling what the person typed.
         */}
-        <div className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-tr-sm bg-brand px-3 py-2 text-[13px] leading-relaxed text-[var(--brand-ink)]">
+        {/* The identity ramp on your own turns, matching the intake chat, so
+            a transcript reads as a conversation with something rather than a
+            log of alternating blocks. White is set explicitly: the fill is the
+            same gradient in both themes, so a token that flips with the theme
+            would be unreadable in one of them. */}
+        <div className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-tr-sm bg-ramp px-3 py-2 text-[13px] leading-relaxed text-white shadow-glow">
           {turn.text}
         </div>
       </div>
