@@ -4,8 +4,6 @@ import { MessageSquare, Paperclip, Send, Sparkles } from 'lucide-react';
 import type { IntakeGap } from '@realytica/shared';
 import { api, type IntakeEnvelope } from '../lib/api';
 import { Badge, Button, Card, CardBody, Input, Spinner, cn, useToast } from '../components/ui/kit';
-import { PageHero } from '../components/layout/PageHero';
-import { ParcelPlan } from '../components/visuals';
 import { DraftPanel, displayValue } from '../components/intake/DraftPanel';
 import { CaseRail } from '../components/intake/CaseRail';
 import { useAsync } from '../lib/useAsync';
@@ -153,21 +151,15 @@ export default function Intake() {
   const gap = readout.nextQuestion;
 
   return (
-    <div className="p-6">
-      <PageHero
-        eyebrow="New case"
-        title="Describe the property in your own words."
-        lead="Three answers is enough for a real indicative range and the critical-document list. Everything after that sharpens the result rather than gating it, and nothing is created until you press the button."
-        actions={
+    <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="flex min-h-[70vh] flex-col">
+        <div className="mb-4 flex items-baseline gap-2">
+          <h1 className="text-lg font-semibold tracking-tight text-ink">Start a case</h1>
           <Badge tone={modelReading ? 'brand' : 'neutral'}>
             {modelReading ? 'Reading what you write' : answeredAnything ? 'Guided — no model configured' : 'Guided'}
           </Badge>
-        }
-        art={<ParcelPlan seed="realytica-intake" className="h-[132px] w-full" hue="violet" caption={false} />}
-      />
+        </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="flex min-h-[62vh] flex-col">
         <div className="flex-1 space-y-4 overflow-y-auto pr-1" data-testid="transcript">
           {turns.map((turn) => (
             <div
@@ -178,14 +170,7 @@ export default function Intake() {
               <div
                 className={cn(
                   'max-w-[42rem] animate-rise-in rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
-                  // The identity ramp on your own turns, so a transcript reads
-                  // as a conversation with something rather than a log of
-                  // alternating grey boxes. White text is set explicitly: the
-                  // fill is the same gradient in both themes, so a token that
-                  // flips with the theme would be unreadable in one of them.
-                  turn.role === 'user'
-                    ? 'bg-ramp text-white shadow-glow'
-                    : 'bg-surface text-ink ring-1 ring-inset ring-[var(--ring)]',
+                  turn.role === 'user' ? 'bg-brand text-ink-inverse' : 'bg-surface text-ink ring-1 ring-inset ring-[var(--ring)]',
                 )}
               >
                 <p className="whitespace-pre-wrap">{turn.text}</p>
@@ -320,7 +305,6 @@ export default function Intake() {
         />
         )}
       </aside>
-      </div>
     </div>
   );
 }

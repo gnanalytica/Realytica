@@ -56,8 +56,6 @@ import {
   cn,
   useToast,
 } from '../components/ui/kit';
-import { PageHero } from '../components/layout/PageHero';
-import { ParcelPlan } from '../components/visuals';
 import { UnitToggle } from '../components/UnitToggle';
 import {
   FACING_LABEL,
@@ -724,12 +722,6 @@ export default function NewCase() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHero
-        eyebrow="New case"
-        title="Identify the property"
-        lead="The form asks for what the screen needs to run. If you would rather describe the property in a sentence, the chat does the same job and asks for less."
-        art={<ParcelPlan seed="realytica-new-case" className="h-[132px] w-full" hue="accent" caption={false} />}
-      />
       <Stepper current={step} labels={stepLabels} />
 
       {step === 0 ? (

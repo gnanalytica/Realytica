@@ -3,61 +3,24 @@
 @tailwind utilities;
 
 /*
- * ============================================================================
- * Realytica design tokens — "Indigo & Ember"
- * ============================================================================
- *
- * The previous token layer was a bone-and-grey page with one blue on it. It
- * was defensible on paper — a diligence tool should not shout — but the
- * conclusion it drew from that was to have almost no colour at all, and a
- * product with no colour has no memory. Nobody recognises it, nobody can
- * describe it, and every screen looks like every other screen.
- *
- * This layer keeps the discipline and drops the timidity:
- *
- *   Reserved.  Emerald / amber / orange / red mean good / warning / serious /
- *              critical, and mean nothing else, ever. A finding's colour is
- *              information and may never be borrowed for decoration.
- *
- *   Free.      Indigo, violet, fuchsia and cyan carry no verdict, so they are
- *              free to carry identity — gradients, fields, artwork, chrome,
- *              the brand mark, the ambient washes behind a page.
- *
- * The split is what lets the product be genuinely colourful without a single
- * decorative colour ever competing with a risk badge. Nothing here is chosen
- * because it is safe; everything reserved is chosen because it is spoken for.
- *
- * Light is warm cartridge paper, dark is indigo night — not grey. A dark theme
- * built from neutral greys is the single most common tell of an interface that
- * was themed rather than designed, because it is what you get when you invert
- * lightness and stop.
+ * Realytica design tokens.
+ * Light values live on bare :root; dark values are redefined under both the OS
+ * media query and the [data-theme="dark"] scope so the in-app toggle wins both ways.
+ * Categorical series order is fixed (blue, orange, aqua, yellow, magenta, green,
+ * violet, red) and is never cycled — a 9th series folds into "Other".
  */
-
 :root {
   color-scheme: light;
 
-  /* --- Ground ---------------------------------------------------------- */
-  --page: #f6f4ef;
-  --surface-1: #fdfcfa;
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
   --surface-2: #ffffff;
-  --surface-3: #eeebe3;
-  --hairline: #ded8cb;
+  --surface-3: #f2f1ed;
+  --hairline: #e1e0d9;
 
-  /*
-   * Ink is declared as channels for the same reason every tone is: a bare
-   * `var(--x)` colour cannot take a Tailwind alpha modifier, and the utility
-   * silently emits nothing at all rather than failing. `border-ink/20` and
-   * `bg-ink/25` had been in this codebase from the beginning and had never
-   * drawn a single pixel — a hairline that was simply absent, and a page of
-   * document ruling in the reel that rendered as blank paper.
-   */
-  --ink-rgb: 22 19 31;
-  --ink-secondary-rgb: 75 70 87;
-  --ink-muted-rgb: 131 125 146;
-
-  --text-primary: rgb(var(--ink-rgb));
-  --text-secondary: rgb(var(--ink-secondary-rgb));
-  --text-muted: rgb(var(--ink-muted-rgb));
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
   --text-inverse: #ffffff;
 
   /*
@@ -67,54 +30,37 @@
    * generate no CSS at all. The resolved colour is kept alongside for inline
    * SVG and plain CSS, which need an actual colour value.
    */
-
-  /* --- Identity: free to decorate, never a verdict --------------------- */
-  --brand-rgb: 79 70 229;         /* indigo   */
-  --brand-soft-rgb: 235 233 254;
-  --accent-rgb: 192 38 211;       /* fuchsia  */
-  --accent-soft-rgb: 251 232 254;
-  --violet-rgb: 124 58 237;
-  --cyan-rgb: 6 165 200;
+  --brand-rgb: 42 120 214;
+  --brand-soft-rgb: 232 241 253;
+  --status-good-rgb: 12 163 12;
+  --status-warning-rgb: 250 178 25;
+  --status-serious-rgb: 236 131 90;
+  --status-critical-rgb: 208 59 59;
 
   --brand: rgb(var(--brand-rgb));
-  --brand-strong: #3f37c9;
+  --brand-strong: #1c5cab;
   --brand-soft: rgb(var(--brand-soft-rgb));
   --brand-ink: #ffffff;
-
-  --accent: rgb(var(--accent-rgb));
-  --accent-strong: #9d1cae;
-  --accent-soft: rgb(var(--accent-soft-rgb));
-  --accent-ink: #ffffff;
-
-  --violet: rgb(var(--violet-rgb));
-  --cyan: rgb(var(--cyan-rgb));
-
-  /* --- Reserved: verdicts only ----------------------------------------- */
-  --status-good-rgb: 14 159 110;
-  --status-warning-rgb: 229 165 10;
-  --status-serious-rgb: 244 115 31;
-  --status-critical-rgb: 224 36 36;
 
   --status-good: rgb(var(--status-good-rgb));
   --status-warning: rgb(var(--status-warning-rgb));
   --status-serious: rgb(var(--status-serious-rgb));
   --status-critical: rgb(var(--status-critical-rgb));
-  --status-good-text: #067a52;
+  --status-good-text: #006300;
 
-  /* --- Categorical series, fixed order, never cycled ------------------- */
-  --series-1: #4f46e5;
-  --series-2: #f4731f;
-  --series-3: #06a5c8;
-  --series-4: #d9a20a;
-  --series-5-rgb: 219 74 152;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5-rgb: 232 123 164;
   --series-5: rgb(var(--series-5-rgb));
-  --series-6: #0e9f6e;
-  --series-7: #7c3aed;
-  --series-8: #e02424;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
 
-  --gridline: #e2ddd1;
-  --axis: #bdb7a8;
-  --ring: rgba(22, 19, 31, 0.11);
+  --gridline: #e1e0d9;
+  --axis: #c3c2b7;
+  --ring: rgba(11, 11, 11, 0.1);
 
   /*
    * Sheen and elevation.
@@ -127,277 +73,145 @@
    * variables that already swap, so it adapts without a second declaration.
    */
   --sheen: rgba(255, 255, 255, 0.9);
-  --sheen-soft: rgba(255, 255, 255, 0.6);
-  --shadow-tint: 30, 24, 54;
+  --sheen-soft: rgba(255, 255, 255, 0.55);
+  --shadow-tint: 11, 11, 11;
   --shadow-strength: 1;
-
-  /*
-   * Strength of the ambient colour fields.
-   *
-   * Two knobs, because the two field mechanisms need very different numbers.
-   * `--field-strength` scales the alpha inside the CSS gradients below;
-   * `--field-opacity` scales the blurred blob layer in `AmbientField`, which
-   * composites far more heavily because the sources overlap.
-   *
-   * Light is much lower than dark and that asymmetry is the whole point. On a
-   * dark ground, colour *is* the light in the room and can be turned up until
-   * it glows. On warm paper the same values drown the paper — the first cut of
-   * this shipped a hero that was a full-saturation purple wash with the
-   * headline floating on it, which is exactly the anonymous gradient look this
-   * palette exists to avoid. A tint you notice and cannot name is the target;
-   * a colour you could pick out of a paint chart is too much.
-   */
-  --field-strength: 1;
-  --field-opacity: 0.22;
-  --grain-opacity: 0.035;
 }
 
 /*
- * ============================================================================
- * The gradient, field and glow system
- * ============================================================================
+ * The gradient and elevation system.
  *
  * Declared once, outside the theme blocks, because every value here is
  * composed from variables that already swap — `--brand-rgb`, `--surface-2`,
- * `--sheen`. A second copy under the dark scope would be two places to keep in
- * agreement, and the first time they disagreed it would show as a tile that is
- * subtly the wrong colour in one theme only.
+ * `--sheen`. A second copy under the dark scope would be two places to keep
+ * in agreement, and the first time they disagreed it would show as a tile
+ * that is subtly the wrong colour in one theme only.
+ *
+ * Tone washes are deliberately weak (14% to 3%). They exist to tell a reader
+ * at a glance which register a tile belongs to — a blocker, a clear result, a
+ * value figure — not to colour the interface. A diligence tool whose surfaces
+ * shout competes with its own findings for attention, and the findings have
+ * to win.
  */
 :root,
 :root[data-theme='light'],
 :root[data-theme='dark'] {
-  /* --- Surfaces -------------------------------------------------------- */
   --grad-tile: linear-gradient(180deg, var(--surface-2) 0%, var(--surface-1) 100%);
   --grad-tile-sunken: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-3) 100%);
 
+  --grad-brand: linear-gradient(140deg, rgb(var(--brand-rgb) / 0.14) 0%, rgb(var(--brand-rgb) / 0.03) 62%, transparent 100%);
+  --grad-good: linear-gradient(140deg, rgb(var(--status-good-rgb) / 0.14) 0%, rgb(var(--status-good-rgb) / 0.03) 62%, transparent 100%);
+  --grad-warning: linear-gradient(140deg, rgb(var(--status-warning-rgb) / 0.18) 0%, rgb(var(--status-warning-rgb) / 0.04) 62%, transparent 100%);
+  --grad-serious: linear-gradient(140deg, rgb(var(--status-serious-rgb) / 0.16) 0%, rgb(var(--status-serious-rgb) / 0.04) 62%, transparent 100%);
+  --grad-critical: linear-gradient(140deg, rgb(var(--status-critical-rgb) / 0.14) 0%, rgb(var(--status-critical-rgb) / 0.03) 62%, transparent 100%);
+
   /*
-   * Tone washes.
+   * A wide field for section grounds and page headers.
    *
-   * Roughly twice the strength they used to be. The old values (3%-4% at the
-   * tail) were below the threshold at which anyone notices a tile is tinted
-   * at all, which made them a cost with no benefit: the code said "this tile
-   * is a blocker" and the screen said nothing. These are visible and still
-   * lose to a badge, which is the correct order.
+   * Stronger than the tone washes above, and deliberately so. Those sit
+   * behind findings and have to lose that contest; this sits behind a page
+   * opening where there is nothing to compete with, and at tone-wash strength
+   * it was invisible on a near-white page — a gradient nobody can see is not
+   * restraint, it is a wasted declaration.
    */
-  --grad-brand: linear-gradient(140deg, rgb(var(--brand-rgb) / 0.22) 0%, rgb(var(--brand-rgb) / 0.06) 58%, transparent 100%);
-  --grad-accent: linear-gradient(140deg, rgb(var(--accent-rgb) / 0.20) 0%, rgb(var(--accent-rgb) / 0.05) 58%, transparent 100%);
-  --grad-good: linear-gradient(140deg, rgb(var(--status-good-rgb) / 0.22) 0%, rgb(var(--status-good-rgb) / 0.05) 58%, transparent 100%);
-  --grad-warning: linear-gradient(140deg, rgb(var(--status-warning-rgb) / 0.26) 0%, rgb(var(--status-warning-rgb) / 0.06) 58%, transparent 100%);
-  --grad-serious: linear-gradient(140deg, rgb(var(--status-serious-rgb) / 0.24) 0%, rgb(var(--status-serious-rgb) / 0.06) 58%, transparent 100%);
-  --grad-critical: linear-gradient(140deg, rgb(var(--status-critical-rgb) / 0.22) 0%, rgb(var(--status-critical-rgb) / 0.05) 58%, transparent 100%);
+  --grad-band: radial-gradient(100% 120% at 4% 0%, rgb(var(--brand-rgb) / 0.24) 0%, transparent 55%),
+    radial-gradient(85% 110% at 98% 4%, rgb(var(--status-good-rgb) / 0.16) 0%, transparent 58%),
+    radial-gradient(70% 90% at 55% 0%, rgb(var(--series-5-rgb) / 0.10) 0%, transparent 62%);
 
   /* The top highlight that makes a tile read as a surface rather than a rectangle of colour. */
   --tile-sheen: linear-gradient(180deg, var(--sheen-soft) 0%, transparent 38%);
-
-  /* --- Ambient fields --------------------------------------------------- */
-
-  /*
-   * `--grad-band`: a wide field for section grounds and page headers.
-   * `--grad-mesh`: the same idea at hero scale, four sources instead of three.
-   *
-   * Deliberately stronger than the tone washes. Those sit behind findings and
-   * have to lose that contest; these sit behind a page opening where there is
-   * nothing to compete with, and at wash strength they were invisible on a
-   * near-white page — a gradient nobody can see is not restraint, it is a
-   * wasted declaration.
-   *
-   * Every stop is an identity colour. None of them is a verdict, so none of
-   * them can be mistaken for one at any strength.
-   */
-  --grad-band: radial-gradient(100% 120% at 2% 0%, rgb(var(--brand-rgb) / calc(0.30 * var(--field-strength))) 0%, transparent 56%),
-    radial-gradient(85% 110% at 98% 6%, rgb(var(--accent-rgb) / calc(0.18 * var(--field-strength))) 0%, transparent 58%),
-    radial-gradient(70% 90% at 52% 0%, rgb(var(--cyan-rgb) / calc(0.16 * var(--field-strength))) 0%, transparent 62%);
-
-  --grad-mesh: radial-gradient(60% 70% at 12% 18%, rgb(var(--brand-rgb) / calc(0.46 * var(--field-strength))) 0%, transparent 62%),
-    radial-gradient(55% 65% at 84% 12%, rgb(var(--accent-rgb) / calc(0.34 * var(--field-strength))) 0%, transparent 60%),
-    radial-gradient(65% 80% at 72% 88%, rgb(var(--violet-rgb) / calc(0.32 * var(--field-strength))) 0%, transparent 64%),
-    radial-gradient(50% 60% at 26% 92%, rgb(var(--cyan-rgb) / calc(0.28 * var(--field-strength))) 0%, transparent 60%);
-
-  /* A slow-rotating conic, for anything that should look alive rather than printed. */
-  --grad-aurora: conic-gradient(
-    from 0deg,
-    rgb(var(--brand-rgb) / 0.55) 0deg,
-    rgb(var(--violet-rgb) / 0.5) 78deg,
-    rgb(var(--accent-rgb) / 0.5) 155deg,
-    rgb(var(--cyan-rgb) / 0.45) 240deg,
-    rgb(var(--brand-rgb) / 0.55) 360deg
-  );
-
-  /* A single travelling light source, for glass and highlight sweeps. */
-  --grad-spotlight: radial-gradient(38% 60% at var(--spot-x, 50%) var(--spot-y, 0%), rgb(var(--brand-rgb) / 0.30) 0%, transparent 70%);
-
-  /*
-   * The identity ramp. One line, four identity colours, used wherever the
-   * product needs to sign its name: a section rule, an active tab underline,
-   * a progress fill, the top edge of the app frame.
-   */
-  --grad-ramp: linear-gradient(
-    90deg,
-    rgb(var(--brand-rgb)) 0%,
-    rgb(var(--violet-rgb)) 34%,
-    rgb(var(--accent-rgb)) 68%,
-    rgb(var(--cyan-rgb)) 100%
-  );
-
-  /* A deep panel that reads as ink rather than as a dark grey box. */
-  --grad-ink: linear-gradient(158deg, #1b1733 0%, #120f24 46%, #0b0918 100%);
-
-  /* --- Glow ------------------------------------------------------------- */
-  --glow-brand: 0 0 0 1px rgb(var(--brand-rgb) / 0.16), 0 8px 30px -6px rgb(var(--brand-rgb) / 0.36);
-  --glow-accent: 0 0 0 1px rgb(var(--accent-rgb) / 0.16), 0 8px 30px -6px rgb(var(--accent-rgb) / 0.34);
-
-  /*
-   * Film grain.
-   *
-   * Large flat gradients band on 8-bit displays — you see the steps as
-   * concentric rings, and it is the one artefact that makes an otherwise good
-   * gradient look cheap. A few percent of noise over the top dithers the
-   * banding away. Generated by the browser from an inline SVG filter, so it
-   * costs no request and no bytes on the wire beyond this line.
-   */
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
 }
-
-/* ==========================================================================
- * Dark — indigo night
- * ========================================================================== */
 
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme='light'])) {
     color-scheme: dark;
 
-    --page: #0a0912;
-    --surface-1: #131120;
-    --surface-2: #1b182e;
-    --surface-3: #0e0c18;
-    --hairline: #2b2745;
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --surface-2: #222220;
+    --surface-3: #141413;
+    --hairline: #2c2c2a;
 
-    --ink-rgb: 246 244 255;
-    --ink-secondary-rgb: 186 181 210;
-    --ink-muted-rgb: 139 133 166;
-
-    --text-primary: rgb(var(--ink-rgb));
-    --text-secondary: rgb(var(--ink-secondary-rgb));
-    --text-muted: rgb(var(--ink-muted-rgb));
-    --text-inverse: #0a0912;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --text-inverse: #0b0b0b;
 
     /* The same gesture at a tenth of the strength — see `--sheen` above. */
-    --sheen: rgba(255, 255, 255, 0.08);
-    --sheen-soft: rgba(255, 255, 255, 0.05);
+    --sheen: rgba(255, 255, 255, 0.07);
+    --sheen-soft: rgba(255, 255, 255, 0.045);
     --shadow-tint: 0, 0, 0;
     --shadow-strength: 2.2;
-    --field-strength: 1.25;
-    --field-opacity: 0.85;
-    --grain-opacity: 0.05;
 
-    --brand-rgb: 129 122 255;
-    --brand-soft-rgb: 33 29 70;
-    --accent-rgb: 226 108 240;
-    --accent-soft-rgb: 52 22 60;
-    --violet-rgb: 158 122 250;
-    --cyan-rgb: 40 199 232;
+    --brand-rgb: 57 135 229;
+    --brand-soft-rgb: 23 41 63;
 
     --brand: rgb(var(--brand-rgb));
-    --brand-strong: #a9a4ff;
+    --brand-strong: #86b6ef;
     --brand-soft: rgb(var(--brand-soft-rgb));
-    --brand-ink: #0a0912;
+    --brand-ink: #ffffff;
 
-    --accent: rgb(var(--accent-rgb));
-    --accent-strong: #efa6f8;
-    --accent-soft: rgb(var(--accent-soft-rgb));
-    --accent-ink: #0a0912;
+    --status-good-text: #0ca30c;
 
-    --violet: rgb(var(--violet-rgb));
-    --cyan: rgb(var(--cyan-rgb));
-
-    --status-good-rgb: 34 197 138;
-    --status-warning-rgb: 240 185 40;
-    --status-serious-rgb: 250 138 66;
-    --status-critical-rgb: 244 84 84;
-    --status-good-text: #34d399;
-
-    --series-1: #817aff;
-    --series-2: #fa8a42;
-    --series-3: #28c7e8;
-    --series-4: #f0b928;
-    --series-5-rgb: 240 122 186;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5-rgb: 213 81 129;
     --series-5: rgb(var(--series-5-rgb));
-    --series-6: #22c58a;
-    --series-7: #b79bff;
-    --series-8: #f45454;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
 
-    --gridline: #262240;
-    --axis: #3d3760;
-    --ring: rgba(190, 182, 255, 0.14);
+    --gridline: #2c2c2a;
+    --axis: #383835;
+    --ring: rgba(255, 255, 255, 0.1);
   }
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --page: #0a0912;
-  --surface-1: #131120;
-  --surface-2: #1b182e;
-  --surface-3: #0e0c18;
-  --hairline: #2b2745;
+  --page: #0d0d0d;
+  --surface-1: #1a1a19;
+  --surface-2: #222220;
+  --surface-3: #141413;
+  --hairline: #2c2c2a;
 
-  --ink-rgb: 246 244 255;
-  --ink-secondary-rgb: 186 181 210;
-  --ink-muted-rgb: 139 133 166;
-
-  --text-primary: rgb(var(--ink-rgb));
-  --text-secondary: rgb(var(--ink-secondary-rgb));
-  --text-muted: rgb(var(--ink-muted-rgb));
-  --text-inverse: #0a0912;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --text-inverse: #0b0b0b;
 
   /* Must mirror the media-query dark block above — see `--sheen`. */
-  --sheen: rgba(255, 255, 255, 0.08);
-  --sheen-soft: rgba(255, 255, 255, 0.05);
+  --sheen: rgba(255, 255, 255, 0.07);
+  --sheen-soft: rgba(255, 255, 255, 0.045);
   --shadow-tint: 0, 0, 0;
   --shadow-strength: 2.2;
-  --field-strength: 1.25;
-  --field-opacity: 0.85;
-  --grain-opacity: 0.05;
 
-  --brand-rgb: 129 122 255;
-  --brand-soft-rgb: 33 29 70;
-  --accent-rgb: 226 108 240;
-  --accent-soft-rgb: 52 22 60;
-  --violet-rgb: 158 122 250;
-  --cyan-rgb: 40 199 232;
+  --brand-rgb: 57 135 229;
+  --brand-soft-rgb: 23 41 63;
 
   --brand: rgb(var(--brand-rgb));
-  --brand-strong: #a9a4ff;
+  --brand-strong: #86b6ef;
   --brand-soft: rgb(var(--brand-soft-rgb));
-  --brand-ink: #0a0912;
+  --brand-ink: #ffffff;
 
-  --accent: rgb(var(--accent-rgb));
-  --accent-strong: #efa6f8;
-  --accent-soft: rgb(var(--accent-soft-rgb));
-  --accent-ink: #0a0912;
+  --status-good-text: #0ca30c;
 
-  --violet: rgb(var(--violet-rgb));
-  --cyan: rgb(var(--cyan-rgb));
-
-  --status-good-rgb: 34 197 138;
-  --status-warning-rgb: 240 185 40;
-  --status-serious-rgb: 250 138 66;
-  --status-critical-rgb: 244 84 84;
-  --status-good-text: #34d399;
-
-  --series-1: #817aff;
-  --series-2: #fa8a42;
-  --series-3: #28c7e8;
-  --series-4: #f0b928;
-  --series-5-rgb: 240 122 186;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5-rgb: 213 81 129;
   --series-5: rgb(var(--series-5-rgb));
-  --series-6: #22c58a;
-  --series-7: #b79bff;
-  --series-8: #f45454;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
 
-  --gridline: #262240;
-  --axis: #3d3760;
-  --ring: rgba(190, 182, 255, 0.14);
+  --gridline: #2c2c2a;
+  --axis: #383835;
+  --ring: rgba(255, 255, 255, 0.1);
 }
 
 @layer base {
@@ -413,7 +227,7 @@
   }
 
   ::selection {
-    background: rgb(var(--brand-rgb) / 0.28);
+    background: var(--brand-soft);
     color: var(--text-primary);
   }
 
@@ -434,53 +248,6 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
-
-  /*
-   * Type that carries the identity ramp instead of a flat colour.
-   *
-   * Restricted to display sizes by convention: gradient text is clipped to the
-   * glyphs, so at body size the thin strokes sample two or three pixels of a
-   * gradient and the whole line reads as slightly-wrong-coloured rather than
-   * as anything intentional.
-   */
-  .text-ramp {
-    background-image: var(--grad-ramp);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  /*
-   * Grain, as a layer.
-   *
-   * Anything that paints a large gradient should carry this, or it will band.
-   * `pointer-events: none` and `aria-hidden` are the caller's job; this only
-   * describes the texture.
-   */
-  .grain::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image: var(--grain);
-    opacity: var(--grain-opacity);
-    mix-blend-mode: overlay;
-    pointer-events: none;
-  }
-
-  /*
-   * Frosted chrome.
-   *
-   * Used for anything that floats over content that scrolls under it — the
-   * top bar, a sticky tab rail, the hero's HUD. The saturation boost is what
-   * separates real frosted glass from a translucent grey box: blurring alone
-   * washes the colour out of whatever is behind it, and pushing saturation
-   * back up puts it back.
-   */
-  .glass {
-    background-color: rgb(var(--brand-rgb) / 0.03);
-    backdrop-filter: blur(14px) saturate(1.7);
-    -webkit-backdrop-filter: blur(14px) saturate(1.7);
-  }
 }
 
 @media print {
@@ -492,12 +259,6 @@
   }
   .print-block {
     break-inside: avoid;
-  }
-  /* Ambient colour fields are screen furniture. On paper they cost toner and
-     obscure the figures printed over them. */
-  .field-layer,
-  .grain::after {
-    display: none !important;
   }
 }
 
@@ -545,7 +306,9 @@
  *
  * This is not a polish setting. Vestibular disorders are common enough that
  * every major platform exposes this preference, and animation that ignores it
- * can cause genuine nausea and dizziness.
+ * can cause genuine nausea and dizziness — the app honoured it in exactly zero
+ * places before this rule existed, while shipping spinners, pulses, fades and
+ * now transitions throughout.
  *
  * Reduced, not removed. Everything still *changes* — a hover still highlights,
  * a panel still opens — it just arrives at its final state almost immediately
@@ -569,18 +332,12 @@
   }
 
   /*
-   * The exceptions, all of them indeterminate or ambient.
+   * The two exceptions, both indeterminate progress.
    *
    * A spinner and a skeleton shimmer say "still working". Frozen, they say
-   * "finished, with nothing to show" — a worse answer, and information the
-   * user actively needs while a screen runs.
-   *
-   * The ambient field animations are here for a different reason: they are
-   * slow, large-scale colour drifts with no edges, which is the class of
-   * motion this preference is least concerned with, and freezing them leaves
-   * a static asymmetric blob rather than a balanced field. Slowed hard — a
-   * two-minute cycle is below the rate at which peripheral vision registers
-   * movement at all.
+   * "finished, with nothing to show" — which is a worse answer than a little
+   * motion, and is information the user actively needs while a screen runs or
+   * an agent thinks. Slowed rather than left at full speed.
    */
   .animate-spin,
   .animate-pulse,
@@ -588,15 +345,8 @@
     animation-duration: 1.8s !important;
     animation-iteration-count: infinite !important;
   }
-
-  .animate-drift,
-  .animate-drift-slow,
-  .animate-orbit,
-  .animate-breathe {
-    animation-duration: 120s !important;
-    animation-iteration-count: infinite !important;
-  }
 }
+
 
 /*
  * A folded caveat is a screen affordance, not a document one.

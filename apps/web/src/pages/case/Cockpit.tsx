@@ -27,7 +27,6 @@ import { LEGACY_TAB_REDIRECT, findGroup } from './groups';
 import { ProofPane } from './cockpit/ProofPane';
 import GraphExplorerTab from './tabs/GraphExplorerTab';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
-import { AmbientField, ParcelPlan, RampRule } from '../../components/visuals';
 import { CommandBar } from './cockpit/CommandBar';
 import { LAYOUTS, LAYOUT_LABEL, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
 import type { CockpitLayout } from './cockpit/layout';
@@ -368,31 +367,17 @@ export default function Cockpit() {
    */
   return (
     <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col">
-      {/*
-        * The case bar.
-        *
-        * It carries the case's own plot drawing — the same one its card wears
-        * in the grid, seeded from the same id — because that is the continuity
-        * cue: you clicked a shape and the shape came with you, so there is
-        * never a moment of "is this the one I opened". Static rather than
-        * animated: this bar is on screen for the whole session, and a header
-        * that re-draws itself on every re-render is a tic.
-        */}
-      <div className="relative isolate flex shrink-0 flex-wrap items-center gap-2.5 border-b border-hairline px-5 py-2.5">
-        <AmbientField variant="band" className="-z-10" intensity={0.55} />
-        <RampRule className="absolute inset-x-0 top-0" />
+      {/* case bar */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-hairline px-5 py-2.5">
         <button
           type="button"
           onClick={() => setRailOpen(true)}
           aria-label="Open case navigation"
           aria-expanded={railOpen}
-          className="-ml-1 rounded-lg p-1.5 text-ink-secondary hover:bg-brand/10 hover:text-brand coarse:p-3 lg:hidden"
+          className="-ml-1 rounded-lg p-1.5 text-ink-secondary hover:bg-sunken hover:text-ink lg:hidden"
         >
           <Menu size={16} />
         </button>
-        <span className="hidden h-[38px] w-[54px] shrink-0 overflow-hidden rounded-md bg-tile-sunken ring-1 ring-inset ring-[var(--ring)] sm:block">
-          <ParcelPlan seed={caseData.id} detail="mark" animate={false} className="h-full w-full" />
-        </span>
         <Link to="/cases" className="text-mini text-ink-secondary hover:text-ink">
           Your cases
         </Link>
@@ -411,7 +396,7 @@ export default function Cockpit() {
         <button
           type="button"
           onClick={() => setCommandOpen(true)}
-          className="rounded-lg border border-[var(--ring)] bg-surface px-2.5 py-1 text-mini text-ink-muted transition-colors duration-quick hover:border-brand/40 hover:text-brand coarse:min-h-11"
+          className="rounded-lg border border-[var(--ring)] bg-surface px-2.5 py-1 text-mini text-ink-muted hover:text-ink"
         >
           Run a command <span className="hidden font-mono lg:inline">⌘K</span>
         </button>
@@ -424,7 +409,7 @@ export default function Cockpit() {
             // A three-column control, hidden where there are not three
             // columns — the mobile tabs already do what it does.
             'hidden items-center gap-1.5 rounded-lg border px-2.5 py-1 text-mini lg:flex',
-            focusMode ? 'border-brand/50 bg-brand/12 text-brand' : 'border-[var(--ring)] bg-surface text-ink-secondary hover:text-ink',
+            focusMode ? 'border-brand bg-brand-soft text-brand' : 'border-[var(--ring)] bg-surface text-ink-secondary hover:text-ink',
           )}
         >
           {focusMode ? <PanelRight size={13} /> : <Maximize2 size={13} />}
@@ -435,7 +420,7 @@ export default function Cockpit() {
       <div className="flex min-h-0 flex-1">
         {railOpen ? (
           <div
-            className="fixed inset-0 z-40 bg-[#0a0912]/60 backdrop-blur-sm lg:hidden"
+            className="fixed inset-0 z-40 bg-black/40 lg:hidden"
             onClick={() => setRailOpen(false)}
             aria-hidden="true"
           />
@@ -445,7 +430,7 @@ export default function Cockpit() {
           aria-label="Case navigation"
           aria-hidden={!desktop && !railOpen}
           className={cn(
-            'flex w-[180px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline bg-tile-sunken py-3',
+            'flex w-[180px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline bg-surface-1 py-3',
             'fixed inset-y-0 left-0 z-50 transition-transform duration-base ease-state',
             'lg:static lg:z-auto lg:translate-x-0 lg:shadow-none',
             railOpen ? 'translate-x-0 shadow-pop' : '-translate-x-full lg:translate-x-0',
@@ -488,11 +473,8 @@ export default function Cockpit() {
                     }}
                     aria-current={on ? 'true' : undefined}
                     className={cn(
-                      'relative flex w-full items-center justify-between overflow-hidden rounded-lg px-2.5 py-1.5 text-[12.5px] coarse:min-h-11',
-                      'transition-colors duration-quick ease-state',
-                      on
-                        ? 'bg-brand/12 font-semibold text-brand before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-r-full before:bg-ramp'
-                        : 'text-ink-secondary hover:bg-brand/6 hover:text-ink',
+                      'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[12.5px]',
+                      on ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
                     )}
                   >
                     <span>{group.label}</span>
@@ -522,11 +504,8 @@ export default function Cockpit() {
                 }}
                 aria-current={paneMode === 'procedures' ? 'true' : undefined}
                 className={cn(
-                  'relative flex w-full items-center gap-2 overflow-hidden rounded-lg px-2.5 py-1.5 text-[12.5px] coarse:min-h-11',
-                  'transition-colors duration-quick ease-state',
-                  paneMode === 'procedures'
-                    ? 'bg-brand/12 font-semibold text-brand before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-r-full before:bg-ramp'
-                    : 'text-ink-secondary hover:bg-brand/6 hover:text-ink',
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
+                  paneMode === 'procedures' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
                 )}
               >
                 <ListChecks size={13} /> Procedures
@@ -546,11 +525,8 @@ export default function Cockpit() {
                 }}
                 aria-current={paneMode === 'review' ? 'true' : undefined}
                 className={cn(
-                  'relative flex w-full items-center gap-2 overflow-hidden rounded-lg px-2.5 py-1.5 text-[12.5px] coarse:min-h-11',
-                  'transition-colors duration-quick ease-state',
-                  paneMode === 'review'
-                    ? 'bg-brand/12 font-semibold text-brand before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-r-full before:bg-ramp'
-                    : 'text-ink-secondary hover:bg-brand/6 hover:text-ink',
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
+                  paneMode === 'review' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
                 )}
               >
                 <ShieldQuestion size={13} /> Review
@@ -570,11 +546,8 @@ export default function Cockpit() {
                 }}
                 aria-current={paneMode === 'requests' ? 'true' : undefined}
                 className={cn(
-                  'relative flex w-full items-center gap-2 overflow-hidden rounded-lg px-2.5 py-1.5 text-[12.5px] coarse:min-h-11',
-                  'transition-colors duration-quick ease-state',
-                  paneMode === 'requests'
-                    ? 'bg-brand/12 font-semibold text-brand before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-r-full before:bg-ramp'
-                    : 'text-ink-secondary hover:bg-brand/6 hover:text-ink',
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
+                  paneMode === 'requests' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
                 )}
               >
                 <Send size={13} /> Requests
@@ -599,11 +572,8 @@ export default function Cockpit() {
                 }}
                 aria-current={paneMode === 'graph' ? 'true' : undefined}
                 className={cn(
-                  'relative flex w-full items-center gap-2 overflow-hidden rounded-lg px-2.5 py-1.5 text-[12.5px] coarse:min-h-11',
-                  'transition-colors duration-quick ease-state',
-                  paneMode === 'graph'
-                    ? 'bg-brand/12 font-semibold text-brand before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-r-full before:bg-ramp'
-                    : 'text-ink-secondary hover:bg-brand/6 hover:text-ink',
+                  'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
+                  paneMode === 'graph' ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
                 )}
               >
                 <Waypoints size={13} /> Knowledge graph
@@ -710,7 +680,7 @@ export default function Cockpit() {
                 writeChatWidth(next);
               }
             }}
-            className="w-1 shrink-0 cursor-col-resize bg-transparent transition-colors duration-quick hover:bg-ramp"
+            className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-brand-soft"
           />
         ) : null}
 
@@ -792,10 +762,8 @@ export default function Cockpit() {
                         aria-current={on ? 'true' : undefined}
                         title={DD_DOMAIN_PROFILES[d].question}
                         className={cn(
-                          'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] transition-colors duration-base coarse:min-h-11',
-                          on
-                            ? 'bg-ramp font-semibold text-white shadow-glow'
-                            : 'text-ink-secondary hover:bg-brand/8 hover:text-ink',
+                          'flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12.5px] transition-colors duration-base',
+                          on ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:bg-surface-2 hover:text-ink',
                         )}
                       >
                         {DD_DOMAIN_PROFILES[d].label}

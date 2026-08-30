@@ -1,67 +1,53 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Layers, MapPinned, ScrollText } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { ENGINE_VERSION, KARNATAKA_PACK, REFERENCE_DATA, SITE_CONSTRAINT_KEYS } from '@realytica/shared';
 import { useInView } from '../lib/useReveal';
-import { Tile, cn } from '../components/ui/kit';
-import { AmbientField, BrandMark, MassingRender, ParcelPlan, RampRule, ScreenReel, TerrainMap } from '../components/visuals';
+import { SectionBand, Tile, cn } from '../components/ui/kit';
 
 /**
- * The front door.
+ * The front door, as a specimen of the thing the product makes.
  *
- * --- What this page argues, and how ---------------------------------------
+ * --- What this page is, and what it deliberately is not -------------------
  *
- * The case it has to make is that this product looks at a property harder than
- * you would, and stops where the evidence stops. Both halves matter, and the
- * second one is the differentiator: anything can produce a number.
+ * The first version of this page was a SaaS landing page: sticky glass nav,
+ * a centred eyebrow over a centred heading over a centred lead, three
+ * icon-in-a-rounded-square cards, a radial gradient wash, a centred closing
+ * call to action. Every one of those is the statistically average choice, and
+ * together they produce a page that could have belonged to any company in any
+ * category. It described the product accurately and looked like nothing.
  *
- * So the page is built out of the product rather than about it. The reel plays
- * five scenes of the engine working. The check table is the shipped catalogue
- * with its real statute citations. The constraint cards are the real rules,
- * quoted. The counts in the specimen strip are `.length` of the arrays that
- * ship. There is no outcome claim anywhere on the page — no percentage faster,
- * no satisfaction score, no logos, no testimonials — because every one of those
- * would be a thing a reader has to take on trust from a company they have not
- * heard of, and this page has better material than trust.
+ * This one argues the same case by *being* the artefact instead. Realytica's
+ * output is a numbered, hairline-ruled diligence report with statutes set in
+ * monospace and an `as of` line in the margin under every figure that has
+ * one. So: the page is left-aligned to a document measure and never centred;
+ * there is not a single drop shadow or rounded card; the sections are
+ * numbered the way the report numbers its own; provenance sits in a margin
+ * column exactly as it does in the app; and the section that would normally
+ * hold three feature cards holds the real check catalogue in a real table.
  *
- * A useful side effect: none of it can go stale. Add a statutory check and the
- * table grows. Change the pack's shape and the build fails. The usual failure
- * mode of a marketing page — accurate on the day it shipped, quietly wrong
- * eight months later — is not available here.
+ * The register shift is carried by a serif for display type against the app's
+ * sans — registries, statutes and title opinions are set in serif, and the
+ * page should feel like it comes from that world rather than from a product
+ * launch.
  *
- * --- Why it looks like this ------------------------------------------------
+ * --- Every figure is read, none is claimed -------------------------------
  *
- * Two earlier versions failed in opposite directions and both are worth
- * remembering, because the third one is a reaction to both.
+ * There is no outcome claim anywhere: no percentage faster, no satisfaction
+ * score, no logos, no testimonials. The numbers are read out of the shipped
+ * pack at render time, and the check table is the actual catalogue with the
+ * actual statute citations — content a competitor cannot copy without
+ * building the pack, and content that cannot go stale because it is not a
+ * copy of anything.
  *
- * The first was a generic SaaS page: sticky glass nav, centred eyebrow over
- * centred heading, three icon-in-a-rounded-square cards, one radial wash, a
- * centred closing CTA. Every choice was the statistically average one, and the
- * result described the product accurately and looked like nothing.
+ * --- Motion is typesetting -----------------------------------------------
  *
- * The second overcorrected into pure document: left-aligned to a text measure,
- * no shadows, no cards, no images, hairline rules, everything in a serif. It
- * had conviction and it was almost entirely grey — which for a product whose
- * whole output is *colour-coded findings* was an odd note to open on, and it
- * gave a visitor nothing to look at.
- *
- * This one keeps the document's structure — numbered sections, a margin
- * column, real tables, provenance in the margin exactly as the app does it —
- * and puts the product's own drawings in it. Serif display type over saturated
- * colour fields: the colour is loud and the typography is not, and the tension
- * between the two is the look. Every image on the page is generated by the
- * browser from the case seed or the shipped pack, so the page carries this
- * much imagery with no raster asset, no CDN and no licence.
- *
- * --- Motion ----------------------------------------------------------------
- *
- * Rules draw from the left, display lines are set from below behind a mask,
- * survey lines trace themselves, massing extrudes floor by floor. Nothing
- * fades up on scroll, because fade-up-on-scroll is the motion equivalent of
- * the layout the first version had. All of it runs through the app's own
- * keyframes so the global `prefers-reduced-motion` guard covers it, the reel
- * additionally stops advancing itself under that preference, and every reveal
- * starts visible and hides only once it knows the observer works.
+ * Rules draw from the left. Display lines are set from below behind a mask.
+ * Nothing fades up on scroll, because fade-up-on-scroll is the motion
+ * equivalent of the layout this page replaced. All of it runs through the
+ * app's existing keyframes so the global `prefers-reduced-motion` guard
+ * covers it, and every reveal starts visible and hides only once it knows
+ * the observer works.
  */
 
 /* ==================================================================== */
@@ -87,24 +73,16 @@ function SetLine({ children, delay = 0, className }: { children: ReactNode; dela
 }
 
 /** A numbered section head, quoting the report's own numbering. */
-function SectionHead({ n, title, note, icon }: { n: string; title: string; note?: string; icon?: ReactNode }) {
+function SectionHead({ n, title, note }: { n: string; title: string; note?: string }) {
   const { ref, inView } = useInView<HTMLDivElement>();
   return (
     <div ref={ref} className="mb-8">
       <div className="flex items-baseline gap-4">
         <span className="font-mono text-[12px] tabular-nums text-brand">{n}</span>
-        <h2 className="m-0 flex items-baseline gap-3 font-display text-[26px] font-normal leading-tight tracking-tight text-ink sm:text-[32px]">
-          {title}
-          {icon ? <span className="translate-y-0.5 text-brand/70">{icon}</span> : null}
-        </h2>
+        <h2 className="m-0 font-display text-[24px] font-normal leading-tight tracking-tight text-ink sm:text-[30px]">{title}</h2>
       </div>
-      {/*
-        * The rule under a section head carries the identity ramp rather than a
-        * flat hairline. It is a one-pixel detail that repeats seven times down
-        * the page, which makes it one of the strongest signals on it.
-        */}
       <div
-        className={cn('mt-4 h-[2px] origin-left rounded-full bg-ramp transition-transform duration-slow ease-enter', inView ? 'scale-x-100' : 'scale-x-0')}
+        className={cn('mt-4 h-px origin-left bg-ink/25 transition-transform duration-slow ease-enter', inView ? 'scale-x-100' : 'scale-x-0')}
       />
       {note && <p className="m-0 mt-3 max-w-[62ch] text-[14px] leading-relaxed text-ink-secondary">{note}</p>}
     </div>
@@ -114,10 +92,10 @@ function SectionHead({ n, title, note, icon }: { n: string; title: string; note?
 /**
  * The page's grid: a wide document column and a narrow margin column.
  *
- * Asymmetric on purpose. A symmetric two-column split reads as a landing page;
- * a text measure with an annotation rail beside it reads as a document, which
- * is half the conceit. Below `lg` the margin column falls under the text,
- * which is what a printed marginal note does when it will not fit.
+ * Asymmetric on purpose. A symmetric two-column split reads as a landing
+ * page; a text measure with an annotation rail beside it reads as a document,
+ * which is the entire conceit. Below `lg` the margin column falls under the
+ * text, which is what a printed marginal note does when it will not fit.
  */
 function Spread({ children, margin }: { children: ReactNode; margin?: ReactNode }) {
   return (
@@ -131,46 +109,9 @@ function Spread({ children, margin }: { children: ReactNode; margin?: ReactNode 
 /** A margin annotation, set the way the app sets its provenance lines. */
 function MarginNote({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="border-l-2 border-brand/40 pl-3">
-      <p className="m-0 font-mono text-micro uppercase tracking-[0.12em] text-brand">{label}</p>
+    <div className="border-l-2 border-hairline pl-3">
+      <p className="m-0 font-mono text-micro uppercase tracking-[0.12em] text-ink-muted">{label}</p>
       <p className="m-0 mt-1 text-[13px] leading-relaxed text-ink-secondary">{children}</p>
-    </div>
-  );
-}
-
-/**
- * A full-bleed section ground.
- *
- * Long pages run for thousands of pixels and a reader loses their place in a
- * single flat colour. Alternating the ground makes "where does this section
- * end" answerable without reading anything — and gives the four ambient
- * variants somewhere to live other than the hero.
- */
-function Band({
-  ground = 'page',
-  field,
-  className,
-  children,
-}: {
-  ground?: 'page' | 'surface' | 'sunken' | 'ink';
-  field?: 'band' | 'mesh' | 'aurora';
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        'relative isolate overflow-hidden',
-        ground === 'surface' && 'bg-surface',
-        ground === 'sunken' && 'bg-sunken',
-        // A panel that is dark in both themes, so its contents are
-        // written against white rather than against a token that flips.
-        ground === 'ink' && 'bg-ink-panel text-white',
-        className,
-      )}
-    >
-      {field && <AmbientField variant={field} className="-z-10" intensity={ground === 'ink' ? 0.85 : 1} />}
-      {children}
     </div>
   );
 }
@@ -198,98 +139,43 @@ function EvidenceLedger() {
   }, [inView]);
 
   return (
-    <Tile tone="brand" rail className="p-5">
+    <Tile className="p-5">
       <div ref={ref} className="font-mono text-[13px]">
-        <div className="flex items-baseline justify-between border-b border-ink/20 pb-2 text-micro uppercase tracking-[0.12em] text-ink-muted">
-          <span>Source</span>
-          <span>States</span>
-        </div>
-        {CHAIN.map((row, i) => (
-          <div
-            key={row.source}
-            className={cn(
-              'flex items-baseline justify-between gap-4 border-b border-hairline py-3 transition-[opacity,transform] duration-base ease-enter',
-              step > i ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0',
-            )}
-          >
-            <span className="text-ink-secondary">{row.source}</span>
-            <span className="flex items-baseline gap-3">
-              <span className="text-ink-muted">{row.claim}</span>
-              <span className="tabular-nums text-ink">{row.value}</span>
-            </span>
-          </div>
-        ))}
+      <div className="flex items-baseline justify-between border-b border-ink/20 pb-2 text-micro uppercase tracking-[0.12em] text-ink-muted">
+        <span>Source</span>
+        <span>States</span>
+      </div>
+      {CHAIN.map((row, i) => (
         <div
+          key={row.source}
           className={cn(
-            'flex items-baseline justify-between gap-4 py-3 transition-[opacity,transform] duration-base ease-enter',
-            step > CHAIN.length ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0',
+            'flex items-baseline justify-between gap-4 border-b border-hairline py-3 transition-[opacity,transform] duration-base ease-enter',
+            step > i ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0',
           )}
         >
-          <span className="text-[var(--status-good-text)]">Three sources, no conflict</span>
-          <span className="tabular-nums text-[var(--status-good-text)]">111.5 m²</span>
+          <span className="text-ink-secondary">{row.source}</span>
+          <span className="flex items-baseline gap-3">
+            <span className="text-ink-muted">{row.claim}</span>
+            <span className="tabular-nums text-ink">{row.value}</span>
+          </span>
         </div>
+      ))}
+      <div
+        className={cn(
+          'flex items-baseline justify-between gap-4 py-3 transition-[opacity,transform] duration-base ease-enter',
+          step > CHAIN.length ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0',
+        )}
+      >
+        <span className="text-good">Three sources, no conflict</span>
+        <span className="tabular-nums text-good">111.5 m²</span>
+      </div>
       </div>
     </Tile>
   );
 }
 
 /* ==================================================================== */
-/* The statute ticker                                                    */
-/* ==================================================================== */
-
-/**
- * Every instrument the pack cites, scrolling on an ink band.
- *
- * It is the one piece of pure atmosphere on the page, and it earns its place
- * by being true: this is the actual citation list, deduplicated out of the
- * shipped checks, and it is longer than a visitor expects. "We check Karnataka
- * title" is a sentence anybody can write. Thirty statutes going past is the
- * same claim with the receipts attached, and it takes three seconds to read
- * instead of three minutes.
- *
- * The list is rendered twice inside a `w-max` row and translated by exactly
- * -50%, which is what makes the loop seamless — a single copy snaps back
- * visibly at the end of every cycle.
- */
-function StatuteTicker() {
-  const statutes = Array.from(
-    new Set(
-      KARNATAKA_PACK.titleChecks.flatMap(c =>
-        c.statute
-          .split(';')
-          .map(s => s.trim())
-          .filter(Boolean),
-      ),
-    ),
-  );
-
-  return (
-    <div className="relative isolate overflow-hidden bg-ink-panel py-3">
-      <AmbientField variant="band" className="-z-10 opacity-70" />
-      <div className="flex w-max animate-ticker gap-8 whitespace-nowrap" aria-hidden="true">
-        {[0, 1].map(copy => (
-          <div key={copy} className="flex gap-8">
-            {statutes.map(s => (
-              <span key={s} className="flex items-center gap-8 font-mono text-mini tracking-tight text-white/70">
-                {s}
-                <span className="h-1 w-1 shrink-0 rounded-full bg-accent" />
-              </span>
-            ))}
-          </div>
-        ))}
-      </div>
-      {/* Read by assistive tech instead of the marquee, which would otherwise
-          be announced twice and in an order nobody chose. */}
-      <p className="sr-only">{`The Karnataka pack cites ${statutes.length} distinct instruments across its ${KARNATAKA_PACK.titleChecks.length} statutory checks.`}</p>
-      {/* Feathered edges, so the text arrives and leaves rather than being cut. */}
-      <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-[#0b0918] to-transparent" />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-[#0b0918] to-transparent" />
-    </div>
-  );
-}
-
-/* ==================================================================== */
-/* Page data                                                             */
+/* Page                                                                  */
 /* ==================================================================== */
 
 const SPEC = [
@@ -304,20 +190,10 @@ const SPEC = [
 /**
  * The check set out in full beside the table.
  *
- * Khata classification, because it is the single biggest binary in a Bengaluru
- * title screen and the one a reader is most likely to have heard of and least
- * likely to understand the consequences of.
+ * Khata classification, because it is the single biggest binary in a
+ * Bengaluru title screen and the one a reader is most likely to have heard of
+ * and least likely to understand the consequences of.
  */
-/**
- * The restrictions that bind land without appearing on its title.
- *
- * `siteConstraints` is optional on a `StatePack` — the Netherlands pack does
- * not carry one — so this reads through the optionality rather than asserting
- * it. A front door that throws because a pack was added is a worse failure
- * than a section with three cards in it instead of six.
- */
-const SITE_CONSTRAINTS = KARNATAKA_PACK.siteConstraints?.value ?? [];
-
 const SPECIMEN_CHECK = KARNATAKA_PACK.titleChecks.find(c => c.key === 'khata_classification') ?? KARNATAKA_PACK.titleChecks[0];
 
 /**
@@ -325,8 +201,8 @@ const SPECIMEN_CHECK = KARNATAKA_PACK.titleChecks.find(c => c.key === 'khata_cla
  *
  * The pack joins several instruments with semicolons where a check rests on
  * more than one. Printing all of them turns a scannable column into a second
- * paragraph; printing the first, with the count of the rest, keeps the column a
- * column and still says there is more behind it.
+ * paragraph; printing the first, with the count of the rest, keeps the column
+ * a column and still says there is more behind it.
  */
 function statuteHead(statute: string): string {
   const parts = statute.split(';').map(p => p.trim()).filter(Boolean);
@@ -339,190 +215,141 @@ const REFUSALS = [
     title: 'An unpriced cost is never zero.',
     body: 'Where a charge is real but its size is not yet known, it is listed as unpriced with a sentence saying so. It is never folded into a total as nothing, and the offer advice carries a null rather than a figure.',
     margin: 'The most expensive possible rounding error.',
-    tone: 'warning' as const,
   },
   {
     clause: 'ii',
     title: 'Not assessed is never fine.',
     body: 'A check nobody has answered reports as unanswered, with its consequence spelled out and the document that would settle it named. It never renders as clear and it never quietly drops off a list.',
-    margin: 'Six of the checks above default to this state.',
-    tone: 'serious' as const,
+    margin: 'Six of the checks below default to this state.',
   },
   {
     clause: 'iii',
     title: 'A pin is never a boundary.',
     body: 'A geocoded marker is an address, and in Bengaluru it is frequently the centre of a village. The precision the geocoder reported travels with it everywhere it is drawn, and there is no draw-a-polygon-and-read-the-area tool.',
     margin: 'An extent is settled by a surveyor’s sketch, not a mouse.',
-    tone: 'critical' as const,
   },
 ];
 
-/**
- * The primary call to action.
- *
- * A gradient fill with a glow rather than the flat ink slab this page used to
- * have. There is exactly one of these per screen: the moment a page has two
- * equally loud buttons is the moment it has told the reader nothing about what
- * to do next.
- */
 const CTA_CLASSES =
-  'group inline-flex items-center gap-2 rounded-full bg-ramp px-5 py-2.5 text-[14px] font-semibold text-white shadow-glow ' +
-  'transition-[transform,box-shadow] duration-base ease-enter hover:-translate-y-0.5 hover:shadow-glow-accent motion-reduce:hover:translate-y-0 ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-page';
-
-const CTA_SECONDARY =
-  'inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-[14px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] ' +
-  'transition-colors duration-quick hover:bg-surface hover:ring-brand/40';
+  'group inline-flex items-center gap-2 border border-ink bg-ink px-5 py-2.5 text-[14px] font-medium text-ink-inverse ' +
+  'transition-[background-color,color] duration-quick ease-state hover:bg-transparent hover:text-ink ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-page';
 
 export default function Landing() {
-  // `overflow-x-clip`, not `overflow-hidden`: the fields bleed half a viewport
-  // past each edge so they can run under the masthead, and without clipping
-  // that became 195px of horizontal scroll on a phone. Clip rather than hidden
-  // so no scroll container is created and nothing inside is affected.
+  // `overflow-x-clip`, not `overflow-hidden`: the band bleeds half a viewport
+  // past each edge so it can run under the masthead, and without clipping
+  // that became 195px of horizontal scroll on a phone. Clip rather than
+  // hidden so no scroll container is created and nothing inside is affected.
   return (
     <div className="min-h-screen overflow-x-clip bg-page">
       {/* ------------------------------------------------------ Masthead */}
-      <header className="sticky top-0 z-40 border-b border-hairline glass">
-        <RampRule className="absolute inset-x-0 top-0" />
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
-          <span className="flex items-center gap-2.5">
-            <BrandMark size={26} />
-            <span className="font-display text-[18px] tracking-tight text-ink">Realytica</span>
+      <header className="border-b border-ink/20">
+        <div className="mx-auto flex max-w-5xl items-baseline justify-between gap-4 px-6 py-4">
+          <span className="flex items-baseline gap-3">
+            <span className="font-display text-[17px] tracking-tight text-ink">Realytica</span>
             <span className="hidden font-mono text-mini uppercase tracking-[0.12em] text-ink-muted sm:inline">
               Property screen · Karnataka
             </span>
           </span>
-          <span className="flex items-center gap-5">
-            <a href="#checks" className="hidden text-[13px] text-ink-secondary transition-colors duration-quick hover:text-ink sm:inline">
-              The checks
-            </a>
-            <a href="#refuses" className="hidden text-[13px] text-ink-secondary transition-colors duration-quick hover:text-ink sm:inline">
-              What it refuses
-            </a>
-            <Link
-              to="/app"
-              // Brand fill rather than the ink slab it had: `bg-ink` resolves
-              // to near-white on a dark ground, and a white pill sitting on the
-              // hero's field lost its edge entirely at the top of the page.
-              className="group inline-flex items-center gap-1.5 rounded-full bg-brand px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-glow transition-colors duration-quick hover:bg-brand-strong"
-            >
-              Open a case
-              <ArrowRight size={13} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
-            </Link>
-          </span>
+          <Link
+            to="/app"
+            className="group inline-flex items-baseline gap-2 border-b border-ink pb-0.5 text-[13px] font-medium text-ink transition-colors duration-quick hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+          >
+            Sign in
+            <ArrowRight size={13} className="translate-y-px transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
+          </Link>
         </div>
       </header>
 
-      {/* -------------------------------------------------------- Opening */}
-      <Band field="mesh" className="border-b border-hairline">
-        <section className="mx-auto max-w-6xl px-6 pb-14 pt-14 sm:pt-20">
-          <div className="mb-8 flex items-baseline justify-between font-mono text-mini uppercase tracking-[0.12em] text-ink-muted">
-            <span>Ref. specimen</span>
-            <span className="text-brand">Evidence before assertion</span>
+      {/* -------------------------------------------------------- Header */}
+      {/*
+        * The band wash under the opening.
+        *
+        * Two very low-opacity radial fields, one brand and one green, drawn
+        * from the token layer so they follow the theme. It gives the page a
+        * top rather than starting flat, and it is the only place on the page
+        * with a gradient this wide — a document has one masthead, not six.
+        */}
+      {/* `isolate` is load-bearing: `position: relative` with `z-index: auto`
+          creates no stacking context, so the band's `-z-10` escaped to the
+          root and painted behind the page's own opaque background — present
+          in the DOM, correct in the computed style, and invisible. */}
+      <section className="relative isolate mx-auto max-w-5xl px-6 pb-16 pt-12 sm:pt-16">
+        <span aria-hidden="true" className="pointer-events-none absolute inset-x-[-50vw] top-[-3.5rem] -z-10 h-[620px] bg-band" />
+        <div className="mb-10 flex items-baseline justify-between font-mono text-mini uppercase tracking-[0.12em] text-ink-muted">
+          <span>Ref. specimen</span>
+          <span>Evidence before assertion</span>
+        </div>
+
+        <Spread
+          margin={
+            <Tile className="p-4">
+              <dl className="m-0 space-y-3">
+              {SPEC.map((item, i) => (
+                <div key={item.label} className="animate-fade-in flex flex-wrap items-baseline justify-between gap-x-3 border-b border-hairline pb-2" style={{ animationDelay: `${520 + i * 60}ms` }}>
+                  <dt className="font-mono text-micro uppercase tracking-[0.1em] text-ink-muted">{item.label}</dt>
+                  {/* Wraps rather than crowding the rule: "Karnataka / Bengaluru"
+                      is wider than the column and looked broken pinned to the edge. */}
+                  <dd className="m-0 font-mono text-[12px] tabular-nums text-ink">{item.value}</dd>
+                </div>
+              ))}
+              </dl>
+            </Tile>
+          }
+        >
+          <h1 className="m-0 font-display text-[40px] font-normal leading-[1.06] tracking-[-0.015em] text-ink sm:text-[58px]">
+            <SetLine delay={40}>Know what you are</SetLine>
+            <SetLine delay={130}>buying before you</SetLine>
+            <SetLine delay={220}>
+              <span className="text-ink-secondary">pay for it.</span>
+            </SetLine>
+          </h1>
+
+          <p className="m-0 mt-8 max-w-[58ch] animate-fade-in text-[16px] leading-[1.65] text-ink-secondary" style={{ animationDelay: '340ms' }}>
+            Upload the deeds. Realytica reconstructs the chain of title, reconciles every extent the documents claim,
+            runs the Karnataka statutory checks and tells you what to offer — with a source behind each figure, and a
+            plain sentence wherever there is not one.
+          </p>
+
+          <div className="mt-9 flex animate-fade-in flex-wrap items-center gap-6" style={{ animationDelay: '420ms' }}>
+            <Link to="/app" className={CTA_CLASSES}>
+              Open a case
+              <ArrowRight size={15} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
+            </Link>
+            <a href="#checks" className="border-b border-hairline pb-0.5 text-[14px] text-ink-secondary transition-colors duration-quick hover:border-ink hover:text-ink">
+              Read the check list
+            </a>
           </div>
 
-          <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
-            <div className="min-w-0">
-              <h1 className="m-0 font-display text-[42px] font-normal leading-[1.04] tracking-[-0.015em] text-ink sm:text-[64px]">
-                <SetLine delay={40}>Know what you are</SetLine>
-                <SetLine delay={130}>buying before you</SetLine>
-                <SetLine delay={220}>
-                  {/* The one line on the page in the identity ramp. Reserved for
-                      the clause the whole product exists to make true. */}
-                  <span className="text-ramp">pay for it.</span>
-                </SetLine>
-              </h1>
-
-              <p
-                className="m-0 mt-8 max-w-[58ch] animate-fade-in text-[16px] leading-[1.65] text-ink-secondary"
-                style={{ animationDelay: '340ms' }}
-              >
-                Upload the deeds. Realytica reconstructs the chain of title, reconciles every extent the documents claim, runs
-                the Karnataka statutory checks and tells you what to offer — with a source behind each figure, and a plain
-                sentence wherever there is not one.
-              </p>
-
-              <div className="mt-9 flex animate-fade-in flex-wrap items-center gap-3" style={{ animationDelay: '420ms' }}>
-                <Link to="/app" className={CTA_CLASSES}>
-                  Open a case
-                  <ArrowRight size={15} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
-                </Link>
-                <a href="#checks" className={CTA_SECONDARY}>
-                  Read the check list
-                </a>
-              </div>
-
-              {/* Secondary rather than muted: this line sits over the hero
-                  field, where muted ink is the one weight that stops being
-                  legible. */}
-              <p className="m-0 mt-6 animate-fade-in font-mono text-mini text-ink-secondary" style={{ animationDelay: '480ms' }}>
-                Runs on the deterministic engine alone. No AI key required.
-              </p>
-            </div>
-
-            {/* The specimen strip, and one generated plan beside it — the page
-                shows a drawing before it describes one. */}
-            <aside className="space-y-4">
-              <Tile tone="brand" className="p-4">
-                <dl className="m-0 space-y-3">
-                  {SPEC.map((item, i) => (
-                    <div
-                      key={item.label}
-                      className="flex animate-fade-in flex-wrap items-baseline justify-between gap-x-3 border-b border-hairline pb-2 last:border-0 last:pb-0"
-                      style={{ animationDelay: `${520 + i * 60}ms` }}
-                    >
-                      <dt className="font-mono text-micro uppercase tracking-[0.1em] text-ink-muted">{item.label}</dt>
-                      {/* Wraps rather than crowding the rule: "Karnataka / Bengaluru"
-                          is wider than the column and looked broken pinned to the edge. */}
-                      <dd className="m-0 font-mono text-[12px] tabular-nums text-ink">{item.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </Tile>
-              <Tile className="animate-blur-in overflow-hidden">
-                <ParcelPlan seed="realytica-front-door" className="h-40 w-full" />
-              </Tile>
-            </aside>
-          </div>
-
-          {/* ---------------------------------------------------- The reel */}
-          <div className="mt-14 animate-blur-in" style={{ animationDelay: '620ms' }}>
-            <ScreenReel />
-          </div>
-        </section>
-      </Band>
-
-      <StatuteTicker />
+          <p className="m-0 mt-6 animate-fade-in font-mono text-mini text-ink-muted" style={{ animationDelay: '480ms' }}>
+            Runs on the deterministic engine alone. No AI key required.
+          </p>
+        </Spread>
+      </section>
 
       {/* ---------------------------------------------------- 01 What it reads */}
-      <Band ground="surface" className="border-y border-hairline">
-        <section className="mx-auto max-w-6xl px-6 py-16">
-          <SectionHead
-            n="01"
-            title="What it reads"
-            icon={<ScrollText size={18} />}
-            note="Every figure the screen produces resolves to the document that states it. Where three sources describe one parcel, all three are quoted — and where they disagree, that disagreement is the finding."
-          />
-          <Spread
-            margin={
-              <MarginNote label="Worked example">
-                The extent of a Devanahalli site, as three instruments on the same case state it. A fourth figure that disagreed
-                by more than 2% would open an <span className="font-mono text-[12px]">area_mismatch</span>.
-              </MarginNote>
-            }
-          >
-            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_13rem]">
-              <EvidenceLedger />
-              <Tile className="overflow-hidden">
-                <ParcelPlan seed="devanahalli-specimen" className="h-full min-h-[190px] w-full" hue="cyan" />
-              </Tile>
-            </div>
-          </Spread>
-        </section>
-      </Band>
+      <SectionBand ground="surface" className="border-y border-hairline">
+      <section className="mx-auto max-w-5xl px-6 py-16">
+        <SectionHead
+          n="01"
+          title="What it reads"
+          note="Every figure the screen produces resolves to the document that states it. Where three sources describe one parcel, all three are quoted — and where they disagree, that disagreement is the finding."
+        />
+        <Spread
+          margin={
+            <MarginNote label="Worked example">
+              The extent of a Devanahalli site, as three instruments on the same case state it. A fourth figure that
+              disagreed by more than 2% would open an <span className="font-mono text-[12px]">area_mismatch</span>.
+            </MarginNote>
+          }
+        >
+          <EvidenceLedger />
+        </Spread>
+      </section>
+      </SectionBand>
 
       {/* --------------------------------------------------- 02 What it checks */}
-      <section id="checks" className="mx-auto max-w-6xl scroll-mt-16 px-6 py-16">
+      <section id="checks" className="mx-auto max-w-5xl scroll-mt-8 px-6 py-16">
         <SectionHead
           n="02"
           title="What it checks"
@@ -531,14 +358,15 @@ export default function Landing() {
         {/*
           * Name and citation only.
           *
-          * The first cut of this table printed every check's full description as
-          * well, and eleven paragraphs in a narrow column made the section three
-          * times taller than the rest of the page put together — a wall nobody
-          * would read, which is a worse outcome than saying less. A specimen
-          * shows the form of the thing, not all of it. What survives is the part
-          * a competitor cannot copy without building the pack: each check cited
-          * to the instrument it comes from. One check is set out in full in the
-          * margin so the depth is visible without the wall.
+          * The first cut of this table printed every check's full description
+          * as well, and eleven paragraphs in a narrow column made the section
+          * three times taller than the rest of the page put together — a wall
+          * nobody would read, which is a worse outcome than saying less. A
+          * specimen shows the form of the thing, not all of it. What survives
+          * is the part a competitor cannot copy without building the pack:
+          * each check cited to the instrument it comes from. One check is set
+          * out in full in the margin so the depth is visible without the
+          * wall.
           */}
         <Spread
           margin={
@@ -549,24 +377,17 @@ export default function Landing() {
             </MarginNote>
           }
         >
-          {/* The table scrolls inside its own box on a narrow screen. Eleven
-              statute citations cannot be made to fit 360px and should not
-              take the page's horizontal scroll with them. */}
           <div className="overflow-x-auto">
-          <table className="w-full min-w-[420px] border-collapse text-left">
+          <table className="w-full min-w-[380px] border-collapse text-left">
             <thead>
               <tr className="border-b border-ink/20">
-                <th className="pb-2 pr-4 font-mono text-micro font-normal uppercase tracking-[0.12em] text-ink-muted">#</th>
                 <th className="pb-2 pr-6 font-mono text-micro font-normal uppercase tracking-[0.12em] text-ink-muted">Check</th>
                 <th className="pb-2 font-mono text-micro font-normal uppercase tracking-[0.12em] text-ink-muted">Cited to</th>
               </tr>
             </thead>
             <tbody>
-              {KARNATAKA_PACK.titleChecks.map((check, i) => (
-                <tr key={check.key} className="group border-b border-hairline align-baseline transition-colors duration-quick hover:bg-brand/5">
-                  <td className="py-2.5 pr-4 font-mono text-mini tabular-nums text-ink-muted transition-colors duration-quick group-hover:text-brand">
-                    {String(i + 1).padStart(2, '0')}
-                  </td>
+              {KARNATAKA_PACK.titleChecks.map(check => (
+                <tr key={check.key} className="border-b border-hairline align-baseline transition-colors duration-quick hover:bg-sunken">
                   <td className="py-2.5 pr-6 text-[14px] text-ink">{check.label}</td>
                   <td className="py-2.5 font-mono text-mini leading-snug text-ink-muted">{statuteHead(check.statute)}</td>
                 </tr>
@@ -574,171 +395,91 @@ export default function Landing() {
             </tbody>
           </table>
           </div>
+          <p className="m-0 mt-5 max-w-[62ch] text-[13px] leading-relaxed text-ink-muted">
+            Alongside these sit {SITE_CONSTRAINT_KEYS.length} restrictions that never appear in a deed — an aerodrome
+            height cap, a transmission corridor, a highway control line — and the flood catchment the locality drains
+            through.
+          </p>
         </Spread>
       </section>
 
-      {/* ------------------------------------------ 03 Restrictions beyond title */}
-      <Band ground="sunken" className="border-y border-hairline">
-        <section className="mx-auto max-w-6xl px-6 py-16">
-          <SectionHead
-            n="03"
-            title="What never appears in the deed"
-            icon={<MapPinned size={18} />}
-            note={`${SITE_CONSTRAINT_KEYS.length} restrictions that bind the land without being written on the title — and the flood catchment the locality drains through. A clean chain of title says nothing about any of them.`}
-          />
-
-          {/*
-            * The locality sheet, at full width.
-            *
-            * The precision ring is the argument: the pin is somewhere inside
-            * that circle, not at its centre, and the circle is the size the
-            * geocoder actually reported. Every other product in this category
-            * draws a confident dot.
-            */}
-          {/*
-            * The sheet is boxed beside its caption rather than run full width
-            * with the caption over it.
-            *
-            * Full width, the container was 3.7:1 against a drawing that is
-            * 1.8:1, so `slice` cropped away the top and bottom — including the
-            * outer edge of the precision ring, which is the only thing this
-            * section is actually about. The caption was also set over the map,
-            * where a light drawing under grey type is a contrast problem no
-            * scrim really solves.
-            */}
-          <div className="mb-8 grid items-center gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-            <div className="overflow-hidden rounded-2xl ring-1 ring-[var(--ring)]">
-              <TerrainMap
-                seed="bengaluru-north-catchment"
-                precisionM={640}
-                place="Devanahalli"
-                className="aspect-[16/9] w-full"
-              />
-            </div>
-            <div>
-              <p className="m-0 font-display text-[19px] leading-snug text-ink">The ring is the precision, drawn to scale.</p>
-              <p className="m-0 mt-2.5 text-[13.5px] leading-relaxed text-ink-secondary">
-                A geocode good to 640 metres puts the parcel anywhere inside that circle. It is why nothing downstream of a
-                pin is ever treated as a boundary — not the extent, not the distance to a lake edge, not the setback.
-              </p>
-              <p className="m-0 mt-3 font-mono text-mini text-ink-muted">
-                Contours, water and roads are drawn from the case seed. The ring is the only thing on this sheet to scale.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {SITE_CONSTRAINTS.map((rule, i) => (
-              <Tile
-                key={rule.key}
-                tone={rule.severityWhenPresent === 'serious' ? 'serious' : 'warning'}
-                rail
-                className="animate-fade-in p-4"
-                style={{ animationDelay: `${i * 70}ms` }}
-              >
-                <p className="m-0 text-[13px] font-semibold leading-snug text-ink">{rule.label}</p>
-                <p className="m-0 mt-2 line-clamp-4 text-[12px] leading-relaxed text-ink-secondary">{rule.restriction}</p>
-                <p className="m-0 mt-3 font-mono text-micro leading-snug text-ink-muted">{rule.statute.split(';')[0]}</p>
-              </Tile>
-            ))}
-          </div>
-        </section>
-      </Band>
-
-      {/* ------------------------------------------------ 04 What it lets you build */}
-      <section className="mx-auto max-w-6xl px-6 py-16">
+      {/* -------------------------------------------------- 03 What it refuses */}
+      <SectionBand ground="sunken" className="border-y border-hairline">
+      <section className="mx-auto max-w-5xl px-6 py-16">
         <SectionHead
-          n="04"
-          title="What the rules let you build"
-          icon={<Layers size={18} />}
-          note="Setbacks, ground coverage, floor-area ratio and the height cap, resolved into a single solid — drawn inside the envelope they permit, so the gap between the two is visible rather than inferred."
+          n="03"
+          title="What it refuses to do"
+          note="Anything can produce a number. These are the three places where producing one would be worse than saying nothing, and they are enforced in the engine rather than promised in the copy."
         />
-        <div className="grid items-center gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <Tile tone="brand" className="overflow-hidden">
-            <MassingRender seed="devanahalli-specimen" floors={3} envelopeFloors={4} coverage={0.5} className="h-[300px] w-full" />
-          </Tile>
-          <div className="max-w-[52ch] space-y-4 text-[15px] leading-[1.7] text-ink-secondary">
-            <p className="m-0">
-              The dashed box is the ceiling — what the setbacks and the height cap allow. The solid is what the schematic yield
-              actually proposes inside it.
-            </p>
-            <p className="m-0">
-              When the two nearly touch, the site is height-constrained and there is nothing left to find. When the solid
-              rattles around inside its envelope, something else is binding — coverage, parking, a corridor — and the screen
-              names which, because the residual is capped at what is buildable rather than at what is permitted.
-            </p>
-            <p className="m-0 font-mono text-[12px] text-ink-muted">
-              A schematic massing, not an architect’s scheme. It sizes the opportunity; it does not design the building.
-            </p>
-          </div>
+        <div className="space-y-8">
+          {REFUSALS.map(item => (
+            <Spread key={item.clause} margin={<MarginNote label={`Clause ${item.clause}`}>{item.margin}</MarginNote>}>
+              <div className="flex gap-5">
+                <span className="mt-1 font-mono text-[12px] text-brand">{item.clause}</span>
+                <div className="min-w-0">
+                  <h3 className="m-0 font-display text-[19px] font-normal leading-snug text-ink">{item.title}</h3>
+                  <p className="m-0 mt-2 max-w-[62ch] text-[14px] leading-relaxed text-ink-secondary">{item.body}</p>
+                </div>
+              </div>
+            </Spread>
+          ))}
         </div>
       </section>
+      </SectionBand>
 
-      {/* -------------------------------------------------- 05 What it refuses */}
-      <Band ground="surface" field="band" className="border-y border-hairline">
-        <section id="refuses" className="mx-auto max-w-6xl scroll-mt-16 px-6 py-16">
-          <SectionHead
-            n="05"
-            title="What it refuses to do"
-            note="Anything can produce a number. These are the three places where producing one would be worse than saying nothing, and they are enforced in the engine rather than promised in the copy."
-          />
-          <div className="grid gap-4 lg:grid-cols-3">
-            {REFUSALS.map((item, i) => (
-              <Tile key={item.clause} tone={item.tone} rail className="animate-fade-in flex flex-col p-5" style={{ animationDelay: `${i * 90}ms` }}>
-                <span className="font-display text-[34px] leading-none text-brand/50">{item.clause}</span>
-                <h3 className="m-0 mt-3 font-display text-[19px] font-normal leading-snug text-ink">{item.title}</h3>
-                <p className="m-0 mt-2 flex-1 text-[13.5px] leading-relaxed text-ink-secondary">{item.body}</p>
-                <p className="m-0 mt-4 border-t border-hairline pt-3 font-mono text-mini leading-snug text-ink-muted">{item.margin}</p>
-              </Tile>
-            ))}
-          </div>
-        </section>
-      </Band>
-
-      {/* ----------------------------------------------------------- 06 Scope */}
-      <section className="mx-auto max-w-6xl px-6 py-16">
-        <SectionHead n="06" title="Scope and limitations" />
-        <Spread margin={<MarginNote label="Registries consulted">{KARNATAKA_PACK.datasets.join(' · ')}</MarginNote>}>
+      {/* ----------------------------------------------------------- 04 Scope */}
+      <section className="mx-auto max-w-5xl px-6 py-16">
+        <SectionHead n="04" title="Scope and limitations" />
+        <Spread
+          margin={
+            <MarginNote label="Registries consulted">
+              {KARNATAKA_PACK.datasets.join(' · ')}
+            </MarginNote>
+          }
+        >
           <div className="max-w-[62ch] space-y-4 text-[15px] leading-[1.7] text-ink-secondary">
             <p className="m-0">
-              A documentary property screen for Karnataka and Bengaluru, with a second pack covering the Netherlands. It reasons
-              over {KARNATAKA_PACK.datasets.length} named registries but does not query them live, and it says so wherever that
-              distinction changes what a finding means.
+              A documentary property screen for Karnataka and Bengaluru, with a second pack covering the Netherlands. It
+              reasons over {KARNATAKA_PACK.datasets.length} named registries but does not query them live, and it says
+              so wherever that distinction changes what a finding means.
             </p>
             <p className="m-0">
-              It is <span className="font-medium text-ink">not</span> a certified valuation, a legal title certificate, a formal
-              opinion, or an engineering inspection. It is the thing you do first — so that when you do pay a lawyer and a
-              surveyor, you already know what to ask them.
+              It is <span className="text-ink">not</span> a certified valuation, a legal title certificate, a formal
+              opinion, or an engineering inspection. It is the thing you do first — so that when you do pay a lawyer and
+              a surveyor, you already know what to ask them.
             </p>
           </div>
         </Spread>
       </section>
 
       {/* ------------------------------------------------------------- Close */}
-      <Band ground="ink" field="aurora" className="border-t border-hairline">
-        <section className="mx-auto max-w-6xl px-6 py-24 text-center">
-          <BrandMark size={44} className="mx-auto animate-breathe" />
-          <h2 className="mx-auto m-0 mt-6 max-w-[20ch] font-display text-[34px] font-normal leading-tight tracking-tight text-white sm:text-[46px]">
+      <SectionBand ground="brand" className="border-t border-hairline">
+      <section className="mx-auto max-w-5xl px-6 py-20">
+        <Spread
+          margin={
+            <MarginNote label="Access">
+              Sign-in is not enabled yet. The button opens the application directly.
+            </MarginNote>
+          }
+        >
+          <h2 className="m-0 max-w-[24ch] font-display text-[30px] font-normal leading-tight tracking-tight text-ink sm:text-[38px]">
             Start with a conversation, not a form.
           </h2>
-          <p className="mx-auto m-0 mt-5 max-w-[56ch] text-[15px] leading-relaxed text-white/70">
-            Describe the property in your own words and upload whatever you have. Six worked cases are already loaded if you
-            would rather read one first.
+          <p className="m-0 mt-4 max-w-[56ch] text-[15px] leading-relaxed text-ink-secondary">
+            Describe the property in your own words and upload whatever you have. Six worked cases are already loaded if
+            you would rather read one first.
           </p>
-          <Link to="/app" className={cn(CTA_CLASSES, 'mt-9')}>
+          <Link to="/app" className={cn(CTA_CLASSES, 'mt-8')}>
             Open the application
             <ArrowRight size={15} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
           </Link>
-          <p className="m-0 mt-5 font-mono text-mini uppercase tracking-[0.12em] text-white/50">
-            Sign-in is not enabled yet · the button opens the application
-          </p>
-        </section>
-      </Band>
+        </Spread>
+      </section>
+      </SectionBand>
 
       {/* --------------------------------------------------------- Colophon */}
-      <footer className="border-t border-hairline">
-        <RampRule />
-        <div className="mx-auto flex max-w-6xl flex-col gap-1 px-6 py-8 font-mono text-mini uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between">
+      <footer className="border-t border-ink/20">
+        <div className="mx-auto flex max-w-5xl flex-col gap-1 px-6 py-8 font-mono text-mini uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between">
           <span>Realytica · Engine v{ENGINE_VERSION}</span>
           <span>A screen, not a legal opinion</span>
         </div>

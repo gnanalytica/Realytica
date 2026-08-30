@@ -8,8 +8,7 @@ import {
 } from '@realytica/shared';
 import type { DdDomain, PropertyCase } from '@realytica/shared';
 import { api } from '../../../lib/api';
-import { cn, useToast } from '../../../components/ui/kit';
-import { RampRule } from '../../../components/visuals';
+import { useToast } from '../../../components/ui/kit';
 
 /**
  * The command bar — the acting half of the authorship law, given a door of
@@ -186,10 +185,7 @@ export function CommandBar({
 
   return (
     <div
-      // Blurred rather than merely dimmed. This opens over a dense working
-      // pane, and a flat 28% scrim leaves every row behind it legible enough
-      // to compete with the list you are reading.
-      className="fixed inset-0 z-50 flex items-start justify-center bg-[#0a0912]/45 px-4 pt-[16vh] backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(11,11,11,0.28)] px-4 pt-[16vh]"
       onClick={onClose}
       role="presentation"
     >
@@ -198,9 +194,8 @@ export function CommandBar({
         aria-modal="true"
         aria-label="Command bar"
         onClick={e => e.stopPropagation()}
-        className="relative w-full max-w-xl animate-scale-in overflow-hidden rounded-2xl bg-surface shadow-pop ring-1 ring-[var(--ring)]"
+        className="w-full max-w-xl overflow-hidden rounded-xl bg-surface shadow-card ring-1 ring-[var(--axis)]"
       >
-        <RampRule className="absolute inset-x-0 top-0 z-10" />
         <div className="flex items-center gap-2.5 border-b border-hairline px-4 py-3">
           <Search size={15} className="shrink-0 text-ink-muted" aria-hidden="true" />
           <input
@@ -235,12 +230,9 @@ export function CommandBar({
                   type="button"
                   onMouseEnter={() => setActive(i)}
                   onClick={() => void run(c)}
-                  className={cn(
-                    'relative flex w-full items-center gap-2.5 overflow-hidden rounded-lg px-2.5 py-2 text-left',
-                    'transition-colors duration-quick ease-state coarse:min-h-11',
-                    i === active &&
-                      'bg-brand/12 before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-r-full before:bg-ramp',
-                  )}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left ${
+                    i === active ? 'bg-brand-soft' : ''
+                  }`}
                 >
                   <span
                     className={`text-micro font-semibold uppercase tracking-[0.05em] ${

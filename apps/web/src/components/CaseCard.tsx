@@ -13,18 +13,6 @@ import {
 } from '../lib/format';
 import { api } from '../lib/api';
 import { Badge, Button, Checkbox, Modal, ProgressBar, TONE_ICON, Tile, cn, useToast } from './ui/kit';
-import { ParcelPlan, hashSeed } from './visuals';
-
-/**
- * The plan's line colour, from the case id.
- *
- * Four identity hues, chosen by hash so a grid of cases is visibly a grid of
- * different things rather than one card repeated. It is explicitly *not* the
- * verdict: verdict lives in the tile's rail and wash, and these four carry no
- * verdict anywhere in the system, so a fuchsia plan can never be read as
- * "worse" than an indigo one.
- */
-const PLAN_HUES = ['brand', 'violet', 'cyan', 'accent'] as const;
 
 export interface CaseCardProps {
   data: CaseSummary;
@@ -102,45 +90,21 @@ export default function CaseCard({ data, selected, onToggleSelect, onDeleted }: 
         tone={cardTone}
         rail
         interactive
-        className={cn('relative flex flex-col', selected && 'ring-2 ring-brand')}
+        className={cn('relative flex flex-col gap-3 p-4', selected && 'ring-2 ring-brand')}
       >
-        {/*
-          * The plot, drawn from the case id.
-          *
-          * A dashboard of a dozen cases used to be a dozen identically-shaped
-          * cards distinguished only by a line of text, so finding the one you
-          * worked on yesterday meant reading all of them. A drawing is
-          * recognised rather than read — you find your case the way you find
-          * your car in a car park — and this one is stable, because the
-          * geometry comes from the id and never changes for a given case.
-          *
-          * It is decoration derived from an identifier and is not survey data.
-          * Where a real boundary exists, the cockpit's dossier draws that.
-          */}
-        <div className="relative h-[116px] shrink-0 overflow-hidden rounded-t-xl border-b border-hairline bg-tile-sunken">
-          <ParcelPlan
-            seed={data.id}
-            detail="mark"
-            hue={PLAN_HUES[hashSeed(data.id) % PLAN_HUES.length]}
-            className="h-full w-full"
-          />
-          <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-surface/70 to-transparent" />
-          <span className="absolute left-2.5 top-2.5 rounded bg-surface/85 p-1 ring-1 ring-inset ring-[var(--ring)]">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-start gap-2">
             <Checkbox
               checked={selected}
               onChange={(next) => onToggleSelect(data.id, next)}
               label={<span className="sr-only">Select {data.reference} for comparison</span>}
             />
-          </span>
-        </div>
+            <button type="button" onClick={openCase} className="min-w-0 text-left">
+              <div className="truncate font-mono text-mini text-ink-muted">{data.reference}</div>
+              <div className="truncate text-[13px] font-semibold text-ink">{data.label}</div>
+            </button>
+          </div>
 
-        <div className="flex flex-1 flex-col gap-3 p-4">
-        <button type="button" onClick={openCase} className="min-w-0 text-left">
-          <div className="truncate font-mono text-mini text-ink-muted">{data.reference}</div>
-          <div className="truncate text-[13px] font-semibold text-ink">{data.label}</div>
-        </button>
-
-        <div className="absolute right-2.5 top-2.5 z-10">
           <div className="relative shrink-0" ref={menuRef}>
             <button
               type="button"
@@ -148,7 +112,7 @@ export default function CaseCard({ data, selected, onToggleSelect, onDeleted }: 
               aria-label={`Actions for ${data.reference}`}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              className="rounded-md bg-surface/85 p-1 text-ink-muted ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken hover:text-ink"
+              className="rounded-md p-1 text-ink-muted hover:bg-sunken hover:text-ink"
             >
               <MoreVertical size={15} />
             </button>
@@ -246,7 +210,6 @@ export default function CaseCard({ data, selected, onToggleSelect, onDeleted }: 
             {data.documentCount} document{data.documentCount === 1 ? '' : 's'}
           </span>
           <span>Updated {relativeTime(data.updatedAt)}</span>
-        </div>
         </div>
       </Tile>
 

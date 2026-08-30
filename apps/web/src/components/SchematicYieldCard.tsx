@@ -6,7 +6,6 @@ import { formatArea, useAreaUnitFor } from '../lib/units';
 import type { CountryCode } from '@realytica/shared';
 import { SplitProse } from './ui/prose';
 import { ParkingMeterChart, YieldFunnelChart } from './charts';
-import { MassingRender } from './visuals';
 
 /**
  * What this site can hold, at a first pass.
@@ -26,17 +25,6 @@ export function SchematicYieldCard({ yieldResult, country }: { yieldResult: Sche
   const y = yieldResult;
   const unit = useAreaUnitFor(country);
   const area = (sqm: number) => formatArea(sqm, unit);
-
-  /*
-   * The plot area, recovered from the coverage rule.
-   *
-   * `SchematicYield` does not carry the plot area directly, but
-   * `coverageFootprintSqm` is by definition the plot times the coverage
-   * percentage, so the plot is the one divided by the other. Guarded because a
-   * zero coverage percentage would divide by zero and a coverage rule of zero
-   * is not something to draw a building for.
-   */
-  const plotSqm = y.groundCoveragePct > 0 ? (y.coverageFootprintSqm * 100) / y.groundCoveragePct : 0;
 
   const capped = y.bindingConstraint === 'road_width';
   const unknown = y.bindingConstraint === 'unknown';
@@ -107,35 +95,6 @@ export function SchematicYieldCard({ yieldResult, country }: { yieldResult: Sche
             {area(y.footprintSqm)} plate
           </p>
         </div>
-
-        {/*
-          * The same three numbers as a solid.
-          *
-          * The funnel above shows where the area is lost; it cannot show what
-          * is left standing on the plot, and "a 268 m² plate across 4 floors"
-          * is a spatial fact delivered as arithmetic. Both are drawn from the
-          * same result — floors from `floorsImplied`, the plan ratio from the
-          * footprint against the plot the coverage rule implies — so the
-          * picture cannot drift from the figures.
-          *
-          * It is a massing, not a plan: the card already says the footprint
-          * assumes a square plot, and the drawing assumes the same square, so
-          * it inherits that caveat rather than adding a new one.
-          */}
-        {plotSqm > 0 && y.floorPlateViable ? (
-          <div className="border-t border-hairline pt-3">
-            <p className="m-0 mb-1 text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">Massed on the plot</p>
-            <MassingRender
-              seed={`yield-${y.floorsImplied}-${Math.round(y.footprintSqm)}`}
-              floors={Math.max(1, y.floorsImplied)}
-              coverage={Math.min(0.92, y.footprintSqm / plotSqm)}
-              className="h-[220px] w-full"
-            />
-            <p className="m-0 text-center text-mini text-ink-muted">
-              Schematic massing on an assumed square plot. Not a site plan, and not a scheme.
-            </p>
-          </div>
-        ) : null}
 
         {/*
          * Parking, as a stack rather than two numbers.

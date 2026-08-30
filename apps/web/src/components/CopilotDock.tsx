@@ -6,7 +6,6 @@ import { useAsync } from '../lib/useAsync';
 import { agentAvailable } from '../lib/agent-availability';
 import { CopilotPanel } from './CopilotPanel';
 import { Button, cn } from './ui/kit';
-import { AmbientField } from './visuals';
 
 /**
  * The copilot, docked beside whatever the analyst is looking at.
@@ -86,27 +85,11 @@ export function CopilotDock({
   }
 
   return (
-    /*
-      * The copilot gets a ground of its own.
-      *
-      * It sits beside a dense working pane and is the same surface colour as
-      * everything else, so the boundary between "what I am reading" and "what
-      * I am asking about it" was a single hairline. A very low ambient field
-      * gives the column its own air without borrowing a tone that means
-      * something — the four identity colours carry no verdict.
-      */
-    <aside
-      className={cn('relative isolate w-[22rem] shrink-0 flex-col gap-3 border-l border-hairline p-4', className)}
-      aria-label="Copilot"
-    >
-      <AmbientField variant="band" className="-z-10" intensity={0.4} />
+    <aside className={cn('w-[22rem] shrink-0 flex-col gap-3 border-l border-hairline p-4', className)} aria-label="Copilot">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-[13px] font-semibold text-ink">
-            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-brand/12 text-brand">
-              <MessageSquare size={12} />
-            </span>
-            Copilot
+            <MessageSquare size={14} /> Copilot
           </div>
           {/* The one line that makes this pane different from the chat tab:
               it says what "here" will mean in the next question. */}

@@ -249,10 +249,8 @@ realytica/
 │   └── web/                 @realytica/web  — Vite + React + Tailwind
 │       └── src/
 │           ├── components/  UI kit, layout, hand-written SVG charts
-│           │   └── visuals/ generated artwork — parcel plans, locality
-│           │                sheets, massing renders, the front-door reel
 │           ├── lib/         API client, formatters, theme tokens
-│           └── pages/       dashboard · new case · case cockpit · compare · about
+│           └── pages/       dashboard · new case · case workspace · compare · about
 ├── packages/
 │   ├── agents/              @realytica/agents — the agentic layer (optional)
 │   │   └── src/
