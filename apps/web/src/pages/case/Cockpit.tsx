@@ -592,6 +592,7 @@ export default function Cockpit() {
               appliedByTurn={appliedByTurn}
               steps={steps}
               onOpenCommands={() => setCommandOpen(true)}
+              caseData={caseData}
               conversation={caseData.intelligence?.conversation ?? []}
               evidence={caseData.result?.evidence ?? []}
               suggestions={canAnswer === false ? [] : suggestions}
