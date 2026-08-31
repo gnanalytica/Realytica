@@ -1,13 +1,14 @@
 /**
- * Project cockpit — chat, commands, and the orchestrator on DdProject.
+ * Project cockpit — chat, commands, agents, and the orchestrator on DdProject.
  *
- * Manual-first: every command and the default briefing run with no model.
- * A configured model may paraphrase the same register briefing; it never
- * writes a finding, risk, or action. Those stay propose-and-review.
+ * Person-authored commands (approve, set owner, close this action) stay
+ * deterministic. Questions and "help me" run through the project copilot when
+ * a model is configured. Model conclusions stay propose-and-review.
  */
 
 import { LIFECYCLE_STAGE_LABEL } from './catalogs';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
+import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
 import { assessmentProgress, ensureProjectShape, patchRecordStatus, recommendedDdTypes } from './operations';
 import type {
   ActionRecord,
@@ -40,16 +41,23 @@ import {
   wantsScopes,
   wantsWizard,
 } from './wizard';
-import { handleChatSides } from './chat-sides';
+import { detectChatSideIntents, handleChatSides } from './chat-sides';
 
 export const PROJECT_COCKPIT_PANES = [
-  'work',
-  'graph',
-  'actions',
-  'orchestrate',
-  'drafts',
+  'overview',
+  'assets',
+  'dd',
+  'scope',
   'evidence',
+  'findings',
+  'risks',
+  'actions',
+  'decisions',
+  'reports',
   'valuation',
+  'graph',
+  'drafts',
+  'orchestrate',
 ] as const;
 
 export type ProjectCockpitPane = (typeof PROJECT_COCKPIT_PANES)[number];
@@ -58,9 +66,74 @@ export function paneForProposalKind(kind: ChatProposalKind): ProjectCockpitPane 
   if (kind === 'file_evidence') return 'evidence';
   if (kind === 'request_evidence' || kind === 'add_action' || kind === 'open_connector') return 'actions';
   if (kind === 'run_valuation') return 'valuation';
+  if (kind === 'run_screen') return 'overview';
   if (kind === 'commit_draft') return 'drafts';
   if (kind === 'snapshot_capabilities') return 'orchestrate';
-  return 'work';
+  if (kind === 'start_dd' || kind === 'add_scope') return 'dd';
+  if (kind === 'add_asset' || kind === 'patch_asset') return 'assets';
+  if (kind === 'add_finding') return 'findings';
+  if (kind === 'add_risk') return 'risks';
+  if (kind === 'add_decision') return 'decisions';
+  if (kind === 'generate_report') return 'reports';
+  return 'overview';
+}
+
+export function cockpitPath(
+  projectId: string,
+  pane: ProjectCockpitPane,
+  extra?: { ddId?: string; scopeId?: string; node?: string },
+): string {
+  const base = `/projects/${projectId}`;
+  switch (pane) {
+    case 'overview':
+      return base;
+    case 'assets':
+      return `${base}/assets`;
+    case 'dd':
+      return extra?.ddId ? `${base}/dd/${extra.ddId}` : `${base}/dd`;
+    case 'scope':
+      return extra?.ddId && extra?.scopeId
+        ? `${base}/dd/${extra.ddId}/scopes/${extra.scopeId}`
+        : extra?.ddId
+          ? `${base}/dd/${extra.ddId}`
+          : `${base}/dd`;
+    case 'evidence':
+      return `${base}/evidence`;
+    case 'findings':
+      return `${base}/findings`;
+    case 'risks':
+    case 'actions':
+      return `${base}/risks`;
+    case 'decisions':
+      return `${base}/decisions`;
+    case 'reports':
+      return `${base}/reports`;
+    case 'valuation':
+      return `${base}/valuation`;
+    case 'graph':
+      return extra?.node ? `${base}/graph?node=${encodeURIComponent(extra.node)}` : `${base}/graph`;
+    case 'drafts':
+      return `${base}/ai`;
+    case 'orchestrate':
+      return `${base}/orchestrate`;
+  }
+}
+
+export function paneFromProjectPath(pathname: string): ProjectCockpitPane {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'projects' || !parts[1]) return 'overview';
+  const rest = parts.slice(2);
+  const tab = rest[0];
+  if (!tab || tab === 'cockpit') return 'overview';
+  if (tab === 'dd' && rest[2] === 'scopes') return 'scope';
+  if (tab === 'dd') return 'dd';
+  if (tab === 'ai') return 'drafts';
+  if ((PROJECT_COCKPIT_PANES as readonly string[]).includes(tab)) return tab as ProjectCockpitPane;
+  return 'overview';
+}
+
+export function isProjectCockpitPane(value: string | null | undefined): value is ProjectCockpitPane {
+  return Boolean(value && (PROJECT_COCKPIT_PANES as readonly string[]).includes(value));
 }
 
 function nowIso(): string {
@@ -98,11 +171,97 @@ const NAV_RULES: Array<{ pane: ProjectCockpitPane; test: (q: string) => boolean 
   { pane: 'evidence', test: (q) => /\bevidence\b|\bdocuments?\b|\bfiles?\b|\bgaps?\b/.test(q) },
   { pane: 'valuation', test: (q) => /\bvaluations?\b|\bworth\b|\bindicated value\b|\bindicative value\b/.test(q) },
   { pane: 'orchestrate', test: (q) => /\borchestrat/.test(q) },
-  { pane: 'work', test: (q) => /\bwork\b|\bdue diligence\b|\bdd\b|\bchecks?\b|\bassessments?\b|\bfindings?\b/.test(q) },
+  { pane: 'findings', test: (q) => /\bfindings?\b/.test(q) },
+  { pane: 'risks', test: (q) => /\brisks?\b/.test(q) },
+  { pane: 'decisions', test: (q) => /\bdecisions?\b/.test(q) },
+  { pane: 'reports', test: (q) => /\breports?\b/.test(q) },
+  { pane: 'assets', test: (q) => /\bassets?\b|\btowers?\b/.test(q) },
+  { pane: 'dd', test: (q) => /\bdue diligence\b|\bdd\b|\bchecks?\b|\bassessments?\b|\bscopes?\b/.test(q) },
+  { pane: 'overview', test: (q) => /\boverview\b|\bwork\b|\bbriefing\b/.test(q) },
 ];
 
 function wantsNavigate(q: string): boolean {
   return /^(open|show|go to|switch to|take me|see|view)\b/.test(q) || /\b(pane|register|canvas)\b/.test(q);
+}
+
+function wantsPersonCapability(q: string): boolean {
+  const ql = q.toLowerCase();
+  if (/\borchestrat/.test(ql) && !/^(open|show|go to|switch to|see|view)\b/.test(ql)) return true;
+  if (/\b(run|compute|start)\b/.test(ql) && /\bvaluat/.test(ql)) return true;
+  if (/\bpropose\b/.test(ql) && /\bdrafts?\b/.test(ql)) return true;
+  if (wantsProjectScreen(q)) return true;
+  return false;
+}
+
+/**
+ * Person-authored commands and facts stay on the deterministic wizard.
+ * Questions, "guide me", and "what should we do" go to the project copilot
+ * when a model is configured.
+ */
+export function wantsDeterministicProjectChat(
+  project: DdProject,
+  question: string,
+  options: { ingest?: ChatIngestFile[] } = {},
+): boolean {
+  if (options.ingest?.length) return true;
+  const q = question.trim();
+  const ql = q.toLowerCase();
+  if (!q) return true;
+  if (wantsApprove(ql) || wantsReject(ql)) return true;
+  if (startDdFromQuestion(project, q, 'probe')) return true;
+  const interpreted = interpretConversation(project, q, 'probe');
+  if (interpreted.imperative && interpreted.proposals.length) return true;
+  if (/\b(close|complete|done|finish)\b/.test(ql) && /\baction\b/.test(ql)) return true;
+  if (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql)) return true;
+  if (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql) && !wantsApprove(ql)) return true;
+  if (detectChatSideIntents(q).length) return true;
+  if (wantsPersonCapability(q)) return true;
+  if (wantsNavigate(ql) || NAV_RULES.some((r) => r.test(ql) && /^(open|show|go to|switch to|take me|see|view)\b/.test(ql))) {
+    return true;
+  }
+  return false;
+}
+
+export function applyProjectAgentTurn(
+  project: DdProject,
+  question: string,
+  agent: {
+    text: string;
+    proposals: ChatProposal[];
+    navigations: { target: string }[];
+    toolCalls?: ProjectChatTurn['toolCalls'];
+    citedEvidenceIds?: string[];
+    citedNodeIds?: string[];
+  },
+): ProjectChatResult {
+  ensureProjectShape(project);
+  const userTurn = turn('user', question.trim());
+  const offered: ChatProposal[] = [];
+  const openTitles = new Set(project.chatProposals.filter((p) => p.status === 'proposed').map((p) => p.title));
+  for (const item of agent.proposals) {
+    if (openTitles.has(item.title)) continue;
+    project.chatProposals.push(item);
+    offered.push(item);
+    openTitles.add(item.title);
+  }
+  const highlightIds = [
+    ...new Set(offered.flatMap((p) => [...(p.citedNodeIds ?? []), ...(p.citedEvidenceIds ?? [])])),
+  ];
+  const assistantTurn = turn('assistant', agent.text, {
+    citedEvidenceIds: [...new Set(agent.citedEvidenceIds ?? [])],
+    citedNodeIds: agent.citedNodeIds ? [...new Set(agent.citedNodeIds)] : undefined,
+    toolCalls: agent.toolCalls,
+    proposalIds: offered.map((p) => p.id),
+  });
+  appendTurns(project, userTurn, assistantTurn);
+  return {
+    userTurn,
+    assistantTurn,
+    commands: [],
+    navigations: agent.navigations,
+    proposals: offered,
+    highlightIds,
+  };
 }
 
 function quotedNeedle(question: string): string | null {
@@ -281,7 +440,7 @@ export function applyProjectChat(
   const isShow = wantsNavigate(ql);
   const runOrchestrate = /\borchestrat/.test(ql) && !/^(open|show|go to|switch to|see|view)\b/.test(ql);
   const proposeDrafts = /\bpropose\b/.test(ql) && /\bdrafts?\b/.test(ql);
-  const runValuation = /\b(run|compute|start)\b/.test(ql) && /\bvaluat/.test(ql);
+  const runValuation = /\b(run|compute|start)\b/.test(ql) && /\bvaluat/.test(ql) && !wantsProjectScreen(q);
   const ingest = options.ingest ?? [];
 
   if (ingest.length) {
@@ -349,7 +508,7 @@ export function applyProjectChat(
       offer([startDd]);
       const committed = commitChatProposal(project, startDd.id, actor);
       commands.push(`Started ${startDd.title}`);
-      navigate('work', 'Opened work');
+      navigate('dd', 'Opened assessments');
       assistantText = `${startDd.title} is now on the project.\n${startDd.impact}\nScopes and expected evidence have been instantiated.`;
       citedNodeIds = committed.recordId ? [committed.recordId] : undefined;
       if (committed.recordId) highlightIds.push(committed.recordId);
@@ -404,6 +563,19 @@ export function applyProjectChat(
     navigate('drafts', 'Proposed drafts from registers');
     assistantText = `${drafts.length} draft(s) proposed from live registers. Nothing writes a finding, risk or action until a person reviews and commits.`;
     toolCalls = [{ name: 'propose_drafts', summary: `Proposed ${drafts.length} draft(s)` }];
+  } else if (wantsProjectScreen(q)) {
+    const card = proposeProjectScreen(project, actor);
+    const cards = offer([card]);
+    assistantText = cards.length
+      ? [
+          'A property screen treats this project as the site and your evidence as the papers.',
+          'Approve the card to write findings, risks, actions, gaps, an indicative valuation and a proposed pursue/don’t decision into the same registers. Nothing is a certified value.',
+          `• ${card.title}`,
+          `  ${card.rationale}`,
+        ].join('\n')
+      : 'A property-screen card is already open — approve or skip it.';
+    toolCalls = [{ name: 'screen', summary: 'Proposed property screen' }];
+    navigate('overview', 'Opened overview');
   } else if (runValuation) {
     const val = createValuationRun(project, actor);
     navigate('valuation', 'Ran indicative valuation');
@@ -427,7 +599,7 @@ export function applyProjectChat(
     const hit = matchTitle(openFindings(), q) as FindingRecord | undefined;
     if (hit) {
       patchRecordStatus(project, project.findings, hit.id, 'closed', 'finding', actor);
-      navigate('work', `Closed finding “${hit.title}”`);
+      navigate('findings', `Closed finding “${hit.title}”`);
       assistantText = `Closed finding “${hit.title}”.`;
       toolCalls = [{ name: 'patch_finding', summary: `Closed ${hit.title}` }];
       citedNodeIds = [hit.id];
@@ -440,7 +612,7 @@ export function applyProjectChat(
     if (hit) {
       const next = /\baccept/.test(ql) ? 'accepted' : 'mitigated';
       patchRecordStatus(project, project.risks, hit.id, next, 'risk', actor);
-      navigate('work', `Marked risk “${hit.title}” ${next}`);
+      navigate('risks', `Marked risk “${hit.title}” ${next}`);
       assistantText = `Marked risk “${hit.title}” ${next}.`;
       toolCalls = [{ name: 'patch_risk', summary: `${next} ${hit.title}` }];
       citedNodeIds = [hit.id];
@@ -449,7 +621,7 @@ export function applyProjectChat(
       assistantText = 'No matching open risk. Quote the title from the register.';
     }
   } else if (isShow || NAV_RULES.some((r) => r.test(ql) && /^(open|show|go to|switch to|take me|see|view)\b/.test(ql))) {
-    const pane = NAV_RULES.find((r) => r.test(ql))?.pane ?? 'work';
+    const pane = NAV_RULES.find((r) => r.test(ql))?.pane ?? 'overview';
     navigate(pane, `Opened ${pane}`);
     const brief = briefingAnswer(project, options.viewContext);
     assistantText = `Opening the ${pane} pane.\n\n${brief.text}`;
@@ -496,7 +668,7 @@ export function applyProjectChat(
     citedEvidenceIds = guide.citedEvidenceIds;
     citedNodeIds = [...guide.citedNodeIds, ...cards.flatMap((p) => p.citedNodeIds ?? [])];
     toolCalls = [{ name: 'wizard', summary: `${cards.length} proposal(s)` }];
-    if (wantsReport(ql)) navigate('work', 'Opened work');
+    if (wantsReport(ql)) navigate('reports', 'Opened reports');
     }
     }
     }

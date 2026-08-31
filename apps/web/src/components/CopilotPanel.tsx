@@ -45,7 +45,7 @@ function TurnBubble({
   // show only what it did not.
   const inlineEvidence = new Set(Array.from(turn.text.matchAll(/\[ev:([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/g), m => m[1]));
   const uncited = turn.citedEvidenceIds.filter(id => !inlineEvidence.has(id));
-  const uncitedNodes = (turn.citedNodeIds ?? []).filter(id => !turn.text.includes(`[${id}]`));
+  const uncitedNodes = Array.from(new Set((turn.citedNodeIds ?? []).filter(id => !turn.text.includes(`[${id}]`))));
   const consulted = Array.from(new Set((turn.toolCalls ?? []).map(t => t.summary.trim()).filter(Boolean)));
   const nodeLabel = (id: string): string => {
     const found = (nodes ?? []).find(n => n.id === id);
@@ -297,6 +297,7 @@ export function CopilotPanel({
   placeholder,
   allowAttach,
   renderTurnExtras,
+  compact,
 }: {
   conversation: CopilotTurn[];
   evidence: EvidenceItem[];
@@ -351,6 +352,8 @@ export function CopilotPanel({
   placeholder?: string;
   allowAttach?: boolean;
   renderTurnExtras?: (turn: CopilotTurn) => ReactNode;
+  /** Phone cockpit: hide extra chips, icon-only send, tighter spacing. */
+  compact?: boolean;
 }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -419,7 +422,7 @@ export function CopilotPanel({
   const showEmptyState = conversation.length === 0 && !busy;
 
   return (
-    <div className={cn('flex flex-col gap-3', fill && 'h-full min-h-0')}>
+    <div className={cn('flex flex-col', compact ? 'gap-2' : 'gap-3', fill && 'h-full min-h-0')}>
       {/*
         The unavailable notice moved DOWN, to the composer.
         
@@ -449,7 +452,7 @@ export function CopilotPanel({
             actually holds — so this is the shortest description of the file
             anybody gets, as well as the way in.
           */
-          <div className="flex flex-1 flex-col justify-center gap-3 py-6">
+          <div className={cn('flex flex-1 flex-col justify-center gap-3', compact ? 'py-3' : 'py-6')}>
             <div className="flex items-center gap-2.5">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand">
                 <Sparkles size={14} />
@@ -463,7 +466,7 @@ export function CopilotPanel({
             </div>
             {suggestions.length > 0 ? (
               <div className="flex flex-col gap-1.5">
-                {suggestions.map((s) => (
+                {(compact ? suggestions.slice(0, 3) : suggestions).map((s) => (
                   <button
                     key={s}
                     type="button"
@@ -513,7 +516,7 @@ export function CopilotPanel({
         )}
       </div>
 
-      {!showEmptyState && suggestions.length > 0 ? (
+      {!compact && !showEmptyState && suggestions.length > 0 ? (
         <div className="flex flex-wrap gap-1.5 border-t border-hairline pt-2">
           {suggestions.map((s) => (
             <SuggestionChip key={s} text={s} disabled={disabled || busy} onClick={() => void submit(s)} />
@@ -586,7 +589,10 @@ export function CopilotPanel({
           disabled={disabled || busy}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          className="max-h-[9rem] min-h-0 flex-1 resize-none py-2"
+          className={cn(
+            'max-h-[9rem] min-h-0 flex-1 resize-none py-2',
+            compact && 'min-h-11',
+          )}
           ref={composerRef}
         />
         <Button
@@ -595,8 +601,9 @@ export function CopilotPanel({
           disabled={disabled || busy || (!text.trim() && files.length === 0)}
           loading={busy}
           icon={<ArrowUp size={14} />}
+          aria-label="Ask"
         >
-          Ask
+          {compact ? null : 'Ask'}
         </Button>
         {onClear && conversation.length > 0 ? (
           <Button

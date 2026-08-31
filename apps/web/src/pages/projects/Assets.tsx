@@ -72,8 +72,8 @@ export default function Assets() {
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
             {tree.map((asset) => (
-              <div key={asset.id} className="flex items-center justify-between gap-3 px-4 py-3" style={{ paddingLeft: 16 + asset.depth * 20 }}>
-                <div>
+              <div key={asset.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3" style={{ paddingLeft: 16 + Math.min(asset.depth, 2) * 16 }}>
+                <div className="min-w-0">
                   <p className="text-[13px] font-medium text-ink">{asset.name}</p>
                   <p className="text-[12px] text-ink-secondary">
                     {asset.assetType}

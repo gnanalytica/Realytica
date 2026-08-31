@@ -216,8 +216,8 @@ export function ProjectGraphCanvas({
       <p className="shrink-0 font-mono text-[11px] text-ink-muted">
         {graph.nodes.length} nodes · {graph.edges.length} links · pan, scroll to zoom
       </p>
-      <div className={cn('grid min-h-0 flex-1 gap-3', selected ? 'lg:grid-cols-[1fr,260px]' : 'grid-cols-1')}>
-        <div ref={boxRef} className="relative min-h-[22rem]">
+      <div className={cn('grid min-h-0 min-w-0 flex-1 gap-3', selected ? 'lg:grid-cols-[minmax(0,1fr),min(260px,32%)]' : 'grid-cols-1')}>
+        <div ref={boxRef} className="relative min-h-[12rem] min-w-0 flex-1">
           <div
             ref={viewportRef}
             role="group"
@@ -350,7 +350,7 @@ export function ProjectGraphCanvas({
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => zoomByCentre(1.25)}
                 disabled={view.k >= MAX_ZOOM - 1e-6}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-ink-secondary hover:bg-sunken disabled:opacity-40"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-ink-secondary hover:bg-sunken disabled:opacity-40 coarse:h-11 coarse:w-11"
               >
                 <Plus size={14} />
               </button>
@@ -360,7 +360,7 @@ export function ProjectGraphCanvas({
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => zoomByCentre(1 / 1.25)}
                 disabled={view.k <= MIN_ZOOM + 1e-6}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-ink-secondary hover:bg-sunken disabled:opacity-40"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-ink-secondary hover:bg-sunken disabled:opacity-40 coarse:h-11 coarse:w-11"
               >
                 <Minus size={14} />
               </button>
@@ -369,7 +369,7 @@ export function ProjectGraphCanvas({
                 aria-label="Fit to view"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={fit}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-ink-secondary hover:bg-sunken"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-ink-secondary hover:bg-sunken coarse:h-11 coarse:w-11"
               >
                 <Maximize2 size={13} />
               </button>
@@ -377,7 +377,7 @@ export function ProjectGraphCanvas({
           </div>
         </div>
         {selected ? (
-          <aside className="overflow-y-auto rounded-xl bg-surface p-3 ring-1 ring-[var(--ring)]">
+          <aside className="max-h-48 overflow-y-auto rounded-xl bg-surface p-3 ring-1 ring-[var(--ring)] lg:max-h-none">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <Badge>{KIND_LABEL[selected.kind]}</Badge>

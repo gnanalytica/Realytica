@@ -59,10 +59,10 @@ export default function DdWorkspace() {
         </div>
         <div className="flex items-center gap-2">
           <Badge>{ASSESSMENT_STATUS_LABEL[assessment.status]}</Badge>
-          <Select
+            <Select
             value={assessment.status}
             onChange={(e) => void setStatus(e.target.value as AssessmentStatus)}
-            className="w-40"
+            className="w-full sm:w-40"
           >
             {(['draft', 'active', 'in_review', 'completed', 'archived'] as AssessmentStatus[]).map((s) => (
               <option key={s} value={s}>{ASSESSMENT_STATUS_LABEL[s]}</option>

@@ -96,9 +96,6 @@ export default function Diligence() {
           DD types are templates, not app tabs. Several assessments can run at once against different targets.
         </p>
         <div className="flex flex-wrap gap-2">
-          <Link to="../cockpit" className="inline-flex items-center rounded-lg px-3 py-1.5 text-[13px] font-medium text-brand hover:underline">
-            Open cockpit
-          </Link>
           <Button onClick={() => setOpen(true)}>Start DD</Button>
         </div>
       </div>

@@ -86,7 +86,7 @@ export function RisksActions() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <Button variant="ghost" onClick={() => setActionOpen(true)}>Add action</Button>
         <Button onClick={() => setRiskOpen(true)}>Add risk</Button>
       </div>

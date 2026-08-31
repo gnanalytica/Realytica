@@ -15,10 +15,13 @@ export * from './client';
 export * from './context';
 export * from './tools/case-tools';
 export * from './tools/command-tools';
+export * from './tools/project-tools';
 
 export * from './agents/document-intelligence';
 export * from './agents/proof-pathways';
 export * from './agents/copilot';
+export * from './agents/project-copilot';
+export * from './agents/project-orchestrator';
 export * from './agents/market-research';
 export * from './agents/diligence-planner';
 export * from './agents/explorer';

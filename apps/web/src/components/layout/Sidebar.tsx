@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronsLeft, ChevronsRight, BookOpen, FolderTree, Gauge, GitCompare, Info, LayoutDashboard, ScrollText, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, BookOpen, FolderTree, Gauge, Info, ScrollText, X } from 'lucide-react';
 import { cn } from '../ui/kit';
 
 export interface SidebarProps {
@@ -23,8 +23,6 @@ const PROJECT_ITEMS: NavItem[] = [
 ];
 
 const MORE_ITEMS: NavItem[] = [
-  { to: '/cases', label: 'Property cases', icon: LayoutDashboard, end: false },
-  { to: '/compare', label: 'Compare', icon: GitCompare, end: false },
   { to: '/observability', label: 'AI activity', icon: Gauge, end: false },
   { to: '/prompts', label: 'AI instructions', icon: ScrollText, end: false },
   { to: '/about', label: 'About', icon: Info, end: false },

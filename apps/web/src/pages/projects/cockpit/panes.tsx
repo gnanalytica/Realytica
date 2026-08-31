@@ -80,6 +80,20 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
         </p>
       </div>
 
+      {project.lastScreen ? (
+        <LiveRow id={`${project.id}:screen`} highlightIds={highlightIds}>
+          <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Property screen</p>
+          <p className="mt-2 text-[13px] font-medium text-ink">{project.lastScreen.headline}</p>
+          <p className="mt-1 text-[12.5px] text-ink-secondary">
+            {project.lastScreen.verdict.replaceAll('_', ' ')}
+            {project.lastScreen.indicatedMid != null
+              ? ` · ${project.lastScreen.currency ?? project.currency} ${Math.round(project.lastScreen.indicatedMid).toLocaleString()}`
+              : ''}
+            {project.lastScreen.completenessScore != null ? ` · completeness ${project.lastScreen.completenessScore}` : ''}
+          </p>
+        </LiveRow>
+      ) : null}
+
       <LiveRow id={project.id} highlightIds={highlightIds}>
         <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Project</p>
         <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[12.5px]">
@@ -241,7 +255,7 @@ export function GraphPane({
   onSelect?: (id: string | null) => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col p-4">
+    <div className="flex h-full min-h-0 flex-col p-3 sm:p-4">
       <h2 className="mb-2 shrink-0 text-[15px] font-semibold text-ink">Knowledge graph</h2>
       <ProjectGraphCanvas project={project} focusId={focusId} onSelect={onSelect} />
     </div>
@@ -323,12 +337,12 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
     }
   }
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-[15px] font-semibold text-ink">Orchestrator</h2>
           <p className="mt-1 max-w-[52ch] text-[12.5px] text-ink-secondary">
-            Plans the next DD move from live registers. It proposes drafts; it does not start a model run or write findings.
+            Plans the next DD move from live registers, then a planner agent can add cards. It proposes; it does not write findings.
           </p>
         </div>
         <Button onClick={() => void run()}>Run orchestrator</Button>
@@ -484,6 +498,15 @@ export function ValuationPane({ project, onChanged }: { project: DdProject; onCh
       toast(e instanceof Error ? e.message : 'Could not run valuation', 'critical');
     }
   }
+  async function screen() {
+    try {
+      await api.runProjectScreen(project.id);
+      await onChanged();
+      toast('Property screen wrote into registers', 'good');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not run property screen', 'critical');
+    }
+  }
   return (
     <div className="space-y-4 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -491,8 +514,18 @@ export function ValuationPane({ project, onChanged }: { project: DdProject; onCh
           <h2 className="text-[15px] font-semibold text-ink">Valuation</h2>
           <p className="mt-1 text-[12.5px] text-ink-secondary">Indicative only. Not a certified IBBI certificate.</p>
         </div>
-        <Button onClick={() => void run()}>Run indicative valuation</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => void screen()}>
+            Run property screen
+          </Button>
+          <Button onClick={() => void run()}>Run indicative valuation</Button>
+        </div>
       </div>
+      {project.lastScreen ? (
+        <Callout tone="neutral" title={project.lastScreen.verdict.replaceAll('_', ' ')}>
+          {project.lastScreen.headline}
+        </Callout>
+      ) : null}
       {latest ? (
         <div className="rounded-lg border border-hairline p-3">
           <p className="text-[18px] font-semibold tabular-nums text-ink">

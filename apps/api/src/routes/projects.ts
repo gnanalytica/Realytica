@@ -37,20 +37,26 @@ import {
   toProjectSummary,
   updateEvidenceStatus,
   applyProjectChat,
+  applyProjectAgentTurn,
   clearProjectConversation,
   extractReadableExcerpt,
   projectRegisterBriefing,
+  projectToIdentity,
   renderProjectGuide,
+  screenProject,
+  wantsDeterministicProjectChat,
   type ChatIngestFile,
   type DdProject,
   type ProjectChatResult,
 } from '@realytica/shared';
-import { agentCapability, resolveRoute, textOf } from '@realytica/agents';
+import { agentCapability, resolveRoute, runProjectCopilot, runProjectOrchestratorAgent, textOf } from '@realytica/agents';
 import { gatherChatSides } from '../project-chat-sides';
+import { ensureIdentitySiteContext } from '../site-context';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { UPLOAD_LIMITS } from './documents';
+import { projectSiteContextRouter } from './site-context';
 import {
   changeStageBodySchema,
   createActionBodySchema,
@@ -107,6 +113,7 @@ librariesRouter.get('/', (_req, res) => {
 });
 
 export const projectsRouter = Router();
+projectsRouter.use('/:projectId/site-context', projectSiteContextRouter);
 
 projectsRouter.get('/', (_req, res) => {
   const summaries = projects().map(toProjectSummary).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -169,6 +176,20 @@ projectsRouter.get('/:projectId/graph', (req, res) => {
   }
   refreshProjectDerived(project);
   res.json(buildProjectGraph(project));
+});
+
+projectsRouter.post('/:projectId/screen', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const actor = actorOf(req.body as { actor?: string } | undefined);
+  const now = new Date().toISOString();
+  const site = await ensureIdentitySiteContext(project, projectToIdentity(project), now);
+  const applied = screenProject(project, actor, now, site);
+  await store.save();
+  res.status(201).json({ snapshot: applied.snapshot, valuationId: applied.valuationId, project });
 });
 
 projectsRouter.post('/:projectId/valuation', async (req, res) => {
@@ -267,6 +288,9 @@ function skipLlmForChat(result: ProjectChatResult): boolean {
     || names.has('locality')
     || names.has('capabilities')
     || names.has('commit_draft')
+    || names.has('screen')
+    || names.has('orchestrate')
+    || names.has('project_copilot')
   );
 }
 
@@ -282,19 +306,43 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     return;
   }
   refreshProjectDerived(project);
+  const question = parsed.data.question;
+  const actor = actorOf(parsed.data);
+  const capability = agentCapability();
+  const deterministic = wantsDeterministicProjectChat(project, question);
+
+  if (!deterministic && capability.available) {
+    try {
+      const agent = await runProjectCopilot({
+        project,
+        question,
+        actor,
+        viewContext: parsed.data.viewContext,
+        history: project.conversation,
+      });
+      if (agent.text && !agent.text.startsWith('The project copilot is unavailable') && !agent.text.startsWith('No model endpoint')) {
+        const result = applyProjectAgentTurn(project, question, agent);
+        await store.save();
+        res.json({ ...result, project });
+        return;
+      }
+    } catch {
+      /* fall through to the wizard — a model failure must not block chat */
+    }
+  }
+
   let sides: Awaited<ReturnType<typeof gatherChatSides>>;
   try {
-    sides = await gatherChatSides(project, parsed.data.question);
+    sides = await gatherChatSides(project, question);
   } catch {
     sides = undefined;
   }
-  const result = applyProjectChat(project, parsed.data.question, {
-    actor: actorOf(parsed.data),
+  const result = applyProjectChat(project, question, {
+    actor,
     viewContext: parsed.data.viewContext,
     sides,
   });
 
-  const capability = agentCapability();
   if (capability.available && !skipLlmForChat(result)) {
     try {
       const { provider, route } = resolveRoute('analyst_copilot');
@@ -312,7 +360,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         messages: [
           { role: 'user', content: `Register briefing:\n${projectRegisterBriefing(project, parsed.data.viewContext)}` },
           { role: 'user', content: `Wizard guide:\n${guide.text}` },
-          { role: 'user', content: parsed.data.question },
+          { role: 'user', content: question },
         ],
       });
       const text = textOf(llm).trim();
@@ -391,6 +439,10 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req,
     return;
   }
   refreshProjectDerived(project);
+  if (item.kind === 'run_screen') {
+    const now = new Date().toISOString();
+    await ensureIdentitySiteContext(project, projectToIdentity(project), now);
+  }
   const result = applyProjectChat(project, `Approve "${item.title}"`, { actor: actorOf(parsed.data) });
   await store.save();
   res.json({ ...result, project });
@@ -441,6 +493,24 @@ projectsRouter.post('/:projectId/orchestrate', async (req, res) => {
     return;
   }
   const run = runProjectOrchestrator(project, actorOf(parsed.data));
+  const capability = agentCapability();
+  if (capability.available) {
+    try {
+      const extra = await runProjectOrchestratorAgent(project, actorOf(parsed.data), run);
+      if (extra.usedModel) {
+        run.source = 'model';
+        run.summary = extra.summary;
+        const openTitles = new Set(project.chatProposals.filter((p) => p.status === 'proposed').map((p) => p.title));
+        for (const card of extra.proposals) {
+          if (openTitles.has(card.title)) continue;
+          project.chatProposals.push(card);
+          openTitles.add(card.title);
+        }
+      }
+    } catch {
+      /* rule run already recorded */
+    }
+  }
   const drafts = project.aiDrafts.filter((d) => run.draftIds.includes(d.id));
   await store.save();
   res.status(201).json({ run, drafts, project });

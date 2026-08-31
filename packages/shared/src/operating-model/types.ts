@@ -7,6 +7,8 @@
  * on these same records; nothing here requires a model to function.
  */
 
+import type { SiteContext } from '../types';
+
 /* ------------------------------------------------------------------ */
 /* Catalog keys                                                        */
 /* ------------------------------------------------------------------ */
@@ -672,6 +674,7 @@ export type ChatProposalKind =
   | 'add_decision'
   | 'generate_report'
   | 'run_valuation'
+  | 'run_screen'
   | 'patch_project'
   | 'patch_asset'
   | 'change_stage'
@@ -773,6 +776,21 @@ export interface ProjectChatResult {
   highlightIds: string[];
 }
 
+export interface ProjectScreenSnapshot {
+  generatedAt: string;
+  engineVersion: string;
+  verdict: string;
+  headline: string;
+  reasoning: string[];
+  indicatedMid?: number;
+  indicatedLow?: number;
+  indicatedHigh?: number;
+  currency?: string;
+  completenessScore?: number;
+  confidenceScore?: number;
+  openCriticalRisks: number;
+}
+
 export interface DdProject {
   id: string;
   reference: string;
@@ -812,6 +830,10 @@ export interface DdProject {
   chatProposals: ChatProposal[];
   orchestratorRuns: OrchestratorRun[];
   audit: AuditEvent[];
+  /** Last property-screen snapshot. The engine writes registers; this is the headline. */
+  lastScreen?: ProjectScreenSnapshot;
+  /** Places/geocode cache for this project's site address. */
+  siteContext?: SiteContext;
   createdAt: string;
   updatedAt: string;
 }

@@ -92,12 +92,12 @@ function RegisterLedger() {
         <div
           key={row.source}
           className={cn(
-            'flex items-baseline justify-between gap-4 border-b border-hairline py-3 transition-[opacity,transform] duration-base ease-enter',
+            'flex flex-col gap-1 border-b border-hairline py-3 transition-[opacity,transform] duration-base ease-enter sm:flex-row sm:items-baseline sm:justify-between sm:gap-4',
             step > i ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0',
           )}
         >
           <span className="text-ink-secondary">{row.source}</span>
-          <span className="flex items-baseline gap-3">
+          <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
             <span className="text-ink-muted">{row.claim}</span>
             <span className="tabular-nums text-ink">{row.value}</span>
           </span>
@@ -156,7 +156,7 @@ export default function Landing() {
   return (
     <div className="min-h-screen overflow-x-clip bg-page">
       <header className="border-b border-ink/20">
-        <div className="mx-auto flex max-w-5xl items-baseline justify-between gap-4 px-6 py-4">
+        <div className="mx-auto flex max-w-5xl items-baseline justify-between gap-4 px-4 py-4 sm:px-6">
           <span className="flex items-baseline gap-3">
             <span className="font-display text-[17px] tracking-tight text-ink">Realytica</span>
             <span className="hidden font-mono text-mini uppercase tracking-[0.12em] text-ink-muted sm:inline">
@@ -173,9 +173,9 @@ export default function Landing() {
         </div>
       </header>
 
-      <section className="relative isolate mx-auto max-w-5xl px-6 pb-16 pt-12 sm:pt-16">
+      <section className="relative isolate mx-auto max-w-5xl px-4 pb-16 pt-12 sm:px-6 sm:pt-16">
         <span aria-hidden="true" className="pointer-events-none absolute inset-x-[-50vw] top-[-3.5rem] -z-10 h-[620px] bg-band" />
-        <div className="mb-10 flex items-baseline justify-between font-mono text-mini uppercase tracking-[0.12em] text-ink-muted">
+        <div className="mb-10 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 font-mono text-mini uppercase tracking-[0.12em] text-ink-muted">
           <span>Ref. operating model</span>
           <span>Manual first · AI later</span>
         </div>
@@ -194,7 +194,7 @@ export default function Landing() {
             </Tile>
           }
         >
-          <h1 className="m-0 font-display text-[40px] font-normal leading-[1.06] tracking-[-0.015em] text-ink sm:text-[58px]">
+          <h1 className="m-0 font-display text-[32px] font-normal leading-[1.06] tracking-[-0.015em] text-ink sm:text-[40px] lg:text-[58px]">
             <SetLine delay={40}>Run diligence as a</SetLine>
             <SetLine delay={130}>living project record,</SetLine>
             <SetLine delay={220}>
@@ -225,7 +225,7 @@ export default function Landing() {
       </section>
 
       <SectionBand ground="surface" className="border-y border-hairline">
-      <section className="mx-auto max-w-5xl px-6 py-16">
+      <section className="mx-auto max-w-5xl px-4 py-16 sm:px-6">
         <SectionHead
           n="01"
           title="What it records"
@@ -244,7 +244,7 @@ export default function Landing() {
       </section>
       </SectionBand>
 
-      <section id="templates" className="mx-auto max-w-5xl scroll-mt-8 px-6 py-16">
+      <section id="templates" className="mx-auto max-w-5xl scroll-mt-8 px-4 py-16 sm:px-6">
         <SectionHead
           n="02"
           title="What it instantiates"
@@ -289,7 +289,7 @@ export default function Landing() {
       </section>
 
       <SectionBand ground="sunken" className="border-y border-hairline">
-      <section className="mx-auto max-w-5xl px-6 py-16">
+      <section className="mx-auto max-w-5xl px-4 py-16 sm:px-6">
         <SectionHead
           n="03"
           title="What it refuses to do"
@@ -311,7 +311,7 @@ export default function Landing() {
       </section>
       </SectionBand>
 
-      <section className="mx-auto max-w-5xl px-6 py-16">
+      <section className="mx-auto max-w-5xl px-4 py-16 sm:px-6">
         <SectionHead n="04" title="Scope and limitations" />
         <Spread
           margin={
@@ -336,7 +336,7 @@ export default function Landing() {
       </section>
 
       <SectionBand ground="brand" className="border-t border-hairline">
-      <section className="mx-auto max-w-5xl px-6 py-20">
+      <section className="mx-auto max-w-5xl px-4 py-20 sm:px-6">
         <Spread
           margin={
             <MarginNote label="Access">
@@ -360,7 +360,7 @@ export default function Landing() {
       </SectionBand>
 
       <footer className="border-t border-ink/20">
-        <div className="mx-auto flex max-w-5xl flex-col gap-1 px-6 py-8 font-mono text-mini uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between">
+        <div className="mx-auto flex max-w-5xl flex-col gap-1 px-4 py-8 font-mono text-mini uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between sm:px-6">
           <span>Realytica · Due diligence OS</span>
           <span>A system of record, not a legal opinion</span>
         </div>

@@ -46,11 +46,8 @@ export default function Overview() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="max-w-[62ch] text-[13px] text-ink-secondary">
-          Chat, knowledge graph, orchestrator and actions on this project. Commands work with no model.
+          Completeness, DD progress and material findings. Chat is the copilot — it proposes, you approve.
         </p>
-        <Link to="cockpit" className="text-[13px] font-medium text-brand hover:underline">
-          Open cockpit
-        </Link>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile label="Evidence completeness" value={`${dash.evidenceCompleteness.percent}%`} hint={`${dash.evidenceCompleteness.missing} gaps`} />

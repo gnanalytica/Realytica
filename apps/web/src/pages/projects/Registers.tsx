@@ -68,14 +68,14 @@ export function EvidenceRegister() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-[62ch] text-[13px] text-ink-secondary">
           Project evidence register. Status includes considered vs used — relied-upon evidence is marked used, not merely received.
         </p>
         <Button onClick={() => setOpen(true)}>Add evidence</Button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} className="w-48">
+        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} className="w-full max-w-xs sm:w-48">
           <option value="gaps">Gaps ({scoped.filter((e) => GAP_STATUSES.includes(e.status)).length})</option>
           <option value="all">All ({scoped.length})</option>
           {EVIDENCE_STATUSES.map((s) => (
@@ -84,7 +84,7 @@ export function EvidenceRegister() {
             </option>
           ))}
         </Select>
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by title" className="max-w-xs" />
+        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by title" className="w-full max-w-xs" />
       </div>
       {rows.length === 0 ? (
         <EmptyState title="No evidence yet" description="Expected items are created when a DD starts. Upload or record what arrives." />
@@ -209,7 +209,7 @@ export function FindingRegister() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-[62ch] text-[13px] text-ink-secondary">
           Shared finding register. One finding can be linked into several DDs and scopes rather than copied.
         </p>

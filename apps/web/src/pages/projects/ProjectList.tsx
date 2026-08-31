@@ -87,7 +87,7 @@ export default function ProjectList() {
           title="No projects yet"
           description="Create a project and asset tree, then start a due diligence assessment from the library. AI is not required."
           action={
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button onClick={() => navigate('/projects/new')}>Create project</Button>
               <Button variant="ghost" onClick={() => void seed()} disabled={seeding}>
                 Load sample township

@@ -5,11 +5,6 @@ import About from './pages/About';
 import Observability from './pages/Observability';
 import Prompts from './pages/Prompts';
 import Landing from './pages/Landing';
-import Dashboard from './pages/Dashboard';
-import NewCase from './pages/NewCase';
-import Compare from './pages/Compare';
-import Intake from './pages/Intake';
-import Cockpit from './pages/case/Cockpit';
 import ProjectList from './pages/projects/ProjectList';
 import NewProject from './pages/projects/NewProject';
 import ProjectLayout from './pages/projects/ProjectLayout';
@@ -23,9 +18,8 @@ import { RisksActions, DecisionRegister } from './pages/projects/RisksDecisions'
 import Reports from './pages/projects/Reports';
 import Libraries from './pages/projects/Libraries';
 import Valuation from './pages/projects/Valuation';
-import ProjectGraph from './pages/projects/ProjectGraph';
 import AiDrafts from './pages/projects/AiDrafts';
-import ProjectCockpit from './pages/projects/ProjectCockpit';
+import { CockpitGraph, CockpitOrchestrate } from './pages/projects/cockpit/embed';
 
 export default function App() {
   return (
@@ -38,7 +32,7 @@ export default function App() {
           <Route path="projects/new" element={<NewProject />} />
           <Route path="projects/:projectId" element={<ProjectLayout />}>
             <Route index element={<Overview />} />
-            <Route path="cockpit" element={<ProjectCockpit />} />
+            <Route path="cockpit" element={<Navigate to=".." replace />} />
             <Route path="assets" element={<Assets />} />
             <Route path="dd" element={<Diligence />} />
             <Route path="dd/:ddId" element={<DdWorkspace />} />
@@ -49,17 +43,11 @@ export default function App() {
             <Route path="decisions" element={<DecisionRegister />} />
             <Route path="reports" element={<Reports />} />
             <Route path="valuation" element={<Valuation />} />
-            <Route path="graph" element={<ProjectGraph />} />
+            <Route path="graph" element={<CockpitGraph />} />
             <Route path="ai" element={<AiDrafts />} />
+            <Route path="orchestrate" element={<CockpitOrchestrate />} />
           </Route>
           <Route path="libraries" element={<Libraries />} />
-          <Route path="cases" element={<Dashboard />} />
-          <Route path="cases/new" element={<NewCase />} />
-          <Route path="cases/:caseId" element={<Cockpit />} />
-          <Route path="cases/:caseId/cockpit" element={<Cockpit />} />
-          <Route path="cases/:caseId/:tab" element={<Cockpit />} />
-          <Route path="intake" element={<Intake />} />
-          <Route path="compare" element={<Compare />} />
           <Route path="observability" element={<Observability />} />
           <Route path="prompts" element={<Prompts />} />
           <Route path="about" element={<About />} />

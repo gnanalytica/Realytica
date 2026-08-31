@@ -1,30 +1,27 @@
 /**
- * Where a case is, what surrounds it, and what the approach road looks like.
+ * Where a project is, what surrounds it, and what the approach road looks like.
  *
- * Three routes, and the split between them is the point:
- *
- *   GET  /                build-or-read. Cheap when cached, four billed calls
- *                         when the address has changed.
- *   POST /refresh         rebuild unconditionally. The only way to retry an
- *                         address that failed to geocode.
- *   GET  /street-view     an image proxy. The Maps key never reaches the
- *                         browser, so the browser cannot fetch Google's URL
- *                         itself and this route fetches it instead.
- *   GET  /map             the same, for a static map tile.
- *
- * Nothing here returns an extent, a boundary or a setback. See `SiteContext`
- * in the shared types for the argument.
+ * GET  /                build-or-read
+ * POST /refresh         rebuild unconditionally
+ * GET  /street-view     image proxy (Maps key never reaches the browser)
+ * GET  /map             static map tile
  */
 
 import { Router } from 'express';
 import { readGoogleMapsConfig, staticMapUrl, streetViewImageUrl } from '@realytica/agents';
+import { projectToIdentity } from '@realytica/shared';
 import { store } from '../store';
-import { ensureSiteContext } from '../site-context';
-import { findCase } from './cases';
+import { ensureIdentitySiteContext } from '../site-context';
 
-export const siteContextRouter = Router({ mergeParams: true });
+function findProject(id: string | undefined) {
+  if (!id) return undefined;
+  return store.data.projects?.find((p) => p.id === id);
+}
 
-/** Static-map and Street View frames are both capped well below Google's own limits. */
+type ProjectParams = { projectId: string };
+
+export const projectSiteContextRouter = Router({ mergeParams: true });
+
 const MAX_IMAGE_EDGE = 1280;
 
 function clampEdge(raw: unknown, fallback: number): number {
@@ -33,20 +30,16 @@ function clampEdge(raw: unknown, fallback: number): number {
   return Math.max(64, Math.min(MAX_IMAGE_EDGE, Math.round(n)));
 }
 
-siteContextRouter.get<{ id: string }>('/', async (req, res) => {
-  const found = findCase(req.params.id);
+projectSiteContextRouter.get<ProjectParams>('/', async (req, res) => {
+  const found = findProject(req.params.projectId);
   if (!found) {
-    res.status(404).json({ error: 'Case not found' });
+    res.status(404).json({ error: 'Project not found' });
     return;
   }
   const before = found.siteContext;
-  const context = await ensureSiteContext(found, new Date().toISOString());
+  const context = await ensureIdentitySiteContext(found, projectToIdentity(found), new Date().toISOString());
   if (context !== before) await store.save();
   if (!context) {
-    // No provider and nothing cached. A 200 with an empty context and a named
-    // gap, not a 404: the case exists, the question was asked, and the answer
-    // is "nobody has configured a mapping provider" — which the client needs
-    // to be able to say out loud.
     res.json({
       caseId: found.id,
       location: null,
@@ -55,10 +48,9 @@ siteContextRouter.get<{ id: string }>('/', async (req, res) => {
       gaps: [
         {
           code: 'no_provider_key',
-          attempted: 'Locating the property and looking up what surrounds it.',
+          attempted: 'Locating the site and looking up what surrounds it.',
           consequence:
-            'This property is not shown on a map, nothing is listed as nearby, and there is no street-level view — ' +
-            'no mapping provider is configured for this deployment.',
+            'This project is not shown on a map, nothing is listed as nearby, and there is no street-level view — no mapping provider is configured for this deployment.',
         },
       ],
       provider: 'unconfigured',
@@ -69,25 +61,25 @@ siteContextRouter.get<{ id: string }>('/', async (req, res) => {
   res.json(context);
 });
 
-siteContextRouter.post<{ id: string }>('/refresh', async (req, res) => {
-  const found = findCase(req.params.id);
+projectSiteContextRouter.post<ProjectParams>('/refresh', async (req, res) => {
+  const found = findProject(req.params.projectId);
   if (!found) {
-    res.status(404).json({ error: 'Case not found' });
+    res.status(404).json({ error: 'Project not found' });
     return;
   }
   if (!readGoogleMapsConfig()) {
     res.status(503).json({ error: 'No mapping provider is configured for this deployment' });
     return;
   }
-  const context = await ensureSiteContext(found, new Date().toISOString(), { force: true });
+  const context = await ensureIdentitySiteContext(found, projectToIdentity(found), new Date().toISOString(), { force: true });
   await store.save();
   res.json(context);
 });
 
-siteContextRouter.get<{ id: string }>('/street-view', async (req, res) => {
-  const found = findCase(req.params.id);
+projectSiteContextRouter.get<ProjectParams>('/street-view', async (req, res) => {
+  const found = findProject(req.params.projectId);
   if (!found) {
-    res.status(404).json({ error: 'Case not found' });
+    res.status(404).json({ error: 'Project not found' });
     return;
   }
   const config = readGoogleMapsConfig();
@@ -96,10 +88,8 @@ siteContextRouter.get<{ id: string }>('/street-view', async (req, res) => {
     return;
   }
   const pano = typeof req.query.pano === 'string' ? req.query.pano : '';
-  // Only the panorama this case's own context resolved may be fetched. Without
-  // this the route is an open, billed proxy to any panorama on Earth.
   if (!pano || found.siteContext?.streetView?.panoramaId !== pano) {
-    res.status(400).json({ error: 'Unknown panorama for this case' });
+    res.status(400).json({ error: 'Unknown panorama for this project' });
     return;
   }
   const heading = Number(req.query.heading);
@@ -111,10 +101,10 @@ siteContextRouter.get<{ id: string }>('/street-view', async (req, res) => {
   await pipeImage(upstream, res);
 });
 
-siteContextRouter.get<{ id: string }>('/map', async (req, res) => {
-  const found = findCase(req.params.id);
+projectSiteContextRouter.get<ProjectParams>('/map', async (req, res) => {
+  const found = findProject(req.params.projectId);
   if (!found) {
-    res.status(404).json({ error: 'Case not found' });
+    res.status(404).json({ error: 'Project not found' });
     return;
   }
   const config = readGoogleMapsConfig();
@@ -124,7 +114,7 @@ siteContextRouter.get<{ id: string }>('/map', async (req, res) => {
   }
   const location = found.siteContext?.location;
   if (!location) {
-    res.status(404).json({ error: 'This case has no resolved location' });
+    res.status(404).json({ error: 'This project has no resolved location' });
     return;
   }
   const zoomRaw = Number(req.query.zoom);
@@ -135,8 +125,6 @@ siteContextRouter.get<{ id: string }>('/map', async (req, res) => {
     scale: 2,
     markers: [
       { point: location.point, label: 'P', colour: '0x2563eb' },
-      // The amenities the case actually lists, so the tile and the list below
-      // it can never disagree about what is nearby.
       ...(found.siteContext?.amenities ?? []).slice(0, 8).map((a, i) => ({
         point: a.point,
         label: String(i + 1),
@@ -147,14 +135,6 @@ siteContextRouter.get<{ id: string }>('/map', async (req, res) => {
   await pipeImage(upstream, res);
 });
 
-/**
- * Fetches an image from Google and writes it through.
- *
- * Cached hard at the CDN and the browser: a panorama frame for a fixed
- * panorama id and heading is immutable, and a static map for a fixed centre
- * and zoom is close enough. Every cache hit is a billed call that does not
- * happen.
- */
 async function pipeImage(url: string, res: import('express').Response): Promise<void> {
   try {
     const upstream = await fetch(url, { signal: AbortSignal.timeout(10000) });

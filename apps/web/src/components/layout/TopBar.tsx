@@ -61,7 +61,7 @@ export default function TopBar({ onOpenMobile }: TopBarProps) {
         : 'API online';
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-hairline bg-surface/95 px-4 backdrop-blur-sm sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-hairline bg-surface/95 px-3 backdrop-blur-sm sm:gap-3 sm:px-6 lg:px-8">
       <button
         type="button"
         onClick={onOpenMobile}
@@ -72,9 +72,11 @@ export default function TopBar({ onOpenMobile }: TopBarProps) {
       </button>
 
       {location.pathname.startsWith('/projects') ? (
-        <ProjectSwitcher />
+        <div className="min-w-0 flex-1">
+          <ProjectSwitcher />
+        </div>
       ) : (
-        <h1 className="min-w-0 truncate text-[14px] font-semibold tracking-tight text-ink">{pageTitle(location.pathname)}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-tight text-ink">{pageTitle(location.pathname)}</h1>
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-2.5">

@@ -11,6 +11,7 @@
 import { DD_CONNECTORS, type DdConnector } from '../dd-connectors';
 import { CAPABILITY_KIND_LABEL } from './catalogs';
 import { computeCapabilityRuns, matchProjectLocality } from './capabilities';
+import type { ProjectCockpitPane } from './cockpit';
 import type {
   ChatPlacesPull,
   ChatProposal,
@@ -141,7 +142,7 @@ export interface ChatSideHandle {
   proposals: ChatProposal[];
   text: string;
   toolCalls: { name: string; summary: string }[];
-  pane: 'work' | 'graph' | 'actions' | 'orchestrate' | 'drafts' | 'evidence' | 'valuation';
+  pane: ProjectCockpitPane;
   citedEvidenceIds: string[];
   citedNodeIds: string[];
 }
@@ -379,7 +380,7 @@ export function handleChatSides(
   const cards: ChatProposal[] = [];
   const texts: string[] = [];
   const tools: { name: string; summary: string }[] = [];
-  let pane: ChatSideHandle['pane'] = 'work';
+  let pane: ChatSideHandle['pane'] = 'overview';
   const citedEvidenceIds: string[] = [];
   const citedNodeIds: string[] = [];
 
@@ -395,7 +396,7 @@ export function handleChatSides(
       cards.push(...result.cards);
       texts.push(result.text);
       tools.push({ name: 'web_search', summary: sides?.web?.enabled ? `${sides.web.hits.length} hit(s)` : 'Search unavailable' });
-      if (result.cards.length) pane = 'work';
+      if (result.cards.length) pane = 'overview';
     } else if (intent.kind === 'connectors') {
       const result = proposalsFromConnectors(project, intent.keys, actor, scraped);
       cards.push(...result.cards);

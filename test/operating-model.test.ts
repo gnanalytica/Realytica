@@ -29,10 +29,17 @@ import {
   commitAiDraft,
   buildProjectGraph,
   applyProjectChat,
+  applyProjectAgentTurn,
   runProjectOrchestrator,
   clearProjectConversation,
   classifyIngestFile,
   commitChatProposal,
+  screenProject,
+  cockpitPath,
+  paneFromProjectPath,
+  PROJECT_COCKPIT_PANES,
+  wantsDeterministicProjectChat,
+  createChatProposal,
 } from '@realytica/shared';
 
 describe('operating model libraries', () => {
@@ -367,6 +374,53 @@ describe('project cockpit chat', () => {
     clearProjectConversation(project);
     assert.equal(project.conversation.length, 0);
   });
+
+  it('treats the cockpit as the project home with register and DD panes', () => {
+    const id = 'prj_demo';
+    assert.ok(PROJECT_COCKPIT_PANES.includes('overview'));
+    assert.ok(PROJECT_COCKPIT_PANES.includes('dd'));
+    assert.ok(PROJECT_COCKPIT_PANES.includes('evidence'));
+    assert.equal(cockpitPath(id, 'overview'), `/projects/${id}`);
+    assert.equal(cockpitPath(id, 'dd'), `/projects/${id}/dd`);
+    assert.equal(cockpitPath(id, 'scope', { ddId: 'dd_1', scopeId: 'scp_1' }), `/projects/${id}/dd/dd_1/scopes/scp_1`);
+    assert.equal(cockpitPath(id, 'drafts'), `/projects/${id}/ai`);
+    assert.equal(cockpitPath(id, 'actions'), `/projects/${id}/risks`);
+    assert.equal(paneFromProjectPath(`/projects/${id}`), 'overview');
+    assert.equal(paneFromProjectPath(`/projects/${id}/cockpit`), 'overview');
+    assert.equal(paneFromProjectPath(`/projects/${id}/dd/dd_1/scopes/scp_1`), 'scope');
+    assert.equal(paneFromProjectPath(`/projects/${id}/ai`), 'drafts');
+  });
+
+  it('sends questions to the agent path and keeps person commands deterministic', () => {
+    const project = createProject(
+      { name: 'Agent split', type: 'residential', location: 'Whitefield', city: 'Bengaluru' },
+      'RYT-AG',
+    );
+    assert.equal(wantsDeterministicProjectChat(project, 'What should we do next?'), false);
+    assert.equal(wantsDeterministicProjectChat(project, 'Guide me'), false);
+    assert.equal(wantsDeterministicProjectChat(project, 'Set owner to Priya Shah'), true);
+    assert.equal(wantsDeterministicProjectChat(project, 'Approve all'), true);
+    assert.equal(wantsDeterministicProjectChat(project, 'Open the knowledge graph'), true);
+    const agent = applyProjectAgentTurn(project, 'What is open?', {
+      text: 'Two findings need evidence.',
+      proposals: [
+        createChatProposal(
+          'request_evidence',
+          'Request mother deed',
+          'Gap on title.',
+          'Adds an evidence-request action.',
+          { title: 'Request mother deed', kind: 'evidence_request', owner: 'operator', priority: 'high' },
+          'operator',
+        ),
+      ],
+      navigations: [{ target: 'actions' }],
+      toolCalls: [{ name: 'project_copilot', summary: 'Proposed an evidence request' }],
+    });
+    assert.equal(project.actions.length, 0);
+    assert.equal(agent.proposals.length, 1);
+    assert.equal(project.chatProposals[0]?.status, 'proposed');
+    assert.match(project.conversation.at(-1)?.text ?? '', /two findings/i);
+  });
 });
 
 describe('project chat wizard', () => {
@@ -485,7 +539,7 @@ describe('project chat wizard', () => {
     assert.equal(project.owner, 'Priya Shah');
     assert.ok(result.commands.some((c) => /applied/i.test(c)));
     assert.ok(result.highlightIds.includes(project.id));
-    assert.equal(result.navigations.at(-1)?.target, 'work');
+    assert.equal(result.navigations.at(-1)?.target, 'overview');
   });
 
   it('advises a land-area update from a statement and writes it only on approve', () => {
@@ -511,7 +565,7 @@ describe('project chat wizard', () => {
     const result = applyProjectChat(project, 'Add Tower D as a residential tower');
     assert.ok(project.assets.some((a) => a.name === 'Tower D'));
     assert.ok(result.highlightIds.length >= 1);
-    assert.equal(result.navigations.at(-1)?.target, 'work');
+    assert.equal(result.navigations.at(-1)?.target, 'assets');
   });
 
   it('offers Kaveri portal cards and files a collection action on approve', () => {
@@ -597,5 +651,22 @@ describe('project chat wizard', () => {
     assert.ok(project.risks.some((r) => /Access road/i.test(r.title)));
     assert.equal(project.assets.some((a) => a.name.toLowerCase() === 'risk'), false);
     assert.ok(result.highlightIds.length >= 1);
+  });
+
+  it('proposes a property screen from chat and writes registers on approve', () => {
+    const project = seedDemoProject();
+    const offered = applyProjectChat(project, 'Should we pursue this?');
+    const card = offered.proposals.find((p) => p.kind === 'run_screen');
+    assert.ok(card);
+    const beforeFindings = project.findings.length;
+    const beforeRisks = project.risks.length;
+    applyProjectChat(project, `Approve "${card!.title}"`);
+    assert.ok(project.lastScreen);
+    assert.ok(project.valuationRuns.some((v) => v.status === 'computed'));
+    assert.ok(project.findings.length >= beforeFindings);
+    assert.ok(project.risks.length >= beforeRisks);
+    assert.ok(project.decisions.some((d) => /Screen:/i.test(d.title) && d.status === 'proposed'));
+    const again = screenProject(project, 'operator');
+    assert.equal(again.findingIds.length, 0);
   });
 });

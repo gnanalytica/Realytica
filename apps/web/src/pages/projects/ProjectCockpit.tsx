@@ -1,19 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
 import {
-  CircleDollarSign,
-  FileStack,
-  GitBranch,
-  ListChecks,
-  Maximize2,
-  PanelRight,
-  Sparkles,
-  Waypoints,
-  Workflow,
-} from 'lucide-react';
-import {
-  PROJECT_COCKPIT_PANES,
   PROJECT_HEALTH_LABEL,
+  SCOPE_LABEL,
+  cockpitPath,
+  isProjectCockpitPane,
+  paneFromProjectPath,
   type ChatProposal,
   type CopilotTurn,
   type DdProject,
@@ -24,34 +17,13 @@ import {
 import { api } from '../../lib/api';
 import { CopilotPanel } from '../../components/CopilotPanel';
 import { Badge, Button, cn, useToast } from '../../components/ui/kit';
-import { LAYOUTS, LAYOUT_LABEL, clampChatWidth, readChatWidth, writeChatWidth } from '../case/cockpit/layout';
-import type { CockpitLayout } from '../case/cockpit/layout';
+import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
+import { LAYOUTS, LAYOUT_LABEL, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
+import type { CockpitLayout } from './cockpit/layout';
 import { healthTone } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
-import {
-  ActionsPane,
-  DraftsPane,
-  EvidencePane,
-  GraphPane,
-  OrchestratePane,
-  ValuationPane,
-  WorkPane,
-} from './cockpit/panes';
-
-const RAIL: Array<{ pane: ProjectCockpitPane; label: string; icon: typeof Waypoints }> = [
-  { pane: 'work', label: 'Work', icon: ListChecks },
-  { pane: 'graph', label: 'Knowledge graph', icon: Waypoints },
-  { pane: 'actions', label: 'Actions', icon: GitBranch },
-  { pane: 'orchestrate', label: 'Orchestrator', icon: Workflow },
-  { pane: 'drafts', label: 'AI drafts', icon: Sparkles },
-  { pane: 'evidence', label: 'Evidence', icon: FileStack },
-  { pane: 'valuation', label: 'Valuation', icon: CircleDollarSign },
-];
-
-function isPane(value: string | null): value is ProjectCockpitPane {
-  return Boolean(value && (PROJECT_COCKPIT_PANES as readonly string[]).includes(value));
-}
+import { CockpitPaneStrip, CockpitRailNav, paneLabel } from './cockpit/rail';
 
 function ProposalCards({
   turn,
@@ -122,12 +94,32 @@ function evidenceForChat(project: ProjectOutlet['project']): EvidenceItem[] {
   }));
 }
 
-export default function ProjectCockpit() {
-  const { project, refresh, setProject } = useOutletContext<ProjectOutlet>();
+function extrasForNavigation(
+  project: DdProject,
+  target: ProjectCockpitPane,
+  ids: string[],
+): { ddId?: string; scopeId?: string; node?: string } {
+  if (target === 'graph' && ids[0]) return { node: ids[0] };
+  if (target === 'dd' && ids[0] && project.assessments.some((a) => a.id === ids[0])) return { ddId: ids[0] };
+  if (target === 'scope' && ids[0]) {
+    for (const a of project.assessments) {
+      const scope = a.scopes.find((s) => s.id === ids[0]);
+      if (scope) return { ddId: a.id, scopeId: scope.id };
+    }
+  }
+  return {};
+}
+
+type MobileSurface = 'chat' | 'work';
+
+export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
+  const { project, refresh, setProject } = outlet;
   const toast = useToast();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const pane: ProjectCockpitPane = isPane(searchParams.get('pane')) ? (searchParams.get('pane') as ProjectCockpitPane) : 'work';
-  const nodeId = searchParams.get('node');
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams<{ ddId?: string; scopeId?: string }>();
+  const pane: ProjectCockpitPane = paneFromProjectPath(location.pathname);
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
 
   const [focusMode, setFocusMode] = useState(false);
   const layout: CockpitLayout = focusMode ? 'focus' : pane === 'graph' ? 'study' : 'cockpit';
@@ -138,6 +130,9 @@ export default function ProjectCockpit() {
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const [highlightIds, setHighlightIds] = useState<string[]>([]);
   const [liveLabel, setLiveLabel] = useState<string | null>(null);
+  const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() =>
+    paneFromProjectPath(typeof window === 'undefined' ? '' : window.location.pathname) === 'overview' ? 'chat' : 'work',
+  );
 
   useEffect(() => {
     const preset = LAYOUTS[layout].chat;
@@ -158,29 +153,13 @@ export default function ProjectCockpit() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const setParam = useCallback(
-    (next: Record<string, string | null>) => {
-      setSearchParams(
-        (prev) => {
-          const p = new URLSearchParams(prev);
-          for (const [k, v] of Object.entries(next)) {
-            if (v === null) p.delete(k);
-            else p.set(k, v);
-          }
-          return p;
-        },
-        { replace: true },
-      );
-    },
-    [setSearchParams],
-  );
-
   const goPane = useCallback(
-    (next: ProjectCockpitPane) => {
+    (next: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string; node?: string }) => {
       setFocusMode(false);
-      setParam({ pane: next, node: next === 'graph' ? searchParams.get('node') : null });
+      setMobileSurface('work');
+      navigate(cockpitPath(project.id, next, extra));
     },
-    [setParam, searchParams],
+    [navigate, project.id],
   );
 
   const applyResult = useCallback(
@@ -192,19 +171,30 @@ export default function ProjectCockpit() {
         response.commands[0]
           ?? (response.proposals.length ? `Proposed ${response.proposals.length} update(s) — approve to write` : null),
       );
-      const target = response.navigations.at(-1)?.target ?? null;
-      if (isPane(target)) {
-        if (target === 'graph' && ids[0]) setParam({ pane: 'graph', node: ids[0] });
-        else goPane(target);
+      const targetRaw = response.navigations.at(-1)?.target ?? null;
+      const target = isProjectCockpitPane(targetRaw)
+        ? targetRaw
+        : targetRaw === 'work'
+          ? 'overview'
+          : null;
+      if (target) {
+        setFocusMode(false);
+        navigate(cockpitPath(response.project.id, target, extrasForNavigation(response.project, target, ids)));
+      }
+      if (response.proposals.length > 0 && response.commands.length === 0) {
+        setMobileSurface('chat');
+      } else if (target || response.commands.length > 0) {
+        setMobileSurface('work');
       }
       if (response.commands.length > 0) toast(response.commands.join(' · '), 'good');
     },
-    [setProject, goPane, setParam, toast],
+    [setProject, navigate, toast],
   );
 
   const handleAsk = useCallback(
     async (question: string, files?: File[]) => {
       setAsking(true);
+      setMobileSurface('chat');
       try {
         const response = files?.length
           ? await api.projectChatFiles(project.id, { question, viewContext: pane, files })
@@ -242,208 +232,263 @@ export default function ProjectCockpit() {
   const pendingDrafts = (project.aiDrafts ?? []).filter((d) => d.status === 'draft' || d.status === 'accepted' || d.status === 'in_review').length;
   const conversation = (project.conversation ?? []) as CopilotTurn[];
   const spec = LAYOUTS[layout];
+  const fillRight = pane === 'graph';
+  const currentDd = params.ddId ? project.assessments.find((a) => a.id === params.ddId) : undefined;
 
   const suggestions = useMemo(
     () => [
       'Guide me',
+      'What should we do next?',
       'Set owner to Priya Shah',
-      'Land area is 12 acres',
-      'Add Tower D',
       'What proofs are missing?',
+      'Orchestrate the next DD plan',
     ],
     [],
   );
 
+  const chat = (
+    <CopilotPanel
+      fill
+      compact={!isDesktop}
+      conversation={conversation}
+      evidence={evidenceForChat(project)}
+      suggestions={suggestions}
+      onAsk={handleAsk}
+      busy={asking}
+      disabled={false}
+      allowAttach
+      onOpenCommands={() => setCommandOpen(true)}
+      emptyTitle="Talk to this project"
+      emptyHint={
+        isDesktop
+          ? 'The copilot and orchestrator think with live registers. They propose findings, actions and DD moves — you approve before anything writes.'
+          : 'They propose. You approve before anything writes.'
+      }
+      placeholder={isDesktop ? 'What should we do next? · Set owner to … · Guide me' : 'Ask this project…'}
+      renderTurnExtras={(turn) => (
+        <ProposalCards
+          turn={turn}
+          proposals={project.chatProposals ?? []}
+          busy={asking}
+          onApprove={(id) => void handleProposal(id, 'commit')}
+          onSkip={(id) => void handleProposal(id, 'reject')}
+        />
+      )}
+      onOpenNode={(id) => goPane('graph', { node: id })}
+      onOpenDocument={() => goPane('evidence')}
+      onClear={
+        conversation.length > 0
+          ? async () => {
+              await api.clearProjectChat(project.id);
+              await refresh();
+            }
+          : undefined
+      }
+    />
+  );
+
+  const workBody = (
+    <>
+      {liveLabel ? (
+        <div className="shrink-0 border-b border-brand/25 bg-brand-soft px-3 py-2 text-[12px] text-ink sm:px-4">
+          <span className="font-medium">Live</span>
+          <span className="text-ink-muted"> · {liveLabel}</span>
+          {highlightIds.length ? <span className="sr-only">{highlightIds.join(', ')}</span> : null}
+        </div>
+      ) : null}
+      {currentDd && (pane === 'dd' || pane === 'scope') && params.ddId && isDesktop ? (
+        <p className="shrink-0 border-b border-hairline px-4 py-1.5 text-[11.5px] text-ink-muted">
+          {currentDd.name}
+          {params.scopeId
+            ? ` · ${(() => {
+                const key = currentDd.scopes.find((s) => s.id === params.scopeId)?.scopeKey;
+                return key ? SCOPE_LABEL[key] : '';
+              })()}`
+            : ''}
+        </p>
+      ) : null}
+      {fillRight ? (
+        <div className="min-h-0 min-w-0 flex-1">
+          <Outlet context={outlet} />
+        </div>
+      ) : (
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4">
+          <Outlet context={outlet} />
+        </div>
+      )}
+    </>
+  );
+
   return (
-    <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-hairline px-5 py-2.5">
-        <Link to=".." className="text-[11.5px] text-ink-secondary hover:text-ink">
-          Overview
-        </Link>
-        <span className="text-ink-muted">·</span>
-        <span className="font-mono text-[11px] text-ink-muted">{project.reference}</span>
-        <span className="truncate text-[13.5px] font-semibold text-ink">{project.name}</span>
-        <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
-        <div className="flex-grow" />
-        <button
-          type="button"
-          onClick={() => setCommandOpen(true)}
-          className="rounded-lg border border-[var(--ring)] bg-surface px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink"
-        >
-          Run a command <span className="font-mono">⌘K</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setFocusMode((v) => !v)}
-          title={focusMode ? 'Leave focus' : 'Focus the conversation (⌘.)'}
-          aria-pressed={focusMode}
-          className={cn(
-            'flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px]',
-            focusMode ? 'border-brand bg-brand-soft text-brand' : 'border-[var(--ring)] bg-surface text-ink-secondary hover:text-ink',
-          )}
-        >
-          {focusMode ? <PanelRight size={13} /> : <Maximize2 size={13} />}
-          {LAYOUT_LABEL[layout]}
-        </button>
-      </div>
-
-      <div className="flex min-h-0 flex-1">
-        <nav aria-label="Project cockpit" className="flex w-[188px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline bg-surface-1 py-3">
-          <div className="px-3.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-muted">Project</div>
-          <ul className="flex flex-col gap-px px-1.5">
-            {RAIL.map((item) => {
-              const Icon = item.icon;
-              const on = pane === item.pane && !focusMode;
-              const badge =
-                item.pane === 'actions' && overdue > 0
-                  ? overdue
-                  : item.pane === 'drafts' && pendingDrafts > 0
-                    ? pendingDrafts
-                    : null;
-              return (
-                <li key={item.pane}>
-                  <button
-                    type="button"
-                    onClick={() => goPane(item.pane)}
-                    aria-current={on ? 'true' : undefined}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]',
-                      on ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
-                    )}
-                  >
-                    <Icon size={13} />
-                    <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
-                    {badge != null ? (
-                      <span className="tabular rounded-full bg-warning/25 px-1.5 text-[10.5px] text-ink">{badge}</span>
-                    ) : null}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          <div className="mx-3.5 my-2 h-px bg-hairline" />
-          <div className="px-3.5">
-            <p className="text-[11px] leading-relaxed text-ink-muted">
-              Type facts or commands. Chat proposes the update; approve and the pane on the right shows it live.
-            </p>
-            <Button size="sm" variant="ghost" className="mt-2 w-full" onClick={() => goPane('orchestrate')}>
-              Orchestrate
-            </Button>
-          </div>
-        </nav>
-
-        <section
-          aria-label="Conversation"
-          className="flex min-h-0 min-w-0 flex-col border-r border-hairline"
-          style={spec.chat === null ? { flexGrow: 1 } : { width: chatWidth, flexShrink: 0 }}
-        >
-          <div className="flex min-h-0 flex-1 flex-col p-4">
-            <CopilotPanel
-              fill
-              conversation={conversation}
-              evidence={evidenceForChat(project)}
-              suggestions={suggestions}
-              onAsk={handleAsk}
-              busy={asking}
-              disabled={false}
-              allowAttach
-              emptyTitle="Talk to this project"
-              emptyHint="Add or edit in plain language — owner, areas, assets, DDs, findings. Chat will propose the write, then the right pane updates live when you approve."
-              placeholder="Set owner to … · Add Tower D · Land is 12 acres"
-              renderTurnExtras={(turn) => (
-                <ProposalCards
-                  turn={turn}
-                  proposals={project.chatProposals ?? []}
-                  busy={asking}
-                  onApprove={(id) => void handleProposal(id, 'commit')}
-                  onSkip={(id) => void handleProposal(id, 'reject')}
-                />
-              )}
-              onOpenNode={(id) => {
-                setFocusMode(false);
-                setParam({ pane: 'graph', node: id });
-              }}
-              onOpenDocument={() => goPane('evidence')}
-              onClear={
-                conversation.length > 0
-                  ? async () => {
-                      await api.clearProjectChat(project.id);
-                      await refresh();
-                    }
-                  : undefined
-              }
-            />
-          </div>
-        </section>
-
-        {spec.rightPane ? (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize the conversation"
-            tabIndex={0}
-            onPointerDown={(e) => {
-              draggingRef.current = true;
-              const startX = e.clientX;
-              const startW = chatWidth;
-              const move = (ev: PointerEvent) => setChatWidth(clampChatWidth(startW + (ev.clientX - startX)));
-              const up = () => {
-                draggingRef.current = false;
-                writeChatWidth(chatWidth);
-                window.removeEventListener('pointermove', move);
-                window.removeEventListener('pointerup', up);
-              };
-              window.addEventListener('pointermove', move);
-              window.addEventListener('pointerup', up);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                e.preventDefault();
-                const next = clampChatWidth(chatWidth + (e.key === 'ArrowLeft' ? -24 : 24));
-                setChatWidth(next);
-                writeChatWidth(next);
-              }
-            }}
-            className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-brand-soft"
-          />
-        ) : null}
-
-        {spec.rightPane ? (
-          <section aria-label="Work surface" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface-1">
-            {liveLabel ? (
-              <div className="shrink-0 border-b border-brand/25 bg-brand-soft px-4 py-2 text-[12px] text-ink">
-                <span className="font-medium">Live</span>
-                <span className="text-ink-muted"> · {liveLabel}</span>
-              </div>
-            ) : null}
-            {pane === 'graph' ? (
-              <div className="min-h-0 flex-1">
-                <GraphPane
-                  project={project}
-                  focusId={nodeId ?? highlightIds[0]}
-                  onSelect={(id) => setParam({ pane: 'graph', node: id })}
-                />
-              </div>
-            ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                {pane === 'actions' ? (
-                  <ActionsPane project={project} onChanged={refresh} highlightIds={highlightIds} />
-                ) : pane === 'orchestrate' ? (
-                  <OrchestratePane project={project} onChanged={refresh} />
-                ) : pane === 'drafts' ? (
-                  <DraftsPane project={project} onChanged={refresh} />
-                ) : pane === 'evidence' ? (
-                  <EvidencePane project={project} highlightIds={highlightIds} />
-                ) : pane === 'valuation' ? (
-                  <ValuationPane project={project} onChanged={refresh} />
-                ) : (
-                  <WorkPane project={project} highlightIds={highlightIds} />
-                )}
-              </div>
+    <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col overflow-hidden">
+      {isDesktop ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-hairline px-5 py-2.5">
+          <Link to="/projects" className="text-[11.5px] text-ink-secondary hover:text-ink">
+            Projects
+          </Link>
+          <span className="text-ink-muted">·</span>
+          <span className="font-mono text-[11px] text-ink-muted">{project.reference}</span>
+          <span className="truncate text-[13.5px] font-semibold text-ink">{project.name}</span>
+          <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
+          <div className="flex-grow" />
+          <button
+            type="button"
+            onClick={() => setCommandOpen(true)}
+            className="rounded-lg border border-[var(--ring)] bg-surface px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink"
+          >
+            Run a command <span className="font-mono">⌘K</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setFocusMode((v) => !v)}
+            title={focusMode ? 'Leave focus' : 'Focus the conversation (⌘.)'}
+            aria-pressed={focusMode}
+            className={cn(
+              'flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px]',
+              focusMode ? 'border-brand bg-brand-soft text-brand' : 'border-[var(--ring)] bg-surface text-ink-secondary hover:text-ink',
             )}
+          >
+            {focusMode ? <PanelRight size={13} /> : <Maximize2 size={13} />}
+            {LAYOUT_LABEL[layout]}
+          </button>
+        </div>
+      ) : (
+        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline px-3">
+          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">
+            {mobileSurface === 'chat' ? 'Chat' : paneLabel(pane)}
+          </p>
+          <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
+          <button
+            type="button"
+            onClick={() => setCommandOpen(true)}
+            aria-label="Run a command"
+            className="rounded-lg p-2 text-ink-secondary hover:bg-sunken hover:text-ink coarse:min-h-11 coarse:min-w-11"
+          >
+            <Search size={16} />
+          </button>
+        </div>
+      )}
+
+      {isDesktop ? (
+        <div className="flex min-h-0 flex-1">
+          <section
+            aria-label="Conversation"
+            className="flex min-h-0 min-w-0 flex-col border-r border-hairline"
+            style={spec.chat === null ? { flexGrow: 1 } : { width: chatWidth, flexShrink: 0 }}
+          >
+            <div className="flex min-h-0 flex-1 flex-col p-4">{chat}</div>
           </section>
-        ) : null}
-      </div>
+
+          {spec.rightPane ? (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the conversation"
+              tabIndex={0}
+              onPointerDown={(e) => {
+                draggingRef.current = true;
+                const startX = e.clientX;
+                const startW = chatWidth;
+                const move = (ev: PointerEvent) => setChatWidth(clampChatWidth(startW + (ev.clientX - startX)));
+                const up = () => {
+                  draggingRef.current = false;
+                  writeChatWidth(chatWidth);
+                  window.removeEventListener('pointermove', move);
+                  window.removeEventListener('pointerup', up);
+                };
+                window.addEventListener('pointermove', move);
+                window.addEventListener('pointerup', up);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                  e.preventDefault();
+                  const next = clampChatWidth(chatWidth + (e.key === 'ArrowLeft' ? -24 : 24));
+                  setChatWidth(next);
+                  writeChatWidth(next);
+                }
+              }}
+              className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-brand-soft"
+            />
+          ) : null}
+
+          {spec.rightPane ? (
+            <section aria-label="Work surface" className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-surface-1">
+              <CockpitRailNav
+                pane={pane}
+                project={project}
+                ddId={params.ddId}
+                scopeId={params.scopeId}
+                overdue={overdue}
+                pendingDrafts={pendingDrafts}
+                onGo={goPane}
+              />
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{workBody}</div>
+            </section>
+          ) : null}
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <section
+            aria-label="Conversation"
+            hidden={mobileSurface !== 'chat'}
+            className={cn('min-h-0 flex-col', mobileSurface === 'chat' ? 'flex flex-1' : 'hidden')}
+          >
+            <div className="flex min-h-0 flex-1 flex-col p-3">{chat}</div>
+          </section>
+          <section
+            aria-label="Work surface"
+            hidden={mobileSurface !== 'work'}
+            className={cn(
+              'min-h-0 min-w-0 flex-col overflow-hidden bg-surface-1',
+              mobileSurface === 'work' ? 'flex flex-1' : 'hidden',
+            )}
+          >
+            <CockpitPaneStrip
+              pane={pane}
+              project={project}
+              ddId={params.ddId}
+              scopeId={params.scopeId}
+              overdue={overdue}
+              pendingDrafts={pendingDrafts}
+              onGo={goPane}
+            />
+            {workBody}
+          </section>
+
+          <nav
+            aria-label="Cockpit"
+            className="flex shrink-0 border-t border-hairline bg-surface pb-[max(0.35rem,env(safe-area-inset-bottom))]"
+          >
+            <button
+              type="button"
+              onClick={() => setMobileSurface('chat')}
+              aria-current={mobileSurface === 'chat' ? 'page' : undefined}
+              className={cn(
+                'flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px]',
+                mobileSurface === 'chat' ? 'font-semibold text-brand' : 'text-ink-muted',
+              )}
+            >
+              <MessageCircle size={18} />
+              Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFocusMode(false);
+                setMobileSurface('work');
+              }}
+              aria-current={mobileSurface === 'work' ? 'page' : undefined}
+              className={cn(
+                'flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px]',
+                mobileSurface === 'work' ? 'font-semibold text-brand' : 'text-ink-muted',
+              )}
+            >
+              <LayoutDashboard size={18} />
+              {paneLabel(pane)}
+            </button>
+          </nav>
+        </div>
+      )}
 
       <ProjectCommandBar
         open={commandOpen}

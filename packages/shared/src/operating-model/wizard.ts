@@ -6,6 +6,7 @@
  */
 
 import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, snapshotCapabilities } from './capabilities';
+import { screenProject } from './project-screen';
 import { DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS } from './libraries';
 import {
   addAction,
@@ -134,6 +135,18 @@ const FILE_HINTS: FileHint[] = [
   { keys: ['inspection', 'ncr', 'itp'], kind: 'inspection', scopes: ['quality', 'hse'], titles: ['Inspection pack'] },
   { keys: ['test report', 'cube', 'ndt'], kind: 'test_report', scopes: ['quality', 'technical'], titles: ['Test reports'] },
 ];
+
+export function createChatProposal(
+  kind: ChatProposalKind,
+  title: string,
+  rationale: string,
+  impact: string,
+  payload: Record<string, unknown>,
+  actor: string,
+  extra: Partial<ChatProposal> = {},
+): ChatProposal {
+  return proposal(kind, title, rationale, impact, payload, actor, extra);
+}
 
 function proposal(
   kind: ChatProposalKind,
@@ -445,6 +458,7 @@ export function renderProjectGuide(project: DdProject): { text: string; citedEvi
     '  Approve a card below, or say “start Construction Progress DD”, “add Tower B”, “generate red flag report”.',
     '  Attach a document in this chat: it is classified against scopes and expected evidence; nothing files until you approve.',
     '  Maps, web search and government portals: “what’s nearby”, “search the web for this locality”, “get the EC from Kaveri”. Maps uses the official API; portals are named routes you download — we do not scrape them.',
+    '  Property screen: say “screen this project” or “should we pursue this”. The engine writes the same registers; approve the card first.',
     '  Chat thinking is written onto the knowledge graph with scopes, evidence, findings and actions.',
   ];
 
@@ -672,6 +686,9 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
   } else if (item.kind === 'run_valuation') {
     const record = createValuationRun(project, actor);
     recordId = record.id;
+  } else if (item.kind === 'run_screen') {
+    const applied = screenProject(project, actor);
+    recordId = applied.valuationId;
   } else if (item.kind === 'patch_project') {
     patchProject(project, payload as PatchProjectInput, actor);
     recordId = project.id;

@@ -38,6 +38,19 @@ export default function Valuation() {
     }
   }
 
+  async function screen() {
+    setBusy(true);
+    try {
+      await api.runProjectScreen(project.id);
+      setProject(await api.getProject(project.id));
+      toast('Property screen wrote findings, risks and an indicative valuation', 'good');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not run property screen', 'critical');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function signOff(runId: string, value: ValuationSignOff) {
     try {
       await api.patchValuation(project.id, runId, value);
@@ -53,7 +66,10 @@ export default function Valuation() {
         <p className="max-w-[62ch] text-[13px] text-ink-secondary">
           IBBI-structured indicative valuation. Decision support only — not a certified value unless a registered valuer signs a separate professional report.
         </p>
-        <Button onClick={() => void run()} disabled={busy}>Run indicative valuation</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => void screen()} disabled={busy}>Run property screen</Button>
+          <Button onClick={() => void run()} disabled={busy}>Run indicative valuation</Button>
+        </div>
       </div>
 
       <Callout tone="warning" title="Not a certified valuation">

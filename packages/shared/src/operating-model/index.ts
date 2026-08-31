@@ -6,4 +6,5 @@ export * from './capabilities';
 export * from './cockpit';
 export * from './wizard';
 export * from './chat-sides';
+export * from './project-screen';
 export * from './seed';

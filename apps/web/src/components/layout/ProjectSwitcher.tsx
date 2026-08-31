@@ -6,7 +6,7 @@ import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { Badge, Dot, cn, type Tone } from '../ui/kit';
 
-const PROJECT_TABS = new Set(['cockpit', 'assets', 'dd', 'evidence', 'findings', 'risks', 'decisions', 'reports', 'valuation', 'graph', 'ai']);
+const PROJECT_TABS = new Set(['assets', 'dd', 'evidence', 'findings', 'risks', 'decisions', 'reports', 'valuation', 'graph', 'ai', 'orchestrate']);
 
 export function projectSwitchPath(pathname: string, nextId: string): string {
   const parts = pathname.split('/').filter(Boolean);
@@ -74,17 +74,17 @@ export default function ProjectSwitcher() {
   const reference = current?.reference;
 
   return (
-    <div ref={rootRef} className="relative min-w-0">
+    <div ref={rootRef} className="relative min-w-0 max-w-full">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label="Switch project"
-        className="flex max-w-full items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-sunken"
+        className="flex w-full min-w-0 max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-sunken sm:px-2"
       >
         <FolderTree size={15} className="shrink-0 text-ink-muted" />
-        <span className="min-w-0">
+        <span className="min-w-0 flex-1 overflow-hidden">
           {reference ? (
             <span className="block font-mono text-[10px] leading-none text-ink-muted">{reference}</span>
           ) : null}
@@ -115,7 +115,7 @@ export default function ProjectSwitcher() {
                   aria-selected={selected}
                   onClick={() => go(p)}
                   className={cn(
-                    'flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-sunken',
+                    'flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-sunken coarse:min-h-11',
                     selected && 'bg-brand-soft/60',
                   )}
                 >

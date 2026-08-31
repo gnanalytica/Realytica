@@ -93,7 +93,7 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <header className={cn('flex items-start justify-between gap-4 border-b border-hairline px-4 py-3', className)}>
+    <header className={cn('flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-hairline px-4 py-3', className)}>
       <div className="flex min-w-0 items-start gap-2.5">
         {icon ? <span className="mt-0.5 shrink-0 text-ink-muted">{icon}</span> : null}
         <div className="min-w-0">
@@ -579,7 +579,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
 
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <select {...rest} className={cn(CONTROL, 'h-9 appearance-none pr-8', className)}>
         {children}
       </select>
@@ -803,26 +803,29 @@ export function Modal({
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"
         className={cn(
-          'relative z-10 w-full animate-fade-in rounded-xl bg-surface shadow-pop ring-1 ring-[var(--ring)]',
+          'relative z-10 flex max-h-[min(92dvh,40rem)] w-full flex-col overflow-hidden animate-fade-in rounded-xl bg-surface shadow-pop ring-1 ring-[var(--ring)]',
+          'mb-[env(safe-area-inset-bottom)] sm:mb-0',
           width === 'sm' && 'max-w-sm',
           width === 'md' && 'max-w-lg',
           width === 'lg' && 'max-w-3xl',
         )}
       >
-        <header className="flex items-center justify-between border-b border-hairline px-4 py-3">
-          <h2 className="text-[13px] font-semibold text-ink">{title}</h2>
-          <button onClick={onClose} className="rounded p-1 coarse:p-3 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Close">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline px-4 py-3">
+          <h2 className="min-w-0 truncate text-[13px] font-semibold text-ink">{title}</h2>
+          <button onClick={onClose} className="shrink-0 rounded p-1 coarse:p-3 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Close">
             <X size={15} />
           </button>
         </header>
-        <div className="max-h-[70vh] overflow-y-auto p-4">{children}</div>
-        {footer ? <footer className="flex justify-end gap-2 border-t border-hairline px-4 py-3">{footer}</footer> : null}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
+        {footer ? (
+          <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-hairline px-4 py-3">{footer}</footer>
+        ) : null}
       </div>
     </div>
   );
@@ -879,7 +882,7 @@ export function ToastHost({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div className="no-print pointer-events-none fixed bottom-4 right-4 z-[60] flex w-80 flex-col gap-2">
+      <div className="no-print pointer-events-none fixed bottom-[max(4.75rem,env(safe-area-inset-bottom))] left-3 right-3 z-[60] flex max-w-sm flex-col gap-2 lg:bottom-4 lg:left-auto lg:right-4 lg:w-80">
         {items.map((i) => {
           const Icon = TONE_ICON[i.tone];
           return (

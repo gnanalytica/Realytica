@@ -35,7 +35,7 @@ export default function ProjectGraph() {
         <p className="max-w-[62ch] text-[13px] text-ink-secondary">
           Tree navigation in the rest of the app; this is the graph of data links — findings shared across DDs, evidence used, risks and actions they raise.
         </p>
-        <Select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} className="w-48">
+        <Select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} className="w-full max-w-xs sm:w-48">
           <option value="all">All nodes ({graph.nodes.length})</option>
           {KIND_ORDER.map((k) => (
             <option key={k} value={k}>{k} ({graph.nodes.filter((n) => n.kind === k).length})</option>

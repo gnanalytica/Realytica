@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AreaUnitProvider } from '../../lib/units';
 import { readPref, writePref } from '../../lib/prefs';
+import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
@@ -19,11 +20,17 @@ export default function AppShell() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState<boolean>(readStoredCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
 
   // Close the mobile drawer automatically whenever navigation happens.
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
+
+  // Crossing to desktop leaves the overlay mounted unless we dismiss it.
+  useEffect(() => {
+    if (isDesktop) setMobileOpen(false);
+  }, [isDesktop]);
 
   function toggleCollapsed() {
     setCollapsed((prev) => {
@@ -33,7 +40,7 @@ export default function AppShell() {
     });
   }
 
-  const cockpit = location.pathname.includes('/cockpit');
+  const projectWorkspace = /^\/projects\/(?!new(?:\/|$))[^/]+/.test(location.pathname);
 
   return (
     <AreaUnitProvider>
@@ -46,8 +53,8 @@ export default function AppShell() {
       />
       <div className="flex min-h-full min-w-0 flex-1 flex-col">
         <TopBar onOpenMobile={() => setMobileOpen(true)} />
-        <main className={cockpit ? 'min-h-0 min-w-0 flex-1 overflow-hidden p-0' : 'min-w-0 flex-1 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8'}>
-          <div className={cockpit ? 'h-full min-h-0 w-full' : 'mx-auto w-full max-w-[1400px]'}>
+        <main className={projectWorkspace ? 'min-h-0 min-w-0 flex-1 overflow-hidden p-0' : 'min-w-0 flex-1 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8'}>
+          <div className={projectWorkspace ? 'h-full min-h-0 w-full' : 'mx-auto w-full max-w-[1400px]'}>
             <Outlet />
           </div>
         </main>

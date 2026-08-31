@@ -81,7 +81,7 @@ export default function ScopeWorkspace() {
             <button
               key={ch.id}
               type="button"
-              className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left hover:bg-sunken/60"
+              className="flex w-full flex-wrap items-start justify-between gap-3 px-4 py-3 text-left hover:bg-sunken/60 coarse:min-h-11"
               onClick={() => {
                 setCheckId(ch.id);
                 setResult(ch.result === 'pending' ? 'compliant' : ch.result);
@@ -89,7 +89,7 @@ export default function ScopeWorkspace() {
                 setEvidenceIds([...ch.evidenceIds]);
               }}
             >
-              <div>
+              <div className="min-w-0">
                 <p className="text-[13px] font-medium text-ink">{ch.title}</p>
                 <p className="mt-0.5 text-[12px] text-ink-muted">{ch.section} · {ch.expectedEvidence.join(', ')}</p>
               </div>
@@ -103,8 +103,8 @@ export default function ScopeWorkspace() {
         <CardHeader title="Evidence on this scope" />
         <CardBody className="space-y-1">
           {evidence.slice(0, 12).map((e) => (
-            <div key={e.id} className="flex justify-between gap-2 text-[13px]">
-              <span>{e.title}</span>
+            <div key={e.id} className="flex flex-wrap justify-between gap-2 text-[13px]">
+              <span className="min-w-0">{e.title}</span>
               <Badge>{EVIDENCE_STATUS_LABEL[e.status]}</Badge>
             </div>
           ))}

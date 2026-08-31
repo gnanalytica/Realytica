@@ -10,13 +10,18 @@ type Command =
   | { kind: 'ask'; id: string; label: string; hint: string };
 
 const GO: Array<{ pane: ProjectCockpitPane; label: string; hint: string }> = [
-  { pane: 'work', label: 'Open work (current DD)', hint: 'Go' },
+  { pane: 'overview', label: 'Open overview', hint: 'Go' },
+  { pane: 'assets', label: 'Open assets', hint: 'Go' },
+  { pane: 'dd', label: 'Open assessments', hint: 'Go' },
+  { pane: 'evidence', label: 'Open evidence', hint: 'Go' },
+  { pane: 'findings', label: 'Open findings', hint: 'Go' },
+  { pane: 'risks', label: 'Open risks & actions', hint: 'Go' },
+  { pane: 'decisions', label: 'Open decisions', hint: 'Go' },
+  { pane: 'reports', label: 'Open reports', hint: 'Go' },
   { pane: 'graph', label: 'Open knowledge graph', hint: 'Go' },
-  { pane: 'actions', label: 'Open actions', hint: 'Go' },
+  { pane: 'valuation', label: 'Open valuation', hint: 'Go' },
   { pane: 'orchestrate', label: 'Open orchestrator', hint: 'Go' },
   { pane: 'drafts', label: 'Open AI drafts', hint: 'Go' },
-  { pane: 'evidence', label: 'Open evidence', hint: 'Go' },
-  { pane: 'valuation', label: 'Open valuation', hint: 'Go' },
 ];
 
 export function ProjectCommandBar({
@@ -74,6 +79,15 @@ export function ProjectCommandBar({
       hint: 'Do',
       run: async () => {
         await api.proposeAiDrafts(project.id);
+      },
+    });
+    out.push({
+      kind: 'do',
+      id: 'do:screen',
+      label: 'Run property screen (write findings, risks, valuation)',
+      hint: 'Do',
+      run: async () => {
+        await api.runProjectScreen(project.id);
       },
     });
     out.push({
@@ -150,7 +164,7 @@ export function ProjectCommandBar({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(11,11,11,0.28)] px-4 pt-[16vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(11,11,11,0.28)] px-3 pt-[max(1.5rem,env(safe-area-inset-top))] sm:px-4 sm:pt-[16vh]"
       onClick={onClose}
       role="presentation"
     >
@@ -159,7 +173,7 @@ export function ProjectCommandBar({
         aria-modal="true"
         aria-label="Project command bar"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xl overflow-hidden rounded-xl bg-surface shadow-card ring-1 ring-[var(--axis)]"
+        className="w-full max-w-xl overflow-hidden rounded-xl bg-surface shadow-card ring-1 ring-[var(--axis)] max-h-[min(32rem,85dvh)] flex flex-col"
       >
         <div className="flex items-center gap-2.5 border-b border-hairline px-4 py-3">
           <Search size={15} className="shrink-0 text-ink-muted" aria-hidden="true" />
@@ -185,7 +199,7 @@ export function ProjectCommandBar({
             className="w-full bg-transparent text-[13.5px] text-ink outline-none placeholder:text-ink-muted"
           />
         </div>
-        <ul className="max-h-80 overflow-y-auto p-1.5">
+        <ul className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {matches.length === 0 ? (
             <li className="px-3 py-6 text-center text-[12.5px] text-ink-muted">Nothing on this project matches that.</li>
           ) : (
@@ -195,7 +209,7 @@ export function ProjectCommandBar({
                   type="button"
                   onMouseEnter={() => setActive(i)}
                   onClick={() => void run(c)}
-                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left ${
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left coarse:min-h-11 ${
                     i === active ? 'bg-brand-soft' : ''
                   }`}
                 >

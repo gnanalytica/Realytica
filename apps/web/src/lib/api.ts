@@ -77,6 +77,7 @@ import type {
   AiDraftStatus,
   EvidenceAttachment,
   ProjectChatResult,
+  ProjectScreenSnapshot,
   OrchestratorRun,
 } from '@realytica/shared';
 
@@ -707,6 +708,11 @@ export const api = {
     request<{ nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] }>(`/projects/${projectId}/graph`),
   runValuation: (projectId: string, actor?: string) =>
     request<ValuationRun>(`/projects/${projectId}/valuation`, { method: 'POST', body: JSON.stringify({ actor }) }),
+  runProjectScreen: (projectId: string, actor?: string) =>
+    request<{ snapshot: ProjectScreenSnapshot; valuationId: string; project: DdProject }>(`/projects/${projectId}/screen`, {
+      method: 'POST',
+      body: JSON.stringify({ actor }),
+    }),
   patchValuation: (projectId: string, runId: string, signOff: ValuationSignOff) =>
     request<ValuationRun>(`/projects/${projectId}/valuation/${runId}`, { method: 'PATCH', body: JSON.stringify({ signOff }) }),
   snapshotCapabilities: (projectId: string) =>
