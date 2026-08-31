@@ -24,6 +24,7 @@ function TurnBubble({
   applied,
   screenResult,
   askingPrice,
+  onPick,
   verification,
   onOpenNode,
   onOpenEvidence,
@@ -36,6 +37,8 @@ function TurnBubble({
   applied?: string[];
   screenResult?: ScreenResult;
   askingPrice?: number | null;
+  /** Send a message on the person's behalf when they pick an offered choice. */
+  onPick?: (text: string) => void;
   verification?: VerificationSummary;
   onOpenNode?: (nodeId: string) => void;
   onOpenEvidence?: (id: string) => void;
@@ -162,6 +165,41 @@ function TurnBubble({
             result={screenResult}
             askingPrice={askingPrice}
           />
+        ) : null}
+        {turn.choices && turn.choices.length > 0 && onPick ? (
+          /*
+           * Options offered because the message did not resolve to one thing.
+           * Rendered as buttons rather than a list in the prose because the
+           * point is that the person picks — a numbered list they have to
+           * retype is the same dead end with better manners. Picking sends
+           * the message they would have written, so nothing here writes on
+           * its own.
+           */
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {turn.choices.map((choice) => (
+              <li key={choice.id}>
+                <button
+                  type="button"
+                  onClick={() => onPick(choice.send)}
+                  className={cn(
+                    'group flex w-full flex-col gap-0.5 rounded-lg bg-surface px-3 py-2 text-left',
+                    'ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick',
+                    'hover:bg-brand-soft hover:ring-brand/30 coarse:min-h-11',
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 text-[12.5px] text-ink group-hover:text-brand">{choice.label}</span>
+                    {choice.kind ? (
+                      <span className="shrink-0 text-mini uppercase tracking-wide text-ink-faint">{choice.kind}</span>
+                    ) : null}
+                  </span>
+                  {choice.detail ? (
+                    <span className="text-mini leading-snug text-ink-secondary">{choice.detail}</span>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : null}
         {applied && applied.length > 0 ? (
           <div className="mt-2 rounded-lg bg-good/10 px-2.5 py-2 ring-1 ring-inset ring-good/25">
@@ -520,6 +558,7 @@ export function CopilotPanel({
                 applied={appliedByTurn?.[turn.id]}
                 screenResult={screenResult}
                 askingPrice={askingPrice}
+                onPick={(text) => void submit(text)}
                 onOpenNode={onOpenNode}
                 onOpenEvidence={onOpenEvidence}
                 onOpenDocument={onOpenDocument}

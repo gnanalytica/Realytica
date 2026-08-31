@@ -9,6 +9,8 @@
 
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import {
+  candidateChoices,
+  rankTalkSittings,
   DD_CONNECTORS,
   PROJECT_COCKPIT_PANES,
   SCOPE_KEYS,
@@ -38,6 +40,7 @@ import {
   sittingFromCitedId,
   snapshotCapabilities,
   traceProjectNode,
+  type ChatChoice,
   type ChatProposal,
   type ChatProposalKind,
   type CockpitPathExtra,
@@ -79,6 +82,13 @@ export interface ProjectAgentCollectors {
   proposals: ChatProposal[];
   navigations: Array<{ target: string } & CockpitPathExtra>;
   toolCalls: { name: string; summary: string }[];
+  /**
+   * Options put to the person because the model could not tell which thing
+   * they meant. Same shape the deterministic path emits, so the panel renders
+   * one mechanism and the discipline does not depend on whether a key is
+   * configured.
+   */
+  choices: ChatChoice[];
 }
 
 function openTalk(bag: ProjectAgentCollectors, sitting: ReturnType<typeof sittingFromCitedId>): void {
@@ -458,6 +468,60 @@ export function createProjectTools(
     },
   });
 
+  /**
+   * The model's version of "I am not sure which one you mean".
+   *
+   * The deterministic path already ranks near matches and asks; without this
+   * the behaviour would depend on whether a key is configured, and the model
+   * would be left with only two moves on an ambiguous message — guess, or
+   * write a paragraph asking a question the person cannot click. Neither is
+   * acceptable on a command.
+   *
+   * Options come from the project's own records, matched against the phrase
+   * the person used. The model chooses WHETHER to ask; it does not get to
+   * invent what the options are.
+   */
+  const askToChoose = betaTool({
+    name: 'ask_to_choose',
+    description:
+      'Ask the person which record they meant, instead of guessing. Use whenever a message names a check, scope, DD, finding, risk or action that does not clearly resolve to exactly one — especially when they asked you to CHANGE something, where a wrong guess writes to a register. Options are drawn from this project; you supply the phrase they used.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['phrase'],
+      properties: {
+        phrase: {
+          type: 'string',
+          description: 'The words the person used for the thing, e.g. "boundary check".',
+        },
+        question: {
+          type: 'string',
+          description: 'One short line saying what is unclear. Say plainly that nothing has been changed.',
+        },
+      },
+    } as const,
+    run: async ({ phrase, question }) => {
+      const ranked = rankTalkSittings(project, String(phrase), 5);
+      if (!ranked.length) {
+        return JSON.stringify({
+          offered: 0,
+          note: 'Nothing on this project resembles that. Say so, and ask them to name it as it appears on the register.',
+        });
+      }
+      const rows = candidateChoices(project, ranked);
+      for (const row of rows) {
+        if (!bag.choices.some((c) => c.send === row.send)) bag.choices.push(row);
+      }
+      bag.toolCalls.push({ name: 'ask_to_choose', summary: `${rows.length} option(s) offered` });
+      return JSON.stringify({
+        offered: rows.length,
+        options: rows.map((r) => ({ label: r.label, detail: r.detail })),
+        question: question ?? null,
+        note: 'Offered to the person as buttons. Do NOT also act on one of them — wait for the pick.',
+      });
+    },
+  });
+
   const runCapability = betaTool({
     name: 'run_capability',
     description:
@@ -777,6 +841,7 @@ export function createProjectTools(
     getPortalRoute,
     comparePlanning,
     proposeUpdate,
+    askToChoose,
     runCapability,
     reviewFindings,
     navigatePane,

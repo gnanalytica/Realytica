@@ -52,7 +52,7 @@ export async function runProjectOrchestratorAgent(
     };
   }
 
-  const bag: ProjectAgentCollectors = { proposals: [], navigations: [], toolCalls: [] };
+  const bag: ProjectAgentCollectors = { proposals: [], navigations: [], toolCalls: [], choices: [] };
   const tools: LlmClientTool[] = createProjectTools(project, actor, bag).map(clientToolFromRunnable);
   const messages: LlmMessage[] = [
     {

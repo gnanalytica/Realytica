@@ -12,6 +12,7 @@ import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './cap
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
 import { ensureProjectShape, packCompleteness, packEvidence, patchRecordStatus, recommendedDdTypes } from './operations';
 import type {
+  ChatChoice,
   ActionRecord,
   ChatIngestFile,
   ChatProposal,
@@ -44,6 +45,7 @@ import {
 } from './wizard';
 import { projectNextStep, materialOpenFindings, unevidencedFindings, findingCriticSitting } from './next-step';
 import { detectChatSideIntents, handleChatSides } from './chat-sides';
+import { clarifyRecordCommand, clarifySubject, looksLikeCommand, resolveSubject } from './clarify';
 import {
   approveAllMeansEveryOpen,
   currentTurnProposals,
@@ -191,6 +193,7 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     citedEvidenceIds: extra.citedEvidenceIds ?? [],
     citedNodeIds: extra.citedNodeIds,
     toolCalls: extra.toolCalls,
+    choices: extra.choices,
     refusedForLackOfEvidence: extra.refusedForLackOfEvidence,
     proposalIds: extra.proposalIds,
   };
@@ -277,6 +280,8 @@ export function applyProjectAgentTurn(
   agent: {
     text: string;
     proposals: ChatProposal[];
+    /** Options the model offered instead of guessing. Carried onto the turn. */
+    choices?: ChatChoice[];
     navigations: Array<{ target: string } & CockpitPathExtra>;
     toolCalls?: ProjectChatTurn['toolCalls'];
     citedEvidenceIds?: string[];
@@ -297,6 +302,7 @@ export function applyProjectAgentTurn(
     ...new Set(offered.flatMap((p) => [...(p.citedNodeIds ?? []), ...(p.citedEvidenceIds ?? [])])),
   ];
   const assistantTurn = turn('assistant', agent.text, {
+    choices: agent.choices?.length ? agent.choices : undefined,
     citedEvidenceIds: [...new Set(agent.citedEvidenceIds ?? [])],
     citedNodeIds: agent.citedNodeIds ? [...new Set(agent.citedNodeIds)] : undefined,
     toolCalls: agent.toolCalls,
@@ -483,6 +489,7 @@ export function applyProjectChat(
   };
 
   let assistantText = '';
+  let choices: ChatChoice[] | undefined;
   let toolCalls: ProjectChatTurn['toolCalls'];
   let citedEvidenceIds: string[] = [];
   let citedNodeIds: string[] | undefined;
@@ -492,6 +499,21 @@ export function applyProjectChat(
   const openRisks = () => project.risks.filter((r) => r.status !== 'closed' && r.status !== 'accepted');
 
   const isShow = wantsNavigate(ql);
+  /*
+   * A command aimed at a record on the register — "close the litigation
+   * finding", "mitigate the drainage risk". These are handled further down,
+   * but the connector/side-intent branch sits above them and matches on topic
+   * words alone, so "close the litigation finding" was answered with eCourts
+   * portal routes: a real answer to a question nobody asked, while the
+   * finding stayed open. Naming it here lets the side branch stand aside for
+   * an instruction about a record we already hold.
+   */
+  const registerRecordCommand =
+    (/\b(close|complete|done|finish)\b/.test(ql) && /\baction\b/.test(ql))
+    || (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql))
+    || (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql));
+  const recordCommand =
+    registerRecordCommand || (looksLikeCommand(q) && /\b(check|scope|assessment|dd)\b/.test(ql));
   const runOrchestrate = /\borchestrat/.test(ql) && !/^(open|show|go to|switch to|see|view)\b/.test(ql);
   const proposeDrafts = /\bpropose\b/.test(ql) && /\bdrafts?\b/.test(ql);
   const runValuation = /\b(run|compute|start)\b/.test(ql) && /\bvaluat/.test(ql) && !wantsProjectScreen(q);
@@ -515,7 +537,7 @@ export function applyProjectChat(
     } else {
       navigate('evidence', 'Opened evidence', extrasFromPayload(rows[0]?.payload as Record<string, unknown>));
     }
-  } else if (wantsApprove(ql)) {
+  } else if (wantsApprove(ql) && !registerRecordCommand) {
     const everyOpen = approveAllMeansEveryOpen(q);
     const targets =
       /\ball\b/.test(ql) || everyOpen
@@ -527,7 +549,32 @@ export function applyProjectChat(
       targets.push(project.chatProposals.find((p) => p.status === 'proposed')!);
     }
     if (targets.length === 0) {
-      assistantText = 'Nothing to approve. Ask “guide me” for the next cards, or attach a document.';
+      /*
+       * "Accept" is two verbs. It approves a card, and it is also what you do
+       * to a risk you have decided to live with — so "accept the flood risk"
+       * landed here, found no card, and said "nothing to approve" while the
+       * risk stayed open. When there is no card to approve but the sentence
+       * names a register, offer that reading rather than treating the word as
+       * settled.
+       */
+      const kind: 'risk' | 'finding' | 'action' | null = /\brisks?\b/.test(ql)
+        ? 'risk'
+        : /\bfindings?\b/.test(ql)
+          ? 'finding'
+          : /\bactions?\b/.test(ql)
+            ? 'action'
+            : null;
+      if (kind) {
+        const rows = kind === 'risk' ? openRisks() : kind === 'finding' ? openFindings() : openActions();
+        const verb = kind === 'risk' ? (/\baccept/.test(ql) ? 'Accept' : 'Mitigate') : 'Close';
+        const asked = clarifyRecordCommand(project, q, kind, rows, verb);
+        assistantText = `There is no card waiting for approval, so I have not written anything.\n${asked.text}`;
+        choices = asked.choices;
+        toolCalls = [{ name: 'clarify', summary: asked.summary }];
+        navigate(kind === 'risk' ? 'risks' : kind === 'finding' ? 'findings' : 'actions', '');
+      } else {
+        assistantText = 'Nothing to approve. Ask “guide me” for the next cards, or attach a document.';
+      }
     } else {
       const done: string[] = [];
       for (const item of targets) {
@@ -628,7 +675,7 @@ export function applyProjectChat(
           }
         }
       } else {
-      const side = handleChatSides(project, q, actor, options.sides, options.sitting);
+      const side = recordCommand ? null : handleChatSides(project, q, actor, options.sides, options.sitting);
       if (side) {
         const cards = offer(side.proposals);
         assistantText = side.text;
@@ -673,7 +720,10 @@ export function applyProjectChat(
       citedNodeIds = [hit.id];
       highlightIds.push(hit.id);
     } else {
-      assistantText = 'No matching open action. Name it the way it appears on the register, or open the actions pane.';
+      const asked = clarifyRecordCommand(project, q, 'action', openActions(), 'Close');
+      assistantText = asked.text;
+      choices = asked.choices;
+      toolCalls = [{ name: 'clarify', summary: asked.summary }];
       navigate('actions', 'Opened actions');
     }
   } else if (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql)) {
@@ -686,9 +736,13 @@ export function applyProjectChat(
       citedNodeIds = [hit.id];
       highlightIds.push(hit.id);
     } else {
-      assistantText = 'No matching open finding. Quote the title, or ask for a briefing.';
+      const asked = clarifyRecordCommand(project, q, 'finding', openFindings(), 'Close');
+      assistantText = asked.text;
+      choices = asked.choices;
+      toolCalls = [{ name: 'clarify', summary: asked.summary }];
+      navigate('findings', 'Opened findings');
     }
-  } else if (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql) && !wantsApprove(ql)) {
+  } else if (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql)) {
     const hit = matchTitle(openRisks(), q) as RiskRecord | undefined;
     if (hit) {
       const next = /\baccept/.test(ql) ? 'accepted' : 'mitigated';
@@ -699,7 +753,11 @@ export function applyProjectChat(
       citedNodeIds = [hit.id];
       highlightIds.push(hit.id);
     } else {
-      assistantText = 'No matching open risk. Quote the title from the register.';
+      const asked = clarifyRecordCommand(project, q, 'risk', openRisks(), /\baccept/.test(ql) ? 'Accept' : 'Mitigate');
+      assistantText = asked.text;
+      choices = asked.choices;
+      toolCalls = [{ name: 'clarify', summary: asked.summary }];
+      navigate('risks', 'Opened risks');
     }
   } else if (isShow || NAV_RULES.some((r) => r.test(ql) && /^(open|show|go to|switch to|take me|see|view)\b/.test(ql))) {
     const talk = sittingWithField(project, talkSittingFromText(project, q));
@@ -712,6 +770,21 @@ export function applyProjectChat(
       if (talk.extra.evidenceId) citedEvidenceIds = [talk.extra.evidenceId];
       toolCalls = [{ name: 'navigate', summary: talk.label }];
     } else {
+      /*
+       * "Open the zzzz check" used to open the DD pane and read out today's
+       * unrelated next step. Opening a whole register is the right answer to
+       * "open evidence"; it is the wrong answer to a named thing we could not
+       * find, so try to say which named thing we thought they meant first.
+       */
+      const asked = clarifySubject(project, q, resolveSubject(project, q, { strict: true }), {
+        sitting: options.sitting,
+        insist: true,
+      });
+      if (asked) {
+        assistantText = asked.text;
+        choices = asked.choices;
+        toolCalls = [{ name: 'clarify', summary: asked.summary }];
+      } else {
       const pane = NAV_RULES.find((r) => r.test(ql))?.pane ?? 'overview';
       navigate(pane, `Opened ${pane}`);
       const brief = briefingAnswer(project, options.viewContext);
@@ -719,6 +792,7 @@ export function applyProjectChat(
       citedEvidenceIds = brief.citedEvidenceIds ?? [];
       citedNodeIds = brief.citedNodeIds;
       toolCalls = [{ name: 'navigate', summary: pane }];
+      }
     }
   } else {
     const focused = wantsAssets(ql) || wantsDdTypes(ql) || wantsScopes(ql) || wantsReport(ql) || wantsProofs(ql);
@@ -774,14 +848,28 @@ export function applyProjectChat(
         if (talk.extra.evidenceId) citedEvidenceIds = [talk.extra.evidenceId];
         toolCalls = [{ name: 'open_sitting', summary: talk.label }];
       } else {
-        const next = projectNextStep(project, actor);
-        offer(next.proposals);
-        assistantText = next.text;
-        citedEvidenceIds = next.citedEvidenceIds;
-        citedNodeIds = next.citedNodeIds;
-        highlightIds.push(...next.citedEvidenceIds, ...next.citedNodeIds);
-        toolCalls = [{ name: 'next_step', summary: next.title }];
-        navigate(next.pane, '', next.extra);
+        /*
+         * Nothing resolved exactly. Before falling through to the next-step
+         * briefing — which answers a DIFFERENT question, on a different check,
+         * in the same confident voice — see whether anything is close enough
+         * to put to the person. Asking costs a turn; guessing costs their
+         * trust in every answer that was right.
+         */
+        const asked = clarifySubject(project, q, resolveSubject(project, q), { sitting: options.sitting });
+        if (asked) {
+          assistantText = asked.text;
+          choices = asked.choices;
+          toolCalls = [{ name: 'clarify', summary: asked.summary }];
+        } else {
+          const next = projectNextStep(project, actor);
+          offer(next.proposals);
+          assistantText = next.text;
+          citedEvidenceIds = next.citedEvidenceIds;
+          citedNodeIds = next.citedNodeIds;
+          highlightIds.push(...next.citedEvidenceIds, ...next.citedNodeIds);
+          toolCalls = [{ name: 'next_step', summary: next.title }];
+          navigate(next.pane, '', next.extra);
+        }
       }
     }
     }
@@ -791,6 +879,7 @@ export function applyProjectChat(
   }
 
   const assistantTurn = turn('assistant', assistantText, {
+    choices,
     citedEvidenceIds: [...new Set(citedEvidenceIds)],
     citedNodeIds: citedNodeIds ? [...new Set(citedNodeIds)] : undefined,
     toolCalls,

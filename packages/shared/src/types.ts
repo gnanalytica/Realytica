@@ -2529,6 +2529,26 @@ export interface AgentInsight {
   inferred: boolean;
 }
 
+/**
+ * Something the assistant is offering the person to pick.
+ *
+ * Distinct from a `ChatProposal`, and the difference matters: a proposal is a
+ * write waiting for approval, a choice is a question about what was MEANT.
+ * Approving a proposal changes the project; picking a choice only sends the
+ * message the person would have typed, so nothing here can write by itself.
+ */
+export interface ChatChoice {
+  id: string;
+  /** What the person reads. */
+  label: string;
+  /** One line of context so the pick is informed — the record's current state. */
+  detail?: string;
+  /** The message sent when picked. Always something the chat already handles. */
+  send: string;
+  /** Subject kind, for the chip's label. */
+  kind?: string;
+}
+
 export interface CopilotTurn {
   id: string;
   role: 'user' | 'assistant';
@@ -2547,6 +2567,13 @@ export interface CopilotTurn {
   refusedForLackOfEvidence?: boolean;
   /** Wizard cards offered with this assistant turn. */
   proposalIds?: string[];
+  /**
+   * Options offered because the message did not resolve to one thing.
+   *
+   * Present only on a turn that ASKED rather than acted, which is the whole
+   * signal: a turn carrying choices changed nothing, and says so.
+   */
+  choices?: ChatChoice[];
 }
 
 /* ------------------------------------------------------------------ */

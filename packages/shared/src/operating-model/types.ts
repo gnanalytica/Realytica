@@ -8,6 +8,7 @@
  */
 
 import type {
+  ChatChoice,
   KarnatakaAttributes,
   ParcelBoundary,
   PlotAttributes,
@@ -15,6 +16,8 @@ import type {
   SiteContext,
   Tenure,
 } from '../types';
+
+export type { ChatChoice } from '../types';
 
 /* ------------------------------------------------------------------ */
 /* Catalog keys                                                        */
@@ -673,6 +676,11 @@ export interface ProjectChatTurn {
   role: 'user' | 'assistant';
   text: string;
   at: string;
+  /**
+   * Options offered because the message did not resolve to one thing.
+   * Present only on a turn that asked rather than acted.
+   */
+  choices?: ChatChoice[];
   citedEvidenceIds: string[];
   citedNodeIds?: string[];
   toolCalls?: { name: string; summary: string }[];
