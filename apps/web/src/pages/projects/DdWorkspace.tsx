@@ -13,10 +13,11 @@ import { api } from '../../lib/api';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Select, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { checkTone } from './shared';
+import { LiveRow } from './LiveRow';
 
 export default function DdWorkspace() {
   const { ddId } = useParams<{ ddId: string }>();
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
   const toast = useToast();
   const assessment = project.assessments.find((a) => a.id === ddId);
   const [diff, setDiff] = useState<Awaited<ReturnType<typeof api.assessmentChanges>> | null | undefined>(undefined);
@@ -86,6 +87,7 @@ export default function DdWorkspace() {
           const c = scopeCompleteness(scope);
           return (
             <Link key={scope.id} to={`scopes/${scope.id}`}>
+              <LiveRow id={scope.id} highlightIds={highlightIds} variant="flush">
               <Card className="h-full transition-colors hover:bg-sunken/60">
                 <CardHeader title={SCOPE_LABEL[scope.scopeKey]} subtitle={`${c.percent}% · ${c.done}/${c.total} checks`} />
                 <CardBody>
@@ -99,6 +101,7 @@ export default function DdWorkspace() {
                   </div>
                 </CardBody>
               </Card>
+              </LiveRow>
             </Link>
           );
         })}

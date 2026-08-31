@@ -1,16 +1,24 @@
 import { useState } from 'react';
-import { Link, useOutletContext, useParams } from 'react-router-dom';
+import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import {
   CHECK_RESULT_LABEL,
   EVIDENCE_STATUS_LABEL,
   SCOPE_LABEL,
+  checkAdvise,
+  proposalExtractionNotes,
+  proposalQuotes,
+  proposalsPinnedToCheck,
+  quotesForCheck,
+  type CheckInstance,
   type CheckResult,
   type FindingSeverity,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Callout, Card, CardBody, CardHeader, Field, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
+import { Badge, Button, Callout, Card, CardBody, CardHeader, Field, Modal, Select, Textarea, cn, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { checkTone } from './shared';
+import { useLiveHighlight } from './LiveRow';
+import { FieldAdvise, TickCrossButtons } from './cockpit/FieldAdvise';
 
 const RESULTS: CheckResult[] = [
   'compliant',
@@ -24,10 +32,13 @@ const RESULTS: CheckResult[] = [
 
 export default function ScopeWorkspace() {
   const { ddId, scopeId } = useParams<{ ddId: string; scopeId: string }>();
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const [searchParams] = useSearchParams();
+  const { project, setProject, onApproveProposal, onSkipProposal, proposalBusy, highlightIds, onOpenCited } =
+    useOutletContext<ProjectOutlet>();
   const toast = useToast();
   const assessment = project.assessments.find((a) => a.id === ddId);
   const scope = assessment?.scopes.find((s) => s.id === scopeId);
+  const requestedCheck = searchParams.get('check');
   const [checkId, setCheckId] = useState<string | null>(null);
   const [result, setResult] = useState<CheckResult>('compliant');
   const [comments, setComments] = useState('');
@@ -35,12 +46,24 @@ export default function ScopeWorkspace() {
   const [severity, setSeverity] = useState<FindingSeverity>('high');
   const [busy, setBusy] = useState(false);
 
+  function openCheck(ch: { id: string; result: CheckResult; comments: string; evidenceIds: string[] }) {
+    setCheckId(ch.id);
+    setResult(ch.result === 'pending' ? 'compliant' : ch.result);
+    setComments(ch.comments);
+    setEvidenceIds([...ch.evidenceIds]);
+  }
+
   if (!assessment || !scope) {
     return <Callout tone="critical" title="Scope not found">This scope is not on the assessment.</Callout>;
   }
 
+  const sittingCheck = requestedCheck ? scope.checks.find((c) => c.id === requestedCheck) : undefined;
   const check = scope.checks.find((c) => c.id === checkId);
   const evidence = project.evidence.filter((e) => e.scopeInstanceIds.includes(scope.id) || e.assessmentIds.includes(assessment.id));
+  const pinned = check ? proposalsPinnedToCheck(project, check.id) : [];
+  const quotes = check ? quotesForCheck(project, check.id) : [];
+  const sittingQuotes = sittingCheck ? quotesForCheck(project, sittingCheck.id) : [];
+  const liveIds = [...(highlightIds ?? []), ...(requestedCheck ? [requestedCheck] : [])];
 
   async function save() {
     if (!check) return;
@@ -62,6 +85,26 @@ export default function ScopeWorkspace() {
     }
   }
 
+  async function recordLean(ch: CheckInstance, next: 'compliant' | 'missing_evidence') {
+    setBusy(true);
+    try {
+      const { project: updated } = await api.recordCheck(project.id, ch.id, {
+        result: next,
+        comments: next === 'compliant' ? 'Tick from the sitting.' : 'Cross from the sitting — expected proof still missing.',
+      });
+      setProject(updated);
+      toast(next === 'compliant' ? 'Recorded compliant' : 'Recorded missing evidence', 'good');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not record check', 'critical');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function selectField(ch: CheckInstance) {
+    if (onOpenCited) onOpenCited(ch.id);
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -74,27 +117,42 @@ export default function ScopeWorkspace() {
         </p>
       </div>
 
+      {sittingCheck ? (
+        <Card className="ring-1 ring-inset ring-brand/25">
+          <CardHeader title="This field" subtitle="Tick or cross — you close the check" />
+          <CardBody>
+            <FieldAdvise
+              check={sittingCheck}
+              scope={scope}
+              assessmentName={assessment.name}
+              advise={checkAdvise(project, sittingCheck)}
+              quotes={sittingQuotes}
+              pending={sittingCheck.result === 'pending'}
+              busy={busy}
+              onTick={() => void recordLean(sittingCheck, 'compliant')}
+              onCross={() => void recordLean(sittingCheck, 'missing_evidence')}
+              onDetails={() => openCheck(sittingCheck)}
+            />
+          </CardBody>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader title="Checks" />
         <CardBody className="divide-y divide-hairline p-0">
           {scope.checks.map((ch) => (
-            <button
+            <CheckRow
               key={ch.id}
-              type="button"
-              className="flex w-full flex-wrap items-start justify-between gap-3 px-4 py-3 text-left hover:bg-sunken/60 coarse:min-h-11"
-              onClick={() => {
-                setCheckId(ch.id);
-                setResult(ch.result === 'pending' ? 'compliant' : ch.result);
-                setComments(ch.comments);
-                setEvidenceIds([...ch.evidenceIds]);
-              }}
-            >
-              <div className="min-w-0">
-                <p className="text-[13px] font-medium text-ink">{ch.title}</p>
-                <p className="mt-0.5 text-[12px] text-ink-muted">{ch.section} · {ch.expectedEvidence.join(', ')}</p>
-              </div>
-              <Badge tone={checkTone(ch.result)}>{CHECK_RESULT_LABEL[ch.result]}</Badge>
-            </button>
+              check={ch}
+              sitting={sittingCheck?.id === ch.id}
+              highlightIds={liveIds}
+              pending={ch.result === 'pending'}
+              lean={ch.result === 'pending' ? checkAdvise(project, ch).lean : undefined}
+              busy={busy}
+              onOpen={() => selectField(ch)}
+              onTick={() => void recordLean(ch, 'compliant')}
+              onCross={() => void recordLean(ch, 'missing_evidence')}
+            />
           ))}
         </CardBody>
       </Card>
@@ -164,9 +222,95 @@ export default function ScopeWorkspace() {
                 </Select>
               </Field>
             ) : null}
+            {pinned.length ? (
+              <div className="space-y-2 rounded-lg bg-sunken px-3 py-2 ring-1 ring-inset ring-[var(--ring)]">
+                <p className="text-[12px] font-medium text-ink">Cards for this check</p>
+                {pinned.map((item) => (
+                  <div key={item.id}>
+                    <p className="text-[12.5px] font-medium text-ink">{item.title}</p>
+                    <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-secondary">{item.rationale}</p>
+                    {proposalQuotes(item.payload).length ? (
+                      <div className="mt-1.5 space-y-1 rounded-md bg-surface px-2 py-1.5">
+                        {proposalQuotes(item.payload).slice(0, 3).map((q, i) => (
+                          <p key={i} className="text-[11.5px] leading-relaxed text-ink">
+                            “{q.text}”{q.page ? <span className="text-ink-muted"> · p.{q.page}</span> : null}
+                          </p>
+                        ))}
+                        {proposalExtractionNotes(item.payload) ? (
+                          <p className="text-[11px] text-ink-muted">{proposalExtractionNotes(item.payload)}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {onApproveProposal && onSkipProposal ? (
+                      <div className="mt-2 flex gap-1.5">
+                        <Button size="sm" variant="primary" disabled={proposalBusy} onClick={() => onApproveProposal(item.id)}>
+                          Approve
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={proposalBusy} onClick={() => onSkipProposal(item.id)}>
+                          Skip
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {quotes.length > 0 && !pinned.length ? (
+              <div className="space-y-1 rounded-lg bg-sunken px-3 py-2">
+                <p className="text-[12px] font-medium text-ink">Quoted from the file</p>
+                {quotes.slice(0, 4).map((q, i) => (
+                  <p key={i} className="text-[11.5px] leading-relaxed text-ink-secondary">
+                    “{q.text}”{q.page ? ` · p.${q.page}` : ''}
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </Modal>
+    </div>
+  );
+}
+
+function CheckRow({
+  check,
+  sitting,
+  highlightIds,
+  pending,
+  lean,
+  busy,
+  onOpen,
+  onTick,
+  onCross,
+}: {
+  check: { id: string; title: string; section: string; expectedEvidence: string[]; result: CheckResult };
+  sitting: boolean;
+  highlightIds?: string[];
+  pending: boolean;
+  lean?: 'tick' | 'cross' | 'none';
+  busy?: boolean;
+  onOpen: () => void;
+  onTick: () => void;
+  onCross: () => void;
+}) {
+  const { ref, on } = useLiveHighlight<HTMLDivElement>(check.id, highlightIds);
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        'flex w-full flex-wrap items-start justify-between gap-3 px-4 py-3 hover:bg-sunken/60 coarse:min-h-11',
+        sitting ? 'bg-brand-soft/50' : '',
+        on && 'bg-brand-soft ring-2 ring-inset ring-brand/35',
+      )}
+    >
+      <button type="button" className="min-w-0 flex-1 text-left" onClick={onOpen}>
+        <p className="text-[13px] font-medium text-ink">{check.title}</p>
+        <p className="mt-0.5 text-[12px] text-ink-muted">{check.section} · {check.expectedEvidence.join(', ')}</p>
+      </button>
+      <div className="flex items-center gap-2">
+        {pending && sitting ? <TickCrossButtons lean={lean} busy={busy} onTick={onTick} onCross={onCross} /> : null}
+        <Badge tone={checkTone(check.result)}>{CHECK_RESULT_LABEL[check.result]}</Badge>
+      </div>
     </div>
   );
 }

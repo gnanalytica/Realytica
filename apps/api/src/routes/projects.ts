@@ -45,11 +45,31 @@ import {
   renderProjectGuide,
   screenProject,
   wantsDeterministicProjectChat,
+  noteProjectEdit,
+  CHECK_RESULT_LABEL,
+  clampGraphHops,
+  projectGraphOf,
+  retrieveProjectNeighbourhood,
+  traceProjectNode,
   type ChatIngestFile,
   type DdProject,
   type ProjectChatResult,
+  type SittingRef,
+  type AgentStep,
 } from '@realytica/shared';
-import { agentCapability, resolveRoute, runProjectCopilot, runProjectOrchestratorAgent, textOf } from '@realytica/agents';
+import {
+  agentCapability,
+  describeError,
+  enrichIngestWithDocumentIntelligence,
+  extractFactsFromProject,
+  recallForProject,
+  renderMemoryForPrompt,
+  resolveRoute,
+  runProjectCopilot,
+  runProjectOrchestratorAgent,
+  textOf,
+} from '@realytica/agents';
+import { memoryStore } from '../memory';
 import { gatherChatSides } from '../project-chat-sides';
 import { ensureIdentitySiteContext } from '../site-context';
 import { store } from '../store';
@@ -57,6 +77,9 @@ import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { UPLOAD_LIMITS } from './documents';
 import { projectSiteContextRouter } from './site-context';
+import { projectGisOverlayRouter } from './gis-overlay';
+import { graphAdapter } from '../graph';
+import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
 import {
   changeStageBodySchema,
   createActionBodySchema,
@@ -112,8 +135,41 @@ librariesRouter.get('/', (_req, res) => {
   });
 });
 
+librariesRouter.get('/references', async (req, res) => {
+  const query = typeof req.query.q === 'string' ? req.query.q : '';
+  const found = await lookupShelf(query);
+  res.json({
+    standing: 'reference_not_evidence',
+    query,
+    hits: found.hits,
+    text: found.text,
+    shelf: await shelfStatus(),
+  });
+});
+
+librariesRouter.post('/references/ingest', async (req, res) => {
+  const force = Boolean((req.body as { force?: unknown } | undefined)?.force);
+  const result = await ingestOpenReferences({ force });
+  res.json({
+    standing: 'reference_not_evidence',
+    fetched: result.fetched,
+    failed: result.failed,
+    skipped: result.skipped,
+    entries: result.entries.map((e) => ({
+      workId: e.workId,
+      ok: e.ok,
+      bytes: e.bytes,
+      textChars: e.textChars,
+      passages: e.passages.length,
+      error: e.error,
+    })),
+    shelf: await shelfStatus(),
+  });
+});
+
 export const projectsRouter = Router();
 projectsRouter.use('/:projectId/site-context', projectSiteContextRouter);
+projectsRouter.use('/:projectId/gis-overlay', projectGisOverlayRouter);
 
 projectsRouter.get('/', (_req, res) => {
   const summaries = projects().map(toProjectSummary).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -128,6 +184,7 @@ projectsRouter.post('/', async (req, res) => {
   }
   const project = createProject(parsed.data, store.nextProjectReference(), actorOf(parsed.data));
   projects().push(project);
+  await rememberProject(project);
   await store.save();
   res.status(201).json(project);
 });
@@ -154,7 +211,7 @@ projectsRouter.patch('/:projectId', async (req, res) => {
     return;
   }
   patchProject(project, parsed.data, actorOf(parsed.data));
-  await store.save();
+  await persistPaneWrite(project, 'Updated project details.', { citedNodeIds: [project.id] });
   res.json(project);
 });
 
@@ -175,7 +232,74 @@ projectsRouter.get('/:projectId/graph', (req, res) => {
     return;
   }
   refreshProjectDerived(project);
-  res.json(buildProjectGraph(project));
+  const built = buildProjectGraph(project);
+  res.json({ ...built, adapter: graphAdapter.kind });
+});
+
+projectsRouter.get('/:projectId/graph/neighbourhood', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  refreshProjectDerived(project);
+  const query = typeof req.query.query === 'string' ? req.query.query : typeof req.query.q === 'string' ? req.query.q : '';
+  const hops = clampGraphHops(Number(req.query.hops) || 2);
+  const live = retrieveProjectNeighbourhood(project, query, hops);
+  if (live.seeds.length === 0) {
+    res.json({
+      query,
+      hops,
+      seeds: [],
+      nodes: [],
+      edges: [],
+      source: 'live',
+      adapter: graphAdapter.kind,
+      standing: 'this_file',
+      error: query.trim() ? `Nothing in this file's graph matches "${query}".` : 'query is required.',
+    });
+    return;
+  }
+  let source: 'live' | 'journal' | 'neo4j' = 'live';
+  let graph = live.graph;
+  try {
+    const stored = await graphAdapter.neighbourhood(
+      project.id,
+      live.seeds.map((s) => s.id),
+      hops,
+    );
+    if (stored && stored.nodes.length > 0) {
+      graph = stored;
+      source = graphAdapter.kind;
+    }
+  } catch {
+    source = 'live';
+  }
+  res.json({
+    query,
+    hops,
+    seeds: live.seeds.map((s) => ({ id: s.id, kind: s.kind, label: s.label })),
+    nodes: graph.nodes,
+    edges: graph.edges,
+    source,
+    adapter: graphAdapter.kind,
+    standing: 'this_file',
+  });
+});
+
+projectsRouter.get('/:projectId/graph/trace/:nodeId', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  refreshProjectDerived(project);
+  const cone = traceProjectNode(projectGraphOf(project), req.params.nodeId);
+  if (!cone) {
+    res.status(404).json({ error: `No node "${req.params.nodeId}" in this file's graph.` });
+    return;
+  }
+  res.json({ ...cone, standing: 'this_file', adapter: graphAdapter.kind });
 });
 
 projectsRouter.post('/:projectId/screen', async (req, res) => {
@@ -188,7 +312,7 @@ projectsRouter.post('/:projectId/screen', async (req, res) => {
   const now = new Date().toISOString();
   const site = await ensureIdentitySiteContext(project, projectToIdentity(project), now);
   const applied = screenProject(project, actor, now, site);
-  await store.save();
+  await persistPaneWrite(project, 'Ran the project screen.');
   res.status(201).json({ snapshot: applied.snapshot, valuationId: applied.valuationId, project });
 });
 
@@ -200,7 +324,7 @@ projectsRouter.post('/:projectId/valuation', async (req, res) => {
   }
   const actor = actorOf(req.body as { actor?: string } | undefined);
   const run = createValuationRun(project, actor);
-  await store.save();
+  await persistPaneWrite(project, 'Created a valuation run.');
   res.status(201).json(run);
 });
 
@@ -217,7 +341,7 @@ projectsRouter.patch('/:projectId/valuation/:runId', async (req, res) => {
   }
   try {
     const run = setValuationSignOff(project, req.params.runId, parsed.data.signOff, actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Updated valuation sign-off to ${parsed.data.signOff}.`);
     res.json(run);
   } catch (err) {
     fail(res, err);
@@ -231,7 +355,7 @@ projectsRouter.post('/:projectId/capabilities', async (req, res) => {
     return;
   }
   const runs = snapshotCapabilities(project, actorOf(req.body as { actor?: string } | undefined));
-  await store.save();
+  await persistPaneWrite(project, 'Snapshot capabilities.');
   res.json(runs);
 });
 
@@ -248,7 +372,7 @@ projectsRouter.post('/:projectId/ai/drafts', async (req, res) => {
   }
   const capability = agentCapability();
   const drafts = proposeAiDrafts(project, actorOf(parsed.data), 'rule');
-  await store.save();
+  await persistPaneWrite(project, `Proposed ${drafts.length} AI draft(s).`);
   res.status(201).json({ drafts, agent: { available: capability.available, reason: capability.reason } });
 });
 
@@ -265,7 +389,7 @@ projectsRouter.patch('/:projectId/ai/drafts/:draftId', async (req, res) => {
   }
   try {
     const draft = reviewAiDraft(project, req.params.draftId, parsed.data.status, parsed.data.reviewNote, actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Reviewed draft “${draft.title}” (${parsed.data.status}).`);
     res.json(draft);
   } catch (err) {
     fail(res, err);
@@ -277,6 +401,8 @@ function skipLlmForChat(result: ProjectChatResult): boolean {
   const names = new Set(result.assistantTurn.toolCalls?.map((t) => t.name) ?? []);
   return (
     names.has('wizard')
+    || names.has('next_step')
+    || names.has('briefing')
     || names.has('ingest')
     || names.has('approve')
     || names.has('start_dd')
@@ -291,7 +417,59 @@ function skipLlmForChat(result: ProjectChatResult): boolean {
     || names.has('screen')
     || names.has('orchestrate')
     || names.has('project_copilot')
+    || names.has('critic')
   );
+}
+
+function beginNdjson(res: import('express').Response): {
+  line: (payload: unknown) => void;
+  clientGone: () => boolean;
+} {
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  let gone = false;
+  res.on('close', () => {
+    gone = true;
+  });
+  return {
+    clientGone: () => gone,
+    line: (payload: unknown) => {
+      if (gone) return;
+      res.write(`${JSON.stringify(payload)}\n`);
+    },
+  };
+}
+
+async function rememberProject(project: DdProject): Promise<void> {
+  try {
+    const facts = extractFactsFromProject(project, { now: new Date().toISOString() });
+    if (facts.length) await memoryStore.assertMany(facts);
+  } catch {
+    /* memory must not block chat */
+  }
+}
+
+async function persistPaneWrite(
+  project: DdProject,
+  summary: string,
+  extra?: { citedNodeIds?: string[]; citedEvidenceIds?: string[] },
+): Promise<void> {
+  noteProjectEdit(project, summary, extra);
+  await rememberProject(project);
+  await store.save();
+}
+
+function sittingFromBody(value: unknown): SittingRef | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const row = value as Record<string, unknown>;
+  const sitting: SittingRef = {
+    ddId: typeof row.ddId === 'string' ? row.ddId : undefined,
+    scopeId: typeof row.scopeId === 'string' ? row.scopeId : undefined,
+    checkId: typeof row.checkId === 'string' ? row.checkId : undefined,
+  };
+  if (!sitting.ddId && !sitting.scopeId && !sitting.checkId) return undefined;
+  return sitting;
 }
 
 projectsRouter.post('/:projectId/chat', async (req, res) => {
@@ -308,25 +486,53 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   refreshProjectDerived(project);
   const question = parsed.data.question;
   const actor = actorOf(parsed.data);
+  const sitting = parsed.data.sitting;
   const capability = agentCapability();
-  const deterministic = wantsDeterministicProjectChat(project, question);
+  const deterministic = wantsDeterministicProjectChat(project, question, { sitting });
+  const stream = beginNdjson(res);
+  const { line, clientGone } = stream;
 
   if (!deterministic && capability.available) {
     try {
+      let memoryText = '';
+      try {
+        const recall = await recallForProject(memoryStore, project, { now: new Date().toISOString() });
+        memoryText = renderMemoryForPrompt(recall);
+      } catch {
+        memoryText = '';
+      }
       const agent = await runProjectCopilot({
         project,
         question,
         actor,
         viewContext: parsed.data.viewContext,
         history: project.conversation,
+        memory: memoryText || undefined,
+        sitting,
+        graphRag: {
+          kind: graphAdapter.kind,
+          neighbourhood: (projectId, seedIds, hops) => graphAdapter.neighbourhood(projectId, seedIds, hops),
+        },
+        lookupShelf: async (query, extra) => {
+          const { lookupShelf } = await import('../reference/shelf-cache');
+          const found = await lookupShelf(query, extra);
+          return found.text;
+        },
+        onStep: (step: AgentStep) => line({ type: 'step', step }),
       });
+      if (clientGone()) {
+        res.end();
+        return;
+      }
       if (agent.text && !agent.text.startsWith('The project copilot is unavailable') && !agent.text.startsWith('No model endpoint')) {
         const result = applyProjectAgentTurn(project, question, agent);
         await store.save();
-        res.json({ ...result, project });
+        line({ type: 'result', ...result, project });
+        res.end();
         return;
       }
-    } catch {
+    } catch (e) {
+      line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'error', label: describeError(e) } });
       /* fall through to the wizard — a model failure must not block chat */
     }
   }
@@ -341,6 +547,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     actor,
     viewContext: parsed.data.viewContext,
     sides,
+    sitting,
   });
 
   if (capability.available && !skipLlmForChat(result)) {
@@ -354,12 +561,12 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         system: [
           {
             text:
-              'You are the project DD copilot. Answer only from the register briefing and the wizard guide. If they do not support an answer, say so. Do not invent findings, values, evidence, or sign-off. Do not file documents or start DDs — those are person-approved cards. Keep under 280 words.',
+              'You are the project DD copilot. Answer only from the register briefing and today\'s next step. Name one move. If they do not support an answer, say so. Do not invent findings, values, evidence, or sign-off. Do not list the evidence library. Do not file documents or start DDs — those are person-approved cards. Keep under 280 words. Cite titles, not truncated ids.',
           },
         ],
         messages: [
           { role: 'user', content: `Register briefing:\n${projectRegisterBriefing(project, parsed.data.viewContext)}` },
-          { role: 'user', content: `Wizard guide:\n${guide.text}` },
+          { role: 'user', content: `Today's next step:\n${guide.text}` },
           { role: 'user', content: question },
         ],
       });
@@ -378,8 +585,14 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     }
   }
 
+  if (clientGone()) {
+    res.end();
+    return;
+  }
+  if (result.commands.some((c) => /approved/i.test(c))) await rememberProject(project);
   await store.save();
-  res.json({ ...result, project });
+  line({ type: 'result', ...result, project });
+  res.end();
 });
 
 const chatUpload = multer({
@@ -399,6 +612,8 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
     return;
   }
   refreshProjectDerived(project);
+  const stream = beginNdjson(res);
+  const { line, clientGone } = stream;
   const ingest: ChatIngestFile[] = [];
   for (const file of files) {
     const storageKey = documentKey({ id: randomUUID(), fileName: file.originalname });
@@ -411,15 +626,37 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
       excerpt: extractReadableExcerpt(file.buffer, file.mimetype || '', file.originalname) || undefined,
     });
   }
+  const sitting = sittingFromBody({
+    ddId: req.body?.ddId,
+    scopeId: req.body?.scopeId,
+    checkId: req.body?.checkId,
+  });
+  let enriched = ingest;
+  try {
+    enriched = await enrichIngestWithDocumentIntelligence({
+      project,
+      files: ingest,
+      buffers: files.map((f) => f.buffer),
+      onStep: (step) => line({ type: 'step', step }),
+    });
+  } catch {
+    enriched = ingest;
+  }
+  if (clientGone()) {
+    res.end();
+    return;
+  }
   const question = typeof req.body?.question === 'string' ? req.body.question : '';
   const viewContext = typeof req.body?.viewContext === 'string' ? req.body.viewContext : undefined;
   const result = applyProjectChat(project, question, {
     actor: actorOf(req.body as { actor?: string } | undefined),
     viewContext,
-    ingest,
+    ingest: enriched,
+    sitting,
   });
   await store.save();
-  res.json({ ...result, project });
+  line({ type: 'result', ...result, project });
+  res.end();
 });
 
 projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req, res) => {
@@ -444,6 +681,7 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req,
     await ensureIdentitySiteContext(project, projectToIdentity(project), now);
   }
   const result = applyProjectChat(project, `Approve "${item.title}"`, { actor: actorOf(parsed.data) });
+  await rememberProject(project);
   await store.save();
   res.json({ ...result, project });
 });
@@ -512,7 +750,7 @@ projectsRouter.post('/:projectId/orchestrate', async (req, res) => {
     }
   }
   const drafts = project.aiDrafts.filter((d) => run.draftIds.includes(d.id));
-  await store.save();
+  await persistPaneWrite(project, 'Orchestrated the next DD plan.');
   res.status(201).json({ run, drafts, project });
 });
 
@@ -524,7 +762,7 @@ projectsRouter.post('/:projectId/ai/drafts/:draftId/commit', async (req, res) =>
   }
   try {
     const result = commitAiDraft(project, req.params.draftId, actorOf(req.body as { actor?: string } | undefined));
-    await store.save();
+    await persistPaneWrite(project, `Committed draft “${result.draft.title}”.`);
     res.json(result);
   } catch (err) {
     fail(res, err);
@@ -555,7 +793,7 @@ projectsRouter.post('/:projectId/assets', async (req, res) => {
   }
   try {
     const asset = addAsset(project, parsed.data, actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Added asset “${asset.name}”.`, { citedNodeIds: [asset.id] });
     res.status(201).json(asset);
   } catch (err) {
     fail(res, err);
@@ -575,7 +813,7 @@ projectsRouter.post('/:projectId/stage', async (req, res) => {
   }
   try {
     const record = changeStage(project, parsed.data, actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Changed stage to ${parsed.data.stage}.`);
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -595,7 +833,7 @@ projectsRouter.post('/:projectId/assessments', async (req, res) => {
   }
   try {
     const assessment = createAssessment(project, parsed.data, actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Started “${assessment.name}”.`, { citedNodeIds: [assessment.id] });
     res.status(201).json(assessment);
   } catch (err) {
     fail(res, err);
@@ -615,7 +853,7 @@ projectsRouter.patch('/:projectId/assessments/:ddId', async (req, res) => {
   }
   try {
     const assessment = setAssessmentStatus(project, req.params.ddId, parsed.data.status as never, actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Updated “${assessment.name}” to ${parsed.data.status}.`, { citedNodeIds: [assessment.id] });
     res.json(assessment);
   } catch (err) {
     fail(res, err);
@@ -644,7 +882,9 @@ projectsRouter.post('/:projectId/checks/:checkId', async (req, res) => {
   }
   try {
     const check = recordCheckResult(project, req.params.checkId, parsed.data, actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Recorded “${check.title}” as ${CHECK_RESULT_LABEL[check.result]}.`, {
+      citedNodeIds: [check.id],
+    });
     res.json({ check, project });
   } catch (err) {
     fail(res, err);
@@ -663,7 +903,7 @@ projectsRouter.post('/:projectId/evidence', async (req, res) => {
     return;
   }
   const record = addEvidence(project, parsed.data, actorOf(parsed.data));
-  await store.save();
+  await persistPaneWrite(project, `Added evidence “${record.title}”.`, { citedEvidenceIds: [record.id] });
   res.status(201).json(record);
 });
 
@@ -690,7 +930,9 @@ projectsRouter.patch('/:projectId/evidence/:evidenceId', async (req, res) => {
       },
       actorOf(parsed.data),
     );
-    await store.save();
+    await persistPaneWrite(project, `Updated evidence “${record.title}” to ${record.status}.`, {
+      citedEvidenceIds: [record.id],
+    });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -732,7 +974,9 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
         ),
       );
     }
-    await store.save();
+    await persistPaneWrite(project, `Attached ${attached.length} file(s) to evidence.`, {
+      citedEvidenceIds: [req.params.evidenceId],
+    });
     res.status(201).json(attached);
   } catch (err) {
     fail(res, err);
@@ -757,8 +1001,13 @@ projectsRouter.get('/:projectId/evidence/:evidenceId/files/:fileId', async (req,
     return;
   }
   const ascii = file.fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '').slice(0, 200) || 'document';
-  res.setHeader('Content-Type', 'application/octet-stream');
-  res.setHeader('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+  const inline = req.query.inline === '1' || req.query.inline === 'true';
+  const type = inline && file.mimeType && file.mimeType !== 'application/octet-stream' ? file.mimeType : 'application/octet-stream';
+  res.setHeader('Content-Type', type);
+  res.setHeader(
+    'Content-Disposition',
+    `${inline ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+  );
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Length', String(bytes.length));
   res.setHeader('Cache-Control', 'private, max-age=900, must-revalidate');
@@ -780,7 +1029,7 @@ projectsRouter.post('/:projectId/findings', async (req, res) => {
   if (parsed.data.linkAssessmentIds?.length) {
     linkFindingAcross(project, record.id, { assessmentIds: parsed.data.linkAssessmentIds }, actorOf(parsed.data));
   }
-  await store.save();
+  await persistPaneWrite(project, `Logged finding “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
 });
 
@@ -797,7 +1046,7 @@ projectsRouter.post('/:projectId/findings/:findingId/links', async (req, res) =>
   }
   try {
     const record = linkFindingAcross(project, req.params.findingId, parsed.data, actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Linked finding “${record.title}” across DDs.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -817,7 +1066,7 @@ projectsRouter.patch('/:projectId/findings/:findingId', async (req, res) => {
   }
   try {
     const record = patchRecordStatus(project, project.findings, req.params.findingId, parsed.data.status as never, 'finding', actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Updated finding “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -836,7 +1085,7 @@ projectsRouter.post('/:projectId/risks', async (req, res) => {
     return;
   }
   const record = addRisk(project, parsed.data, actorOf(parsed.data));
-  await store.save();
+  await persistPaneWrite(project, `Logged risk “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
 });
 
@@ -853,7 +1102,7 @@ projectsRouter.patch('/:projectId/risks/:riskId', async (req, res) => {
   }
   try {
     const record = patchRecordStatus(project, project.risks, req.params.riskId, parsed.data.status as never, 'risk', actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Updated risk “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -872,7 +1121,7 @@ projectsRouter.post('/:projectId/actions', async (req, res) => {
     return;
   }
   const record = addAction(project, parsed.data, actorOf(parsed.data));
-  await store.save();
+  await persistPaneWrite(project, `Logged action “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
 });
 
@@ -889,7 +1138,7 @@ projectsRouter.patch('/:projectId/actions/:actionId', async (req, res) => {
   }
   try {
     const record = patchRecordStatus(project, project.actions, req.params.actionId, parsed.data.status as never, 'action', actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Updated action “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -908,7 +1157,7 @@ projectsRouter.post('/:projectId/decisions', async (req, res) => {
     return;
   }
   const record = addDecision(project, parsed.data, actorOf(parsed.data));
-  await store.save();
+  await persistPaneWrite(project, `Logged decision “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
 });
 
@@ -925,7 +1174,7 @@ projectsRouter.patch('/:projectId/decisions/:decisionId', async (req, res) => {
   }
   try {
     const record = patchRecordStatus(project, project.decisions, req.params.decisionId, parsed.data.status as never, 'decision', actorOf(parsed.data));
-    await store.save();
+    await persistPaneWrite(project, `Updated decision “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -948,6 +1197,6 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
     { kind: parsed.data.kind, assessmentIds: parsed.data.assessmentIds, generatedBy: parsed.data.generatedBy ?? actorOf(parsed.data) },
     actorOf(parsed.data),
   );
-  await store.save();
+  await persistPaneWrite(project, `Generated “${report.title}”.`, { citedNodeIds: [report.id] });
   res.status(201).json(report);
 });

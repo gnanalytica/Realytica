@@ -1,0 +1,21 @@
+# Optional local Neo4j for the project GraphRAG index.
+# Without these env vars the journal adapter is used and needs no Docker.
+#
+#   docker compose up -d neo4j
+#   REALYTICA_NEO4J_URL=bolt://localhost:7687
+#   REALYTICA_NEO4J_USER=neo4j
+#   REALYTICA_NEO4J_PASSWORD=realytica-dev
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/realytica-dev
+    volumes:
+      - realytica_neo4j:/data
+
+volumes:
+  realytica_neo4j:

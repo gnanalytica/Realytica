@@ -104,6 +104,20 @@ unreachable leaves the canvas correct and short of notes rather than empty.
 
 It is **written on every save**, for the cases that actually moved — a case
 whose `updatedAt` has not changed cannot have produced a different graph.
+**Project files** (`DdProject`) sync the same way: the cockpit graph is a
+projection of the registers, stored as `:Ryt` nodes when Neo4j is live (or in
+`project-graph-journal.json` locally). Chat GraphRAG is neighbourhood
+extraction on that graph — `get_subgraph` / `trace_conclusion` for this file,
+`lookup_reference` for the official shelf — never cosine search over PDFs and
+never filing a circular as if it were the Fire NOC on the file. Local Neo4j:
+
+```bash
+docker compose up -d neo4j
+# REALYTICA_NEO4J_URL=bolt://localhost:7687
+# REALYTICA_NEO4J_USER=neo4j
+# REALYTICA_NEO4J_PASSWORD=realytica-dev
+```
+
 Awaited rather than fired off, because on serverless the process can freeze the
 moment a response is sent; swallowed on failure, because a graph store being
 unreachable must not fail an upload.

@@ -549,6 +549,8 @@ export function addEvidence(project: DdProject, input: CreateEvidenceInput, acto
     checkIds: input.checkIds ?? [],
     fileName: input.fileName,
     attachments: [],
+    quotes: input.quotes,
+    extractionNotes: input.extractionNotes,
     createdAt: at,
     updatedAt: at,
   };
@@ -671,7 +673,7 @@ export function addAction(project: DdProject, input: CreateActionInput, actor = 
     findingIds: input.findingIds ?? [],
     riskIds: input.riskIds ?? [],
     evidenceIds: input.evidenceIds ?? [],
-    checkIds: [],
+    checkIds: input.checkIds ?? [],
     closureEvidenceIds: [],
     createdAt: at,
     updatedAt: at,
@@ -863,6 +865,70 @@ export function evidenceCompleteness(project: DdProject, assessmentId?: string):
   const missing = rows.filter((e) => e.status === 'missing' || e.status === 'expected' || e.status === 'requested').length;
   const denom = rows.length || 1;
   return { expected: rows.length, received, validated, used, missing, percent: Math.round(((rows.length - missing) / denom) * 100) };
+}
+
+/** Title, survey, sanction, fire NOC — the pack a sitting actually opens, not the 292-row library. */
+const PACK_EVIDENCE_KEYS = [
+  'title extract',
+  'title chain',
+  'title schedule',
+  'sale deed',
+  'mother deed',
+  'encumbrance',
+  'survey plan',
+  'cadastral',
+  'boundary survey',
+  'conversion',
+  'sanction',
+  'layout plan',
+  'khata',
+  'fire noc',
+  'soil report',
+  'rera',
+];
+
+export function isPackEvidenceTitle(title: string): boolean {
+  const t = title.toLowerCase();
+  return PACK_EVIDENCE_KEYS.some((k) => t.includes(k));
+}
+
+function packGapStatus(e: EvidenceRecord): boolean {
+  return e.status === 'expected' || e.status === 'missing' || e.status === 'requested';
+}
+
+function packReceivedStatus(e: EvidenceRecord): boolean {
+  return e.status === 'received' || e.status === 'validated' || e.status === 'used';
+}
+
+export function packEvidence(project: DdProject): { pack: EvidenceRecord[]; tail: EvidenceRecord[] } {
+  const pack: EvidenceRecord[] = [];
+  const tail: EvidenceRecord[] = [];
+  for (const row of project.evidence) {
+    (isPackEvidenceTitle(row.title) ? pack : tail).push(row);
+  }
+  return { pack, tail };
+}
+
+export function packCompleteness(project: DdProject): {
+  percent: number;
+  received: number;
+  missing: number;
+  total: number;
+  missingTitles: string[];
+} {
+  const { pack } = packEvidence(project);
+  const missingRows = pack.filter(packGapStatus);
+  const received = pack.filter(packReceivedStatus).length;
+  const total = pack.length || PACK_EVIDENCE_KEYS.length;
+  const missing = pack.length ? missingRows.length : PACK_EVIDENCE_KEYS.length;
+  const percent = pack.length === 0 ? 0 : Math.round((received / pack.length) * 100);
+  return {
+    percent,
+    received,
+    missing,
+    total,
+    missingTitles: (pack.length ? missingRows.map((e) => e.title) : ['Title chain', 'Survey plan', 'Fire NOC']).slice(0, 6),
+  };
 }
 
 export interface ChangeSincePrevious {

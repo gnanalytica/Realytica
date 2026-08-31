@@ -7,7 +7,7 @@
 
 import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, snapshotCapabilities } from './capabilities';
 import { screenProject } from './project-screen';
-import { DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS } from './libraries';
+import { DD_TYPE_DEFINITIONS } from './libraries';
 import {
   addAction,
   addAsset,
@@ -26,6 +26,7 @@ import {
   updateEvidenceStatus,
 } from './operations';
 import { LIFECYCLE_STAGE_LABEL, LIFECYCLE_STAGES, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
+import { mergeQuoteLists, proposalExtractionNotes, proposalQuotes, sittingCheckOf, type SittingRef } from './sitting';
 import type {
   ChatIngestFile,
   ChatProposal,
@@ -122,6 +123,7 @@ type FileHint = { keys: string[]; kind: EvidenceKind; scopes: ScopeKey[]; titles
 const FILE_HINTS: FileHint[] = [
   { keys: ['title', 'deed', 'khata', 'encumbrance', 'mother deed', 'sale deed', 'partition'], kind: 'document', scopes: ['legal'], titles: ['Title extract', 'Sale deeds', 'Title chain', 'Encumbrance certificates'] },
   { keys: ['survey', 'cadastral', 'boundary', 'topo', 'total station'], kind: 'gis', scopes: ['land_site'], titles: ['Survey plans', 'Cadastral maps', 'Boundary survey', 'Topo survey'] },
+  { keys: ['master plan', 'rmp', 'zoning', 'land use map', 'town plan'], kind: 'gis', scopes: ['regulatory', 'land_site'], titles: ['Master plan extract', 'Zoning certificate'] },
   { keys: ['soil', 'geotech', 'borelog'], kind: 'test_report', scopes: ['land_site', 'technical'], titles: ['Soil report'] },
   { keys: ['sanction', 'layout plan', 'building plan', 'approved drawing', 'dr-'], kind: 'drawing', scopes: ['regulatory', 'technical'], titles: ['Sanction drawings', 'Sanctioned layout', 'Layout plan'] },
   { keys: ['fire noc', 'fire', 'life safety'], kind: 'approval', scopes: ['regulatory', 'hse'], titles: ['Fire NOC'] },
@@ -221,18 +223,37 @@ function openGaps(project: DdProject): EvidenceRecord[] {
   return project.evidence.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested');
 }
 
+export function proposeReportCard(project: DdProject, actor = 'operator'): ChatProposal | undefined {
+  const owner = project.owner || actor;
+  const material = project.findings.filter(
+    (f) => (f.status === 'open' || f.status === 'under_review') && (f.severity === 'high' || f.severity === 'critical'),
+  );
+  if (!material.length) return undefined;
+  const kind: ReportKind = material.some((f) => f.severity === 'critical') ? 'red_flag' : 'executive_dd';
+  return proposal(
+    'generate_report',
+    `Generate ${REPORT_KIND_LABEL[kind]}`,
+    `There are ${material.length} material open finding(s). A ${REPORT_KIND_LABEL[kind].toLowerCase()} pulls live registers and cites the evidence each finding rests on.`,
+    'Creates a report from current findings, risks, actions and evidence. It does not freeze the registers.',
+    { kind, generatedBy: owner, assessmentIds: activeAssessments(project).map((a) => a.id) },
+    actor,
+    { citedNodeIds: material.slice(0, 6).map((f) => f.id) },
+  );
+}
+
 export function buildWizardProposals(project: DdProject, actor = 'operator'): ChatProposal[] {
   ensureProjectShape(project);
   const out: ChatProposal[] = [];
   const owner = project.owner || actor;
 
-  for (const hint of suggestedAssets(project).slice(0, 4)) {
+  const hint = suggestedAssets(project)[0];
+  if (hint) {
     out.push(
       proposal(
         'add_asset',
         `Add asset: ${hint.name}`,
         `A ${project.type.replaceAll('_', ' ')} project at ${LIFECYCLE_STAGE_LABEL[project.currentStage]} usually records ${hint.assetType.toLowerCase()} as its own asset so DDs can target it.`,
-        'Creates an asset node. Later DDs can target it instead of the whole project. Expected evidence can be scoped to it.',
+        'Creates an asset node. Later DDs can target it instead of the whole project.',
         { name: hint.name, assetType: hint.assetType } satisfies CreateAssetInput,
         actor,
       ),
@@ -241,7 +262,8 @@ export function buildWizardProposals(project: DdProject, actor = 'operator'): Ch
 
   const running = new Set(activeAssessments(project).map((a) => a.ddType));
   const recommended = recommendedDdTypesForProject(project).filter((d) => d.key !== 'custom' && d.key !== 'full_project_health' && !running.has(d.key));
-  for (const dd of recommended.slice(0, 4)) {
+  for (const dd of recommended.slice(0, 2)) {
+    if (out.length >= 3) break;
     out.push(
       proposal(
         'start_dd',
@@ -259,214 +281,12 @@ export function buildWizardProposals(project: DdProject, actor = 'operator'): Ch
     );
   }
 
-  const covered = new Set(activeAssessments(project).flatMap((a) => a.scopes.map((s) => s.scopeKey)));
-  const wanted = new Set(recommendedDdTypesForProject(project).flatMap((d) => d.defaultScopes));
-  const host = activeAssessments(project)[0];
-  if (host) {
-    for (const key of [...wanted].filter((k) => !covered.has(k)).slice(0, 3)) {
-      const def = SCOPE_DEFINITIONS.find((s) => s.key === key);
-      if (!def) continue;
-      out.push(
-        proposal(
-          'add_scope',
-          `Add ${def.label} to ${host.name}`,
-          `${def.purpose} Typical evidence: ${def.typicalEvidence.slice(0, 4).join(', ')}.`,
-          `Adds the scope and its checks to ${host.name}, and seeds expected evidence that is not already on the register.`,
-          { assessmentId: host.id, scopeKey: key },
-          actor,
-          { citedNodeIds: [host.id] },
-        ),
-      );
-    }
+  const report = proposeReportCard(project, actor);
+  if (out.length < 3 && report && !project.reports.some((r) => r.kind === 'red_flag' || r.kind === 'executive_dd')) {
+    out.push(report);
   }
 
-  const gaps = openGaps(project);
-  if (gaps.length) {
-    const sample = gaps.slice(0, 8);
-    out.push(
-      proposal(
-        'request_evidence',
-        `Request ${gaps.length} outstanding evidence item(s)`,
-        sample.map((g) => `${g.title} (${g.status})`).join('; ') + (gaps.length > sample.length ? '…' : ''),
-        'Writes an evidence-request action. Attach files in chat to file them against these gaps instead.',
-        {
-          title: `Collect outstanding evidence (${gaps.length} items)`,
-          kind: 'evidence_request',
-          owner,
-          priority: 'high',
-          description: sample.map((g) => g.title).join('; '),
-        } satisfies CreateActionInput,
-        actor,
-        { citedEvidenceIds: sample.map((g) => g.id) },
-      ),
-    );
-  }
-
-  const unproven = project.findings.filter(
-    (f) => (f.status === 'open' || f.status === 'under_review') && f.evidenceIds.length === 0,
-  );
-  if (unproven.length) {
-    out.push(
-      proposal(
-        'request_evidence',
-        `Attach proof to ${unproven.length} unproven finding(s)`,
-        unproven
-          .slice(0, 5)
-          .map((f) => f.title)
-          .join('; '),
-        'Findings without evidence stay on the graph as unevidenced judgements. File documents against them or close them.',
-        {
-          title: 'Collect proof for unproven findings',
-          kind: 'evidence_request',
-          owner,
-          priority: 'high',
-          description: unproven.map((f) => f.title).join('; '),
-        } satisfies CreateActionInput,
-        actor,
-        { citedNodeIds: unproven.slice(0, 6).map((f) => f.id) },
-      ),
-    );
-  }
-
-  const material = project.findings.filter(
-    (f) => (f.status === 'open' || f.status === 'under_review') && (f.severity === 'high' || f.severity === 'critical'),
-  );
-  if (material.length && !project.reports.some((r) => r.kind === 'red_flag' || r.kind === 'executive_dd')) {
-    const kind: ReportKind = material.some((f) => f.severity === 'critical') ? 'red_flag' : 'executive_dd';
-    out.push(
-      proposal(
-        'generate_report',
-        `Generate ${REPORT_KIND_LABEL[kind]}`,
-        `There are ${material.length} material open finding(s). A ${REPORT_KIND_LABEL[kind].toLowerCase()} pulls live registers and cites the evidence each finding rests on.`,
-        'Creates a report from current findings, risks, actions and evidence. It does not freeze the registers.',
-        { kind, generatedBy: owner, assessmentIds: activeAssessments(project).map((a) => a.id) },
-        actor,
-        { citedNodeIds: material.slice(0, 6).map((f) => f.id) },
-      ),
-    );
-  } else if (gaps.length >= 8 && !project.reports.some((r) => r.kind === 'evidence_completeness')) {
-    out.push(
-      proposal(
-        'generate_report',
-        'Generate evidence completeness report',
-        `${gaps.length} expected items are still missing or requested.`,
-        'Writes a completeness report from the evidence register.',
-        { kind: 'evidence_completeness' as ReportKind, generatedBy: owner },
-        actor,
-      ),
-    );
-  }
-
-  if (!project.valuationRuns.some((r) => r.status !== 'superseded') && (project.saleableAreaSqm || project.builtUpAreaSqm || project.landAreaSqm)) {
-    out.push(
-      proposal(
-        'run_valuation',
-        'Run indicative valuation',
-        'Areas are on the project. An IBBI-structured indication can be computed from locality medians. Not a certified certificate.',
-        'Adds a valuation run. Sign-off stays unsigned until a person sets it.',
-        {},
-        actor,
-      ),
-    );
-  }
-
-  const fields = missingProjectFields(project);
-  if (fields.length && !project.landAreaSqm) {
-    out.push(
-      proposal(
-        'patch_project',
-        'Record land / built-up area and budget',
-        `Missing: ${fields.join(', ')}. Valuation, completeness and reports read these fields.`,
-        'Patches the project record. Does not invent numbers — fill them from a survey or cost plan.',
-        {},
-        actor,
-      ),
-    );
-  }
-
-  return out;
-}
-
-export function renderProjectGuide(project: DdProject): { text: string; citedEvidenceIds: string[]; citedNodeIds: string[] } {
-  ensureProjectShape(project);
-  const dds = activeAssessments(project);
-  const gaps = openGaps(project);
-  const material = project.findings.filter(
-    (f) => (f.status === 'open' || f.status === 'under_review') && (f.severity === 'high' || f.severity === 'critical'),
-  );
-  const fields = missingProjectFields(project);
-  const assetsMissing = suggestedAssets(project);
-  const recommended = recommendedDdTypesForProject(project).filter(
-    (d) => d.key !== 'custom' && d.key !== 'full_project_health' && !dds.some((a) => a.ddType === d.key),
-  );
-  const coveredScopes = new Set(dds.flatMap((a) => a.scopes.map((s) => s.scopeKey)));
-  const unproven = project.findings.filter((f) => (f.status === 'open' || f.status === 'under_review') && f.evidenceIds.length === 0);
-
-  const ddLines = dds.map((a) => {
-    const p = assessmentProgress(a);
-    const scopes = a.scopes.map((s) => SCOPE_LABEL[s.scopeKey]).join(', ');
-    return `  • ${a.name} (${a.status}): ${p.checkDone}/${p.checkTotal} checks, ${p.percent}%\n    Scopes: ${scopes || 'none'}`;
-  });
-
-  const proofLines = material.slice(0, 6).map((f) => {
-    const proofs = project.evidence.filter((e) => f.evidenceIds.includes(e.id));
-    return proofs.length
-      ? `  • ${f.title} [${f.severity}] — proof: ${proofs.map((e) => e.title).join('; ')}`
-      : `  • ${f.title} [${f.severity}] — no evidence linked (unevidenced)`;
-  });
-
-  const lines = [
-    `Wizard for ${project.reference} — ${project.name}.`,
-    `Stage ${LIFECYCLE_STAGE_LABEL[project.currentStage]} · ${project.type.replaceAll('_', ' ')} · ${project.city} · health ${project.health}.`,
-    '',
-    'On the project now',
-    `  Assets: ${project.assets.length || 'none'}${project.assets.length ? ` — ${project.assets.slice(0, 8).map((a) => a.name).join(', ')}` : ''}.`,
-    `  DD assessments: ${dds.length}.`,
-    ddLines.length ? ddLines.join('\n') : '  No assessments yet — start a DD type for this stage.',
-    `  Evidence: ${project.evidence.length} rows, ${gaps.length} still expected/missing/requested.`,
-    `  Findings: ${project.findings.length} (${material.length} material open). Risks: ${project.risks.length}. Actions: ${project.actions.filter((a) => a.status !== 'closed').length} open. Reports: ${project.reports.length}.`,
-    fields.length ? `  Project fields still blank: ${fields.join(', ')}.` : '  Core project fields (owner, areas, budget) are populated.',
-    '',
-    'Recommended next',
-    assetsMissing.length
-      ? `  Assets to add: ${assetsMissing.map((a) => `${a.name} (${a.assetType})`).join('; ')}.`
-      : '  Asset tree looks typical for this archetype.',
-    recommended.length
-      ? `  DD types for this stage not yet running:\n${recommended
-          .slice(0, 6)
-          .map((d) => `    • ${d.label} — ${d.purpose} Scopes: ${d.defaultScopes.map((k) => SCOPE_LABEL[k]).join(', ')}.`)
-          .join('\n')}`
-      : '  Recommended DD types for this stage are instantiated.',
-    [...recommendedDdTypesForProject(project).flatMap((d) => d.defaultScopes)].filter((k, i, arr) => arr.indexOf(k) === i && !coveredScopes.has(k)).length
-      ? `  Scopes not yet on any active DD: ${[...new Set(recommendedDdTypesForProject(project).flatMap((d) => d.defaultScopes))]
-          .filter((k) => !coveredScopes.has(k))
-          .map((k) => SCOPE_LABEL[k])
-          .join(', ')}.`
-      : '  Stage-typical scopes are present on an active DD.',
-    gaps.length
-      ? `  Evidence still to collect (first 8): ${gaps
-          .slice(0, 8)
-          .map((g) => g.title)
-          .join('; ')}.`
-      : '  No outstanding evidence gaps.',
-    '',
-    'Proofs on material findings',
-    proofLines.length ? proofLines.join('\n') : '  No high/critical open findings.',
-    unproven.length ? `  ${unproven.length} open finding(s) have no evidence id — they will show as unevidenced on the graph.` : null,
-    '',
-    'How to act',
-    '  Approve a card below, or say “start Construction Progress DD”, “add Tower B”, “generate red flag report”.',
-    '  Attach a document in this chat: it is classified against scopes and expected evidence; nothing files until you approve.',
-    '  Maps, web search and government portals: “what’s nearby”, “search the web for this locality”, “get the EC from Kaveri”. Maps uses the official API; portals are named routes you download — we do not scrape them.',
-    '  Property screen: say “screen this project” or “should we pursue this”. The engine writes the same registers; approve the card first.',
-    '  Chat thinking is written onto the knowledge graph with scopes, evidence, findings and actions.',
-  ];
-
-  return {
-    text: lines.filter((l) => l !== null).join('\n'),
-    citedEvidenceIds: gaps.slice(0, 8).map((g) => g.id),
-    citedNodeIds: material.slice(0, 8).map((f) => f.id),
-  };
+  return out.slice(0, 3);
 }
 
 function scoreHint(haystack: string, hint: FileHint): number {
@@ -480,8 +300,9 @@ function scoreHint(haystack: string, hint: FileHint): number {
 export function classifyIngestFile(
   project: DdProject,
   file: ChatIngestFile,
+  prefer?: SittingRef,
 ): { hint: FileHint; evidence?: EvidenceRecord; assessmentIds: string[]; scopeInstanceIds: string[]; checkIds: string[] } {
-  const hay = `${file.fileName.replace(/[_-]+/g, ' ')} ${file.excerpt ?? ''}`.toLowerCase();
+  const hay = `${file.fileName.replace(/[_-]+/g, ' ')} ${file.excerpt ?? ''} ${file.extractionNotes ?? ''} ${file.kindHint ?? ''}`.toLowerCase();
   let best: FileHint = { keys: [], kind: 'document', scopes: [], titles: ['Uploaded document'] };
   let bestScore = 0;
   for (const hint of FILE_HINTS) {
@@ -493,7 +314,7 @@ export function classifyIngestFile(
   }
 
   const gaps = openGaps(project);
-  const byTitle = gaps.find((g) => hay.includes(g.title.toLowerCase()) || best.titles.some((t) => g.title.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(g.title.toLowerCase())));
+  let byTitle = gaps.find((g) => hay.includes(g.title.toLowerCase()) || best.titles.some((t) => g.title.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(g.title.toLowerCase())));
   const assessmentIds = new Set<string>(byTitle?.assessmentIds ?? []);
   const scopeInstanceIds = new Set<string>(byTitle?.scopeInstanceIds ?? []);
   const checkIds = new Set<string>(byTitle?.checkIds ?? []);
@@ -512,6 +333,23 @@ export function classifyIngestFile(
     }
   }
 
+  const sitting = sittingCheckOf(project, prefer);
+  if (sitting) {
+    assessmentIds.add(sitting.assessment.id);
+    scopeInstanceIds.add(sitting.scope.id);
+    const ordered = [sitting.check.id, ...[...checkIds].filter((id) => id !== sitting.check.id)];
+    checkIds.clear();
+    for (const id of ordered.slice(0, 12)) checkIds.add(id);
+    const expected = sitting.check.expectedEvidence.map((t) => t.toLowerCase());
+    const sittingGap = gaps.find(
+      (e) =>
+        sitting.check.evidenceIds.includes(e.id)
+        || e.checkIds.includes(sitting.check.id)
+        || expected.some((t) => e.title.toLowerCase().includes(t) || t.includes(e.title.toLowerCase())),
+    );
+    if (sittingGap) byTitle = sittingGap;
+  }
+
   return {
     hint: best,
     evidence: byTitle,
@@ -521,11 +359,31 @@ export function classifyIngestFile(
   };
 }
 
-export function proposalsFromIngest(project: DdProject, files: ChatIngestFile[], actor = 'operator'): ChatProposal[] {
+function ingestRationale(file: ChatIngestFile, target: string, scopeNames: string[]): string {
+  const quotes = (file.quotes ?? [])
+    .slice(0, 3)
+    .map((q) => (q.page ? `“${q.text}” (p.${q.page})` : `“${q.text}”`))
+    .join('; ');
+  const notes = file.extractionNotes?.trim();
+  return [
+    `${target} Matched scopes: ${scopeNames.join(', ') || 'none yet — will still land on the project register'}.`,
+    quotes ? `From the file: ${quotes}.` : null,
+    notes ? notes.slice(0, 400) : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+export function proposalsFromIngest(
+  project: DdProject,
+  files: ChatIngestFile[],
+  actor = 'operator',
+  prefer?: SittingRef,
+): ChatProposal[] {
   ensureProjectShape(project);
   const out: ChatProposal[] = [];
   for (const file of files) {
-    const classified = classifyIngestFile(project, file);
+    const classified = classifyIngestFile(project, file, prefer);
     const target = classified.evidence
       ? `File against existing expected item “${classified.evidence.title}” (${classified.evidence.status}).`
       : `Create a new evidence row (${classified.hint.kind}) and link it to matching DD scopes.`;
@@ -538,7 +396,7 @@ export function proposalsFromIngest(project: DdProject, files: ChatIngestFile[],
       proposal(
         'file_evidence',
         `File “${file.fileName}” → ${classified.evidence?.title ?? classified.hint.titles[0] ?? 'new evidence'}`,
-        `${target} Matched scopes: ${scopeNames.join(', ') || 'none yet — will still land on the project register'}.`,
+        ingestRationale(file, target, scopeNames),
         classified.evidence
           ? 'Marks the expected item received, attaches the file, links checks that named this evidence, and the graph edge appears.'
           : 'Creates evidence, links to matching assessments/scopes, and expected-evidence completeness updates.',
@@ -554,11 +412,14 @@ export function proposalsFromIngest(project: DdProject, files: ChatIngestFile[],
           assessmentIds: classified.assessmentIds,
           scopeInstanceIds: classified.scopeInstanceIds,
           checkIds: classified.checkIds,
+          checkId: classified.checkIds[0],
+          quotes: file.quotes,
+          extractionNotes: file.extractionNotes,
         },
         actor,
         {
           citedEvidenceIds: classified.evidence ? [classified.evidence.id] : undefined,
-          citedNodeIds: classified.assessmentIds.slice(0, 4),
+          citedNodeIds: [...classified.checkIds.slice(0, 2), ...classified.assessmentIds.slice(0, 2)],
         },
       ),
     );
@@ -644,6 +505,10 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
         updateEvidenceStatus(project, evidence.id, 'received', { considered: true }, actor);
       }
     }
+    const quotes = proposalQuotes(payload);
+    if (quotes.length) evidence.quotes = mergeQuoteLists(evidence.quotes, quotes);
+    const notes = proposalExtractionNotes(payload);
+    if (notes) evidence.extractionNotes = notes;
     if (payload.storageKey && payload.fileName) {
       attachEvidenceFile(
         project,
@@ -778,7 +643,7 @@ export function wantsWizard(question: string): boolean {
   const q = question.trim().toLowerCase();
   if (q.length === 0) return true;
   return /^(hi|hello|hey|help|start|guide|wizard|next)\b/.test(q)
-    || /\b(what should i|what do i|guide me|walk me|set up|next step|how do i start|suggest)\b/.test(q)
+    || /\b(what should (i|we)|what do i|guide me|walk me|set up|next step|what.?s next|how do i start|suggest)\b/.test(q)
     || /\b(assets? to (add|create)|which dd|what scopes?|what.?s missing|gaps?)\b/.test(q);
 }
 

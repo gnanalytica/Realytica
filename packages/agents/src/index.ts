@@ -22,6 +22,7 @@ export * from './agents/proof-pathways';
 export * from './agents/copilot';
 export * from './agents/project-copilot';
 export * from './agents/project-orchestrator';
+export * from './project/ingest-intelligence';
 export * from './agents/market-research';
 export * from './agents/diligence-planner';
 export * from './agents/explorer';

@@ -9,6 +9,9 @@
  */
 
 import { DD_CONNECTORS, type DdConnector } from '../dd-connectors';
+import { CONNECTOR_ALIASES, portalForCheck, wantsPortalObtain } from './portals';
+import { compareProjectPlanning, landUseSittingOf, serializePlanningOverlay, wantsPlanningOverlay } from './planning-overlay';
+import { wantsGisOverlay } from './gis-overlay';
 import { CAPABILITY_KIND_LABEL } from './catalogs';
 import { computeCapabilityRuns, matchProjectLocality } from './capabilities';
 import type { ProjectCockpitPane } from './cockpit';
@@ -25,6 +28,7 @@ import type {
   DdProject,
 } from './types';
 import { ensureProjectShape } from './operations';
+import { sittingCheckOf, type SittingRef } from './sitting';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -66,26 +70,9 @@ const PLACE_KIND_RE: Array<{ kind: string; test: RegExp }> = [
   { kind: 'market', test: /\bmalls?\b|\bsupermarket|\bshopping\b/i },
 ];
 
-const CONNECTOR_ALIASES: Array<{ keys: string[]; test: RegExp }> = [
-  { keys: ['kaveri_ec', 'kaveri_cc'], test: /\bkaveri\b|\bencumbrance\b|\b\bec\b|\bform\s*15|\bform\s*16|\bcertified cop/i },
-  { keys: ['kaveri_gv'], test: /\bguidance value\b|\bstamp duty\b|\bcircle rate\b/i },
-  { keys: ['bhoomi', 'mutation_register'], test: /\bbhoomi\b|\brtc\b|\bpahani\b|\brecord of rights\b|\bmutation\b/i },
-  { keys: ['ekhata'], test: /\bkhata\b|\be-?aasthi\b|\be-?khata\b/i },
-  { keys: ['survey_settlement', 'dishaank'], test: /\bmojini\b|\bdishaank\b|\btippani\b|\bsurvey (sketch|map)\b/i },
-  { keys: ['krera', 'krera_updates'], test: /\brera\b|\bk-?rera\b/i },
-  { keys: ['cersai'], test: /\bcersai\b/i },
-  { keys: ['ecourts'], test: /\becourts?\b|\blitigation\b|\bcause list\b/i },
-  { keys: ['fire_noc'], test: /\bfire noc\b|\bfire (and|&) emergency\b/i },
-  { keys: ['kspcb'], test: /\bkspcb\b|\bcfe\b|\bcfo\b|\bpollution\b/i },
-  { keys: ['ceig'], test: /\bceig\b|\blift licence\b/i },
-  { keys: ['bbmp_tax'], test: /\bproperty tax\b|\bbbmp tax\b/i },
-  { keys: ['bbmp_plan'], test: /\bsanction(ed)? plan\b|\bbbmp plan\b|\bbda plan\b/i },
-  { keys: ['aai_nocas'], test: /\bnocas\b|\bheight clearance\b|\baai\b/i },
-];
-
 const DEFAULT_PORTALS = ['bhoomi', 'kaveri_ec', 'ekhata', 'krera', 'fire_noc'];
 
-export function detectChatSideIntents(question: string): ChatSideIntent[] {
+export function detectChatSideIntents(question: string, sitting?: SittingRef, project?: DdProject): ChatSideIntent[] {
   const q = question.trim();
   if (!q) return [];
   const out: ChatSideIntent[] = [];
@@ -101,11 +88,26 @@ export function detectChatSideIntents(question: string): ChatSideIntent[] {
   for (const row of CONNECTOR_ALIASES) {
     if (row.test.test(q)) for (const key of row.keys) connectorKeys.add(key);
   }
+  const seated = project ? sittingCheckOf(project, sitting)?.check : undefined;
+  const sittingPortal = seated ? portalForCheck(seated) : undefined;
+  if (sittingPortal && (wantsPortalObtain(q) || (connectorKeys.size === 0 && /\bthis (check|field|noc|extract)\b/i.test(q)))) {
+    connectorKeys.add(sittingPortal.key);
+  }
   const genericPortal =
     /\b(govt|government) portals?\b|\bstatutory records?\b|\bopen (the )?portal\b|\bdownload (the )?(ec|rtc|khata)\b/i.test(q)
     || /\b(fetch|pull|get) (the )?(ec|rtc|khata|encumbrance|rera)\b/i.test(q);
   if (genericPortal && connectorKeys.size === 0) {
     for (const key of DEFAULT_PORTALS) connectorKeys.add(key);
+  }
+
+  const seatedCheck = seated;
+  const planning =
+    wantsPlanningOverlay(q)
+    || wantsGisOverlay(q)
+    || Boolean(seatedCheck && portalForCheck(seatedCheck)?.key === 'bda_rmp' && /\b(zone|overlay|compare|plan|sheet|what (zone|use))\b/i.test(q));
+  if (planning) {
+    connectorKeys.delete('bda_rmp');
+    out.push({ kind: 'planning' });
   }
   if (connectorKeys.size) out.push({ kind: 'connectors', keys: [...connectorKeys] });
 
@@ -131,7 +133,7 @@ export function detectChatSideIntents(question: string): ChatSideIntent[] {
     out.push({ kind: 'capabilities' });
   }
 
-  if (/\bcommit (all )?(the )?(ai )?drafts?\b|\baccept (all )?(the )?(ai )?drafts?\b/.test(q.toLowerCase())) {
+  if (/\bcommit (all )?(the )?(ai )?drafts?\b|\baccept (all )?(the )?(ai )?drafts?\b|\breview (pending )?(ai )?drafts?\b/.test(q.toLowerCase())) {
     out.push({ kind: 'commit_drafts' });
   }
 
@@ -260,9 +262,16 @@ function proposalsFromWeb(project: DdProject, pull: ChatWebPull | undefined, act
   };
 }
 
-function proposalsFromConnectors(project: DdProject, keys: string[] | undefined, actor: string, scraped: boolean): { cards: ChatProposal[]; text: string } {
+function proposalsFromConnectors(
+  project: DdProject,
+  keys: string[] | undefined,
+  actor: string,
+  scraped: boolean,
+  sitting?: SittingRef,
+): { cards: ChatProposal[]; text: string } {
   const rows = connectorsFor(keys);
   const owner = project.owner || actor;
+  const seated = sittingCheckOf(project, sitting);
   const cards: ChatProposal[] = [];
   for (const c of rows.slice(0, 8)) {
     const existing = project.evidence.find((e) => e.title.toLowerCase() === c.label.toLowerCase());
@@ -271,7 +280,9 @@ function proposalsFromConnectors(project: DdProject, keys: string[] | undefined,
         'open_connector',
         `Obtain ${c.label}`,
         `${c.authority} settles: ${c.settles} Manual route: ${c.route}${c.url ? ` Portal: ${c.url}` : ''}. This product does not log in or scrape the portal.`,
-        'Writes a requested evidence row and an action to collect it. Attach the extract in this chat when you have the file.',
+        seated
+          ? `Writes a requested evidence row pinned to “${seated.check.title}”. Attach the extract on that check when you have the file.`
+          : 'Writes a requested evidence row and an action to collect it. Attach the extract in this chat when you have the file.',
         {
           connectorKey: c.key,
           label: c.label,
@@ -283,9 +294,17 @@ function proposalsFromConnectors(project: DdProject, keys: string[] | undefined,
           kind: evidenceKindForConnector(c),
           owner,
           evidenceId: existing?.id,
+          ...(seated
+            ? {
+                checkId: seated.check.id,
+                checkIds: [seated.check.id],
+                assessmentIds: [seated.assessment.id],
+                scopeInstanceIds: [seated.scope.id],
+              }
+            : {}),
         },
         actor,
-        { citedEvidenceIds: existing ? [existing.id] : undefined },
+        { citedEvidenceIds: existing ? [existing.id] : undefined, citedNodeIds: seated ? [seated.check.id] : undefined },
       ),
     );
   }
@@ -354,16 +373,27 @@ function proposalsFromDrafts(project: DdProject, actor: string): { cards: ChatPr
   if (!pending.length) {
     return { cards: [], text: 'No AI drafts waiting. Say “orchestrate” first — that proposes drafts from registers without writing findings.' };
   }
+  const first = pending[0]!;
+  const more = pending.length - 1;
   const card = proposal(
     'commit_draft',
-    `Commit ${pending.length} AI draft(s)`,
-    pending.map((d) => `${d.title} (${d.kind})`).join('; '),
-    'Writes accepted draft payloads into findings, risks, actions or decisions. Plans and check comments mark committed without a register row.',
-    { draftIds: pending.map((d) => d.id) },
+    `Commit “${first.title}”`,
+    more
+      ? `${first.kind} draft. ${more} more stay in the drafts register — this card commits one.`
+      : `${first.title} (${first.kind}). Nothing writes until you approve.`,
+    'Writes this draft into the matching register. Other drafts stay proposed.',
+    { draftIds: [first.id] },
     actor,
-    { citedNodeIds: pending.map((d) => d.id) },
+    { citedNodeIds: [first.id] },
   );
-  return { cards: [card], text: `Pending drafts:\n${pending.map((d) => `• ${d.title} [${d.kind}]`).join('\n')}\n\nApprove to commit them into registers.` };
+  return {
+    cards: [card],
+    text: `Pending drafts:\n${pending.map((d) => `• ${d.title} [${d.kind}]`).join('\n')}\n\nApprove to commit the first. The rest stay in drafts.`,
+  };
+}
+
+export function reviewPendingDrafts(project: DdProject, actor = 'operator'): { cards: ChatProposal[]; text: string } {
+  return proposalsFromDrafts(project, actor);
 }
 
 export function handleChatSides(
@@ -371,9 +401,10 @@ export function handleChatSides(
   question: string,
   actor = 'operator',
   sides?: ChatSideBundle,
+  sitting?: SittingRef,
 ): ChatSideHandle | null {
   ensureProjectShape(project);
-  const intents = detectChatSideIntents(question);
+  const intents = detectChatSideIntents(question, sitting, project);
   if (!intents.length) return null;
 
   const scraped = /\bscrap(e|ing)\b/i.test(question);
@@ -398,11 +429,32 @@ export function handleChatSides(
       tools.push({ name: 'web_search', summary: sides?.web?.enabled ? `${sides.web.hits.length} hit(s)` : 'Search unavailable' });
       if (result.cards.length) pane = 'overview';
     } else if (intent.kind === 'connectors') {
-      const result = proposalsFromConnectors(project, intent.keys, actor, scraped);
+      const result = proposalsFromConnectors(project, intent.keys, actor, scraped, sitting);
       cards.push(...result.cards);
       texts.push(result.text);
       tools.push({ name: 'connectors', summary: `${result.cards.length} portal route(s)` });
       pane = 'actions';
+    } else if (intent.kind === 'planning') {
+      const seated = landUseSittingOf(project, sitting);
+      const read = compareProjectPlanning(project, { sitting: seated ? { checkId: seated.check.id, ddId: seated.assessment.id, scopeId: seated.scope.id } : sitting, places: sides?.places });
+      const connector = proposalsFromConnectors(
+        project,
+        ['bda_rmp'],
+        actor,
+        scraped,
+        seated ? { checkId: seated.check.id, ddId: seated.assessment.id, scopeId: seated.scope.id } : sitting,
+      );
+      cards.push(...connector.cards);
+      texts.push(serializePlanningOverlay(read), connector.text);
+      if (wantsGisOverlay(question)) {
+        texts.push(
+          'GIS CONTEXT MAP — OpenStreetMap water and landuse around the pin, OpenCity GBA wards and BBMP lakes clipped to the pin, plus a supplied survey sketch if one is on file. That is not the RMP hatch and not a classified drain. Open Overview to see the overlay. Do not file OSM or OpenCity as this project\'s extract.',
+        );
+        pane = 'overview';
+      } else {
+        pane = 'scope';
+      }
+      tools.push({ name: 'planning_overlay', summary: read.pin ? 'pin vs kept plan' : 'kept plan, no pin' });
     } else if (intent.kind === 'locality') {
       const result = proposalsFromLocality(project, actor);
       cards.push(...result.cards);
@@ -445,6 +497,12 @@ export function connectorEvidenceInput(payload: Record<string, unknown>, actor: 
   const url = typeof payload.url === 'string' ? payload.url : undefined;
   const owner = String(payload.owner ?? actor);
   const kind = (payload.kind as CreateEvidenceInput['kind']) ?? 'document';
+  const checkIds = Array.isArray(payload.checkIds) ? payload.checkIds.filter((id): id is string => typeof id === 'string') : [];
+  if (typeof payload.checkId === 'string' && !checkIds.includes(payload.checkId)) checkIds.push(payload.checkId);
+  const assessmentIds = Array.isArray(payload.assessmentIds) ? payload.assessmentIds.filter((id): id is string => typeof id === 'string') : [];
+  const scopeInstanceIds = Array.isArray(payload.scopeInstanceIds)
+    ? payload.scopeInstanceIds.filter((id): id is string => typeof id === 'string')
+    : [];
   return {
     evidence: {
       title: label,
@@ -452,6 +510,9 @@ export function connectorEvidenceInput(payload: Record<string, unknown>, actor: 
       source: String(payload.connectorKey ?? 'connector'),
       status: 'requested',
       description: `${payload.settles ?? ''}\n\nRoute: ${route}${url ? `\nPortal: ${url}` : ''}`,
+      checkIds,
+      assessmentIds,
+      scopeInstanceIds,
     },
     action: {
       title: `Obtain ${label}`,
@@ -459,6 +520,7 @@ export function connectorEvidenceInput(payload: Record<string, unknown>, actor: 
       owner,
       priority: 'high',
       description: `${route}${url ? `\n${url}` : ''}`,
+      checkIds,
     },
   };
 }

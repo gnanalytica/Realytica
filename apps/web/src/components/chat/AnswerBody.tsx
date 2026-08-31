@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { FileText, Unlink, Waypoints } from 'lucide-react';
-import type { DdNode, EvidenceItem } from '@realytica/shared';
+import type { EvidenceItem } from '@realytica/shared';
 import { parseAnswer } from './answer-blocks';
 import type { Block, Inline } from './answer-blocks';
 import { cn } from '../ui/kit';
@@ -29,8 +29,8 @@ export function AnswerBody({
 }: {
   text: string;
   evidence: EvidenceItem[];
-  /** The case's graph, for resolving a bracketed id to a real label. */
-  nodes?: DdNode[];
+  /** Graph or register labels, for resolving a bracketed id to a real title. */
+  nodes?: Array<{ id: string; label: string }>;
   onOpenEvidence?: (id: string) => void;
   onOpenNode?: (nodeId: string) => void;
 }) {
@@ -96,7 +96,7 @@ export function AnswerBody({
           type="button"
           onClick={() => onOpenNode?.(span.id)}
           disabled={!onOpenNode}
-          title={node ? `Open “${node.label}” in the graph` : span.id}
+          title={node ? `Open “${node.label}”` : span.id}
           className="mx-0.5 inline-flex max-w-[16rem] translate-y-[1px] items-center gap-1 rounded px-1 py-px align-baseline text-[0.85em] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken hover:text-ink"
         >
           <Waypoints size={10} className="shrink-0" />

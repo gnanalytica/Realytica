@@ -15,9 +15,9 @@ export type DocumentSourceState =
   | { status: 'absent' }
   | { status: 'error'; message: string };
 
-import { documentFileUrl } from '../../lib/api';
+import { documentFileUrl, evidenceFileUrl } from '../../lib/api';
 
-export { documentFileUrl };
+export { documentFileUrl, evidenceFileUrl };
 
 /**
  * The served content type, taken from the RESPONSE rather than from
@@ -71,4 +71,44 @@ export function renderKindFor(contentType: string): RenderKind {
   if (contentType === 'text/plain') return 'text';
   if (contentType === OFFICE_WORD) return 'docx';
   return 'unsupported';
+}
+
+function mimeFromName(fileName: string): string | undefined {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'png') return 'image/png';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'gif') return 'image/gif';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'txt') return 'text/plain';
+  if (ext === 'docx') return OFFICE_WORD;
+  return undefined;
+}
+
+export async function fetchEvidenceFile(
+  projectId: string,
+  evidenceId: string,
+  fileId: string,
+  fileName?: string,
+  claimedType?: string,
+): Promise<DocumentSourceState> {
+  let res: Response;
+  try {
+    res = await fetch(evidenceFileUrl(projectId, evidenceId, fileId, { inline: true }));
+  } catch (e) {
+    return { status: 'error', message: e instanceof Error ? e.message : String(e) };
+  }
+  if (res.status === 404) return { status: 'absent' };
+  if (!res.ok) {
+    return { status: 'error', message: `${res.status} ${res.statusText}` };
+  }
+  const blob = await res.blob();
+  const served = servedType(res);
+  const contentType =
+    served !== 'application/octet-stream'
+      ? served
+      : claimedType && claimedType !== 'application/octet-stream'
+        ? claimedType
+        : mimeFromName(fileName ?? '') ?? served;
+  return { status: 'ready', blob, contentType, url: URL.createObjectURL(blob) };
 }

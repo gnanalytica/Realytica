@@ -1,4 +1,5 @@
 import type { CheckInstance, DdAssessment, DdProject } from './types';
+import type { SiteContext } from '../types';
 import { createValuationRun, proposeAiDrafts } from './capabilities';
 import {
   addAction,
@@ -421,3 +422,98 @@ export function seedDemoProject(): DdProject {
 }
 
 export const SEED_DEMO_PROJECT_REFERENCE = 'RYT-0001';
+
+/** Koramangala 4th Block — inside BDA RMP 2015 PD 207/208, and inside the BBMP viewer box. */
+export const SEED_BDA_REFERENCE_PIN = { lat: 12.9345, lng: 77.623 };
+export const SEED_BDA_REFERENCE_PROJECT_REFERENCE = 'RYT-0003';
+
+/**
+ * A BDA/BBMP-core infill used to read the RMP 2015 sheet. Not Harohalli:
+ * that village sits on BMRDA maps and is outside these planning-district PDFs.
+ */
+export function seedBdaReferenceProject(): DdProject {
+  const project = createProject(
+    {
+      name: 'Koramangala 4th Block infill',
+      type: 'residential',
+      location: 'Koramangala 4th Block',
+      city: 'Bengaluru',
+      jurisdiction: 'Karnataka / BBMP',
+      siteAddress: 'Sy. No. 12/2, 80 Feet Road, Koramangala 4th Block',
+      currentStage: 'acquisition',
+      description:
+        'Reference infill inside the BDA local planning area so the RMP 2015 hatch can be read. Planning district 207 & 208 (Unclassified & Koramangala). Civic GIS (BBMP WMS, OpenCity lakes/wards) will clip here; that is not the master-plan sheet. Obtain the PD 207/208 land-use map or a zoning certificate on the land-use check.',
+      owner: 'DD Lead',
+      developer: 'Koramangala Infill Pvt Ltd',
+      landAreaSqm: 1_850,
+      builtUpAreaSqm: 4_200,
+      saleableAreaSqm: 3_640,
+      budget: 28_00_00_000,
+      currency: 'INR',
+      portfolio: 'Bengaluru residential',
+    },
+    SEED_BDA_REFERENCE_PROJECT_REFERENCE,
+    'Asha Menon',
+  );
+
+  const queried = project.siteAddress ?? project.location;
+  project.siteContext = {
+    caseId: project.id,
+    location: {
+      point: SEED_BDA_REFERENCE_PIN,
+      precision: 'rooftop',
+      queried,
+      resolvedAddress: 'Koramangala 4th Block, Bengaluru',
+      provider: 'stub',
+      resolvedAt: '2026-08-31T00:00:00.000Z',
+      caveat: 'Geocoded pin for the overlay — not a surveyed parcel boundary.',
+    },
+    amenities: [],
+    streetView: null,
+    gaps: [],
+    provider: 'stub',
+    builtAt: '2026-08-31T00:00:00.000Z',
+  } satisfies SiteContext;
+
+  addAsset(project, { name: 'Infill block', assetType: 'Residential building', currentStage: 'design' }, 'Asha Menon');
+
+  const acquisition = createAssessment(
+    project,
+    {
+      ddType: 'acquisition',
+      name: 'Land Acquisition DD',
+      owner: 'Asha Menon',
+      reviewer: 'Legal counsel',
+      targetType: 'project',
+      objective: 'Read the RMP 2015 hatch for this survey number before committing to redevelopment.',
+    },
+    'Asha Menon',
+  );
+
+  const deed = addEvidence(
+    project,
+    {
+      title: 'Registered sale deed — Sy. 12/2',
+      kind: 'document',
+      source: 'Sub-registrar Bengaluru Urban',
+      status: 'validated',
+      assessmentIds: [acquisition.id],
+    },
+    'Asha Menon',
+  );
+  updateEvidenceStatus(project, deed.id, 'used', { used: true, considered: true }, 'Asha Menon');
+
+  recordCheckResult(
+    project,
+    checkByDef(acquisition, 'title_chain').id,
+    {
+      result: 'compliant',
+      comments: 'Chain is continuous. Used as the BDA-core reference file; land-use extract is still outstanding.',
+      evidenceIds: [deed.id],
+      createFinding: false,
+    },
+    'Legal counsel',
+  );
+
+  return project;
+}

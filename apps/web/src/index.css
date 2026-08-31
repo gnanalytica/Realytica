@@ -386,3 +386,14 @@
     --text-mini: 12.5px;
   }
 }
+
+/* Leaflet draws into this node; keep it under app chrome and inherit type. */
+.gis-map.leaflet-container {
+  z-index: 0;
+  font: inherit;
+  background: #1a1a1a;
+}
+.gis-map .leaflet-control-attribution {
+  font-size: 10px;
+  background: rgb(255 255 255 / 0.72);
+}

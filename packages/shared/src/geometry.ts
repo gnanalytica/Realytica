@@ -363,3 +363,127 @@ export function buildBoundary(
     elongation: Math.round(m.elongation * 100) / 100,
   };
 }
+
+/* ==================================================================== */
+/* Point vs ring — overlay intersection, not a survey                    */
+/* ==================================================================== */
+
+/**
+ * Project points onto the same local plane as `ring`.
+ *
+ * Using the ring's own centroid (not a combined centroid that includes the
+ * query point) keeps "is this pin inside the lake" from shifting the lake
+ * when the pin is far from it.
+ */
+function projectorOn(ring: GeoPoint[]): (p: GeoPoint) => PlanePoint {
+  if (ring.length === 0) return () => ({ x: 0, y: 0 });
+  const meanLat = ring.reduce((sum, p) => sum + p.lat, 0) / ring.length;
+  const meanLng = ring.reduce((sum, p) => sum + p.lng, 0) / ring.length;
+  const metresPerDegLng = METRES_PER_DEG_LAT * Math.cos((meanLat * Math.PI) / 180);
+  return (p) => ({
+    x: (p.lng - meanLng) * metresPerDegLng,
+    y: (p.lat - meanLat) * METRES_PER_DEG_LAT,
+  });
+}
+
+function rayCastsInside(p: PlanePoint, poly: PlanePoint[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i, i += 1) {
+    const a = poly[i];
+    const b = poly[j];
+    const straddles = a.y > p.y !== b.y > p.y;
+    if (!straddles || Math.abs(b.y - a.y) < 1e-12) continue;
+    const xAt = ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x;
+    if (p.x < xAt) inside = !inside;
+  }
+  return inside;
+}
+
+function distPointToSegM(p: PlanePoint, a: PlanePoint, b: PlanePoint): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 < 1e-12) return Math.hypot(p.x - a.x, p.y - a.y);
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+function orient(a: PlanePoint, b: PlanePoint, c: PlanePoint): number {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+function segmentsCross(a: PlanePoint, b: PlanePoint, c: PlanePoint, d: PlanePoint): boolean {
+  const o1 = orient(a, b, c);
+  const o2 = orient(a, b, d);
+  const o3 = orient(c, d, a);
+  const o4 = orient(c, d, b);
+  const sepAb = (o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0);
+  const sepCd = (o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0);
+  return sepAb && sepCd;
+}
+
+function planeRing(ring: GeoPoint[]): PlanePoint[] {
+  return openRing(ring.map(projectorOn(ring)));
+}
+
+/** True when `point` is inside the outer ring (even-odd). A point on an edge may go either way. */
+export function pointInRing(point: GeoPoint, ring: GeoPoint[]): boolean {
+  const poly = planeRing(ring);
+  if (poly.length < 3) return false;
+  return rayCastsInside(projectorOn(ring)(point), poly);
+}
+
+/** Shortest distance in metres from `point` to the polyline (or polygon outline). */
+export function distancePointToPathM(point: GeoPoint, path: GeoPoint[]): number {
+  if (path.length === 0) return Number.POSITIVE_INFINITY;
+  const toPlane = projectorOn(path);
+  const p = toPlane(point);
+  if (path.length === 1) return Math.hypot(p.x - toPlane(path[0]).x, p.y - toPlane(path[0]).y);
+  const verts = path.map(toPlane);
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < verts.length - 1; i += 1) {
+    best = Math.min(best, distPointToSegM(p, verts[i], verts[i + 1]));
+  }
+  return best;
+}
+
+/**
+ * Distance from a point to a polygon: zero when inside, otherwise the
+ * outline. Used for "how far is the pin from this tank" — not a buffer
+ * measured to a legal drain class.
+ */
+export function distancePointToPolygonM(point: GeoPoint, ring: GeoPoint[]): number {
+  if (pointInRing(point, ring)) return 0;
+  const poly = planeRing(ring);
+  if (poly.length < 2) return Number.POSITIVE_INFINITY;
+  const closed = [...poly, poly[0]];
+  const toPlane = projectorOn(ring);
+  const p = toPlane(point);
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < closed.length - 1; i += 1) {
+    best = Math.min(best, distPointToSegM(p, closed[i], closed[i + 1]));
+  }
+  return best;
+}
+
+/** True when two rings overlap (vertex in the other, or a proper edge crossing). */
+export function ringsOverlap(a: GeoPoint[], b: GeoPoint[]): boolean {
+  const toPlane = projectorOn([...a, ...b]);
+  const pa = openRing(a.map(toPlane));
+  const pb = openRing(b.map(toPlane));
+  if (pa.length < 3 || pb.length < 3) return false;
+  for (const v of pb) {
+    if (rayCastsInside(v, pa)) return true;
+  }
+  for (const v of pa) {
+    if (rayCastsInside(v, pb)) return true;
+  }
+  const ea = [...pa, pa[0]];
+  const eb = [...pb, pb[0]];
+  for (let i = 0; i < ea.length - 1; i += 1) {
+    for (let j = 0; j < eb.length - 1; j += 1) {
+      if (segmentsCross(ea[i], ea[i + 1], eb[j], eb[j + 1])) return true;
+    }
+  }
+  return false;
+}

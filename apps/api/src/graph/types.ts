@@ -24,7 +24,21 @@
  * or a file behind this interface are all the same to everything above.
  */
 
-import type { DdEdge, DdGraph, DdNode } from '@realytica/shared';
+import type { DdEdge, DdGraph, DdNode, ProjectGraphEdge, ProjectGraphNode } from '@realytica/shared';
+
+/**
+ * The project cockpit graph, persisted as an index of the registers.
+ *
+ * Same split as the case graph: this snapshot is derived and may be rebuilt.
+ * GraphRAG neighbourhood queries run against it when Neo4j is live, and
+ * against the in-process projection when it is not.
+ */
+export interface ProjectGraphSnapshot {
+  projectId: string;
+  builtAt: string;
+  nodes: ProjectGraphNode[];
+  edges: ProjectGraphEdge[];
+}
 
 export interface GraphAdapter {
   /** Human name for the boot log, so it is obvious which backend is live. */
@@ -63,4 +77,20 @@ export interface GraphAdapter {
 
   /** True when the backend answered. Reported at boot rather than assumed. */
   healthy(): Promise<boolean>;
+
+  /** Replace this project's derived cockpit graph. */
+  syncProject(snapshot: ProjectGraphSnapshot): Promise<void>;
+
+  /** The stored cockpit graph, or null when this project has never been synced. */
+  readProject(projectId: string): Promise<ProjectGraphSnapshot | null>;
+
+  /**
+   * Undirected k-hop neighbourhood. Null when the project is not indexed —
+   * the caller then extracts from the live registers, which are the source
+   * of truth.
+   */
+  neighbourhood(projectId: string, seedIds: string[], hops: number): Promise<ProjectGraphSnapshot | null>;
+
+  /** Drop the cockpit graph when the project itself is deleted. */
+  purgeProject(projectId: string): Promise<void>;
 }

@@ -140,6 +140,9 @@ export const DEFAULT_CARDINALITY: Record<string, PredicateCardinality> = {
   guidance_value_gap_pct: 'multi',
   guidance_value_exceeds_consideration: 'multi',
   recurring_risk_code: 'multi',
+  at_stage: 'single',
+  case_health: 'single',
+  pack_progress: 'single',
 
   /* source_reliability — only the current answer is actionable. */
   reachability: 'single',
@@ -151,7 +154,8 @@ export const DEFAULT_CARDINALITY: Record<string, PredicateCardinality> = {
   authority: 'single',
   recommended_for: 'multi',
 
-  /* user_preference — dispositions observed over many cases. */
+  /* user_preference — next-step on this operator's files; dispositions across cases. */
+  working_next: 'single',
   accepts_risk_category: 'multi',
   mitigates_risk_category: 'multi',
   accepts_risk_code: 'multi',

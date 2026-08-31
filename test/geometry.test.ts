@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { areaSqm, boundaryMetrics, buildBoundary, erodedAreaSqm, isConvex, openRing, parseBoundary, perimeterM, projectRing } from '@realytica/shared';
+import { areaSqm, boundaryMetrics, buildBoundary, distancePointToPolygonM, erodedAreaSqm, isConvex, openRing, parseBoundary, perimeterM, pointInRing, projectRing, ringsOverlap } from '@realytica/shared';
 import type { GeoPoint } from '@realytica/shared';
 
 /** A w x h rectangle in metres, placed near Bengaluru. */
@@ -235,5 +235,25 @@ describe('reading a boundary somebody supplied', () => {
     close(boundary.computedAreaSqm, 600, 15, 'a 20x30 measures 600 sqm');
     assert.equal(boundary.convex, true);
     assert.ok(boundary.elongation > 1.3);
+  });
+});
+
+describe('point versus ring', () => {
+  it('knows the centre of a rectangle is inside and a point outside is not', () => {
+    const ring = rectangle(40, 40);
+    const inside = { lat: 12.97 + 20 / 111_320, lng: 77.59 + 20 / (111_320 * Math.cos((12.97 * Math.PI) / 180)) };
+    const outside = { lat: 12.97, lng: 77.59 + 80 / (111_320 * Math.cos((12.97 * Math.PI) / 180)) };
+    assert.equal(pointInRing(inside, ring), true);
+    assert.equal(pointInRing(outside, ring), false);
+    assert.equal(distancePointToPolygonM(inside, ring), 0);
+    close(distancePointToPolygonM(outside, ring), 40, 2, '40m east of a 40m-wide plot');
+  });
+
+  it('detects overlapping rectangles and ignores separated ones', () => {
+    const a = rectangle(40, 40);
+    const shifted = rectangle(40, 40, 12.97, 77.59 + 20 / (111_320 * Math.cos((12.97 * Math.PI) / 180)));
+    const far = rectangle(40, 40, 12.97, 77.59 + 200 / (111_320 * Math.cos((12.97 * Math.PI) / 180)));
+    assert.equal(ringsOverlap(a, shifted), true);
+    assert.equal(ringsOverlap(a, far), false);
   });
 });

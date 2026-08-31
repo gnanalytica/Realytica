@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom';
-import type { DdProject } from '@realytica/shared';
+import type { DdProject, ChatProposal } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { Callout, Skeleton } from '../../components/ui/kit';
@@ -9,6 +9,12 @@ export interface ProjectOutlet {
   project: DdProject;
   refresh: () => Promise<void>;
   setProject: (next: DdProject) => void;
+  pinnedProposals?: ChatProposal[];
+  onApproveProposal?: (id: string) => void;
+  onSkipProposal?: (id: string) => void;
+  proposalBusy?: boolean;
+  highlightIds?: string[];
+  onOpenCited?: (id: string) => void;
 }
 
 export default function ProjectLayout() {

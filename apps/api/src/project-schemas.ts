@@ -183,6 +183,7 @@ export const createActionBodySchema = z.object({
   findingIds: z.array(z.string()).optional(),
   riskIds: z.array(z.string()).optional(),
   evidenceIds: z.array(z.string()).optional(),
+  checkIds: z.array(z.string()).optional(),
   actor: actorSchema,
 });
 
@@ -253,6 +254,13 @@ export const projectChatBodySchema = z.object({
   question: z.string().trim().min(1).max(4000),
   viewContext: z.string().max(400).optional(),
   actor: actorSchema,
+  sitting: z
+    .object({
+      ddId: z.string().optional(),
+      scopeId: z.string().optional(),
+      checkId: z.string().optional(),
+    })
+    .optional(),
 });
 
 export const projectChatProposalBodySchema = z.object({

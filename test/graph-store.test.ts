@@ -161,6 +161,35 @@ function contract(name: string, load: () => Promise<GraphAdapter>): void {
       await adapter.purge(CASE);
       assert.equal(await adapter.read(CASE), null);
     });
+
+    it('round-trips a project cockpit graph and returns a neighbourhood', async () => {
+      const projectId = 'prj-store-test';
+      await adapter.purgeProject(projectId);
+      await adapter.syncProject({
+        projectId,
+        builtAt: '2026-08-31T00:00:00.000Z',
+        nodes: [
+          { id: projectId, kind: 'project', label: 'Harohalli' },
+          { id: 'scp-1', kind: 'scope', label: 'Legal' },
+          { id: 'chk-1', kind: 'check', label: 'Title chain' },
+          { id: 'ev-1', kind: 'evidence', label: 'Sale deed' },
+        ],
+        edges: [
+          { id: 'e-scope', from: projectId, to: 'scp-1', rel: 'has_scope' },
+          { id: 'e-check', from: 'scp-1', to: 'chk-1', rel: 'has_check' },
+          { id: 'e-ev', from: 'chk-1', to: 'ev-1', rel: 'uses_evidence' },
+        ],
+      });
+      const back = await adapter.readProject(projectId);
+      assert.ok(back);
+      assert.equal(back.nodes.length, 4);
+      const sub = await adapter.neighbourhood(projectId, ['chk-1'], 1);
+      assert.ok(sub);
+      assert.ok(sub.nodes.some(n => n.id === 'ev-1'), 'one hop from the check reaches the deed');
+      assert.ok(sub.nodes.some(n => n.id === 'scp-1'), 'and the parent scope');
+      await adapter.purgeProject(projectId);
+      assert.equal(await adapter.readProject(projectId), null);
+    });
   });
 }
 

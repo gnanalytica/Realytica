@@ -1,13 +1,16 @@
 import { useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { LIFECYCLE_STAGE_LABEL, LIFECYCLE_STAGES, type LifecycleStage } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
 import { assetTree } from '@realytica/shared';
 import type { ProjectOutlet } from './ProjectLayout';
+import { LiveRow } from './LiveRow';
 
 export default function Assets() {
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
+  const [searchParams] = useSearchParams();
+  const liveIds = [...(highlightIds ?? []), ...(searchParams.get('asset') ? [searchParams.get('asset')!] : [])];
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -72,7 +75,7 @@ export default function Assets() {
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
             {tree.map((asset) => (
-              <div key={asset.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3" style={{ paddingLeft: 16 + Math.min(asset.depth, 2) * 16 }}>
+              <LiveRow key={asset.id} id={asset.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-center justify-between gap-3 px-4 py-3" style={{ paddingLeft: 16 + Math.min(asset.depth, 2) * 16 }}>
                 <div className="min-w-0">
                   <p className="text-[13px] font-medium text-ink">{asset.name}</p>
                   <p className="text-[12px] text-ink-secondary">
@@ -93,7 +96,7 @@ export default function Assets() {
                     Stage
                   </Button>
                 </div>
-              </div>
+              </LiveRow>
             ))}
           </CardBody>
         </Card>

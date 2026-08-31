@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   EVIDENCE_KIND_LABEL,
@@ -6,16 +6,19 @@ import {
   FINDING_STATUS_LABEL,
   SCOPE_LABEL,
   SEVERITY_LABEL,
+  quotesForEvidence,
   type EvidenceKind,
   type EvidenceStatus,
   type FindingSeverity,
   type FindingStatus,
   type ScopeKey,
 } from '@realytica/shared';
-import { api, evidenceFileUrl } from '../../lib/api';
+import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
+import { LiveRow } from './LiveRow';
+import { EvidenceProof } from './EvidenceProof';
 
 const EVIDENCE_STATUSES = Object.keys(EVIDENCE_STATUS_LABEL) as EvidenceStatus[];
 const FINDING_STATUSES = Object.keys(FINDING_STATUS_LABEL) as FindingStatus[];
@@ -23,14 +26,19 @@ const FINDING_STATUSES = Object.keys(FINDING_STATUS_LABEL) as FindingStatus[];
 const GAP_STATUSES: EvidenceStatus[] = ['expected', 'requested', 'missing'];
 
 export function EvidenceRegister() {
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
-  const [searchParams] = useSearchParams();
+  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const assessmentId = searchParams.get('dd') ?? undefined;
+  const focusId = searchParams.get('evidence') ?? undefined;
+  const focusPage = searchParams.get('page');
   const [statusFilter, setStatusFilter] = useState<'all' | 'gaps' | EvidenceStatus>('gaps');
   const [query, setQuery] = useState('');
+  const [proofId, setProofId] = useState<string | null>(focusId ?? null);
   const scoped = assessmentId ? project.evidence.filter((e) => e.assessmentIds.includes(assessmentId)) : project.evidence;
+  const liveIds = [...(highlightIds ?? []), ...(focusId ? [focusId] : [])];
   const rows = scoped.filter((e) => {
+    if (focusId && e.id === focusId) return true;
     if (statusFilter === 'gaps' && !GAP_STATUSES.includes(e.status)) return false;
     if (statusFilter !== 'all' && statusFilter !== 'gaps' && e.status !== statusFilter) return false;
     if (query.trim() && !e.title.toLowerCase().includes(query.trim().toLowerCase())) return false;
@@ -41,6 +49,13 @@ export function EvidenceRegister() {
   const [kind, setKind] = useState<EvidenceKind>('document');
   const [source, setSource] = useState('');
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (focusId) setProofId(focusId);
+  }, [focusId]);
+
+  const proof = proofId ? project.evidence.find((e) => e.id === proofId) : undefined;
+  const proofQuotes = useMemo(() => (proof ? quotesForEvidence(project, proof.id) : []), [proof, project]);
 
   async function add() {
     setBusy(true);
@@ -92,7 +107,7 @@ export function EvidenceRegister() {
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
             {rows.map((e) => (
-              <div key={e.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+              <LiveRow key={e.id} id={e.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
                 <div>
                   <p className="text-[13px] font-medium text-ink">{e.title}</p>
                   <p className="text-[12px] text-ink-muted">
@@ -103,14 +118,24 @@ export function EvidenceRegister() {
                   {(e.attachments ?? []).length ? (
                     <p className="mt-1 flex flex-wrap gap-2">
                       {e.attachments.map((f) => (
-                        <a key={f.id} href={evidenceFileUrl(project.id, e.id, f.id)} className="text-[12px] text-brand underline">
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setProofId(e.id)}
+                          className="text-[12px] text-brand underline"
+                        >
                           {f.fileName}
-                        </a>
+                        </button>
                       ))}
                     </p>
                   ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {(e.attachments ?? []).length ? (
+                    <Button size="sm" variant="ghost" onClick={() => setProofId(e.id)}>
+                      Open proof
+                    </Button>
+                  ) : null}
                   <Select value={e.status} onChange={(ev) => void setStatus(e.id, ev.target.value as EvidenceStatus)}>
                     {EVIDENCE_STATUSES.map((s) => (
                       <option key={s} value={s}>{EVIDENCE_STATUS_LABEL[s]}</option>
@@ -140,11 +165,34 @@ export function EvidenceRegister() {
                     />
                   </label>
                 </div>
-              </div>
+              </LiveRow>
             ))}
           </CardBody>
         </Card>
       )}
+      {proof ? (
+        <EvidenceProof
+          projectId={project.id}
+          evidence={proof}
+          file={proof.attachments[0]}
+          quotes={proofQuotes}
+          citedPage={focusPage ? Number(focusPage) || undefined : undefined}
+          onClose={() => {
+            setProofId(null);
+            if (focusId) {
+              setSearchParams(
+                (prev) => {
+                  const next = new URLSearchParams(prev);
+                  next.delete('evidence');
+                  next.delete('page');
+                  return next;
+                },
+                { replace: true },
+              );
+            }
+          }}
+        />
+      ) : null}
       <Modal
         open={open}
         onClose={() => setOpen(false)}
@@ -173,8 +221,11 @@ export function EvidenceRegister() {
 }
 
 export function FindingRegister() {
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
+  const [searchParams] = useSearchParams();
   const toast = useToast();
+  const focusId = searchParams.get('finding') ?? undefined;
+  const liveIds = [...(highlightIds ?? []), ...(focusId ? [focusId] : [])];
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -221,7 +272,7 @@ export function FindingRegister() {
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
             {project.findings.map((f) => (
-              <div key={f.id} className="space-y-2 px-4 py-3">
+              <LiveRow key={f.id} id={f.id} highlightIds={liveIds} variant="flush" className="space-y-2 px-4 py-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="text-[13px] font-medium text-ink">{f.title}</p>
@@ -239,7 +290,7 @@ export function FindingRegister() {
                     </Select>
                   </div>
                 </div>
-              </div>
+              </LiveRow>
             ))}
           </CardBody>
         </Card>

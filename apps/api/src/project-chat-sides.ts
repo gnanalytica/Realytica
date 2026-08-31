@@ -183,6 +183,7 @@ export async function pullPlacesForProject(project: DdProject, kinds?: string[])
     resolvedAddress: geocoded.value.resolvedAddress,
     precision: geocoded.value.precision,
     caveat: caveatFor(geocoded.value.precision, geocoded.value.resolvedAddress),
+    point: point,
     amenities,
     streetView,
     gaps,
@@ -293,13 +294,70 @@ export async function pullWebForProject(project: DdProject, question: string): P
   }
 }
 
+export async function pullPinForProject(project: DdProject): Promise<ChatPlacesPull> {
+  const provider = placeProviderFor();
+  const query = geocodeQuery(project);
+  if (!provider.configured) {
+    return {
+      provider: provider.id,
+      configured: false,
+      query,
+      amenities: [],
+      gaps: [
+        {
+          code: 'no_provider_key',
+          consequence:
+            'No mapping provider is configured (set REALYTICA_GOOGLE_MAPS_API_KEY). The overlay has no pin — it still names the kept plan and the obtain route.',
+        },
+      ],
+    };
+  }
+  if (!query) {
+    return {
+      provider: provider.id,
+      configured: true,
+      query,
+      amenities: [],
+      gaps: [{ code: 'no_address_on_file', consequence: 'The project has no address, location or city to geocode.' }],
+    };
+  }
+  const cityKey = project.city.trim().toLowerCase();
+  const geocoded = await provider.geocode({
+    query,
+    biasTo: CITY_BIAS[cityKey],
+    regionCode: REGION_FOR_CITY[cityKey],
+  });
+  if (!geocoded.ok) {
+    return {
+      provider: provider.id,
+      configured: true,
+      query,
+      amenities: [],
+      gaps: [{ code: geocoded.gap.code, consequence: geocoded.gap.consequence }],
+    };
+  }
+  return {
+    provider: provider.id,
+    configured: true,
+    query,
+    resolvedAddress: geocoded.value.resolvedAddress,
+    precision: geocoded.value.precision,
+    caveat: caveatFor(geocoded.value.precision, geocoded.value.resolvedAddress),
+    point: geocoded.value.point,
+    amenities: [],
+    gaps: [],
+  };
+}
+
 export async function gatherChatSides(project: DdProject, question: string): Promise<ChatSideBundle | undefined> {
   const intents = detectChatSideIntents(question);
-  if (!intents.some((i) => i.kind === 'places' || i.kind === 'web_search')) return undefined;
+  if (!intents.some((i) => i.kind === 'places' || i.kind === 'web_search' || i.kind === 'planning')) return undefined;
   const bundle: ChatSideBundle = {};
   const places = intents.find((i) => i.kind === 'places');
+  const planning = intents.find((i) => i.kind === 'planning');
   const web = intents.find((i) => i.kind === 'web_search');
   if (places) bundle.places = await pullPlacesForProject(project, places.keys);
+  else if (planning) bundle.places = await pullPinForProject(project);
   if (web) bundle.web = await pullWebForProject(project, question);
   return bundle;
 }

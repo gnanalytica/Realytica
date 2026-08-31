@@ -86,3 +86,5 @@ export { DEFAULT_HORIZONS, extractFactsFromCase, partyMentionsInCase } from './l
 
 export type { RecallOptions, RenderMemoryOptions, SubjectsForCaseOptions } from './recall';
 export { recallForCase, renderMemoryForPrompt, subjectsForCase } from './recall';
+
+export { extractFactsFromProject, recallForProject, subjectsForProject } from './project';

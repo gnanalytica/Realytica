@@ -17,6 +17,7 @@ import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
 import { promptsRouter } from './routes/prompts';
+import { graphAdapter } from './graph';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { readEnv } from '@realytica/agents';
@@ -54,6 +55,7 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     version: ENGINE_VERSION,
     projects: store.data.projects?.length ?? 0,
+    graph: graphAdapter.kind,
     upload: UPLOAD_LIMITS,
   });
 });
@@ -145,4 +147,12 @@ export async function initApp(): Promise<void> {
     const created = await seedDemoProjects();
     console.log(`[boot] no projects — auto-seeded ${created} demo project(s)`);
   }
+  void import('./reference/shelf-cache')
+    .then(({ ingestOpenReferences }) => ingestOpenReferences())
+    .then((r) => console.log(`[shelf] open PDFs ingested=${r.fetched} skipped=${r.skipped} failed=${r.failed}`))
+    .catch((err) => console.warn(`[shelf] ingest skipped: ${(err as Error).message}`));
+  void import('./gis/civic-cache')
+    .then(({ ingestCivicLayers }) => ingestCivicLayers())
+    .then((r) => console.log(`[gis] civic layers lakes=${r.lakes} wards=${r.wards} withdrawnSheets=${r.sheets}${r.errors.length ? ` errors=${r.errors.join('; ')}` : ''}`))
+    .catch((err) => console.warn(`[gis] civic ingest skipped: ${(err as Error).message}`));
 }

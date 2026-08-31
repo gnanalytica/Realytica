@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { ArrowUp, CheckCircle2, Info, MessageCircle, Paperclip, SearchX, Sparkles, Trash2, X } from 'lucide-react';
-import type { AgentStep, CopilotTurn, DdNode, EvidenceItem, PropertyCase, VerificationSummary } from '@realytica/shared';
+import type { AgentStep, CopilotTurn, EvidenceItem, PropertyCase, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
 import { Badge, Button, Textarea, cn } from './ui/kit';
@@ -31,7 +31,7 @@ function TurnBubble({
 }: {
   turn: CopilotTurn;
   evidence: EvidenceItem[];
-  nodes?: DdNode[];
+  nodes?: Array<{ id: string; label: string }>;
   applied?: string[];
   caseData?: PropertyCase;
   verification?: VerificationSummary;
@@ -177,9 +177,9 @@ function TurnBubble({
           repeating it in a summary strip underneath offers the same source
           twice while implying they are different.
         */}
-        {uncited.length > 0 ? (
+            {uncited.length > 0 ? (
           <div className="mt-1.5">
-            <EvidenceLink ids={uncited} evidence={evidence} onOpenDocument={onOpenDocument} />
+            <EvidenceLink ids={uncited} evidence={evidence} onOpen={(ids) => ids[0] && onOpenEvidence?.(ids[0])} onOpenDocument={onOpenDocument} />
           </div>
         ) : null}
         {onOpenNode && uncitedNodes.length > 0 ? (
@@ -189,7 +189,7 @@ function TurnBubble({
                 key={nodeId}
                 onClick={() => onOpenNode(nodeId)}
                 className="rounded-full bg-surface px-2 py-0.5 text-micro text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:text-ink"
-                title="Focus this node in the graph explorer"
+                title="Open this record"
               >
                 {nodeLabel(nodeId)}
               </button>
@@ -298,6 +298,8 @@ export function CopilotPanel({
   allowAttach,
   renderTurnExtras,
   compact,
+  onCancel,
+  dock,
 }: {
   conversation: CopilotTurn[];
   evidence: EvidenceItem[];
@@ -327,7 +329,7 @@ export function CopilotPanel({
   /** Take the height of the container rather than capping at 26rem. */
   fill?: boolean;
   /** The case's graph, so a cited node id can render as its label. */
-  nodes?: DdNode[];
+  nodes?: Array<{ id: string; label: string }>;
   /**
    * What each turn changed on the case, keyed by turn id.
    *
@@ -354,6 +356,10 @@ export function CopilotPanel({
   renderTurnExtras?: (turn: CopilotTurn) => ReactNode;
   /** Phone cockpit: hide extra chips, icon-only send, tighter spacing. */
   compact?: boolean;
+  /** Cancel the in-flight turn. Shown as Stop while busy. */
+  onCancel?: () => void;
+  /** Live sitting — the named field or scope, docked above the composer. */
+  dock?: ReactNode;
 }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -524,6 +530,8 @@ export function CopilotPanel({
         </div>
       ) : null}
 
+      {dock ? <div className="shrink-0">{dock}</div> : null}
+
       {disabled ? (
         <div className="flex items-start gap-2 rounded-lg bg-sunken px-2.5 py-2 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
           <Info size={13} className="mt-px shrink-0 text-ink-muted" />
@@ -595,6 +603,16 @@ export function CopilotPanel({
           )}
           ref={composerRef}
         />
+        {busy && onCancel ? (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onCancel}
+            aria-label="Stop"
+          >
+            Stop
+          </Button>
+        ) : (
         <Button
           type="submit"
           variant="primary"
@@ -605,6 +623,7 @@ export function CopilotPanel({
         >
           {compact ? null : 'Ask'}
         </Button>
+        )}
         {onClear && conversation.length > 0 ? (
           <Button
             type="button"

@@ -1,5 +1,3 @@
-import { useEffect, useRef } from 'react';
-import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ACTION_STATUS_LABEL,
@@ -15,9 +13,10 @@ import {
   type DdProject,
 } from '@realytica/shared';
 import { api, evidenceFileUrl } from '../../../lib/api';
-import { Badge, Button, Callout, EmptyState, cn, useToast } from '../../../components/ui/kit';
+import { Badge, Button, Callout, EmptyState, useToast } from '../../../components/ui/kit';
 import { formatWhen, severityTone } from '../shared';
 import { ProjectGraphCanvas } from './ProjectGraphCanvas';
+import { LiveRow } from '../LiveRow';
 
 export type { ProjectCockpitPane } from '@realytica/shared';
 
@@ -26,33 +25,6 @@ function draftTone(status: AiDraftStatus) {
   if (status === 'rejected') return 'critical' as const;
   if (status === 'accepted' || status === 'in_review') return 'warning' as const;
   return 'neutral' as const;
-}
-
-function LiveRow({
-  id,
-  highlightIds,
-  children,
-  className,
-}: {
-  id: string;
-  highlightIds?: string[];
-  children: ReactNode;
-  className?: string;
-}) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const on = Boolean(highlightIds?.includes(id));
-  useEffect(() => {
-    if (on) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [on, id]);
-  return (
-    <div
-      ref={ref}
-      data-live={on ? 'true' : undefined}
-      className={cn('rounded-lg border p-3', on ? 'border-brand bg-brand-soft ring-2 ring-brand/35' : 'border-hairline', className)}
-    >
-      {children}
-    </div>
-  );
 }
 
 function money(currency: string, n?: number) {

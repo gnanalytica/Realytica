@@ -14,9 +14,10 @@ import {
 import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
+import { LiveRow } from './LiveRow';
 
 export default function Diligence() {
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [ddType, setDdType] = useState<DdTypeKey>('acquisition');
@@ -65,6 +66,7 @@ export default function Diligence() {
           const progress = assessmentProgress(a);
           return (
             <Link key={a.id} to={a.id} className="block">
+              <LiveRow id={a.id} highlightIds={highlightIds} variant="flush">
               <Card className="transition-colors hover:bg-sunken/60">
                 <CardBody className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -82,6 +84,7 @@ export default function Diligence() {
                   </div>
                 </CardBody>
               </Card>
+              </LiveRow>
             </Link>
           );
         })}

@@ -29,7 +29,7 @@ Return a short spoken plan (under 180 words): what you recommend, in order, and 
 export interface RunProjectOrchestratorAgentResult {
   summary: string;
   proposals: ChatProposal[];
-  navigations: { target: string }[];
+  navigations: { target: string; ddId?: string; scopeId?: string; checkId?: string; node?: string }[];
   toolCalls: { name: string; summary: string }[];
   usedModel: boolean;
   error?: string;

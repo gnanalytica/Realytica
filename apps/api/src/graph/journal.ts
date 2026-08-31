@@ -17,7 +17,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { DdEdge, DdGraph, DdNode } from '@realytica/shared';
-import type { GraphAdapter } from './types';
+import { clampGraphHops, extractProjectSubgraph } from '@realytica/shared';
+import type { GraphAdapter, ProjectGraphSnapshot } from './types';
 import { DATA_DIR } from '../storage/filesystem';
 
 interface CaseRecord {
@@ -30,6 +31,7 @@ interface CaseRecord {
 type JournalFile = Record<string, CaseRecord>;
 
 const FILE = path.join(DATA_DIR, 'graph-journal.json');
+const PROJECT_FILE = path.join(DATA_DIR, 'project-graph-journal.json');
 
 async function readAll(): Promise<JournalFile> {
   try {
@@ -58,6 +60,24 @@ async function writeAll(data: JournalFile): Promise<void> {
   await writeFile(tmp, JSON.stringify(data), 'utf8');
   const { rename } = await import('node:fs/promises');
   await rename(tmp, FILE);
+}
+
+type ProjectJournalFile = Record<string, ProjectGraphSnapshot>;
+
+async function readProjects(): Promise<ProjectJournalFile> {
+  try {
+    return JSON.parse(await readFile(PROJECT_FILE, 'utf8')) as ProjectJournalFile;
+  } catch {
+    return {};
+  }
+}
+
+async function writeProjects(data: ProjectJournalFile): Promise<void> {
+  await mkdir(path.dirname(PROJECT_FILE), { recursive: true });
+  const tmp = `${PROJECT_FILE}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify(data), 'utf8');
+  const { rename } = await import('node:fs/promises');
+  await rename(tmp, PROJECT_FILE);
 }
 
 function emptyRecord(builtAt: string): CaseRecord {
@@ -152,5 +172,33 @@ export const journalAdapter: GraphAdapter = {
 
   async healthy(): Promise<boolean> {
     return true;
+  },
+
+  async syncProject(snapshot: ProjectGraphSnapshot): Promise<void> {
+    await serialise(async () => {
+      const all = await readProjects();
+      all[snapshot.projectId] = snapshot;
+      await writeProjects(all);
+    });
+  },
+
+  async readProject(projectId: string): Promise<ProjectGraphSnapshot | null> {
+    const all = await readProjects();
+    return all[projectId] ?? null;
+  },
+
+  async neighbourhood(projectId: string, seedIds: string[], hops: number): Promise<ProjectGraphSnapshot | null> {
+    const stored = await journalAdapter.readProject(projectId);
+    if (!stored) return null;
+    const sub = extractProjectSubgraph(stored, seedIds, clampGraphHops(hops));
+    return { projectId, builtAt: stored.builtAt, nodes: sub.nodes, edges: sub.edges };
+  },
+
+  async purgeProject(projectId: string): Promise<void> {
+    await serialise(async () => {
+      const all = await readProjects();
+      delete all[projectId];
+      await writeProjects(all);
+    });
   },
 };

@@ -1,18 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
 import {
   PROJECT_HEALTH_LABEL,
   SCOPE_LABEL,
   cockpitPath,
+  graphNodeLabels,
   isProjectCockpitPane,
   paneFromProjectPath,
+  projectNextStep,
+  paneForTalk,
+  sittingFromCitedId,
+  sittingFromTurn,
+  sittingWithField,
+  proposalsPinnedToCheck,
+  type AgentStep,
   type ChatProposal,
+  type CockpitPathExtra,
   type CopilotTurn,
   type DdProject,
   type EvidenceItem,
   type ProjectChatResult,
   type ProjectCockpitPane,
+  type TalkSitting,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { CopilotPanel } from '../../components/CopilotPanel';
@@ -24,23 +34,38 @@ import { healthTone } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
 import { CockpitPaneStrip, CockpitRailNav, paneLabel } from './cockpit/rail';
+import { SittingChip, SittingDock } from './cockpit/SittingPeek';
+
+function sameSitting(a: TalkSitting, b: TalkSitting): boolean {
+  return (
+    a.kind === b.kind
+    && a.extra.checkId === b.extra.checkId
+    && a.extra.scopeId === b.extra.scopeId
+    && a.extra.ddId === b.extra.ddId
+  );
+}
 
 function ProposalCards({
   turn,
   proposals,
   busy,
+  hideIds,
   onApprove,
   onSkip,
 }: {
   turn: CopilotTurn;
   proposals: ChatProposal[];
   busy: boolean;
+  hideIds?: Set<string>;
   onApprove: (id: string) => void;
   onSkip: (id: string) => void;
 }) {
   const rows = (turn.proposalIds ?? [])
-    .map((id) => proposals.find((p) => p.id === id))
-    .filter((p): p is ChatProposal => Boolean(p));
+    .map((id) => proposals.find((row) => row.id === id))
+    .filter((row): row is ChatProposal => {
+      if (!row) return false;
+      return !hideIds?.has(row.id);
+    });
   if (!rows.length) return null;
   return (
     <div className="mt-2.5 flex flex-col gap-2">
@@ -87,7 +112,7 @@ function evidenceForChat(project: ProjectOutlet['project']): EvidenceItem[] {
     id: e.id,
     statement: e.title,
     sourceType: 'document',
-    sourceRef: e.attachments[0]?.id ?? e.id,
+    sourceRef: e.id,
     sourceLabel: e.title,
     confidence: e.status === 'validated' || e.status === 'used' ? 0.9 : 0.55,
     capturedAt: e.updatedAt,
@@ -98,13 +123,38 @@ function extrasForNavigation(
   project: DdProject,
   target: ProjectCockpitPane,
   ids: string[],
-): { ddId?: string; scopeId?: string; node?: string } {
+  nav?: CockpitPathExtra,
+): CockpitPathExtra {
+  if (nav && (nav.ddId || nav.scopeId || nav.checkId || nav.node || nav.evidenceId || nav.findingId || nav.riskId || nav.actionId || nav.assetId)) {
+    return {
+      ddId: nav.ddId,
+      scopeId: nav.scopeId,
+      checkId: nav.checkId,
+      node: nav.node,
+      evidenceId: nav.evidenceId,
+      findingId: nav.findingId,
+      riskId: nav.riskId,
+      actionId: nav.actionId,
+      assetId: nav.assetId,
+      page: nav.page,
+    };
+  }
   if (target === 'graph' && ids[0]) return { node: ids[0] };
+  if (target === 'evidence' && ids[0] && project.evidence.some((e) => e.id === ids[0])) return { evidenceId: ids[0] };
+  if (target === 'findings' && ids[0] && project.findings.some((f) => f.id === ids[0])) return { findingId: ids[0] };
+  if ((target === 'risks' || target === 'actions') && ids[0]) {
+    if (project.risks.some((r) => r.id === ids[0])) return { riskId: ids[0] };
+    if (project.actions.some((a) => a.id === ids[0])) return { actionId: ids[0] };
+  }
+  if (target === 'assets' && ids[0] && project.assets.some((a) => a.id === ids[0])) return { assetId: ids[0] };
   if (target === 'dd' && ids[0] && project.assessments.some((a) => a.id === ids[0])) return { ddId: ids[0] };
-  if (target === 'scope' && ids[0]) {
+  if (target === 'scope') {
     for (const a of project.assessments) {
-      const scope = a.scopes.find((s) => s.id === ids[0]);
-      if (scope) return { ddId: a.id, scopeId: scope.id };
+      for (const scope of a.scopes) {
+        const check = scope.checks.find((c) => ids.includes(c.id));
+        if (check) return { ddId: a.id, scopeId: scope.id, checkId: check.id };
+        if (ids.includes(scope.id)) return { ddId: a.id, scopeId: scope.id };
+      }
     }
   }
   return {};
@@ -118,6 +168,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams<{ ddId?: string; scopeId?: string }>();
+  const [searchParams] = useSearchParams();
   const pane: ProjectCockpitPane = paneFromProjectPath(location.pathname);
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
 
@@ -127,9 +178,12 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const draggingRef = useRef(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [asking, setAsking] = useState(false);
+  const [chatSteps, setChatSteps] = useState<AgentStep[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const [highlightIds, setHighlightIds] = useState<string[]>([]);
   const [liveLabel, setLiveLabel] = useState<string | null>(null);
+  const [dockTalk, setDockTalk] = useState<TalkSitting | null>(null);
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() =>
     paneFromProjectPath(typeof window === 'undefined' ? '' : window.location.pathname) === 'overview' ? 'chat' : 'work',
   );
@@ -154,12 +208,26 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   }, []);
 
   const goPane = useCallback(
-    (next: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string; node?: string }) => {
+    (next: ProjectCockpitPane, extra?: CockpitPathExtra) => {
       setFocusMode(false);
       setMobileSurface('work');
       navigate(cockpitPath(project.id, next, extra));
     },
     [navigate, project.id],
+  );
+
+  const openCited = useCallback(
+    (id: string) => {
+      const talk = sittingWithField(project, sittingFromCitedId(project, id));
+      if (talk) {
+        setHighlightIds((prev) => [...new Set([...prev, ...talk.highlightIds])]);
+        if (talk.kind === 'check' || talk.kind === 'scope') setDockTalk(talk);
+        goPane(paneForTalk(talk.kind), talk.extra);
+        return;
+      }
+      goPane('graph', { node: id });
+    },
+    [project, goPane],
   );
 
   const applyResult = useCallback(
@@ -171,17 +239,29 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         response.commands[0]
           ?? (response.proposals.length ? `Proposed ${response.proposals.length} update(s) — approve to write` : null),
       );
-      const targetRaw = response.navigations.at(-1)?.target ?? null;
+      const lastNav = response.navigations.at(-1);
+      const targetRaw = lastNav?.target ?? null;
       const target = isProjectCockpitPane(targetRaw)
         ? targetRaw
         : targetRaw === 'work'
           ? 'overview'
           : null;
+      const namedId = lastNav?.checkId ?? lastNav?.scopeId ?? lastNav?.ddId;
+      const named = sittingWithField(
+        response.project,
+        namedId ? sittingFromCitedId(response.project, namedId) : null,
+      );
+      if (named && (named.kind === 'check' || named.kind === 'scope')) setDockTalk(named);
       if (target) {
         setFocusMode(false);
-        navigate(cockpitPath(response.project.id, target, extrasForNavigation(response.project, target, ids)));
+        navigate(cockpitPath(response.project.id, target, extrasForNavigation(response.project, target, ids, lastNav)));
       }
-      if (response.proposals.length > 0 && response.commands.length === 0) {
+      const landOnField = named?.kind === 'check' || named?.kind === 'scope';
+      if (landOnField) {
+        setMobileSurface('chat');
+      } else if (target === 'scope' || Boolean(lastNav?.checkId)) {
+        setMobileSurface('work');
+      } else if (response.proposals.length > 0 && response.commands.length === 0) {
         setMobileSurface('chat');
       } else if (target || response.commands.length > 0) {
         setMobileSurface('work');
@@ -193,18 +273,36 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
 
   const handleAsk = useCallback(
     async (question: string, files?: File[]) => {
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
       setAsking(true);
+      setChatSteps([]);
       setMobileSurface('chat');
+      const sitting = {
+        ddId: params.ddId,
+        scopeId: params.scopeId,
+        checkId: searchParams.get('check') ?? undefined,
+      };
+      const onStep = (step: AgentStep) => setChatSteps((prev) => [...prev, step]);
       try {
         const response = files?.length
-          ? await api.projectChatFiles(project.id, { question, viewContext: pane, files })
-          : await api.projectChat(project.id, { question, viewContext: pane });
+          ? await api.projectChatFiles(project.id, { question, viewContext: pane, files, sitting }, { onStep, signal: ac.signal })
+          : await api.projectChat(project.id, { question, viewContext: pane, sitting }, { onStep, signal: ac.signal });
         applyResult(response);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return;
+        if (e instanceof Error && e.name === 'AbortError') return;
+        throw e;
       } finally {
-        setAsking(false);
+        if (abortRef.current === ac) {
+          abortRef.current = null;
+          setAsking(false);
+          setChatSteps([]);
+        }
       }
     },
-    [project.id, pane, applyResult],
+    [project.id, pane, params.ddId, params.scopeId, searchParams, applyResult],
   );
 
   const handleProposal = useCallback(
@@ -234,17 +332,31 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const spec = LAYOUTS[layout];
   const fillRight = pane === 'graph';
   const currentDd = params.ddId ? project.assessments.find((a) => a.id === params.ddId) : undefined;
+  const next = useMemo(() => projectNextStep(project), [project]);
+  const nodeLabels = useMemo(() => graphNodeLabels(project), [project]);
 
-  const suggestions = useMemo(
-    () => [
-      'Guide me',
-      'What should we do next?',
-      'Set owner to Priya Shah',
-      'What proofs are missing?',
-      'Orchestrate the next DD plan',
-    ],
-    [],
-  );
+  const suggestions = useMemo(() => {
+    if (project.assets.length === 0) return [next.title, 'Guide me'];
+    const rows = ["What's next?", 'Guide me'];
+    if (pendingDrafts) rows.push('Review pending drafts');
+    rows.push('Set owner to Priya Shah');
+    return rows.slice(0, 4);
+  }, [project.assets.length, next.title, pendingDrafts]);
+
+  const dockCardIds = useMemo(() => {
+    if (dockTalk?.kind !== 'check' || !dockTalk.extra.checkId) return new Set<string>();
+    return new Set(proposalsPinnedToCheck(project, dockTalk.extra.checkId).map((p) => p.id));
+  }, [dockTalk, project]);
+
+  const workOutlet: ProjectOutlet = {
+    ...outlet,
+    highlightIds,
+    pinnedProposals: project.chatProposals ?? [],
+    onApproveProposal: (id) => void handleProposal(id, 'commit'),
+    onSkipProposal: (id) => void handleProposal(id, 'reject'),
+    proposalBusy: asking,
+    onOpenCited: openCited,
+  };
 
   const chat = (
     <CopilotPanel
@@ -255,27 +367,51 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       suggestions={suggestions}
       onAsk={handleAsk}
       busy={asking}
+      steps={chatSteps}
+      nodes={nodeLabels}
+      onCancel={asking ? () => abortRef.current?.abort() : undefined}
       disabled={false}
       allowAttach
       onOpenCommands={() => setCommandOpen(true)}
-      emptyTitle="Talk to this project"
-      emptyHint={
-        isDesktop
-          ? 'The copilot and orchestrator think with live registers. They propose findings, actions and DD moves — you approve before anything writes.'
-          : 'They propose. You approve before anything writes.'
-      }
+      emptyTitle={next.title}
+      emptyHint={next.why}
       placeholder={isDesktop ? 'What should we do next? · Set owner to … · Guide me' : 'Ask this project…'}
-      renderTurnExtras={(turn) => (
-        <ProposalCards
-          turn={turn}
-          proposals={project.chatProposals ?? []}
-          busy={asking}
-          onApprove={(id) => void handleProposal(id, 'commit')}
-          onSkip={(id) => void handleProposal(id, 'reject')}
-        />
-      )}
-      onOpenNode={(id) => goPane('graph', { node: id })}
-      onOpenDocument={() => goPane('evidence')}
+      dock={
+        dockTalk && (dockTalk.kind === 'check' || dockTalk.kind === 'scope') ? (
+          <SittingDock
+            project={project}
+            talk={dockTalk}
+            busy={asking}
+            compact={isDesktop}
+            onClose={() => setDockTalk(null)}
+            onOpen={goPane}
+            onApprove={(id) => void handleProposal(id, 'commit')}
+            onSkip={(id) => void handleProposal(id, 'reject')}
+            onProject={setProject}
+          />
+        ) : null
+      }
+      renderTurnExtras={(turn) => {
+        const talk = sittingFromTurn(project, turn);
+        const field = talk && (talk.kind === 'check' || talk.kind === 'scope') ? talk : null;
+        const docked = field && dockTalk ? sameSitting(field, dockTalk) : false;
+        return (
+          <>
+            {field && !docked ? <SittingChip talk={field} onOpen={() => setDockTalk(field)} /> : null}
+            <ProposalCards
+              turn={turn}
+              proposals={project.chatProposals ?? []}
+              busy={asking}
+              hideIds={dockCardIds}
+              onApprove={(id) => void handleProposal(id, 'commit')}
+              onSkip={(id) => void handleProposal(id, 'reject')}
+            />
+          </>
+        );
+      }}
+      onOpenNode={openCited}
+      onOpenDocument={openCited}
+      onOpenEvidence={openCited}
       onClear={
         conversation.length > 0
           ? async () => {
@@ -309,11 +445,11 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       ) : null}
       {fillRight ? (
         <div className="min-h-0 min-w-0 flex-1">
-          <Outlet context={outlet} />
+          <Outlet context={workOutlet} />
         </div>
       ) : (
         <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4">
-          <Outlet context={outlet} />
+          <Outlet context={workOutlet} />
         </div>
       )}
     </>

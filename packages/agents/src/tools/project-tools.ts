@@ -9,18 +9,43 @@
 
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import {
+  DD_CONNECTORS,
   PROJECT_COCKPIT_PANES,
   SCOPE_KEYS,
+  SCOPE_LABEL,
+  clampGraphHops,
+  compareProjectPlanning,
   createChatProposal,
+  extractProjectSubgraph,
+  findProjectNodes,
+  findingCriticSitting,
+  landUseSittingOf,
+  lookupReferences,
+  packCompleteness,
   paneForProposalKind,
+  paneForTalk,
+  portalForCheck,
+  portalObtainLine,
+  projectGraphOf,
+  projectNextStep,
   proposeAiDrafts,
   proposeProjectScreen,
   runProjectOrchestrator,
+  serializePlanningOverlay,
+  serializeProjectSubgraph,
+  serializeReferenceHits,
+  sittingCheckOf,
+  sittingFromCitedId,
   snapshotCapabilities,
+  traceProjectNode,
   type ChatProposal,
   type ChatProposalKind,
+  type CockpitPathExtra,
   type DdProject,
   type ProjectCockpitPane,
+  type ProjectGraphRagSource,
+  type ScopeKey,
+  type SittingRef,
 } from '@realytica/shared';
 
 const PROPOSE_KINDS = [
@@ -41,10 +66,28 @@ const PROPOSE_KINDS = [
   'snapshot_capabilities',
 ] as const satisfies readonly ChatProposalKind[];
 
+export interface ProjectGraphRagPort {
+  kind: 'journal' | 'neo4j';
+  neighbourhood(
+    projectId: string,
+    seedIds: string[],
+    hops: number,
+  ): Promise<{ nodes: { id: string }[]; edges: unknown[] } | null>;
+}
+
 export interface ProjectAgentCollectors {
   proposals: ChatProposal[];
-  navigations: { target: string }[];
+  navigations: Array<{ target: string } & CockpitPathExtra>;
   toolCalls: { name: string; summary: string }[];
+}
+
+function openTalk(bag: ProjectAgentCollectors, sitting: ReturnType<typeof sittingFromCitedId>): void {
+  if (!sitting) return;
+  const target = paneForTalk(sitting.kind);
+  const opened = { target, ...sitting.extra };
+  if (!bag.navigations.some((n) => n.target === opened.target && n.checkId === opened.checkId && n.scopeId === opened.scopeId && n.evidenceId === opened.evidenceId && n.findingId === opened.findingId)) {
+    bag.navigations.push(opened);
+  }
 }
 
 function clipList<T>(rows: T[], n: number): T[] {
@@ -52,6 +95,8 @@ function clipList<T>(rows: T[], n: number): T[] {
 }
 
 export function projectAgentSnapshot(project: DdProject): Record<string, unknown> {
+  const next = projectNextStep(project);
+  const pack = packCompleteness(project);
   return {
     id: project.id,
     reference: project.reference,
@@ -68,6 +113,8 @@ export function projectAgentSnapshot(project: DdProject): Record<string, unknown
     budget: project.budget,
     currency: project.currency,
     lastScreen: project.lastScreen ?? null,
+    next: { title: next.title, why: next.why, pane: next.pane, extra: next.extra ?? null },
+    packCompleteness: pack,
     assets: clipList(
       project.assets.map((a) => ({ id: a.id, name: a.name, assetType: a.assetType, stage: a.currentStage })),
       24,
@@ -107,11 +154,12 @@ export function projectAgentSnapshot(project: DdProject): Record<string, unknown
         .map((a) => ({ id: a.id, title: a.title, status: a.status, kind: a.kind, dueDate: a.dueDate })),
       20,
     ),
-    evidenceGaps: clipList(
+    packGaps: clipList(
       project.evidence
         .filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested')
+        .filter((e) => pack.missingTitles.some((t) => e.title === t) || /title|survey|sanction|fire noc|encumbrance|conversion|khata|rera|soil/i.test(e.title))
         .map((e) => ({ id: e.id, title: e.title, status: e.status, kind: e.kind })),
-      20,
+      8,
     ),
     decisions: clipList(
       project.decisions
@@ -175,11 +223,153 @@ function validateProposal(kind: ChatProposalKind, payload: Record<string, unknow
   return null;
 }
 
-export function createProjectTools(project: DdProject, actor: string, bag: ProjectAgentCollectors) {
+export function createProjectTools(
+  project: DdProject,
+  actor: string,
+  bag: ProjectAgentCollectors,
+  extra?: {
+    sitting?: SittingRef;
+    graphRag?: ProjectGraphRagPort;
+    lookupShelf?: (query: string, extra?: { scopeKey?: ScopeKey; checkTitle?: string }) => Promise<string>;
+  },
+) {
+  const getSitting = betaTool({
+    name: 'get_sitting',
+    description:
+      'Read the check the person is sitting on (URL or next-step). Prefer this over listing every pending check. Returns titles, expected evidence, and open cards pinned to that check.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    } as const,
+    run: async () => {
+      const next = projectNextStep(project);
+      const sitting = sittingCheckOf(project, extra?.sitting) ?? sittingCheckOf(project, next.extra);
+      if (!sitting) {
+        return JSON.stringify({ sitting: null, next: { title: next.title, why: next.why } });
+      }
+      const pinned = project.chatProposals.filter((p) => {
+        if (p.status !== 'proposed') return false;
+        const pl = p.payload as Record<string, unknown>;
+        return pl.checkId === sitting.check.id || (Array.isArray(pl.checkIds) && pl.checkIds.includes(sitting.check.id));
+      });
+      const portal = portalForCheck(sitting.check);
+      return JSON.stringify({
+        assessment: { id: sitting.assessment.id, name: sitting.assessment.name, owner: sitting.assessment.owner },
+        scope: { id: sitting.scope.id, label: SCOPE_LABEL[sitting.scope.scopeKey] },
+        check: {
+          id: sitting.check.id,
+          title: sitting.check.title,
+          result: sitting.check.result,
+          expectedEvidence: sitting.check.expectedEvidence,
+          purpose: sitting.check.purpose,
+        },
+        portal: portal
+          ? {
+              key: portal.key,
+              label: portal.label,
+              url: portal.url,
+              route: portal.route,
+              instruction: portalObtainLine(portal),
+              notScraped: true,
+            }
+          : null,
+        pinnedCards: pinned.map((p) => ({ id: p.id, title: p.title, kind: p.kind })),
+      });
+    },
+  });
+
+  const getCheck = betaTool({
+    name: 'get_check',
+    description: 'Read one check by id: title, expected evidence, linked evidence, and the parent scope. Use instead of dumping the library.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['checkId'],
+      properties: { checkId: { type: 'string' } },
+    } as const,
+    run: async ({ checkId }) => {
+      for (const a of project.assessments) {
+        for (const s of a.scopes) {
+          const check = s.checks.find((c) => c.id === checkId);
+          if (!check) continue;
+          openTalk(bag, sittingFromCitedId(project, check.id));
+          const evidence = project.evidence.filter((e) => e.checkIds.includes(check.id) || check.evidenceIds.includes(e.id));
+          return JSON.stringify({
+            assessment: { id: a.id, name: a.name },
+            scope: { id: s.id, label: SCOPE_LABEL[s.scopeKey] },
+            check: {
+              id: check.id,
+              title: check.title,
+              result: check.result,
+              expectedEvidence: check.expectedEvidence,
+              purpose: check.purpose,
+              comments: check.comments,
+            },
+            evidence: evidence.slice(0, 12).map((e) => ({ id: e.id, title: e.title, status: e.status })),
+          });
+        }
+      }
+      return JSON.stringify({ error: 'Check not found.' });
+    },
+  });
+
+  const getFinding = betaTool({
+    name: 'get_finding',
+    description: 'Read one finding by id with linked evidence titles. Use before proposing a duplicate or a critic card.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['findingId'],
+      properties: { findingId: { type: 'string' } },
+    } as const,
+    run: async ({ findingId }) => {
+      const f = project.findings.find((row) => row.id === findingId);
+      if (!f) return JSON.stringify({ error: 'Finding not found.' });
+      openTalk(bag, sittingFromCitedId(project, f.id));
+      const evidence = project.evidence.filter((e) => f.evidenceIds.includes(e.id));
+      return JSON.stringify({
+        id: f.id,
+        title: f.title,
+        severity: f.severity,
+        status: f.status,
+        discipline: f.discipline,
+        description: f.description,
+        evidence: evidence.map((e) => ({ id: e.id, title: e.title, status: e.status })),
+        unevidenced: f.evidenceIds.length === 0,
+      });
+    },
+  });
+
+  const reviewFindings = betaTool({
+    name: 'review_findings',
+    description:
+      'Queue critic cards for unevidenced material findings. Propose-and-review only — never records a check result. Call when they ask to criticise or review findings.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    } as const,
+    run: async () => {
+      const critic = findingCriticSitting(project, actor);
+      const queued: string[] = [];
+      for (const card of critic.proposals) {
+        if (project.chatProposals.some((p) => p.status === 'proposed' && p.title === card.title) || bag.proposals.some((p) => p.title === card.title)) {
+          continue;
+        }
+        bag.proposals.push(card);
+        queued.push(card.title);
+      }
+      bag.toolCalls.push({ name: 'review_findings', summary: queued.length ? queued.join('; ') : 'No unevidenced material findings' });
+      if (!bag.navigations.some((n) => n.target === 'findings')) bag.navigations.push({ target: 'findings' });
+      return JSON.stringify({ text: critic.text, queued, note: 'Cards are queued. A person must approve. Checks are not recorded.' });
+    },
+  });
+
   const getProject = betaTool({
     name: 'get_project',
     description:
-      'Read the live project snapshot: identity, assets, assessments and scopes, open findings/risks/actions, evidence gaps, pending drafts and proposals. Call this before proposing anything.',
+      'Read the live project snapshot: identity, next step, pack completeness, assets, assessments, material findings/risks/actions, and pack gaps. Call this before proposing anything. Do not treat the full evidence library as the health figure.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -335,22 +525,260 @@ export function createProjectTools(project: DdProject, actor: string, bag: Proje
 
   const navigatePane = betaTool({
     name: 'navigate_pane',
-    description: 'Open a cockpit pane on the right so the person can see the registers or DD you are talking about.',
+    description: 'Open a cockpit pane on the right so the person can see the DD, scope, check (field), or register you are talking about. Pass ddId/scopeId/checkId when you name a sitting.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
       required: ['pane'],
       properties: {
         pane: { type: 'string', enum: [...PROJECT_COCKPIT_PANES] },
+        ddId: { type: 'string' },
+        scopeId: { type: 'string' },
+        checkId: { type: 'string' },
+        evidenceId: { type: 'string' },
+        findingId: { type: 'string' },
       },
     } as const,
-    run: async ({ pane }) => {
+    run: async ({ pane, ddId, scopeId, checkId, evidenceId, findingId }) => {
       const target = pane as ProjectCockpitPane;
-      if (!bag.navigations.some((n) => n.target === target)) bag.navigations.push({ target });
-      bag.toolCalls.push({ name: 'navigate', summary: target });
-      return JSON.stringify({ opened: target });
+      const opened = {
+        target,
+        ...(ddId ? { ddId } : {}),
+        ...(scopeId ? { scopeId } : {}),
+        ...(checkId ? { checkId } : {}),
+        ...(evidenceId ? { evidenceId } : {}),
+        ...(findingId ? { findingId } : {}),
+      };
+      if (!bag.navigations.some((n) => n.target === target && n.checkId === checkId && n.scopeId === scopeId && n.evidenceId === evidenceId && n.findingId === findingId)) {
+        bag.navigations.push(opened);
+      }
+      bag.toolCalls.push({ name: 'navigate', summary: checkId ? `${target} · check` : target });
+      return JSON.stringify({ opened });
     },
   });
 
-  return [getProject, searchRegisters, proposeUpdate, runCapability, navigatePane];
+  const getSubgraph = betaTool({
+    name: 'get_subgraph',
+    description:
+      "Query THIS FILE's register graph: assets, DDs, scopes, checks, evidence, findings, risks, actions. Pass a term or an id and hops (1-3). The result is the neighbourhood as [id] lines. Prefer this when asked how things connect. Graph hits are this project's registers — never treat them as a statute. For IBBI/NBC/acts use lookup_reference, which is catalogue-only and is not evidence.",
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['query', 'hops'],
+      properties: {
+        query: { type: 'string', description: 'A search term or an exact node/evidence/check id.' },
+        hops: { type: 'number', minimum: 1, maximum: 3, description: 'Neighbourhood depth (1-3).' },
+      },
+    } as const,
+    run: async ({ query, hops }) => {
+      const live = projectGraphOf(project);
+      const seeds = findProjectNodes(live, String(query ?? '')).slice(0, 5);
+      if (seeds.length === 0) {
+        return JSON.stringify({ error: `Nothing in this file's graph matches "${query}". Try a check title, a finding, or an id.` });
+      }
+      const depth = clampGraphHops(Number(hops) || 1);
+      const seedIds = seeds.map((s) => s.id);
+      let source: ProjectGraphRagSource = 'live';
+      let sub = extractProjectSubgraph(live, seedIds, depth);
+      if (extra?.graphRag) {
+        try {
+          const stored = await extra.graphRag.neighbourhood(project.id, seedIds, depth);
+          if (stored && stored.nodes.length > 0) {
+            sub = stored as typeof sub;
+            source = extra.graphRag.kind;
+          }
+        } catch {
+          /* live projection is the source of truth when the index is unreachable */
+        }
+      }
+      const seed = seeds[0];
+      if (seed) openTalk(bag, sittingFromCitedId(project, seed.id));
+      bag.toolCalls.push({ name: 'get_subgraph', summary: `${seed?.label ?? query} · ${source}` });
+      return serializeProjectSubgraph(sub, source);
+    },
+  });
+
+  const traceConclusion = betaTool({
+    name: 'trace_conclusion',
+    description:
+      'Trace one check, finding, risk or action down to the evidence on THIS FILE. If the trace reaches no evidence, say so — never invent support. This is not a statute lookup.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['nodeId'],
+      properties: {
+        nodeId: { type: 'string', description: 'A check, finding, risk, action or evidence id from get_subgraph.' },
+      },
+    } as const,
+    run: async ({ nodeId }) => {
+      const cone = traceProjectNode(projectGraphOf(project), String(nodeId ?? ''));
+      if (!cone) return JSON.stringify({ error: `No node "${nodeId}" in this file's graph.` });
+      openTalk(bag, sittingFromCitedId(project, String(nodeId)));
+      bag.toolCalls.push({ name: 'trace_conclusion', summary: String(nodeId) });
+      return serializeProjectSubgraph(cone, 'live');
+    },
+  });
+
+  const lookupReference = betaTool({
+    name: 'lookup_reference',
+    description:
+      'Look up an official act, IBBI circular, gazette, or master-plan statute in the reference shelf. Hits are REFERENCE, not this project\'s evidence — cite title and asOf, never file them on the evidence register. Do not scrape gated portals. NBC and full IVS are paid; RMP map sheets are catalogue-only until a person files the extract.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['query'],
+      properties: {
+        query: { type: 'string', description: 'A statute, circular, or topic: IBBI, PTCL, Registration Act, fire, NBC.' },
+      },
+    } as const,
+    run: async ({ query }) => {
+      const seated = sittingCheckOf(project, extra?.sitting);
+      const extraQuery = {
+        scopeKey: seated?.scope.scopeKey,
+        checkTitle: seated?.check.title,
+      };
+      bag.toolCalls.push({ name: 'lookup_reference', summary: String(query) });
+      if (extra?.lookupShelf) return extra.lookupShelf(String(query ?? ''), extraQuery);
+      const hits = lookupReferences(String(query ?? ''), extraQuery);
+      return serializeReferenceHits(hits);
+    },
+  });
+
+  const getPortalRoute = betaTool({
+    name: 'get_portal_route',
+    description:
+      'Name the government portal for the current sitting (Kaveri, Bhoomi, e-Khata, Fire NOC, BDA master plan, K-RERA). Returns the URL and the manual download route. Do not fetch or scrape the portal — tell the person to download after OTP and attach the file on this check.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        checkId: { type: 'string', description: 'Optional check id. Defaults to the sitting.' },
+      },
+    } as const,
+    run: async ({ checkId }) => {
+      let seated = sittingCheckOf(project, extra?.sitting);
+      if (checkId) {
+        for (const a of project.assessments) {
+          for (const s of a.scopes) {
+            const check = s.checks.find((c) => c.id === checkId);
+            if (check) seated = { assessment: a, scope: s, check };
+          }
+        }
+      }
+      if (!seated) return JSON.stringify({ error: 'No sitting check. Name a check first.' });
+      const portal = portalForCheck(seated.check);
+      openTalk(bag, sittingFromCitedId(project, seated.check.id));
+      bag.toolCalls.push({ name: 'get_portal_route', summary: portal?.label ?? 'none' });
+      if (!portal) {
+        return JSON.stringify({
+          checkId: seated.check.id,
+          portal: null,
+          note: 'No named Karnataka portal for this check. Ask for the expected evidence by hand.',
+        });
+      }
+      return JSON.stringify({
+        checkId: seated.check.id,
+        checkTitle: seated.check.title,
+        portal: {
+          key: portal.key,
+          label: portal.label,
+          url: portal.url,
+          route: portal.route,
+          instruction: portalObtainLine(portal),
+        },
+        notScraped: true,
+      });
+    },
+  });
+
+  const comparePlanning = betaTool({
+    name: 'compare_planning',
+    description:
+      'Compare this project pin and locality pack to the kept master plan (RMP 2015 as extended). Returns flags only — not a geometric overlay, not a zoning certificate. Queue the BDA/LPA obtain card. Never file the shelf or pack as this file\'s extract.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        checkId: { type: 'string', description: 'Optional land-use check id. Defaults to the sitting or the land-use check on this file.' },
+      },
+    } as const,
+    run: async ({ checkId }) => {
+      const seated = landUseSittingOf(project, checkId ? { checkId } : extra?.sitting);
+      const sitting = seated
+        ? { checkId: seated.check.id, ddId: seated.assessment.id, scopeId: seated.scope.id }
+        : extra?.sitting;
+      const read = compareProjectPlanning(project, { sitting });
+      openTalk(bag, sittingFromCitedId(project, seated?.check.id ?? ''));
+      bag.toolCalls.push({ name: 'compare_planning', summary: read.pin ? 'pin vs kept plan' : 'kept plan, no pin' });
+      const portal = DD_CONNECTORS.find((c) => c.key === 'bda_rmp');
+      if (portal) {
+        const title = `Obtain ${portal.label}`;
+        const already = project.chatProposals.some((p) => p.status === 'proposed' && p.title === title) || bag.proposals.some((p) => p.title === title);
+        if (!already) {
+          bag.proposals.push(
+            createChatProposal(
+              'open_connector',
+              title,
+              `${portal.authority} settles: ${portal.settles} Manual route: ${portal.route}${portal.url ? ` Portal: ${portal.url}` : ''}. This product does not log in or scrape the portal.`,
+              seated
+                ? `Writes a requested evidence row pinned to “${seated.check.title}”. Attach the sheet or zoning certificate on that check.`
+                : 'Writes a requested evidence row and an action to collect the master-plan extract.',
+              {
+                connectorKey: portal.key,
+                label: portal.label,
+                authority: portal.authority,
+                settles: portal.settles,
+                url: portal.url,
+                route: portal.route,
+                kind: 'gis',
+                owner: project.owner || actor,
+                ...(seated
+                  ? {
+                      checkId: seated.check.id,
+                      checkIds: [seated.check.id],
+                      assessmentIds: [seated.assessment.id],
+                      scopeInstanceIds: [seated.scope.id],
+                    }
+                  : {}),
+              },
+              actor,
+              { citedNodeIds: seated ? [seated.check.id] : undefined },
+            ),
+          );
+        }
+      }
+      let shelf = '';
+      if (extra?.lookupShelf) {
+        shelf = await extra.lookupShelf('KTCP master plan RMP zoning', {
+          scopeKey: seated?.scope.scopeKey,
+          checkTitle: seated?.check.title,
+        });
+      }
+      return JSON.stringify({
+        notGeometry: true,
+        notEvidence: true,
+        overlay: serializePlanningOverlay(read),
+        shelf: shelf || undefined,
+        instruction: portal ? portalObtainLine(portal) : undefined,
+        note: 'Approve the obtain card to put a collection action on the register. Do not treat the locality pack or this overlay as the sheet. The GIS map on Overview overlays OSM and OpenCity civic layers around the pin — CONTEXT, not RMP.',
+      });
+    },
+  });
+
+  return [
+    getProject,
+    getSitting,
+    getCheck,
+    getFinding,
+    searchRegisters,
+    getSubgraph,
+    traceConclusion,
+    lookupReference,
+    getPortalRoute,
+    comparePlanning,
+    proposeUpdate,
+    runCapability,
+    reviewFindings,
+    navigatePane,
+  ];
 }

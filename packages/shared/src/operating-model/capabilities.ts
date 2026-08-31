@@ -15,6 +15,7 @@ import {
   changesSincePrevious,
   ensureProjectShape,
   evidenceCompleteness,
+  packCompleteness,
   recommendedDdTypes,
 } from './operations';
 import type {
@@ -389,6 +390,7 @@ export function toDashboard(project: DdProject): ProjectDashboard {
   return {
     health: project.health,
     evidenceCompleteness: evidenceCompleteness(project),
+    packCompleteness: packCompleteness(project),
     ddProgress: project.assessments.map((a) => {
       const p = assessmentProgress(a);
       return { id: a.id, name: a.name, status: a.status, percent: p.percent, checkDone: p.checkDone, checkTotal: p.checkTotal };
@@ -441,26 +443,42 @@ export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode
         detail: `${scope.checks.length} checks · ${scope.status}`,
       });
       addEdge(assessment.id, scope.id, 'has_scope');
+      for (const check of scope.checks) {
+        nodes.push({
+          id: check.id,
+          kind: 'check',
+          label: check.title,
+          detail: check.result,
+        });
+        addEdge(scope.id, check.id, 'has_check');
+        for (const evidenceId of check.evidenceIds) addEdge(check.id, evidenceId, 'uses_evidence');
+        for (const findingId of check.findingIds) addEdge(check.id, findingId, 'produces');
+      }
     }
   }
   for (const row of project.evidence) {
     nodes.push({ id: row.id, kind: 'evidence', label: row.title, detail: row.status });
     for (const assessmentId of row.assessmentIds) addEdge(assessmentId, row.id, 'uses_evidence');
+    for (const checkId of row.checkIds) addEdge(checkId, row.id, 'uses_evidence');
   }
   for (const finding of project.findings) {
     nodes.push({ id: finding.id, kind: 'finding', label: finding.title, detail: `${finding.severity} · ${SCOPE_LABEL[finding.discipline]}` });
     for (const assessmentId of finding.assessmentIds) addEdge(assessmentId, finding.id, 'found');
     for (const evidenceId of finding.evidenceIds) addEdge(finding.id, evidenceId, 'supported_by');
+    if (finding.sourceCheckId) addEdge(finding.sourceCheckId, finding.id, 'produces');
   }
   for (const risk of project.risks) {
     nodes.push({ id: risk.id, kind: 'risk', label: risk.title, detail: risk.materiality });
     for (const findingId of risk.findingIds) addEdge(findingId, risk.id, 'raises');
+    for (const evidenceId of risk.evidenceIds) addEdge(risk.id, evidenceId, 'supported_by');
     if (!risk.findingIds.length) addEdge(project.id, risk.id, 'has_risk');
   }
   for (const action of project.actions) {
     nodes.push({ id: action.id, kind: 'action', label: action.title, detail: action.status });
     for (const findingId of action.findingIds) addEdge(findingId, action.id, 'requires');
     for (const riskId of action.riskIds) addEdge(riskId, action.id, 'mitigates');
+    for (const evidenceId of action.evidenceIds) addEdge(action.id, evidenceId, 'supported_by');
+    for (const checkId of action.checkIds) addEdge(checkId, action.id, 'requires');
   }
   for (const decision of project.decisions) {
     nodes.push({ id: decision.id, kind: 'decision', label: decision.title, detail: decision.status });

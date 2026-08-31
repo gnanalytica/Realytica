@@ -7,7 +7,7 @@
  * on these same records; nothing here requires a model to function.
  */
 
-import type { SiteContext } from '../types';
+import type { ParcelBoundary, SiteContext } from '../types';
 
 /* ------------------------------------------------------------------ */
 /* Catalog keys                                                        */
@@ -379,6 +379,9 @@ export interface EvidenceRecord {
   rejectionReason?: string;
   fileName?: string;
   attachments: EvidenceAttachment[];
+  /** Verbatim DI quotes copied off the ingest card when the person approved. */
+  quotes?: Array<{ text: string; page?: number }>;
+  extractionNotes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -590,6 +593,7 @@ export interface ProjectGraphNode {
     | 'asset'
     | 'assessment'
     | 'scope'
+    | 'check'
     | 'evidence'
     | 'finding'
     | 'risk'
@@ -635,6 +639,13 @@ export interface ProjectDashboard {
     used: number;
     missing: number;
     percent: number;
+  };
+  packCompleteness: {
+    percent: number;
+    received: number;
+    missing: number;
+    total: number;
+    missingTitles: string[];
   };
   ddProgress: DdProgressRow[];
   actionAging: ActionAging;
@@ -682,7 +693,7 @@ export type ChatProposalKind =
   | 'commit_draft'
   | 'snapshot_capabilities';
 
-export type ChatSideIntentKind = 'places' | 'web_search' | 'connectors' | 'locality' | 'capabilities' | 'commit_drafts';
+export type ChatSideIntentKind = 'places' | 'web_search' | 'connectors' | 'locality' | 'planning' | 'capabilities' | 'commit_drafts';
 
 export interface ChatSideIntent {
   kind: ChatSideIntentKind;
@@ -705,6 +716,8 @@ export interface ChatPlacesPull {
   resolvedAddress?: string;
   precision?: string;
   caveat?: string;
+  /** WGS84 pin when geocode returned. Not a parcel boundary. */
+  point?: { lat: number; lng: number };
   amenities: ChatPlacesAmenity[];
   streetView?: { capturedAt: string; offsetMetres?: number };
   gaps: Array<{ code: string; consequence: string }>;
@@ -753,6 +766,11 @@ export interface ChatIngestFile {
   sizeBytes: number;
   storageKey: string;
   excerpt?: string;
+  /** Verbatim notes from document intelligence — never a substitute for approve. */
+  extractionNotes?: string;
+  quotes?: Array<{ text: string; page?: number }>;
+  pages?: number;
+  kindHint?: string;
 }
 
 export interface OrchestratorRun {
@@ -771,7 +789,19 @@ export interface ProjectChatResult {
   userTurn: ProjectChatTurn;
   assistantTurn: ProjectChatTurn;
   commands: string[];
-  navigations: { target: string }[];
+  navigations: {
+    target: string;
+    ddId?: string;
+    scopeId?: string;
+    checkId?: string;
+    node?: string;
+    evidenceId?: string;
+    findingId?: string;
+    riskId?: string;
+    actionId?: string;
+    assetId?: string;
+    page?: string;
+  }[];
   proposals: ChatProposal[];
   highlightIds: string[];
 }
@@ -834,6 +864,12 @@ export interface DdProject {
   lastScreen?: ProjectScreenSnapshot;
   /** Places/geocode cache for this project's site address. */
   siteContext?: SiteContext;
+  /**
+   * Surveyor's outline when a person supplied GeoJSON/KML. Not a product-drawn
+   * parcel, not the RMP hatch, and not evidence until someone files the sketch
+   * on a check.
+   */
+  surveyBoundary?: ParcelBoundary;
   createdAt: string;
   updatedAt: string;
 }
@@ -949,6 +985,8 @@ export interface CreateEvidenceInput {
   scopeInstanceIds?: string[];
   checkIds?: string[];
   fileName?: string;
+  quotes?: Array<{ text: string; page?: number }>;
+  extractionNotes?: string;
 }
 
 export interface CreateFindingInput {
@@ -991,6 +1029,7 @@ export interface CreateActionInput {
   findingIds?: string[];
   riskIds?: string[];
   evidenceIds?: string[];
+  checkIds?: string[];
 }
 
 export interface CreateDecisionInput {

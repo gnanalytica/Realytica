@@ -61,4 +61,4 @@ export const graphAdapter: GraphAdapter = await selectAdapter();
 
 console.log(`[graph] using the ${graphAdapter.kind} adapter`);
 
-export type { GraphAdapter } from './types';
+export type { GraphAdapter, ProjectGraphSnapshot } from './types';

@@ -3,7 +3,7 @@ import { GraphPane, OrchestratePane } from './panes';
 import type { ProjectOutlet } from '../ProjectLayout';
 
 export function CockpitGraph() {
-  const { project } = useOutletContext<ProjectOutlet>();
+  const { project, onOpenCited } = useOutletContext<ProjectOutlet>();
   const [params, setParams] = useSearchParams();
   return (
     <div className="h-full min-h-0">
@@ -11,6 +11,10 @@ export function CockpitGraph() {
         project={project}
         focusId={params.get('node')}
         onSelect={(id) => {
+          if (id && onOpenCited) {
+            onOpenCited(id);
+            return;
+          }
           setParams(
             (prev) => {
               const next = new URLSearchParams(prev);

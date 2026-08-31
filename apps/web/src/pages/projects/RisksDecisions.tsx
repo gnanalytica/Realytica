@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   ACTION_KIND_LABEL,
   ACTION_STATUS_LABEL,
@@ -21,9 +21,16 @@ import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
+import { LiveRow } from './LiveRow';
 
 export function RisksActions() {
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
+  const [searchParams] = useSearchParams();
+  const liveIds = [
+    ...(highlightIds ?? []),
+    ...(searchParams.get('risk') ? [searchParams.get('risk')!] : []),
+    ...(searchParams.get('action') ? [searchParams.get('action')!] : []),
+  ];
   const toast = useToast();
   const [riskOpen, setRiskOpen] = useState(false);
   const [actionOpen, setActionOpen] = useState(false);
@@ -98,7 +105,7 @@ export function RisksActions() {
           <Card>
             <CardBody className="divide-y divide-hairline p-0">
               {project.risks.map((r) => (
-                <div key={r.id} className="flex flex-wrap items-start justify-between gap-2 px-4 py-3">
+                <LiveRow key={r.id} id={r.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-start justify-between gap-2 px-4 py-3">
                   <div>
                     <p className="text-[13px] font-medium text-ink">{r.title}</p>
                     <p className="text-[12px] text-ink-secondary">{r.cause}</p>
@@ -114,7 +121,7 @@ export function RisksActions() {
                       ))}
                     </Select>
                   </div>
-                </div>
+                </LiveRow>
               ))}
             </CardBody>
           </Card>
@@ -128,7 +135,7 @@ export function RisksActions() {
           <Card>
             <CardBody className="divide-y divide-hairline p-0">
               {project.actions.map((a) => (
-                <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                <LiveRow key={a.id} id={a.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
                   <div>
                     <p className="text-[13px] font-medium text-ink">{a.title}</p>
                     <p className="text-[12px] text-ink-muted">{a.owner}{a.dueDate ? ` · due ${a.dueDate}` : ''} · {ACTION_KIND_LABEL[a.kind]}</p>
@@ -138,7 +145,7 @@ export function RisksActions() {
                       <option key={s} value={s}>{ACTION_STATUS_LABEL[s]}</option>
                     ))}
                   </Select>
-                </div>
+                </LiveRow>
               ))}
             </CardBody>
           </Card>

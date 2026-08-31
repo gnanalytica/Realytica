@@ -1,26 +1,30 @@
 import { Router } from 'express';
-import { seedDemoProject } from '@realytica/shared';
+import { seedBdaReferenceProject, seedDemoProject } from '@realytica/shared';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 
 export async function seedDemoProjects(): Promise<number> {
   if (!store.data.projects) store.data.projects = [];
-  if (store.data.projects.some((p) => p.reference === 'RYT-0001' || p.name === 'Harohalli Greenfield Township')) {
-    return 0;
+  let created = 0;
+  if (!store.data.projects.some((p) => p.reference === 'RYT-0001' || p.name === 'Harohalli Greenfield Township')) {
+    store.data.projects.push(seedDemoProject());
+    created += 1;
   }
-  const project = seedDemoProject();
-  store.data.projects.push(project);
+  if (!store.data.projects.some((p) => p.reference === 'RYT-0003' || p.name === 'Koramangala 4th Block infill')) {
+    store.data.projects.push(seedBdaReferenceProject());
+    created += 1;
+  }
   const seq = store.data.nextProjectSeq ?? 1;
-  if (seq < 2) store.data.nextProjectSeq = 2;
-  await store.save();
-  return 1;
+  if (seq < 4) store.data.nextProjectSeq = 4;
+  if (created) await store.save();
+  return created;
 }
 
 export const demoRouter = Router();
 
 demoRouter.post('/seed', async (_req, res) => {
-  const projects = await seedDemoProjects();
-  res.json({ created: 0, projects });
+  const created = await seedDemoProjects();
+  res.json({ created });
 });
 
 demoRouter.post('/reset', async (_req, res) => {
@@ -35,6 +39,6 @@ demoRouter.post('/reset', async (_req, res) => {
     /* nothing stored yet — reset still succeeds */
   }
   await store.save();
-  const projects = await seedDemoProjects();
-  res.json({ ok: true, created: 0, projects });
+  const created = await seedDemoProjects();
+  res.json({ ok: true, created });
 });

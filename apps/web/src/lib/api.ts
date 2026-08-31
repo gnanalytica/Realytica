@@ -79,6 +79,8 @@ import type {
   ProjectChatResult,
   ProjectScreenSnapshot,
   OrchestratorRun,
+  GisOverlayRead,
+  ParcelBoundary,
 } from '@realytica/shared';
 
 const BASE = '/api';
@@ -202,6 +204,52 @@ async function askCopilotStreaming(
   return answer;
 }
 
+async function readProjectChatStream(
+  res: Response,
+  onStep?: (step: AgentStep) => void,
+): Promise<ProjectChatResult & { project: DdProject }> {
+  const ct = res.headers.get('content-type') ?? '';
+  if (!ct.includes('ndjson')) {
+    return (await res.json()) as ProjectChatResult & { project: DdProject };
+  }
+  const reader = res.body?.getReader();
+  if (!reader) throw new ApiRequestError('The project chat response could not be read.', 502);
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let answer: (ProjectChatResult & { project: DdProject }) | null = null;
+  let failure: string | null = null;
+
+  const consume = (raw: string): void => {
+    const text = raw.trim();
+    if (!text) return;
+    let parsed: { type?: string; step?: AgentStep; error?: string } & Partial<ProjectChatResult & { project: DdProject }>;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return;
+    }
+    if (parsed.type === 'step' && parsed.step) onStep?.(parsed.step);
+    else if (parsed.type === 'error') failure = parsed.error ?? 'The copilot failed.';
+    else if (parsed.type === 'result' && parsed.userTurn && parsed.assistantTurn && parsed.project) {
+      answer = parsed as ProjectChatResult & { project: DdProject };
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const l of lines) consume(l);
+  }
+  consume(buffer);
+
+  if (failure) throw new ApiRequestError(failure, 502);
+  if (!answer) throw new ApiRequestError('The copilot stopped before it answered. Please retry.', 502);
+  return answer;
+}
+
 export class ApiRequestError extends Error {
   constructor(message: string, public status: number) {
     super(message);
@@ -268,8 +316,13 @@ export function documentFileUrl(id: string, docId: string, opts?: { download?: b
   return `${BASE}/cases/${id}/documents/${docId}/file${opts?.download ? '?download=1' : ''}`;
 }
 
-export function evidenceFileUrl(projectId: string, evidenceId: string, fileId: string): string {
-  return `${BASE}/projects/${projectId}/evidence/${evidenceId}/files/${fileId}`;
+export function evidenceFileUrl(
+  projectId: string,
+  evidenceId: string,
+  fileId: string,
+  opts?: { inline?: boolean },
+): string {
+  return `${BASE}/projects/${projectId}/evidence/${evidenceId}/files/${fileId}${opts?.inline ? '?inline=1' : ''}`;
 }
 
 export const api = {
@@ -705,7 +758,32 @@ export const api = {
     request<DdProject>(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   projectDashboard: (projectId: string) => request<ProjectDashboard>(`/projects/${projectId}/dashboard`),
   projectGraph: (projectId: string) =>
-    request<{ nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] }>(`/projects/${projectId}/graph`),
+    request<{ nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[]; adapter?: string }>(`/projects/${projectId}/graph`),
+  gisOverlay: (projectId: string, opts?: { force?: boolean }) =>
+    request<GisOverlayRead>(`/projects/${projectId}/gis-overlay${opts?.force ? '?force=1' : ''}`),
+  setSurveyBoundary: (projectId: string, body: { fileText: string; note?: string }) =>
+    request<{ boundary: ParcelBoundary; notEvidence: true; note: string }>(`/projects/${projectId}/gis-overlay/survey`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  clearSurveyBoundary: (projectId: string) =>
+    request<void>(`/projects/${projectId}/gis-overlay/survey`, { method: 'DELETE' }),
+  projectGraphNeighbourhood: (projectId: string, query: string, hops = 2) =>
+    request<{
+      query: string;
+      hops: number;
+      seeds: { id: string; kind: string; label: string }[];
+      nodes: ProjectGraphNode[];
+      edges: ProjectGraphEdge[];
+      source: string;
+      adapter: string;
+      standing: string;
+      error?: string;
+    }>(`/projects/${projectId}/graph/neighbourhood?query=${encodeURIComponent(query)}&hops=${hops}`),
+  lookupReferences: (query: string) =>
+    request<{ standing: string; query: string; hits: { id: string; title: string; url: string; notEvidence: true }[]; text: string }>(
+      `/libraries/references?q=${encodeURIComponent(query)}`,
+    ),
   runValuation: (projectId: string, actor?: string) =>
     request<ValuationRun>(`/projects/${projectId}/valuation`, { method: 'POST', body: JSON.stringify({ actor }) }),
   runProjectScreen: (projectId: string, actor?: string) =>
@@ -726,20 +804,69 @@ export const api = {
     request<AiDraft>(`/projects/${projectId}/ai/drafts/${draftId}`, { method: 'PATCH', body: JSON.stringify({ status, reviewNote }) }),
   commitAiDraft: (projectId: string, draftId: string) =>
     request<{ draft: AiDraft; recordId?: string }>(`/projects/${projectId}/ai/drafts/${draftId}/commit`, { method: 'POST', body: JSON.stringify({}) }),
-  projectChat: (projectId: string, body: { question: string; viewContext?: string; actor?: string }) =>
-    request<ProjectChatResult & { project: DdProject }>(`/projects/${projectId}/chat`, {
+  projectChat: (
+    projectId: string,
+    body: {
+      question: string;
+      viewContext?: string;
+      actor?: string;
+      sitting?: { ddId?: string; scopeId?: string; checkId?: string };
+    },
+    opts?: { onStep?: (step: AgentStep) => void; signal?: AbortSignal },
+  ) =>
+    fetch(`${BASE}/projects/${projectId}/chat`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: opts?.signal,
+    }).then(async (res) => {
+      if (!res.ok) {
+        let message = `${res.status} ${res.statusText}`;
+        try {
+          const err = (await res.json()) as { error?: string };
+          if (err?.error) message = err.error;
+        } catch {
+          /* non-JSON */
+        }
+        throw new ApiRequestError(message, res.status);
+      }
+      return readProjectChatStream(res, opts?.onStep);
     }),
-  projectChatFiles: (projectId: string, body: { files: File[]; question?: string; viewContext?: string; actor?: string }) => {
+  projectChatFiles: (
+    projectId: string,
+    body: {
+      files: File[];
+      question?: string;
+      viewContext?: string;
+      actor?: string;
+      sitting?: { ddId?: string; scopeId?: string; checkId?: string };
+    },
+    opts?: { onStep?: (step: AgentStep) => void; signal?: AbortSignal },
+  ) => {
     const form = new FormData();
     body.files.forEach((f) => form.append('files', f));
     if (body.question) form.append('question', body.question);
     if (body.viewContext) form.append('viewContext', body.viewContext);
     if (body.actor) form.append('actor', body.actor);
-    return request<ProjectChatResult & { project: DdProject }>(`/projects/${projectId}/chat/files`, {
+    if (body.sitting?.ddId) form.append('ddId', body.sitting.ddId);
+    if (body.sitting?.scopeId) form.append('scopeId', body.sitting.scopeId);
+    if (body.sitting?.checkId) form.append('checkId', body.sitting.checkId);
+    return fetch(`${BASE}/projects/${projectId}/chat/files`, {
       method: 'POST',
       body: form,
+      signal: opts?.signal,
+    }).then(async (res) => {
+      if (!res.ok) {
+        let message = `${res.status} ${res.statusText}`;
+        try {
+          const err = (await res.json()) as { error?: string };
+          if (err?.error) message = err.error;
+        } catch {
+          /* non-JSON */
+        }
+        throw new ApiRequestError(message, res.status);
+      }
+      return readProjectChatStream(res, opts?.onStep);
     });
   },
   commitChatProposal: (projectId: string, proposalId: string) =>

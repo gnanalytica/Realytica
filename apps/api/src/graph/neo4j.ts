@@ -20,9 +20,9 @@
  */
 
 import neo4j, { type Driver } from 'neo4j-driver';
-import type { DdEdge, DdGraph, DdNode, DdNodeKind, DdOrigin } from '@realytica/shared';
-import { ddLayerFor } from '@realytica/shared';
-import type { GraphAdapter } from './types';
+import type { DdEdge, DdGraph, DdNode, DdNodeKind, DdOrigin, ProjectGraphEdge, ProjectGraphNode } from '@realytica/shared';
+import { clampGraphHops, ddLayerFor } from '@realytica/shared';
+import type { GraphAdapter, ProjectGraphSnapshot } from './types';
 
 let driver: Driver | null = null;
 
@@ -114,6 +114,7 @@ function edgeParams(caseId: string, edges: DdEdge[], origin: DdOrigin): Record<s
  * traversal costs the same.
  */
 const REL = 'DD_EDGE';
+const PROJECT_REL = 'RYT_EDGE';
 
 const WRITE_NODES = `
   UNWIND $rows AS row
@@ -252,6 +253,168 @@ export const neo4jAdapter: GraphAdapter = {
       return false;
     }
   },
+
+  async syncProject(snapshot: ProjectGraphSnapshot): Promise<void> {
+    const session = openSession();
+    try {
+      await session.executeWrite(async tx => {
+        if (snapshot.nodes.length > 0) {
+          await tx.run(
+            `UNWIND $rows AS row
+             MERGE (n:Ryt { id: row.id })
+             SET n.projectId = row.projectId, n.kind = row.kind, n.label = row.label, n.detail = row.detail`,
+            {
+              rows: snapshot.nodes.map(n => ({
+                projectId: snapshot.projectId,
+                id: n.id,
+                kind: n.kind,
+                label: n.label,
+                detail: n.detail ?? null,
+              })),
+            },
+          );
+        }
+        if (snapshot.edges.length > 0) {
+          await tx.run(
+            `UNWIND $rows AS row
+             MATCH (a:Ryt { id: row.from }), (b:Ryt { id: row.to })
+             MERGE (a)-[r:${PROJECT_REL} { id: row.id }]->(b)
+             SET r.projectId = row.projectId, r.kind = row.kind`,
+            {
+              rows: snapshot.edges.map(e => ({
+                projectId: snapshot.projectId,
+                id: e.id,
+                kind: e.rel,
+                from: e.from,
+                to: e.to,
+              })),
+            },
+          );
+        }
+        await tx.run(
+          `MATCH (n:Ryt { projectId: $projectId })
+           WHERE NOT n.id IN $keep
+           DETACH DELETE n`,
+          { projectId: snapshot.projectId, keep: snapshot.nodes.map(n => n.id) },
+        );
+        await tx.run(
+          `MATCH (:Ryt { projectId: $projectId })-[r:${PROJECT_REL} { projectId: $projectId }]->(:Ryt)
+           WHERE NOT r.id IN $keep
+           DELETE r`,
+          { projectId: snapshot.projectId, keep: snapshot.edges.map(e => e.id) },
+        );
+      });
+    } finally {
+      await session.close();
+    }
+  },
+
+  async readProject(projectId: string): Promise<ProjectGraphSnapshot | null> {
+    const session = openSession();
+    try {
+      const nodeResult = await session.executeRead(tx =>
+        tx.run(
+          `MATCH (n:Ryt { projectId: $projectId })
+           RETURN n.id AS id, n.kind AS kind, n.label AS label, n.detail AS detail
+           ORDER BY n.id`,
+          { projectId },
+        ),
+      );
+      if (nodeResult.records.length === 0) return null;
+      const edgeResult = await session.executeRead(tx =>
+        tx.run(
+          `MATCH (:Ryt { projectId: $projectId })-[r:${PROJECT_REL} { projectId: $projectId }]->(:Ryt)
+           RETURN r.id AS id, startNode(r).id AS from, endNode(r).id AS to, r.kind AS rel
+           ORDER BY r.id`,
+          { projectId },
+        ),
+      );
+      return {
+        projectId,
+        builtAt: new Date().toISOString(),
+        nodes: nodeResult.records.map(r => {
+          const row = r.toObject() as { id: string; kind: ProjectGraphNode['kind']; label: string; detail: string | null };
+          return {
+            id: row.id,
+            kind: row.kind,
+            label: row.label,
+            ...(row.detail ? { detail: row.detail } : {}),
+          };
+        }),
+        edges: edgeResult.records.map(r => r.toObject() as unknown as ProjectGraphEdge),
+      };
+    } finally {
+      await session.close();
+    }
+  },
+
+  async neighbourhood(projectId: string, seedIds: string[], hops: number): Promise<ProjectGraphSnapshot | null> {
+    const depth = clampGraphHops(hops);
+    const session = openSession();
+    try {
+      const nodeResult = await session.executeRead(tx =>
+        tx.run(
+          `MATCH (seed:Ryt { projectId: $projectId })
+           WHERE seed.id IN $seeds
+           MATCH (seed)-[:${PROJECT_REL}*0..${depth}]-(n:Ryt { projectId: $projectId })
+           RETURN DISTINCT n.id AS id, n.kind AS kind, n.label AS label, n.detail AS detail
+           ORDER BY n.id`,
+          { projectId, seeds: seedIds },
+        ),
+      );
+      if (nodeResult.records.length === 0) return null;
+      let keep = nodeResult.records.map(r => r.get('id') as string);
+      const alarmResult = await session.executeRead(tx =>
+        tx.run(
+          `MATCH (n:Ryt { projectId: $projectId })-[:${PROJECT_REL} { projectId: $projectId }]-(alarm:Ryt { projectId: $projectId })
+           WHERE n.id IN $keep AND (
+             (alarm.kind = 'finding' AND (toLower(coalesce(alarm.detail, '')) CONTAINS 'critical' OR toLower(coalesce(alarm.detail, '')) CONTAINS 'high'))
+             OR (alarm.kind = 'risk' AND toLower(coalesce(alarm.detail, '')) CONTAINS 'critical')
+             OR (alarm.kind = 'check' AND (toLower(coalesce(alarm.detail, '')) CONTAINS 'missing_evidence' OR toLower(coalesce(alarm.detail, '')) CONTAINS 'non_compliant'))
+           )
+           RETURN DISTINCT alarm.id AS id, alarm.kind AS kind, alarm.label AS label, alarm.detail AS detail`,
+          { projectId, keep },
+        ),
+      );
+      const extra = alarmResult.records.filter(r => !keep.includes(r.get('id') as string));
+      const nodeRecords = extra.length > 0 ? [...nodeResult.records, ...extra] : nodeResult.records;
+      keep = nodeRecords.map(r => r.get('id') as string);
+      const edgeResult = await session.executeRead(tx =>
+        tx.run(
+          `MATCH (a:Ryt { projectId: $projectId })-[r:${PROJECT_REL} { projectId: $projectId }]->(b:Ryt { projectId: $projectId })
+           WHERE a.id IN $keep AND b.id IN $keep
+           RETURN r.id AS id, a.id AS from, b.id AS to, r.kind AS rel
+           ORDER BY r.id`,
+          { projectId, keep },
+        ),
+      );
+      return {
+        projectId,
+        builtAt: new Date().toISOString(),
+        nodes: nodeRecords.map(r => {
+          const row = r.toObject() as { id: string; kind: ProjectGraphNode['kind']; label: string; detail: string | null };
+          return {
+            id: row.id,
+            kind: row.kind,
+            label: row.label,
+            ...(row.detail ? { detail: row.detail } : {}),
+          };
+        }),
+        edges: edgeResult.records.map(r => r.toObject() as unknown as ProjectGraphEdge),
+      };
+    } finally {
+      await session.close();
+    }
+  },
+
+  async purgeProject(projectId: string): Promise<void> {
+    const session = openSession();
+    try {
+      await session.executeWrite(tx => tx.run(`MATCH (n:Ryt { projectId: $projectId }) DETACH DELETE n`, { projectId }));
+    } finally {
+      await session.close();
+    }
+  },
 };
 
 /**
@@ -262,13 +425,16 @@ export const neo4jAdapter: GraphAdapter = {
  * only visibly once a traversal returns each fact twice.
  */
 export async function ensureNeo4jSchema(): Promise<void> {
-  const session = client().session();
+  const session = openSession();
   try {
     await session.executeWrite(async tx => {
       await tx.run('CREATE CONSTRAINT dd_node_id IF NOT EXISTS FOR (n:Dd) REQUIRE n.id IS UNIQUE');
       await tx.run('CREATE INDEX dd_node_case IF NOT EXISTS FOR (n:Dd) ON (n.caseId)');
       await tx.run('CREATE INDEX dd_node_origin IF NOT EXISTS FOR (n:Dd) ON (n.origin)');
       await tx.run(`CREATE INDEX dd_edge_kind IF NOT EXISTS FOR ()-[r:${REL}]-() ON (r.kind)`);
+      await tx.run('CREATE CONSTRAINT ryt_node_id IF NOT EXISTS FOR (n:Ryt) REQUIRE n.id IS UNIQUE');
+      await tx.run('CREATE INDEX ryt_node_project IF NOT EXISTS FOR (n:Ryt) ON (n.projectId)');
+      await tx.run(`CREATE INDEX ryt_edge_kind IF NOT EXISTS FOR ()-[r:${PROJECT_REL}]-() ON (r.kind)`);
     });
   } finally {
     await session.close();

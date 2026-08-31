@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize2, Minus, Plus, X } from 'lucide-react';
-import { buildProjectGraph, type DdProject, type ProjectGraphEdge, type ProjectGraphNode } from '@realytica/shared';
+import { buildProjectGraph, extractProjectSubgraph, findProjectNodes, type DdProject, type ProjectGraphEdge, type ProjectGraphNode } from '@realytica/shared';
 import { Badge, cn } from '../../../components/ui/kit';
 import { computeFit, zoomAbout, MAX_ZOOM, MIN_ZOOM } from '../../../components/canvas/Canvas';
 import type { Transform } from '../../../components/canvas/Canvas';
@@ -11,6 +11,7 @@ const KIND_ORDER: ProjectGraphNode['kind'][] = [
   'asset',
   'assessment',
   'scope',
+  'check',
   'evidence',
   'finding',
   'risk',
@@ -27,6 +28,7 @@ const KIND_LABEL: Record<ProjectGraphNode['kind'], string> = {
   asset: 'Assets',
   assessment: 'Due diligence',
   scope: 'Scopes',
+  check: 'Checks',
   evidence: 'Evidence',
   finding: 'Findings',
   risk: 'Risks',
@@ -43,6 +45,7 @@ const KIND_TONE: Record<ProjectGraphNode['kind'], string> = {
   asset: 'var(--axis)',
   assessment: 'var(--brand)',
   scope: 'var(--status-info, var(--axis))',
+  check: 'var(--status-info, var(--axis))',
   evidence: 'var(--status-info, var(--axis))',
   finding: 'var(--status-serious)',
   risk: 'var(--status-critical)',
@@ -142,6 +145,7 @@ export function ProjectGraphCanvas({
   onSelect?: (id: string | null) => void;
 }) {
   const graph = useMemo(() => buildProjectGraph(project), [project]);
+  const [query, setQuery] = useState('');
   const layout = useMemo(() => layoutGraph(graph.nodes), [graph.nodes]);
   const placedById = useMemo(() => new Map(layout.placed.map((p) => [p.node.id, p])), [layout.placed]);
   const [selectedId, setSelectedId] = useState<string | null>(focusId ?? null);
@@ -151,14 +155,12 @@ export function ProjectGraphCanvas({
   }, [focusId]);
 
   const connected = useMemo(() => {
-    if (!selectedId) return new Set<string>();
-    const ids = new Set<string>([selectedId]);
-    for (const e of graph.edges) {
-      if (e.from === selectedId) ids.add(e.to);
-      if (e.to === selectedId) ids.add(e.from);
-    }
-    return ids;
-  }, [graph.edges, selectedId]);
+    const seed = selectedId || focusId;
+    const fromQuery = query.trim() ? findProjectNodes(graph, query).map((n) => n.id) : [];
+    const seeds = [...(seed ? [seed] : []), ...fromQuery];
+    if (seeds.length === 0) return null;
+    return new Set(extractProjectSubgraph(graph, seeds, 2).nodes.map((n) => n.id));
+  }, [graph, selectedId, focusId, query]);
 
   const [boxRef, size] = useMeasure<HTMLDivElement>();
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -213,9 +215,19 @@ export function ProjectGraphCanvas({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <p className="shrink-0 font-mono text-[11px] text-ink-muted">
-        {graph.nodes.length} nodes · {graph.edges.length} links · pan, scroll to zoom
-      </p>
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <p className="font-mono text-[11px] text-ink-muted">
+          {graph.nodes.length} nodes · {graph.edges.length} links · neighbourhood is two hops on this file
+        </p>
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Neighbourhood…"
+          aria-label="Highlight a neighbourhood on this file"
+          className="ml-auto h-8 min-w-[10rem] rounded-md bg-sunken px-2 text-[12px] text-ink ring-1 ring-[var(--ring)]"
+        />
+      </div>
       <div className={cn('grid min-h-0 min-w-0 flex-1 gap-3', selected ? 'lg:grid-cols-[minmax(0,1fr),min(260px,32%)]' : 'grid-cols-1')}>
         <div ref={boxRef} className="relative min-h-[12rem] min-w-0 flex-1">
           <div
@@ -295,7 +307,7 @@ export function ProjectGraphCanvas({
                     const from = placedById.get(edge.from);
                     const to = placedById.get(edge.to);
                     if (!from || !to) return null;
-                    const lit = !selectedId || connected.has(edge.from) || connected.has(edge.to);
+                    const lit = !connected || (connected.has(edge.from) && connected.has(edge.to));
                     return (
                       <path
                         key={edge.id}
@@ -310,7 +322,7 @@ export function ProjectGraphCanvas({
                 </svg>
                 {layout.placed.map(({ node, x, y }) => {
                   const isSelected = node.id === selectedId;
-                  const lit = !selectedId || connected.has(node.id);
+                  const lit = !connected || connected.has(node.id);
                   return (
                     <button
                       key={node.id}

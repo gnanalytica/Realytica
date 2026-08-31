@@ -40,6 +40,19 @@ import {
   PROJECT_COCKPIT_PANES,
   wantsDeterministicProjectChat,
   createChatProposal,
+  packCompleteness,
+  sittingChatHistory,
+  citeLabel,
+  currentTurnProposals,
+  wantsCritic,
+  talkSittingFromText,
+  sittingFromCitedId,
+  sittingFromTurn,
+  sittingWithField,
+  sittingCheckOf,
+  checkAdvise,
+  noteProjectEdit,
+  quotesForCheck,
 } from '@realytica/shared';
 
 describe('operating model libraries', () => {
@@ -280,6 +293,8 @@ describe('BRD later phases on the same project', () => {
     assert.ok(run.ibbi.caveats.some((c) => /certified/i.test(c)));
     const dash = toDashboard(project);
     assert.ok(dash.evidenceCompleteness.expected > 0);
+    assert.ok(dash.packCompleteness.total > 0);
+    assert.ok(dash.packCompleteness.total < dash.evidenceCompleteness.expected);
     assert.ok(dash.ddProgress.length >= 4);
     assert.ok(dash.capabilities.some((c) => c.kind === 'valuation' && c.status === 'computed'));
   });
@@ -307,6 +322,8 @@ describe('BRD later phases on the same project', () => {
     const graph = buildProjectGraph(project);
     assert.ok(graph.nodes.some((n) => n.kind === 'finding'));
     assert.ok(graph.edges.some((e) => e.rel === 'found' || e.rel === 'raises'));
+    assert.ok(graph.nodes.some((n) => n.kind === 'check'));
+    assert.ok(graph.edges.some((e) => e.rel === 'has_check'));
   });
 });
 
@@ -383,6 +400,10 @@ describe('project cockpit chat', () => {
     assert.equal(cockpitPath(id, 'overview'), `/projects/${id}`);
     assert.equal(cockpitPath(id, 'dd'), `/projects/${id}/dd`);
     assert.equal(cockpitPath(id, 'scope', { ddId: 'dd_1', scopeId: 'scp_1' }), `/projects/${id}/dd/dd_1/scopes/scp_1`);
+    assert.equal(
+      cockpitPath(id, 'scope', { ddId: 'dd_1', scopeId: 'scp_1', checkId: 'chk_1' }),
+      `/projects/${id}/dd/dd_1/scopes/scp_1?check=chk_1`,
+    );
     assert.equal(cockpitPath(id, 'drafts'), `/projects/${id}/ai`);
     assert.equal(cockpitPath(id, 'actions'), `/projects/${id}/risks`);
     assert.equal(paneFromProjectPath(`/projects/${id}`), 'overview');
@@ -396,8 +417,8 @@ describe('project cockpit chat', () => {
       { name: 'Agent split', type: 'residential', location: 'Whitefield', city: 'Bengaluru' },
       'RYT-AG',
     );
-    assert.equal(wantsDeterministicProjectChat(project, 'What should we do next?'), false);
-    assert.equal(wantsDeterministicProjectChat(project, 'Guide me'), false);
+    assert.equal(wantsDeterministicProjectChat(project, 'What should we do next?'), true);
+    assert.equal(wantsDeterministicProjectChat(project, 'Guide me'), true);
     assert.equal(wantsDeterministicProjectChat(project, 'Set owner to Priya Shah'), true);
     assert.equal(wantsDeterministicProjectChat(project, 'Approve all'), true);
     assert.equal(wantsDeterministicProjectChat(project, 'Open the knowledge graph'), true);
@@ -430,13 +451,31 @@ describe('project chat wizard', () => {
       'RYT-WZ',
     );
     const result = applyProjectChat(project, 'Guide me');
-    assert.match(result.assistantTurn.text, /Wizard for RYT-WZ/i);
+    assert.match(result.assistantTurn.text, /Today on Greenfield/i);
+    assert.doesNotMatch(result.assistantTurn.text, /Wizard for/i);
     assert.ok(result.proposals.some((p) => p.kind === 'add_asset'));
-    assert.ok(result.proposals.some((p) => p.kind === 'start_dd'));
+    assert.equal(result.proposals.filter((p) => p.kind === 'start_dd').length, 0);
     assert.ok(result.assistantTurn.proposalIds?.length);
+    assert.equal(result.navigations[0]?.target, 'assets');
     const asset = result.proposals.find((p) => p.kind === 'add_asset')!;
     commitChatProposal(project, asset.id);
     assert.ok(project.assets.some((a) => a.name === String(asset.payload.name)));
+  });
+
+  it('names one next check on Harohalli and does not dump the library', () => {
+    const project = seedDemoProject();
+    const pack = packCompleteness(project);
+    assert.ok(pack.total < project.evidence.length);
+    assert.equal(typeof pack.percent, 'number');
+    const result = applyProjectChat(project, 'Guide me');
+    assert.match(result.assistantTurn.text, /Today on/i);
+    assert.doesNotMatch(result.assistantTurn.text, /Wizard for/i);
+    assert.doesNotMatch(result.assistantTurn.text, /292/);
+    assert.ok(result.proposals.length <= 3);
+    const nav = result.navigations.at(-1);
+    assert.equal(nav?.target, 'scope');
+    assert.ok(nav?.ddId && nav?.scopeId && nav?.checkId);
+    assert.match(result.assistantTurn.text, /pending/i);
   });
 
   it('recommends remaining construction DD types on Harohalli', () => {
@@ -474,6 +513,7 @@ describe('project chat wizard', () => {
           sizeBytes: 4,
           storageKey: 'docs/fire.pdf',
           excerpt: 'Fire NOC issued for Tower A',
+          quotes: [{ text: 'No objection for occupancy of Tower A subject to hydrant coverage.', page: 1 }],
         },
       ],
     });
@@ -485,6 +525,11 @@ describe('project chat wizard', () => {
     const after = project.evidence.find((e) => e.id === gap!.id)!;
     assert.equal(after.status, 'received');
     assert.equal(after.attachments.length, 1);
+    assert.equal(after.quotes?.[0]?.text, 'No objection for occupancy of Tower A subject to hydrant coverage.');
+    const checkId = (card!.payload.checkIds as string[] | undefined)?.[0] ?? after.checkIds[0];
+    if (checkId) {
+      assert.ok(quotesForCheck(project, checkId).some((q) => /hydrant coverage/i.test(q.text)));
+    }
   });
 
   it('puts scopes, chat thinking, and proposals on the knowledge graph', () => {
@@ -494,7 +539,9 @@ describe('project chat wizard', () => {
     assert.ok(graph.nodes.some((n) => n.kind === 'scope'));
     assert.ok(graph.nodes.some((n) => n.kind === 'question'));
     assert.ok(graph.nodes.some((n) => n.kind === 'thought'));
-    assert.ok(graph.nodes.some((n) => n.kind === 'proposal'));
+    if (project.chatProposals.length) {
+      assert.ok(graph.nodes.some((n) => n.kind === 'proposal'));
+    }
     assert.ok(graph.edges.some((e) => e.rel === 'has_scope'));
     assert.ok(graph.edges.some((e) => e.rel === 'asked' || e.rel === 'thought'));
   });
@@ -668,5 +715,216 @@ describe('project chat wizard', () => {
     assert.ok(project.decisions.some((d) => /Screen:/i.test(d.title) && d.status === 'proposed'));
     const again = screenProject(project, 'operator');
     assert.equal(again.findingIds.length, 0);
+  });
+});
+
+describe('sitting', () => {
+  it('drops wizard and library-dump turns from model history', () => {
+    const kept = sittingChatHistory([
+      {
+        id: 'cht_dump',
+        role: 'assistant',
+        text: 'Wizard for Harohalli\nEvidence gaps (292 outstanding items). Request 292 outstanding.',
+        at: '2026-01-01T00:00:00.000Z',
+        citedEvidenceIds: [],
+      },
+      {
+        id: 'cht_guide',
+        role: 'assistant',
+        text: 'Today on Harohalli.\nRegulatory & Planning · Approval conditions — pending.',
+        at: '2026-01-01T00:01:00.000Z',
+        citedEvidenceIds: [],
+      },
+    ]);
+    assert.equal(kept.length, 1);
+    assert.match(kept[0]!.text, /Today on Harohalli/);
+  });
+
+  it('approve all commits this turn, not stale open cards, unless they said every open', () => {
+    const project = createProject(
+      { name: 'Approve turn', type: 'residential', location: 'Whitefield', city: 'Bengaluru' },
+      'RYT-AP',
+    );
+    applyProjectChat(project, 'Guide me');
+    const current = currentTurnProposals(project);
+    assert.ok(current.length >= 1);
+    const stale = createChatProposal(
+      'request_evidence',
+      'Stale leftover request',
+      'Left over from a library dump.',
+      'Would write a collection action.',
+      { title: 'Stale leftover request', kind: 'evidence_request', owner: 'operator', priority: 'low' },
+      'operator',
+    );
+    project.chatProposals.push(stale);
+    applyProjectChat(project, 'Approve all');
+    assert.equal(project.chatProposals.find((p) => p.id === stale.id)?.status, 'proposed');
+    assert.ok(current.every((p) => project.chatProposals.find((x) => x.id === p.id)?.status === 'committed'));
+    applyProjectChat(project, 'Approve all open');
+    assert.equal(project.chatProposals.find((p) => p.id === stale.id)?.status, 'committed');
+  });
+
+  it('citeLabel returns titles instead of raw ids', () => {
+    const project = seedDemoProject();
+    const check = project.assessments[0]?.scopes[0]?.checks[0];
+    assert.ok(check);
+    const label = citeLabel(project, check!.id);
+    assert.ok(label.length > 3);
+    assert.doesNotMatch(label, /^chk_/);
+  });
+
+  it('critic is deterministic and does not record checks', () => {
+    const project = seedDemoProject();
+    assert.equal(wantsDeterministicProjectChat(project, 'Review findings'), true);
+    assert.equal(wantsCritic('unevidenced findings'), true);
+    const before = project.assessments.flatMap((a) => a.scopes.flatMap((s) => s.checks.map((c) => `${c.id}:${c.result}`)));
+    const result = applyProjectChat(project, 'Review findings');
+    assert.match(result.assistantTurn.text, /Critic|unevidenced|no proof|No unevidenced/i);
+    const after = project.assessments.flatMap((a) => a.scopes.flatMap((s) => s.checks.map((c) => `${c.id}:${c.result}`)));
+    assert.deepEqual(after, before);
+  });
+
+  it('collection cards carry assessment owner and a due date', () => {
+    const project = seedDemoProject();
+    const result = applyProjectChat(project, 'Guide me');
+    const card = result.proposals.find((p) => p.kind === 'request_evidence');
+    if (!card) return;
+    assert.equal(typeof card.payload.owner, 'string');
+    assert.ok(String(card.payload.owner).length > 0);
+    assert.match(String(card.payload.dueDate ?? ''), /^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('opens the named DD, scope, or check field when chat talks about it', () => {
+    const project = seedDemoProject();
+    const fire = talkSittingFromText(project, 'Tell me about Fire NOC');
+    assert.equal(fire?.kind, 'check');
+    assert.ok(fire?.extra.checkId);
+    assert.match(fire?.label ?? '', /NOC|Fire/i);
+
+    const dd = talkSittingFromText(project, 'Open Land Acquisition DD');
+    assert.equal(dd?.kind, 'dd');
+    assert.ok(dd?.extra.ddId);
+    assert.match(dd?.label ?? '', /Land Acquisition/i);
+
+    const scope = talkSittingFromText(project, 'open the legal scope');
+    assert.equal(scope?.kind, 'scope');
+    assert.ok(scope?.extra.ddId && scope?.extra.scopeId);
+
+    const guide = talkSittingFromText(project, 'Guide me');
+    assert.equal(guide, null);
+
+    const fireChat = applyProjectChat(project, 'Tell me about Fire NOC');
+    const fireNav = fireChat.navigations.at(-1);
+    assert.equal(fireNav?.target, 'scope');
+    assert.ok(fireNav?.checkId);
+    assert.ok(fireNav?.ddId && fireNav?.scopeId);
+
+    const legalChat = applyProjectChat(project, 'open the legal scope');
+    const legalNav = legalChat.navigations.at(-1);
+    assert.equal(legalNav?.target, 'scope');
+    assert.ok(legalNav?.scopeId);
+    assert.ok(legalNav?.checkId);
+    const legalScope = project.assessments
+      .flatMap((a) => a.scopes.map((s) => ({ a, s })))
+      .find(({ s }) => s.id === legalNav?.scopeId);
+    assert.equal(legalScope?.s.scopeKey, 'legal');
+    assert.ok(legalScope?.s.checks.some((c) => c.id === legalNav?.checkId));
+
+    const landProject = seedDemoProject();
+    const landTalk = talkSittingFromText(landProject, 'Show Land Acquisition');
+    assert.equal(landTalk?.kind, 'dd');
+    const landField = sittingWithField(landProject, landTalk);
+    assert.equal(landField?.kind, 'check');
+    assert.equal(landField?.extra.ddId, landTalk?.extra.ddId);
+    const land = applyProjectChat(landProject, 'Show Land Acquisition');
+    const landNav = land.navigations.at(-1);
+    assert.equal(landNav?.target, 'scope');
+    assert.ok(landNav?.checkId);
+    assert.equal(landNav?.ddId, landTalk?.extra.ddId);
+    const landDd = landProject.assessments.find((a) => a.id === landNav?.ddId);
+    assert.match(landDd?.name ?? '', /Land Acquisition/i);
+    assert.ok(landDd?.scopes.some((s) => s.checks.some((c) => c.id === landNav?.checkId)));
+
+    const fireHit = sittingCheckOf(project, fire?.extra ?? {});
+    assert.ok(fireHit);
+    const fireAdvise = checkAdvise(project, fireHit.check);
+    assert.ok(fireAdvise.lean === 'tick' || fireAdvise.lean === 'cross');
+    assert.match(fireAdvise.why, /evidence|proof|quotes|file|missing/i);
+
+    const next = applyProjectChat(seedDemoProject(), 'Guide me');
+    const nextNav = next.navigations.at(-1);
+    assert.equal(nextNav?.target, 'scope');
+    assert.ok(nextNav?.checkId);
+    assert.notEqual(nextNav?.checkId, fireNav?.checkId);
+  });
+
+  it('cockpitPath carries evidence and finding query params', () => {
+    const id = 'prj_demo';
+    assert.equal(cockpitPath(id, 'evidence', { evidenceId: 'evd_1' }), `/projects/${id}/evidence?evidence=evd_1`);
+    assert.equal(cockpitPath(id, 'findings', { findingId: 'fnd_1' }), `/projects/${id}/findings?finding=fnd_1`);
+    assert.equal(cockpitPath(id, 'assets', { assetId: 'ast_1' }), `/projects/${id}/assets?asset=ast_1`);
+  });
+
+  it('fills copilot navigation from a cited check when the model forgot navigate_pane', () => {
+    const project = seedDemoProject();
+    let checkId = '';
+    let ddId = '';
+    let scopeId = '';
+    for (const a of project.assessments) {
+      for (const s of a.scopes) {
+        const c = s.checks[0];
+        if (c) {
+          checkId = c.id;
+          ddId = a.id;
+          scopeId = s.id;
+          break;
+        }
+      }
+      if (checkId) break;
+    }
+    assert.ok(checkId);
+    const fromId = sittingFromCitedId(project, checkId);
+    assert.equal(fromId?.kind, 'check');
+    const agent = applyProjectAgentTurn(project, `What is the status of ${fromId?.label}?`, {
+      text: `The check “${fromId?.label}” is still pending.`,
+      proposals: [],
+      navigations: [],
+      citedNodeIds: [checkId],
+    });
+    const nav = agent.navigations.at(-1);
+    assert.equal(nav?.target, 'scope');
+    assert.equal(nav?.checkId, checkId);
+    assert.equal(nav?.ddId, ddId);
+    assert.equal(nav?.scopeId, scopeId);
+    assert.ok(agent.highlightIds.includes(checkId));
+    const last = project.conversation.at(-1)!;
+    const talk = sittingFromTurn(project, last);
+    assert.equal(talk?.kind, 'check');
+    assert.equal(talk?.extra.checkId, checkId);
+  });
+
+  it('appends a pane write to the conversation thread', () => {
+    const project = seedDemoProject();
+    const before = project.conversation.length;
+    let checkId = '';
+    let title = '';
+    for (const a of project.assessments) {
+      for (const s of a.scopes) {
+        const pending = s.checks.find((c) => c.result === 'pending');
+        if (pending) {
+          checkId = pending.id;
+          title = pending.title;
+          break;
+        }
+      }
+      if (checkId) break;
+    }
+    assert.ok(checkId);
+    recordCheckResult(project, checkId, { result: 'compliant', comments: 'From the work pane.' });
+    noteProjectEdit(project, `Recorded “${title}” as Compliant.`, { citedNodeIds: [checkId] });
+    assert.equal(project.conversation.length, before + 2);
+    assert.match(project.conversation.at(-2)!.text, new RegExp(title));
+    assert.match(project.conversation.at(-1)!.text, /work pane/i);
+    assert.ok(sittingFromCitedId(project, checkId)?.kind === 'check');
   });
 });
