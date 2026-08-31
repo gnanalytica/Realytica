@@ -155,6 +155,7 @@ export function CockpitPaneStrip({
   overdue,
   pendingDrafts,
   onGo,
+  wrap = false,
 }: {
   pane: ProjectCockpitPane;
   project: DdProject;
@@ -163,10 +164,11 @@ export function CockpitPaneStrip({
   overdue: number;
   pendingDrafts: number;
   onGo: (pane: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string }) => void;
+  wrap?: boolean;
 }) {
   return (
-    <div className="shrink-0 space-y-1.5 border-b border-hairline bg-surface px-3 py-2">
-      <div className={CHIP_SCROLL}>
+    <div className={cn('shrink-0 space-y-1.5 border-b border-hairline bg-surface py-2', wrap ? 'px-4' : 'px-3')}>
+      <div className={wrap ? 'flex flex-wrap gap-1.5' : CHIP_SCROLL}>
         {FLAT.map((item) => {
           const Icon = item.icon;
           const on = paneActive(pane, item.pane);

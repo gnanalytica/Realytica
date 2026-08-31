@@ -33,7 +33,7 @@ import type { CockpitLayout } from './cockpit/layout';
 import { healthTone } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
-import { CockpitPaneStrip, CockpitRailNav, paneLabel } from './cockpit/rail';
+import { CockpitPaneStrip, paneLabel } from './cockpit/rail';
 import { SittingChip, SittingDock } from './cockpit/SittingPeek';
 
 function sameSitting(a: TalkSitting, b: TalkSitting): boolean {
@@ -548,8 +548,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           ) : null}
 
           {spec.rightPane ? (
-            <section aria-label="Work surface" className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-surface-1">
-              <CockpitRailNav
+            <section aria-label="Work surface" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface-1">
+              <CockpitPaneStrip
                 pane={pane}
                 project={project}
                 ddId={params.ddId}
@@ -557,8 +557,9 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
                 overdue={overdue}
                 pendingDrafts={pendingDrafts}
                 onGo={goPane}
+                wrap
               />
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{workBody}</div>
+              {workBody}
             </section>
           ) : null}
         </div>
