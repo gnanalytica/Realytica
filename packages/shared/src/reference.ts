@@ -12,7 +12,7 @@
  * address below is written as "<building>, <locality>, <city>, <state>".
  */
 
-import type { AerodromeReference, Comparable, CountryPack, LocalityReference, PropertyType, ReferenceData, WaterExposureReference } from './types';
+import type { AerodromeReference, Comparable, CountryCode, CountryPack, LocalityReference, PropertyType, ReferenceData, StatePack, WaterExposureReference } from './types';
 import { KARNATAKA_PACK } from './packs/karnataka';
 
 /* ------------------------------------------------------------------ */
@@ -132,6 +132,64 @@ export const COUNTRY_PACKS: CountryPack[] = [INDIA_PACK, NETHERLANDS_PACK];
 // for the substance and, critically, the provenance/verify-note discipline
 // every statutory figure in it carries.
 export const STATE_PACKS = [KARNATAKA_PACK];
+
+/**
+ * Find the State Pack for an identity, tolerating how people actually write a
+ * jurisdiction down.
+ *
+ * `identity.state` is free text and reaches the engine from several places —
+ * a typed case field, a project's `jurisdiction`, an intake answer. Those
+ * sources do not agree on granularity: a project records the state *and* the
+ * planning authority that governs the site ("Karnataka / BMRDA", "Karnataka /
+ * BBMP"), because which authority sanctions a layout is the thing an analyst
+ * needs on the file. That is correct data and it is not a state name.
+ *
+ * This used to be `p.state.toLowerCase() === identity.state.toLowerCase()`,
+ * so every one of those strings missed and the Karnataka pack silently did
+ * not load: no title checks, no transaction costs, the state's own required
+ * documents dropped from the completeness list, and a confident verdict on
+ * top of all three with nothing saying the state layer had not run. A screen
+ * that quietly measures a Bengaluru property against the country pack alone
+ * is exactly the failure this product exists to prevent, so the matcher is
+ * written to the shape of the data rather than the data to the matcher.
+ *
+ * A jurisdiction is read as authority segments separated by `/`, `,`, `|`,
+ * `;`, `>` or `·` — the separators that mean "and then, within it". A pack
+ * matches when it is the whole string or any one segment. Hyphens are NOT
+ * separators: `Noord-Holland` is one province, not two.
+ *
+ * Matching stays exact per segment. A pack that governs Karnataka must not
+ * answer for Kerala because a prefix happened to line up, and a substring
+ * test would do precisely that.
+ */
+function normaliseJurisdictionSegment(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/^(the\s+)?state\s+of\s+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** The authority segments in a jurisdiction string, most-general first. */
+export function jurisdictionSegments(state: string): string[] {
+  return state
+    .split(/[/,|;>·]/)
+    .map(normaliseJurisdictionSegment)
+    .filter(Boolean);
+}
+
+export function resolveStatePack(
+  identity: { country: CountryCode; state: string },
+  packs: StatePack[] = STATE_PACKS,
+): StatePack | undefined {
+  const whole = normaliseJurisdictionSegment(identity.state);
+  const segments = jurisdictionSegments(identity.state);
+  return packs.find((pack) => {
+    if (pack.country !== identity.country) return false;
+    const packState = normaliseJurisdictionSegment(pack.state);
+    return packState === whole || segments.includes(packState);
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /* Locality references                                                 */

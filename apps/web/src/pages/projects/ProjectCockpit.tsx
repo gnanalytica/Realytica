@@ -369,6 +369,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       busy={asking}
       steps={chatSteps}
       nodes={nodeLabels}
+      screenResult={project.lastScreenResult}
+      askingPrice={project.budget ?? null}
       onCancel={asking ? () => abortRef.current?.abort() : undefined}
       disabled={false}
       allowAttach

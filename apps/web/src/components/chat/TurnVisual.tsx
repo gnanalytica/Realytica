@@ -1,16 +1,21 @@
 import { useState } from 'react';
 import { BarChart3, ChevronDown } from 'lucide-react';
-import type { PropertyCase } from '@realytica/shared';
+import type { ScreenResult } from '@realytica/shared';
 import { AnchorWeightChart, ComparablesChart, RiskProfileChart, ValueRangeChart } from '../charts';
 import { cn } from '../ui/kit';
 
 /**
- * The picture behind an answer, drawn from the case rather than from the model.
+ * The picture behind an answer, drawn from the file rather than from the model.
  *
  * Twenty chart components existed and chat could reach none of them, so
  * questions with inherently visual answers — what is the range resting on,
  * where does the risk sit, which comparables — came back as paragraphs of
  * numbers.
+ *
+ * It takes the stored `ScreenResult` rather than a whole case. It used to
+ * require a `PropertyCase`, which no surface in the cockpit has, so this
+ * component was reachable through the import graph and dead at runtime — the
+ * charts came back exactly as unreachable as before the fix that added them.
  *
  * The obvious way to fix that is to let the model emit a chart spec. This
  * deliberately does not. A spec is a value the model authored, so a wrong one
@@ -26,18 +31,20 @@ import { cn } from '../ui/kit';
  */
 export function TurnVisual({
   toolNames,
-  caseData,
+  result,
+  askingPrice,
 }: {
   /** Tool names the turn called, from `CopilotTurn.toolCalls`. */
   toolNames: string[];
-  caseData: PropertyCase;
+  /** The last screen on this file. No screen, no chart — never a placeholder. */
+  result?: ScreenResult;
+  askingPrice?: number | null;
 }) {
   const [open, setOpen] = useState(false);
-  const result = caseData.result;
   if (!result) return null;
 
   const called = new Set(toolNames);
-  const visual = pick(called, caseData);
+  const visual = pick(called, result, askingPrice ?? null);
   if (!visual) return null;
 
   return (
@@ -62,14 +69,25 @@ export function TurnVisual({
   );
 }
 
-function pick(called: Set<string>, caseData: PropertyCase): { label: string; node: React.ReactNode } | null {
-  const result = caseData.result;
-  if (!result) return null;
-  const currency = caseData.identity.currency;
+/**
+ * Tool names that mean "this turn was about the valuation".
+ *
+ * `get_anchors` is the case copilot's; `screen` and `run_valuation` are what
+ * the project copilot records when it runs a capability. Both end at the same
+ * anchors, which is why they share a chart.
+ */
+const VALUATION_TOOLS = ['get_anchors', 'screen', 'run_valuation'];
+
+function pick(
+  called: Set<string>,
+  result: ScreenResult,
+  askingPrice: number | null,
+): { label: string; node: React.ReactNode } | null {
+  const currency = result.indicativeValue.currency;
 
   // Ordered by specificity, not by preference: a turn that asked for anchors
   // AND risks was asking about the valuation, and one chart is the point.
-  if (called.has('get_anchors') && result.anchors.length > 0) {
+  if (VALUATION_TOOLS.some((name) => called.has(name)) && result.anchors.length > 0) {
     return {
       label: 'The range, and what each method contributed',
       node: (
@@ -79,7 +97,7 @@ function pick(called: Set<string>, caseData: PropertyCase): { label: string; nod
             mid={result.indicativeValue.mid}
             high={result.indicativeValue.high}
             currency={currency}
-            askingPrice={caseData.identity.askingPrice ?? null}
+            askingPrice={askingPrice}
           />
           <AnchorWeightChart anchors={result.anchors} currency={currency} />
         </div>

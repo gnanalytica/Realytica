@@ -10,6 +10,7 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Select, useToast } from '../../components/ui/kit';
+import { ScreenResultPanel } from '../../components/ScreenResultPanel';
 import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 
@@ -144,6 +145,24 @@ export default function Valuation() {
             ))}
           </CardBody>
         </Card>
+      ) : null}
+
+      {/*
+        The screen's own working, below the valuation it produced. The engine
+        computes anchors, comparables, drivers, the state compliance checks and
+        the transaction costs on every run; until this was rendered, all of it
+        was discarded and the reader got a verdict with nothing behind it.
+      */}
+      {project.lastScreenResult ? (
+        <section className="space-y-4 pt-2">
+          <h2 className="text-[13px] font-semibold tracking-tight text-ink">
+            Property screen
+            <span className="ml-2 font-normal text-ink-muted">
+              {formatWhen(project.lastScreenResult.generatedAt)} · engine {project.lastScreenResult.engineVersion}
+            </span>
+          </h2>
+          <ScreenResultPanel result={project.lastScreenResult} />
+        </section>
       ) : null}
     </div>
   );

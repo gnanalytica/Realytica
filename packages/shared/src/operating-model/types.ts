@@ -7,7 +7,14 @@
  * on these same records; nothing here requires a model to function.
  */
 
-import type { ParcelBoundary, SiteContext } from '../types';
+import type {
+  KarnatakaAttributes,
+  ParcelBoundary,
+  PlotAttributes,
+  ScreenResult,
+  SiteContext,
+  Tenure,
+} from '../types';
 
 /* ------------------------------------------------------------------ */
 /* Catalog keys                                                        */
@@ -860,8 +867,70 @@ export interface DdProject {
   chatProposals: ChatProposal[];
   orchestratorRuns: OrchestratorRun[];
   audit: AuditEvent[];
+  /**
+   * Survey / parcel identifier for the site.
+   *
+   * Recorded rather than scraped. The screen used to recover this with a
+   * regex over the first asset's free-text notes, which found it only when
+   * somebody happened to have typed "Sy. 42" there — and a title chain that
+   * cannot name the parcel it is about compares nothing.
+   */
+  parcelId?: string;
+  /**
+   * How the site is held.
+   *
+   * Optional, and absent means `unknown` rather than `freehold`. The screen
+   * used to assert freehold for every project, which is a fact nobody entered
+   * — and one that flatters the valuation by 4% and suppresses the
+   * unconfirmed-tenure risk. An unrecorded tenure is a gap, and the engine
+   * already knows how to price and report a gap.
+   */
+  tenure?: Tenure;
+  /**
+   * Plot/site attributes — road width, facing, corner, layout approval.
+   *
+   * These move a Bengaluru site's rate materially and the engine reads them;
+   * before this the project path had nowhere to put them, so it passed none.
+   */
+  plot?: PlotAttributes;
+  /**
+   * State-pack particulars: khata type, jurisdiction, conversion status, area
+   * basis, and the site constraints that come from something other than title.
+   *
+   * These are the inputs the Karnataka title checks are written against. The
+   * project path supplied none of them, so every one of those checks resolved
+   * `unknown` — which reads like an answer and is not one. What is recorded
+   * here is matter of record, so nothing infers it: an unanswered field stays
+   * unanswered and the check says so.
+   */
+  karnataka?: KarnatakaAttributes;
   /** Last property-screen snapshot. The engine writes registers; this is the headline. */
   lastScreen?: ProjectScreenSnapshot;
+  /**
+   * The last screen in full.
+   *
+   * `lastScreen` is twelve scalars for a header. The engine also computes
+   * anchors, comparables, drivers, the planning position, the evidence
+   * ledger, the state compliance checks and the transaction costs — all of
+   * which were computed on every run and then dropped on the floor, leaving
+   * the reader a verdict with no way to ask why. Held here so the panes can
+   * show the working, and so a report can quote it.
+   *
+   * Stored whole rather than trimmed to what a pane happens to render. It is
+   * a record of one run at one moment against a project that keeps moving, so
+   * it cannot be re-derived later — re-running the screen answers a different
+   * question. Trimming would also mean this field is not a `ScreenResult`,
+   * only something shaped like one until the day it isn't.
+   *
+   * **It is not small: about 95-125 KB per project, of which the evidence
+   * ledger is roughly half.** The store rewrites the whole document on every
+   * mutation, so that cost lands on every chat turn and every recorded check,
+   * not only on a screen. The ledger is what makes "every figure traces back
+   * to something" checkable rather than a claim, so the answer is not to drop
+   * it — it is that the store should stop rewriting everything to change one
+   * record. This note is here so whoever hits that knows what is in the blob.
+   */
+  lastScreenResult?: ScreenResult;
   /** Places/geocode cache for this project's site address. */
   siteContext?: SiteContext;
   /**
@@ -910,6 +979,10 @@ export interface CreateProjectInput {
   budget?: number;
   currency?: 'INR' | 'EUR';
   portfolio?: string;
+  parcelId?: string;
+  tenure?: Tenure;
+  plot?: PlotAttributes;
+  karnataka?: KarnatakaAttributes;
 }
 
 export interface PatchProjectInput {
@@ -927,6 +1000,16 @@ export interface PatchProjectInput {
   budget?: number;
   portfolio?: string;
   status?: ProjectStatus;
+  parcelId?: string;
+  tenure?: Tenure;
+  plot?: PlotAttributes;
+  /**
+   * State-pack particulars. Patched whole rather than merged field by field:
+   * these are matters of record, and a partial update that left a stale khata
+   * type beside a new conversion status would read as one consistent record
+   * of a property when it is two.
+   */
+  karnataka?: KarnatakaAttributes;
 }
 
 export interface CreateAssetInput {

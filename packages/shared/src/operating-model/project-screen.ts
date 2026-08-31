@@ -12,6 +12,8 @@ import { REFERENCE_DATA } from '../reference';
 import type {
   CaseDocument,
   DocumentKind,
+  KarnatakaAttributes,
+  KarnatakaJurisdiction,
   PropertyIdentity,
   PropertyType,
   RecommendedAction,
@@ -84,6 +86,60 @@ function propertyTypeOf(project: DdProject): PropertyType {
   return 'land_parcel';
 }
 
+/**
+ * The planning authority named in a project's `jurisdiction` string.
+ *
+ * A project records its jurisdiction the way an analyst writes it —
+ * "Karnataka / BMRDA", "Karnataka / BBMP" — and which authority governs the
+ * site decides whether a khata, a Form 9/11 or a BDA sanction is even the
+ * right instrument to ask for. That was already on the file and reached the
+ * Karnataka checks as `unknown`.
+ *
+ * Read from the string only when nobody has recorded the field explicitly,
+ * and only for authorities named unambiguously. This is reading what is
+ * written down, not inferring what is not: an unrecognised jurisdiction stays
+ * `unknown`, because the checks are meant to say "not established" rather
+ * than guess.
+ */
+function jurisdictionFromText(text: string | undefined): KarnatakaJurisdiction {
+  if (!text) return 'unknown';
+  const hay = text.toLowerCase();
+  if (/\bbbmp\b/.test(hay)) return 'BBMP';
+  if (/\bbiaapa\b/.test(hay)) return 'BIAAPA';
+  if (/\bbmrda\b/.test(hay)) return 'BMRDA';
+  if (/\bbda\b/.test(hay)) return 'BDA';
+  if (/gram\s*panchayat|\bgp\b/.test(hay)) return 'gram_panchayat';
+  return 'unknown';
+}
+
+/**
+ * The state-pack particulars for a project, as recorded.
+ *
+ * Only `jurisdiction` is ever derived, and only from the project's own
+ * jurisdiction text (above). Khata type, conversion status and area basis are
+ * matters of record and are exactly what this product exists to check, so
+ * nothing here supplies a default that would read as an answer — they stay
+ * `unknown` until somebody puts the record on the file. Returns `undefined`
+ * when there is nothing at all to say, so a non-Karnataka project carries no
+ * empty Karnataka block.
+ */
+function projectKarnatakaAttributes(project: DdProject): KarnatakaAttributes | undefined {
+  const recorded = project.karnataka;
+  const jurisdiction =
+    recorded?.jurisdiction && recorded.jurisdiction !== 'unknown'
+      ? recorded.jurisdiction
+      : jurisdictionFromText(project.jurisdiction);
+  if (!recorded && jurisdiction === 'unknown') return undefined;
+  return {
+    khataType: 'unknown',
+    eKhataIssued: false,
+    landConversionStatus: 'unknown',
+    areaBasis: 'unknown',
+    ...recorded,
+    jurisdiction,
+  };
+}
+
 export function projectToIdentity(project: DdProject): PropertyIdentity {
   const locality = matchProjectLocality(project);
   const country = project.currency === 'EUR' ? 'NL' : 'IN';
@@ -98,13 +154,23 @@ export function projectToIdentity(project: DdProject): PropertyIdentity {
     locality: locality?.locality ?? project.location,
     addressLine: project.siteAddress || project.location,
     postalCode: '',
-    parcelId: project.assets[0]?.notes?.match(/Sy\.?\s*[\d/]+/i)?.[0] ?? '',
+    // The recorded parcel id wins; the notes scrape stays as the fallback for
+    // projects created before there was a field to record it in.
+    parcelId: project.parcelId || project.assets[0]?.notes?.match(/Sy\.?\s*[\d/]+/i)?.[0] || '',
     propertyType: propertyTypeOf(project),
-    tenure: 'freehold',
+    // Absent means unknown. Asserting freehold on every project put a fact
+    // nobody entered into the valuation and hid the tenure risk behind it.
+    tenure: project.tenure ?? 'unknown',
     builtUpAreaSqm: project.builtUpAreaSqm ?? 0,
     plotAreaSqm: project.landAreaSqm ?? 0,
     askingPrice: project.budget,
     currency: project.currency,
+    plot: project.plot,
+    // The surveyor's outline, when somebody supplied one. It drives area
+    // reconciliation and the site-constraint geometry, and the project path
+    // was holding it and not passing it.
+    boundary: project.surveyBoundary,
+    karnataka: projectKarnatakaAttributes(project),
   };
 }
 
@@ -412,6 +478,12 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
   const valuation = writeValuationFromScreen(project, result, actor);
   const snapshot = snapshotFrom(result);
   project.lastScreen = snapshot;
+  // Keep the working, not just the verdict. The registers carry what the
+  // screen concluded; this carries what it concluded it FROM — anchors,
+  // comparables, drivers, the state compliance checks and the transaction
+  // costs. All of it was computed on every run and then dropped, which left
+  // "pursue with conditions" as an assertion the reader could not interrogate.
+  project.lastScreenResult = result;
   project.updatedAt = nowIso();
 
   let decisionId: string | undefined;

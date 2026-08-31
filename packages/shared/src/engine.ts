@@ -86,7 +86,7 @@ import { assessmentProfile, methodStance, resolveProjectBrief } from './assessme
 import { COMPASS_SIDES, analyseTitleGraph, type CompassSide } from './graph';
 import { runPlaybooks } from './playbooks';
 import { ENGINE_VERSION } from './constants';
-import { REFERENCE_DATA } from './reference';
+import { REFERENCE_DATA, jurisdictionSegments, resolveStatePack as matchStatePack } from './reference';
 
 /* ==================================================================== */
 /* Deterministic PRNG                                                    */
@@ -616,7 +616,25 @@ function matchLocalityReference(
  * applying the wrong state's rules.
  */
 function resolveStatePack(identity: PropertyIdentity, refData: ReferenceData): StatePack | undefined {
-  return refData.statePacks.find(p => p.country === identity.country && p.state.toLowerCase() === identity.state.toLowerCase());
+  return matchStatePack(identity, refData.statePacks);
+}
+
+/**
+ * Whether the country pack's covered-state list reaches this identity.
+ *
+ * Read through the same jurisdiction segments as the State Pack lookup, and
+ * for the same reason. These two tests answer one question — "do this
+ * release's state rules apply here?" — so they must agree. When they did not,
+ * a Karnataka project written as "Karnataka / BMRDA" both lost the Karnataka
+ * pack AND raised `outside_covered_state`, which then told the reader that a
+ * Bengaluru property was outside Karnataka.
+ */
+function withinCoveredStates(identity: PropertyIdentity, countryPack: CountryPack): boolean {
+  const segments = jurisdictionSegments(identity.state);
+  return countryPack.coveredStates.some(covered => {
+    const coveredSegments = jurisdictionSegments(covered);
+    return coveredSegments.some(seg => segments.includes(seg));
+  });
 }
 
 type RequiredDocSpec = { kind: DocumentKind; label: string; weight: number; required: boolean; note?: string };
@@ -2280,7 +2298,7 @@ function buildRisks(
   // at state level, so a pack calibrated for one state cannot silently be
   // applied to another. Phase 1 covers a single state/metro; anything outside
   // it is flagged rather than screened against the wrong document set.
-  if (identity.state && !countryPack.coveredStates.includes(identity.state)) {
+  if (identity.state && !withinCoveredStates(identity, countryPack)) {
     const evId = evidence.add({
       statement:
         `Property is in ${identity.state}, which is outside this release's covered ` +

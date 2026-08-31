@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { ArrowUp, CheckCircle2, Info, MessageCircle, Paperclip, SearchX, Sparkles, Trash2, X } from 'lucide-react';
-import type { AgentStep, CopilotTurn, EvidenceItem, PropertyCase, VerificationSummary } from '@realytica/shared';
+import type { AgentStep, CopilotTurn, EvidenceItem, ScreenResult, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
 import { Badge, Button, Textarea, cn } from './ui/kit';
@@ -22,7 +22,8 @@ function TurnBubble({
   evidence,
   nodes,
   applied,
-  caseData,
+  screenResult,
+  askingPrice,
   verification,
   onOpenNode,
   onOpenEvidence,
@@ -33,7 +34,8 @@ function TurnBubble({
   evidence: EvidenceItem[];
   nodes?: Array<{ id: string; label: string }>;
   applied?: string[];
-  caseData?: PropertyCase;
+  screenResult?: ScreenResult;
+  askingPrice?: number | null;
   verification?: VerificationSummary;
   onOpenNode?: (nodeId: string) => void;
   onOpenEvidence?: (id: string) => void;
@@ -154,8 +156,12 @@ function TurnBubble({
           could scroll back to. A conversation that mutates a case and keeps
           no account of it is the wrong shape for a diligence file.
         */}
-        {caseData && turn.toolCalls && turn.toolCalls.length > 0 ? (
-          <TurnVisual toolNames={turn.toolCalls.map(t => t.name)} caseData={caseData} />
+        {screenResult && turn.toolCalls && turn.toolCalls.length > 0 ? (
+          <TurnVisual
+            toolNames={turn.toolCalls.map(t => t.name)}
+            result={screenResult}
+            askingPrice={askingPrice}
+          />
         ) : null}
         {applied && applied.length > 0 ? (
           <div className="mt-2 rounded-lg bg-good/10 px-2.5 py-2 ring-1 ring-inset ring-good/25">
@@ -291,7 +297,8 @@ export function CopilotPanel({
   appliedByTurn,
   steps,
   onOpenCommands,
-  caseData,
+  screenResult,
+  askingPrice,
   emptyTitle,
   emptyHint,
   placeholder,
@@ -343,12 +350,14 @@ export function CopilotPanel({
   /** Open the command bar — bound to `/` on an empty composer. */
   onOpenCommands?: () => void;
   /**
-   * The case, so a turn can draw the chart behind its answer.
+   * The last screen on this file, so a turn can draw the chart behind its
+   * answer.
    *
    * Passed rather than fetched: the chart has to be the same numbers the rest
-   * of the screen is showing, and a second read could disagree with the first.
+   * of the surface is showing, and a second read could disagree with the first.
    */
-  caseData?: PropertyCase;
+  screenResult?: ScreenResult;
+  askingPrice?: number | null;
   emptyTitle?: string;
   emptyHint?: string;
   placeholder?: string;
@@ -509,7 +518,8 @@ export function CopilotPanel({
                 evidence={evidence}
                 nodes={nodes}
                 applied={appliedByTurn?.[turn.id]}
-                caseData={caseData}
+                screenResult={screenResult}
+                askingPrice={askingPrice}
                 onOpenNode={onOpenNode}
                 onOpenEvidence={onOpenEvidence}
                 onOpenDocument={onOpenDocument}
