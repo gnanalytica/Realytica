@@ -2547,6 +2547,17 @@ export interface ChatChoice {
   send: string;
   /** Subject kind, for the chip's label. */
   kind?: string;
+  /**
+   * The exact record this option means.
+   *
+   * Sent alongside `send` so a pick lands on the one that was offered. Two
+   * DDs can carry checks with identical titles, so the message alone cannot
+   * always say which — and an option that re-asks the question it was
+   * offered to answer is a loop, not a choice. Honoured only when the pinned
+   * record is itself one of the candidates for what was typed, so a stale
+   * URL can never redirect an instruction to a different record.
+   */
+  sitting?: { ddId?: string; scopeId?: string; checkId?: string };
 }
 
 export interface CopilotTurn {

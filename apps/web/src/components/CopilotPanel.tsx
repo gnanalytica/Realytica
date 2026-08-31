@@ -38,7 +38,7 @@ function TurnBubble({
   screenResult?: ScreenResult;
   askingPrice?: number | null;
   /** Send a message on the person's behalf when they pick an offered choice. */
-  onPick?: (text: string) => void;
+  onPick?: (text: string, sitting?: { ddId?: string; scopeId?: string; checkId?: string }) => void;
   verification?: VerificationSummary;
   onOpenNode?: (nodeId: string) => void;
   onOpenEvidence?: (id: string) => void;
@@ -180,7 +180,7 @@ function TurnBubble({
               <li key={choice.id}>
                 <button
                   type="button"
-                  onClick={() => onPick(choice.send)}
+                  onClick={() => onPick(choice.send, choice.sitting)}
                   className={cn(
                     'group flex w-full flex-col gap-0.5 rounded-lg bg-surface px-3 py-2 text-left',
                     'ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick',
@@ -335,6 +335,7 @@ export function CopilotPanel({
   appliedByTurn,
   steps,
   onOpenCommands,
+  onPickChoice,
   screenResult,
   askingPrice,
   emptyTitle,
@@ -396,6 +397,12 @@ export function CopilotPanel({
    */
   screenResult?: ScreenResult;
   askingPrice?: number | null;
+  /**
+   * Send an offered choice. Takes the pinned record with it, because two DDs
+   * can carry checks with identical titles and the text alone cannot say
+   * which one was on the button.
+   */
+  onPickChoice?: (text: string, sitting?: { ddId?: string; scopeId?: string; checkId?: string }) => void;
   emptyTitle?: string;
   emptyHint?: string;
   placeholder?: string;
@@ -558,7 +565,7 @@ export function CopilotPanel({
                 applied={appliedByTurn?.[turn.id]}
                 screenResult={screenResult}
                 askingPrice={askingPrice}
-                onPick={(text) => void submit(text)}
+                onPick={(text, sitting) => void onPickChoice?.(text, sitting)}
                 onOpenNode={onOpenNode}
                 onOpenEvidence={onOpenEvidence}
                 onOpenDocument={onOpenDocument}

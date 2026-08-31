@@ -7,10 +7,10 @@
  * Model conclusions stay propose-and-review.
  */
 
-import { LIFECYCLE_STAGE_LABEL } from './catalogs';
+import { CHECK_RESULT_LABEL, LIFECYCLE_STAGE_LABEL } from './catalogs';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
-import { ensureProjectShape, packCompleteness, packEvidence, patchRecordStatus, recommendedDdTypes } from './operations';
+import { ensureProjectShape, recordCheckResult, packCompleteness, packEvidence, patchRecordStatus, recommendedDdTypes } from './operations';
 import type {
   ChatChoice,
   ActionRecord,
@@ -45,8 +45,19 @@ import {
 } from './wizard';
 import { projectNextStep, materialOpenFindings, unevidencedFindings, findingCriticSitting } from './next-step';
 import { detectChatSideIntents, handleChatSides } from './chat-sides';
-import { clarifyRecordCommand, clarifySubject, looksLikeCommand, resolveSubject } from './clarify';
+import { clarifyRecordCommand, clarifySubject, looksLikeCommand, resolveSubject, sittingTitle } from './clarify';
 import {
+  checkResultChoices,
+  describeRecorded,
+  looksLikeCheckAssign,
+  looksLikeCheckRecord,
+  looksLikeCheckRecordOnSitting,
+  parseCheckOwner,
+  parseCheckResult,
+  resultFromLabel,
+} from './check-command';
+import {
+  rankTalkSittings,
   approveAllMeansEveryOpen,
   currentTurnProposals,
   paneForTalk,
@@ -89,6 +100,7 @@ export function paneForProposalKind(kind: ChatProposalKind): ProjectCockpitPane 
   if (kind === 'snapshot_capabilities') return 'orchestrate';
   if (kind === 'start_dd' || kind === 'add_scope') return 'dd';
   if (kind === 'add_asset' || kind === 'patch_asset') return 'assets';
+  if (kind === 'record_check') return 'scope';
   if (kind === 'add_finding') return 'findings';
   if (kind === 'add_risk') return 'risks';
   if (kind === 'add_decision') return 'decisions';
@@ -204,6 +216,23 @@ function appendTurns(project: DdProject, user: ProjectChatTurn, assistant: Proje
   project.updatedAt = assistant.at;
 }
 
+/**
+ * The same instruction, aimed at one named check.
+ *
+ * Substitutes the title the person half-named with the one they picked, so
+ * "mark the boundary check as non-compliant" becomes a message that records
+ * exactly that against "Physical boundaries match the sanctioned plan".
+ * Quoted, because a quoted title is the one form the matcher treats as
+ * decisive.
+ */
+function rewriteCheckCommand(question: string, title: string): string {
+  const stripped = question
+    .replace(/["“][^"”]*["”]/g, '')
+    .replace(/\bthe\s+[^,.]*?\bcheck\b/i, 'the check')
+    .trim();
+  return stripped.replace(/\bthe check\b/i, `the "${title}" check`);
+}
+
 const NAV_RULES: Array<{ pane: ProjectCockpitPane; test: (q: string) => boolean }> = [
   { pane: 'overview', test: (q) => /\bgis\b|\bmap overlay\b|\bosm overlay\b/.test(q) },
   { pane: 'graph', test: (q) => /\b(knowledge\s+)?graph\b|\bnodes?\b|\blinks?\b/.test(q) },
@@ -254,6 +283,10 @@ export function wantsDeterministicProjectChat(
   if (startDdFromQuestion(project, q, 'probe')) return true;
   const interpreted = interpretConversation(project, q, 'probe');
   if (interpreted.imperative && interpreted.proposals.length) return true;
+  // A person recording or assigning a check is a person's own instruction:
+  // it executes, so it must not be handed to a model to paraphrase.
+  if (looksLikeCheckRecord(q) || looksLikeCheckAssign(q)) return true;
+  if (options.sitting?.checkId && looksLikeCheckRecordOnSitting(q)) return true;
   if (/\b(close|complete|done|finish)\b/.test(ql) && /\baction\b/.test(ql)) return true;
   if (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql)) return true;
   if (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql) && !wantsApprove(ql)) return true;
@@ -514,6 +547,19 @@ export function applyProjectChat(
     || (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql));
   const recordCommand =
     registerRecordCommand || (looksLikeCommand(q) && /\b(check|scope|assessment|dd)\b/.test(ql));
+  /*
+   * The person recording, or assigning, a check. Tested before the branches
+   * that answer on topic words, because "mark the khata check compliant"
+   * names a portal, a scope and a result, and only one of those is what they
+   * asked for.
+   */
+  const checkRecordCommand =
+    !registerRecordCommand
+    && (looksLikeCheckRecord(q)
+      || looksLikeCheckAssign(q)
+      // "mark it compliant" while a check is open. "It" is the check on
+      // screen, which is the only reading, and the only safe one.
+      || (Boolean(options.sitting?.checkId) && looksLikeCheckRecordOnSitting(q)));
   const runOrchestrate = /\borchestrat/.test(ql) && !/^(open|show|go to|switch to|see|view)\b/.test(ql);
   const proposeDrafts = /\bpropose\b/.test(ql) && /\bdrafts?\b/.test(ql);
   const runValuation = /\b(run|compute|start)\b/.test(ql) && /\bvaluat/.test(ql) && !wantsProjectScreen(q);
@@ -618,6 +664,111 @@ export function applyProjectChat(
       `${run.openFindingCount} open finding(s). Pack completeness is the health figure — not the full evidence library.`,
     ].join('\n');
     toolCalls = [{ name: 'orchestrate', summary: `Proposed ${run.draftIds.length} draft(s)` }];
+  } else if (checkRecordCommand) {
+    /*
+     * The person recording a check, through chat.
+     *
+     * Executes rather than proposes: the authorship law turns on WHO
+     * concluded, not on which surface they typed it into, and this sentence
+     * is the person concluding. A model reaching the same conclusion still
+     * has to raise a `record_check` card.
+     *
+     * The subject must resolve to exactly one check. Anything less goes to
+     * the clarifier — this is the command where a wrong guess writes a result
+     * and, for a material one, raises a finding under somebody's name.
+     */
+    const resolution = resolveSubject(project, q, { strict: true });
+    /*
+     * The check on screen settles it in two cases, and only two. When the
+     * sentence names nothing ("mark it compliant"), the check they are
+     * looking at is what "it" means. And when they picked one of the options
+     * we offered, the pick arrives pinned — so an ambiguity between two DDs
+     * carrying the same check title resolves to the one they clicked rather
+     * than re-asking the question forever.
+     *
+     * In every other case the URL is ignored. Sitting on check A and typing
+     * "mark the boundary check compliant" must never record A: the pinned
+     * record only counts when it is one of the candidates for what was typed.
+     */
+    const ranked = rankTalkSittings(project, q, 5);
+    const pinned = options.sitting?.checkId
+      ? ranked.length
+        ? ranked.find((row) => row.sitting.extra.checkId === options.sitting?.checkId)?.sitting.extra
+        : options.sitting
+      : undefined;
+    const target =
+      resolution.kind === 'confident'
+        ? sittingCheckOf(project, resolution.sitting.extra)
+        : sittingCheckOf(project, pinned);
+    if (!target) {
+      const asked = clarifySubject(project, q, resolution, {
+        sitting: options.sitting,
+        insist: true,
+        // Carry the instruction onto every option, so picking the right check
+        // records what they asked for rather than merely opening it.
+        send: (candidate) => rewriteCheckCommand(q, sittingTitle(candidate)),
+      });
+      if (asked) {
+        assistantText = asked.text;
+        choices = asked.choices;
+        toolCalls = [{ name: 'clarify', summary: asked.summary }];
+      } else {
+        assistantText = 'Name the check the way it appears on the scope, and I will record it.';
+        toolCalls = [{ name: 'clarify', summary: 'No check named' }];
+      }
+    } else {
+      const owner = looksLikeCheckAssign(q) ? parseCheckOwner(q, actor) : null;
+      const result = owner ? null : parseCheckResult(q) ?? resultFromLabel(q);
+      if (!owner && !result) {
+        /*
+         * A recording instruction whose state word is not a result —
+         * "started", "in progress", "done". There is no such check state, so
+         * offer the ones there are rather than picking the nearest.
+         */
+        choices = checkResultChoices(target.check.title, {
+          assignTo: actor,
+          sitting: { ddId: target.assessment.id, scopeId: target.scope.id, checkId: target.check.id },
+        });
+        assistantText = [
+          `A check does not have a “started” state — it stays not started until somebody concludes something, and the scope moves to in progress on its own at that point.`,
+          `Nothing has changed on “${target.check.title}”. Either put it in your name, or record what you actually found:`,
+        ].join('\n');
+        toolCalls = [{ name: 'clarify', summary: 'Result not named — offered' }];
+        navigate('scope', '', {
+          ddId: target.assessment.id,
+          scopeId: target.scope.id,
+          checkId: target.check.id,
+        });
+      } else {
+        const before = [...target.check.findingIds];
+        const recorded = recordCheckResult(
+          project,
+          target.check.id,
+          owner ? { result: target.check.result, owner } : { result: result! },
+          actor,
+        );
+        commands.push(
+          owner
+            ? `Assigned “${recorded.title}” to ${owner}`
+            : `Recorded “${recorded.title}” as ${CHECK_RESULT_LABEL[recorded.result]}`,
+        );
+        assistantText = owner
+          ? `“${recorded.title}” is in ${owner}'s name. It is still not started — recording a result is a separate step, on the right.`
+          : describeRecorded(project, recorded, before);
+        toolCalls = [
+          owner
+            ? { name: 'assign_check', summary: `${recorded.title} → ${owner}` }
+            : { name: 'record_check', summary: `${recorded.title} — ${CHECK_RESULT_LABEL[recorded.result]}` },
+        ];
+        citedNodeIds = [recorded.id, ...recorded.findingIds.filter((id) => !before.includes(id))];
+        highlightIds.push(...citedNodeIds);
+        navigate('scope', '', {
+          ddId: target.assessment.id,
+          scopeId: target.scope.id,
+          checkId: target.check.id,
+        });
+      }
+    }
   } else {
     const startDd = startDdFromQuestion(project, q, actor);
     if (startDd) {

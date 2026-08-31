@@ -698,6 +698,7 @@ export type ChatProposalKind =
   | 'add_action'
   | 'add_risk'
   | 'add_decision'
+  | 'record_check'
   | 'generate_report'
   | 'run_valuation'
   | 'run_screen'

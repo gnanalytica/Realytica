@@ -9,6 +9,7 @@
 
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import {
+  CHECK_RESULTS,
   candidateChoices,
   rankTalkSittings,
   DD_CONNECTORS,
@@ -60,6 +61,7 @@ const PROPOSE_KINDS = [
   'add_action',
   'add_risk',
   'add_decision',
+  'record_check',
   'generate_report',
   'run_valuation',
   'run_screen',
@@ -223,6 +225,13 @@ function validateProposal(kind: ChatProposalKind, payload: Record<string, unknow
   if (kind === 'add_risk' && (!str('title') || !str('category') || !str('cause'))) return 'add_risk needs title, category, cause.';
   if (kind === 'add_decision' && (!str('title') || !str('decisionType') || !str('decisionMaker') || !str('rationale'))) {
     return 'add_decision needs title, decisionType, decisionMaker, rationale.';
+  }
+  if (kind === 'record_check') {
+    if (!str('checkId')) return 'record_check needs checkId — call get_sitting or search_registers for it.';
+    if (!(CHECK_RESULTS as readonly string[]).includes(str('result'))) {
+      return `record_check needs one of: ${CHECK_RESULTS.join(', ')}.`;
+    }
+    if (!str('comments')) return 'record_check needs comments saying what in the evidence supports this result.';
   }
   if (kind === 'generate_report' && !str('kind')) return 'generate_report needs kind.';
   if (kind === 'patch_project' && Object.keys(payload).length === 0) return 'patch_project needs at least one field.';
@@ -443,7 +452,7 @@ export function createProjectTools(
         payloadJson: {
           type: 'string',
           description:
-            'JSON object for the kind: start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?}; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
+            'JSON object for the kind: record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?}; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
         },
       },
     } as const,

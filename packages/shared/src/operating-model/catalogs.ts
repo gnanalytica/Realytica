@@ -124,6 +124,18 @@ export const ASSESSMENT_STATUS_LABEL: Record<AssessmentStatus, string> = {
   archived: 'Archived',
 };
 
+/** Every check result, as data — so a validator cannot drift from the type. */
+export const CHECK_RESULTS: CheckResult[] = [
+  'pending',
+  'compliant',
+  'non_compliant',
+  'partially_compliant',
+  'not_applicable',
+  'unable_to_verify',
+  'missing_evidence',
+  'requires_expert_review',
+];
+
 export const CHECK_RESULT_LABEL: Record<CheckResult, string> = {
   pending: 'Not started',
   compliant: 'Compliant',

@@ -120,9 +120,11 @@ describe('asking instead of guessing', () => {
     assert.ok(out.navigations[0]?.checkId, 'and it still lands on the field');
   });
 
-  it('every offered choice resolves to a real action when picked', () => {
-    // The whole mechanism turns on this. An option that comes back as another
-    // clarification, or as the next-step briefing, is the original failure.
+  it('every offered choice converges on a real action', () => {
+    // The whole mechanism turns on this. A pick may narrow further — "mark
+    // the boundary check as in progress" has two unknowns, which check and
+    // which result — but it must never re-ask the question it was offered to
+    // answer. A loop is the original failure with more steps.
     const questions = [
       'mark the boundary check as in progress',
       'set the encumbrance check as started',
@@ -132,21 +134,43 @@ describe('asking instead of guessing', () => {
       'open the zzzz check',
       'start the check',
     ];
-    let offered = 0;
+    const MAX_HOPS = 4;
+    let walked = 0;
+
     for (const question of questions) {
-      const out = ask(seedDemoProject(), question);
-      assert.ok(out.choices.length > 0, `"${question}" offered nothing`);
-      for (const choice of out.choices) {
-        offered += 1;
-        const picked = ask(seedDemoProject(), choice.send);
-        assert.ok(picked.tools.length > 0, `picking "${choice.send}" did nothing`);
-        assert.ok(
-          !picked.tools.includes('clarify') && !picked.tools.includes('next_step'),
-          `picking "${choice.send}" led to ${picked.tools.join(',')} instead of an action`,
-        );
+      const offeredCount = ask(seedDemoProject(), question).choices.length;
+      assert.ok(offeredCount > 0, `"${question}" offered nothing`);
+
+      for (let index = 0; index < offeredCount; index += 1) {
+        walked += 1;
+        // One project for the whole walk: record ids are minted per seed, so
+        // a choice pinned against one instance means nothing in another.
+        const project = seedDemoProject();
+        const first = applyProjectChat(project, question);
+        const choice = (first.assistantTurn.choices ?? [])[index]!;
+        let step = { send: choice.send, sitting: choice.sitting };
+        const seen = new Set<string>([question]);
+        let settled = false;
+
+        for (let hop = 0; hop < MAX_HOPS; hop += 1) {
+          assert.ok(!seen.has(step.send), `"${step.send}" was asked twice — that is a loop`);
+          seen.add(step.send);
+          const out = applyProjectChat(project, step.send, { sitting: step.sitting });
+          const tools = (out.assistantTurn.toolCalls ?? []).map((t) => t.name);
+          const choices = out.assistantTurn.choices ?? [];
+          assert.ok(tools.length > 0, `picking "${step.send}" did nothing`);
+          assert.ok(!tools.includes('next_step'), `picking "${step.send}" fell through to the briefing`);
+          if (!tools.includes('clarify')) {
+            settled = true;
+            break;
+          }
+          assert.ok(choices.length > 0, `"${step.send}" narrowed to nothing`);
+          step = { send: choices[0]!.send, sitting: choices[0]!.sitting };
+        }
+        assert.ok(settled, `"${choice.send}" never reached an action within ${MAX_HOPS} hops`);
       }
     }
-    assert.ok(offered >= 10, 'expected a meaningful number of round-trips');
+    assert.ok(walked >= 10, 'expected a meaningful number of round-trips');
   });
 });
 

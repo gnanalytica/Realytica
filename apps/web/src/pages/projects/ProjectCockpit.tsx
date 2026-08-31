@@ -272,18 +272,30 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   );
 
   const handleAsk = useCallback(
-    async (question: string, files?: File[]) => {
+    async (
+      question: string,
+      files?: File[],
+      /**
+       * The record a picked choice pinned. Overrides the URL's sitting,
+       * which is only where the person happens to be standing — when they
+       * click "Physical boundaries…" the answer must be that check, not the
+       * one the address bar still points at.
+       */
+      pinned?: { ddId?: string; scopeId?: string; checkId?: string },
+    ) => {
       abortRef.current?.abort();
       const ac = new AbortController();
       abortRef.current = ac;
       setAsking(true);
       setChatSteps([]);
       setMobileSurface('chat');
-      const sitting = {
-        ddId: params.ddId,
-        scopeId: params.scopeId,
-        checkId: searchParams.get('check') ?? undefined,
-      };
+      const sitting = pinned?.checkId
+        ? pinned
+        : {
+            ddId: params.ddId,
+            scopeId: params.scopeId,
+            checkId: searchParams.get('check') ?? undefined,
+          };
       const onStep = (step: AgentStep) => setChatSteps((prev) => [...prev, step]);
       try {
         const response = files?.length
@@ -369,6 +381,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       busy={asking}
       steps={chatSteps}
       nodes={nodeLabels}
+      onPickChoice={(text, pinned) => void handleAsk(text, undefined, pinned)}
       screenResult={project.lastScreenResult}
       askingPrice={project.budget ?? null}
       onCancel={asking ? () => abortRef.current?.abort() : undefined}

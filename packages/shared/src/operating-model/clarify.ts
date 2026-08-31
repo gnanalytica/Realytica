@@ -219,14 +219,38 @@ function sendForCandidate(sitting: TalkSitting): string {
   return `Open "${title}"`;
 }
 
-export function candidateChoices(project: DdProject, candidates: TalkCandidate[]): ChatChoice[] {
+export function candidateChoices(
+  project: DdProject,
+  candidates: TalkCandidate[],
+  options: {
+    /**
+     * Rewrite the message a pick sends. Without this every option says
+     * "Open …", which quietly drops the instruction: somebody who typed
+     * "mark it non-compliant" and picked the check they meant would get the
+     * check opened and nothing recorded — the original failure, one turn later.
+     */
+    send?: (sitting: TalkSitting) => string;
+  } = {},
+): ChatChoice[] {
   return candidates.map((row, i) => ({
     id: choiceId('cand', i),
     label: row.sitting.label,
     detail: candidateDetail(project, row.sitting),
-    send: sendForCandidate(row.sitting),
+    send: options.send ? options.send(row.sitting) : sendForCandidate(row.sitting),
     kind: KIND_WORD[row.sitting.kind],
+    sitting: {
+      ddId: row.sitting.extra.ddId,
+      scopeId: row.sitting.extra.scopeId,
+      checkId: row.sitting.extra.checkId,
+    },
   }));
+}
+
+/** The bare title of a sitting, without its scope prefix. */
+export function sittingTitle(sitting: TalkSitting): string {
+  return sitting.label.includes(' · ')
+    ? sitting.label.slice(sitting.label.lastIndexOf(' · ') + 3)
+    : sitting.label;
 }
 
 /* ==================================================================== */
@@ -238,10 +262,7 @@ export function candidateChoices(project: DdProject, candidates: TalkCandidate[]
  *
  * Derived from the subject's kind rather than from the words in the message,
  * so it stays true as commands are added and cannot drift into advertising
- * something chat does not do. A check is the sharp case: chat cannot record a
- * result — the person does that on the right-hand pane, by design, because
- * closing a check is a judgement with their name on it — so the honest offer
- * is to open it there, one click from the tick.
+ * something chat does not do.
  */
 export function actionChoicesFor(project: DdProject, sitting: TalkSitting): ChatChoice[] {
   const out: ChatChoice[] = [];
@@ -254,10 +275,16 @@ export function actionChoicesFor(project: DdProject, sitting: TalkSitting): Chat
 
   if (sitting.kind === 'check' || sitting.kind === 'scope' || sitting.kind === 'dd') {
     push(
-      'Open it and record the result',
-      'Opens the check on the right, where you tick or cross it. Recording a result is yours, not the model’s.',
-      `Open "${title}"`,
+      'Record it as compliant',
+      'Closes the check as satisfied. No finding is raised.',
+      `Mark "${title}" as compliant`,
     );
+    push(
+      'Record it as non-compliant',
+      'Closes the check and raises a high-severity finding against this scope.',
+      `Mark "${title}" as non-compliant`,
+    );
+    push('Open it', 'Opens the check on the right, with the full result list. Nothing is written.', `Open "${title}"`);
     const hit = sittingCheckOf(project, sitting.extra);
     if (hit?.check.expectedEvidence.length) {
       push(
@@ -266,7 +293,6 @@ export function actionChoicesFor(project: DdProject, sitting: TalkSitting): Chat
         `Request evidence for "${title}"`,
       );
     }
-    push('Just show me where it stands', 'A briefing on this field — nothing is written.', `Open "${title}"`);
     return out;
   }
   if (sitting.kind === 'finding') {
@@ -372,11 +398,13 @@ export function clarifySubject(
      * question about the pane instead of the thing they named.
      */
     insist?: boolean;
+    /** Rewrite what each option sends, so an instruction survives the pick. */
+    send?: (sitting: TalkSitting) => string;
   } = {},
 ): ClarifyOutcome | null {
   const commanded = looksLikeCommand(text) || options.insist === true;
   if (resolution.kind === 'ambiguous') {
-    const choices = candidateChoices(project, resolution.candidates);
+    const choices = candidateChoices(project, resolution.candidates, { send: options.send });
     if (!choices.length) return null;
     const only = choices.length === 1;
     return {
@@ -384,7 +412,7 @@ export function clarifySubject(
         only
           ? `I think you mean ${choices[0]!.label}, but I am not certain enough to ${commanded ? 'act on it' : 'answer for it'}.`
           : `That could be ${choices.length} things on this file, and I have not ${commanded ? 'changed anything' : 'assumed one'}.`,
-        'Pick one and I will open it:',
+        options.send ? 'Pick the one you meant:' : 'Pick one and I will open it:',
       ].join('\n'),
       choices,
       summary: only ? 'One near match — asked' : `${choices.length} near matches — asked`,
