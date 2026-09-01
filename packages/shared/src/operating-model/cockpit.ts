@@ -94,6 +94,7 @@ export const PROJECT_COCKPIT_PANES = [
   'dd',
   'scope',
   'evidence',
+  'visits',
   'findings',
   'risks',
   'actions',
@@ -159,6 +160,8 @@ export function cockpitPath(
         ['evidence', extra?.evidenceId],
         ['page', extra?.page],
       ]);
+    case 'visits':
+      return `${base}/visits`;
     case 'findings':
       return withQuery(`${base}/findings`, [['finding', extra?.findingId]]);
     case 'risks':

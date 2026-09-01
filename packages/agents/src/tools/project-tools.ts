@@ -30,6 +30,7 @@ import {
   compareProjectPlanning,
   createChatProposal,
   extractProjectSubgraph,
+  captureConcerns,
   conditionRatings,
   escalatedFindings,
   findProjectNodes,
@@ -39,6 +40,8 @@ import {
   packCompleteness,
   remedialCostSummary,
   ricsConditionRating,
+  sheetPlacements,
+  visitCoverage,
   ENVIRONMENTAL_CONDITION_CAVEAT,
   RICS_RATING_LABEL,
   paneForProposalKind,
@@ -439,6 +442,57 @@ export function createProjectTools(
           cost.unbanded || cost.uncosted
             ? `${cost.unbanded} open action(s) carry no band and ${cost.uncosted} banded one(s) carry no figure — the total covers neither. Say so if you quote it.`
             : undefined,
+      });
+    },
+  });
+
+  /**
+   * What is known from having LOOKED at the place, as against having been sent
+   * documents about it.
+   *
+   * Given to the model as one read because the three parts only mean anything
+   * together: a photograph is worth what its purpose and date make it worth, a
+   * visit is worth what it could actually reach, and a sheet is worth how well
+   * it is placed. The limitations especially — a model that lists what was
+   * inspected without saying what was not will write "no defect found" where
+   * the honest sentence is "the roof was not looked at".
+   */
+  const getSiteRecord = betaTool({
+    name: 'get_site_record',
+    description:
+      'Read the site visits, what each one could NOT inspect, what the photographs on file claim about themselves, and how well any plan sheet is placed. Use before saying anything about condition, what was seen on site, or a master plan. Never state that something was inspected without checking the limitations here.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: {} } as const,
+    run: async () => {
+      const coverage = visitCoverage(project);
+      const concerns = captureConcerns(project);
+      bag.toolCalls.push({ name: 'get_site_record', summary: `${coverage.length} visit(s), ${concerns.length} capture concern(s)` });
+      return JSON.stringify({
+        visits: (project.siteVisits ?? []).map((visit) => ({
+          id: visit.id,
+          title: visit.title,
+          visitedOn: visit.visitedOn,
+          purpose: visit.purpose,
+          status: visit.status,
+          surveyor: visit.surveyor,
+          weather: visit.weather,
+          limitations: visit.limitations,
+          // The distinction a report turns on: an empty list claims full
+          // access, a visit nobody wrote up claims nothing.
+          limitationsStated: coverage.find((c) => c.visitId === visit.id)?.limitationsStated ?? false,
+          photos: coverage.find((c) => c.visitId === visit.id)?.photos ?? 0,
+        })),
+        photographConcerns: concerns,
+        sheets: sheetPlacements(project).map(({ sheet, reading }) => ({
+          id: sheet.id,
+          title: sheet.title,
+          kind: sheet.kind,
+          issuer: sheet.issuer,
+          asOf: sheet.asOf,
+          verdict: reading.verdict,
+          say: reading.say,
+        })),
+        caveat:
+          'A photograph geotag is what the camera claimed, not where the shot was taken. A sheet placement is derived from control points a person placed. Neither is a survey.',
       });
     },
   });
@@ -927,6 +981,7 @@ export function createProjectTools(
     getCheck,
     getFinding,
     getStandardsView,
+    getSiteRecord,
     searchRegisters,
     getSubgraph,
     traceConclusion,

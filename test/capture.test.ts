@@ -19,6 +19,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   CAPTURE_OFF_SITE_M,
+  addSheet,
   addSiteVisit,
   attachEvidenceFile,
   addEvidence,
@@ -30,8 +31,10 @@ import {
   patchSiteVisit,
   setAttachmentCapture,
   visitCoverage,
+  resolveReportBlock,
   visitPhotos,
   type DdProject,
+  type ReportBlock,
 } from '@realytica/shared';
 
 function file(): DdProject {
@@ -163,6 +166,29 @@ describe('a photograph is measured against the site it was filed on', () => {
     assert.deepEqual(captureConcerns(project).filter((c) => c.code === 'no_taken_at'), []);
   });
 
+  it('leaves a scanned plan alone, image or not', () => {
+    /*
+     * Caught by looking at the screen rather than by a test: a BDA master plan
+     * sheet uploaded as a JPEG was told it had "no purpose recorded, so what
+     * this photograph is meant to show is not on the file". It is a drawing.
+     * A panel of genuine concerns with one piece of nonsense in it is a panel
+     * somebody scrolls past.
+     */
+    const project = withPin(file());
+    const evidence = addEvidence(project, { title: 'RMP 2015 sheet 12', kind: 'gis' });
+    const attachment = attachEvidenceFile(project, evidence.id, { fileName: 'rmp12.jpg', mimeType: 'image/jpeg', sizeBytes: 10, storageKey: 'k' });
+    assert.deepEqual(captureConcerns(project), [], 'a row filed as a map is not a photograph');
+
+    // And the same file reached the other way: a sheet points at it, whatever
+    // kind the row happens to carry.
+    const asPhoto = addEvidence(project, { title: 'Layout scan', kind: 'photograph' });
+    const scan = attachEvidenceFile(project, asPhoto.id, { fileName: 'layout.jpg', mimeType: 'image/jpeg', sizeBytes: 10, storageKey: 'k2' });
+    assert.equal(captureConcerns(project).length, 1, 'unclaimed, it is still a photograph with no purpose');
+    addSheet(project, { title: 'Layout', kind: 'layout_plan', evidenceId: asPhoto.id, attachmentId: scan.id });
+    assert.deepEqual(captureConcerns(project), [], 'claimed by a sheet, it is a plan');
+    assert.ok(attachment.id);
+  });
+
   it('never comments on a document, only on an image', () => {
     // A scanned conveyance has no capture facts, and complaining that it has
     // no purpose would fill the file with noise about deeds.
@@ -217,5 +243,78 @@ describe('a visit is the thing photographs are taken on', () => {
 
     patchSiteVisit(project, bare.id, { notes: 'Full access to all floors and the roof.' });
     assert.equal(visitCoverage(project)[0]!.limitationsStated, true);
+  });
+});
+
+describe('the inspection record, as a reader meets it', () => {
+  /*
+   * The block exists for one sentence: what could NOT be seen. A report that
+   * lists what was inspected and stays silent about the rest reads as more
+   * complete than it is, and the reader has no way to tell "no defect found"
+   * from "could not get onto the roof".
+   */
+  function block(): ReportBlock {
+    return { id: 'blk-visits', origin: 'derived', heading: 'Inspection record', source: { kind: 'site_visits' }, createdAt: '', updatedAt: '' } as ReportBlock;
+  }
+
+  it('prints who looked, when, and what they could not reach', () => {
+    const project = file();
+    addSiteVisit(project, {
+      title: 'Condition walk',
+      purpose: 'diligence_inspection',
+      visitedOn: '2026-08-12',
+      surveyor: 'R. Iyer',
+      accompaniedBy: 'Site engineer',
+      weather: 'Dry, overcast',
+      limitations: [{ kind: 'height', what: 'Roof parapet — no access equipment on site' }],
+    });
+    const lines = resolveReportBlock(project, block()).lines;
+    assert.match(lines[0]!, /2026-08-12 — Condition walk/);
+    assert.match(lines[0]!, /by R\. Iyer with Site engineer/);
+    assert.match(lines[1]!, /Not inspected — out of reach.*Roof parapet/);
+  });
+
+  it('names a visit nobody wrote up rather than printing it as complete', () => {
+    const project = file();
+    addSiteVisit(project, { title: 'Walk', purpose: 'diligence_inspection', visitedOn: '2026-08-12', surveyor: 'R. Iyer' });
+    assert.ok(resolveReportBlock(project, block()).lines.some((l) => /Nothing recorded about what could or could not be inspected/.test(l)));
+  });
+
+  it('stays silent about limitations when full access was stated', () => {
+    const project = file();
+    addSiteVisit(project, {
+      title: 'Walk',
+      purpose: 'diligence_inspection',
+      visitedOn: '2026-08-12',
+      surveyor: 'R. Iyer',
+      notes: 'Full access to all floors and the roof.',
+    });
+    const lines = resolveReportBlock(project, block()).lines;
+    assert.equal(lines.length, 1, 'one line, and no invented caveat');
+  });
+
+  it('says an aborted visit could not be carried out', () => {
+    const project = file();
+    addSiteVisit(project, {
+      title: 'Attempted inspection',
+      purpose: 'valuation_inspection',
+      visitedOn: '2026-07-30',
+      surveyor: 'R. Iyer',
+      status: 'aborted',
+      limitations: [{ kind: 'no_access', what: 'Gate locked, no key holder' }],
+    });
+    assert.match(resolveReportBlock(project, block()).lines[0]!, /Inspection could not be carried out/);
+  });
+
+  it('counts the photographs taken on the visit, not every image on the file', () => {
+    const project = file();
+    const visit = addSiteVisit(project, { title: 'Walk', purpose: 'diligence_inspection', visitedOn: '2026-08-12', surveyor: 'R. Iyer', notes: 'Full access.' });
+    photo(project, { visitId: visit.id }, 'a.jpg');
+    photo(project, {}, 'b.jpg');
+    assert.match(resolveReportBlock(project, block()).lines[0]!, /1 photograph\(s\)/);
+  });
+
+  it('returns a note rather than a fabricated line when nobody has been', () => {
+    assert.match(resolveReportBlock(file(), block()).note!, /No site visit has been recorded/);
   });
 });

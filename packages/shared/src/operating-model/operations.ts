@@ -1101,10 +1101,28 @@ export function captureConcerns(project: DdProject): CaptureConcern[] {
   const site = point && Number.isFinite(point.lat) && Number.isFinite(point.lng) ? { lat: point.lat, lng: point.lng } : undefined;
   const out: CaptureConcern[] = [];
 
+  /*
+   * A scanned plan is an image and is not a photograph.
+   *
+   * Caught by looking at the screen: a BDA master plan sheet, uploaded as a
+   * JPEG, was told it had "no purpose recorded, so what this photograph is
+   * meant to show is not on the file". It is a drawing. It has no capture
+   * facts, it never will, and nagging about them is how a panel of genuine
+   * concerns becomes one somebody scrolls past.
+   *
+   * Two exemptions, because either alone leaves a gap: a file some sheet
+   * points at is definitively a plan, and a row filed under a plan-ish kind is
+   * one before any sheet record exists.
+   */
+  const sheetFiles = new Set((project.sheets ?? []).map((sheet) => sheet.attachmentId).filter(Boolean) as string[]);
+  const NOT_PHOTOGRAPHS = new Set(['drawing', 'gis']);
+
   for (const evidence of project.evidence) {
+    if (NOT_PHOTOGRAPHS.has(evidence.kind)) continue;
     for (const attachment of evidence.attachments) {
       const capture = attachment.capture;
       if (!attachment.mimeType.startsWith('image/')) continue;
+      if (sheetFiles.has(attachment.id)) continue;
       const where = { evidenceId: evidence.id, attachmentId: attachment.id, fileName: attachment.fileName };
 
       if (!capture?.purpose) {

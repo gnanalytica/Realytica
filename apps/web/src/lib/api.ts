@@ -48,11 +48,21 @@ import type {
   DdAssessment,
   CheckInstance,
   EvidenceRecord,
+  CaptureConcern,
+  CaptureFactsInput,
+  CreateSiteVisitInput,
   EnvironmentalCondition,
   FindingRecord,
+  PatchSiteVisitInput,
   RemedialBand,
   RicsEscalation,
   RiskRecord,
+  SheetFitReading,
+  SheetKind,
+  SheetPlacement,
+  SheetRecord,
+  SiteVisitRecord,
+  VisitCoverageRow,
   ActionRecord,
   DecisionRecord,
   CheckFieldReading,
@@ -735,6 +745,36 @@ export const api = {
     findingId: string,
     body: { escalation?: RicsEscalation | null; environmentalCondition?: EnvironmentalCondition | null; actor?: string },
   ) => request<FindingRecord>(`/projects/${projectId}/findings/${findingId}/classification`, { method: 'PATCH', body: JSON.stringify(body) }),
+  /* --- Site visits, capture and sheets ------------------------------ */
+  listVisits: (projectId: string) =>
+    request<{ visits: SiteVisitRecord[]; coverage: VisitCoverageRow[]; concerns: CaptureConcern[] }>(`/projects/${projectId}/visits`),
+  addVisit: (projectId: string, body: CreateSiteVisitInput & { actor?: string }) =>
+    request<SiteVisitRecord>(`/projects/${projectId}/visits`, { method: 'POST', body: JSON.stringify(body) }),
+  patchVisit: (projectId: string, visitId: string, body: PatchSiteVisitInput & { actor?: string }) =>
+    request<SiteVisitRecord>(`/projects/${projectId}/visits/${visitId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  /** `null` clears a fact; an omitted key leaves it alone. */
+  setCapture: (projectId: string, evidenceId: string, fileId: string, body: CaptureFactsInput & { actor?: string }) =>
+    request<EvidenceAttachment>(`/projects/${projectId}/evidence/${evidenceId}/files/${fileId}/capture`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  listSheets: (projectId: string) => request<{ sheets: SheetPlacement[] }>(`/projects/${projectId}/sheets`),
+  addSheet: (
+    projectId: string,
+    body: { title: string; kind: SheetKind; evidenceId: string; attachmentId?: string; asOf?: string; issuer?: string; notes?: string; actor?: string },
+  ) => request<SheetRecord>(`/projects/${projectId}/sheets`, { method: 'POST', body: JSON.stringify(body) }),
+  setControlPoints: (
+    projectId: string,
+    sheetId: string,
+    points: Array<{ u: number; v: number; lat: number; lng: number; label?: string }>,
+  ) =>
+    request<{ sheet: SheetRecord; reading: SheetFitReading }>(`/projects/${projectId}/sheets/${sheetId}/control-points`, {
+      method: 'PUT',
+      body: JSON.stringify({ points }),
+    }),
+  removeSheet: (projectId: string, sheetId: string) =>
+    request<void>(`/projects/${projectId}/sheets/${sheetId}`, { method: 'DELETE' }),
+
   addRisk: (projectId: string, body: CreateRiskInput & { actor?: string }) =>
     request<RiskRecord>(`/projects/${projectId}/risks`, { method: 'POST', body: JSON.stringify(body) }),
   patchRisk: (projectId: string, riskId: string, status: string) =>

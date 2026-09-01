@@ -1,5 +1,6 @@
 import {
   Building2,
+  Camera,
   CircleDollarSign,
   ClipboardList,
   FileStack,
@@ -39,6 +40,7 @@ export const RAIL: Array<{
     group: 'Registers',
     items: [
       { pane: 'evidence', label: 'Evidence', short: 'Evidence', icon: FileStack },
+      { pane: 'visits', label: 'Site record', short: 'Site', icon: Camera },
       { pane: 'findings', label: 'Findings', short: 'Findings', icon: Search },
       { pane: 'risks', label: 'Risks & actions', short: 'Risks', icon: GitBranch },
       { pane: 'decisions', label: 'Decisions', short: 'Decisions', icon: Scale },

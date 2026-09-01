@@ -23,6 +23,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  EVIDENCE_STATUS_LABEL,
   formatFieldValue,
   isBlank,
   tableRows,
@@ -31,15 +32,29 @@ import {
   type CheckInsight,
   type CheckFieldWrite,
   type CheckTableRow,
+  type EvidenceRecord,
   type FindingSeverity,
 } from '@realytica/shared';
 import { Badge, cn } from './ui/kit';
+
+/** Statuses that mean the document is not actually on the file yet. */
+const GAP_STATUS = new Set(['expected', 'requested', 'missing']);
 
 interface Props {
   defs: CheckFieldDef[];
   values: Record<string, CheckFieldValue>;
   insights: CheckInsight[];
   disabled?: boolean;
+  /**
+   * The evidence register, so a citation can be picked rather than typed.
+   *
+   * Passed in rather than fetched here: this component renders inside a modal
+   * that already holds the project, and a second fetch would be a second
+   * version of the register that can disagree with the one behind it.
+   */
+  evidence?: EvidenceRecord[];
+  /** Files dropped straight onto a field. Resolves to the evidence ids created. */
+  onAttachEvidence?: (def: CheckFieldDef, files: File[]) => Promise<string[]>;
   /** Called with only the fields that changed, so a save never rewrites what it did not touch. */
   onCommit: (values: Record<string, CheckFieldWrite>) => void;
 }
@@ -51,7 +66,7 @@ const SEVERITY_TONE: Record<FindingSeverity, 'critical' | 'serious' | 'warning' 
   low: 'neutral',
 };
 
-export function CheckFields({ defs, values, insights, disabled, onCommit }: Props) {
+export function CheckFields({ defs, values, insights, disabled, evidence, onAttachEvidence, onCommit }: Props) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const initial = useMemo(() => {
     const out: Record<string, string> = {};
@@ -101,7 +116,7 @@ export function CheckFields({ defs, values, insights, disabled, onCommit }: Prop
         {defs.map((def) => {
           const blank = isBlank(values[def.key]);
           return (
-            <label key={def.key} className={cn('block', (def.kind === 'table' || def.kind === 'longtext') && 'sm:col-span-2')}>
+            <label key={def.key} className={cn('block', (def.kind === 'table' || def.kind === 'longtext' || def.kind === 'evidence') && 'sm:col-span-2')}>
               <span className="flex items-baseline gap-1.5 text-[11.5px] text-ink-secondary">
                 {def.label}
                 {def.unit ? <span className="text-ink-muted">({def.unit})</span> : null}
@@ -142,6 +157,15 @@ export function CheckFields({ defs, values, insights, disabled, onCommit }: Prop
                   selected={Array.isArray(values[def.key]?.value) ? (values[def.key]!.value as string[]) : []}
                   disabled={disabled}
                   onChange={(next) => onCommit({ [def.key]: next.length ? next : null })}
+                />
+              ) : def.kind === 'evidence' ? (
+                <EvidenceField
+                  def={def}
+                  value={values[def.key]}
+                  evidence={evidence ?? []}
+                  disabled={disabled}
+                  onAttach={onAttachEvidence}
+                  onChange={(ids) => onCommit({ [def.key]: ids.length ? ids : null })}
                 />
               ) : def.kind === 'table' ? (
                 <TableField def={def} value={values[def.key]} disabled={disabled} onChange={(rows) => onCommit({ [def.key]: rows })} />
@@ -341,6 +365,147 @@ function Segmented({ options, value, disabled, onChange }: { options: string[]; 
  * blur like every other field, and the whole set goes at once so a half-typed
  * row cannot land as a real one.
  */
+/**
+ * A citation, picked from the register rather than typed.
+ *
+ * This field kind was declared on five checks — "Site photographs", "Drawing
+ * register", "Peer review report" — and fell through the renderer chain to a
+ * plain text box, so a person typed a filename into it and nothing pointed at
+ * anything. Two consequences, and the second is the one that bites: a check
+ * could read as evidenced while citing a document that was never filed, and
+ * the field held one string where every label on it is plural.
+ *
+ * Three things this deliberately does:
+ *
+ * - **Filters by what the field asks for, and lets you past the filter.** A
+ *   photographs field offers photographs first, because scrolling ninety rows
+ *   to find one is how people stop citing anything. But the filter is a lens,
+ *   never a gate: "show everything" is always one click away, since the
+ *   register's own kinds are a person's judgement and this control has no
+ *   business overruling them.
+ * - **Says when a cited row is still a gap.** An expected-but-not-received
+ *   document is a legitimate thing to cite — it is what the check is waiting
+ *   for — but a reader must not mistake it for one on the file.
+ * - **Takes an upload directly.** The alternative is: leave the check, go to
+ *   the evidence register, create a row, upload, come back, find the row. Four
+ *   of those five steps are where the citation gets abandoned.
+ */
+function EvidenceField({
+  def,
+  value,
+  evidence,
+  disabled,
+  onAttach,
+  onChange,
+}: {
+  def: CheckFieldDef;
+  value: CheckFieldValue | undefined;
+  evidence: EvidenceRecord[];
+  disabled?: boolean;
+  onAttach?: (def: CheckFieldDef, files: File[]) => Promise<string[]>;
+  onChange: (ids: string[]) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const selected = useMemo(() => (Array.isArray(value?.value) ? (value!.value as string[]) : []), [value]);
+
+  const wantsImage = def.accepts === 'image';
+  const looksRight = (row: EvidenceRecord) =>
+    !wantsImage || row.kind === 'photograph' || (row.attachments ?? []).some((a) => a.mimeType.startsWith('image/'));
+
+  const candidates = evidence.filter((row) => !selected.includes(row.id) && (showAll || looksRight(row)));
+  const hidden = evidence.filter((row) => !selected.includes(row.id) && !looksRight(row)).length;
+
+  return (
+    <div className="mt-0.5 space-y-1.5">
+      {selected.length ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {selected.map((id) => {
+            const row = evidence.find((e) => e.id === id);
+            const gap = row && GAP_STATUS.has(row.status);
+            return (
+              <li
+                key={id}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px]',
+                  gap ? 'border-status-warning/40 bg-status-warning/10 text-ink' : 'border-hairline bg-surface-2 text-ink',
+                )}
+              >
+                <span>{row ? row.title : id}</span>
+                {row ? (
+                  <span className={cn('text-[10.5px]', gap ? 'text-status-warning' : 'text-ink-muted')}>
+                    {gap ? `${EVIDENCE_STATUS_LABEL[row.status]} — not on the file yet` : EVIDENCE_STATUS_LABEL[row.status]}
+                  </span>
+                ) : (
+                  // Only reachable if a row was deleted after being cited; the
+                  // API refuses to record one that never existed.
+                  <span className="text-[10.5px] text-status-critical">no longer on the register</span>
+                )}
+                {!disabled ? (
+                  <button type="button" className="text-ink-muted hover:text-ink" onClick={() => onChange(selected.filter((x) => x !== id))}>
+                    ×
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+
+      {!disabled ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value=""
+            disabled={busy}
+            className="h-7 rounded-md border border-hairline bg-surface px-2 text-[11.5px] text-ink"
+            onChange={(e) => {
+              if (!e.target.value) return;
+              onChange([...selected, e.target.value]);
+              e.target.value = '';
+            }}
+          >
+            <option value="">Cite a document…</option>
+            {candidates.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.title} — {EVIDENCE_STATUS_LABEL[row.status]}
+              </option>
+            ))}
+          </select>
+
+          {onAttach ? (
+            <label className={cn('cursor-pointer text-[11.5px] font-medium text-brand', busy && 'opacity-50')}>
+              {busy ? 'Uploading…' : 'Upload'}
+              <input
+                type="file"
+                multiple
+                className="sr-only"
+                accept={wantsImage ? 'image/*' : undefined}
+                onChange={(e) => {
+                  const files = e.target.files;
+                  if (!files?.length) return;
+                  setBusy(true);
+                  void onAttach(def, [...files])
+                    .then((ids) => onChange([...selected, ...ids]))
+                    .finally(() => {
+                      setBusy(false);
+                      e.target.value = '';
+                    });
+                }}
+              />
+            </label>
+          ) : null}
+
+          {hidden > 0 ? (
+            <button type="button" className="text-[11px] text-ink-muted underline" onClick={() => setShowAll((v) => !v)}>
+              {showAll ? `hide ${hidden} that are not photographs` : `show ${hidden} other row(s)`}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function TableField({
   def,
   value,

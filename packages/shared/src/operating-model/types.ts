@@ -770,6 +770,7 @@ export type ReportBoundSourceKind =
   | 'checks'
   | 'valuation'
   | 'remedial_cost'
+  | 'site_visits'
   | 'changes_since_previous';
 
 /**

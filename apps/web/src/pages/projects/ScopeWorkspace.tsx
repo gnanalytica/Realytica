@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import {
   checkFieldReading,
+  type CheckFieldDef,
   type CheckFieldWrite,
   CHECK_RESULT_LABEL,
   EVIDENCE_STATUS_LABEL,
@@ -92,6 +93,31 @@ export default function ScopeWorkspace() {
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Files dropped straight onto a check field.
+   *
+   * Creates the evidence row AND uploads in one go, because the alternative is
+   * leave the check, open the register, create a row, upload, come back, find
+   * it — and four of those five steps are where a citation gets abandoned.
+   *
+   * The row is titled after the field so the register stays readable to
+   * somebody who never opens this check: "Site photographs — Fire & life
+   * safety" says where it came from, which a filename does not.
+   */
+  async function attachToField(def: CheckFieldDef, files: File[]): Promise<string[]> {
+    if (!check) return [];
+    const record = await api.addEvidence(project.id, {
+      title: `${def.label} — ${check.title}`,
+      kind: def.accepts === 'image' ? 'photograph' : 'document',
+      status: 'received',
+      checkIds: [check.id],
+      assessmentIds: assessment ? [assessment.id] : [],
+    });
+    await api.uploadEvidenceFiles(project.id, record.id, files);
+    setProject(await api.getProject(project.id));
+    return [record.id];
   }
 
   async function save() {
@@ -220,6 +246,8 @@ export default function ScopeWorkspace() {
               values={reading.values}
               insights={reading.insights}
               disabled={busy}
+              evidence={project.evidence}
+              onAttachEvidence={attachToField}
               onCommit={(values) => void saveFields(values)}
             />
             <Field label="Result">

@@ -3,17 +3,23 @@ import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   EVIDENCE_KIND_LABEL,
   EVIDENCE_STATUS_LABEL,
+  CAPTURE_PURPOSES,
+  CAPTURE_PURPOSE_LABEL,
   ENVIRONMENTAL_CONDITION_CAVEAT,
   ENVIRONMENTAL_CONDITION_LABEL,
   FINDING_STATUS_LABEL,
   RICS_RATING_LABEL,
   SCOPE_LABEL,
   SEVERITY_LABEL,
+  describeCapture,
   iso19650Completeness,
   iso19650Name,
   quotesForEvidence,
   ricsConditionRating,
+  type CapturePurpose,
   type EnvironmentalCondition,
+  type EvidenceAttachment,
+  type EvidenceRecord,
   type EvidenceKind,
   type EvidenceStatus,
   type FindingRecord,
@@ -100,6 +106,15 @@ export function EvidenceRegister() {
     }
   }
 
+  async function setCapture(evidenceId: string, fileId: string, body: Parameters<typeof api.setCapture>[3]) {
+    try {
+      await api.setCapture(project.id, evidenceId, fileId, body);
+      setProject(await api.getProject(project.id));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not describe the capture', 'critical');
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -145,18 +160,23 @@ export function EvidenceRegister() {
                     </p>
                   ) : null}
                   {(e.attachments ?? []).length ? (
-                    <p className="mt-1 flex flex-wrap gap-2">
+                    <ul className="mt-1 space-y-1">
                       {e.attachments.map((f) => (
-                        <button
-                          key={f.id}
-                          type="button"
-                          onClick={() => setProofId(e.id)}
-                          className="text-[12px] text-brand underline"
-                        >
-                          {f.fileName}
-                        </button>
+                        <li key={f.id}>
+                          <button type="button" onClick={() => setProofId(e.id)} className="text-[12px] text-brand underline">
+                            {f.fileName}
+                          </button>
+                          {f.mimeType.startsWith('image/') ? (
+                            <CaptureStrip
+                              evidence={e}
+                              attachment={f}
+                              visits={project.siteVisits ?? []}
+                              onChange={(body) => void setCapture(e.id, f.id, body)}
+                            />
+                          ) : null}
+                        </li>
                       ))}
-                    </p>
+                    </ul>
                   ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -471,6 +491,66 @@ function FindingClassification({
         </Select>
         {finding.environmentalCondition ? <span title={ENVIRONMENTAL_CONDITION_CAVEAT}>ASTM E1527 · vocabulary only, no US liability protection</span> : null}
       </span>
+    </div>
+  );
+}
+
+/**
+ * What a photograph says about itself, and the two things a person adds.
+ *
+ * The line above the controls is `describeCapture` — one function, so the
+ * register, the check panel, the report and an agent's reading of a photograph
+ * all say the same sentence with the same caveats. It names the SOURCE of
+ * every fact, because "geotagged" and "somebody says this is the north
+ * boundary" are different strengths of claim.
+ *
+ * Only purpose and visit are editable here. Position and taken-at are the
+ * camera's, and while they can be corrected (on the proof view, where the
+ * photograph is actually visible), doing it from a list of filenames is how a
+ * coordinate gets typed against the wrong shot.
+ */
+function CaptureStrip({
+  evidence,
+  attachment,
+  visits,
+  onChange,
+}: {
+  evidence: EvidenceRecord;
+  attachment: EvidenceAttachment;
+  visits: Array<{ id: string; title: string; visitedOn: string }>;
+  onChange: (body: { purpose?: CapturePurpose; visitId?: string; caption?: string }) => void;
+}) {
+  const capture = attachment.capture;
+  return (
+    <div className="ml-0.5 mt-0.5 space-y-1 border-l border-hairline pl-2">
+      <p className="text-[11px] text-ink-muted">{describeCapture(capture)}</p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Select
+          className="h-6 text-[11px]"
+          value={capture?.purpose ?? ''}
+          onChange={(e) => onChange({ purpose: (e.target.value || undefined) as CapturePurpose | undefined })}
+          aria-label={`Purpose of ${attachment.fileName}`}
+        >
+          <option value="">No purpose recorded</option>
+          {CAPTURE_PURPOSES.map((p) => (
+            <option key={p} value={p}>{CAPTURE_PURPOSE_LABEL[p]}</option>
+          ))}
+        </Select>
+        {visits.length ? (
+          <Select
+            className="h-6 text-[11px]"
+            value={capture?.visitId ?? ''}
+            onChange={(e) => onChange({ visitId: e.target.value })}
+            aria-label={`Visit for ${attachment.fileName}`}
+          >
+            <option value="">Not on a recorded visit</option>
+            {visits.map((v) => (
+              <option key={v.id} value={v.id}>{v.title} — {v.visitedOn}</option>
+            ))}
+          </Select>
+        ) : null}
+        <span className="sr-only">{evidence.title}</span>
+      </div>
     </div>
   );
 }

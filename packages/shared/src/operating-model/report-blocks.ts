@@ -41,7 +41,9 @@
  */
 
 import { LIFECYCLE_STAGE_LABEL, SCOPE_LABEL } from './catalogs';
+import { CAPTURE_PURPOSE_LABEL } from './capture';
 import { remedialCostSummary } from './remedial';
+import { VISIT_LIMITATION_LABEL } from './site-visit';
 import { ENVIRONMENTAL_CONDITION_CAVEAT, ENVIRONMENTAL_CONDITION_LABEL, ricsConditionRating } from './standards';
 import type {
   DdProject,
@@ -72,6 +74,7 @@ export const REPORT_BOUND_SOURCES: readonly ReportBoundSourceKind[] = [
   'checks',
   'valuation',
   'remedial_cost',
+  'site_visits',
   'changes_since_previous',
 ] as const;
 
@@ -92,6 +95,7 @@ export const REPORT_SOURCE_LABEL: Record<ReportBoundSourceKind, string> = {
   checks: 'Checks by scope',
   valuation: 'Indicative valuation',
   remedial_cost: 'Remedial cost by band',
+  site_visits: 'Inspection record',
   changes_since_previous: 'Changes since the previous assessment',
 };
 
@@ -107,6 +111,7 @@ export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
   checks: 'Every check that did not come back compliant, by scope.',
   valuation: 'The most recent valuation run, with its premise and sign-off state.',
   remedial_cost: 'What the open actions cost, banded by when the money falls — with what is still unpriced said out loud.',
+  site_visits: 'Who inspected, when, and what they could not get to. A visit nobody wrote up is named as such.',
   changes_since_previous: 'What a reassessment opened, closed and left unresolved.',
 };
 
@@ -313,6 +318,39 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
       return { lines, recordIds: priced.flatMap((r) => r.actionIds) };
     }
 
+    case 'site_visits': {
+      /*
+       * The limitations are the reason this block exists.
+       *
+       * A report that lists what was inspected and stays silent about what was
+       * not reads as more complete than it is — "no defect found" and "could
+       * not get onto the roof" are indistinguishable to the reader, and only
+       * one of them is worth anything. RICS asks for the limitations for
+       * exactly this reason, so they are printed under each visit rather than
+       * summarised away.
+       */
+      const rows = (project.siteVisits ?? []).filter((v) => scoped(v.assessmentIds));
+      if (!rows.length) return { lines: [], recordIds: [], note: 'No site visit has been recorded on this file.' };
+      const lines: string[] = [];
+      for (const visit of rows) {
+        const photos = project.evidence.reduce(
+          (n, e) => n + e.attachments.filter((a) => a.capture?.visitId === visit.id).length,
+          0,
+        );
+        lines.push(
+          `${visit.visitedOn} — ${visit.title}. ${CAPTURE_PURPOSE_LABEL[visit.purpose]}, by ${visit.surveyor}${visit.accompaniedBy ? ` with ${visit.accompaniedBy}` : ''}${visit.weather ? `. ${visit.weather}` : ''}. ${photos} photograph(s).${visit.status === 'aborted' ? ' Inspection could not be carried out.' : ''}`,
+        );
+        for (const limit of visit.limitations) lines.push(`   Not inspected — ${VISIT_LIMITATION_LABEL[limit.kind].toLowerCase()}: ${limit.what}`);
+        // An empty limitations list is a claim of full access. A visit nobody
+        // wrote up is silence, and the report must not print the second as
+        // though it were the first.
+        if (!visit.limitations.length && !visit.notes?.trim()) {
+          lines.push('   Nothing recorded about what could or could not be inspected on this visit.');
+        }
+      }
+      return { lines, recordIds: rows.map((v) => v.id) };
+    }
+
     case 'changes_since_previous': {
       const rows = project.assessments.filter((a) => a.priorAssessmentId);
       if (!rows.length) return { lines: [], recordIds: [], note: 'No assessment on this file supersedes an earlier one.' };
@@ -438,6 +476,7 @@ export function reportTemplate(kind: string): Array<{ heading: string; source?: 
         { heading: 'Blocking findings', source: bound('findings', { materialOnly: true }) },
         { heading: 'Open actions', source: bound('actions') },
         { heading: 'Remedial cost by band', source: bound('remedial_cost') },
+        { heading: 'Inspection record', source: bound('site_visits') },
       ];
     case 'detailed_dd':
       return [
@@ -447,6 +486,7 @@ export function reportTemplate(kind: string): Array<{ heading: string; source?: 
         { heading: 'Risks', source: bound('risks') },
         { heading: 'Actions', source: bound('actions') },
         { heading: 'Remedial cost by band', source: bound('remedial_cost') },
+        { heading: 'Inspection record', source: bound('site_visits') },
         { heading: 'Decisions', source: bound('decisions') },
         { heading: 'Evidence gaps', source: bound('evidence_gaps') },
         { heading: 'Checks not yet compliant', source: bound('checks') },
