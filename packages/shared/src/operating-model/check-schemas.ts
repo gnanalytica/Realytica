@@ -443,6 +443,45 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
     { key: 'ipms_area', label: 'Area on that IPMS basis', kind: 'area', unit: 'sqm', required: false },
     { key: 'interest', label: 'Interest valued', kind: 'enum', options: ['freehold', 'leasehold', 'development rights'] },
   ],
+  /*
+   * The inputs a valuation actually runs on.
+   *
+   * Every one of these is read by `runValuationApproaches`, and an input
+   * nobody records stops its approach rather than defaulting. `proof:
+   * 'required'` sits on the figures a value moves most on — the rate and the
+   * cost — because those are exactly the ones a valuer is tempted to carry in
+   * their head.
+   */
+  'indicative_valuation.comparable_inputs': [
+    { key: 'rate_per_sqm', label: 'Rate applied', kind: 'money', unit: 'INR/sqm', proof: 'required', from: 'Comparable schedule' },
+    { key: 'rate_basis', label: 'What the rate rests on', kind: 'enum', options: ['inspected comparables', 'reported transactions', 'broker quotes', 'locality median', 'circle/guidance rate'], hint: 'A locality median is a market observation nobody inspected for this asset. Say so here and the report will.' },
+    { key: 'comparable_count', label: 'Comparables behind it', kind: 'number', required: false },
+    { key: 'comparable_schedule', label: 'Comparable schedule', kind: 'evidence', accepts: 'document', required: false },
+    { key: 'net_adjustment_pct', label: 'Net adjustment applied to the comparables', kind: 'percent', unit: '%', required: false, hint: 'Signed. The sum of time, size, location and condition adjustments.' },
+  ],
+  'indicative_valuation.cost_inputs': [
+    { key: 'replacement_rate', label: 'Replacement cost', kind: 'money', unit: 'INR/sqm', proof: 'required', from: 'Cost plan' },
+    { key: 'effective_age_years', label: 'Effective age', kind: 'duration', unit: 'years', from: 'Completion record', hint: 'Effective, not chronological — a well-maintained building is younger than its years.' },
+    { key: 'expected_life_years', label: 'Expected total life', kind: 'duration', unit: 'years', hint: 'RCC framed residential is conventionally taken at 60 years unless the condition survey says otherwise.' },
+    { key: 'depreciation_pct', label: 'Depreciation', kind: 'computed', unit: '%', formula: { op: 'multiply', left: { op: 'divide', left: { op: 'field', key: 'effective_age_years' }, right: { op: 'field', key: 'expected_life_years' } }, right: { op: 'const', value: 100 } } },
+    { key: 'land_rate_per_sqm', label: 'Land rate on plot area', kind: 'money', unit: 'INR/sqm', proof: 'required', from: 'Land comparables or guidance rate' },
+  ],
+  'indicative_valuation.income_inputs': [
+    { key: 'achievable_rent', label: 'Achievable rent', kind: 'money', unit: 'INR/sqm/month', proof: 'required', from: 'Rent roll or lease evidence' },
+    { key: 'vacancy_pct', label: 'Vacancy and non-recovery allowance', kind: 'percent', unit: '%', min: 0, max: 100 },
+    { key: 'opex_pct', label: 'Operating expenses', kind: 'percent', unit: '%', min: 0, max: 100, hint: 'As a share of gross income — management, maintenance, insurance, irrecoverable rates.' },
+    { key: 'cap_rate_pct', label: 'Capitalisation rate', kind: 'percent', unit: '%', proof: 'required', from: 'Yield evidence', hint: 'The rate net income is capitalised at. Not the gross yield.' },
+    { key: 'let_area', label: 'Lettable area', kind: 'area', unit: 'sqm', required: false, hint: 'Leave blank to use the area recorded on Subject identification.' },
+  ],
+  'indicative_valuation.residual_inputs': [
+    { key: 'gdv', label: 'Gross development value', kind: 'money', unit: 'INR', proof: 'required', from: 'Development appraisal' },
+    { key: 'construction_cost', label: 'Construction cost', kind: 'money', unit: 'INR', proof: 'required', from: 'Cost plan' },
+    { key: 'professional_fees_pct', label: 'Professional fees', kind: 'percent', unit: '%', hint: 'On construction cost — design, PMC, statutory.' },
+    { key: 'finance_pct', label: 'Finance cost', kind: 'percent', unit: '%', hint: 'On construction cost over the build period.' },
+    { key: 'marketing_pct', label: 'Marketing and disposal', kind: 'percent', unit: '%', hint: 'On GDV.' },
+    { key: 'developer_profit_pct', label: 'Developer’s required profit', kind: 'percent', unit: '%', proof: 'expected', hint: 'On GDV. The number that decides whether a developer would take the site at all.' },
+    { key: 'build_months', label: 'Build period', kind: 'duration', unit: 'months', required: false },
+  ],
   'indicative_valuation.dates': [
     { key: 'valuation_date', label: 'Valuation date', kind: 'date' },
     { key: 'inspection_date', label: 'Inspection date', kind: 'date' },
@@ -576,6 +615,31 @@ export const CHECK_INSIGHT_RULES: Record<string, CheckInsightRule[]> = {
       whenIn: ['in hand'],
       severity: 'low',
       say: '{row} has no validity date, so there is nothing to diarise or to test against completion.',
+    },
+  ],
+  'indicative_valuation.cost_inputs': [
+    {
+      kind: 'compare',
+      fields: ['effective_age_years', 'expected_life_years'],
+      tolerance: 10,
+      severity: 'low',
+      say: 'Effective age {a} against an expected life of {b}. Check the pair — depreciation is the difference between a replacement cost and a value.',
+    },
+  ],
+  'indicative_valuation.income_inputs': [
+    {
+      kind: 'require',
+      fields: ['cap_rate_pct'],
+      severity: 'high',
+      say: 'No capitalisation rate recorded, so the income approach cannot run. A gross yield is not a cap rate — one is rent over price, the other is NET income over price.',
+    },
+  ],
+  'indicative_valuation.residual_inputs': [
+    {
+      kind: 'require',
+      fields: ['developer_profit_pct'],
+      severity: 'high',
+      say: 'No developer’s profit recorded. A residual without it is not an appraisal — it is the number a developer would pay if they worked for nothing.',
     },
   ],
   'indicative_valuation.subject': [

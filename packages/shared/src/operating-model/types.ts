@@ -35,6 +35,7 @@ import type { CaptureFacts } from './capture';
 import type { PhotoObservation } from './photo-observation';
 import type { SheetRecord } from './geo-sheet';
 import type { SiteVisitRecord } from './site-visit';
+import type { ValuationWorking } from './valuation-run';
 
 /* ------------------------------------------------------------------ */
 /* Catalog keys                                                        */
@@ -912,10 +913,27 @@ export interface ValuationRun {
   landValue?: number;
   buildingReplacement?: number;
   comparableValue?: number;
+  /**
+   * Zero when no approach had all of its inputs.
+   *
+   * `working.reconciliation.indicated` is null in that case and IS the honest
+   * answer; this stays a number only because every reader of it predates the
+   * working and expects one. Anything rendering a value must check
+   * `working.reconciliation.indicated` first — a valuation of zero and a
+   * valuation that could not be computed are different facts.
+   */
   indicatedValue: number;
   low: number;
   high: number;
   currency: 'INR' | 'EUR';
+  /**
+   * The formula, the inputs, where each came from, and the working.
+   *
+   * Optional only because runs written before it exists load without one.
+   * Everything new carries it, and it is what makes the number checkable
+   * rather than merely printed.
+   */
+  working?: ValuationWorking;
   ibbi: IbbiValuationSections;
   createdAt: string;
   createdBy: string;

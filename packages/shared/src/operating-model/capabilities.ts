@@ -18,6 +18,8 @@ import {
   packCompleteness,
   recommendedDdTypes,
 } from './operations';
+import { runValuationApproaches } from './valuation-run';
+import { VALUATION_METHOD_LABEL } from './valuation-model';
 import type { CaptureFacts } from './capture';
 import type { PhotoObservation } from './photo-observation';
 import type {
@@ -156,60 +158,34 @@ function defaultPremise(project: DdProject): ValuationPremise {
 export function computeIndicativeValuation(project: DdProject, actor = 'operator'): Omit<ValuationRun, 'id' | 'createdAt' | 'createdBy' | 'status' | 'signOff'> {
   ensureProjectShape(project);
   const locality = matchProjectLocality(project);
-  const landArea = project.landAreaSqm ?? 0;
-  const builtUp = project.builtUpAreaSqm ?? 0;
-  const saleable = project.saleableAreaSqm || builtUp;
-  const landRate = locality?.medianLandRatePerSqm ?? 18_000;
-  const builtRate = locality?.medianPricePerSqm ?? 85_000;
-  const replacement = locality?.replacementCostPerSqm ?? 45_000;
-  const yieldRate = locality?.grossYield ?? 0.04;
+  const working = runValuationApproaches(project, locality ?? undefined);
+  const { reconciliation } = working;
 
-  const landValue = landArea > 0 ? landArea * landRate : undefined;
-  const buildingReplacement = builtUp > 0 ? builtUp * replacement : undefined;
-  const comparableValue = saleable > 0 ? saleable * builtRate : undefined;
-  const costValue = (landValue ?? 0) + (buildingReplacement ?? 0);
-  const incomeValue = saleable > 0 ? (saleable * builtRate * yieldRate) / 0.07 : undefined;
-
-  const approaches = [
-    comparableValue
-      ? { approach: 'market' as const, amount: comparableValue, notes: `Saleable ${saleable.toLocaleString()} sqm × ${inr(builtRate)}/sqm locality median.`, weight: 0.4 }
-      : null,
-    costValue > 0
-      ? { approach: 'cost' as const, amount: costValue, notes: `Land ${inr(landValue ?? 0)} + replacement ${inr(buildingReplacement ?? 0)}.`, weight: 0.3 }
-      : null,
-    incomeValue
-      ? { approach: 'income' as const, amount: incomeValue, notes: `Stabilised income capitalised at 7% using ${((yieldRate) * 100).toFixed(1)}% gross yield.`, weight: 0.15 }
-      : null,
-    landValue && buildingReplacement
-      ? {
-          approach: 'residual' as const,
-          amount: Math.max(0, (comparableValue ?? 0) - buildingReplacement),
-          notes: 'GDV less replacement cost as a residual land check. Not a full development appraisal.',
-          weight: 0.15,
-        }
-      : null,
-  ].filter((a): a is NonNullable<typeof a> => a !== null);
-
-  const weightSum = approaches.reduce((n, a) => n + a.weight, 0) || 1;
-  const indicatedValue = approaches.reduce((n, a) => n + a.amount * (a.weight / weightSum), 0);
   const relied = project.evidence.filter((e) => e.used);
   const considered = project.evidence.filter((e) => e.considered && !e.used);
   const gaps = project.evidence.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested');
   const legalFindings = project.findings.filter((f) => (f.discipline === 'legal' || f.discipline === 'regulatory') && f.status !== 'closed' && f.status !== 'rejected');
 
+  const cost = working.runs.find((r) => r.method === 'depreciated_replacement_cost');
+  const comparable = working.runs.find((r) => r.method === 'comparable_rate');
+
   return {
     localityId: locality?.id,
     localityLabel: locality ? `${locality.locality}, ${locality.city}` : undefined,
-    landValue,
-    buildingReplacement,
-    comparableValue,
-    indicatedValue,
-    low: indicatedValue * 0.88,
-    high: indicatedValue * 1.12,
+    // Kept for the readers that predate the working. Each is the amount of the
+    // approach that produced it, or undefined when that approach did not run —
+    // never a partial figure standing in for one that failed.
+    landValue: cost?.steps.find((s) => s.label === 'Land')?.value,
+    buildingReplacement: cost?.steps.find((s) => s.label === 'Less depreciation')?.value,
+    comparableValue: comparable?.amount ?? undefined,
+    indicatedValue: reconciliation.indicated ?? 0,
+    low: reconciliation.low ?? 0,
+    high: reconciliation.high ?? 0,
     currency: project.currency,
+    working,
     ibbi: {
       instruction: `Indicative decision-support valuation of ${project.name} for internal DD. Intended audience: project owner / investment committee. This is not a certified valuation.`,
-      subject: `${project.name}, ${project.location}, ${project.city}. Land ${landArea.toLocaleString() || 'n/a'} sqm, BUA ${builtUp.toLocaleString() || 'n/a'} sqm, saleable ${saleable.toLocaleString() || 'n/a'} sqm. Stage: ${LIFECYCLE_STAGE_LABEL[project.currentStage]}.`,
+      subject: `${project.name}, ${project.location}, ${project.city}. Land ${(project.landAreaSqm ?? 0).toLocaleString() || 'n/a'} sqm, BUA ${(project.builtUpAreaSqm ?? 0).toLocaleString() || 'n/a'} sqm. Valued on ${working.area.value ? `${working.area.value.toLocaleString()} sqm — ${working.area.label}` : 'no recorded area'}. Stage: ${LIFECYCLE_STAGE_LABEL[project.currentStage]}.`,
       dates: {
         valuationDate: nowIso().slice(0, 10),
         evidenceCutoff: nowIso().slice(0, 10),
@@ -219,13 +195,18 @@ export function computeIndicativeValuation(project: DdProject, actor = 'operator
       legalPlanningAssumptions: legalFindings.length
         ? legalFindings.map((f) => `${f.severity}: ${f.title}`).join('; ')
         : 'No open legal/planning findings recorded. Absence of findings is not a clean title.',
-      approaches,
-      reconciliation: indicatedValue
-        ? `Weighted indication ${inr(indicatedValue)} (range ${inr(indicatedValue * 0.88)}–${inr(indicatedValue * 1.12)}). Market and cost are the primary anchors; income and residual are cross-checks. Gaps in evidence reduce confidence and are listed, not implied as nil.`
-        : 'Insufficient area inputs to compute a range. Record land and built-up area on the project.',
+      approaches: working.runs
+        .filter((r) => r.amount !== null)
+        .map((r) => ({ approach: r.approach, amount: r.amount!, notes: `${r.formula}. ${r.weightBasis}`, weight: r.weight })),
+      reconciliation:
+        reconciliation.indicated === null
+          ? `No approach could be run. ${reconciliation.skippedMethods.map((m) => `${VALUATION_METHOD_LABEL[m.method]} — ${m.because}`).join('; ')}. Record those inputs on the Indicative valuation scope and run again.`
+          : `${inr(reconciliation.indicated)} (${inr(reconciliation.low ?? 0)}–${inr(reconciliation.high ?? 0)}). ${reconciliation.spreadBasis}${reconciliation.skippedMethods.length ? ` Not run: ${reconciliation.skippedMethods.map((m) => `${VALUATION_METHOD_LABEL[m.method]} (${m.because})`).join('; ')}.` : ''}`,
       caveats: [
         'Indicative only. Not an IBBI-registered valuer’s report and not to be used as certified value.',
-        'Locality rates are reference medians, not a matched comparable set inspected for this asset.',
+        ...(working.runs.some((r) => r.inputs.some((i) => i.source.kind === 'locality'))
+          ? ['One or more rates are locality reference medians rather than comparables inspected for this asset. Each is marked on the input it was used for.']
+          : []),
         `${gaps.length} evidence gap(s) remain. Relied-upon: ${relied.length}. Considered not used: ${considered.length}.`,
         actor ? `Prepared by ${actor} from live project registers.` : 'Prepared from live project registers.',
       ],
