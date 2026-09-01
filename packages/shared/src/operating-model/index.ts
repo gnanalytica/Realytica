@@ -23,6 +23,8 @@ export * from './check-schemas';
 export * from './brevity';
 export * from './graphrag';
 export * from './reference-shelf';
+export * from './standards';
+export * from './remedial';
 export * from './shelf-passages';
 export * from './portals';
 export * from './planning-overlay';

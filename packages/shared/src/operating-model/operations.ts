@@ -2,6 +2,7 @@ import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, checksForSco
 import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
+import type { EnvironmentalCondition, RemedialBand, RicsEscalation } from './standards';
 import type {
   ActionRecord,
   Asset,
@@ -205,6 +206,8 @@ export function addAsset(project: DdProject, input: CreateAssetInput, actor = DE
     parentId: input.parentId,
     name: input.name.trim(),
     assetType: input.assetType.trim(),
+    uniclassCode: input.uniclassCode?.trim() || undefined,
+    uniclassTitle: input.uniclassTitle?.trim() || undefined,
     description: input.description,
     zone: input.zone,
     currentStage: stage,
@@ -237,6 +240,8 @@ export function patchAsset(project: DdProject, assetId: string, input: PatchAsse
   const previous = asset.name;
   if (input.name !== undefined) asset.name = input.name.trim();
   if (input.assetType !== undefined) asset.assetType = input.assetType.trim();
+  if (input.uniclassCode !== undefined) asset.uniclassCode = input.uniclassCode.trim() || undefined;
+  if (input.uniclassTitle !== undefined) asset.uniclassTitle = input.uniclassTitle.trim() || undefined;
   if (input.description !== undefined) asset.description = input.description;
   if (input.zone !== undefined) asset.zone = input.zone;
   if (input.responsible !== undefined) asset.responsible = input.responsible;
@@ -707,6 +712,7 @@ export function addEvidence(project: DdProject, input: CreateEvidenceInput, acto
     scopeInstanceIds: input.scopeInstanceIds ?? [],
     checkIds: input.checkIds ?? [],
     fileName: input.fileName,
+    iso19650: input.iso19650,
     attachments: [],
     quotes: input.quotes,
     extractionNotes: input.extractionNotes,
@@ -774,6 +780,8 @@ export function addFinding(project: DdProject, input: CreateFindingInput, actor 
     actionIds: [],
     decisionIds: [],
     includeInReport: true,
+    escalation: input.escalation,
+    environmentalCondition: input.environmentalCondition,
     createdAt: at,
     updatedAt: at,
   };
@@ -829,6 +837,8 @@ export function addAction(project: DdProject, input: CreateActionInput, actor = 
     priority: input.priority,
     dueDate: input.dueDate,
     status: 'not_started',
+    costEstimate: input.costEstimate,
+    costBand: input.costBand,
     findingIds: input.findingIds ?? [],
     riskIds: input.riskIds ?? [],
     evidenceIds: input.evidenceIds ?? [],
@@ -849,6 +859,76 @@ export function addAction(project: DdProject, input: CreateActionInput, actor = 
   touch(project, at);
   audit(project, { actor, action: 'create', entityType: 'action', entityId: record.id, newValue: record.title, at });
   refreshProjectDerived(project);
+  return record;
+}
+
+/**
+ * What a remedy costs, and when the money falls.
+ *
+ * Separate from creating the action because the two facts arrive at different
+ * times: an action is raised the moment a defect is found, and priced days or
+ * weeks later when somebody has actually asked a contractor. Folding the
+ * figure into creation would mean either raising actions late or carrying a
+ * zero that reads as free.
+ */
+export function setActionCost(
+  project: DdProject,
+  actionId: string,
+  input: { costEstimate?: number | null; costBand?: RemedialBand | null },
+  actor = DEFAULT_ACTOR,
+): ActionRecord {
+  const record = project.actions.find((a) => a.id === actionId);
+  if (!record) throw new Error('Action not found');
+  if (input.costEstimate !== undefined) {
+    if (input.costEstimate !== null && (!Number.isFinite(input.costEstimate) || input.costEstimate < 0)) {
+      throw new Error('A remedial cost cannot be negative.');
+    }
+    record.costEstimate = input.costEstimate ?? undefined;
+  }
+  if (input.costBand !== undefined) record.costBand = input.costBand ?? undefined;
+  const at = nowIso();
+  record.updatedAt = at;
+  touch(project, at);
+  audit(project, {
+    actor,
+    action: 'patch',
+    entityType: 'action',
+    entityId: record.id,
+    newValue: `${record.costBand ?? 'unbanded'}${typeof record.costEstimate === 'number' ? ` · ${record.costEstimate}` : ''}`,
+    at,
+  });
+  return record;
+}
+
+/**
+ * The two classifications a finding can carry, set after the fact.
+ *
+ * Escalation especially: whether somebody had to be told is often known only
+ * once the surveyor is off site, and it is the one field on a finding whose
+ * absence is itself a fact worth recording — an escalated defect with nobody
+ * named as notified is a gap the report should show, not hide.
+ */
+export function classifyFinding(
+  project: DdProject,
+  findingId: string,
+  input: { escalation?: RicsEscalation | null; environmentalCondition?: EnvironmentalCondition | null },
+  actor = DEFAULT_ACTOR,
+): FindingRecord {
+  const record = project.findings.find((f) => f.id === findingId);
+  if (!record) throw new Error('Finding not found');
+  if (input.escalation !== undefined) record.escalation = input.escalation ?? undefined;
+  if (input.environmentalCondition !== undefined) record.environmentalCondition = input.environmentalCondition ?? undefined;
+  const at = nowIso();
+  record.updatedAt = at;
+  touch(project, at);
+  audit(project, {
+    actor,
+    action: 'patch',
+    entityType: 'finding',
+    entityId: record.id,
+    newValue: [record.escalation?.immediateAction ? 'immediate action' : null, record.environmentalCondition ?? null].filter(Boolean).join(' · ') || 'classification cleared',
+    at,
+  });
   return record;
 }
 

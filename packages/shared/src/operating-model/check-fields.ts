@@ -316,6 +316,24 @@ export function checkInsights(defs: CheckFieldDef[], values: Record<string, Chec
       if (Object.keys(values).length === 0) continue;
       if (!isBlank(value)) continue;
       out.push({ severity: rule.severity, text: fill(rule.say, {}), fields: [aKey!], computed: true });
+      continue;
+    }
+
+    if (rule.kind === 'require_if') {
+      // The gate has to have been answered before its consequence can be
+      // demanded. An unanswered gate is a question, not a shortfall.
+      const [gateKey, needKey] = rule.fields;
+      const gate = values[gateKey!];
+      if (isBlank(gate)) continue;
+      const answer = String(gate!.value);
+      if (rule.whenIn && !rule.whenIn.includes(answer)) continue;
+      if (!isBlank(values[needKey!])) continue;
+      out.push({
+        severity: rule.severity,
+        text: fill(rule.say, { a: formatFieldValue(byKey.get(gateKey!)!, gate) }),
+        fields: [gateKey!, needKey!],
+        computed: true,
+      });
     }
   }
 

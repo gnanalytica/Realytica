@@ -19,6 +19,18 @@
  */
 
 import type { CheckFieldDef, CheckInsightRule } from './types';
+import { areaBasisIsUndefined } from './standards';
+
+/**
+ * The bases the Indian market actually quotes in, and which of them mean
+ * anything.
+ *
+ * The undefined list is DERIVED from `standards.ts` rather than typed out
+ * again here. Two hand-maintained lists of the same fact drift, and the one
+ * that drifts is always the one guarding the warning.
+ */
+const AREA_BASIS_OPTIONS = ['carpet', 'built-up', 'super built-up'];
+const UNDEFINED_AREA_BASES = AREA_BASIS_OPTIONS.filter(areaBasisIsUndefined);
 
 /** Field declarations, keyed by the check definition id. */
 export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
@@ -370,9 +382,41 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
     { key: 'intended_user', label: 'Intended user', kind: 'text' },
     { key: 'reliance_permitted', label: 'Reliance permitted by third parties', kind: 'boolean', control: 'switch' },
   ],
+  // Three bases were offered here as if they were equivalent. Only carpet has
+  // a statutory definition — RERA s.2(k) — and super built-up has none at all,
+  // which is why RERA stopped apartments being sold on it. So the quoted basis
+  // is recorded as what it is (what the market said), and the figure that can
+  // actually be checked is recorded beside it.
   'indicative_valuation.subject': [
-    { key: 'area_basis', label: 'Area basis', kind: 'enum', control: 'radio', options: ['carpet', 'built-up', 'super built-up'] },
-    { key: 'area', label: 'Area on that basis', kind: 'area', unit: 'sqm', proof: 'required', from: 'Approved drawings' },
+    {
+      key: 'quoted_basis',
+      label: 'Area basis as quoted',
+      kind: 'enum',
+      control: 'radio',
+      options: AREA_BASIS_OPTIONS,
+      hint: 'What the seller or the brochure states. Only carpet is defined in law.',
+    },
+    { key: 'quoted_area', label: 'Area on the quoted basis', kind: 'area', unit: 'sqm', proof: 'required', from: 'Approved drawings' },
+    {
+      key: 'rera_carpet_area',
+      label: 'RERA carpet area',
+      kind: 'area',
+      unit: 'sqm',
+      required: false,
+      proof: 'expected',
+      from: 'RERA registration or approved drawings',
+      hint: 'RERA s.2(k). The only figure two parties can arrive at independently — record it whenever the quote is on anything else.',
+    },
+    {
+      key: 'ipms_basis',
+      label: 'IPMS basis measured to',
+      kind: 'enum',
+      required: false,
+      options: ['IPMS 1', 'IPMS 2', 'IPMS 3', 'IPMS 4'],
+      from: 'Measured survey',
+      hint: '1 whole building to the outer face · 2 whole building internally · 3 exclusive occupant area · 4 component areas.',
+    },
+    { key: 'ipms_area', label: 'Area on that IPMS basis', kind: 'area', unit: 'sqm', required: false },
     { key: 'interest', label: 'Interest valued', kind: 'enum', options: ['freehold', 'leasehold', 'development rights'] },
   ],
   'indicative_valuation.dates': [
@@ -480,5 +524,20 @@ export const CHECK_INSIGHT_RULES: Record<string, CheckInsightRule[]> = {
   ],
   'schedule_progress.forecast_completion': [
     { kind: 'before', fields: ['contractual_completion', 'forecast_completion'], severity: 'high', say: 'Contractual completion is {a} and the forecast is {b} — the forecast is later, so liquidated damages are already in play.' },
+  ],
+  'indicative_valuation.subject': [
+    {
+      kind: 'require_if',
+      fields: ['quoted_basis', 'rera_carpet_area'],
+      whenIn: UNDEFINED_AREA_BASES,
+      severity: 'high',
+      say: 'The area is quoted on {a}, which has no statutory definition — the loading behind it is at the seller’s discretion. Record the RERA carpet area beside it, or the stated area cannot be checked against anything.',
+    },
+    {
+      kind: 'require_if',
+      fields: ['ipms_basis', 'ipms_area'],
+      severity: 'low',
+      say: 'An IPMS basis is stated with no area measured on it.',
+    },
   ],
 };

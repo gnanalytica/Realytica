@@ -10,10 +10,12 @@ import {
   PROJECT_ARCHETYPES,
   SCOPE_DEFINITIONS,
   addAction,
+  setActionCost,
   addAsset,
   addDecision,
   addEvidence,
   addFinding,
+  classifyFinding,
   addRisk,
   attachEvidenceFile,
   buildProjectGraph,
@@ -104,10 +106,12 @@ import {
   changeStageBodySchema,
   createActionBodySchema,
   createAssessmentBodySchema,
+  classifyFindingBodySchema,
   createAssetBodySchema,
   createDecisionBodySchema,
   createEvidenceBodySchema,
   createFindingBodySchema,
+  setActionCostBodySchema,
   createProjectBodySchema,
   createRiskBodySchema,
   editReportBlockBodySchema,
@@ -1431,6 +1435,26 @@ projectsRouter.patch('/:projectId/findings/:findingId', async (req, res) => {
   }
 });
 
+projectsRouter.patch('/:projectId/findings/:findingId/classification', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = classifyFindingBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = classifyFinding(project, req.params.findingId, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Classified finding “${record.title}”.`, { citedNodeIds: [record.id] });
+    res.json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 projectsRouter.post('/:projectId/risks', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -1497,6 +1521,26 @@ projectsRouter.patch('/:projectId/actions/:actionId', async (req, res) => {
   try {
     const record = patchRecordStatus(project, project.actions, req.params.actionId, parsed.data.status as never, 'action', actorOf(parsed.data));
     await persistPaneWrite(project, `Updated action “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
+    res.json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+projectsRouter.patch('/:projectId/actions/:actionId/cost', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = setActionCostBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = setActionCost(project, req.params.actionId, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Priced action “${record.title}”.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);

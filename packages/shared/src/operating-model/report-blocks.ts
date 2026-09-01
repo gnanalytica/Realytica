@@ -41,6 +41,8 @@
  */
 
 import { LIFECYCLE_STAGE_LABEL, SCOPE_LABEL } from './catalogs';
+import { remedialCostSummary } from './remedial';
+import { ENVIRONMENTAL_CONDITION_CAVEAT, ENVIRONMENTAL_CONDITION_LABEL, ricsConditionRating } from './standards';
 import type {
   DdProject,
   ReportBlock,
@@ -69,6 +71,7 @@ export const REPORT_BOUND_SOURCES: readonly ReportBoundSourceKind[] = [
   'dd_progress',
   'checks',
   'valuation',
+  'remedial_cost',
   'changes_since_previous',
 ] as const;
 
@@ -88,6 +91,7 @@ export const REPORT_SOURCE_LABEL: Record<ReportBoundSourceKind, string> = {
   dd_progress: 'DD progress',
   checks: 'Checks by scope',
   valuation: 'Indicative valuation',
+  remedial_cost: 'Remedial cost by band',
   changes_since_previous: 'Changes since the previous assessment',
 };
 
@@ -102,6 +106,7 @@ export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
   dd_progress: 'Each assessment’s completion, from its checks.',
   checks: 'Every check that did not come back compliant, by scope.',
   valuation: 'The most recent valuation run, with its premise and sign-off state.',
+  remedial_cost: 'What the open actions cost, banded by when the money falls — with what is still unpriced said out loud.',
   changes_since_previous: 'What a reassessment opened, closed and left unresolved.',
 };
 
@@ -179,7 +184,22 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
         .filter((f) => (source.materialOnly ? MATERIAL.has(f.severity) : true))
         .filter((f) => (source.discipline ? f.discipline === source.discipline : true));
       return {
-        lines: rows.map((f) => `${f.severity.toUpperCase()} · ${SCOPE_LABEL[f.discipline]} · ${f.title} — ${f.description}`),
+        // The condition rating leads, because it is the grading a reader of a
+        // TDD report already knows how to read; the severity stays beside it
+        // rather than being replaced by it, since four grades is the finer
+        // instrument and the report should not pretend otherwise.
+        lines: rows.map((f) => {
+          const rating = ricsConditionRating(f.severity);
+          const head = `[${rating}] ${f.severity.toUpperCase()} · ${SCOPE_LABEL[f.discipline]} · ${f.title} — ${f.description}`;
+          const tail: string[] = [];
+          if (f.escalation?.immediateAction) {
+            tail.push(
+              `Immediate action${f.escalation.notifiedTo ? `; ${f.escalation.notifiedTo} notified${f.escalation.notifiedAt ? ` on ${f.escalation.notifiedAt}` : ''}` : ' — nobody recorded as notified'}.`,
+            );
+          }
+          if (f.environmentalCondition) tail.push(`${ENVIRONMENTAL_CONDITION_LABEL[f.environmentalCondition]}. ${ENVIRONMENTAL_CONDITION_CAVEAT}`);
+          return tail.length ? `${head} ${tail.join(' ')}` : head;
+        }),
         recordIds: rows.map((f) => f.id),
       };
     }
@@ -260,6 +280,37 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
         ],
         recordIds: [run.id],
       };
+    }
+
+    case 'remedial_cost': {
+      // Banded, and honest about its own gaps. A cost table that prints a
+      // total while sixteen actions sit unpriced is the single most
+      // load-bearing number in a TDD report and the easiest one to read as
+      // complete, so the shortfall is a line, not a footnote somebody drops.
+      const summary = remedialCostSummary(project, { openOnly: source.openOnly !== false });
+      const priced = summary.rows.filter((r) => r.count > 0);
+      if (!priced.length && !summary.unbanded) {
+        return { lines: [], recordIds: [], note: 'No open action on this file carries a remedial cost band.' };
+      }
+      const money = (n: number) => `${summary.currency} ${Math.round(n).toLocaleString('en-IN')}`;
+      const lines = priced.map((r) => {
+        const unpriced = r.count - r.costed;
+        // A band where nothing has been priced must NOT print a zero. "INR 0
+        // across 3 actions" reads as "these are free", which is the exact
+        // opposite of what an unpriced band means, and it is the reading a
+        // buyer would act on.
+        if (r.costed === 0) return `${r.label}: ${r.count} action(s), none of them priced yet.`;
+        return `${r.label}: ${money(r.total)} across ${r.count} action(s)${unpriced ? ` — ${unpriced} of them not yet priced` : ''}.`;
+      });
+      // Same rule at the footer: a total of zero is not a cheap file, it is an
+      // unpriced one, and only one of those two readings is true here.
+      lines.push(
+        summary.total > 0
+          ? `Total of what has been priced: ${money(summary.total)}.`
+          : 'Nothing on this file has been priced yet, so there is no total to give.',
+      );
+      if (summary.unbanded) lines.push(`${summary.unbanded} open action(s) carry no band, and are not in that total.`);
+      return { lines, recordIds: priced.flatMap((r) => r.actionIds) };
     }
 
     case 'changes_since_previous': {
@@ -381,7 +432,13 @@ export function reportTemplate(kind: string): Array<{ heading: string; source?: 
         { heading: 'Basis and caveats', text: 'Indicative only, computed from the registers on this file. It is not a certified IBBI valuation and must not be relied on as one.' },
       ];
     case 'handover_readiness':
-      return [opening, { heading: 'DD progress', source: bound('dd_progress') }, { heading: 'Blocking findings', source: bound('findings', { materialOnly: true }) }, { heading: 'Open actions', source: bound('actions') }];
+      return [
+        opening,
+        { heading: 'DD progress', source: bound('dd_progress') },
+        { heading: 'Blocking findings', source: bound('findings', { materialOnly: true }) },
+        { heading: 'Open actions', source: bound('actions') },
+        { heading: 'Remedial cost by band', source: bound('remedial_cost') },
+      ];
     case 'detailed_dd':
       return [
         opening,
@@ -389,6 +446,7 @@ export function reportTemplate(kind: string): Array<{ heading: string; source?: 
         { heading: 'Findings', source: bound('findings') },
         { heading: 'Risks', source: bound('risks') },
         { heading: 'Actions', source: bound('actions') },
+        { heading: 'Remedial cost by band', source: bound('remedial_cost') },
         { heading: 'Decisions', source: bound('decisions') },
         { heading: 'Evidence gaps', source: bound('evidence_gaps') },
         { heading: 'Checks not yet compliant', source: bound('checks') },

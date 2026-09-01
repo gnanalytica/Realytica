@@ -69,9 +69,34 @@ export const createProjectBodySchema = z.object({
   actor: actorSchema,
 });
 
+/* The standards' own vocabulary, at the door. */
+
+const iso19650RefSchema = z.object({
+  originator: z.string().trim().max(12).optional(),
+  volume: z.string().trim().max(12).optional(),
+  level: z.string().trim().max(12).optional(),
+  type: z.string().trim().max(12).optional(),
+  role: z.string().trim().max(12).optional(),
+  number: z.string().trim().max(12).optional(),
+});
+
+const ricsEscalationSchema = z.object({
+  immediateAction: z.boolean(),
+  notifiedTo: z.string().trim().max(200).optional(),
+  notifiedAt: z.string().max(40).optional(),
+});
+
+const remedialBandSchema = z.enum(['immediate', 'year_1', 'years_1_5', 'years_5_10']);
+
 export const createAssetBodySchema = z.object({
   name: z.string().trim().min(1).max(200),
   assetType: z.string().trim().min(1).max(120),
+  // Free text on purpose. The suggestions come from a working subset of the
+  // Uniclass Entities table; the table itself is thousands of rows and is
+  // maintained at source, so refusing a code this build has not heard of
+  // would make the field wrong every time NBS publishes.
+  uniclassCode: z.string().trim().max(40).optional(),
+  uniclassTitle: z.string().trim().max(200).optional(),
   parentId: z.string().optional(),
   currentStage: lifecycleStageSchema.optional(),
   zone: z.string().max(120).optional(),
@@ -129,6 +154,7 @@ export const createEvidenceBodySchema = z.object({
   scopeInstanceIds: z.array(z.string()).optional(),
   checkIds: z.array(z.string()).optional(),
   fileName: z.string().max(300).optional(),
+  iso19650: iso19650RefSchema.optional(),
   actor: actorSchema,
 });
 
@@ -154,6 +180,8 @@ export const createFindingBodySchema = z.object({
   assessmentIds: z.array(z.string()).optional(),
   evidenceIds: z.array(z.string()).optional(),
   linkAssessmentIds: z.array(z.string()).optional(),
+  escalation: ricsEscalationSchema.optional(),
+  environmentalCondition: z.enum(['rec', 'hrec', 'crec']).optional(),
   actor: actorSchema,
 });
 
@@ -180,6 +208,8 @@ export const createActionBodySchema = z.object({
   priority: severitySchema,
   description: z.string().max(4000).optional(),
   dueDate: z.string().optional(),
+  costEstimate: z.number().nonnegative().optional(),
+  costBand: remedialBandSchema.optional(),
   findingIds: z.array(z.string()).optional(),
   riskIds: z.array(z.string()).optional(),
   evidenceIds: z.array(z.string()).optional(),
@@ -319,6 +349,25 @@ export const reviewDraftBodySchema = z.object({
 });
 
 export const proposeDraftsBodySchema = z.object({
+  actor: actorSchema,
+});
+
+/**
+ * A remedial cost, set after the action was raised.
+ *
+ * `null` clears rather than being rejected: a figure entered in error has to
+ * be removable, and an omitted key must not read as "clear this", which is why
+ * the two are distinguished instead of both meaning absent.
+ */
+export const setActionCostBodySchema = z.object({
+  costEstimate: z.number().nonnegative().nullable().optional(),
+  costBand: remedialBandSchema.nullable().optional(),
+  actor: actorSchema,
+});
+
+export const classifyFindingBodySchema = z.object({
+  escalation: ricsEscalationSchema.nullable().optional(),
+  environmentalCondition: z.enum(['rec', 'hrec', 'crec']).nullable().optional(),
   actor: actorSchema,
 });
 

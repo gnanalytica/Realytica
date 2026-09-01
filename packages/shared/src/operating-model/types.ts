@@ -23,6 +23,15 @@ import type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } fr
 
 export type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } from './project-ontology';
 
+/**
+ * Type-only, and one direction: `standards.ts` reads `FindingSeverity` from
+ * here, and the records here borrow its vocabulary. Both imports erase, so
+ * there is no cycle at runtime — and the alternative, restating RICS bands and
+ * ASTM conditions as bare string unions in this file, would put the words a
+ * long way from the citation that makes them mean anything.
+ */
+import type { EnvironmentalCondition, Iso19650Ref, RemedialBand, RicsEscalation } from './standards';
+
 /* ------------------------------------------------------------------ */
 /* Catalog keys                                                        */
 /* ------------------------------------------------------------------ */
@@ -381,11 +390,19 @@ export interface CheckFieldValue {
  * author one.
  */
 export interface CheckInsightRule {
-  kind: 'compare' | 'before' | 'require';
+  /**
+   * `require_if` is the conditional one: a field that is only needed because
+   * of what another field says. A quoted super built-up area needs a RERA
+   * carpet figure beside it; a quoted carpet area does not, and a plain
+   * `require` would nag on both.
+   */
+  kind: 'compare' | 'before' | 'require' | 'require_if';
   /** The field keys the rule reads, in the order the template names them. */
   fields: string[];
   /** Relative tolerance for `compare`. Defaults to 1%. */
   tolerance?: number;
+  /** `require_if` only: the gate values that make the second field necessary. */
+  whenIn?: string[];
   /** Template with {a}, {b}, {divergence}, {tolerance}. */
   say: string;
   severity: FindingSeverity;
@@ -461,7 +478,17 @@ export interface Asset {
   id: string;
   parentId?: string;
   name: string;
+  /** This product's own word for what it is — free text, and it stays free. */
   assetType: string;
+  /**
+   * Uniclass 2015 Entities code, when somebody has classified it.
+   *
+   * Optional and additive: `assetType` is what the team calls it, this is what
+   * a cost consultant or a BIM model calls the same thing. Neither replaces
+   * the other, and an unclassified asset is not a defective one.
+   */
+  uniclassCode?: string;
+  uniclassTitle?: string;
   description?: string;
   zone?: string;
   currentStage: LifecycleStage;
@@ -552,6 +579,14 @@ export interface EvidenceRecord {
   supersededById?: string;
   rejectionReason?: string;
   fileName?: string;
+  /**
+   * ISO 19650 information-container reference, as far as it is known.
+   *
+   * The filename it arrived as stays in `fileName` — this is the structured
+   * reading of it, and every part is optional because a diligence pack
+   * collects documents from a dozen sources and most arrive with none of it.
+   */
+  iso19650?: Iso19650Ref;
   attachments: EvidenceAttachment[];
   /** Verbatim DI quotes copied off the ingest card when the person approved. */
   quotes?: Array<{ text: string; page?: number }>;
@@ -592,6 +627,24 @@ export interface FindingRecord {
   duplicateOfId?: string;
   supersededById?: string;
   includeInReport: boolean;
+  /**
+   * RICS keeps "dangerous" apart from "serious", and so does this.
+   *
+   * The condition rating is DERIVED from `severity` — see
+   * `ricsConditionRating` — so there is never a second stored grading to drift
+   * from the first. This is the other half: whether somebody had to be told
+   * before the report was written, which no severity scale can express.
+   */
+  escalation?: RicsEscalation;
+  /**
+   * ASTM E1527 classification, on environmental findings only.
+   *
+   * Vocabulary borrowed, protection not. Always rendered with
+   * `ENVIRONMENTAL_CONDITION_CAVEAT` — the standard's force is a US liability
+   * shield India has no analogue for, and an HREC here says "cleaned up, no
+   * restrictions left" and nothing more.
+   */
+  environmentalCondition?: EnvironmentalCondition;
   createdAt: string;
   updatedAt: string;
 }
@@ -631,6 +684,16 @@ export interface ActionRecord {
   status: ActionStatus;
   comments?: string;
   escalation?: string;
+  /**
+   * What the remedy costs, in the project's currency.
+   *
+   * A buyer does not primarily want a list of defects; they want to know what
+   * has to be spent before completion, in the first year, and over the hold.
+   * That table cannot be built from priorities alone, which is why the figure
+   * and its band sit on the action rather than being inferred from one.
+   */
+  costEstimate?: number;
+  costBand?: RemedialBand;
   findingIds: string[];
   riskIds: string[];
   evidenceIds: string[];
@@ -684,6 +747,7 @@ export type ReportBoundSourceKind =
   | 'dd_progress'
   | 'checks'
   | 'valuation'
+  | 'remedial_cost'
   | 'changes_since_previous';
 
 /**
@@ -1333,6 +1397,8 @@ export interface PatchProjectInput {
 export interface CreateAssetInput {
   name: string;
   assetType: string;
+  uniclassCode?: string;
+  uniclassTitle?: string;
   parentId?: string;
   currentStage?: LifecycleStage;
   zone?: string;
@@ -1343,6 +1409,8 @@ export interface CreateAssetInput {
 export interface PatchAssetInput {
   name?: string;
   assetType?: string;
+  uniclassCode?: string;
+  uniclassTitle?: string;
   description?: string;
   zone?: string;
   responsible?: string;
@@ -1386,6 +1454,7 @@ export interface CreateEvidenceInput {
   scopeInstanceIds?: string[];
   checkIds?: string[];
   fileName?: string;
+  iso19650?: Iso19650Ref;
   quotes?: Array<{ text: string; page?: number }>;
   extractionNotes?: string;
 }
@@ -1403,6 +1472,8 @@ export interface CreateFindingInput {
   assetIds?: string[];
   assessmentIds?: string[];
   evidenceIds?: string[];
+  escalation?: RicsEscalation;
+  environmentalCondition?: EnvironmentalCondition;
 }
 
 export interface CreateRiskInput {
@@ -1427,6 +1498,8 @@ export interface CreateActionInput {
   priority: FindingSeverity;
   description?: string;
   dueDate?: string;
+  costEstimate?: number;
+  costBand?: RemedialBand;
   findingIds?: string[];
   riskIds?: string[];
   evidenceIds?: string[];

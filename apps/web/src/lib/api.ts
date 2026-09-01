@@ -48,7 +48,10 @@ import type {
   DdAssessment,
   CheckInstance,
   EvidenceRecord,
+  EnvironmentalCondition,
   FindingRecord,
+  RemedialBand,
+  RicsEscalation,
   RiskRecord,
   ActionRecord,
   DecisionRecord,
@@ -726,6 +729,12 @@ export const api = {
     request<FindingRecord>(`/projects/${projectId}/findings/${findingId}/links`, { method: 'POST', body: JSON.stringify(body) }),
   patchFinding: (projectId: string, findingId: string, status: string) =>
     request<FindingRecord>(`/projects/${projectId}/findings/${findingId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  /* `null` clears; an omitted key leaves that classification alone. */
+  classifyFinding: (
+    projectId: string,
+    findingId: string,
+    body: { escalation?: RicsEscalation | null; environmentalCondition?: EnvironmentalCondition | null; actor?: string },
+  ) => request<FindingRecord>(`/projects/${projectId}/findings/${findingId}/classification`, { method: 'PATCH', body: JSON.stringify(body) }),
   addRisk: (projectId: string, body: CreateRiskInput & { actor?: string }) =>
     request<RiskRecord>(`/projects/${projectId}/risks`, { method: 'POST', body: JSON.stringify(body) }),
   patchRisk: (projectId: string, riskId: string, status: string) =>
@@ -734,6 +743,11 @@ export const api = {
     request<ActionRecord>(`/projects/${projectId}/actions`, { method: 'POST', body: JSON.stringify(body) }),
   patchAction: (projectId: string, actionId: string, status: string) =>
     request<ActionRecord>(`/projects/${projectId}/actions/${actionId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  setActionCost: (
+    projectId: string,
+    actionId: string,
+    body: { costEstimate?: number | null; costBand?: RemedialBand | null; actor?: string },
+  ) => request<ActionRecord>(`/projects/${projectId}/actions/${actionId}/cost`, { method: 'PATCH', body: JSON.stringify(body) }),
   addDecision: (projectId: string, body: CreateDecisionInput & { actor?: string }) =>
     request<DecisionRecord>(`/projects/${projectId}/decisions`, { method: 'POST', body: JSON.stringify(body) }),
   patchDecision: (projectId: string, decisionId: string, status: string) =>

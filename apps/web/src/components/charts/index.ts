@@ -56,3 +56,6 @@ export type { AreaReconcileChartProps } from './AreaReconcileChart';
 
 export { default as ToleranceChart } from './ToleranceChart';
 export type { ToleranceChartProps } from './ToleranceChart';
+
+export { default as RemedialCostChart } from './RemedialCostChart';
+export type { RemedialCostChartProps } from './RemedialCostChart';

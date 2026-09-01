@@ -25,6 +25,8 @@ import {
   CHECK_FIELDS,
   CHECK_INSIGHT_RULES,
   SCOPE_DEFINITIONS,
+  areaBasisIsUndefined,
+  checkInsights,
   evaluateFormula,
   validateFieldValue,
   type CheckFieldDef,
@@ -254,5 +256,77 @@ describe('the new kinds validate', () => {
     const def: CheckFieldDef = { key: 'p', label: 'Progress', kind: 'percent', unit: '%', min: 0, max: 100 };
     assert.ok('error' in validateFieldValue(def, 140));
     assert.deepEqual(validateFieldValue(def, 60), { value: 60 });
+  });
+});
+
+describe('a stated area basis carries the figure that can be checked', () => {
+  /*
+   * The defect this replaced: `carpet`, `built-up` and `super built-up` were
+   * offered as three equivalent bases. Only the first has a statutory
+   * definition, and the third has none at all — the loading applied to reach it
+   * is at the seller's discretion. A valuation quoting the third and nothing
+   * else has stated a number nobody can arrive at independently.
+   */
+  const subject = CHECK_FIELDS['indicative_valuation.subject']!;
+  const rules = CHECK_INSIGHT_RULES['indicative_valuation.subject']!;
+  const key = (k: string) => subject.find((f) => f.key === k);
+
+  it('records the quoted basis and the RERA carpet figure as different fields', () => {
+    assert.ok(key('quoted_basis'), 'what the market said');
+    assert.ok(key('rera_carpet_area'), 'and what can be verified');
+    assert.equal(key('area_basis'), undefined, 'the single conflated field is gone');
+  });
+
+  it('asks for the carpet area only when the quote is on a basis without one', () => {
+    const rule = rules.find((r) => r.kind === 'require_if' && r.fields[1] === 'rera_carpet_area')!;
+    assert.ok(rule);
+    assert.deepEqual(rule.whenIn, ['built-up', 'super built-up']);
+    assert.ok(!rule.whenIn!.includes('carpet'), 'a carpet quote already is the carpet figure');
+  });
+
+  it('derives that gate list from the standards module rather than restating it', () => {
+    // Two hand-maintained lists of the same fact drift, and the one that drifts
+    // is always the one guarding the warning.
+    const rule = rules.find((r) => r.kind === 'require_if' && r.fields[1] === 'rera_carpet_area')!;
+    for (const basis of rule.whenIn!) assert.equal(areaBasisIsUndefined(basis), true);
+  });
+
+  it('keeps the RERA figure optional so the check is not blocked by it', () => {
+    // It is an insight, not a gate. A valuer who cannot get the carpet area
+    // should be told the quote is unverifiable, not prevented from recording
+    // what the brochure said.
+    assert.equal(key('rera_carpet_area')!.required, false);
+    assert.equal(key('ipms_basis')!.required, false);
+  });
+});
+
+describe('a conditional requirement fires on the answer, not on the blank', () => {
+  const at = '2026-09-01T00:00:00.000Z';
+  const defs: CheckFieldDef[] = [
+    { key: 'basis', label: 'Basis', kind: 'enum', options: ['carpet', 'super built-up'] },
+    { key: 'carpet', label: 'Carpet area', kind: 'area', unit: 'sqm', required: false },
+  ];
+  const rule = { kind: 'require_if' as const, fields: ['basis', 'carpet'], whenIn: ['super built-up'], severity: 'high' as const, say: 'Quoted on {a}, with no carpet figure.' };
+
+  it('fires when the gate is answered the way that needs the second field', () => {
+    const out = checkInsights(defs, { basis: { value: 'super built-up', at, by: 'x' } }, [rule]);
+    assert.equal(out.length, 1);
+    assert.match(out[0]!.text, /super built-up/);
+    assert.deepEqual(out[0]!.fields, ['basis', 'carpet']);
+  });
+
+  it('stays silent when the gate is answered the other way', () => {
+    assert.deepEqual(checkInsights(defs, { basis: { value: 'carpet', at, by: 'x' } }, [rule]), []);
+  });
+
+  it('stays silent while the gate itself is unanswered', () => {
+    // An unanswered gate is a question, not a shortfall. Demanding the
+    // consequence of an answer nobody has given yet is how a form nags.
+    assert.deepEqual(checkInsights(defs, { carpet: { value: null, at, by: 'x' } }, [rule]), []);
+  });
+
+  it('stops once the second field is filled', () => {
+    const values = { basis: { value: 'super built-up', at, by: 'x' }, carpet: { value: 950, at, by: 'x' } };
+    assert.deepEqual(checkInsights(defs, values, [rule]), []);
   });
 });

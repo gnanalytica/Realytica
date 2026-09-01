@@ -3,14 +3,24 @@ import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   EVIDENCE_KIND_LABEL,
   EVIDENCE_STATUS_LABEL,
+  ENVIRONMENTAL_CONDITION_CAVEAT,
+  ENVIRONMENTAL_CONDITION_LABEL,
   FINDING_STATUS_LABEL,
+  RICS_RATING_LABEL,
   SCOPE_LABEL,
   SEVERITY_LABEL,
+  iso19650Completeness,
+  iso19650Name,
   quotesForEvidence,
+  ricsConditionRating,
+  type EnvironmentalCondition,
   type EvidenceKind,
   type EvidenceStatus,
+  type FindingRecord,
   type FindingSeverity,
   type FindingStatus,
+  type Iso19650Ref,
+  type RicsEscalation,
   type ScopeKey,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
@@ -48,6 +58,7 @@ export function EvidenceRegister() {
   const [title, setTitle] = useState('');
   const [kind, setKind] = useState<EvidenceKind>('document');
   const [source, setSource] = useState('');
+  const [iso, setIso] = useState<Iso19650Ref>({});
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -60,10 +71,18 @@ export function EvidenceRegister() {
   async function add() {
     setBusy(true);
     try {
-      await api.addEvidence(project.id, { title, kind, source: source || undefined, status: 'received', assessmentIds: assessmentId ? [assessmentId] : [] });
+      await api.addEvidence(project.id, {
+        title,
+        kind,
+        source: source || undefined,
+        status: 'received',
+        assessmentIds: assessmentId ? [assessmentId] : [],
+        iso19650: Object.values(iso).some(Boolean) ? iso : undefined,
+      });
       setProject(await api.getProject(project.id));
       setOpen(false);
       setTitle('');
+      setIso({});
       toast('Evidence recorded', 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not add evidence', 'critical');
@@ -115,6 +134,16 @@ export function EvidenceRegister() {
                     {e.used ? ' · used' : e.considered ? ' · considered' : ''}
                     {(e.attachments ?? []).length ? ` · ${e.attachments.length} file(s)` : ''}
                   </p>
+                  {e.iso19650 ? (
+                    // Derived from the parts, never stored — the name is a view
+                    // of the reference, and two copies of it would drift.
+                    <p
+                      className="mt-0.5 font-mono text-[11px] text-ink-muted"
+                      title={`ISO 19650 information container name. XX is the standard's own placeholder for a part nobody has recorded — ${iso19650Completeness(e.iso19650).known} of ${iso19650Completeness(e.iso19650).total} known.`}
+                    >
+                      {iso19650Name(project.reference, e.iso19650)}
+                    </p>
+                  ) : null}
                   {(e.attachments ?? []).length ? (
                     <p className="mt-1 flex flex-wrap gap-2">
                       {e.attachments.map((f) => (
@@ -214,6 +243,34 @@ export function EvidenceRegister() {
             </Select>
           </Field>
           <Field label="Source"><Input value={source} onChange={(e) => setSource(e.target.value)} /></Field>
+          {/* Every part optional, and the name still forms. A pack collects
+              documents from a dozen sources and most arrive with none of this
+              known; refusing to name anything until all six are filled would
+              mean naming nothing. Unknown parts become the standard's own XX. */}
+          <Field
+            label="Document reference (ISO 19650)"
+            hint={`Optional, part by part. This one would be named ${iso19650Name(project.reference, iso)}.`}
+          >
+            <div className="grid grid-cols-3 gap-2">
+              {(
+                [
+                  ['originator', 'Originator'],
+                  ['volume', 'Volume'],
+                  ['level', 'Level'],
+                  ['type', 'Type (DR/SP/RP)'],
+                  ['role', 'Role (A/C/S/K/M)'],
+                  ['number', 'Number'],
+                ] as [keyof Iso19650Ref, string][]
+              ).map(([key, label]) => (
+                <Input
+                  key={key}
+                  placeholder={label}
+                  value={iso[key] ?? ''}
+                  onChange={(e) => setIso((prev) => ({ ...prev, [key]: e.target.value }))}
+                />
+              ))}
+            </div>
+          </Field>
         </div>
       </Modal>
     </div>
@@ -258,6 +315,15 @@ export function FindingRegister() {
     }
   }
 
+  async function classify(id: string, body: { escalation?: RicsEscalation | null; environmentalCondition?: EnvironmentalCondition | null }) {
+    try {
+      await api.classifyFinding(project.id, id, body);
+      setProject(await api.getProject(project.id));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not classify', 'critical');
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -282,7 +348,10 @@ export function FindingRegister() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge tone={severityTone(f.severity)}>{SEVERITY_LABEL[f.severity]}</Badge>
+                    {/* Derived from the severity beside it, never stored — see `ricsConditionRating`. */}
+                    <Badge tone={severityTone(f.severity)} title={`RICS condition rating ${ricsConditionRating(f.severity)}: ${RICS_RATING_LABEL[ricsConditionRating(f.severity)]}`}>
+                      {ricsConditionRating(f.severity)} · {SEVERITY_LABEL[f.severity]}
+                    </Badge>
                     <Select value={f.status} onChange={(e) => void setStatus(f.id, e.target.value as FindingStatus)}>
                       {FINDING_STATUSES.map((s) => (
                         <option key={s} value={s}>{FINDING_STATUS_LABEL[s]}</option>
@@ -290,6 +359,7 @@ export function FindingRegister() {
                     </Select>
                   </div>
                 </div>
+                <FindingClassification finding={f} onChange={(body) => void classify(f.id, body)} />
               </LiveRow>
             ))}
           </CardBody>
@@ -325,6 +395,82 @@ export function FindingRegister() {
           </Field>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * The two things a severity cannot say.
+ *
+ * "Serious" and "somebody could be hurt today" are different questions, and
+ * RICS keeps them apart: the rating grades the defect, the escalation records
+ * that a person was told before the report existed. So the toggle is its own
+ * control rather than a fifth severity — and once it is on, the row asks who
+ * was notified, because an escalated defect with nobody named is the gap worth
+ * showing rather than the one worth hiding.
+ *
+ * The environmental class is on every finding rather than only the ESG ones:
+ * contamination surfaces under legal (an indemnity), technical (a slab) and
+ * ESG alike, and hiding the field behind a discipline would mean the finding
+ * that most needs the word cannot carry it.
+ */
+function FindingClassification({
+  finding,
+  onChange,
+}: {
+  finding: FindingRecord;
+  onChange: (body: { escalation?: RicsEscalation | null; environmentalCondition?: EnvironmentalCondition | null }) => void;
+}) {
+  const escalated = finding.escalation?.immediateAction ?? false;
+  const [notified, setNotified] = useState(finding.escalation?.notifiedTo ?? '');
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-ink-muted">
+      <label className="flex items-center gap-1.5">
+        <input
+          type="checkbox"
+          checked={escalated}
+          onChange={(e) =>
+            onChange({
+              escalation: e.target.checked
+                ? { immediateAction: true, notifiedTo: notified.trim() || undefined, notifiedAt: new Date().toISOString().slice(0, 10) }
+                : null,
+            })
+          }
+        />
+        Immediate action
+      </label>
+      {escalated ? (
+        <span className="flex items-center gap-1.5">
+          <Input
+            className="h-6 w-40 text-[11px]"
+            placeholder="Who was told"
+            value={notified}
+            onChange={(e) => setNotified(e.target.value)}
+            onBlur={() =>
+              onChange({ escalation: { immediateAction: true, notifiedTo: notified.trim() || undefined, notifiedAt: finding.escalation?.notifiedAt } })
+            }
+          />
+          {finding.escalation?.notifiedTo ? (
+            <span>notified{finding.escalation.notifiedAt ? ` on ${finding.escalation.notifiedAt}` : ''}</span>
+          ) : (
+            <span className="text-status-warning">nobody recorded as notified</span>
+          )}
+        </span>
+      ) : null}
+      <span className="flex items-center gap-1.5">
+        <Select
+          className="h-6 text-[11px]"
+          value={finding.environmentalCondition ?? ''}
+          onChange={(e) => onChange({ environmentalCondition: (e.target.value || null) as EnvironmentalCondition | null })}
+        >
+          <option value="">Not an environmental finding</option>
+          {(Object.keys(ENVIRONMENTAL_CONDITION_LABEL) as EnvironmentalCondition[]).map((c) => (
+            <option key={c} value={c}>{ENVIRONMENTAL_CONDITION_LABEL[c].split(' — ')[0]}</option>
+          ))}
+        </Select>
+        {finding.environmentalCondition ? <span title={ENVIRONMENTAL_CONDITION_CAVEAT}>ASTM E1527 · vocabulary only, no US liability protection</span> : null}
+      </span>
     </div>
   );
 }

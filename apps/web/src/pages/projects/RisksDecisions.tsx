@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   ACTION_KIND_LABEL,
@@ -6,18 +6,24 @@ import {
   DECISION_STATUS_LABEL,
   DECISION_TYPE_LABEL,
   IMPACT_TYPE_LABEL,
+  REMEDIAL_BANDS,
+  REMEDIAL_BAND_LABEL,
   RISK_STATUS_LABEL,
   SEVERITY_LABEL,
+  remedialCostSummary,
   type ActionKind,
+  type ActionRecord,
   type ActionStatus,
   type DecisionStatus,
   type DecisionType,
   type DdRiskStatus,
   type FindingSeverity,
   type Probability,
+  type RemedialBand,
   type RiskImpactType,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
+import { RemedialCostChart } from '../../components/charts';
 import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
@@ -91,6 +97,17 @@ export function RisksActions() {
     }
   }
 
+  async function setCost(id: string, body: { costEstimate?: number | null; costBand?: RemedialBand | null }) {
+    try {
+      await api.setActionCost(project.id, id, body);
+      setProject(await api.getProject(project.id));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not price the action', 'critical');
+    }
+  }
+
+  const costSummary = useMemo(() => remedialCostSummary(project), [project]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap justify-end gap-2">
@@ -132,23 +149,34 @@ export function RisksActions() {
         {project.actions.length === 0 ? (
           <EmptyState title="No actions" description="Actions turn findings and risks into owned work." />
         ) : (
-          <Card>
-            <CardBody className="divide-y divide-hairline p-0">
-              {project.actions.map((a) => (
-                <LiveRow key={a.id} id={a.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-                  <div>
-                    <p className="text-[13px] font-medium text-ink">{a.title}</p>
-                    <p className="text-[12px] text-ink-muted">{a.owner}{a.dueDate ? ` · due ${a.dueDate}` : ''} · {ACTION_KIND_LABEL[a.kind]}</p>
-                  </div>
-                  <Select value={a.status} onChange={(e) => void api.patchAction(project.id, a.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}>
-                    {(Object.keys(ACTION_STATUS_LABEL) as ActionStatus[]).map((s) => (
-                      <option key={s} value={s}>{ACTION_STATUS_LABEL[s]}</option>
-                    ))}
-                  </Select>
-                </LiveRow>
-              ))}
-            </CardBody>
-          </Card>
+          <>
+            <Card>
+              <CardBody className="space-y-2">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-ink-muted">Remedial cost by band</p>
+                <RemedialCostChart summary={costSummary} />
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody className="divide-y divide-hairline p-0">
+                {project.actions.map((a) => (
+                  <LiveRow key={a.id} id={a.id} highlightIds={liveIds} variant="flush" className="space-y-2 px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[13px] font-medium text-ink">{a.title}</p>
+                        <p className="text-[12px] text-ink-muted">{a.owner}{a.dueDate ? ` · due ${a.dueDate}` : ''} · {ACTION_KIND_LABEL[a.kind]}</p>
+                      </div>
+                      <Select value={a.status} onChange={(e) => void api.patchAction(project.id, a.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}>
+                        {(Object.keys(ACTION_STATUS_LABEL) as ActionStatus[]).map((s) => (
+                          <option key={s} value={s}>{ACTION_STATUS_LABEL[s]}</option>
+                        ))}
+                      </Select>
+                    </div>
+                    <ActionCost action={a} currency={project.currency} onChange={(body) => void setCost(a.id, body)} />
+                  </LiveRow>
+                ))}
+              </CardBody>
+            </Card>
+          </>
         )}
       </section>
 
@@ -253,6 +281,70 @@ export function DecisionRegister() {
           <Field label="Rationale"><Textarea value={rationale} onChange={(e) => setRationale(e.target.value)} rows={3} /></Field>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * The figure and the band, edited where the action already lives.
+ *
+ * Deliberately not in the "add action" modal. An action is raised the moment a
+ * defect is found and priced days later, once somebody has actually asked a
+ * contractor — a cost box on the creation form would either delay raising the
+ * action or collect a guess, and a guess in this field is the number that ends
+ * up in front of a buyer.
+ *
+ * The band can be set without a figure and the figure without a band, because
+ * both halves genuinely arrive separately: "this is before completion, price
+ * unknown" is a real and useful state, and the summary counts it rather than
+ * treating it as nothing.
+ */
+function ActionCost({
+  action,
+  currency,
+  onChange,
+}: {
+  action: ActionRecord;
+  currency: string;
+  onChange: (body: { costEstimate?: number | null; costBand?: RemedialBand | null }) => void;
+}) {
+  const [draft, setDraft] = useState(action.costEstimate === undefined ? '' : String(action.costEstimate));
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-ink-muted">
+      <Select
+        className="h-6 text-[11px]"
+        value={action.costBand ?? ''}
+        onChange={(e) => onChange({ costBand: (e.target.value || null) as RemedialBand | null })}
+      >
+        <option value="">No cost band</option>
+        {REMEDIAL_BANDS.map((b) => (
+          <option key={b} value={b}>{REMEDIAL_BAND_LABEL[b]}</option>
+        ))}
+      </Select>
+      <span className="flex items-center gap-1.5">
+        {currency}
+        <Input
+          className="h-6 w-32 text-[11px]"
+          inputMode="decimal"
+          placeholder="Estimate"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            const trimmed = draft.trim();
+            if (trimmed === '') {
+              if (action.costEstimate !== undefined) onChange({ costEstimate: null });
+              return;
+            }
+            const next = Number(trimmed.replace(/[,\s]/g, ''));
+            // A figure that will not parse is left in the box rather than
+            // silently becoming zero — zero is a claim that the remedy is free.
+            if (!Number.isFinite(next) || next < 0) return;
+            if (next !== action.costEstimate) onChange({ costEstimate: next });
+          }}
+        />
+      </span>
+      {action.costBand && action.costEstimate === undefined ? <span className="text-status-warning">banded, not yet priced</span> : null}
     </div>
   );
 }

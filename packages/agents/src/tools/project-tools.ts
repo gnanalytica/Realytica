@@ -30,11 +30,17 @@ import {
   compareProjectPlanning,
   createChatProposal,
   extractProjectSubgraph,
+  conditionRatings,
+  escalatedFindings,
   findProjectNodes,
   findingCriticSitting,
   landUseSittingOf,
   lookupReferences,
   packCompleteness,
+  remedialCostSummary,
+  ricsConditionRating,
+  ENVIRONMENTAL_CONDITION_CAVEAT,
+  RICS_RATING_LABEL,
   paneForProposalKind,
   paneForTalk,
   portalForCheck,
@@ -383,8 +389,56 @@ export function createProjectTools(
         status: f.status,
         discipline: f.discipline,
         description: f.description,
+        // Derived here rather than stored on the record, so a model reading a
+        // finding sees the same traffic light the report prints.
+        conditionRating: ricsConditionRating(f.severity),
+        conditionRatingLabel: RICS_RATING_LABEL[ricsConditionRating(f.severity)],
+        immediateAction: f.escalation?.immediateAction ?? false,
+        notifiedTo: f.escalation?.notifiedTo,
+        environmentalCondition: f.environmentalCondition,
+        environmentalConditionCaveat: f.environmentalCondition ? ENVIRONMENTAL_CONDITION_CAVEAT : undefined,
         evidence: evidence.map((e) => ({ id: e.id, title: e.title, status: e.status })),
         unevidenced: f.evidenceIds.length === 0,
+      });
+    },
+  });
+
+  /**
+   * The three readings a client asks for in the standards' own words.
+   *
+   * One tool rather than three because they are always read together — "what
+   * is broken, how bad, what does it cost" is a single question — and because
+   * each is a pure derivation the model must not be tempted to recompute. The
+   * shortfalls travel with the total for the same reason they do in the
+   * report: a model that sees only the sum will quote the sum.
+   */
+  const getStandardsView = betaTool({
+    name: 'get_standards_view',
+    description:
+      'Read the RICS condition-rating spread, the remedial cost by band, and any finding escalated for immediate action. Use when asked what is wrong, how serious, what it will cost, or to write a technical DD summary. Never add up the actions yourself — this is the arithmetic.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { includeClosed: { type: 'boolean' } },
+    } as const,
+    run: async ({ includeClosed }) => {
+      const openOnly = includeClosed !== true;
+      const cost = remedialCostSummary(project, { openOnly });
+      bag.toolCalls.push({ name: 'get_standards_view', summary: `${cost.currency} ${Math.round(cost.total).toLocaleString('en-IN')} priced` });
+      return JSON.stringify({
+        conditionRatings: conditionRatings(project, { openOnly }),
+        remedialCost: cost,
+        escalated: escalatedFindings(project).map((f) => ({
+          id: f.id,
+          title: f.title,
+          severity: f.severity,
+          notifiedTo: f.escalation?.notifiedTo ?? null,
+          notifiedAt: f.escalation?.notifiedAt ?? null,
+        })),
+        caveat:
+          cost.unbanded || cost.uncosted
+            ? `${cost.unbanded} open action(s) carry no band and ${cost.uncosted} banded one(s) carry no figure — the total covers neither. Say so if you quote it.`
+            : undefined,
       });
     },
   });
@@ -872,6 +926,7 @@ export function createProjectTools(
     getSitting,
     getCheck,
     getFinding,
+    getStandardsView,
     searchRegisters,
     getSubgraph,
     traceConclusion,
