@@ -42,6 +42,9 @@
  */
 
 import { SCOPE_LABEL } from './catalogs';
+import { CAPTURE_PURPOSE_LABEL, type CapturePurpose } from './capture';
+import { readSheetFit, SHEET_KIND_LABEL } from './geo-sheet';
+import { REMEDIAL_BAND_LABEL, ricsConditionRating } from './standards';
 import { ensureProjectShape } from './operations';
 import {
   PROJECT_EDGE_KINDS,
@@ -144,13 +147,61 @@ function addRegisters(project: DdProject, b: Builder): void {
   }
 
   for (const row of project.evidence) {
-    b.node('evidence', row.id, row.title, row.status);
+    // A photograph's purpose belongs in the meta line, because it is what
+    // decides whether the row answers the question being traversed for: a
+    // valuation inspection shot and a progress shot are the same `evidence`
+    // node with completely different standing.
+    const purposes = [...new Set(row.attachments.map((a) => a.capture?.purpose).filter(Boolean) as CapturePurpose[])];
+    const meta = purposes.length ? `${row.status} · ${purposes.map((x) => CAPTURE_PURPOSE_LABEL[x]).join(', ')}` : row.status;
+    b.node('evidence', row.id, row.title, meta);
     for (const assessmentId of row.assessmentIds) b.edge(assessmentId, row.id, 'supported_by');
     for (const checkId of row.checkIds) b.edge(checkId, row.id, 'supported_by');
+    // Every visit a file on this row was taken on. The edge is what makes a
+    // visit's limitations reachable from anything resting on the photograph.
+    for (const visitId of new Set(row.attachments.map((a) => a.capture?.visitId).filter(Boolean) as string[])) {
+      b.edge(row.id, visitId, 'observed_on');
+    }
+  }
+
+  /*
+   * The occasions of looking, and the sheets placed on the ground.
+   *
+   * Both were registers the graph could not see, which meant `get_subgraph`
+   * and `trace_conclusion` answered "what is this finding resting on" without
+   * ever reaching the visit that says the roof was never inspected. A
+   * traversal that cannot reach the limitation has answered a different
+   * question from the one asked.
+   */
+  for (const visit of project.siteVisits ?? []) {
+    const limits = visit.limitations.length ? `${visit.limitations.length} limitation(s)` : 'no limitation recorded';
+    b.node('site_visit', visit.id, visit.title, `${visit.visitedOn} · ${visit.surveyor} · ${limits}`);
+    b.edge(project.id, visit.id, 'has_visit');
+    for (const assetId of visit.assetIds) b.edge(visit.id, assetId, 'targets');
+    for (const findingId of visit.findingIds) b.edge(findingId, visit.id, 'observed_on');
+  }
+
+  for (const sheet of project.sheets ?? []) {
+    // The verdict travels with the node. A sheet nobody has placed and one
+    // placed from two points look identical without it, and they are worth
+    // very different amounts to anything reading a boundary off them.
+    const reading = readSheetFit(sheet.controlPoints);
+    b.node('sheet', sheet.id, sheet.title, `${SHEET_KIND_LABEL[sheet.kind]} · ${reading.verdict}`);
+    b.edge(project.id, sheet.id, 'has_sheet');
   }
 
   for (const finding of project.findings) {
-    b.node('finding', finding.id, finding.title, `${finding.severity} · ${SCOPE_LABEL[finding.discipline]}`);
+    /*
+     * Three facts in the meta line, because "critical" says none of them.
+     *
+     * The RICS rating is derived here exactly as it is everywhere else. The
+     * escalation is the separate question of whether somebody had to be told
+     * today, which no severity scale can express — and it is precisely what a
+     * reader traversing for "what is urgent" is looking for.
+     */
+    const parts = [`RICS ${ricsConditionRating(finding.severity)}`, finding.severity, SCOPE_LABEL[finding.discipline]];
+    if (finding.escalation?.immediateAction) parts.push('immediate action');
+    if (finding.environmentalCondition) parts.push(finding.environmentalCondition.toUpperCase());
+    b.node('finding', finding.id, finding.title, parts.join(' · '));
     for (const assessmentId of finding.assessmentIds) b.edge(assessmentId, finding.id, 'found');
     for (const evidenceId of finding.evidenceIds) b.edge(finding.id, evidenceId, 'supported_by');
     if (finding.sourceCheckId) b.edge(finding.sourceCheckId, finding.id, 'produces');
@@ -164,7 +215,10 @@ function addRegisters(project: DdProject, b: Builder): void {
   }
 
   for (const action of project.actions) {
-    b.node('action', action.id, action.title, action.status);
+    // The band, because "when does this money fall" is the question a
+    // traversal over actions is usually serving.
+    const meta = action.costBand ? `${action.status} · ${REMEDIAL_BAND_LABEL[action.costBand].split(' — ')[0]}` : action.status;
+    b.node('action', action.id, action.title, meta);
     for (const findingId of action.findingIds) b.edge(findingId, action.id, 'requires');
     // Was `mitigates` pointing this way, which read backwards and disagreed
     // with the case graph's own `mitigates`. Same edge, correct word.

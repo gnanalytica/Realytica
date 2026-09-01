@@ -21,6 +21,10 @@ const KIND_ORDER: ProjectGraphNode['kind'][] = [
   'scope',
   'check',
   'evidence',
+  // Beside evidence, because that is what they are: a visit is where evidence
+  // came from, a sheet is one placed on the ground.
+  'site_visit',
+  'sheet',
   'contradiction',
   'finding',
   'risk',
@@ -46,6 +50,8 @@ const KIND_LABEL: Record<ProjectGraphNode['kind'], string> = {
   scope: 'Scopes',
   check: 'Checks',
   evidence: 'Evidence',
+  site_visit: 'Site visits',
+  sheet: 'Sheets',
   finding: 'Findings',
   risk: 'Risks',
   action: 'Actions',
@@ -70,6 +76,8 @@ const KIND_TONE: Record<ProjectGraphNode['kind'], string> = {
   scope: 'var(--status-info, var(--axis))',
   check: 'var(--status-info, var(--axis))',
   evidence: 'var(--status-info, var(--axis))',
+  site_visit: 'var(--status-info, var(--axis))',
+  sheet: 'var(--status-info, var(--axis))',
   finding: 'var(--status-serious)',
   risk: 'var(--status-critical)',
   action: 'var(--status-warning)',

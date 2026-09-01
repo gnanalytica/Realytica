@@ -31,7 +31,14 @@ import {
   patchSiteVisit,
   setAttachmentCapture,
   visitCoverage,
+  addAction,
+  addFinding,
+  classifyFinding,
+  projectGraphOf,
   resolveReportBlock,
+  retrieveProjectNeighbourhood,
+  setActionCost,
+  setSheetControlPoints,
   visitPhotos,
   type DdProject,
   type ReportBlock,
@@ -316,5 +323,86 @@ describe('the inspection record, as a reader meets it', () => {
 
   it('returns a note rather than a fabricated line when nobody has been', () => {
     assert.match(resolveReportBlock(file(), block()).note!, /No site visit has been recorded/);
+  });
+});
+
+describe('the graph can reach what a conclusion rests on', () => {
+  /*
+   * The gap this closes: visits and sheets were registers the graph could not
+   * see, so `get_subgraph` and `trace_conclusion` answered "what is this
+   * finding resting on" without ever reaching the visit that says the roof was
+   * never inspected. A traversal that cannot reach the limitation has answered
+   * a different question from the one asked.
+   */
+  it('carries a visit, and the photographs taken on it', () => {
+    const project = file();
+    const visit = addSiteVisit(project, {
+      title: 'Condition walk',
+      purpose: 'diligence_inspection',
+      visitedOn: '2026-08-12',
+      surveyor: 'R. Iyer',
+      limitations: [{ kind: 'height', what: 'Roof — no access equipment' }],
+    });
+    const { evidence } = photo(project, { visitId: visit.id });
+
+    const graph = projectGraphOf(project);
+    const node = graph.nodes.find((n) => n.id === visit.id);
+    assert.equal(node?.kind, 'site_visit');
+    assert.match(node!.detail!, /R\. Iyer/);
+    assert.match(node!.detail!, /1 limitation\(s\)/, 'the limitation count is on the node itself');
+    assert.ok(graph.edges.some((e) => e.from === evidence.id && e.to === visit.id && e.rel === 'observed_on'));
+  });
+
+  it('says on the node whether a visit recorded any limitation at all', () => {
+    const project = file();
+    addSiteVisit(project, { title: 'Walk', purpose: 'diligence_inspection', visitedOn: '2026-08-12', surveyor: 'R. Iyer' });
+    const node = projectGraphOf(project).nodes.find((n) => n.kind === 'site_visit');
+    assert.match(node!.detail!, /no limitation recorded/);
+  });
+
+  it('carries a sheet with how well it is placed', () => {
+    // A sheet nobody has placed and one placed from two points look identical
+    // without the verdict, and they are worth very different amounts to
+    // anything reading a boundary off them.
+    const project = file();
+    const evidence = addEvidence(project, { title: 'RMP 2015 sheet 12', kind: 'gis' });
+    const sheet = addSheet(project, { title: 'RMP 2015 sheet 12', kind: 'master_plan', evidenceId: evidence.id });
+    assert.match(projectGraphOf(project).nodes.find((n) => n.id === sheet.id)!.detail!, /unusable/);
+
+    setSheetControlPoints(project, sheet.id, [
+      { u: 0, v: 0, lat: 12.7, lng: 77.4 },
+      { u: 1, v: 0, lat: 12.7, lng: 77.5 },
+      { u: 0, v: 1, lat: 12.6, lng: 77.4 },
+    ]);
+    assert.match(projectGraphOf(project).nodes.find((n) => n.id === sheet.id)!.detail!, /Master plan sheet · good/);
+  });
+
+  it('puts the escalation on the finding node, where a traversal can see it', () => {
+    // "Critical" does not say somebody had to be told today, and that is the
+    // fact a reader traversing for what is urgent is looking for.
+    const project = file();
+    const finding = addFinding(project, { title: 'Facade', description: 'Spalling.', severity: 'medium', discipline: 'technical' });
+    classifyFinding(project, finding.id, { escalation: { immediateAction: true }, environmentalCondition: 'rec' });
+    const node = projectGraphOf(project).nodes.find((n) => n.id === finding.id);
+    assert.match(node!.detail!, /RICS 2/);
+    assert.match(node!.detail!, /immediate action/);
+    assert.match(node!.detail!, /REC/);
+  });
+
+  it('keeps an escalated finding when the subgraph is pruned, whatever its severity', () => {
+    // A medium-severity defect somebody had to escalate is exactly the row a
+    // pruned neighbourhood must not drop.
+    const project = file();
+    const finding = addFinding(project, { title: 'Lift brake', description: 'Failed.', severity: 'medium', discipline: 'technical' });
+    classifyFinding(project, finding.id, { escalation: { immediateAction: true } });
+    const hit = retrieveProjectNeighbourhood(project, 'Lift brake', 2);
+    assert.ok(hit.graph.nodes.some((n) => n.id === finding.id));
+  });
+
+  it('bands the action on its node', () => {
+    const project = file();
+    const action = addAction(project, { title: 'Repoint', kind: 'remediation', owner: 'QS', priority: 'high' });
+    setActionCost(project, action.id, { costBand: 'immediate', costEstimate: 400000 });
+    assert.match(projectGraphOf(project).nodes.find((n) => n.id === action.id)!.detail!, /Immediate/);
   });
 });
