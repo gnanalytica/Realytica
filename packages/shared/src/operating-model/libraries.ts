@@ -382,6 +382,25 @@ export const CHECK_DEFINITIONS: CheckDefinition[] = [
       standards: 'Local planning / NGT lake and rajakaluve buffer practice where applicable.',
     },
     {
+      /*
+       * What the site is NEXT to, as against what is on it.
+       *
+       * Its own check because it is the only place a valuation can learn that
+       * a transmission corridor runs over the plot. Every valuer in Bengaluru
+       * prices these and the product had nowhere to record one — the
+       * comparable adjustments were road width, corner, facing, dimensions and
+       * layout approval, every one of them positive or neutral, so there was
+       * no way for a number to go down because of where the site is.
+       */
+      id: 'constraints',
+      section: 'Surroundings',
+      title: 'What the site is next to is recorded, with distances',
+      purpose: 'A transmission corridor, a rajakaluve, a cremation ground or a quarry all price into a site, and none of them is visible from the title.',
+      evidence: ['Site visit', 'Survey plan', 'Authority maps', 'Site photographs'],
+      criteria: 'Each feature within its material distance is recorded with a measured or estimated distance and the source of that distance. An empty list is a claim that the surroundings were looked at and were clear.',
+      standards: 'Electricity Rules clearance for transmission corridors; NGT/BBMP buffers for drains and lakes.',
+    },
+    {
       id: 'utilities',
       section: 'Utilities',
       title: 'Utility availability is confirmed',

@@ -52,6 +52,28 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
     { key: 'access_type', label: 'Access', kind: 'enum', options: ['public road', 'private road', 'right of way', 'landlocked'], from: 'Title extract' },
     { key: 'row_registered', label: 'Right of way registered', kind: 'boolean', required: false },
   ],
+  'land_site.constraints': [
+    {
+      key: 'nearby',
+      label: 'What the site is next to',
+      kind: 'table',
+      from: 'Site visit and authority maps',
+      hint: 'Each row moves the valuation. Distances in metres from the site boundary; 0 means the feature is on or over the site.',
+      columns: [
+        {
+          key: 'feature',
+          label: 'Feature',
+          kind: 'enum',
+          options: ['ht_line', 'rajakaluve', 'lake_buffer', 'floodplain', 'cremation_ground', 'landfill', 'sewage_works', 'railway', 'highway_noise', 'quarry'],
+        },
+        { key: 'distance_m', label: 'Distance', kind: 'number', unit: 'm' },
+        { key: 'how_measured', label: 'How the distance was arrived at', kind: 'enum', options: ['measured on site', 'scaled from a plan', 'from the GIS overlay', 'estimated'] },
+        { key: 'note', label: 'Note', kind: 'text' },
+        { key: 'proof', label: 'Proof', kind: 'evidence', accepts: 'any' },
+      ],
+    },
+    { key: 'surroundings_walked', label: 'The surroundings were walked, not only the plot', kind: 'boolean', control: 'switch' },
+  ],
   'land_site.flood_drainage': [
     { key: 'near_rajakaluve', label: 'Within a rajakaluve buffer', kind: 'boolean', from: 'Storm-water drain map' },
     { key: 'buffer_required_m', label: 'Buffer required', kind: 'number', unit: 'm', required: false },
@@ -587,6 +609,15 @@ export const CHECK_INSIGHT_RULES: Record<string, CheckInsightRule[]> = {
   ],
   'schedule_progress.forecast_completion': [
     { kind: 'before', fields: ['contractual_completion', 'forecast_completion'], severity: 'high', say: 'Contractual completion is {a} and the forecast is {b} — the forecast is later, so liquidated damages are already in play.' },
+  ],
+  'land_site.constraints': [
+    {
+      kind: 'row_missing',
+      fields: ['nearby'],
+      column: 'how_measured',
+      severity: 'medium',
+      say: '{row} is recorded with no note of how its distance was arrived at. That distance decides a valuation discount, so a reader needs to know whether it was measured or guessed.',
+    },
   ],
   'regulatory.nocs': [
     {

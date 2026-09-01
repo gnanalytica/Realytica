@@ -28,6 +28,7 @@ export * from './remedial';
 export * from './capture';
 export * from './photo-observation';
 export * from './valuation-model';
+export * from './valuation-externalities';
 export * from './valuation-run';
 export * from './site-visit';
 export * from './geo-sheet';

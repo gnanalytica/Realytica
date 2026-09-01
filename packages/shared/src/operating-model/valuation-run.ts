@@ -27,6 +27,7 @@
 import { fieldNumber, withComputed } from './check-fields';
 import { CHECK_DEFINITIONS } from './libraries';
 import { ApproachBuilder, reconcile, type ValuationApproachRun, type ValuationInput, type ValuationInputSource, type ValuationReconciliation } from './valuation-model';
+import { EXTERNALITY_BY_KEY, applyExternalities, type ExternalityAdjustment, type ExternalityObservation } from './valuation-externalities';
 import type { CheckInstance, DdProject } from './types';
 import type { LocalityReference } from '../types';
 
@@ -146,6 +147,11 @@ function areaBasisIsUndefinedLocal(basis: string): boolean {
 
 export interface ValuationWorking {
   runs: ValuationApproachRun[];
+  /** Before the site's surroundings are taken off. */
+  unadjusted: ValuationReconciliation;
+  /** What the surroundings take off, and why. */
+  externalities: ExternalityAdjustment;
+  /** After. This is the figure a report quotes. */
   reconciliation: ValuationReconciliation;
   area: ValuationInput;
 }
@@ -162,11 +168,33 @@ export function runValuationApproaches(project: DdProject, locality?: LocalityRe
       residualApproach(project, checks),
     ],
     area,
+    readExternalities(project),
   );
 }
 
-function finishWorking(runs: ValuationApproachRun[], area: ValuationInput): ValuationWorking {
-  return { runs, reconciliation: reconcile(runs), area };
+/**
+ * Blend the approaches, then take off what the site is next to.
+ *
+ * In that order, and both figures are kept. An externality discount applied
+ * inside each approach would be applied four times over and would also be
+ * invisible — the whole value of doing it at the end is that a reader sees the
+ * unadjusted indication, the adjustment, and the result, and can disagree with
+ * the middle one without having to re-derive the first.
+ */
+function finishWorking(runs: ValuationApproachRun[], area: ValuationInput, observations: ExternalityObservation[]): ValuationWorking {
+  const unadjusted = reconcile(runs);
+  const externalities = applyExternalities(observations);
+  const factor = 1 + externalities.factorPct;
+  const reconciliation: ValuationReconciliation = {
+    ...unadjusted,
+    indicated: unadjusted.indicated === null ? null : unadjusted.indicated * factor,
+    low: unadjusted.low === null ? null : unadjusted.low * factor,
+    high: unadjusted.high === null ? null : unadjusted.high * factor,
+    spreadBasis: externalities.applied.length
+      ? `${unadjusted.spreadBasis} Then ${(externalities.factorPct * 100).toFixed(1)}% for what the site is next to.`
+      : unadjusted.spreadBasis,
+  };
+  return { runs, unadjusted, externalities, reconciliation, area };
 }
 
 function comparableApproach(
@@ -418,4 +446,70 @@ function residualApproach(project: DdProject, checks: Map<string, CheckInstance>
     0.3,
     'A residual land indication. It is the most assumption-heavy of the four and moves hardest on the profit and cost inputs.',
   );
+}
+
+/* ==================================================================== */
+/* What is next to the site                                             */
+/* ==================================================================== */
+
+/**
+ * Read the externalities off what the file already records.
+ *
+ * Everything here was on the file and unused before. The rajakaluve fields
+ * have existed on `land_site.flood_drainage` since the check schemas were
+ * written, and an insight rule already fired when the buffer fell short — it
+ * just never touched a number.
+ *
+ * Deliberately narrow. This reads the two sources that are STRUCTURED — the
+ * flood/drainage check, and a site-constraints table where one exists. It does
+ * not try to infer a cremation ground from a photograph or a landfill from a
+ * chat message. An externality nobody recorded does not reduce the value, and
+ * the report says which ones were considered rather than implying the list is
+ * exhaustive.
+ */
+export function readExternalities(project: DdProject): ExternalityObservation[] {
+  const checks = checksByDefinition(project);
+  const out: ExternalityObservation[] = [];
+
+  const flood = checks.get('land_site.flood_drainage');
+  if (flood) {
+    const values = valuesOf(flood);
+    const inside = values.near_rajakaluve?.value === true;
+    const required = fieldNumber(values.buffer_required_m);
+    const available = fieldNumber(values.buffer_available_m);
+    const evidenceId = values.near_rajakaluve?.sourceEvidenceId;
+
+    if (inside) {
+      // Inside the buffer, whatever the metres say. The boolean is the
+      // surveyor's own finding and outranks an arithmetic comparison.
+      out.push({ key: 'rajakaluve', metres: 0, from: `${flood.title} — recorded as within the buffer`, ...(evidenceId ? { evidenceId } : {}) });
+    } else if (required !== null && available !== null && available < required) {
+      // Short of the required buffer is inside it by another name.
+      out.push({
+        key: 'rajakaluve',
+        metres: 0,
+        from: `${flood.title} — ${available} m available against ${required} m required`,
+        ...(evidenceId ? { evidenceId } : {}),
+      });
+    } else if (required !== null && available !== null) {
+      // Clear of the buffer, by however much it clears it by.
+      out.push({ key: 'rajakaluve', metres: available - required, from: `${flood.title} — ${available - required} m clear of the required buffer` });
+    }
+  }
+
+  const constraints = checks.get('land_site.constraints');
+  if (constraints) {
+    const values = valuesOf(constraints);
+    const rows = values.nearby?.value;
+    if (Array.isArray(rows)) {
+      for (const row of rows as Array<Record<string, unknown>>) {
+        const key = String(row.feature ?? '') as ExternalityObservation['key'];
+        const metres = Number(row.distance_m);
+        if (!EXTERNALITY_BY_KEY[key] || !Number.isFinite(metres)) continue;
+        out.push({ key, metres, from: `${constraints.title} — ${String(row.feature)} at ${metres} m` });
+      }
+    }
+  }
+
+  return out;
 }

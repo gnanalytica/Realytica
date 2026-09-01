@@ -23,7 +23,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  EXTERNALITY_BY_KEY,
+  EXTERNALITY_RULES,
+  MAX_EXTERNALITY_DISCOUNT,
   MIN_VALUATION_SPREAD,
+  applyExternalities,
+  bandFor,
   approachIsUsable,
   computeIndicativeValuation,
   createAssessment,
@@ -327,6 +332,138 @@ describe('the run a report reads', () => {
     const computed = computeIndicativeValuation(project);
     if (computed.working!.runs.some((r) => r.inputs.some((i) => i.source.kind === 'locality' && i.value !== null))) {
       assert.ok(computed.ibbi.caveats.some((c) => /locality reference medians/.test(c)));
+    }
+  });
+});
+
+describe('what the site is next to comes off the value', () => {
+  /** The surroundings live on the land & site scope, which the valuation DD does not carry. */
+  function siteFile(): DdProject {
+    const project = file();
+    createAssessment(project, { ddType: 'acquisition', name: 'Land', owner: 'Lead', targetType: 'project' });
+    return project;
+  }
+
+  /*
+   * The gap this closes: the comparable adjustment list was road width, corner
+   * site, facing, dimensions and layout approval — every one of them positive
+   * or neutral. There was no way for a number to go down because of where the
+   * site is, on a product built for Bengaluru, where a transmission corridor
+   * or a rajakaluve is one of the first things a valuer looks for.
+   */
+  it('reads the rajakaluve fields that were already on the file and unused', () => {
+    const project = siteFile();
+    project.saleableAreaSqm = 1000;
+    record(project, 'indicative_valuation.comparable_inputs', { rate_per_sqm: 50_000, rate_basis: 'inspected comparables' });
+    const clean = runValuationApproaches(project).reconciliation.indicated!;
+
+    record(project, 'land_site.flood_drainage', { near_rajakaluve: true });
+    const working = runValuationApproaches(project);
+    assert.equal(working.externalities.applied[0]!.key, 'rajakaluve');
+    assert.equal(working.externalities.applied[0]!.metres, 0);
+    assert.ok(working.reconciliation.indicated! < clean, 'the number has to move');
+    assert.match(working.externalities.applied[0]!.from, /recorded as within the buffer/);
+  });
+
+  it('treats a buffer shortfall as being inside the buffer', () => {
+    // 8 m available against 25 m required is inside it by another name, and
+    // the insight rule already said so — it just never touched a number.
+    const project = siteFile();
+    project.saleableAreaSqm = 1000;
+    record(project, 'indicative_valuation.comparable_inputs', { rate_per_sqm: 50_000, rate_basis: 'inspected comparables' });
+    record(project, 'land_site.flood_drainage', { near_rajakaluve: false, buffer_required_m: 25, buffer_available_m: 8 });
+
+    const applied = runValuationApproaches(project).externalities.applied;
+    assert.equal(applied[0]!.metres, 0);
+    assert.match(applied[0]!.from, /8 m available against 25 m required/);
+  });
+
+  it('applies the far band when the site clears its buffer', () => {
+    const project = siteFile();
+    project.saleableAreaSqm = 1000;
+    record(project, 'indicative_valuation.comparable_inputs', { rate_per_sqm: 50_000, rate_basis: 'inspected comparables' });
+    record(project, 'land_site.flood_drainage', { near_rajakaluve: false, buffer_required_m: 25, buffer_available_m: 60 });
+
+    const applied = runValuationApproaches(project).externalities.applied;
+    // 35 m clear → the 75 m band, not the 25 m one.
+    assert.equal(applied[0]!.pct, -0.04);
+  });
+
+  it('takes the nearest band that contains the feature', () => {
+    const ht = EXTERNALITY_BY_KEY.ht_line;
+    assert.equal(bandFor(ht, 10)!.pct, -0.15);
+    assert.equal(bandFor(ht, 30)!.pct, -0.07);
+    assert.equal(bandFor(ht, 90)!.pct, -0.02);
+    assert.equal(bandFor(ht, 400), null, 'far enough away is not an adjustment at all');
+  });
+
+  it('compounds rather than sums', () => {
+    // Two 10% discounts leave 81% of the value, not 80%. Small on two,
+    // material on five, and summing is what makes a stack run away.
+    const out = applyExternalities([
+      { key: 'ht_line', metres: 30, from: 'x' },
+      { key: 'railway', metres: 100, from: 'y' },
+    ]);
+    // (1 - 0.07)(1 - 0.04) = 0.8928 → -10.72%
+    assert.ok(Math.abs(out.factorPct + 0.1072) < 1e-6, String(out.factorPct));
+  });
+
+  it('caps a stack, and says the cap bit', () => {
+    /*
+     * Five overlapping constraints usually describe one bad location rather
+     * than five independent discounts, and compounding them unchecked reaches
+     * a number no transaction supports.
+     */
+    const out = applyExternalities([
+      { key: 'rajakaluve', metres: 0, from: 'a' },
+      { key: 'ht_line', metres: 10, from: 'b' },
+      { key: 'landfill', metres: 300, from: 'c' },
+      { key: 'quarry', metres: 400, from: 'd' },
+      { key: 'cremation_ground', metres: 50, from: 'e' },
+    ]);
+    assert.equal(out.capped, true);
+    assert.equal(out.factorPct, -MAX_EXTERNALITY_DISCOUNT);
+    assert.ok(Math.abs(out.uncappedPct) > MAX_EXTERNALITY_DISCOUNT, 'and the raw total is kept');
+    assert.match(out.say, /one bad location rather than that many/);
+  });
+
+  it('says nothing rather than nothing-found when the surroundings are clear', () => {
+    const out = applyExternalities([]);
+    assert.equal(out.factorPct, 0);
+    assert.match(out.say, /Nothing recorded next to this site/);
+  });
+
+  it('keeps the unadjusted figure so the discount can be argued with separately', () => {
+    // The whole reason it is applied at the end rather than inside each
+    // approach: a reader sees the indication, the adjustment and the result.
+    const project = siteFile();
+    project.saleableAreaSqm = 1000;
+    record(project, 'indicative_valuation.comparable_inputs', { rate_per_sqm: 50_000, rate_basis: 'inspected comparables' });
+    record(project, 'land_site.flood_drainage', { near_rajakaluve: true });
+
+    const w = runValuationApproaches(project);
+    assert.equal(Math.round(w.unadjusted.indicated!), 50_000_000);
+    assert.equal(Math.round(w.reconciliation.indicated!), Math.round(50_000_000 * 0.65));
+    assert.match(w.reconciliation.spreadBasis, /for what the site is next to/);
+  });
+
+  it('every rate says where it comes from, so a valuer can disagree with it', () => {
+    // There is no statute that prices a transmission corridor. The rates are
+    // judgements and they have to be arguable, which means findable.
+    for (const rule of EXTERNALITY_RULES) {
+      assert.ok(rule.basis.length > 80, `${rule.key} has no real basis written down`);
+      assert.ok(rule.triggeredBy.length > 10, `${rule.key} does not say what triggers it`);
+      assert.ok(rule.bands.length > 0);
+      for (const band of rule.bands) assert.ok(band.pct < 0 && band.pct > -1, `${rule.key} band out of range`);
+    }
+  });
+
+  it('orders every rule’s bands nearest-first, or the wrong one would win', () => {
+    // `bandFor` returns the first band containing the distance, so an
+    // out-of-order table would silently apply a distant band to a near feature.
+    for (const rule of EXTERNALITY_RULES) {
+      const distances = rule.bands.map((b) => b.withinM);
+      assert.deepEqual(distances, [...distances].sort((a, b) => a - b), `${rule.key} bands are out of order`);
     }
   });
 });
