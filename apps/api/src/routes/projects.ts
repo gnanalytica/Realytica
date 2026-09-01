@@ -30,6 +30,15 @@ import {
   proposeAiDrafts,
   recordCheckResult,
   refreshProjectDerived,
+  detachReportBlock,
+  editReportBlock,
+  insertReportBlock,
+  issueReport,
+  moveReportBlock,
+  reattachReportBlock,
+  removeReportBlock,
+  reportDrift,
+  retuneReportBlock,
   reviewAiDraft,
   runProjectOrchestrator,
   setAssessmentStatus,
@@ -98,7 +107,11 @@ import {
   createFindingBodySchema,
   createProjectBodySchema,
   createRiskBodySchema,
+  editReportBlockBodySchema,
   generateReportBodySchema,
+  insertReportBlockBodySchema,
+  moveReportBlockBodySchema,
+  retuneReportBlockBodySchema,
   linkFindingBodySchema,
   patchEvidenceBodySchema,
   patchProjectBodySchema,
@@ -1485,4 +1498,138 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
   );
   await persistPaneWrite(project, `Generated “${report.title}”.`, { citedNodeIds: [report.id] });
   res.status(201).json(report);
+});
+
+/* ==================================================================== */
+/* Editing a report                                                      */
+/* ==================================================================== */
+
+/**
+ * One handler for every block operation.
+ *
+ * The operations themselves refuse what must be refused — writing into a
+ * bound block, editing an issued report — by throwing with the reason a
+ * person needs to read. Catching here and returning that reason as a 400
+ * keeps the rule in one place: the route never re-implements a judgement the
+ * operating model has already made.
+ */
+async function reportEdit(
+  req: Parameters<Parameters<typeof projectsRouter.post>[1]>[0],
+  res: Parameters<Parameters<typeof projectsRouter.post>[1]>[1],
+  work: (project: DdProject, actor: string) => { note: string; cited?: string[]; body?: unknown },
+): Promise<void> {
+  const project = findProject(req.params.projectId as string);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const actor = actorOf((req.body ?? {}) as { actor?: string });
+  let outcome: { note: string; cited?: string[]; body?: unknown };
+  try {
+    outcome = work(project, actor);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'That change could not be made.' });
+    return;
+  }
+  await persistPaneWrite(project, outcome.note, { citedNodeIds: outcome.cited });
+  res.json(outcome.body ?? project.reports.find((r) => r.id === req.params.reportId));
+}
+
+projectsRouter.post('/:projectId/reports/:reportId/blocks', async (req, res) => {
+  const parsed = insertReportBlockBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  await reportEdit(req, res, (project, actor) => {
+    const block = insertReportBlock(project, req.params.reportId, parsed.data, actor);
+    return { note: parsed.data.source ? 'Added a live section to the report.' : 'Added a section to the report.', cited: [block.id] };
+  });
+});
+
+projectsRouter.patch('/:projectId/reports/:reportId/blocks/:blockId', async (req, res) => {
+  const parsed = editReportBlockBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  await reportEdit(req, res, (project, actor) => {
+    editReportBlock(project, req.params.reportId, req.params.blockId, parsed.data, actor);
+    return { note: 'Edited the report.', cited: [req.params.blockId] };
+  });
+});
+
+projectsRouter.put('/:projectId/reports/:reportId/blocks/:blockId/source', async (req, res) => {
+  const parsed = retuneReportBlockBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  await reportEdit(req, res, (project, actor) => {
+    retuneReportBlock(project, req.params.reportId, req.params.blockId, parsed.data.source, actor);
+    return { note: 'Changed what that section reads.', cited: [req.params.blockId] };
+  });
+});
+
+projectsRouter.post('/:projectId/reports/:reportId/blocks/:blockId/detach', async (req, res) => {
+  await reportEdit(req, res, (project, actor) => {
+    const block = detachReportBlock(project, req.params.reportId, req.params.blockId, actor);
+    return { note: `“${block.heading ?? 'A section'}” is no longer reading the registers.`, cited: [block.id] };
+  });
+});
+
+projectsRouter.post('/:projectId/reports/:reportId/blocks/:blockId/reattach', async (req, res) => {
+  await reportEdit(req, res, (project, actor) => {
+    reattachReportBlock(project, req.params.reportId, req.params.blockId, actor);
+    return { note: 'That section reads the registers again.', cited: [req.params.blockId] };
+  });
+});
+
+projectsRouter.post('/:projectId/reports/:reportId/blocks/:blockId/move', async (req, res) => {
+  const parsed = moveReportBlockBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  await reportEdit(req, res, (project, actor) => {
+    moveReportBlock(project, req.params.reportId, req.params.blockId, parsed.data.toIndex, actor);
+    return { note: 'Moved a section.', cited: [req.params.blockId] };
+  });
+});
+
+projectsRouter.delete('/:projectId/reports/:reportId/blocks/:blockId', async (req, res) => {
+  await reportEdit(req, res, (project, actor) => {
+    removeReportBlock(project, req.params.reportId, req.params.blockId, actor);
+    return { note: 'Removed a section from the report. Nothing in the registers changed.' };
+  });
+});
+
+/**
+ * Issue the report, which is the moment it stops moving.
+ *
+ * Irreversible on purpose: the alternative is an issued document that quietly
+ * keeps updating after somebody has relied on it, and that failure is silent
+ * where this one is merely inconvenient. A later version is a new report.
+ */
+projectsRouter.post('/:projectId/reports/:reportId/issue', async (req, res) => {
+  await reportEdit(req, res, (project, actor) => {
+    const report = issueReport(project, req.params.reportId, actor);
+    return { note: `Issued “${report.title}”. It is frozen at what it said just now.`, cited: [report.id], body: report };
+  });
+});
+
+/** What the registers have done since this report was issued. */
+projectsRouter.get('/:projectId/reports/:reportId/drift', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  refreshProjectDerived(project);
+  const report = project.reports.find((r) => r.id === req.params.reportId);
+  if (!report) {
+    res.status(404).json({ error: 'Report not found' });
+    return;
+  }
+  res.json({ reportId: report.id, status: report.status, rows: reportDrift(project, report.body.blocks) });
 });

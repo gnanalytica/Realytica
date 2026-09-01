@@ -11,6 +11,12 @@ import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import {
   CHECK_RESULTS,
   candidateChoices,
+  isLiveBlock,
+  openReportOf,
+  reportIsFrozen,
+  reportSummaryLine,
+  resolveReportBlock,
+  REPORT_SOURCE_LABEL,
   rankTalkSittings,
   DD_CONNECTORS,
   PROJECT_COCKPIT_PANES,
@@ -63,6 +69,7 @@ const PROPOSE_KINDS = [
   'add_decision',
   'record_check',
   'generate_report',
+  'edit_report',
   'run_valuation',
   'run_screen',
   'patch_project',
@@ -223,6 +230,16 @@ function validateProposal(kind: ChatProposalKind, payload: Record<string, unknow
     return 'actions need title, kind, owner, priority.';
   }
   if (kind === 'add_risk' && (!str('title') || !str('category') || !str('cause'))) return 'add_risk needs title, category, cause.';
+  if (kind === 'edit_report') {
+    if (!str('reportId')) return 'edit_report needs reportId.';
+    const hasText = typeof payload.text === 'string';
+    const hasSource = typeof payload.source === 'object' && payload.source !== null;
+    if (!hasText && !hasSource) return 'edit_report needs text (a paragraph) or source (what a live section reads).';
+    // The rule this whole feature turns on, checked before a card is even
+    // queued: a model may add prose or retune a section, never restate what
+    // the registers say in its own words.
+    if (hasSource && !str('blockId')) return 'Changing what a section reads needs the blockId of that section.';
+  }
   if (kind === 'add_decision' && (!str('title') || !str('decisionType') || !str('decisionMaker') || !str('rationale'))) {
     return 'add_decision needs title, decisionType, decisionMaker, rationale.';
   }
@@ -452,7 +469,7 @@ export function createProjectTools(
         payloadJson: {
           type: 'string',
           description:
-            'JSON object for the kind: record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?}; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
+            'JSON object for the kind: edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?}; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
         },
       },
     } as const,

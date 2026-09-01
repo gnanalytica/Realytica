@@ -1,5 +1,6 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
 import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
+import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
 import type {
   ActionRecord,
   Asset,
@@ -25,7 +26,9 @@ import type {
   ProjectHealth,
   ProjectSummary,
   RecordCheckInput,
+  ReportBlock,
   ReportBody,
+  ReportBoundSource,
   ReportSection,
   RiskRecord,
   ScopeInstance,
@@ -83,6 +86,9 @@ export function ensureProjectShape(project: DdProject): void {
   if (!project.chatProposals) project.chatProposals = [];
   if (!project.orchestratorRuns) project.orchestratorRuns = [];
   if (!project.stakeholders) project.stakeholders = [];
+  // A report written before the block model existed is migrated on read, so
+  // nothing downstream has to know two shapes.
+  for (const report of project.reports) ensureReportBlocks(report);
   for (const row of project.evidence) {
     if (!row.attachments) row.attachments = [];
   }
@@ -976,196 +982,30 @@ function targetLabel(project: DdProject, assessment: DdAssessment): string {
   return assessment.targetAssetIds.map((idValue) => assetName(project, idValue)).join(', ') || 'Selected assets';
 }
 
-function buildReportBody(project: DdProject, kind: GenerateReportInput['kind'], assessmentIds: string[]): ReportBody {
-  const assessments = assessmentIds.length
-    ? project.assessments.filter((a) => assessmentIds.includes(a.id))
-    : project.assessments;
-  const findings = assessments.length
-    ? project.findings.filter((f) => f.assessmentIds.some((idValue) => assessments.some((a) => a.id === idValue)))
-    : project.findings;
-  const risks = assessments.length
-    ? project.risks.filter((r) => r.assessmentIds.some((idValue) => assessments.some((a) => a.id === idValue)))
-    : project.risks;
-  const openFindings = findings.filter((f) => f.status === 'open' || f.status === 'under_review' || f.status === 'accepted');
-  const critical = openFindings.filter((f) => f.severity === 'critical' || f.severity === 'high');
-  const missing = project.evidence.filter((e) => {
-    if (!['expected', 'requested', 'missing'].includes(e.status)) return false;
-    if (!assessments.length) return true;
-    return e.assessmentIds.some((idValue) => assessments.some((a) => a.id === idValue));
-  });
-  const openActions = project.actions.filter((a) => a.status !== 'closed');
-  const sections: ReportSection[] = [];
-
-  if (kind === 'red_flag') {
-    sections.push({
-      heading: 'Red flags',
-      paragraphs: critical.length
-        ? critical.map((f) => `${f.severity.toUpperCase()} · ${f.title} — ${f.description}`)
-        : ['No critical or high open findings on the selected assessments.'],
-      recordIds: critical.map((f) => f.id),
-    });
-    sections.push({
-      heading: 'Material risks',
-      paragraphs: risks.filter((r) => r.materiality === 'high' || r.materiality === 'critical').map((r) => `${r.title} (${r.category}) — ${r.cause}`),
-      recordIds: risks.map((r) => r.id),
-    });
-    sections.push({
-      heading: 'Missing evidence affecting confidence',
-      paragraphs: missing.length ? missing.map((e) => e.title) : ['No missing/expected items on the selected assessments.'],
-      recordIds: missing.map((e) => e.id),
-    });
-  } else if (kind === 'evidence_completeness') {
-    const stats = evidenceCompleteness(project, assessments[0]?.id);
-    sections.push({
-      heading: 'Evidence status',
-      paragraphs: [
-        `${stats.expected} items on the register.`,
-        `${stats.received} received, ${stats.validated} validated, ${stats.used} relied upon, ${stats.missing} still expected/requested/missing.`,
-        `Completeness ${stats.percent}%. Evidence considered is distinct from evidence used.`,
-      ],
-    });
-    sections.push({
-      heading: 'Gaps',
-      paragraphs: missing.map((e) => `${e.title} — ${e.status}`),
-      recordIds: missing.map((e) => e.id),
-    });
-  } else if (kind === 'open_risk_action') {
-    sections.push({
-      heading: 'Open risks',
-      paragraphs: risks.filter((r) => r.status !== 'closed').map((r) => `${r.title} · ${r.status} · owner ${r.owner ?? 'unassigned'}`),
-    });
-    sections.push({
-      heading: 'Open actions',
-      paragraphs: openActions.map((a) => `${a.title} · ${a.status} · ${a.owner}${a.dueDate ? ` · due ${a.dueDate}` : ''}`),
-    });
-  } else if (kind === 'changes_since_previous') {
-    const primary = assessments[0];
-    const diff = primary ? changesSincePrevious(project, primary.id) : null;
-    if (!diff) {
-      sections.push({
-        heading: 'Changes since previous DD',
-        paragraphs: ['This assessment has no linked prior DD. Set a prior assessment to enable the comparison.'],
-      });
-    } else {
-      sections.push({
-        heading: `Compared with ${diff.priorName}`,
-        paragraphs: [
-          `${diff.newFindings.length} new findings.`,
-          `${diff.closedFindings.length} prior items closed or not repeated.`,
-          `${diff.unresolvedFindings.length} unresolved carry-forwards.`,
-          `${diff.repeatedTitles.length} titles seen in both assessments.`,
-        ],
-      });
-      sections.push({
-        heading: 'New findings',
-        paragraphs: diff.newFindings.map((f) => f.title),
-        recordIds: diff.newFindings.map((f) => f.id),
-      });
-      sections.push({
-        heading: 'Unresolved from prior DD',
-        paragraphs: diff.unresolvedFindings.map((f) => `${f.title} (${f.status})`),
-        recordIds: diff.unresolvedFindings.map((f) => f.id),
-      });
-    }
-  } else if (kind === 'indicative_valuation') {
-    const valScope = assessments.flatMap((a) => a.scopes).find((s) => s.scopeKey === 'indicative_valuation');
-    const valChecks = valScope?.checks ?? [];
-    sections.push({
-      heading: 'Indicative valuation — decision support only',
-      paragraphs: [
-        'This is an indicative, IBBI-structured decision-support record. It is not a certified valuation and must not be relied upon as one unless a registered valuer signs a separate professional report.',
-        `Purpose / instruction: ${valChecks.find((c) => c.definitionId.endsWith('.instruction'))?.comments || 'Not yet completed.'}`,
-        `Subject: ${project.name}, ${project.location}. Stage: ${LIFECYCLE_STAGE_LABEL[project.currentStage]}.`,
-      ],
-    });
-    sections.push({
-      heading: 'Evidence relied upon versus considered',
-      paragraphs: [
-        `Relied upon (used): ${project.evidence.filter((e) => e.used).length}.`,
-        `Considered but not used: ${project.evidence.filter((e) => e.considered && !e.used).length}.`,
-        `Missing / expected: ${missing.length}. Gaps reduce confidence and must be shown, not implied as nil.`,
-      ],
-    });
-    sections.push({
-      heading: 'Method and caveats',
-      paragraphs: valChecks.map((c) => `${c.title}: ${c.result}${c.comments ? ` — ${c.comments}` : ''}`),
-    });
-  } else if (kind === 'handover_readiness') {
-    sections.push({
-      heading: 'Handover readiness',
-      paragraphs: [
-        `${openFindings.length} open findings remain.`,
-        `${project.actions.filter((a) => a.status !== 'closed').length} open actions.`,
-        `${missing.length} evidence gaps.`,
-      ],
-    });
-    sections.push({
-      heading: 'Open findings blocking handover',
-      paragraphs: openFindings.map((f) => `${f.severity} · ${f.title}`),
-      recordIds: openFindings.map((f) => f.id),
-    });
-  } else {
-    // executive / detailed
-    sections.push({
-      heading: 'Project',
-      paragraphs: [
-        `${project.name} (${project.reference}) — ${project.city}.`,
-        `Stage: ${LIFECYCLE_STAGE_LABEL[project.currentStage]}. Health: ${project.health}.`,
-        assessments.length
-          ? `Assessments included: ${assessments.map((a) => `${a.name} · ${targetLabel(project, a)}`).join('; ')}.`
-          : 'All project assessments included.',
-      ],
-    });
-    sections.push({
-      heading: 'Key findings',
-      paragraphs: (kind === 'detailed_dd' ? openFindings : critical.length ? critical : openFindings.slice(0, 8)).map(
-        (f) => `${f.severity.toUpperCase()} · ${SCOPE_LABEL[f.discipline]} · ${f.title} — ${f.description}`,
-      ),
-      recordIds: openFindings.map((f) => f.id),
-    });
-    sections.push({
-      heading: 'Risks',
-      paragraphs: risks.filter((r) => r.status !== 'closed').map((r) => `${r.title} (${r.category}, ${r.materiality}) — ${r.cause}`),
-      recordIds: risks.map((r) => r.id),
-    });
-    sections.push({
-      heading: 'Actions',
-      paragraphs: openActions.map((a) => `${a.title} · ${a.owner} · ${a.status}`),
-    });
-    sections.push({
-      heading: 'Evidence gaps',
-      paragraphs: missing.slice(0, 20).map((e) => e.title),
-    });
-    if (kind === 'detailed_dd') {
-      for (const assessment of assessments) {
-        for (const scope of assessment.scopes) {
-          const c = scopeCompleteness(scope);
-          sections.push({
-            heading: `${assessment.name} · ${SCOPE_LABEL[scope.scopeKey]}`,
-            paragraphs: [
-              `Completion ${c.percent}% (${c.done}/${c.total} checks). ${c.findings} findings from checks. ${c.missing} missing-evidence results.`,
-              ...scope.checks
-                .filter((ch) => ch.result !== 'pending' && ch.result !== 'compliant' && ch.result !== 'not_applicable')
-                .map((ch) => `${ch.title}: ${ch.result}${ch.comments ? ` — ${ch.comments}` : ''}`),
-            ],
-          });
-        }
-      }
-    }
-  }
-
-  const summary =
-    kind === 'red_flag'
-      ? `${critical.length} high/critical findings, ${missing.length} evidence gaps on ${assessments.length || 'all'} assessment(s).`
-      : `${project.name}: ${openFindings.length} open findings, ${risks.filter((r) => r.status !== 'closed').length} open risks, ${missing.length} evidence gaps. Generated from live registers — not a separate silo.`;
-
-  return { summary, sections };
-}
-
+/**
+ * A new report opens as a document of blocks, not a frozen page of text.
+ *
+ * Most of them are bound: they read the registers on every render, so the
+ * report is level with the file the moment the file moves. The rest are empty
+ * prose blocks — the opinion, the recommendation — waiting for the one thing
+ * no amount of regeneration can produce.
+ *
+ * The assessment scope the caller asked for is pushed down onto every bound
+ * block rather than applied once here. That is what lets a person widen one
+ * section back out to the whole file without regenerating the document and
+ * losing what they wrote.
+ */
 export function generateReport(project: DdProject, input: GenerateReportInput, actor = DEFAULT_ACTOR): GeneratedReport {
   const at = nowIso();
   const assessmentIds = input.assessmentIds ?? [];
-  const body = buildReportBody(project, input.kind, assessmentIds);
+  const blocks: ReportBlock[] = reportTemplate(input.kind).map((row) => ({
+    id: id('rbk'),
+    heading: row.heading,
+    origin: row.source ? 'derived' : 'authored',
+    ...(row.source ? { source: assessmentIds.length ? { ...row.source, assessmentIds } : row.source } : {}),
+    ...(row.source ? {} : { text: row.text ?? '' }),
+  }));
+  const body: ReportBody = { summary: reportSummaryLine(project), blocks };
   const report: GeneratedReport = {
     id: id('rpt'),
     kind: input.kind,
@@ -1181,6 +1021,244 @@ export function generateReport(project: DdProject, input: GenerateReportInput, a
   touch(project, at);
   audit(project, { actor, action: 'generate_report', entityType: 'report', entityId: report.id, newValue: report.kind, at });
   return report;
+}
+
+/* ==================================================================== */
+/* Editing a report                                                      */
+/* ==================================================================== */
+
+/**
+ * Every edit goes through here, and every one of them is refused on a frozen
+ * report.
+ *
+ * An issued report went to somebody. Letting it be edited afterwards — even
+ * with the best intentions — means the document a bank holds and the document
+ * this system shows have quietly diverged, with nothing recording that they
+ * did. Reissue instead: `superseded` says plainly that a later version exists.
+ */
+function editableReport(project: DdProject, reportId: string): GeneratedReport {
+  const report = project.reports.find((r) => r.id === reportId);
+  if (!report) throw new Error(`No report "${reportId}" on this project.`);
+  if (reportIsFrozen(report.status)) {
+    throw new Error(
+      `This report is ${report.status} and can no longer be edited. Generate a new one — the issued version stays exactly as it was read.`,
+    );
+  }
+  ensureReportBlocks(report);
+  return report;
+}
+
+function blockIn(report: GeneratedReport, blockId: string): ReportBlock {
+  const block = report.body.blocks.find((b) => b.id === blockId);
+  if (!block) throw new Error(`No block "${blockId}" in this report.`);
+  return block;
+}
+
+function stamp(report: GeneratedReport, block: ReportBlock, actor: string, at: string): void {
+  block.editedAt = at;
+  block.editedBy = actor;
+  report.body.summary = '';
+}
+
+/** Add a block. Prose by default; pass a source to bind one to the registers. */
+export function insertReportBlock(
+  project: DdProject,
+  reportId: string,
+  input: { heading?: string; text?: string; source?: ReportBoundSource; afterBlockId?: string },
+  actor = DEFAULT_ACTOR,
+): ReportBlock {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  if (input.source && !isReportBoundSource(input.source.kind)) {
+    throw new Error(`"${input.source.kind}" is not something a report block can read.`);
+  }
+  const block: ReportBlock = {
+    id: id('rbk'),
+    heading: input.heading,
+    origin: input.source ? 'derived' : 'authored',
+    ...(input.source ? { source: input.source } : { text: input.text ?? '' }),
+    editedAt: at,
+    editedBy: actor,
+  };
+  const at_index = input.afterBlockId ? report.body.blocks.findIndex((b) => b.id === input.afterBlockId) : -1;
+  if (at_index >= 0) report.body.blocks.splice(at_index + 1, 0, block);
+  else report.body.blocks.push(block);
+  touch(project, at);
+  audit(project, { actor, action: 'insert_report_block', entityType: 'report', entityId: reportId, newValue: input.heading ?? input.source?.kind ?? 'prose', at });
+  return block;
+}
+
+/**
+ * Write into a block.
+ *
+ * A bound block refuses the text outright rather than accepting it and
+ * quietly ceasing to be live. Somebody who wants to say it differently wants
+ * `detachReportBlock`, and making them ask for that by name is the point: it
+ * is the moment a live reading becomes a person's words, and it should be a
+ * decision rather than a side effect of typing.
+ */
+export function editReportBlock(
+  project: DdProject,
+  reportId: string,
+  blockId: string,
+  input: { heading?: string; text?: string },
+  actor = DEFAULT_ACTOR,
+): ReportBlock {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const block = blockIn(report, blockId);
+  if (input.heading !== undefined) block.heading = input.heading;
+  if (input.text !== undefined) {
+    if (block.origin === 'derived') {
+      throw new Error(
+        `“${block.heading ?? REPORT_SOURCE_LABEL[block.source!.kind]}” reads the registers, so its text is not yours to write. `
+          + 'Detach it first if you need to say this differently — the report will then show that the paragraph stopped updating.',
+      );
+    }
+    block.text = input.text;
+  }
+  stamp(report, block, actor, at);
+  touch(project, at);
+  audit(project, { actor, action: 'edit_report_block', entityType: 'report', entityId: reportId, newValue: blockId, at });
+  return block;
+}
+
+/** Change what a bound block asks the registers for. Never its words. */
+export function retuneReportBlock(
+  project: DdProject,
+  reportId: string,
+  blockId: string,
+  source: ReportBoundSource,
+  actor = DEFAULT_ACTOR,
+): ReportBlock {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const block = blockIn(report, blockId);
+  if (block.origin !== 'derived') throw new Error('That block holds somebody’s words, not a register reading — there is nothing to retune.');
+  if (!isReportBoundSource(source.kind)) throw new Error(`"${source.kind}" is not something a report block can read.`);
+  block.source = source;
+  stamp(report, block, actor, at);
+  touch(project, at);
+  audit(project, { actor, action: 'retune_report_block', entityType: 'report', entityId: reportId, newValue: source.kind, at });
+  return block;
+}
+
+/**
+ * Turn a live block into prose, keeping what it currently says.
+ *
+ * The record of where it came from stays on the block. A reader looking at a
+ * paragraph that reads like a register summary is entitled to know it stopped
+ * being one on a particular day — that is the whole difference between an
+ * honest edit and a document that has drifted without telling anyone.
+ */
+export function detachReportBlock(project: DdProject, reportId: string, blockId: string, actor = DEFAULT_ACTOR): ReportBlock {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const block = blockIn(report, blockId);
+  if (block.origin !== 'derived') return block;
+  const resolved = resolveReportBlock(project, block);
+  block.detachedFrom = block.source?.kind;
+  block.detachedAt = at;
+  block.origin = 'authored';
+  block.text = resolved.lines.join('\n');
+  delete block.source;
+  stamp(report, block, actor, at);
+  touch(project, at);
+  audit(project, { actor, action: 'detach_report_block', entityType: 'report', entityId: reportId, newValue: block.detachedFrom ?? blockId, at });
+  return block;
+}
+
+/**
+ * Put a detached block back on the registers.
+ *
+ * Discards the edited text, which is why it is a separate verb rather than a
+ * toggle: somebody has to mean it.
+ */
+export function reattachReportBlock(project: DdProject, reportId: string, blockId: string, actor = DEFAULT_ACTOR): ReportBlock {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const block = blockIn(report, blockId);
+  if (!block.detachedFrom) throw new Error('That block was written from scratch, so there is no reading to go back to.');
+  block.origin = 'derived';
+  block.source = { kind: block.detachedFrom };
+  delete block.text;
+  delete block.detachedAt;
+  delete block.detachedFrom;
+  stamp(report, block, actor, at);
+  touch(project, at);
+  audit(project, { actor, action: 'reattach_report_block', entityType: 'report', entityId: reportId, newValue: blockId, at });
+  return block;
+}
+
+export function removeReportBlock(project: DdProject, reportId: string, blockId: string, actor = DEFAULT_ACTOR): void {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const index = report.body.blocks.findIndex((b) => b.id === blockId);
+  if (index < 0) throw new Error(`No block "${blockId}" in this report.`);
+  report.body.blocks.splice(index, 1);
+  touch(project, at);
+  audit(project, { actor, action: 'remove_report_block', entityType: 'report', entityId: reportId, newValue: blockId, at });
+}
+
+export function moveReportBlock(project: DdProject, reportId: string, blockId: string, toIndex: number, actor = DEFAULT_ACTOR): void {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const from = report.body.blocks.findIndex((b) => b.id === blockId);
+  if (from < 0) throw new Error(`No block "${blockId}" in this report.`);
+  const [block] = report.body.blocks.splice(from, 1);
+  const target = Math.max(0, Math.min(report.body.blocks.length, toIndex));
+  report.body.blocks.splice(target, 0, block!);
+  touch(project, at);
+  audit(project, { actor, action: 'move_report_block', entityType: 'report', entityId: reportId, newValue: `${from}→${target}`, at });
+}
+
+/**
+ * Issue the report: snapshot every live block and stop the document moving.
+ *
+ * This is the moment the report becomes a thing somebody else holds. From
+ * here the registers may say whatever they like and this document will keep
+ * saying what it said — and `reportDrift` will show, on demand, exactly how
+ * far the two have travelled apart. A report that silently kept updating
+ * after it was sent would be the more dangerous of the two failures, because
+ * nobody would know to look.
+ */
+export function issueReport(project: DdProject, reportId: string, actor = DEFAULT_ACTOR): GeneratedReport {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  for (const block of report.body.blocks) {
+    if (block.origin !== 'derived' || !block.source) continue;
+    const resolved = resolveReportBlock(project, block);
+    block.frozen = resolved.lines;
+    block.frozenRecordIds = resolved.recordIds;
+  }
+  report.body.summary = reportSummaryLine(project);
+  report.status = 'issued';
+  report.reviewer = actor;
+  touch(project, at);
+  audit(project, { actor, action: 'issue_report', entityType: 'report', entityId: reportId, newValue: 'issued', at });
+  return report;
+}
+
+/**
+ * Bring a report generated before blocks existed into the block shape.
+ *
+ * Every migrated section becomes AUTHORED, not bound. That is deliberate and
+ * it is the conservative reading: the old body was a frozen snapshot, so its
+ * words are what the report said, and guessing which register each section
+ * used to read would risk a paragraph silently changing under a report
+ * somebody already sent. They arrive as prose, and a person can rebind one
+ * deliberately if they want it live.
+ */
+export function ensureReportBlocks(report: GeneratedReport): void {
+  if (Array.isArray(report.body.blocks)) return;
+  const sections = report.body.sections ?? [];
+  report.body.blocks = sections.map((section) => ({
+    id: id('rbk'),
+    heading: section.heading,
+    origin: 'authored' as const,
+    text: section.paragraphs.join('\n'),
+  }));
+  delete report.body.sections;
 }
 
 export function assetTree(project: DdProject): Array<Asset & { depth: number; path: string }> {

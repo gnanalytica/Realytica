@@ -513,9 +513,98 @@ export interface GeneratedReport {
   reviewer?: string;
 }
 
+export type ReportBoundSourceKind =
+  | 'particulars'
+  | 'title_chain'
+  | 'findings'
+  | 'risks'
+  | 'actions'
+  | 'decisions'
+  | 'evidence_gaps'
+  | 'dd_progress'
+  | 'checks'
+  | 'valuation'
+  | 'changes_since_previous';
+
+/**
+ * What a bound block asks the registers for.
+ *
+ * Small on purpose. Every knob here is one a person would actually reach for
+ * while writing — "only the material ones", "only this DD", "legal only" —
+ * and nothing here can express a query whose answer the reader could not
+ * check by opening the register themselves.
+ */
+export interface ReportBoundSource {
+  kind: ReportBoundSourceKind;
+  /** Narrow to one or more assessments. Empty or absent means the whole file. */
+  assessmentIds?: string[];
+  /** Critical and high only. */
+  materialOnly?: boolean;
+  /** Defaults to true — closed records are left out unless asked for. */
+  openOnly?: boolean;
+  /** Narrow findings to one discipline. */
+  discipline?: ScopeKey;
+}
+
+export type ReportBlockOrigin = 'derived' | 'authored';
+
+/**
+ * One block of a report: either a live reading of the registers, or a
+ * person's own words.
+ *
+ * See `report-blocks.ts` for why the two cannot be the same thing.
+ */
+export interface ReportBlock {
+  id: string;
+  /** Shown above the block. Editable whatever the block's origin. */
+  heading?: string;
+  /**
+   * `derived` blocks re-resolve from the registers and cannot be typed into.
+   * `authored` blocks hold text nothing regenerates.
+   */
+  origin: ReportBlockOrigin;
+  /** Present on a derived block: what it reads. */
+  source?: ReportBoundSource;
+  /** Present on an authored block: what somebody wrote. */
+  text?: string;
+  /**
+   * What this block said when the report was issued.
+   *
+   * An issued report went to somebody, so it must stop moving. This is what
+   * it showed at that moment; the difference against the live registers is
+   * computed by `reportDrift` rather than hidden.
+   */
+  frozen?: string[];
+  frozenRecordIds?: string[];
+  /**
+   * Set when a bound block was turned into prose, with the source it came
+   * from. Recorded rather than erased: a reader is entitled to know that a
+   * paragraph which looks like a register reading is a person's words frozen
+   * at a date.
+   */
+  detachedAt?: string;
+  detachedFrom?: ReportBoundSourceKind;
+  editedAt?: string;
+  editedBy?: string;
+}
+
+export interface ResolvedReportBlock {
+  lines: string[];
+  recordIds: string[];
+  /** Said instead of inventing a line, when the registers have nothing to show. */
+  note?: string;
+}
+
 export interface ReportBody {
+  /** Recomputed on read. Never stored, never edited — see `reportSummaryLine`. */
   summary: string;
-  sections: ReportSection[];
+  blocks: ReportBlock[];
+  /**
+   * The pre-block shape, kept only so a report generated before this existed
+   * can still be read. `ensureProjectShape` migrates one into `blocks` on
+   * load; nothing writes it any more.
+   */
+  sections?: ReportSection[];
 }
 
 export interface ReportSection {
@@ -734,6 +823,14 @@ export type ChatProposalKind =
   | 'add_decision'
   | 'record_check'
   | 'generate_report'
+  /**
+   * A change to a report's own words: a paragraph added, or one rewritten.
+   *
+   * Never a change to a bound block's text — a model may not restate what the
+   * registers say, only add prose beside it or change what a block asks for.
+   * See `report-blocks.ts`.
+   */
+  | 'edit_report'
   | 'run_valuation'
   | 'run_screen'
   | 'patch_project'

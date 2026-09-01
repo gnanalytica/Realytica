@@ -16,6 +16,8 @@ export * from './chat-sides';
 export * from './project-screen';
 export * from './seed';
 export * from './project-graph';
+export * from './report-blocks';
+export * from './report-command';
 export * from './graphrag';
 export * from './reference-shelf';
 export * from './shelf-passages';

@@ -53,6 +53,8 @@ import type {
   ActionRecord,
   DecisionRecord,
   GeneratedReport,
+  ReportBoundSource,
+  ReportDriftRow,
   StageRecord,
   CreateProjectInput,
   CreateAssetInput,
@@ -736,6 +738,36 @@ export const api = {
     request<DecisionRecord>(`/projects/${projectId}/decisions/${decisionId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   generateReport: (projectId: string, body: GenerateReportInput) =>
     request<GeneratedReport>(`/projects/${projectId}/reports`, { method: 'POST', body: JSON.stringify(body) }),
+  /* --- Editing a report -------------------------------------------- */
+  insertReportBlock: (
+    projectId: string,
+    reportId: string,
+    body: { heading?: string; text?: string; source?: ReportBoundSource; afterBlockId?: string; actor?: string },
+  ) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks`, { method: 'POST', body: JSON.stringify(body) }),
+  editReportBlock: (projectId: string, reportId: string, blockId: string, body: { heading?: string; text?: string; actor?: string }) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  retuneReportBlock: (projectId: string, reportId: string, blockId: string, source: ReportBoundSource, actor?: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}/source`, {
+      method: 'PUT',
+      body: JSON.stringify({ source, actor }),
+    }),
+  detachReportBlock: (projectId: string, reportId: string, blockId: string, actor?: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}/detach`, { method: 'POST', body: JSON.stringify({ actor }) }),
+  reattachReportBlock: (projectId: string, reportId: string, blockId: string, actor?: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}/reattach`, { method: 'POST', body: JSON.stringify({ actor }) }),
+  moveReportBlock: (projectId: string, reportId: string, blockId: string, toIndex: number, actor?: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ toIndex, actor }),
+    }),
+  removeReportBlock: (projectId: string, reportId: string, blockId: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}`, { method: 'DELETE' }),
+  issueReport: (projectId: string, reportId: string, actor?: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/issue`, { method: 'POST', body: JSON.stringify({ actor }) }),
+  reportDrift: (projectId: string, reportId: string) =>
+    request<{ reportId: string; status: string; rows: ReportDriftRow[] }>(`/projects/${projectId}/reports/${reportId}/drift`),
+
   patchProject: (projectId: string, body: PatchProjectInput & { actor?: string }) =>
     request<DdProject>(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   projectDashboard: (projectId: string) => request<ProjectDashboard>(`/projects/${projectId}/dashboard`),

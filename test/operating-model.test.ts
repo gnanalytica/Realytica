@@ -19,6 +19,7 @@ import {
   createProject,
   filterFindings,
   generateReport,
+  resolveReportBlock,
   isMaterialCheckResult,
   linkFindingAcross,
   recordCheckResult,
@@ -215,9 +216,18 @@ describe('manual DD operating model', () => {
     });
     const report = generateReport(project, { kind: 'red_flag', assessmentIds: [dd.id], generatedBy: 'Lead' });
     assert.equal(report.status, 'generated');
-    assert.ok(report.body.summary.includes('findings') || report.body.sections.length > 0);
-    assert.ok(report.body.sections.some((s) => s.paragraphs.some((p) => p.includes('Broken chain'))));
     assert.equal(project.reports.length, 1);
+    // The body is a document of blocks now, most of them reading the
+    // registers rather than holding a copy of them — so the finding is
+    // reachable through the resolver, not stored in the report.
+    const findings = report.body.blocks.find((b) => b.source?.kind === 'findings');
+    assert.ok(findings, 'a red-flag pack opens with a findings block');
+    assert.equal(findings.origin, 'derived');
+    assert.ok(resolveReportBlock(project, findings).lines.some((l) => l.includes('Broken chain')));
+    // And the scope the caller asked for is pushed onto the block, so it can
+    // be widened later without regenerating the document.
+    assert.deepEqual(findings.source?.assessmentIds, [dd.id]);
+    assert.ok(report.body.blocks.some((b) => b.origin === 'authored'), 'and leaves room for somebody to write');
   });
 
   it('compares a DD with its prior run', () => {

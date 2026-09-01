@@ -210,6 +210,59 @@ export const generateReportBodySchema = z.object({
   actor: actorSchema,
 });
 
+/**
+ * What a bound block may ask the registers for.
+ *
+ * Validated at the boundary rather than trusted, because retuning a block is
+ * the one report operation that arrives as free-form structure — and a source
+ * kind that is not in the closed set must be refused here rather than
+ * discovered by the resolver's switch falling through.
+ */
+export const reportBoundSourceSchema = z.object({
+  kind: z.enum([
+    'particulars',
+    'title_chain',
+    'findings',
+    'risks',
+    'actions',
+    'decisions',
+    'evidence_gaps',
+    'dd_progress',
+    'checks',
+    'valuation',
+    'changes_since_previous',
+  ]),
+  assessmentIds: z.array(z.string()).optional(),
+  materialOnly: z.boolean().optional(),
+  openOnly: z.boolean().optional(),
+  discipline: scopeKeySchema.optional(),
+});
+
+export const insertReportBlockBodySchema = z.object({
+  heading: z.string().trim().max(160).optional(),
+  text: z.string().max(20000).optional(),
+  source: reportBoundSourceSchema.optional(),
+  afterBlockId: z.string().optional(),
+  actor: actorSchema,
+});
+
+export const editReportBlockBodySchema = z.object({
+  heading: z.string().trim().max(160).optional(),
+  /** Refused by the operation when the block reads the registers. */
+  text: z.string().max(20000).optional(),
+  actor: actorSchema,
+});
+
+export const retuneReportBlockBodySchema = z.object({
+  source: reportBoundSourceSchema,
+  actor: actorSchema,
+});
+
+export const moveReportBlockBodySchema = z.object({
+  toIndex: z.number().int().min(0).max(500),
+  actor: actorSchema,
+});
+
 export const patchProjectBodySchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   description: z.string().max(4000).optional(),
