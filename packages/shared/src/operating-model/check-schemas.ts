@@ -479,7 +479,7 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
     { key: 'rate_basis', label: 'What the rate rests on', kind: 'enum', options: ['inspected comparables', 'reported transactions', 'broker quotes', 'locality median', 'circle/guidance rate'], hint: 'A locality median is a market observation nobody inspected for this asset. Say so here and the report will.' },
     { key: 'comparable_count', label: 'Comparables behind it', kind: 'number', required: false },
     { key: 'comparable_schedule', label: 'Comparable schedule', kind: 'evidence', accepts: 'document', required: false },
-    { key: 'net_adjustment_pct', label: 'Net adjustment applied to the comparables', kind: 'percent', unit: '%', required: false, hint: 'Signed. The sum of time, size, location and condition adjustments.' },
+    { key: 'net_adjustment_pct', label: 'Net adjustment applied to the comparables', kind: 'percent', unit: '%', required: false, min: -60, max: 60, hint: 'Signed — negative when the comparables were better than the subject. The sum of time, size, location and condition adjustments.' },
   ],
   'indicative_valuation.cost_inputs': [
     { key: 'replacement_rate', label: 'Replacement cost', kind: 'money', unit: 'INR/sqm', proof: 'required', from: 'Cost plan' },

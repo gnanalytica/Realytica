@@ -24,7 +24,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   EXTERNALITY_BY_KEY,
+  RULE_8_ITEMS,
+  addSiteVisit,
+  createValuationRun,
+  rule8Summary,
+  setValuationValuer,
+  valuationRule8,
   EXTERNALITY_RULES,
+  MAX_COHERENT_SPREAD,
   MAX_EXTERNALITY_DISCOUNT,
   MIN_VALUATION_SPREAD,
   applyExternalities,
@@ -60,6 +67,12 @@ function record(project: DdProject, definitionId: string, values: Record<string,
   const evidence = project.evidence[0] ?? null;
   const id = evidence?.id ?? project.evidence[0]?.id;
   return recordCheckFields(project, checkId(project, definitionId), values, 'operator', id);
+}
+
+/** Adds the land & site scope, which the valuation DD does not carry. */
+function siteFileFor(project: DdProject): DdProject {
+  createAssessment(project, { ddType: 'acquisition', name: 'Land', owner: 'Lead', targetType: 'project' });
+  return project;
 }
 
 function approach(project: DdProject, method: ValuationApproachRun['method']): ValuationApproachRun {
@@ -338,11 +351,7 @@ describe('the run a report reads', () => {
 
 describe('what the site is next to comes off the value', () => {
   /** The surroundings live on the land & site scope, which the valuation DD does not carry. */
-  function siteFile(): DdProject {
-    const project = file();
-    createAssessment(project, { ddType: 'acquisition', name: 'Land', owner: 'Lead', targetType: 'project' });
-    return project;
-  }
+  const siteFile = (): DdProject => siteFileFor(file());
 
   /*
    * The gap this closes: the comparable adjustment list was road width, corner
@@ -465,5 +474,212 @@ describe('what the site is next to comes off the value', () => {
       const distances = rule.bands.map((b) => b.withinM);
       assert.deepEqual(distances, [...distances].sort((a, b) => a - b), `${rule.key} bands are out of order`);
     }
+  });
+});
+
+describe('Rule 8(3) — which of the twelve this report answers', () => {
+  /*
+   * Checked against the rule itself rather than against the seven headings the
+   * code happened to have. Five of the twelve were absent and two partial, and
+   * the absent ones are the items that make a report a professional act rather
+   * than a spreadsheet with headings.
+   */
+  function run(project: DdProject) {
+    const computed = computeIndicativeValuation(project);
+    return { computed, summary: rule8Summary(computed.ibbi, computed.ibbi.rule8 ?? {}) };
+  }
+
+  const status = (s: ReturnType<typeof rule8Summary>, item: string) => s.rows.find((r) => r.item === item)!.status;
+
+  it('covers all twelve clauses of the rule, in order', () => {
+    assert.deepEqual(
+      RULE_8_ITEMS.map((r) => r.clause),
+      ['8(3)(a)', '8(3)(b)', '8(3)(c)', '8(3)(d)', '8(3)(e)', '8(3)(f)', '8(3)(g)', '8(3)(h)', '8(3)(i)', '8(3)(j)', '8(3)(k)', '8(3)(l)'],
+    );
+  });
+
+  it('reports the valuer and the conflict disclosure missing until a person supplies them', () => {
+    // Nothing computes either, and defaulting them would put a disclosure on
+    // the report that nobody made.
+    const { summary } = run(file());
+    assert.equal(status(summary, 'identity'), 'missing');
+    assert.equal(status(summary, 'conflict'), 'missing');
+    assert.match(summary.rows.find((r) => r.item === 'conflict')!.note!, /An absent disclosure is not a nil disclosure/);
+    assert.match(summary.say, /does not meet the report-contents rule/);
+  });
+
+  it('reads the inspections off the site visits rather than asking twice', () => {
+    // 8(3)(f) was free the moment site visits existed, and the limitations
+    // travel with it — a value formed without seeing the roof has a hole in it
+    // and the reader has to see the hole.
+    const project = file();
+    assert.equal(status(run(project).summary, 'inspections'), 'missing');
+
+    addSiteVisit(project, {
+      title: 'Inspection',
+      purpose: 'valuation_inspection',
+      visitedOn: '2026-08-12',
+      surveyor: 'R. Iyer',
+      limitations: [{ kind: 'height', what: 'Roof — no access equipment' }],
+    });
+    const after = run(project);
+    assert.equal(status(after.summary, 'inspections'), 'stated');
+    assert.deepEqual(after.computed.ibbi.rule8!.inspections![0]!.limitations, ['Roof — no access equipment']);
+  });
+
+  it('keeps restrictions on use apart from the caveats, because the rule does', () => {
+    const { computed, summary } = run(file());
+    assert.equal(status(summary, 'restrictions'), 'stated');
+    assert.ok(computed.ibbi.rule8!.restrictionsOnUse!.some((r) => /not to be relied on by a lender/i.test(r)));
+    assert.ok(!computed.ibbi.caveats.some((c) => /not to be relied on by a lender/i.test(c)), 'and does not duplicate it into the caveats');
+  });
+
+  it('lists what actually moved the number as the major factors', () => {
+    const project = siteFileFor(file());
+    project.saleableAreaSqm = 1000;
+    record(project, 'indicative_valuation.comparable_inputs', { rate_per_sqm: 50_000, rate_basis: 'inspected comparables' });
+    record(project, 'land_site.flood_drainage', { near_rajakaluve: true });
+    const { computed, summary } = run(project);
+    assert.equal(status(summary, 'factors'), 'stated');
+    assert.ok(computed.ibbi.rule8!.majorFactors!.some((f) => /Rajakaluve/.test(f)), 'the discount is a major factor');
+    assert.ok(computed.ibbi.rule8!.majorFactors!.some((f) => /Not run:/.test(f)), 'and so is an approach that could not run');
+  });
+
+  it('takes a valuer and a nil conflict, and tells them apart from silence', () => {
+    const project = file();
+    const created = createValuationRun(project);
+    assert.equal(status(rule8Summary(created.ibbi, created.ibbi.rule8 ?? {}), 'conflict'), 'missing');
+
+    setValuationValuer(project, created.id, {
+      valuer: { name: 'S. Rao', registrationNumber: 'IBBI/RV/06/2019/11234', registeredFor: 'Land and Building', firm: 'Rao & Co' },
+      declaredConflict: false,
+    });
+    const after = valuationRule8(created);
+    assert.equal(status(after, 'identity'), 'stated');
+    assert.equal(status(after, 'conflict'), 'stated', 'declaring none is a positive statement');
+    assert.equal(created.ibbi.rule8!.conflict!.declared, false);
+  });
+
+  it('refuses a declared interest with nothing described', () => {
+    const project = file();
+    const created = createValuationRun(project);
+    assert.throws(
+      () => setValuationValuer(project, created.id, { valuer: { name: 'S. Rao' }, declaredConflict: true }),
+      /Say what it is, or declare none/,
+    );
+  });
+
+  it('says a name without a registration number cannot be a registered valuer’s report', () => {
+    const project = file();
+    const created = createValuationRun(project);
+    setValuationValuer(project, created.id, { valuer: { name: 'A. Analyst' }, declaredConflict: false });
+    const after = valuationRule8(created);
+    assert.equal(status(after, 'identity'), 'partial');
+    assert.match(after.rows.find((r) => r.item === 'identity')!.note!, /cannot be a registered valuer’s report/);
+  });
+
+  it('never congratulates a complete structure into a certificate', () => {
+    const project = file();
+    const created = createValuationRun(project);
+    addSiteVisit(project, { title: 'Inspection', purpose: 'valuation_inspection', visitedOn: '2026-08-12', surveyor: 'R. Iyer' });
+    setValuationValuer(project, created.id, {
+      valuer: { name: 'S. Rao', registrationNumber: 'IBBI/RV/06/2019/11234', firm: 'Rao & Co' },
+      declaredConflict: false,
+      appointedOn: '2026-08-01',
+    });
+    const full = rule8Summary(
+      { ...created.ibbi, evidenceReliedUponIds: ['ev_1'] },
+      { ...(created.ibbi.rule8 ?? {}), inspections: [{ visitId: 'v', visitedOn: '2026-08-12', by: 'R. Iyer', limitations: [] }] },
+    );
+    if (full.missing === 0 && full.partial === 0) {
+      assert.match(full.say, /complete structure, not a certified valuation/);
+    }
+  });
+});
+
+describe('approaches that disagree are not blended into a number none of them supports', () => {
+  /*
+   * Found by running it rather than by reasoning about it. A file with a
+   * plausible comparable rate and a mistyped rent produced approaches at 0.5,
+   * 13 and 18.5 crore, blended them to 7.3, and printed it with a correctly
+   * enormous band. The band was right and nobody reads the band first.
+   */
+  it('withholds the figure when the spread is past blending, and says which approaches disagree', () => {
+    const project = file();
+    project.saleableAreaSqm = 1000;
+    project.landAreaSqm = 1000;
+    record(project, 'indicative_valuation.comparable_inputs', { rate_per_sqm: 95_000, rate_basis: 'inspected comparables' });
+    // A rent two orders of magnitude out — the exact mistype that produced this.
+    record(project, 'indicative_valuation.income_inputs', { achievable_rent: 48, cap_rate_pct: 7.5, vacancy_pct: 6, opex_pct: 22 });
+
+    const r = runValuationApproaches(project).reconciliation;
+    assert.equal(r.outcome, 'approaches_disagree');
+    assert.equal(r.indicated, null);
+    assert.match(r.spreadBasis, /disagreement rather than cross-checking/);
+    assert.ok(r.usedMethods.length >= 2, 'and every approach that ran is still listed');
+  });
+
+  it('does not tell somebody to record inputs they already recorded', () => {
+    /*
+     * The bug the live run found. A null `indicated` means two opposite things
+     * — nothing ran, or several ran and disagreed — and the report inferred the
+     * first, printing "No approach could be run." over four approaches that had
+     * all run perfectly well. The two need opposite advice, so the distinction
+     * is now in the data rather than in each reader's guess.
+     */
+    const project = file();
+    project.saleableAreaSqm = 1000;
+    project.landAreaSqm = 1000;
+    record(project, 'indicative_valuation.comparable_inputs', { rate_per_sqm: 95_000, rate_basis: 'inspected comparables' });
+    record(project, 'indicative_valuation.income_inputs', { achievable_rent: 48, cap_rate_pct: 7.5 });
+
+    const computed = computeIndicativeValuation(project);
+    assert.ok(!/No approach could be run/.test(computed.ibbi.reconciliation), computed.ibbi.reconciliation);
+    assert.match(computed.ibbi.reconciliation, /No figure is given/);
+    assert.match(computed.ibbi.reconciliation, /disagreement rather than cross-checking/);
+  });
+
+  it('says nothing ran when nothing did', () => {
+    const computed = computeIndicativeValuation(file());
+    assert.equal(computed.working!.reconciliation.outcome, 'no_approach_ran');
+    assert.match(computed.ibbi.reconciliation, /No approach could be run/);
+  });
+
+  it('still blends approaches that differ by a normal amount', () => {
+    // Market, cost and income genuinely differ. A factor of two between them
+    // is a valuation conversation, not an error.
+    const project = file();
+    project.saleableAreaSqm = 1000;
+    project.landAreaSqm = 1000;
+    record(project, 'indicative_valuation.comparable_inputs', { rate_per_sqm: 50_000, rate_basis: 'inspected comparables' });
+    record(project, 'indicative_valuation.cost_inputs', { land_rate_per_sqm: 35_000 });
+
+    const r = runValuationApproaches(project).reconciliation;
+    assert.ok(r.indicated !== null, 'a 1.4× spread is still a valuation');
+    assert.ok(MAX_COHERENT_SPREAD >= 0.5, 'and the threshold is deliberately generous');
+  });
+
+  it('takes a signed comparable adjustment, which is the ordinary case', () => {
+    // `percent` refuses a negative by default, correctly for a vacancy rate and
+    // wrongly for an adjustment — the comparables are better than the subject
+    // more often than not.
+    const project = file();
+    project.saleableAreaSqm = 1000;
+    const outcome = record(project, 'indicative_valuation.comparable_inputs', {
+      rate_per_sqm: 50_000,
+      rate_basis: 'inspected comparables',
+      net_adjustment_pct: -8,
+    });
+    assert.deepEqual(outcome.rejected, []);
+    const market = approach(project, 'comparable_rate');
+    assert.equal(Math.round(market.amount!), Math.round(50_000_000 * 0.92));
+    assert.ok(market.steps.some((s) => s.label === 'Adjusted'));
+  });
+
+  it('still refuses a negative where a negative is a typo', () => {
+    const project = file();
+    const outcome = record(project, 'indicative_valuation.income_inputs', { vacancy_pct: -5, achievable_rent: 50, cap_rate_pct: 8 });
+    assert.equal(outcome.rejected.length, 1);
+    assert.match(outcome.rejected[0]!.error, /cannot be negative/);
   });
 });

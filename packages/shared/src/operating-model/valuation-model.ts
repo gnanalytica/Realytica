@@ -219,8 +219,22 @@ export class ApproachBuilder {
 /* Reconciling several approaches                                        */
 /* ==================================================================== */
 
+/**
+ * Why there is, or is not, a figure.
+ *
+ * A discriminator rather than leaving callers to infer it from a null
+ * `indicated`, because null now means two opposite things — nothing ran, or
+ * several things ran and disagreed — and the first caller to infer it got it
+ * wrong: the report printed "No approach could be run." over four approaches
+ * that had all run perfectly well and simply did not agree. Those need
+ * opposite advice (record the inputs / check the one that looks wrong), so the
+ * distinction has to be in the data rather than in each reader's guess.
+ */
+export type ValuationOutcome = 'indicated' | 'no_approach_ran' | 'approaches_disagree';
+
 export interface ValuationReconciliation {
-  /** The weighted figure, or null when nothing ran. */
+  outcome: ValuationOutcome;
+  /** The weighted figure. Null unless `outcome` is `indicated`. */
   indicated: number | null;
   low: number | null;
   high: number | null;
@@ -242,6 +256,22 @@ export interface ValuationReconciliation {
  */
 export const MIN_VALUATION_SPREAD = 0.08;
 
+/**
+ * Past this, the approaches are not cross-checking each other — they are
+ * disagreeing, and blending them produces a number that is not any of them.
+ *
+ * Found by running the thing: a file with a plausible comparable rate and a
+ * mistyped rent produced approaches at 0.5, 13 and 18.5 crore, blended to 7.3,
+ * and printed it. The band was correctly enormous, which is the design working
+ * — but a reader looking at a headline figure does not read the band first, and
+ * a number no approach came close to should not be given at all.
+ *
+ * Half the blend either way is deliberately generous. Market, cost and income
+ * genuinely differ; a factor of two between them is a valuation conversation,
+ * not an error. A factor of three is somebody having mistyped something.
+ */
+export const MAX_COHERENT_SPREAD = 0.5;
+
 export function reconcile(runs: ValuationApproachRun[]): ValuationReconciliation {
   const usable = runs.filter(approachIsUsable);
   const skipped = runs
@@ -250,6 +280,7 @@ export function reconcile(runs: ValuationApproachRun[]): ValuationReconciliation
 
   if (!usable.length) {
     return {
+      outcome: 'no_approach_ran',
       indicated: null,
       low: null,
       high: null,
@@ -270,7 +301,23 @@ export function reconcile(runs: ValuationApproachRun[]): ValuationReconciliation
   const observed = indicated > 0 ? (highest - lowest) / 2 / indicated : 0;
   const spread = Math.max(MIN_VALUATION_SPREAD, observed);
 
+  // When the approaches disagree past the point of blending, the honest output
+  // is no figure — with every approach still shown, because seeing 0.5 against
+  // 18.5 crore is exactly what tells somebody which input to go and fix.
+  if (spread > MAX_COHERENT_SPREAD) {
+    return {
+      outcome: 'approaches_disagree',
+      indicated: null,
+      low: null,
+      high: null,
+      spreadBasis: `The approaches span ${Math.round(lowest).toLocaleString('en-IN')}–${Math.round(highest).toLocaleString('en-IN')} — ${(spread * 100).toFixed(0)}% about their own blend. That is disagreement rather than cross-checking, and a blend of figures this far apart is a number none of them supports. Each approach is shown; the one that looks wrong usually has one input that is.`,
+      usedMethods: usable.map((r) => r.method),
+      skippedMethods: skipped,
+    };
+  }
+
   return {
+    outcome: 'indicated',
     indicated,
     low: indicated * (1 - spread),
     high: indicated * (1 + spread),

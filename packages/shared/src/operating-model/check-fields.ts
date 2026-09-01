@@ -146,7 +146,19 @@ export function validateFieldValue(
     case 'percent': {
       const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/[,\s]/g, ''));
       if (!Number.isFinite(n)) return { error: `${def.label} is a number${def.unit ? ` in ${def.unit}` : ''}. "${String(raw)}" is not one.` };
-      if (n < 0 && def.kind !== 'number' && def.kind !== 'duration') return { error: `${def.label} cannot be negative.` };
+      /*
+       * A money, an area or a percent is positive unless the field says
+       * otherwise, and a field says otherwise by declaring a negative `min`.
+       *
+       * The blanket rule is right for almost everything — a vacancy rate or a
+       * developer's profit below zero is a typo. It is wrong for a SIGNED
+       * quantity like a net comparable adjustment, which is negative whenever
+       * the comparables were better than the subject, and that is the ordinary
+       * case rather than an edge one. Opting in per field keeps the guard where
+       * it belongs and lets the exception be visible in the schema.
+       */
+      const allowsNegative = def.kind === 'number' || def.kind === 'duration' || (def.min !== undefined && def.min < 0);
+      if (n < 0 && !allowsNegative) return { error: `${def.label} cannot be negative.` };
       if (def.min !== undefined && n < def.min) return { error: `${def.label} cannot be below ${def.min}${def.unit ? ` ${def.unit}` : ''}.` };
       if (def.max !== undefined && n > def.max) return { error: `${def.label} cannot be above ${def.max}${def.unit ? ` ${def.unit}` : ''}.` };
       return { value: n };

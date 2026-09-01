@@ -35,6 +35,7 @@ import type { CaptureFacts } from './capture';
 import type { PhotoObservation } from './photo-observation';
 import type { SheetRecord } from './geo-sheet';
 import type { SiteVisitRecord } from './site-visit';
+import type { Rule8Additions } from './ibbi';
 import type { ValuationWorking } from './valuation-run';
 
 /* ------------------------------------------------------------------ */
@@ -902,6 +903,15 @@ export interface IbbiValuationSections {
   evidenceReliedUponIds: string[];
   evidenceConsideredIds: string[];
   evidenceGapIds: string[];
+  /**
+   * The Rule 8(3) items the original seven headings had no home for.
+   *
+   * Optional because runs written before it load without one, and because
+   * several of them can only be filled in by a person — nothing computes a
+   * conflict disclosure. `rule8Completeness` reads this alongside the sections
+   * above and reports which of the twelve the report can actually satisfy.
+   */
+  rule8?: Rule8Additions;
 }
 
 export interface ValuationRun {

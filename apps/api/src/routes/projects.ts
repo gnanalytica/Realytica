@@ -20,6 +20,8 @@ import {
   visitCoverage,
   removeSheet,
   setActionCost,
+  setValuationValuer,
+  valuationRule8,
   setAttachmentCapture,
   setSheetControlPoints,
   type CaptureFacts,
@@ -140,6 +142,7 @@ import {
   createEvidenceBodySchema,
   createFindingBodySchema,
   createSheetBodySchema,
+  setValuerBodySchema,
   createSiteVisitBodySchema,
   patchSiteVisitBodySchema,
   setActionCostBodySchema,
@@ -592,6 +595,41 @@ projectsRouter.patch('/:projectId/valuation/:runId', async (req, res) => {
   } catch (err) {
     fail(res, err);
   }
+});
+
+projectsRouter.patch('/:projectId/valuation/:runId/valuer', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = setValuerBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const run = setValuationValuer(project, req.params.runId, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Recorded the valuer on this valuation.`, { citedNodeIds: [run.id] });
+    res.json({ run, rule8: valuationRule8(run) });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** Which of the twelve Rule 8(3) items this run answers, computed fresh. */
+projectsRouter.get('/:projectId/valuation/:runId/rule8', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const run = project.valuationRuns.find((r) => r.id === req.params.runId);
+  if (!run) {
+    res.status(404).json({ error: 'Valuation run not found' });
+    return;
+  }
+  res.json(valuationRule8(run));
 });
 
 projectsRouter.post('/:projectId/capabilities', async (req, res) => {

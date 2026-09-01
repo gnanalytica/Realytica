@@ -459,6 +459,30 @@ export const setControlPointsBodySchema = z.object({
   actor: actorSchema,
 });
 
+/**
+ * Who is signing, and what they hold.
+ *
+ * `declaredConflict` is required, not optional. An absent disclosure and a nil
+ * disclosure are different facts and the API must not let them arrive looking
+ * the same.
+ */
+export const setValuerBodySchema = z.object({
+  valuer: z.object({
+    name: z.string().trim().min(1).max(200),
+    registrationNumber: z.string().trim().max(60).optional(),
+    registeredFor: z.string().trim().max(120).optional(),
+    firm: z.string().trim().max(200).optional(),
+    otherExperts: z
+      .array(z.object({ name: z.string().trim().min(1).max(200), contribution: z.string().trim().min(1).max(400) }))
+      .max(10)
+      .optional(),
+  }),
+  declaredConflict: z.boolean(),
+  interests: z.array(z.string().trim().min(1).max(400)).max(20).optional(),
+  appointedOn: z.string().max(40).optional(),
+  actor: actorSchema,
+});
+
 export const patchStatusBodySchema = z.object({
   status: z.string().min(1),
   actor: actorSchema,

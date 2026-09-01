@@ -20,6 +20,7 @@ import {
 } from './operations';
 import { runValuationApproaches } from './valuation-run';
 import { VALUATION_METHOD_LABEL } from './valuation-model';
+import { rule8Summary, type Rule8Summary, type ValuerIdentity } from './ibbi';
 import type { CaptureFacts } from './capture';
 import type { PhotoObservation } from './photo-observation';
 import type {
@@ -198,10 +199,20 @@ export function computeIndicativeValuation(project: DdProject, actor = 'operator
       approaches: working.runs
         .filter((r) => r.amount !== null)
         .map((r) => ({ approach: r.approach, amount: r.amount!, notes: `${r.formula}. ${r.weightBasis}`, weight: r.weight })),
+      /*
+       * Three outcomes, three different things to tell somebody.
+       *
+       * Nothing ran → go and record the inputs. Several ran and disagreed →
+       * go and check the one that looks wrong. A figure → here it is with its
+       * band. Collapsing the first two into one sentence printed "No approach
+       * could be run." over four approaches that had all run.
+       */
       reconciliation:
-        reconciliation.indicated === null
+        reconciliation.outcome === 'no_approach_ran'
           ? `No approach could be run. ${reconciliation.skippedMethods.map((m) => `${VALUATION_METHOD_LABEL[m.method]} — ${m.because}`).join('; ')}. Record those inputs on the Indicative valuation scope and run again.`
-          : `${inr(reconciliation.indicated)} (${inr(reconciliation.low ?? 0)}–${inr(reconciliation.high ?? 0)}). ${reconciliation.spreadBasis}${reconciliation.skippedMethods.length ? ` Not run: ${reconciliation.skippedMethods.map((m) => `${VALUATION_METHOD_LABEL[m.method]} (${m.because})`).join('; ')}.` : ''}`,
+          : reconciliation.outcome === 'approaches_disagree'
+            ? `No figure is given. ${reconciliation.spreadBasis}${reconciliation.skippedMethods.length ? ` Also not run: ${reconciliation.skippedMethods.map((m) => `${VALUATION_METHOD_LABEL[m.method]} (${m.because})`).join('; ')}.` : ''}`
+            : `${inr(reconciliation.indicated ?? 0)} (${inr(reconciliation.low ?? 0)}–${inr(reconciliation.high ?? 0)}). ${reconciliation.spreadBasis}${reconciliation.skippedMethods.length ? ` Not run: ${reconciliation.skippedMethods.map((m) => `${VALUATION_METHOD_LABEL[m.method]} (${m.because})`).join('; ')}.` : ''}`,
       caveats: [
         'Indicative only. Not an IBBI-registered valuer’s report and not to be used as certified value.',
         ...(working.runs.some((r) => r.inputs.some((i) => i.source.kind === 'locality'))
@@ -213,6 +224,41 @@ export function computeIndicativeValuation(project: DdProject, actor = 'operator
       evidenceReliedUponIds: relied.map((e) => e.id),
       evidenceConsideredIds: considered.map((e) => e.id),
       evidenceGapIds: gaps.map((e) => e.id),
+      rule8: {
+        // Everything here is DERIVED. The three items a computation cannot
+        // supply — the valuer's identity, their conflict disclosure and the
+        // date of appointment — stay absent rather than being filled with
+        // something plausible, and `rule8Completeness` reports them missing.
+        reportedOn: nowIso().slice(0, 10),
+        inspections: (project.siteVisits ?? [])
+          .filter((v) => v.status === 'completed' || v.status === 'aborted')
+          .map((v) => ({
+            visitId: v.id,
+            visitedOn: v.visitedOn,
+            by: v.surveyor,
+            // The limitations travel into the valuation, which is the point of
+            // Rule 8(3)(f): a value formed without seeing the roof is a value
+            // with a hole in it, and the reader has to be able to see the hole.
+            limitations: v.limitations.map((l) => l.what),
+          })),
+        majorFactors: [
+          ...working.runs
+            .filter((r) => r.amount !== null)
+            .map((r) => `${VALUATION_METHOD_LABEL[r.method]}: ${r.weightBasis}`),
+          ...working.externalities.applied.map((a) => `${a.label} at ${a.metres} m — ${(a.pct * 100).toFixed(0)}%. ${a.say}`),
+          ...(working.reconciliation.skippedMethods.length
+            ? [`Not run: ${working.reconciliation.skippedMethods.map((m) => `${VALUATION_METHOD_LABEL[m.method]} (${m.because})`).join('; ')}.`]
+            : []),
+        ],
+        standardsFollowed: [
+          'Companies (Registered Valuers and Valuation) Rules 2017, Rule 8 — used as a report-contents checklist.',
+          'IBBI Guidelines on Use of Caveats, Limitations and Disclaimers, 2020.',
+        ],
+        restrictionsOnUse: [
+          'Prepared for the project owner and investment committee named in the instruction, for internal due-diligence decisions only.',
+          'Not to be relied on by a lender, a court, a tribunal or any third party, and not to be used for any statutory purpose requiring a registered valuer.',
+        ],
+      },
     },
   };
 }
@@ -245,6 +291,64 @@ export function createValuationRun(project: DdProject, actor = 'operator'): Valu
   });
   snapshotCapabilities(project, actor);
   return run;
+}
+
+/**
+ * The two Rule 8 items nothing can compute: who is signing, and what they hold.
+ *
+ * Kept as its own operation rather than a field on the run because both are
+ * statements a PERSON makes, and the moment either could be defaulted the
+ * report would carry a disclosure nobody made. `declaredConflict: false` with
+ * an empty list is a positive statement — "I considered this and have none" —
+ * and is a different fact from the disclosure being absent, which is why the
+ * argument is required rather than optional.
+ *
+ * Nothing here checks a registration number against IBBI's register. That is a
+ * lookup this product does not do, and validating the format alone would give
+ * a number an air of having been verified.
+ */
+export function setValuationValuer(
+  project: DdProject,
+  runId: string,
+  input: {
+    valuer: ValuerIdentity;
+    declaredConflict: boolean;
+    interests?: string[];
+    appointedOn?: string;
+  },
+  actor = 'operator',
+): ValuationRun {
+  ensureProjectShape(project);
+  const run = project.valuationRuns.find((r) => r.id === runId);
+  if (!run) throw new Error('Valuation run not found');
+  if (!input.valuer.name.trim()) throw new Error('A valuation has to name who is signing it.');
+  if (input.declaredConflict && !(input.interests ?? []).length) {
+    throw new Error('An interest was declared but not described. Say what it is, or declare none.');
+  }
+
+  const at = nowIso();
+  run.ibbi.rule8 = {
+    ...(run.ibbi.rule8 ?? {}),
+    valuer: input.valuer,
+    conflict: { declared: input.declaredConflict, interests: input.interests ?? [], statedBy: actor, statedAt: at },
+    ...(input.appointedOn ? { appointedOn: input.appointedOn } : {}),
+  };
+  touch(project, at);
+  project.audit.push({
+    id: id('aud'),
+    at,
+    actor,
+    action: 'valuation_valuer',
+    entityType: 'valuation',
+    entityId: run.id,
+    newValue: `${input.valuer.name}${input.valuer.registrationNumber ? ` (${input.valuer.registrationNumber})` : ''} · ${input.declaredConflict ? `${(input.interests ?? []).length} interest(s) declared` : 'no interest declared'}`,
+  });
+  return run;
+}
+
+/** Which of the twelve Rule 8(3) items this run answers, computed fresh. */
+export function valuationRule8(run: ValuationRun): Rule8Summary {
+  return rule8Summary(run.ibbi, run.ibbi.rule8 ?? {});
 }
 
 export function setValuationSignOff(project: DdProject, runId: string, signOff: ValuationRun['signOff'], actor = 'operator'): ValuationRun {
