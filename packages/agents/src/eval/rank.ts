@@ -68,6 +68,60 @@ function roundTo(value: number, decimals: number): number {
  * failure says nothing about accuracy and everything about what the attempt
  * cost and how long the user waited for it.
  */
+/**
+ * Did one attempt actually pass?
+ *
+ * Stricter than the 0..1 score on purpose: a pass is EVERY expectation
+ * correct and nothing fabricated. `meanScore` answers "how close does this
+ * route get"; a pass answers "could this run have shipped" — and consistency
+ * is only meaningful over the second question. A crashed attempt is not a
+ * pass: reliability is the property under test, and an error is a reliability
+ * failure even though it says nothing about accuracy (which is why the same
+ * run IS excluded from `meanScore` — the two metrics disagree about errors
+ * because they measure different things).
+ */
+export function attemptPassed(run: EvalRunResult): boolean {
+  if (!run.score) return false;
+  if (run.score.fabrications > 0) return false;
+  return run.score.fields.every(field => field.correct);
+}
+
+/**
+ * Consistency over repeated attempts, per τ-bench's pass^k.
+ *
+ * Grouped by case within one route's runs. `passConsistently` is the share
+ * of cases where every attempt passed; `flakyCases` counts cases that both
+ * passed and failed — the exact transcripts worth reading, because a flaky
+ * case is either an ambiguous expectation or a route that cannot be trusted
+ * with that document.
+ */
+function consistencyOf(runs: EvalRunResult[]): { attempts: number; passRate: number; passConsistently: number; flakyCases: number } | null {
+  const byCase = new Map<string, EvalRunResult[]>();
+  for (const run of runs) {
+    const existing = byCase.get(run.evalCaseId);
+    if (existing) existing.push(run);
+    else byCase.set(run.evalCaseId, [run]);
+  }
+  const attempts = Math.max(...[...byCase.values()].map(group => group.length));
+  if (!Number.isFinite(attempts) || attempts <= 1) return null;
+
+  let passes = 0;
+  let consistent = 0;
+  let flaky = 0;
+  for (const group of byCase.values()) {
+    const passed = group.filter(attemptPassed).length;
+    passes += passed;
+    if (passed === group.length) consistent += 1;
+    else if (passed > 0) flaky += 1;
+  }
+  return {
+    attempts,
+    passRate: runs.length === 0 ? 0 : passes / runs.length,
+    passConsistently: byCase.size === 0 ? 0 : consistent / byCase.size,
+    flakyCases: flaky,
+  };
+}
+
 export function rankEvalResults(results: EvalRunResult[]): EvalRanking[] {
   const groups = new Map<string, EvalRunResult[]>();
   for (const result of results) {
@@ -97,9 +151,19 @@ export function rankEvalResults(results: EvalRunResult[]): EvalRanking[] {
         ? Math.min(meanScore / totalCostUsd, MAX_SCORE_PER_USD)
         : meanScore * MAX_SCORE_PER_USD;
 
+    const consistency = consistencyOf(runs);
+
     rankings.push({
       provider: runs[0].provider,
       model: runs[0].model,
+      ...(consistency
+        ? {
+            attempts: consistency.attempts,
+            passRate: roundTo(consistency.passRate, 4),
+            passConsistently: roundTo(consistency.passConsistently, 4),
+            flakyCases: consistency.flakyCases,
+          }
+        : {}),
       meanScore: roundTo(meanScore, 4),
       fabrications,
       // Six decimals, not the four the pricing helper uses: a per-case cost
@@ -158,6 +222,13 @@ export function summariseRanking(rankings: EvalRanking[]): string[] {
       row.fabrications > 0
         ? ` — ${row.fabrications} fabrication${row.fabrications === 1 ? '' : 's'}: ranked below every clean route regardless of price`
         : '';
-    return `${index + 1}. ${route} — score ${row.meanScore.toFixed(3)}, $${row.totalCostUsd.toFixed(4)} total, ${row.meanDurationMs} ms mean, ${ratio}${verdict}`;
+    // Consistency, when it was measured. The gap between passRate and
+    // pass^k is flakiness, and flakiness at pass@1 is invisible — which is
+    // the whole reason attempts exist.
+    const consistency =
+      row.attempts && row.attempts > 1
+        ? ` — over ${row.attempts} attempts: ${((row.passRate ?? 0) * 100).toFixed(0)}% of attempts pass, ${((row.passConsistently ?? 0) * 100).toFixed(0)}% of cases pass every time${row.flakyCases ? ` (${row.flakyCases} flaky case${row.flakyCases === 1 ? '' : 's'} — read those transcripts)` : ''}`
+        : '';
+    return `${index + 1}. ${route} — score ${row.meanScore.toFixed(3)}, $${row.totalCostUsd.toFixed(4)} total, ${row.meanDurationMs} ms mean, ${ratio}${verdict}${consistency}`;
   });
 }

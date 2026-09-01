@@ -46,6 +46,7 @@ import {
 import { projectNextStep, materialOpenFindings, unevidencedFindings, findingCriticSitting } from './next-step';
 import { detectChatSideIntents, handleChatSides } from './chat-sides';
 import { clarifyRecordCommand, clarifySubject, looksLikeCommand, resolveSubject, sittingTitle } from './clarify';
+import { verifyAttribution } from './attribution';
 import {
   checkResultChoices,
   describeRecorded,
@@ -206,6 +207,7 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     citedNodeIds: extra.citedNodeIds,
     toolCalls: extra.toolCalls,
     choices: extra.choices,
+    unsupportedClaims: extra.unsupportedClaims,
     refusedForLackOfEvidence: extra.refusedForLackOfEvidence,
     proposalIds: extra.proposalIds,
   };
@@ -334,8 +336,16 @@ export function applyProjectAgentTurn(
   const highlightIds = [
     ...new Set(offered.flatMap((p) => [...(p.citedNodeIds ?? []), ...(p.citedEvidenceIds ?? [])])),
   ];
+  /*
+   * The way-out check. Retrieval grounded what went in and the critic audits
+   * after the fact; this is the only point that sees the exact text a person
+   * is about to read, so it is where an invented figure gets named. Model
+   * turns only — this function IS the model path.
+   */
+  const attribution = verifyAttribution(project, agent.text);
   const assistantTurn = turn('assistant', agent.text, {
     choices: agent.choices?.length ? agent.choices : undefined,
+    unsupportedClaims: attribution.unsupported.length ? attribution.unsupported.map((c) => c.text) : undefined,
     citedEvidenceIds: [...new Set(agent.citedEvidenceIds ?? [])],
     citedNodeIds: agent.citedNodeIds ? [...new Set(agent.citedNodeIds)] : undefined,
     toolCalls: agent.toolCalls,

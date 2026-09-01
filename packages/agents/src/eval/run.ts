@@ -100,6 +100,18 @@ export interface RunEvalComparisonParams {
   now: string;
   /** Comparison id. Defaults to a deterministic one derived from the task and timestamp. */
   id?: string;
+  /**
+   * How many times to run each (route, case) pair. Default 1 — the historical
+   * behaviour, and the cheap one.
+   *
+   * More than one attempt is how flakiness becomes measurable. A route can
+   * pass half the corpus at one attempt and look identical to a route that
+   * passes the same half every single time; τ-bench measured exactly this
+   * (pass ~50% once, ~25% at pass^8). Attempts multiply spend — routes ×
+   * cases × attempts — so the CLI's dry-run reports the product before a
+   * token moves.
+   */
+  attempts?: number;
 }
 
 const ZERO_USAGE: AgentUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estimatedCostUsd: 0 };
@@ -171,6 +183,7 @@ function reconstructFinishedAt(startedAt: string, totalDurationMs: number): stri
  */
 export async function runEvalComparison(params: RunEvalComparisonParams): Promise<EvalComparison> {
   const { taskKind, routes, cases, execute, now } = params;
+  const attempts = Math.max(1, Math.floor(params.attempts ?? 1));
 
   const skipped: { evalCaseId: string; reason: string }[] = [];
   const runnable: EvalCase[] = [];
@@ -206,6 +219,7 @@ export async function runEvalComparison(params: RunEvalComparisonParams): Promis
 
   for (const route of routes) {
     for (const evalCase of runnable) {
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
       let execution: EvalExecution;
       try {
         execution = await execute({ evalCase, route });
@@ -230,6 +244,7 @@ export async function runEvalComparison(params: RunEvalComparisonParams): Promis
           durationMs,
           capabilityGaps,
           error: execution.error,
+          attempt,
         });
         continue;
       }
@@ -243,7 +258,9 @@ export async function runEvalComparison(params: RunEvalComparisonParams): Promis
         usage,
         durationMs,
         capabilityGaps,
+        attempt,
       });
+      }
     }
   }
 

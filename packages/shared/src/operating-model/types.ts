@@ -681,6 +681,16 @@ export interface ProjectChatTurn {
    * Present only on a turn that asked rather than acted.
    */
   choices?: ChatChoice[];
+  /**
+   * Figures in this answer that nothing on the file supports, verbatim.
+   *
+   * Set only on model-authored turns — deterministic text is assembled from
+   * register values and cannot disagree with them. A flag, never a block:
+   * the answer still renders, with the unsupported figures named beside it,
+   * because an invented number in the same confident voice as a real one is
+   * the exact failure this product exists to prevent.
+   */
+  unsupportedClaims?: string[];
   citedEvidenceIds: string[];
   citedNodeIds?: string[];
   toolCalls?: { name: string; summary: string }[];

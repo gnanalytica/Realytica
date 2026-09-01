@@ -2,7 +2,7 @@
   "name": "realytica",
   "private": true,
   "version": "0.1.0",
-  "description": "Realytica — due diligence operating system. Manual-first MVP: projects, concurrent DDs, shared registers.",
+  "description": "Realytica \u2014 due diligence operating system. Manual-first MVP: projects, concurrent DDs, shared registers.",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20.10"
@@ -23,7 +23,8 @@
     "probe:model": "mkdir -p node_modules/.cache && esbuild scripts/probe-model.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/probe-model.mjs --log-level=error && node node_modules/.cache/probe-model.mjs",
     "eval": "mkdir -p node_modules/.cache && esbuild scripts/run-eval.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/run-eval.mjs --log-level=error && node node_modules/.cache/run-eval.mjs",
     "eval:multilingual": "mkdir -p node_modules/.cache && esbuild scripts/eval-multilingual.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/eval-multilingual.mjs --log-level=error && node node_modules/.cache/eval-multilingual.mjs",
-    "lint": "eslint apps/web"
+    "lint": "eslint apps/web",
+    "eval:calibration": "mkdir -p node_modules/.cache && esbuild scripts/eval-calibration.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/eval-calibration.mjs --log-level=error && node node_modules/.cache/eval-calibration.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

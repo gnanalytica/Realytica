@@ -166,6 +166,19 @@ function TurnBubble({
             askingPrice={askingPrice}
           />
         ) : null}
+        {turn.unsupportedClaims && turn.unsupportedClaims.length > 0 ? (
+          /*
+           * Figures the file does not support, named beside the answer that
+           * used them. A flag, not a block: the person decides what to make
+           * of it, but an invented number must never render in the same
+           * voice as a verified one.
+           */
+          <p className="mt-2 rounded-lg bg-warning/15 px-2.5 py-1.5 text-mini leading-snug text-ink ring-1 ring-inset ring-warning/45">
+            Not on the file: {turn.unsupportedClaims.join(' · ')}. Nothing in the registers, the screen or the
+            valuations carries {turn.unsupportedClaims.length === 1 ? 'this figure' : 'these figures'} — treat
+            {turn.unsupportedClaims.length === 1 ? ' it' : ' them'} as unverified until evidence lands.
+          </p>
+        ) : null}
         {turn.choices && turn.choices.length > 0 && onPick ? (
           /*
            * Options offered because the message did not resolve to one thing.

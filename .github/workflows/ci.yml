@@ -1,0 +1,27 @@
+# The gate that already existed, finally enforced.
+#
+# `pnpm check` has been green locally through every recent change — 541 tests,
+# strict typecheck across five projects, lint — but nothing ran it on push, so
+# green depended on every contributor remembering to. The evals are NOT here:
+# they call paid model endpoints and need credentials, so they stay a
+# deliberate local act (`pnpm eval --dry-run` first, always).
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
