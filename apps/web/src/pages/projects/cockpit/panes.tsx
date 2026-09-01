@@ -16,6 +16,7 @@ import { api, evidenceFileUrl } from '../../../lib/api';
 import { Badge, Button, Callout, EmptyState, useToast } from '../../../components/ui/kit';
 import { formatWhen, severityTone } from '../shared';
 import { useAsync } from '../../../lib/useAsync';
+import { useBackgroundRun } from '../../../lib/useBackgroundRun';
 import { ProjectGraphCanvas } from './ProjectGraphCanvas';
 import { LiveRow } from '../LiveRow';
 
@@ -299,7 +300,21 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
   // The durable run ledger. Its one irreplaceable row is `interrupted`: a
   // model run whose process died used to vanish without a trace, and the
   // person who asked was left telling silence apart from refusal.
-  const { data: runLedger } = useAsync(() => api.projectRuns(project.id), [project.id, project.updatedAt]);
+  const { data: runLedger, refresh: refreshLedger } = useAsync(() => api.projectRuns(project.id), [project.id, project.updatedAt]);
+  // Started, not supervised: the request returns a run id and the work goes
+  // on without this tab. Closing the page no longer ends it.
+  const background = useBackgroundRun(project.id, 'orchestrate', async (state) => {
+    await onChanged();
+    await refreshLedger();
+    toast(
+      state === 'finished'
+        ? 'Orchestrator finished — drafts are on the review queue'
+        : state === 'interrupted'
+          ? 'The orchestrator run was interrupted; nothing was lost, re-run it'
+          : 'The orchestrator run failed — see recent runs',
+      state === 'finished' ? 'good' : 'warning',
+    );
+  });
   const recommended = recommendedDdTypes(project.currentStage).filter(
     (d) => !project.assessments.some((a) => a.ddType === d.key && a.status !== 'archived'),
   );
@@ -322,8 +337,24 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
             Plans the next DD move from live registers, then a planner agent can add cards. It proposes; it does not write findings.
           </p>
         </div>
-        <Button onClick={() => void run()}>Run orchestrator</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => void run()} disabled={background.busy}>
+            Run and wait
+          </Button>
+          <Button onClick={() => void background.start()} loading={background.busy} disabled={background.busy}>
+            {background.busy ? 'Running in background…' : 'Run in background'}
+          </Button>
+        </div>
       </div>
+      {background.busy ? (
+        <Callout tone="brand" title="Running in the background">
+          {background.line ?? 'Started. You can leave this pane — the run keeps going and the result lands on the registers.'}
+          {background.keptAlive === false
+            ? ' This deployment does not guarantee work outliving a request, so if the instance is recycled the run will show as interrupted rather than finishing.'
+            : ''}
+        </Callout>
+      ) : null}
+      {background.error ? <Callout tone="critical" title="Background run">{background.error}</Callout> : null}
       <Callout title="Manual-first">
         Stage {LIFECYCLE_STAGE_LABEL[project.currentStage]}. AI is optional. Accepting a plan does not start a DD.
       </Callout>

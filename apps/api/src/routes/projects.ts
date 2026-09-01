@@ -53,9 +53,12 @@ import {
   projectGraphOf,
   retrieveProjectNeighbourhood,
   traceProjectNode,
+  validateProjectGraph,
   type ChatIngestFile,
   type DdProject,
   type ProjectChatResult,
+  type ProjectGraphEdge,
+  type ProjectGraphNode,
   type SittingRef,
   type AgentStep,
 } from '@realytica/shared';
@@ -75,6 +78,8 @@ import { memoryStore } from '../memory';
 import { gatherChatSides } from '../project-chat-sides';
 import { ensureIdentitySiteContext } from '../site-context';
 import { beginRun, listRuns } from '../runs/journal';
+import { startBackgroundRun } from '../runs/background';
+import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
@@ -245,6 +250,21 @@ projectsRouter.get('/:projectId/runs', async (req, res) => {
   res.json({ runs });
 });
 
+projectsRouter.get('/:projectId/runs/:runId', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const run = (await listRuns(project.id)).find((row) => row.id === req.params.runId);
+  if (!run) {
+    res.status(404).json({ error: 'Run not found' });
+    return;
+  }
+  const now = new Date().toISOString();
+  res.json({ ...run, state: runState(run, now), line: describeRun(run, now) });
+});
+
 projectsRouter.get('/:projectId/graph', (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -254,6 +274,132 @@ projectsRouter.get('/:projectId/graph', (req, res) => {
   refreshProjectDerived(project);
   const built = buildProjectGraph(project);
   res.json({ ...built, adapter: graphAdapter.kind });
+});
+
+/**
+ * The STORED graph, which is not the same as the one a rebuild produces.
+ *
+ * It carries the annotations — which exist nowhere else — and `asOf` answers
+ * what the file looked like at an instant, neither of which a projection from
+ * the current registers can give you. `/graph` above is the projection and is
+ * always current; this is the record.
+ */
+projectsRouter.get('/:projectId/graph/stored', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const asOf = typeof req.query.asOf === 'string' ? req.query.asOf : undefined;
+  let stored;
+  try {
+    stored = await graphAdapter.readProject(project.id, asOf);
+  } catch (err) {
+    res.status(503).json({ error: `The graph store did not answer: ${(err as Error).message}` });
+    return;
+  }
+  if (!stored) {
+    res.status(200).json({ graph: null, reason: 'not_indexed', adapter: graphAdapter.kind });
+    return;
+  }
+  res.json({ graph: stored, adapter: graphAdapter.kind, asOf: asOf ?? null });
+});
+
+interface AnnotationBody {
+  /** The node this is about. Must already be in the stored graph. */
+  nodeId?: unknown;
+  text?: unknown;
+  author?: unknown;
+  /** Optional second node, to draw a link rather than leave a note. */
+  linkedNodeId?: unknown;
+}
+
+/**
+ * An analyst's note on a node, and the one thing in this graph a rebuild
+ * cannot reproduce.
+ *
+ * Everything `buildProjectGraph` emits is derived: delete the store and it
+ * comes back. A note does not — somebody looked at a check and wrote down why
+ * it matters, and that judgement has no other home. So it is written with
+ * `origin: 'authored'`, which is what makes a sync leave it alone, and a
+ * failure to write it is a 503 rather than a 500: the note was not saved and
+ * the caller still has it, so reporting success would lose the only copy.
+ */
+projectsRouter.post('/:projectId/graph/annotations', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+
+  const body = req.body as AnnotationBody;
+  const nodeId = typeof body.nodeId === 'string' ? body.nodeId.trim() : '';
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  const author = typeof body.author === 'string' ? body.author.trim() : '';
+  const linkedNodeId = typeof body.linkedNodeId === 'string' ? body.linkedNodeId.trim() : '';
+  if (!nodeId || !text) {
+    res.status(400).json({ error: 'nodeId and text are both required.' });
+    return;
+  }
+
+  let stored;
+  try {
+    stored = await graphAdapter.readProject(project.id);
+  } catch (err) {
+    res.status(503).json({ error: `The graph store did not answer: ${(err as Error).message}` });
+    return;
+  }
+  // Checked against the STORED graph rather than a fresh projection, because
+  // an annotation may legitimately hang off another annotation and those are
+  // not in a projection. A note on a node that does not exist is the same
+  // fabricated connection the projection refuses.
+  const present = new Map((stored?.nodes ?? []).map((n) => [n.id, n]));
+  if (!present.has(nodeId)) {
+    res.status(400).json({ error: `No node "${nodeId}" in this file's graph.` });
+    return;
+  }
+  if (linkedNodeId && !present.has(linkedNodeId)) {
+    res.status(400).json({ error: `No node "${linkedNodeId}" in this file's graph.` });
+    return;
+  }
+
+  const id = `ryt-note-${randomUUID()}`;
+  const at = new Date().toISOString();
+  const node: ProjectGraphNode = {
+    id,
+    kind: 'thought',
+    layer: 'deliberation',
+    // The whole point. This is the one thing in the graph a rebuild cannot
+    // produce, so a sync must never touch it.
+    origin: 'authored',
+    label: text.slice(0, 120),
+    detail: [author || null, at.slice(0, 10)].filter(Boolean).join(' · '),
+  };
+  const edges: ProjectGraphEdge[] = [
+    { id: `${id}:cites:${nodeId}`, rel: 'cites', from: id, to: nodeId },
+    ...(linkedNodeId ? [{ id: `${id}:cites:${linkedNodeId}`, rel: 'cites' as const, from: id, to: linkedNodeId }] : []),
+  ];
+
+  // The ontology is a real gate here, not a test assertion. A person drawing a
+  // link by hand is exactly the case a closed vocabulary exists to constrain,
+  // and the endpoint rules are what stop a note being stored as something a
+  // finding could later be walked out of.
+  const problems = validateProjectGraph({
+    nodes: [...(stored?.nodes ?? []), node],
+    edges,
+  });
+  if (problems.length > 0) {
+    res.status(400).json({ error: problems.map((p) => p.reason).join('; ') });
+    return;
+  }
+
+  try {
+    await graphAdapter.appendProject(project.id, [node], edges);
+  } catch (err) {
+    res.status(503).json({ error: `The graph store did not accept the note: ${(err as Error).message}` });
+    return;
+  }
+  res.status(201).json({ node, edges });
 });
 
 projectsRouter.get('/:projectId/graph/neighbourhood', async (req, res) => {
@@ -330,6 +476,24 @@ projectsRouter.post('/:projectId/screen', async (req, res) => {
   }
   const actor = actorOf(req.body as { actor?: string } | undefined);
   const now = new Date().toISOString();
+
+  /*
+   * `?background=1` starts the work and returns the run id immediately. The
+   * screen geocodes, screens and writes six registers; on a slow site-context
+   * lookup that is long enough to be worth walking away from.
+   */
+  if (req.query.background === '1' || req.query.background === 'true') {
+    const started = await startBackgroundRun(project.id, 'screen', { actor }, async (journal) => {
+      const site = await ensureIdentitySiteContext(project, projectToIdentity(project), now);
+      await journal.step('site_context', site ? 'Site context resolved.' : 'No mapping provider; screening without a pin.');
+      const applied = screenProject(project, actor, now, site);
+      await persistPaneWrite(project, 'Ran the project screen.');
+      return `Verdict ${applied.snapshot.verdict}.`;
+    });
+    res.status(202).json({ ...started, pollUrl: `/api/projects/${project.id}/runs/${started.runId}` });
+    return;
+  }
+
   const journal = await beginRun(project.id, 'screen', { actor });
   try {
     const site = await ensureIdentitySiteContext(project, projectToIdentity(project), now);
@@ -788,6 +952,42 @@ projectsRouter.post('/:projectId/orchestrate', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
+  const actor = actorOf(parsed.data);
+
+  /*
+   * Background mode. The model pass is the slow half — a planner call with
+   * tools — and it produces cards a person reviews later anyway, so there is
+   * nothing to watch while it runs.
+   */
+  if (req.query.background === '1' || req.query.background === 'true') {
+    const started = await startBackgroundRun(project.id, 'orchestrate', { actor }, async (journal) => {
+      const bgRun = runProjectOrchestrator(project, actor);
+      await journal.step('rule_pass', `Rule pass proposed ${bgRun.draftIds.length} draft(s).`);
+      if (agentCapability().available) {
+        try {
+          const extra = await runProjectOrchestratorAgent(project, actor, bgRun);
+          if (extra.usedModel) {
+            bgRun.source = 'model';
+            bgRun.summary = extra.summary;
+            const open = new Set(project.chatProposals.filter((p) => p.status === 'proposed').map((p) => p.title));
+            for (const card of extra.proposals) {
+              if (open.has(card.title)) continue;
+              project.chatProposals.push(card);
+              open.add(card.title);
+            }
+            await journal.step('model_pass', `Model pass queued ${extra.proposals.length} card(s).`);
+          }
+        } catch (err) {
+          await journal.step('model_pass_failed', err instanceof Error ? err.message : String(err));
+        }
+      }
+      await persistPaneWrite(project, `Orchestrator pass proposed ${bgRun.draftIds.length} draft(s).`);
+      return `${bgRun.source === 'model' ? 'Rule + model pass' : 'Rule pass'}; ${bgRun.draftIds.length} draft(s).`;
+    });
+    res.status(202).json({ ...started, pollUrl: `/api/projects/${project.id}/runs/${started.runId}` });
+    return;
+  }
+
   const journal = await beginRun(project.id, 'orchestrate', { actor: actorOf(parsed.data) });
   const run = runProjectOrchestrator(project, actorOf(parsed.data));
   await journal.step('rule_pass', `Rule pass proposed ${run.draftIds.length} draft(s).`);
@@ -838,8 +1038,18 @@ projectsRouter.delete('/:projectId', async (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  projects().splice(idx, 1);
+  const [removed] = projects().splice(idx, 1);
   await store.save();
+  // The project's own documents — its shard, its run journal, its evidence
+  // files — go with it. "Deleted" has to mean deleted: these hold owner
+  // names, document titles and uploaded bytes.
+  if (removed) {
+    try {
+      await storageAdapter.deleteCaseDocuments(removed.id);
+    } catch (err) {
+      console.warn(`[projects] could not remove documents for ${removed.id}: ${(err as Error).message}`);
+    }
+  }
   res.status(204).end();
 });
 
@@ -1063,14 +1273,27 @@ projectsRouter.get('/:projectId/evidence/:evidenceId/files/:fileId', async (req,
     res.status(404).json({ error: 'File bytes not found' });
     return;
   }
-  const ascii = file.fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '').slice(0, 200) || 'document';
-  const inline = req.query.inline === '1' || req.query.inline === 'true';
-  const type = inline && file.mimeType && file.mimeType !== 'application/octet-stream' ? file.mimeType : 'application/octet-stream';
-  res.setHeader('Content-Type', type);
-  res.setHeader(
-    'Content-Disposition',
-    `${inline ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
-  );
+  /*
+   * The type is decided by the BYTES, never by `file.mimeType`.
+   *
+   * That field is whatever the client announced at upload — multer copies the
+   * part header verbatim — so it is attacker-controlled and independent of
+   * what was actually stored. This route used to echo it back and serve the
+   * result `inline`, which is stored XSS: upload HTML announced as text/html,
+   * send someone the `?inline=1` link, and it executes on this origin with
+   * access to every project the API will answer for. `nosniff` does not help
+   * when the declared type IS text/html.
+   *
+   * `document-file.ts` has held the correct rule and the signature sniffer
+   * since before this route existed; it was reachable only from the retired
+   * case path, so the defence sat on dead code while the live path shipped
+   * the bug. Now they share one implementation, and only a type this app can
+   * actually render is ever inlined.
+   */
+  const wantsInline = req.query.inline === '1' || req.query.inline === 'true';
+  const { contentType, inline } = resolveServedType(bytes, file.fileName, !wantsInline);
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Disposition', documentDisposition(inline, file.fileName));
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Length', String(bytes.length));
   res.setHeader('Cache-Control', 'private, max-age=900, must-revalidate');

@@ -19,6 +19,10 @@ import type {
 
 export type { ChatChoice } from '../types';
 
+import type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } from './project-ontology';
+
+export type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } from './project-ontology';
+
 /* ------------------------------------------------------------------ */
 /* Catalog keys                                                        */
 /* ------------------------------------------------------------------ */
@@ -598,30 +602,50 @@ export interface AiDraft {
 
 export interface ProjectGraphNode {
   id: string;
-  kind:
-    | 'project'
-    | 'asset'
-    | 'assessment'
-    | 'scope'
-    | 'check'
-    | 'evidence'
-    | 'finding'
-    | 'risk'
-    | 'action'
-    | 'decision'
-    | 'report'
-    | 'thought'
-    | 'question'
-    | 'proposal';
+  kind: ProjectGraphNodeKind;
+  /**
+   * What KIND OF THING this is — entity, evidence, claim, judgement or
+   * deliberation. Derived from `kind` and carried on the node so a consumer
+   * (a renderer, a traversal, Cypher) does not have to keep its own copy of
+   * the mapping and drift from it.
+   */
+  layer: ProjectGraphLayer;
+  /**
+   * Where this node LIVES, which is a different question from what it is.
+   *
+   * `derived` nodes are a pure function of the project registers: a rebuild
+   * reproduces them exactly, so a store holding them is an index and losing
+   * them costs a rebuild. `authored` nodes were written straight into the
+   * graph and exist nowhere else — an analyst's annotation, a link somebody
+   * drew by hand. A sync must never touch those.
+   */
+  origin: ProjectGraphOrigin;
   label: string;
   detail?: string;
 }
+
+export type ProjectGraphOrigin = 'derived' | 'authored';
 
 export interface ProjectGraphEdge {
   id: string;
   from: string;
   to: string;
-  rel: string;
+  rel: ProjectGraphEdgeKind;
+  /**
+   * When this stopped being what the file says — absent while it still is.
+   *
+   * A rebuild that no longer draws an edge is not evidence the edge was
+   * wrong; it is evidence the file changed. A check that dropped an evidence
+   * reference last week should leave both readable, because "what did this
+   * finding rest on when we signed the report" is a question a diligence file
+   * has to be able to answer, and deleting the edge answers it with silence.
+   *
+   * Set by the persistence layer at the moment a sync stops producing the
+   * edge, never by the projection — the projection has no memory of what it
+   * emitted last time, which is exactly why the store is the one that can
+   * tell.
+   */
+  closedAt?: string;
 }
 
 export interface DdProgressRow {

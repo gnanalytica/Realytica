@@ -1,62 +1,38 @@
 /**
- * Keeping the stored graph level with the case and project stores.
+ * Keeping the stored graph level with the project store.
  *
  * The projection is cheap and pure, so the question is only WHEN to run it.
- * After every mutation, for the cases and projects that actually moved: a
- * record whose `updatedAt` has not changed cannot have produced a different
- * graph, and rebuilding every file on every save would make an upload to one
- * cost a projection of the whole workspace.
+ * After every mutation, for the projects that actually moved: a file whose
+ * `updatedAt` has not changed cannot have produced a different graph, and
+ * rebuilding every project on every save would make an upload to one cost a
+ * projection of the whole workspace.
  *
  * Awaited rather than fired off, for the same reason `store.save()` is: on
  * serverless the process can be frozen the moment a response is sent, so work
  * left running after it is work that may never happen. But a failure here is
  * swallowed — the graph is an index over data that is already durable in the
- * case/project store, and a graph store being unreachable must not fail an
- * upload. It is logged once per file rather than silently, because a graph
- * quietly months out of date is worse than one obviously missing.
+ * project store, and a graph store being unreachable must not fail an upload.
+ * It is logged once per file rather than silently, because a graph quietly
+ * months out of date is worse than one obviously missing.
+ *
+ * This used to take a `cases` array too and project a second graph family from
+ * it. That array is always empty — no mounted route creates a `PropertyCase`
+ * and the demo reset clears it outright — so the loop ran over nothing on
+ * every save while making the case graph look persisted. It is gone; see
+ * `types.ts` for what replaced it.
  */
 
-import { buildDdGraph, buildProjectGraph, type DdProject, type PropertyCase } from '@realytica/shared';
+import { buildProjectGraph, type DdProject } from '@realytica/shared';
 import { graphAdapter } from './index';
 
-/** caseId -> the `updatedAt` the stored graph was built from. */
+/** projectId -> the `updatedAt` the stored graph was built from. */
 const synced = new Map<string, string>();
-/** projectId -> the `updatedAt` the stored cockpit graph was built from. */
-const syncedProjects = new Map<string, string>();
 
-export async function syncGraph(cases: PropertyCase[], projects: DdProject[] = []): Promise<void> {
-  const live = new Set(cases.map(c => c.id));
-
-  for (const propertyCase of cases) {
-    if (synced.get(propertyCase.id) === propertyCase.updatedAt) continue;
-    try {
-      await graphAdapter.sync(buildDdGraph(propertyCase, propertyCase.updatedAt));
-      synced.set(propertyCase.id, propertyCase.updatedAt);
-    } catch (err) {
-      console.warn(`[graph] could not sync case ${propertyCase.id}: ${(err as Error).message}`);
-    }
-  }
-
-  // A case deleted from the store must not leave its graph behind — it holds
-  // owner names and document titles, and "deleted" has to mean deleted.
-  for (const caseId of [...synced.keys()]) {
-    if (live.has(caseId)) continue;
-    try {
-      await graphAdapter.purge(caseId);
-      synced.delete(caseId);
-    } catch (err) {
-      console.warn(`[graph] could not purge case ${caseId}: ${(err as Error).message}`);
-    }
-  }
-
-  await syncProjectGraphs(projects);
-}
-
-async function syncProjectGraphs(projects: DdProject[]): Promise<void> {
+export async function syncGraph(projects: DdProject[]): Promise<void> {
   const live = new Set(projects.map(p => p.id));
 
   for (const project of projects) {
-    if (syncedProjects.get(project.id) === project.updatedAt) continue;
+    if (synced.get(project.id) === project.updatedAt) continue;
     try {
       const built = buildProjectGraph(project);
       await graphAdapter.syncProject({
@@ -65,17 +41,19 @@ async function syncProjectGraphs(projects: DdProject[]): Promise<void> {
         nodes: built.nodes,
         edges: built.edges,
       });
-      syncedProjects.set(project.id, project.updatedAt);
+      synced.set(project.id, project.updatedAt);
     } catch (err) {
       console.warn(`[graph] could not sync project ${project.id}: ${(err as Error).message}`);
     }
   }
 
-  for (const projectId of [...syncedProjects.keys()]) {
+  // A project deleted from the store must not leave its graph behind — it
+  // holds owner names and document titles, and "deleted" has to mean deleted.
+  for (const projectId of [...synced.keys()]) {
     if (live.has(projectId)) continue;
     try {
       await graphAdapter.purgeProject(projectId);
-      syncedProjects.delete(projectId);
+      synced.delete(projectId);
     } catch (err) {
       console.warn(`[graph] could not purge project ${projectId}: ${(err as Error).message}`);
     }
@@ -85,5 +63,4 @@ async function syncProjectGraphs(projects: DdProject[]): Promise<void> {
 /** Forgets what has been synced, so the next call rebuilds everything. Tests only. */
 export function resetSyncState(): void {
   synced.clear();
-  syncedProjects.clear();
 }

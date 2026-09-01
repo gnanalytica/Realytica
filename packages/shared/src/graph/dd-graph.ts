@@ -53,6 +53,7 @@ import { buildTitleGraph } from './build';
 import { detectContradictions } from './contradictions';
 import { stableDigest } from './ontology';
 import { DD_DOMAIN_KEYS, DD_DOMAIN_PROFILES, domainForCheck, domainForRecordKind, domainForRiskCategory, domainForSystem, domainsForDocumentKind } from '../dd-domains';
+import { DD_CONNECTORS } from '../dd-connectors';
 import type { DdDomain } from '../dd-domains';
 
 /* ==================================================================== */
@@ -75,8 +76,6 @@ export type DdNodeKind =
   | 'action'
   /** A department — a domain as a thing you can traverse to, not just a tag. */
   | 'department'
-  /** One ingestion event: a chat turn, an upload, a check run. What Graphiti calls an episode. */
-  | 'episode'
   | 'question'
   | 'answer'
   | 'thought'
@@ -121,8 +120,6 @@ export type DdEdgeKind =
   | 'answered_by'
   /** answer | thought -> the question or answer it followed from. */
   | 'follows'
-  /** any node -> the episode that produced it. */
-  | 'recorded_in'
   /** anything with a domain -> its department. */
   | 'belongs_to'
   /** pathway -> the gap it would close. */
@@ -148,7 +145,6 @@ const LAYER_BY_KIND: Record<DdNodeKind, DdLayer> = {
   risk: 'judgement',
   action: 'judgement',
   department: 'entity',
-  episode: 'deliberation',
   question: 'deliberation',
   answer: 'deliberation',
   thought: 'deliberation',
@@ -280,6 +276,35 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
     if (from.layer !== 'deliberation' && to.layer === 'deliberation') return;
     const id = mintEdgeId(kind, fromNodeId, toNodeId);
     if (!edges.has(id)) edges.set(id, { id, kind, fromNodeId, toNodeId, label });
+  };
+
+  /**
+   * The named body standing behind a record kind, as a node.
+   *
+   * `RegisterSearch.authority` is a provenance TIER — primary register or a
+   * convenience layer over it — not a body, so the body has to come from the
+   * connector catalogue, which is where "who stands behind this record" is
+   * actually written down. Without this the `searched` edge had nothing to
+   * point at, which is why it sat in the vocabulary unemitted: a relation
+   * declared for data the model did not hold.
+   *
+   * Returns an empty string when no connector covers the kind. `addEdge`
+   * refuses an edge naming a node the graph does not hold, so an uncovered
+   * record kind simply draws no edge rather than inventing an authority.
+   */
+  const authorityForRecordKind = (recordKind: string): string => {
+    const connector = DD_CONNECTORS.find(c => c.recordKind === recordKind);
+    if (!connector) return '';
+    const id = mintId('authority', connector.authority);
+    addNode({
+      id,
+      kind: 'authority',
+      layer: 'entity',
+      label: connector.authority,
+      domain: connector.domain,
+      attributes: { portal: connector.label, ...(connector.url ? { url: connector.url } : {}) },
+    });
+    return id;
   };
 
   /* -- Layer 1: the title graph, carried through whole ----------------- */
@@ -611,6 +636,12 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
       },
     });
     if (primaryParcelId) addEdge('about', id, primaryParcelId, 'searched for');
+    addEdge(
+      'searched',
+      id,
+      authorityForRecordKind(search.kind),
+      search.authority === 'primary_register' ? 'searched at the register' : 'searched via a secondary source',
+    );
   }
 
   // A fetch that failed is scope too — an unreachable portal is why a check
@@ -636,6 +667,7 @@ export function buildDdGraph(propertyCase: PropertyCase, now: string): DdGraph {
       },
     });
     if (primaryParcelId) addEdge('about', id, primaryParcelId, 'attempted for');
+    addEdge('searched', id, authorityForRecordKind(attempt.kind), 'attempted at');
   }
 
   /* -- Agent output: how to close a gap, what was found, what follows ---- */

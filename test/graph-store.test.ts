@@ -1,11 +1,19 @@
 /**
  * The graph store: two halves, two guarantees.
  *
- * The load-bearing assertion is that a REBUILD CANNOT DELETE A REASON. Derived
- * nodes are a function of the case store and get replaced wholesale; authored
- * ones came out of a conversation and can never be regenerated. An adapter
- * that lost the second half on a sync would quietly destroy the only copy of
- * why a conclusion was reached, and it would look like it was working.
+ * The load-bearing assertion is that a REBUILD CANNOT DELETE A NOTE. Derived
+ * nodes are a function of the project registers and get replaced wholesale;
+ * authored ones came out of a person's judgement and can never be
+ * regenerated. An adapter that lost the second half on a sync would quietly
+ * destroy the only copy of why a conclusion was reached, and it would look
+ * like it was working.
+ *
+ * These assertions used to run against a `:Dd` case graph — a second label
+ * family the running product never wrote to, because no mounted route creates
+ * a case. So the port's best guarantees were proven on the half nobody used
+ * while the live project graph deleted its edges and had no authored half at
+ * all. The contract is unchanged; what changed is that it is now pointed at
+ * the graph the product actually stores.
  *
  * Both adapters are held to the identical contract, because the point of the
  * port is that the engine is a choice — Neo4j today, something else later,
@@ -22,28 +30,23 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
-import type { DdEdge, DdGraph, DdNode } from '@realytica/shared';
-import type { GraphAdapter } from '../apps/api/src/graph/types';
+import type { ProjectGraphEdge, ProjectGraphNode } from '@realytica/shared';
+import type { GraphAdapter, ProjectGraphSnapshot } from '../apps/api/src/graph/types';
 
-const CASE = 'case-store-test';
+const PROJECT = 'prj-store-test';
 
-function node(id: string, origin: 'derived' | 'authored', label = id): DdNode {
-  return {
-    id,
-    kind: origin === 'authored' ? 'answer' : 'parcel',
-    layer: origin === 'authored' ? 'deliberation' : 'entity',
-    label,
-    origin,
-    attributes: { note: 'x', n: 1, flag: true },
-  };
+function node(id: string, origin: 'derived' | 'authored', label = id): ProjectGraphNode {
+  return origin === 'authored'
+    ? { id, kind: 'thought', layer: 'deliberation', origin, label, detail: 'an analyst wrote this' }
+    : { id, kind: 'parcel', layer: 'entity', origin, label, detail: '1,200 sqm · freehold' };
 }
 
-function edge(id: string, from: string, to: string): DdEdge {
-  return { id, kind: 'cites', fromNodeId: from, toNodeId: to, label: 'cites' };
+function edge(id: string, from: string, to: string): ProjectGraphEdge {
+  return { id, from, to, rel: 'cites' };
 }
 
-function graph(nodes: DdNode[], edges: DdEdge[] = []): DdGraph {
-  return { caseId: CASE, builtAt: '2026-08-28T00:00:00.000Z', nodes, edges };
+function snapshot(nodes: ProjectGraphNode[], edges: ProjectGraphEdge[] = []): ProjectGraphSnapshot {
+  return { projectId: PROJECT, builtAt: '2026-08-28T00:00:00.000Z', nodes, edges };
 }
 
 function contract(name: string, load: () => Promise<GraphAdapter>): void {
@@ -51,36 +54,39 @@ function contract(name: string, load: () => Promise<GraphAdapter>): void {
     let adapter: GraphAdapter;
 
     before(async () => { adapter = await load(); });
-    // Per test, not per suite. Ids here are fixtures rather than the content
-    // digests the projection mints, so state leaking between tests lets one
-    // test's `e1` satisfy the next one's assertion — which is exactly how the
-    // first run of these passed on one adapter and failed on the other.
-    beforeEach(async () => { await adapter.purge(CASE); });
-    after(async () => { await adapter.purge(CASE); });
+    // Per test, not per suite. Ids here are fixtures rather than the ids the
+    // projection mints, so state leaking between tests lets one test's `e1`
+    // satisfy the next one's assertion — which is exactly how the first run of
+    // these passed on one adapter and failed on the other.
+    beforeEach(async () => { await adapter.purgeProject(PROJECT); });
+    after(async () => { await adapter.purgeProject(PROJECT); });
 
-    it('reports null for a case it holds nothing for', async () => {
-      assert.equal(await adapter.read('case-that-does-not-exist'), null);
+    it('reports null for a project it holds nothing for', async () => {
+      assert.equal(await adapter.readProject('prj-that-does-not-exist'), null);
     });
 
-    it('round-trips a derived graph, attributes intact', async () => {
-      await adapter.sync(graph([node('p1', 'derived'), node('p2', 'derived')], [edge('e1', 'p1', 'p2')]));
-      const back = await adapter.read(CASE);
+    it('round-trips a derived graph, kind and layer intact', async () => {
+      await adapter.syncProject(snapshot([node('p1', 'derived'), node('p2', 'derived')], [edge('e1', 'p1', 'p2')]));
+      const back = await adapter.readProject(PROJECT);
       assert.ok(back);
       assert.deepEqual(back.nodes.map(n => n.id).sort(), ['p1', 'p2']);
-      assert.deepEqual(back.nodes[0].attributes, { note: 'x', n: 1, flag: true });
+      assert.equal(back.nodes[0].kind, 'parcel');
+      assert.equal(back.nodes[0].layer, 'entity', 'the layer survives the round trip rather than being re-guessed wrong');
+      assert.equal(back.nodes[0].origin, 'derived');
       assert.equal(back.edges.length, 1);
+      assert.equal(back.edges[0].rel, 'cites');
     });
 
-    it('A REBUILD DOES NOT DELETE A REASON', async () => {
-      // The invariant the whole split exists for. Node ids are a digest of the
-      // case content, so an ordinary rebuild re-mints the same derived ids and
-      // the citation still lands.
-      await adapter.sync(graph([node('p1', 'derived')]));
-      await adapter.append(CASE, [node('a1', 'authored', 'because the schedule does not close')], [edge('e2', 'a1', 'p1')]);
+    it('A REBUILD DOES NOT DELETE A NOTE', async () => {
+      // The invariant the whole split exists for. Node ids are derived from
+      // the register rows, so an ordinary rebuild re-mints the same derived
+      // ids and the annotation still lands.
+      await adapter.syncProject(snapshot([node('p1', 'derived')]));
+      await adapter.appendProject(PROJECT, [node('a1', 'authored', 'because the schedule does not close')], [edge('e2', 'a1', 'p1')]);
 
-      await adapter.sync(graph([node('p1', 'derived'), node('p9', 'derived')]));
+      await adapter.syncProject(snapshot([node('p1', 'derived'), node('p9', 'derived')]));
 
-      const back = await adapter.read(CASE);
+      const back = await adapter.readProject(PROJECT);
       assert.ok(back);
       const ids = back.nodes.map(n => n.id).sort();
       assert.ok(ids.includes('a1'), 'the authored node survived the rebuild');
@@ -88,33 +94,33 @@ function contract(name: string, load: () => Promise<GraphAdapter>): void {
       assert.ok(back.edges.some(e => e.id === 'e2'), 'and so did the edge that made it traversable');
     });
 
-    it('drops a citation whose target the rebuild removed, keeping the reason', async () => {
+    it('drops an annotation whose target the rebuild removed, keeping the note', async () => {
       // Found by holding both adapters to this contract: Neo4j's DETACH DELETE
       // removes the edge with the node, and the journal was keeping a dangling
       // one. Neo4j is right — an edge naming an absent node is the same
       // fabricated connection the projection already refuses.
       //
-      // The reason itself still stands. Somebody wrote it, and a document
-      // leaving the case does not un-write it; it becomes a reason that cites
+      // The note itself still stands. Somebody wrote it, and a register row
+      // leaving the file does not un-write it; it becomes a note that cites
       // something no longer on file, which is a fact worth being able to see.
-      await adapter.sync(graph([node('p1', 'derived')]));
-      await adapter.append(CASE, [node('a1', 'authored')], [edge('e2', 'a1', 'p1')]);
-      await adapter.sync(graph([node('p9', 'derived')]));
+      await adapter.syncProject(snapshot([node('p1', 'derived')]));
+      await adapter.appendProject(PROJECT, [node('a1', 'authored')], [edge('e2', 'a1', 'p1')]);
+      await adapter.syncProject(snapshot([node('p9', 'derived')]));
 
-      const back = await adapter.read(CASE);
-      assert.ok(back?.nodes.some(n => n.id === 'a1'), 'the reason survives');
+      const back = await adapter.readProject(PROJECT);
+      assert.ok(back?.nodes.some(n => n.id === 'a1'), 'the note survives');
       assert.ok(!back?.edges.some(e => e.id === 'e2'), 'the dangling citation does not');
     });
 
     it('appends idempotently, so a replay cannot double up', async () => {
       // Replaying the journal is exactly how a lost store is recovered, so
       // this is the recovery path, not a nicety.
-      await adapter.sync(graph([node('p1', 'derived')]));
+      await adapter.syncProject(snapshot([node('p1', 'derived')]));
       const authored = [node('a1', 'authored')];
       const edges = [edge('e1', 'a1', 'p1')];
-      await adapter.append(CASE, authored, edges);
-      await adapter.append(CASE, authored, edges);
-      const back = await adapter.read(CASE);
+      await adapter.appendProject(PROJECT, authored, edges);
+      await adapter.appendProject(PROJECT, authored, edges);
+      const back = await adapter.readProject(PROJECT);
       assert.equal(back?.nodes.filter(n => n.id === 'a1').length, 1);
       assert.equal(back?.edges.filter(e => e.id === 'e1').length, 1);
     });
@@ -123,72 +129,68 @@ function contract(name: string, load: () => Promise<GraphAdapter>): void {
       // A caller appending a derived node is confused about which half it is
       // writing; relabelling it silently would put something rebuildable into
       // the half that is never rebuilt.
-      await adapter.sync(graph([]));
-      await adapter.append(CASE, [node('p-sneaky', 'derived')], []);
-      const back = await adapter.read(CASE);
+      await adapter.syncProject(snapshot([]));
+      await adapter.appendProject(PROJECT, [node('p-sneaky', 'derived')], []);
+      const back = await adapter.readProject(PROJECT);
       assert.ok(!(back?.nodes ?? []).some(n => n.id === 'p-sneaky'));
     });
 
     it('CLOSES an edge the rebuild dropped, rather than deleting it', async () => {
-      // "What did we believe when we signed the March report" is a question a
-      // diligence file has to be able to answer. A July certificate
-      // superseding a March one changed the case; it did not make the March
-      // edge a lie, and deleting it answers that question with silence.
-      await adapter.sync({ ...graph([node('p1', 'derived'), node('p2', 'derived')], [edge('e1', 'p1', 'p2')]), builtAt: '2026-03-01T00:00:00.000Z' });
-      await adapter.sync({ ...graph([node('p1', 'derived'), node('p2', 'derived')], []), builtAt: '2026-07-01T00:00:00.000Z' });
+      // "What did this finding rest on when we signed the March report" is a
+      // question a diligence file has to be able to answer. A check dropping
+      // an evidence reference changed the file; it did not make the March edge
+      // a lie, and deleting it answers that question with silence.
+      //
+      // This is the assertion the project graph could not have passed before:
+      // its sync deleted stale edges outright, and the property was proven
+      // only on the case half nobody wrote to.
+      await adapter.syncProject({ ...snapshot([node('p1', 'derived'), node('p2', 'derived')], [edge('e1', 'p1', 'p2')]), builtAt: '2026-03-01T00:00:00.000Z' });
+      await adapter.syncProject({ ...snapshot([node('p1', 'derived'), node('p2', 'derived')], []), builtAt: '2026-07-01T00:00:00.000Z' });
 
-      const now = await adapter.read(CASE);
+      const now = await adapter.readProject(PROJECT);
       assert.ok(!now?.edges.some(e => e.id === 'e1'), 'gone from the current graph');
 
-      const march = await adapter.read(CASE, '2026-04-01T00:00:00.000Z');
+      const march = await adapter.readProject(PROJECT, '2026-04-01T00:00:00.000Z');
       assert.ok(march?.edges.some(e => e.id === 'e1'), 'and still there as of April');
     });
 
     it('reopens an edge the rebuild draws again, rather than stacking a second', async () => {
-      await adapter.sync({ ...graph([node('p1', 'derived'), node('p2', 'derived')], [edge('e1', 'p1', 'p2')]), builtAt: '2026-03-01T00:00:00.000Z' });
-      await adapter.sync({ ...graph([node('p1', 'derived'), node('p2', 'derived')], []), builtAt: '2026-07-01T00:00:00.000Z' });
-      await adapter.sync({ ...graph([node('p1', 'derived'), node('p2', 'derived')], [edge('e1', 'p1', 'p2')]), builtAt: '2026-08-01T00:00:00.000Z' });
+      await adapter.syncProject({ ...snapshot([node('p1', 'derived'), node('p2', 'derived')], [edge('e1', 'p1', 'p2')]), builtAt: '2026-03-01T00:00:00.000Z' });
+      await adapter.syncProject({ ...snapshot([node('p1', 'derived'), node('p2', 'derived')], []), builtAt: '2026-07-01T00:00:00.000Z' });
+      await adapter.syncProject({ ...snapshot([node('p1', 'derived'), node('p2', 'derived')], [edge('e1', 'p1', 'p2')]), builtAt: '2026-08-01T00:00:00.000Z' });
 
-      const back = await adapter.read(CASE);
+      const back = await adapter.readProject(PROJECT);
       const matches = back?.edges.filter(e => e.id === 'e1') ?? [];
       assert.equal(matches.length, 1, 'the same relationship asserted again is the same edge');
       assert.equal(matches[0].closedAt, undefined, 'and it is open');
     });
 
-    it('purges everything for a case', async () => {
-      await adapter.sync(graph([node('p1', 'derived')]));
-      await adapter.append(CASE, [node('a1', 'authored')], []);
-      await adapter.purge(CASE);
-      assert.equal(await adapter.read(CASE), null);
+    it('purges everything for a project', async () => {
+      await adapter.syncProject(snapshot([node('p1', 'derived')]));
+      await adapter.appendProject(PROJECT, [node('a1', 'authored')], []);
+      await adapter.purgeProject(PROJECT);
+      assert.equal(await adapter.readProject(PROJECT), null);
     });
 
-    it('round-trips a project cockpit graph and returns a neighbourhood', async () => {
-      const projectId = 'prj-store-test';
-      await adapter.purgeProject(projectId);
+    it('returns a neighbourhood that reaches the evidence and the parent', async () => {
       await adapter.syncProject({
-        projectId,
+        projectId: PROJECT,
         builtAt: '2026-08-31T00:00:00.000Z',
         nodes: [
-          { id: projectId, kind: 'project', label: 'Harohalli' },
-          { id: 'scp-1', kind: 'scope', label: 'Legal' },
-          { id: 'chk-1', kind: 'check', label: 'Title chain' },
-          { id: 'ev-1', kind: 'evidence', label: 'Sale deed' },
+          { id: PROJECT, kind: 'project', layer: 'entity', origin: 'derived', label: 'Harohalli' },
+          { id: 'scp-1', kind: 'scope', layer: 'judgement', origin: 'derived', label: 'Legal' },
+          { id: 'chk-1', kind: 'check', layer: 'judgement', origin: 'derived', label: 'Title chain' },
+          { id: 'ev-1', kind: 'evidence', layer: 'evidence', origin: 'derived', label: 'Sale deed' },
         ],
         edges: [
-          { id: 'e-scope', from: projectId, to: 'scp-1', rel: 'has_scope' },
           { id: 'e-check', from: 'scp-1', to: 'chk-1', rel: 'has_check' },
-          { id: 'e-ev', from: 'chk-1', to: 'ev-1', rel: 'uses_evidence' },
+          { id: 'e-ev', from: 'chk-1', to: 'ev-1', rel: 'supported_by' },
         ],
       });
-      const back = await adapter.readProject(projectId);
-      assert.ok(back);
-      assert.equal(back.nodes.length, 4);
-      const sub = await adapter.neighbourhood(projectId, ['chk-1'], 1);
+      const sub = await adapter.neighbourhood(PROJECT, ['chk-1'], 1);
       assert.ok(sub);
       assert.ok(sub.nodes.some(n => n.id === 'ev-1'), 'one hop from the check reaches the deed');
       assert.ok(sub.nodes.some(n => n.id === 'scp-1'), 'and the parent scope');
-      await adapter.purgeProject(projectId);
-      assert.equal(await adapter.readProject(projectId), null);
     });
   });
 }

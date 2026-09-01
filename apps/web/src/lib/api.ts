@@ -612,26 +612,6 @@ export const api = {
    */
   caseTitleGraph: (id: string) => request<TitleGraph>(`/cases/${id}/title-graph`),
 
-  /**
-   * The STORED reasoning graph, which is not the same as the one the client
-   * builds. It carries the annotations, which exist nowhere else, and `asOf`
-   * answers what the case looked like at an instant — neither of which a
-   * rebuild from the current case can produce.
-   */
-  caseGraph: (id: string, asOf?: string) =>
-    request<{ graph: DdGraph | null; adapter: string; reason?: string }>(
-      `/cases/${id}/graph${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ''}`,
-    ),
-
-  annotateGraphNode: (
-    id: string,
-    body: { nodeId: string; text: string; author?: string; linkedNodeId?: string },
-  ) =>
-    request<{ node: DdNode; edges: DdEdge[] }>(`/cases/${id}/graph/annotations`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
   /* --- Conversational intake --------------------------------------- */
 
   /**
@@ -761,6 +741,28 @@ export const api = {
   projectDashboard: (projectId: string) => request<ProjectDashboard>(`/projects/${projectId}/dashboard`),
   projectGraph: (projectId: string) =>
     request<{ nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[]; adapter?: string }>(`/projects/${projectId}/graph`),
+  /**
+   * The STORED graph, which is not the same as the projection above.
+   *
+   * It carries the annotations — held nowhere else — and `asOf` answers what
+   * the file looked like at an instant, neither of which a rebuild from the
+   * current registers can produce.
+   */
+  storedProjectGraph: (projectId: string, asOf?: string) =>
+    request<{
+      graph: { projectId: string; builtAt: string; nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] } | null;
+      adapter: string;
+      reason?: string;
+      asOf: string | null;
+    }>(`/projects/${projectId}/graph/stored${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ''}`),
+  annotateProjectGraphNode: (
+    projectId: string,
+    body: { nodeId: string; text: string; author?: string; linkedNodeId?: string },
+  ) =>
+    request<{ node: ProjectGraphNode; edges: ProjectGraphEdge[] }>(`/projects/${projectId}/graph/annotations`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   gisOverlay: (projectId: string, opts?: { force?: boolean }) =>
     request<GisOverlayRead>(`/projects/${projectId}/gis-overlay${opts?.force ? '?force=1' : ''}`),
   setSurveyBoundary: (projectId: string, body: { fileText: string; note?: string }) =>
@@ -899,6 +901,24 @@ export const api = {
    */
   projectRuns: (projectId: string) =>
     request<{ runs: Array<DurableRun & { state: DurableRunState; line: string }> }>(`/projects/${projectId}/runs`),
+
+  /** One run, for polling something started in the background. */
+  projectRun: (projectId: string, runId: string) =>
+    request<DurableRun & { state: DurableRunState; line: string }>(`/projects/${projectId}/runs/${runId}`),
+
+  /**
+   * Start a long operation in the background and get a run id back at once.
+   *
+   * `keptAlive` says whether the platform accepted responsibility for work
+   * that outlives the response. False on a serverless host without that hook
+   * means the run may be frozen mid-flight — in which case polling reports
+   * `interrupted` rather than hanging, which is why the caller is told.
+   */
+  startBackgroundRun: (projectId: string, kind: 'screen' | 'orchestrate', actor?: string) =>
+    request<{ runId: string; keptAlive: boolean; pollUrl: string }>(
+      `/projects/${projectId}/${kind}?background=1`,
+      { method: 'POST', body: JSON.stringify({ actor }) },
+    ),
 
   evidenceFileUrl,
 };
