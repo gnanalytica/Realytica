@@ -305,6 +305,105 @@ const SHELF: ReferenceWork[] = [
     tags: ['ivs', 'ivsc', 'valuation standards'],
     scopeKeys: ['indicative_valuation'],
   },
+
+  /* ------------------------------------------------------------------ */
+  /* Process and classification standards                                */
+  /*                                                                     */
+  /* Everything above is Indian statute or valuation doctrine — what the  */
+  /* law requires and what a value means. Nothing above says how a        */
+  /* diligence is SCOPED, how its findings are graded, how a document is  */
+  /* named, or what an area actually measures. Those are settled          */
+  /* questions with published answers, and a product that invents its own */
+  /* vocabulary for them is asking every client to learn a dialect.       */
+  /* ------------------------------------------------------------------ */
+  {
+    id: 'ref_rics_tdd',
+    title: 'Technical due diligence of commercial property (RICS professional standard)',
+    issuer: 'RICS',
+    url: 'https://www.rics.org/profession-standards/rics-standards-and-guidance/sector-standards/real-estate-standards/technical-due-diligence-of-commercial-property',
+    asOf: '2023-04-01',
+    standing: 'official_html',
+    note: 'Reissued April 2023 as a professional standard (first published January 2020 as a guidance note). Names four TDD purposes — acquisition, occupation, disposal, refurbishment — and carries a standard scope of service as tickable items. Its traffic-light rating (1 green / 2 amber / 3 red) is the convention a reader of a TDD report expects, with a separate escalation for defects needing immediate action.',
+    tags: ['rics', 'due diligence', 'tdd', 'scope of service', 'traffic light', 'condition rating'],
+    scopeKeys: ['technical', 'condition_operations', 'regulatory', 'hse'],
+  },
+  {
+    id: 'ref_rics_tdd_scope',
+    title: 'Technical Due Diligence Services — Scope of Services (England and Wales)',
+    issuer: 'RICS',
+    url: 'https://www.rics.org/content/dam/ricsglobal/documents/standards/building-surveying-standards/standard-forms-of-consultation/5-technical-due-diligence-services_ew_may-2022.pdf',
+    asOf: '2022-05-01',
+    standing: 'official_pdf',
+    note: 'The scope document itself, as numbered tickable items: statutory compliance, building services, environmental and site factors, environmental (phase 1) audit, sustainability, documentation review during and post inspection, maintenance and cost reporting. The closest published thing to a check catalogue for technical DD.',
+    tags: ['rics', 'scope of services', 'checklist', 'tdd'],
+    scopeKeys: ['technical', 'regulatory', 'esg', 'condition_operations'],
+  },
+  {
+    id: 'ref_ipms',
+    title: 'International Property Measurement Standards: All Buildings',
+    issuer: 'IPMS Coalition',
+    url: 'https://ipmsc.org/',
+    asOf: '2023-01-01',
+    standing: 'official_pdf',
+    note: 'What an area measurement actually includes, as component tables. Matters here because only “carpet area” has a statutory definition in India (RERA s.2(k)); “super built-up” has none, which is why RERA stopped sales being quoted on it. A valuation that states a basis without saying which standard defines it has not stated a basis.',
+    tags: ['ipms', 'area', 'measurement', 'carpet area', 'built-up'],
+    scopeKeys: ['indicative_valuation', 'technical', 'commercial_market'],
+  },
+  {
+    id: 'ref_icms',
+    title: 'International Cost Management Standard (ICMS 3)',
+    issuer: 'ICMS Coalition / RICS',
+    url: 'https://icms-coalition.org/',
+    asOf: '2021-11-01',
+    standing: 'official_pdf',
+    note: 'How construction cost is classified and reported so two projects can be compared. Mapped to NRM, Uniclass, OmniClass and BESMM, and it now carries carbon alongside cost. Use it to say what a budget line IS, not to measure it — ICMS is a reporting framework, not a method of measurement.',
+    tags: ['icms', 'cost', 'benchmarking', 'carbon', 'nrm'],
+    scopeKeys: ['cost_quantity', 'financial_appraisal', 'procurement'],
+  },
+  {
+    id: 'ref_iso_19650',
+    title: 'BS EN ISO 19650 — information management, and its UK National Annex naming convention',
+    issuer: 'ISO / BSI',
+    url: 'https://www.iso.org/standard/68078.html',
+    asOf: '2018-12-01',
+    standing: 'paid',
+    note: 'The published answer to how a document is named: project–originator–volume–level–type–role–number. Role codes are a subset of the Uniclass 2015 Roles table. An evidence pack that lands in a client CDE with ad-hoc filenames has to be renamed by hand at the other end.',
+    tags: ['iso 19650', 'naming convention', 'cde', 'document control', 'information management'],
+    scopeKeys: ['technical', 'quality', 'procurement'],
+  },
+  {
+    id: 'ref_uniclass',
+    title: 'Uniclass 2015 classification tables',
+    issuer: 'NBS',
+    url: 'https://uniclass.thenbs.com/',
+    asOf: '2015-01-01',
+    standing: 'official_html',
+    note: 'Free, maintained, and structured to ISO 12006-2 — Entities, Spaces/locations, Elements, Systems, Products, Roles. OmniClass is the North American equivalent and the two correlate through the same ISO framework. The answer to “what is this asset, in a word another system will recognise”.',
+    tags: ['uniclass', 'classification', 'omniclass', 'iso 12006-2', 'asset type'],
+    scopeKeys: ['technical', 'condition_operations', 'cost_quantity'],
+  },
+  {
+    id: 'ref_astm_e1527',
+    title: 'ASTM E1527-21 — Phase I Environmental Site Assessment',
+    issuer: 'ASTM International',
+    url: 'https://www.astm.org/e1527-21.html',
+    asOf: '2021-11-01',
+    standing: 'paid',
+    note: 'The environmental finding taxonomy with legal weight: REC, HREC (cleaned up, no use restrictions) and CREC (cleaned up subject to controls). US-anchored — it establishes CERCLA liability protection, which India has no analogue for — but the three-way classification is the vocabulary a lender or an international buyer will expect a contamination finding in.',
+    tags: ['astm', 'phase i', 'environmental', 'rec', 'contamination'],
+    scopeKeys: ['esg', 'land_site'],
+  },
+  {
+    id: 'ref_ivs_ipms_note',
+    title: 'RICS Valuation — Global Standards (Red Book Global)',
+    issuer: 'RICS',
+    url: 'https://www.rics.org/profession-standards/rics-standards-and-guidance/sector-standards/valuation-standards/red-book',
+    asOf: '2025-01-31',
+    standing: 'paid',
+    note: 'Incorporates IVS and adds mandatory RICS practice on terms of engagement, inspection, and reporting. Where IVS says what a value means, the Red Book says what a valuer must do and record before stating one — which is the half a DD file has to evidence.',
+    tags: ['rics', 'red book', 'valuation', 'terms of engagement'],
+    scopeKeys: ['indicative_valuation'],
+  },
 ];
 
 export const REFERENCE_SHELF: readonly ReferenceWork[] = SHELF;
