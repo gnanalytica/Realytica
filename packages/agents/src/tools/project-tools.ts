@@ -32,6 +32,7 @@ import {
   extractProjectSubgraph,
   captureConcerns,
   conditionRatings,
+  observationIsUseful,
   escalatedFindings,
   findProjectNodes,
   findingCriticSitting,
@@ -482,6 +483,27 @@ export function createProjectTools(
           photos: coverage.find((c) => c.visitId === visit.id)?.photos ?? 0,
         })),
         photographConcerns: concerns,
+        // Every reading a model has made of a photograph on this file,
+        // attributed. A copilot quoting one of these must say it came off a
+        // photograph and that a model wrote it — the register does, the report
+        // does, and an answer in the chat that does not is the weakest link.
+        photographs: project.evidence.flatMap((e) =>
+          e.attachments
+            .filter((a) => observationIsUseful(a.observation))
+            .map((a) => ({
+              evidenceId: e.id,
+              fileName: a.fileName,
+              readBy: a.observation!.model,
+              subject: a.observation!.subject,
+              description: a.observation!.description,
+              notes: a.observation!.notes,
+              limits: a.observation!.limits,
+              // The suggestions are deliberately NOT here. They are cards
+              // awaiting a person; a model that could read them back would
+              // start citing its own unaccepted proposals as file content.
+              proposedFindings: a.observation!.suggestedFindings.length,
+            })),
+        ),
         sheets: sheetPlacements(project).map(({ sheet, reading }) => ({
           id: sheet.id,
           title: sheet.title,
@@ -492,7 +514,7 @@ export function createProjectTools(
           say: reading.say,
         })),
         caveat:
-          'A photograph geotag is what the camera claimed, not where the shot was taken. A sheet placement is derived from control points a person placed. Neither is a survey.',
+          'A photograph geotag is what the camera claimed, not where the shot was taken. A sheet placement is derived from control points a person placed. A photograph reading is what a model saw, never a diagnosis — say so if you use one. None of these is a survey.',
       });
     },
   });

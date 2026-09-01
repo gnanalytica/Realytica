@@ -43,6 +43,7 @@
 
 import { SCOPE_LABEL } from './catalogs';
 import { CAPTURE_PURPOSE_LABEL, type CapturePurpose } from './capture';
+import { describeObservation, observationIsUseful } from './photo-observation';
 import { readSheetFit, SHEET_KIND_LABEL } from './geo-sheet';
 import { REMEDIAL_BAND_LABEL, ricsConditionRating } from './standards';
 import { ensureProjectShape } from './operations';
@@ -152,7 +153,24 @@ function addRegisters(project: DdProject, b: Builder): void {
     // valuation inspection shot and a progress shot are the same `evidence`
     // node with completely different standing.
     const purposes = [...new Set(row.attachments.map((a) => a.capture?.purpose).filter(Boolean) as CapturePurpose[])];
-    const meta = purposes.length ? `${row.status} · ${purposes.map((x) => CAPTURE_PURPOSE_LABEL[x]).join(', ')}` : row.status;
+    /*
+     * A model's reading of a photograph goes in the node's detail, which is
+     * what `findProjectNodes` searches. That is the whole reason to read four
+     * hundred photographs: "the photos of the north boundary" has to find them,
+     * and a title of "Site photographs, tower A" never will.
+     *
+     * Attributed, and truncated. The detail line is a label, not a report —
+     * and it must never read as the file's own voice, which is why
+     * `describeObservation` puts the model's name in front of it.
+     */
+    const read = row.attachments.map((a) => a.observation).find((o) => observationIsUseful(o));
+    const meta = [
+      row.status,
+      purposes.length ? purposes.map((x) => CAPTURE_PURPOSE_LABEL[x]).join(', ') : '',
+      read ? describeObservation(read).slice(0, 160) : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
     b.node('evidence', row.id, row.title, meta);
     for (const assessmentId of row.assessmentIds) b.edge(assessmentId, row.id, 'supported_by');
     for (const checkId of row.checkIds) b.edge(checkId, row.id, 'supported_by');

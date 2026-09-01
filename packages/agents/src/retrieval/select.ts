@@ -58,6 +58,7 @@ const AGENT_FOCUS: Record<AgentKind, string[]> = {
   critic: ['evidence', 'claim', 'source', 'citation'],
   explorer: ['locality', 'market', 'source', 'registry'],
   document_intelligence: ['document', 'extracted', 'khata', 'deed', 'survey'],
+  photo_intelligence: ['photograph', 'site visit', 'condition', 'elevation', 'defect'],
   proof_pathways: ['missing', 'document', 'authority', 'khata', 'conversion', 'certificate'],
   analyst_copilot: [],
   market_research: ['comparable', 'market', 'locality', 'price', 'trend'],

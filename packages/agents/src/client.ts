@@ -75,6 +75,17 @@ export const AGENT_TIERS: Record<AgentKind, ModelTier> = {
   property_discovery: 'reasoning',
   /** Reads scanned deeds and khata extracts and returns typed fields. See the note above. */
   document_intelligence: 'extraction',
+  /*
+   * Reasoning, not extraction, and the tier is the argument.
+   *
+   * The hard part of reading a site photograph is not naming what is in it —
+   * it is knowing where the description stops and a diagnosis begins. Staining
+   * is visible; water ingress is a conclusion about a cause that is not in the
+   * frame. An extraction-tier model asked to hold that line reaches for the
+   * confident sentence, which is exactly the failure this agent exists to
+   * avoid, and the one no downstream check can catch.
+   */
+  photo_intelligence: 'reasoning',
   // Reads prose into typed particulars and writes a short reply. Mechanical,
   // and the highest-frequency agent here — one call per chat turn — so the
   // tier that fits the work is also the one that keeps a conversation from
@@ -394,6 +405,9 @@ const ROSTER_POLICY: Record<AgentKind, RosterPolicy> = {
   orchestrator: 'offered',
   planner: 'scheduled_by_orchestrator',
   document_intelligence: 'offered',
+  // Not on the orchestrator's list: reading photographs is something a person
+  // asks for on a file that has some, not a step in every screen.
+  photo_intelligence: 'offered',
   proof_pathways: 'offered',
   analyst_copilot: 'offered',
   market_research: 'offered_with_web_search',

@@ -12,6 +12,7 @@ import {
   SCOPE_LABEL,
   SEVERITY_LABEL,
   describeCapture,
+  observationIsUseful,
   iso19650Completeness,
   iso19650Name,
   quotesForEvidence,
@@ -65,6 +66,7 @@ export function EvidenceRegister() {
   const [kind, setKind] = useState<EvidenceKind>('document');
   const [source, setSource] = useState('');
   const [iso, setIso] = useState<Iso19650Ref>({});
+  const [reading, setReading] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -103,6 +105,23 @@ export function EvidenceRegister() {
       setProject(await api.getProject(project.id));
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not update', 'critical');
+    }
+  }
+
+  async function readPhoto(evidenceId: string, fileId: string) {
+    setReading(fileId);
+    try {
+      const out = await api.readPhotographs(project.id, { evidenceId, fileId });
+      setProject(await api.getProject(project.id));
+      const first = out.results?.[0];
+      if (first?.error) toast(first.error, 'warning');
+      else if (out.drafts) toast(`Read — ${out.drafts} finding(s) proposed for review`, 'good');
+      else if (out.documents) toast('That is a photographed document — read through extraction instead', 'good');
+      else toast('Read', 'good');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not read that photograph', 'critical');
+    } finally {
+      setReading(null);
     }
   }
 
@@ -167,12 +186,19 @@ export function EvidenceRegister() {
                             {f.fileName}
                           </button>
                           {f.mimeType.startsWith('image/') ? (
-                            <CaptureStrip
-                              evidence={e}
-                              attachment={f}
-                              visits={project.siteVisits ?? []}
-                              onChange={(body) => void setCapture(e.id, f.id, body)}
-                            />
+                            <>
+                              <CaptureStrip
+                                evidence={e}
+                                attachment={f}
+                                visits={project.siteVisits ?? []}
+                                onChange={(body) => void setCapture(e.id, f.id, body)}
+                              />
+                              <ObservationStrip
+                                attachment={f}
+                                busy={reading === f.id}
+                                onRead={() => void readPhoto(e.id, f.id)}
+                              />
+                            </>
                           ) : null}
                         </li>
                       ))}
@@ -551,6 +577,77 @@ function CaptureStrip({
         ) : null}
         <span className="sr-only">{evidence.title}</span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * What a model saw, under what a person said, never mixed with it.
+ *
+ * Rendered as a quotation rather than as file content: the "Read by
+ * claude-…" prefix is the cheapest possible guard against a description
+ * acquiring the file's own voice, and it is the same guard `describeObservation`
+ * puts on the graph node and the report.
+ *
+ * The proposed findings are COUNTED here and shown nowhere else. They live on
+ * the AI drafts pane, where accepting one is a deliberate act with the whole
+ * card in front of you — showing them inline would put a model's guess at a
+ * defect in the same visual register as a filed observation, one glance away
+ * from being read as a finding.
+ */
+function ObservationStrip({
+  attachment,
+  busy,
+  onRead,
+}: {
+  attachment: EvidenceAttachment;
+  busy: boolean;
+  onRead: () => void;
+}) {
+  const observation = attachment.observation;
+
+  if (!observation) {
+    return (
+      <button type="button" disabled={busy} onClick={onRead} className="ml-0.5 mt-0.5 block text-[11px] text-brand underline disabled:opacity-50">
+        {busy ? 'Reading…' : 'Read this photograph'}
+      </button>
+    );
+  }
+
+  if (!observationIsUseful(observation)) {
+    // A photograph a model could not read is a different thing from one
+    // nobody has looked at, and the file says which.
+    return (
+      <p className="ml-0.5 mt-0.5 border-l border-hairline pl-2 text-[11px] text-ink-muted">
+        Could not be read: {observation.limits ?? 'no reason recorded'}.{' '}
+        <button type="button" disabled={busy} onClick={onRead} className="text-brand underline disabled:opacity-50">
+          try again
+        </button>
+      </p>
+    );
+  }
+
+  return (
+    <div className="ml-0.5 mt-0.5 space-y-1 border-l-2 border-brand/30 pl-2">
+      <p className="text-[11px] text-ink-secondary">
+        <span className="text-ink-muted">Read by {observation.model}:</span> {observation.description}
+      </p>
+      {observation.notes.length ? (
+        <ul className="space-y-0.5">
+          {observation.notes.map((n, i) => (
+            <li key={i} className="text-[11px] text-ink-secondary">
+              {n.text}
+              <span className="text-ink-muted"> — {(n.confidence * 100).toFixed(0)}% sure{n.wouldSettle ? `; ${n.wouldSettle} would settle it` : ''}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {observation.limits ? <p className="text-[11px] text-ink-muted">Not shown by this photograph: {observation.limits}</p> : null}
+      {observation.suggestedFindings.length ? (
+        <p className="text-[11px] text-status-warning">
+          {observation.suggestedFindings.length} finding(s) proposed — waiting for review on the AI drafts pane.
+        </p>
+      ) : null}
     </div>
   );
 }

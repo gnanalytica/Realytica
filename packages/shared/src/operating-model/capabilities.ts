@@ -19,6 +19,7 @@ import {
   recommendedDdTypes,
 } from './operations';
 import type { CaptureFacts } from './capture';
+import type { PhotoObservation } from './photo-observation';
 import type {
   ActionAging,
   AiDraft,
@@ -435,6 +436,108 @@ function pushDraft(project: DdProject, draft: Omit<AiDraft, 'id' | 'createdAt' |
   };
   project.aiDrafts.push(record);
   return record;
+}
+
+/* ==================================================================== */
+/* What a model saw in a photograph                                      */
+/* ==================================================================== */
+
+/**
+ * File a reading, and raise its defects as cards.
+ *
+ * Two things happen here and the split between them is the point. The
+ * OBSERVATION goes onto the attachment, plainly attributed, where it sits
+ * beside the person's caption without ever becoming it. The suggested
+ * findings become DRAFTS — the same propose-and-review path a chat proposal
+ * or a rule-generated draft takes — so a defect a model spotted in a
+ * photograph reaches the findings register by exactly the same road as one it
+ * inferred from a deed: a person reads it and accepts it.
+ *
+ * There is deliberately no option to skip that. A photograph is the input a
+ * model reads most confidently and a defect is the conclusion a buyer acts on
+ * hardest, and the two together are the last place this product should be
+ * making its own entries.
+ */
+export function recordPhotoObservation(
+  project: DdProject,
+  evidenceId: string,
+  attachmentId: string,
+  observation: PhotoObservation,
+  actor = 'operator',
+): { attachment: EvidenceAttachment; drafts: AiDraft[] } {
+  ensureProjectShape(project);
+  const evidence = project.evidence.find((e) => e.id === evidenceId);
+  const attachment = evidence?.attachments.find((a) => a.id === attachmentId);
+  if (!evidence || !attachment) throw new Error('Attachment not found');
+
+  attachment.observation = observation;
+
+  const drafts: AiDraft[] = [];
+  for (const suggestion of observation.suggestedFindings) {
+    drafts.push(
+      pushDraft(project, {
+        kind: 'finding',
+        title: suggestion.title,
+        // Observed and reasoning stay in separate sentences all the way to the
+        // card. Merged, they read as one confident statement, and the reviewer
+        // loses the only thing that lets them disagree with half of it.
+        body: [
+          `Seen in ${attachment.fileName}: ${suggestion.observed}`,
+          `Why it may matter (the model's reasoning, not a finding): ${suggestion.whyItMayMatter}`,
+          `Read by ${observation.model} at confidence ${(suggestion.confidence * 100).toFixed(0)}%.`,
+          observation.limits ? `What this photograph does not show: ${observation.limits}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        source: 'model',
+        createdBy: actor,
+        proposedPayload: {
+          title: suggestion.title,
+          description: `${suggestion.observed} ${suggestion.whyItMayMatter}`.trim(),
+          severity: suggestion.suggestedSeverity,
+          // Every photograph-sourced finding lands under technical unless a
+          // person moves it. Letting the model pick a discipline would be a
+          // second judgement smuggled in behind the first, and the discipline
+          // decides which report section it appears in.
+          discipline: 'technical',
+          evidenceIds: [evidenceId],
+        },
+      }),
+    );
+  }
+
+  const at = nowIso();
+  evidence.updatedAt = at;
+  touch(project, at);
+  project.audit.push({
+    id: id('aud'),
+    at,
+    actor,
+    action: 'read_photograph',
+    entityType: 'attachment',
+    entityId: attachment.id,
+    newValue: `${observation.subject} · ${observation.notes.length} note(s) · ${drafts.length} card(s)`,
+  });
+  return { attachment, drafts };
+}
+
+/** Photographs on the file that no model has read yet. */
+export function unreadPhotographs(project: DdProject): Array<{ evidenceId: string; attachment: EvidenceAttachment }> {
+  ensureProjectShape(project);
+  const out: Array<{ evidenceId: string; attachment: EvidenceAttachment }> = [];
+  // A sheet's scan is a plan, not a photograph — the same exemption
+  // `captureConcerns` makes, for the same reason.
+  const sheetFiles = new Set((project.sheets ?? []).map((sheet) => sheet.attachmentId).filter(Boolean) as string[]);
+  for (const evidence of project.evidence) {
+    if (evidence.kind === 'drawing' || evidence.kind === 'gis') continue;
+    for (const attachment of evidence.attachments) {
+      if (!attachment.mimeType.startsWith('image/')) continue;
+      if (sheetFiles.has(attachment.id)) continue;
+      if (attachment.observation) continue;
+      out.push({ evidenceId: evidence.id, attachment });
+    }
+  }
+  return out;
 }
 
 export function proposeAiDrafts(project: DdProject, actor = 'operator', source: AiDraft['source'] = 'rule'): AiDraft[] {

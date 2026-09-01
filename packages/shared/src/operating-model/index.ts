@@ -26,6 +26,7 @@ export * from './reference-shelf';
 export * from './standards';
 export * from './remedial';
 export * from './capture';
+export * from './photo-observation';
 export * from './site-visit';
 export * from './geo-sheet';
 export * from './shelf-passages';

@@ -758,6 +758,12 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),
+  /** Omit fileId to read every photograph no model has looked at yet. */
+  readPhotographs: (projectId: string, body: { evidenceId?: string; fileId?: string; limit?: number } = {}) =>
+    request<{ read: number; drafts: number; documents: number; note?: string; results?: Array<{ fileName: string; subject: string; notes: number; error?: string }> }>(
+      `/projects/${projectId}/photographs/read`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
   listSheets: (projectId: string) => request<{ sheets: SheetPlacement[] }>(`/projects/${projectId}/sheets`),
   addSheet: (
     projectId: string,

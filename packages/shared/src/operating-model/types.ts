@@ -32,6 +32,7 @@ export type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } fr
  */
 import type { EnvironmentalCondition, Iso19650Ref, RemedialBand, RicsEscalation } from './standards';
 import type { CaptureFacts } from './capture';
+import type { PhotoObservation } from './photo-observation';
 import type { SheetRecord } from './geo-sheet';
 import type { SiteVisitRecord } from './site-visit';
 
@@ -624,6 +625,14 @@ export interface EvidenceAttachment {
    * when the property looked like that.
    */
   capture?: CaptureFacts;
+  /**
+   * What a model saw, kept apart from what the photographer said.
+   *
+   * Never merged into `capture.caption`. The caption is a person's; this is a
+   * reading, and a sentence with no author is the one thing a diligence file
+   * cannot carry.
+   */
+  observation?: PhotoObservation;
 }
 
 export interface FindingRecord {

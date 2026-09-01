@@ -10,8 +10,11 @@ import {
   PROJECT_ARCHETYPES,
   SCOPE_DEFINITIONS,
   addAction,
+  CAPTURE_PURPOSE_LABEL,
   captureConcerns,
   patchSiteVisit,
+  recordPhotoObservation,
+  unreadPhotographs,
   readSheetFit,
   sheetPlacements,
   visitCoverage,
@@ -93,6 +96,7 @@ import {
   agentCapability,
   describeError,
   enrichIngestWithDocumentIntelligence,
+  runPhotoIntelligence,
   extractFactsFromProject,
   recallForProject,
   renderMemoryForPrompt,
@@ -102,6 +106,16 @@ import {
   textOf,
 } from '@realytica/agents';
 import { readExifCapture } from '../exif';
+
+/**
+ * A hard ceiling on one read request.
+ *
+ * A site visit produces forty photographs and each read is a vision call, so
+ * an unbounded run is a bill nobody agreed to. Twelve is roughly one visit's
+ * worth of the shots that matter; a caller with more asks again, which is a
+ * decision they take with the first bill in front of them.
+ */
+const PHOTO_READ_CAP = 12;
 import { memoryStore } from '../memory';
 import { gatherChatSides } from '../project-chat-sides';
 import { ensureIdentitySiteContext } from '../site-context';
@@ -1723,6 +1737,102 @@ projectsRouter.patch('/:projectId/evidence/:evidenceId/files/:fileId/capture', a
   } catch (err) {
     fail(res, err);
   }
+});
+
+/**
+ * Read the photographs on this file.
+ *
+ * One at a time when a `fileId` is given, otherwise every image no model has
+ * looked at yet. Bounded concurrency and a hard cap, because a site visit
+ * produces forty photographs and an unbounded fan-out over forty vision calls
+ * is a bill nobody agreed to.
+ *
+ * A photographed DOCUMENT is handed straight to the extraction path rather
+ * than described: a khata extract shot on a phone is worth the survey number
+ * on it, not a sentence about a printed page. The photo agent's contribution
+ * on that branch is the routing decision, which is exactly what it is for.
+ */
+projectsRouter.post('/:projectId/photographs/read', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const body = (req.body ?? {}) as { fileId?: string; evidenceId?: string; limit?: number; actor?: string };
+  const actor = actorOf(body);
+
+  const targets = body.fileId && body.evidenceId
+    ? project.evidence
+        .filter((e) => e.id === body.evidenceId)
+        .flatMap((e) => e.attachments.filter((a) => a.id === body.fileId).map((a) => ({ evidenceId: e.id, attachment: a })))
+    : unreadPhotographs(project).slice(0, Math.max(1, Math.min(PHOTO_READ_CAP, body.limit ?? PHOTO_READ_CAP)));
+
+  if (!targets.length) {
+    res.json({ read: 0, drafts: 0, documents: 0, note: 'No unread photograph on this file.' });
+    return;
+  }
+
+  const identity = projectToIdentity(project);
+  let drafts = 0;
+  let documents = 0;
+  const results: Array<{ fileName: string; subject: string; notes: number; error?: string }> = [];
+
+  for (const target of targets) {
+    const bytes = await storageAdapter.getDocument(project.id, target.attachment.storageKey);
+    const capture = target.attachment.capture;
+    const outcome = await runPhotoIntelligence({
+      projectId: project.id,
+      evidenceId: target.evidenceId,
+      attachmentId: target.attachment.id,
+      fileName: target.attachment.fileName,
+      mimeType: target.attachment.mimeType,
+      fileBytes: bytes ? Buffer.from(bytes) : null,
+      identity,
+      purposeLabel: capture?.purpose ? CAPTURE_PURPOSE_LABEL[capture.purpose] : undefined,
+      zone: capture?.zone,
+      takenAt: capture?.takenAt,
+    });
+
+    // Filed whatever the outcome. An empty observation carrying "we could not
+    // read this one, here is why" is a materially different thing on a
+    // diligence file from a photograph nobody has looked at yet, and a batch
+    // that silently left twenty blank would erase that difference.
+    const { drafts: made } = recordPhotoObservation(project, target.evidenceId, target.attachment.id, outcome.observation, actor);
+    drafts += made.length;
+
+    if (outcome.isDocument && bytes) {
+      documents += 1;
+      // The same bytes, through the agent that reads documents properly. Its
+      // notes land on the evidence row, where an extraction's output belongs.
+      const enriched = await enrichIngestWithDocumentIntelligence({
+        project,
+        files: [
+          {
+            fileName: target.attachment.fileName,
+            mimeType: target.attachment.mimeType,
+            sizeBytes: target.attachment.sizeBytes,
+            storageKey: target.attachment.storageKey,
+          },
+        ],
+        buffers: [Buffer.from(bytes)],
+      });
+      const row = project.evidence.find((e) => e.id === target.evidenceId);
+      if (row && enriched[0]?.extractionNotes) row.extractionNotes = enriched[0].extractionNotes;
+      if (row && enriched[0]?.quotes?.length) row.quotes = enriched[0].quotes;
+    }
+
+    results.push({
+      fileName: target.attachment.fileName,
+      subject: outcome.observation.subject,
+      notes: outcome.observation.notes.length,
+      ...(outcome.run.error ? { error: outcome.run.error } : {}),
+    });
+  }
+
+  await persistPaneWrite(project, `Read ${targets.length} photograph(s) — ${drafts} proposed finding(s).`, {
+    citedEvidenceIds: [...new Set(targets.map((t) => t.evidenceId))],
+  });
+  res.json({ read: targets.length, drafts, documents, results });
 });
 
 projectsRouter.get('/:projectId/sheets', (req, res) => {
