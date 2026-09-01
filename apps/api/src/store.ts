@@ -292,7 +292,7 @@ class Store {
     // that never existed. Imported lazily to keep the store module free of a
     // dependency on the graph layer, which imports it back.
     const { syncGraph } = await import('./graph/sync');
-    await syncGraph(this.data.cases, projects);
+    await syncGraph(projects);
   }
 
   /** Alias for `save()`, kept for the SIGINT/SIGTERM shutdown path. */

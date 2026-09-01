@@ -8,11 +8,20 @@ import { useMeasure } from '../../../components/charts/primitives';
 
 const KIND_ORDER: ProjectGraphNode['kind'][] = [
   'project',
+  // The property itself, left of the workflow that examines it — the land,
+  // the people, the paper and the permissions come before the checks.
+  'parcel',
+  'party',
+  'instrument',
+  'encumbrance',
+  'approval',
+  'authority',
   'asset',
   'assessment',
   'scope',
   'check',
   'evidence',
+  'contradiction',
   'finding',
   'risk',
   'action',
@@ -25,6 +34,13 @@ const KIND_ORDER: ProjectGraphNode['kind'][] = [
 
 const KIND_LABEL: Record<ProjectGraphNode['kind'], string> = {
   project: 'Project',
+  parcel: 'Land',
+  party: 'People',
+  instrument: 'Deeds',
+  encumbrance: 'Charges',
+  approval: 'Approvals',
+  authority: 'Authorities',
+  contradiction: 'Conflicts',
   asset: 'Assets',
   assessment: 'Due diligence',
   scope: 'Scopes',
@@ -42,6 +58,13 @@ const KIND_LABEL: Record<ProjectGraphNode['kind'], string> = {
 
 const KIND_TONE: Record<ProjectGraphNode['kind'], string> = {
   project: 'var(--brand)',
+  parcel: 'var(--status-good, var(--brand))',
+  party: 'var(--status-good, var(--brand))',
+  instrument: 'var(--status-good, var(--brand))',
+  encumbrance: 'var(--status-serious)',
+  approval: 'var(--status-good, var(--brand))',
+  authority: 'var(--axis)',
+  contradiction: 'var(--status-critical)',
   asset: 'var(--axis)',
   assessment: 'var(--brand)',
   scope: 'var(--status-info, var(--axis))',

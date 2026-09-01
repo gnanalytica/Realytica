@@ -543,7 +543,14 @@ describe('project chat wizard', () => {
       assert.ok(graph.nodes.some((n) => n.kind === 'proposal'));
     }
     assert.ok(graph.edges.some((e) => e.rel === 'has_scope'));
-    assert.ok(graph.edges.some((e) => e.rel === 'asked' || e.rel === 'thought'));
+    // `asked` and `thought` used to attach these from the project. They now
+    // point the other way as one `raised_on`, which is what makes the one-way
+    // rule enforceable: nothing can be reached by walking OUT of a thought.
+    assert.ok(graph.edges.some((e) => e.rel === 'raised_on'));
+    assert.ok(
+      !graph.edges.some((e) => e.from === project.id && graph.nodes.find((n) => n.id === e.to)?.layer === 'deliberation'),
+      'no edge runs from the file into deliberation',
+    );
   });
 
   it('offers a report card that cites findings and commits into the register', () => {

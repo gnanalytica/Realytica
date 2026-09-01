@@ -53,9 +53,12 @@ import {
   projectGraphOf,
   retrieveProjectNeighbourhood,
   traceProjectNode,
+  validateProjectGraph,
   type ChatIngestFile,
   type DdProject,
   type ProjectChatResult,
+  type ProjectGraphEdge,
+  type ProjectGraphNode,
   type SittingRef,
   type AgentStep,
 } from '@realytica/shared';
@@ -271,6 +274,132 @@ projectsRouter.get('/:projectId/graph', (req, res) => {
   refreshProjectDerived(project);
   const built = buildProjectGraph(project);
   res.json({ ...built, adapter: graphAdapter.kind });
+});
+
+/**
+ * The STORED graph, which is not the same as the one a rebuild produces.
+ *
+ * It carries the annotations — which exist nowhere else — and `asOf` answers
+ * what the file looked like at an instant, neither of which a projection from
+ * the current registers can give you. `/graph` above is the projection and is
+ * always current; this is the record.
+ */
+projectsRouter.get('/:projectId/graph/stored', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const asOf = typeof req.query.asOf === 'string' ? req.query.asOf : undefined;
+  let stored;
+  try {
+    stored = await graphAdapter.readProject(project.id, asOf);
+  } catch (err) {
+    res.status(503).json({ error: `The graph store did not answer: ${(err as Error).message}` });
+    return;
+  }
+  if (!stored) {
+    res.status(200).json({ graph: null, reason: 'not_indexed', adapter: graphAdapter.kind });
+    return;
+  }
+  res.json({ graph: stored, adapter: graphAdapter.kind, asOf: asOf ?? null });
+});
+
+interface AnnotationBody {
+  /** The node this is about. Must already be in the stored graph. */
+  nodeId?: unknown;
+  text?: unknown;
+  author?: unknown;
+  /** Optional second node, to draw a link rather than leave a note. */
+  linkedNodeId?: unknown;
+}
+
+/**
+ * An analyst's note on a node, and the one thing in this graph a rebuild
+ * cannot reproduce.
+ *
+ * Everything `buildProjectGraph` emits is derived: delete the store and it
+ * comes back. A note does not — somebody looked at a check and wrote down why
+ * it matters, and that judgement has no other home. So it is written with
+ * `origin: 'authored'`, which is what makes a sync leave it alone, and a
+ * failure to write it is a 503 rather than a 500: the note was not saved and
+ * the caller still has it, so reporting success would lose the only copy.
+ */
+projectsRouter.post('/:projectId/graph/annotations', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+
+  const body = req.body as AnnotationBody;
+  const nodeId = typeof body.nodeId === 'string' ? body.nodeId.trim() : '';
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  const author = typeof body.author === 'string' ? body.author.trim() : '';
+  const linkedNodeId = typeof body.linkedNodeId === 'string' ? body.linkedNodeId.trim() : '';
+  if (!nodeId || !text) {
+    res.status(400).json({ error: 'nodeId and text are both required.' });
+    return;
+  }
+
+  let stored;
+  try {
+    stored = await graphAdapter.readProject(project.id);
+  } catch (err) {
+    res.status(503).json({ error: `The graph store did not answer: ${(err as Error).message}` });
+    return;
+  }
+  // Checked against the STORED graph rather than a fresh projection, because
+  // an annotation may legitimately hang off another annotation and those are
+  // not in a projection. A note on a node that does not exist is the same
+  // fabricated connection the projection refuses.
+  const present = new Map((stored?.nodes ?? []).map((n) => [n.id, n]));
+  if (!present.has(nodeId)) {
+    res.status(400).json({ error: `No node "${nodeId}" in this file's graph.` });
+    return;
+  }
+  if (linkedNodeId && !present.has(linkedNodeId)) {
+    res.status(400).json({ error: `No node "${linkedNodeId}" in this file's graph.` });
+    return;
+  }
+
+  const id = `ryt-note-${randomUUID()}`;
+  const at = new Date().toISOString();
+  const node: ProjectGraphNode = {
+    id,
+    kind: 'thought',
+    layer: 'deliberation',
+    // The whole point. This is the one thing in the graph a rebuild cannot
+    // produce, so a sync must never touch it.
+    origin: 'authored',
+    label: text.slice(0, 120),
+    detail: [author || null, at.slice(0, 10)].filter(Boolean).join(' · '),
+  };
+  const edges: ProjectGraphEdge[] = [
+    { id: `${id}:cites:${nodeId}`, rel: 'cites', from: id, to: nodeId },
+    ...(linkedNodeId ? [{ id: `${id}:cites:${linkedNodeId}`, rel: 'cites' as const, from: id, to: linkedNodeId }] : []),
+  ];
+
+  // The ontology is a real gate here, not a test assertion. A person drawing a
+  // link by hand is exactly the case a closed vocabulary exists to constrain,
+  // and the endpoint rules are what stop a note being stored as something a
+  // finding could later be walked out of.
+  const problems = validateProjectGraph({
+    nodes: [...(stored?.nodes ?? []), node],
+    edges,
+  });
+  if (problems.length > 0) {
+    res.status(400).json({ error: problems.map((p) => p.reason).join('; ') });
+    return;
+  }
+
+  try {
+    await graphAdapter.appendProject(project.id, [node], edges);
+  } catch (err) {
+    res.status(503).json({ error: `The graph store did not accept the note: ${(err as Error).message}` });
+    return;
+  }
+  res.status(201).json({ node, edges });
 });
 
 projectsRouter.get('/:projectId/graph/neighbourhood', async (req, res) => {

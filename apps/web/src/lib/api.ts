@@ -612,26 +612,6 @@ export const api = {
    */
   caseTitleGraph: (id: string) => request<TitleGraph>(`/cases/${id}/title-graph`),
 
-  /**
-   * The STORED reasoning graph, which is not the same as the one the client
-   * builds. It carries the annotations, which exist nowhere else, and `asOf`
-   * answers what the case looked like at an instant — neither of which a
-   * rebuild from the current case can produce.
-   */
-  caseGraph: (id: string, asOf?: string) =>
-    request<{ graph: DdGraph | null; adapter: string; reason?: string }>(
-      `/cases/${id}/graph${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ''}`,
-    ),
-
-  annotateGraphNode: (
-    id: string,
-    body: { nodeId: string; text: string; author?: string; linkedNodeId?: string },
-  ) =>
-    request<{ node: DdNode; edges: DdEdge[] }>(`/cases/${id}/graph/annotations`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
   /* --- Conversational intake --------------------------------------- */
 
   /**
@@ -761,6 +741,28 @@ export const api = {
   projectDashboard: (projectId: string) => request<ProjectDashboard>(`/projects/${projectId}/dashboard`),
   projectGraph: (projectId: string) =>
     request<{ nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[]; adapter?: string }>(`/projects/${projectId}/graph`),
+  /**
+   * The STORED graph, which is not the same as the projection above.
+   *
+   * It carries the annotations — held nowhere else — and `asOf` answers what
+   * the file looked like at an instant, neither of which a rebuild from the
+   * current registers can produce.
+   */
+  storedProjectGraph: (projectId: string, asOf?: string) =>
+    request<{
+      graph: { projectId: string; builtAt: string; nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] } | null;
+      adapter: string;
+      reason?: string;
+      asOf: string | null;
+    }>(`/projects/${projectId}/graph/stored${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ''}`),
+  annotateProjectGraphNode: (
+    projectId: string,
+    body: { nodeId: string; text: string; author?: string; linkedNodeId?: string },
+  ) =>
+    request<{ node: ProjectGraphNode; edges: ProjectGraphEdge[] }>(`/projects/${projectId}/graph/annotations`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   gisOverlay: (projectId: string, opts?: { force?: boolean }) =>
     request<GisOverlayRead>(`/projects/${projectId}/gis-overlay${opts?.force ? '?force=1' : ''}`),
   setSurveyBoundary: (projectId: string, body: { fileText: string; note?: string }) =>

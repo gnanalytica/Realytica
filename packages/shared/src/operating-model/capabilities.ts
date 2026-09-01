@@ -5,7 +5,7 @@
 
 import { REFERENCE_DATA } from '../reference';
 import type { LocalityReference } from '../types';
-import { LIFECYCLE_STAGE_LABEL, SCOPE_LABEL } from './catalogs';
+import { LIFECYCLE_STAGE_LABEL } from './catalogs';
 import {
   addAction,
   addDecision,
@@ -32,8 +32,6 @@ import type {
   EvidenceAttachment,
   PatchProjectInput,
   ProjectDashboard,
-  ProjectGraphEdge,
-  ProjectGraphNode,
   ValuationPremise,
   ValuationRun,
 } from './types';
@@ -415,119 +413,6 @@ export function toDashboard(project: DdProject): ProjectDashboard {
       }),
     capabilities: computeCapabilityRuns(project),
   };
-}
-
-export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] } {
-  ensureProjectShape(project);
-  const nodes: ProjectGraphNode[] = [
-    { id: project.id, kind: 'project', label: project.name, detail: project.reference },
-  ];
-  const edges: ProjectGraphEdge[] = [];
-  const seenEdges = new Set<string>();
-  const addEdge = (from: string, to: string, rel: string) => {
-    const id = `${from}:${rel}:${to}`;
-    if (seenEdges.has(id)) return;
-    seenEdges.add(id);
-    edges.push({ id, from, to, rel });
-  };
-
-  for (const asset of project.assets) {
-    nodes.push({ id: asset.id, kind: 'asset', label: asset.name, detail: asset.assetType });
-    addEdge(asset.parentId ?? project.id, asset.id, asset.parentId ? 'contains' : 'has_asset');
-  }
-  for (const assessment of project.assessments) {
-    nodes.push({ id: assessment.id, kind: 'assessment', label: assessment.name, detail: assessment.status });
-    addEdge(project.id, assessment.id, 'assessed_by');
-    for (const assetId of assessment.targetAssetIds) addEdge(assessment.id, assetId, 'targets');
-    for (const scope of assessment.scopes) {
-      nodes.push({
-        id: scope.id,
-        kind: 'scope',
-        label: SCOPE_LABEL[scope.scopeKey],
-        detail: `${scope.checks.length} checks · ${scope.status}`,
-      });
-      addEdge(assessment.id, scope.id, 'has_scope');
-      for (const check of scope.checks) {
-        nodes.push({
-          id: check.id,
-          kind: 'check',
-          label: check.title,
-          detail: check.result,
-        });
-        addEdge(scope.id, check.id, 'has_check');
-        for (const evidenceId of check.evidenceIds) addEdge(check.id, evidenceId, 'uses_evidence');
-        for (const findingId of check.findingIds) addEdge(check.id, findingId, 'produces');
-      }
-    }
-  }
-  for (const row of project.evidence) {
-    nodes.push({ id: row.id, kind: 'evidence', label: row.title, detail: row.status });
-    for (const assessmentId of row.assessmentIds) addEdge(assessmentId, row.id, 'uses_evidence');
-    for (const checkId of row.checkIds) addEdge(checkId, row.id, 'uses_evidence');
-  }
-  for (const finding of project.findings) {
-    nodes.push({ id: finding.id, kind: 'finding', label: finding.title, detail: `${finding.severity} · ${SCOPE_LABEL[finding.discipline]}` });
-    for (const assessmentId of finding.assessmentIds) addEdge(assessmentId, finding.id, 'found');
-    for (const evidenceId of finding.evidenceIds) addEdge(finding.id, evidenceId, 'supported_by');
-    if (finding.sourceCheckId) addEdge(finding.sourceCheckId, finding.id, 'produces');
-  }
-  for (const risk of project.risks) {
-    nodes.push({ id: risk.id, kind: 'risk', label: risk.title, detail: risk.materiality });
-    for (const findingId of risk.findingIds) addEdge(findingId, risk.id, 'raises');
-    for (const evidenceId of risk.evidenceIds) addEdge(risk.id, evidenceId, 'supported_by');
-    if (!risk.findingIds.length) addEdge(project.id, risk.id, 'has_risk');
-  }
-  for (const action of project.actions) {
-    nodes.push({ id: action.id, kind: 'action', label: action.title, detail: action.status });
-    for (const findingId of action.findingIds) addEdge(findingId, action.id, 'requires');
-    for (const riskId of action.riskIds) addEdge(riskId, action.id, 'mitigates');
-    for (const evidenceId of action.evidenceIds) addEdge(action.id, evidenceId, 'supported_by');
-    for (const checkId of action.checkIds) addEdge(checkId, action.id, 'requires');
-  }
-  for (const decision of project.decisions) {
-    nodes.push({ id: decision.id, kind: 'decision', label: decision.title, detail: decision.status });
-    for (const findingId of decision.findingIds) addEdge(findingId, decision.id, 'informs');
-    for (const riskId of decision.riskIds) addEdge(riskId, decision.id, 'informs');
-  }
-  for (const report of project.reports) {
-    nodes.push({ id: report.id, kind: 'report', label: report.title, detail: report.kind });
-    addEdge(project.id, report.id, 'reported_in');
-  }
-
-  const known = new Set(nodes.map((n) => n.id));
-  const thoughts = project.conversation.slice(-24);
-  for (const turn of thoughts) {
-    const nodeId = `chat:${turn.id}`;
-    nodes.push({
-      id: nodeId,
-      kind: turn.role === 'user' ? 'question' : 'thought',
-      label: turn.role === 'user' ? 'Ask' : 'Insight',
-      detail: turn.text.replace(/\s+/g, ' ').slice(0, 88),
-    });
-    addEdge(project.id, nodeId, turn.role === 'user' ? 'asked' : 'thought');
-    for (const cited of turn.citedNodeIds ?? []) {
-      if (known.has(cited)) addEdge(nodeId, cited, 'cites');
-    }
-    for (const evidenceId of turn.citedEvidenceIds) {
-      if (known.has(evidenceId)) addEdge(nodeId, evidenceId, 'cites');
-    }
-  }
-
-  const proposals = project.chatProposals.filter((p) => p.status !== 'rejected').slice(-16);
-  for (const row of proposals) {
-    nodes.push({
-      id: row.id,
-      kind: 'proposal',
-      label: row.title,
-      detail: row.status,
-    });
-    addEdge(project.id, row.id, row.status === 'committed' ? 'committed' : 'proposes');
-    if (row.committedRecordId && known.has(row.committedRecordId)) {
-      addEdge(row.id, row.committedRecordId, 'became');
-    }
-  }
-
-  return { nodes, edges };
 }
 
 function pushDraft(project: DdProject, draft: Omit<AiDraft, 'id' | 'createdAt' | 'status'> & { status?: AiDraftStatus }): AiDraft {

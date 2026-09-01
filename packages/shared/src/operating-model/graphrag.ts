@@ -11,8 +11,9 @@
  * here is the source of truth and the journal/Cypher paths must agree with it.
  */
 
-import { buildProjectGraph } from './capabilities';
+import { buildProjectGraph } from './project-graph';
 import { sittingCheckOf, type SittingRef } from './sitting';
+import type { ProjectGraphEdgeKind } from './project-ontology';
 import type { DdProject, ProjectGraphEdge, ProjectGraphNode } from './types';
 
 export interface ProjectGraphView {
@@ -25,28 +26,40 @@ export type ProjectGraphRagSource = 'live' | 'journal' | 'neo4j';
 const MAX_HOPS = 3;
 const MAX_SEEDS = 5;
 
-/** Edges that walk a conclusion down to the papers that support it. */
-const TRACE_TOWARD_EVIDENCE = new Set([
-  'uses_evidence',
-  'supported_by',
-]);
+/**
+ * Edges that walk a conclusion down to what it rests on.
+ *
+ * `uses_evidence` used to sit beside `supported_by` here, which is how the
+ * duplication was visible before it was fixed: two names for one relation
+ * meant every traversal had to remember both or silently miss half the
+ * proof. `about` joined the set when the parcel became a node — what a
+ * finding is about is part of what it rests on.
+ */
+const TRACE_TOWARD_EVIDENCE = new Set<ProjectGraphEdgeKind>(['supported_by', 'about']);
 
-/** Edges whose source is the support (finding → risk, check → finding). */
-const TRACE_FROM_SUPPORT = new Set([
+/**
+ * Edges whose SOURCE is the support (finding → risk, check → finding).
+ * Walked backwards, so reaching a parcel pulls in the instruments that
+ * convey it — the chain of title is support in exactly this sense.
+ */
+const TRACE_FROM_SUPPORT = new Set<ProjectGraphEdgeKind>([
   'raises',
   'requires',
-  'mitigates',
   'informs',
   'found',
   'produces',
+  'affects',
+  'encumbers',
 ]);
 
 /** Structural parents, one hop of context around a traced node. */
-const TRACE_CONTEXT = new Set([
+const TRACE_CONTEXT = new Set<ProjectGraphEdgeKind>([
   'has_check',
   'has_scope',
   'assessed_by',
   'targets',
+  'has_asset',
+  'sited_at',
 ]);
 
 function isAlarming(node: ProjectGraphNode): boolean {

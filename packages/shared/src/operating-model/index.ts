@@ -1,3 +1,4 @@
+export * from './project-ontology';
 export * from './types';
 export * from './catalogs';
 export * from './libraries';
@@ -14,6 +15,7 @@ export * from './run-ledger';
 export * from './chat-sides';
 export * from './project-screen';
 export * from './seed';
+export * from './project-graph';
 export * from './graphrag';
 export * from './reference-shelf';
 export * from './shelf-passages';

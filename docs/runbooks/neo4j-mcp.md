@@ -13,18 +13,33 @@ questions the app has no screen for:
 
 ```cypher
 // Which projects carry an unconverted-land finding?
-MATCH (n:Ryt) WHERE n.kind = 'finding' AND toLower(n.label) CONTAINS 'conversion'
+MATCH (n:Ryt:finding) WHERE toLower(n.label) CONTAINS 'conversion'
 RETURN n.projectId, n.label
 
 // What does a conclusion rest on, two hops out?
-MATCH (n:Dd { id: $nodeId })-[*1..2]-(m:Dd) RETURN DISTINCT m.kind, m.label
+MATCH (n:Ryt { id: $nodeId })-[:RYT_EDGE*1..2]-(m:Ryt) RETURN DISTINCT m.kind, m.label
 
 // Everything a person wrote, which exists nowhere else
-MATCH (n:Dd { origin: 'authored' }) RETURN n.caseId, n.label
+MATCH (n:Ryt:authored) RETURN n.projectId, n.label
+
+// The chain of title on one file, oldest instrument first
+MATCH (i:Ryt:instrument { projectId: $projectId })-[:RYT_EDGE { kind: 'affects' }]->(p:Ryt:parcel)
+RETURN p.label, i.label, i.detail ORDER BY i.detail
+
+// What did this file's graph say in March, before the last screen moved it?
+MATCH (:Ryt { projectId: $projectId })-[r:RYT_EDGE]->(m:Ryt)
+WHERE r.closedAt IS NULL OR r.closedAt > '2026-03-31'
+RETURN r.kind, m.kind, m.label
 ```
 
-Node labels: `:Dd` for the case reasoning graph, `:Ryt` for the project cockpit
-graph. Both carry `kind`, `label` and `origin`.
+One node label family: `:Ryt`, the project graph. Every node also carries a
+label for its **kind** (`:parcel`, `:check`, `:finding` …), its **layer**
+(`:entity`, `:evidence`, `:claim`, `:judgement`, `:deliberation`) and its
+**origin** (`:derived`, `:authored`), so those three filters need no property
+read. Relationships are all `:RYT_EDGE` with the semantic relation on
+`r.kind`, and a relation the registers no longer assert carries `r.closedAt`
+rather than being deleted — so the default is `r.closedAt IS NULL` unless you
+are deliberately asking about the past.
 
 ## Setup
 
@@ -58,14 +73,24 @@ needs no extra environment and a real deployment needs no edit to this file.
 than caution.
 
 The graph is an **index** over data that lives elsewhere — with one exception.
-`derived` nodes are a projection of the case and project stores and a rebuild
+`derived` nodes are a projection of the project registers and a rebuild
 replaces them, so a stray write is overwritten and merely confusing. But
-`authored` nodes are the analyst annotations, they are held **nowhere else**,
-and the sync path is written specifically so a rebuild can never delete a
-reason. A `write-cypher` call does not go through that path. One `DETACH
-DELETE` from a chat window would destroy the only copy of somebody's
-reasoning, silently, with no audit event — the app's own audit trail would
-never see it, because the app was not involved.
+`authored` nodes are the analyst annotations written through
+`POST /api/projects/:id/graph/annotations`, they are held **nowhere else**,
+and the sync path is written specifically so a rebuild can never delete one.
+A `write-cypher` call does not go through that path. One `DETACH DELETE` from
+a chat window would destroy the only copy of somebody's reasoning, silently,
+with no audit event — the app's own audit trail would never see it, because
+the app was not involved.
+
+They are separable in Cypher without reading properties, which is what makes
+the danger easy to see before you act on it:
+
+```cypher
+MATCH (n:Ryt:authored) RETURN n          // the irreplaceable half
+MATCH (n:Ryt:parcel)   RETURN n          // one node kind
+MATCH (n:Ryt:entity)   RETURN n          // one layer
+```
 
 So: read-only unless you deliberately lift it for a migration you are
 supervising.
