@@ -322,12 +322,97 @@ export function checkInsights(defs: CheckFieldDef[], values: Record<string, Chec
   return out;
 }
 
+/* ==================================================================== */
+/* Divergence against the line it was judged by                          */
+/* ==================================================================== */
+
+export interface ToleranceReading {
+  /** What is being compared, in words. */
+  label: string;
+  aLabel: string;
+  bLabel: string;
+  a: number;
+  b: number;
+  /** Absolute relative difference, 0..1. */
+  divergence: number;
+  /** What the rule said was close enough, 0..1. */
+  tolerance: number;
+  /**
+   * Divergence as a MULTIPLE of its own tolerance.
+   *
+   * This is the number that makes different checks comparable, and it is the
+   * whole reason a chart of these is worth drawing. A 3% budget variance and
+   * a 3% extent variance are not the same fact: one is inside a 5% threshold
+   * and the other is triple a 1% one. Plotting raw percentages side by side
+   * says they are equal. Plotting multiples of tolerance says which one is a
+   * finding.
+   *
+   * `Infinity` when the tolerance is zero — an FAR above what the plan allows
+   * is not "a lot over", it is a breach, and it should sit at the end of the
+   * scale rather than be given a finite position that invites comparison.
+   */
+  overBy: number;
+  within: boolean;
+  severity: FindingSeverity;
+  text: string;
+}
+
+/**
+ * Every comparison this check makes, with how far past its own line it fell.
+ *
+ * Only rules with both numbers recorded appear. A comparison missing a side
+ * is not a zero divergence, it is an unanswered question, and putting it on a
+ * chart at the origin would read as the safest thing on the page.
+ */
+export function toleranceReadings(
+  defs: CheckFieldDef[],
+  values: Record<string, CheckFieldValue>,
+  rules: CheckInsightRule[],
+): ToleranceReading[] {
+  const byKey = new Map(defs.map((d) => [d.key, d]));
+  const out: ToleranceReading[] = [];
+
+  for (const rule of rules) {
+    if (rule.kind !== 'compare') continue;
+    const [aKey, bKey] = rule.fields;
+    const aDef = byKey.get(aKey!);
+    const bDef = byKey.get(bKey!);
+    if (!aDef || !bDef) continue;
+    const a = fieldNumber(values[aKey!]);
+    const b = fieldNumber(values[bKey!]);
+    if (a === null || b === null) continue;
+    const base = Math.max(Math.abs(a), Math.abs(b));
+    if (base === 0) continue;
+
+    const divergence = Math.abs(a - b) / base;
+    const tolerance = rule.tolerance ?? 0.01;
+    const overBy = tolerance === 0 ? (divergence === 0 ? 0 : Number.POSITIVE_INFINITY) : divergence / tolerance;
+    out.push({
+      label: `${aDef.label} vs ${bDef.label}`,
+      aLabel: formatFieldValue(aDef, values[aKey!]),
+      bLabel: formatFieldValue(bDef, values[bKey!]),
+      a,
+      b,
+      divergence,
+      tolerance,
+      overBy,
+      within: divergence <= tolerance,
+      severity: rule.severity,
+      text: rule.say,
+    });
+  }
+
+  return out;
+}
+
 /** Everything a check's fields say, ready for the panel, the report or a tool. */
 export interface CheckFieldReading {
   defs: CheckFieldDef[];
   /** Stored values, with every computed field worked out. */
   values: Record<string, CheckFieldValue>;
   insights: CheckInsight[];
+  /** Every comparison on this check, and how far past its own line it fell. */
+  tolerances: ToleranceReading[];
   /** Declared fields still blank. What the panel nudges toward, and what an agent should ask for. */
   missing: CheckFieldDef[];
   /**
@@ -352,6 +437,7 @@ export function readCheckFields(check: CheckInstance, defs: CheckFieldDef[], rul
     defs,
     values,
     insights: checkInsights(defs, values, rules),
+    tolerances: toleranceReadings(defs, values, rules),
     missing: answerable.filter((d) => d.required !== false && isBlank(values[d.key])),
     unproven: answerable.filter(
       (d) => d.proof && d.proof !== 'none' && !isBlank(values[d.key]) && !values[d.key]?.sourceEvidenceId,

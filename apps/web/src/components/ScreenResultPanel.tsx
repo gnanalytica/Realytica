@@ -4,6 +4,7 @@ import type { Tone } from './ui/kit';
 import { StatutoryProvenance } from './StatutoryProvenance';
 import {
   AnchorWeightChart,
+  CostWaterfallChart,
   ComparablesChart,
   CompletenessRing,
   ConfidenceGauge,
@@ -71,7 +72,7 @@ function ComplianceRow({ check }: { check: ComplianceCheck }) {
   );
 }
 
-export function ScreenResultPanel({ result }: { result: ScreenResult }) {
+export function ScreenResultPanel({ result, askingPrice }: { result: ScreenResult; askingPrice?: number }) {
   const currency = result.indicativeValue.currency;
   const compliance = result.stateCompliance;
   const costs = result.transactionCosts;
@@ -202,6 +203,11 @@ export function ScreenResultPanel({ result }: { result: ScreenResult }) {
             subtitle={`Charged on the ${costs.dutiableBasis === 'consideration' ? 'consideration' : 'statutory guidance value'} — the higher of the two.`}
           />
           <CardBody className="space-y-3">
+            {/* The list below is the audit trail; this is the shape. Stamp duty
+                against cess against registration reads as proportions long
+                before it reads as six numbers, and which line dominates is the
+                thing a buyer asks first. */}
+            <CostWaterfallChart costs={costs} askingPrice={askingPrice} />
             <ul className="space-y-1.5">
               {costs.lines.map((line) => (
                 <li key={line.key} className="flex items-start justify-between gap-3 text-xs">

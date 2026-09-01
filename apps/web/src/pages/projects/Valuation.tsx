@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
+  titleGraphFromProject,
   VALUATION_APPROACH_LABEL,
   VALUATION_BASIS_LABEL,
   VALUATION_PREMISE_LABEL,
@@ -11,6 +12,7 @@ import {
 import { api } from '../../lib/api';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Select, useToast } from '../../components/ui/kit';
 import { ScreenResultPanel } from '../../components/ScreenResultPanel';
+import { TitleChainDiagram } from '../../components/charts';
 import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 
@@ -24,6 +26,10 @@ export default function Valuation() {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const runs = [...(project.valuationRuns ?? [])].slice().reverse();
+  // Read from the project graph, which holds the title entities the screen
+  // works out — rather than from the full TitleGraph, which runScreen builds
+  // and discards.
+  const titleGraph = titleGraphFromProject(project);
   const latest = runs[0];
 
   async function run() {
@@ -161,7 +167,18 @@ export default function Valuation() {
               {formatWhen(project.lastScreenResult.generatedAt)} · engine {project.lastScreenResult.engineVersion}
             </span>
           </h2>
-          <ScreenResultPanel result={project.lastScreenResult} />
+          <ScreenResultPanel result={project.lastScreenResult} askingPrice={project.budget} />
+          {titleGraph.nodes.length > 0 ? (
+            <Card>
+              <CardHeader
+                title="Title structure"
+                subtitle="Who, through what, over what, and subject to what — read left to right, the order a title opinion is written in."
+              />
+              <CardBody>
+                <TitleChainDiagram graph={titleGraph} summary={project.lastScreenResult.titleGraph} />
+              </CardBody>
+            </Card>
+          ) : null}
         </section>
       ) : null}
     </div>

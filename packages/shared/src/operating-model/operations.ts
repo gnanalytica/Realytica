@@ -1,6 +1,6 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
 import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
-import { readCheckFields, validateFieldValue, type CheckFieldReading } from './check-fields';
+import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
 import type {
   ActionRecord,
@@ -501,6 +501,52 @@ export function checkSchema(check: CheckInstance): { fields: CheckFieldDef[]; ru
 export function checkFieldReading(check: CheckInstance): CheckFieldReading {
   const { fields, rules } = checkSchema(check);
   return readCheckFields(check, fields, rules);
+}
+
+export interface ProjectToleranceRow extends ToleranceReading {
+  checkId: string;
+  checkTitle: string;
+  scopeKey: ScopeKey;
+  assessmentId: string;
+  assessmentName: string;
+}
+
+/**
+ * Every comparison on the file, normalised so they can be read against each
+ * other.
+ *
+ * Worst first, where "worst" is how many times past its OWN tolerance a
+ * divergence fell — not the raw percentage. A 3% budget variance inside a 5%
+ * threshold and a 3% extent variance against a 1% one are not comparable
+ * facts, and ranking them by percentage would put the harmless one above the
+ * finding.
+ *
+ * Breaches — a divergence against a zero tolerance, like an FAR above what
+ * the plan permits — sort to the very top and stay there. There is no
+ * "slightly over" on a threshold that admits nothing.
+ */
+export function projectTolerances(project: DdProject): ProjectToleranceRow[] {
+  ensureProjectShape(project);
+  const rows: ProjectToleranceRow[] = [];
+  for (const assessment of project.assessments) {
+    for (const scope of assessment.scopes) {
+      for (const check of scope.checks) {
+        const { fields, rules } = checkSchema(check);
+        if (!fields.length || !rules.length) continue;
+        for (const reading of toleranceReadings(fields, withComputed(fields, check.fields ?? {}), rules)) {
+          rows.push({
+            ...reading,
+            checkId: check.id,
+            checkTitle: check.title,
+            scopeKey: scope.scopeKey,
+            assessmentId: assessment.id,
+            assessmentName: assessment.name,
+          });
+        }
+      }
+    }
+  }
+  return rows.sort((a, b) => b.overBy - a.overBy || b.divergence - a.divergence);
 }
 
 export interface RecordCheckFieldsResult {

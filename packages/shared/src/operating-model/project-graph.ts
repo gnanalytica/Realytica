@@ -53,7 +53,7 @@ import {
   type ProjectGraphNodeKind,
 } from './project-ontology';
 import type { DdProject, ProjectGraphEdge, ProjectGraphNode } from './types';
-import type { TitleGraphSummary } from '../types';
+import type { TitleEdgeKind, TitleGraph, TitleGraphSummary, TitleNodeKind } from '../types';
 
 /** Turns `bda_approved` into `Bda approved` for a node label. Enum keys have no label map. */
 function titleCase(value: string): string {
@@ -460,4 +460,75 @@ export function validateProjectGraph(graph: {
   }
 
   return problems;
+}
+
+/* ==================================================================== */
+/* The title half, in the shape the diagram already speaks               */
+/* ==================================================================== */
+
+/**
+ * The property entities of the project graph, as a `TitleGraph`.
+ *
+ * `TitleChainDiagram` has existed and been orphaned since it was written,
+ * because it takes the full `TitleGraph` that `runScreen` builds and then
+ * throws away — only the summary survived onto the result. Rather than start
+ * storing a second copy of the graph, this reads the one that IS stored: the
+ * project graph now carries `parcel`, `party`, `instrument`, `authority`,
+ * `encumbrance` and `approval`, which are precisely the six columns the
+ * diagram draws.
+ *
+ * The vocabularies line up because they were deliberately aligned — the
+ * project ontology mirrors the case ontology's relation names wherever the two
+ * describe the same thing, which is what makes this an id-and-key rename
+ * rather than a translation.
+ *
+ * `attributes` comes back as the node's detail line rather than the original
+ * bag. The diagram renders a label and a subtitle; nothing downstream reads
+ * individual attribute keys, and inventing typed attributes we no longer hold
+ * would be worse than saying plainly what we have.
+ */
+export function titleGraphFromProject(project: DdProject): TitleGraph {
+  const { nodes, edges } = buildProjectGraph(project);
+  const KINDS = new Set<ProjectGraphNodeKind>(['parcel', 'party', 'instrument', 'authority', 'encumbrance', 'approval']);
+  const kept = nodes.filter(n => KINDS.has(n.kind));
+  const ids = new Set(kept.map(n => n.id));
+
+  const REL: Partial<Record<ProjectGraphEdgeKind, TitleEdgeKind>> = {
+    conveyed_by: 'conveyed_by',
+    conveyed_to: 'conveyed_to',
+    affects: 'affects',
+    derives_from: 'derives_from',
+    encumbers: 'encumbers',
+    issued_by: 'issued_by',
+  };
+
+  return {
+    caseId: project.id,
+    builtAt: project.updatedAt,
+    nodes: kept.map(n => ({
+      id: n.id,
+      kind: n.kind as TitleNodeKind,
+      label: n.label,
+      // The merge key the case builder computes is not reconstructable from a
+      // projected node, and the id already carries identity here — so it is
+      // the id rather than a normalisation invented after the fact.
+      mergeKey: n.id,
+      assertedBy: [],
+      attributes: (n.detail ? { detail: n.detail } : {}) as Record<string, string>,
+    })),
+    edges: edges
+      .filter(e => ids.has(e.from) && ids.has(e.to) && REL[e.rel])
+      .map(e => ({
+        id: e.id,
+        kind: REL[e.rel]!,
+        fromNodeId: e.from,
+        toNodeId: e.to,
+        label: e.rel.replace(/_/g, ' '),
+        // Every edge here came out of the projection rather than a document
+        // read, so there is nothing to cite and nothing to be less than sure
+        // about. Claiming a confidence below 1 would invent a doubt.
+        assertedBy: [],
+        confidence: 1,
+      })),
+  };
 }

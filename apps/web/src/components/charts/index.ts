@@ -53,3 +53,6 @@ export type { ParkingMeterChartProps } from './ParkingMeterChart';
 
 export { default as AreaReconcileChart } from './AreaReconcileChart';
 export type { AreaReconcileChartProps } from './AreaReconcileChart';
+
+export { default as ToleranceChart } from './ToleranceChart';
+export type { ToleranceChartProps } from './ToleranceChart';
