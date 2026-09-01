@@ -75,6 +75,8 @@ import { memoryStore } from '../memory';
 import { gatherChatSides } from '../project-chat-sides';
 import { ensureIdentitySiteContext } from '../site-context';
 import { beginRun, listRuns } from '../runs/journal';
+import { startBackgroundRun } from '../runs/background';
+import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
@@ -245,6 +247,21 @@ projectsRouter.get('/:projectId/runs', async (req, res) => {
   res.json({ runs });
 });
 
+projectsRouter.get('/:projectId/runs/:runId', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const run = (await listRuns(project.id)).find((row) => row.id === req.params.runId);
+  if (!run) {
+    res.status(404).json({ error: 'Run not found' });
+    return;
+  }
+  const now = new Date().toISOString();
+  res.json({ ...run, state: runState(run, now), line: describeRun(run, now) });
+});
+
 projectsRouter.get('/:projectId/graph', (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -330,6 +347,24 @@ projectsRouter.post('/:projectId/screen', async (req, res) => {
   }
   const actor = actorOf(req.body as { actor?: string } | undefined);
   const now = new Date().toISOString();
+
+  /*
+   * `?background=1` starts the work and returns the run id immediately. The
+   * screen geocodes, screens and writes six registers; on a slow site-context
+   * lookup that is long enough to be worth walking away from.
+   */
+  if (req.query.background === '1' || req.query.background === 'true') {
+    const started = await startBackgroundRun(project.id, 'screen', { actor }, async (journal) => {
+      const site = await ensureIdentitySiteContext(project, projectToIdentity(project), now);
+      await journal.step('site_context', site ? 'Site context resolved.' : 'No mapping provider; screening without a pin.');
+      const applied = screenProject(project, actor, now, site);
+      await persistPaneWrite(project, 'Ran the project screen.');
+      return `Verdict ${applied.snapshot.verdict}.`;
+    });
+    res.status(202).json({ ...started, pollUrl: `/api/projects/${project.id}/runs/${started.runId}` });
+    return;
+  }
+
   const journal = await beginRun(project.id, 'screen', { actor });
   try {
     const site = await ensureIdentitySiteContext(project, projectToIdentity(project), now);
@@ -788,6 +823,42 @@ projectsRouter.post('/:projectId/orchestrate', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
+  const actor = actorOf(parsed.data);
+
+  /*
+   * Background mode. The model pass is the slow half — a planner call with
+   * tools — and it produces cards a person reviews later anyway, so there is
+   * nothing to watch while it runs.
+   */
+  if (req.query.background === '1' || req.query.background === 'true') {
+    const started = await startBackgroundRun(project.id, 'orchestrate', { actor }, async (journal) => {
+      const bgRun = runProjectOrchestrator(project, actor);
+      await journal.step('rule_pass', `Rule pass proposed ${bgRun.draftIds.length} draft(s).`);
+      if (agentCapability().available) {
+        try {
+          const extra = await runProjectOrchestratorAgent(project, actor, bgRun);
+          if (extra.usedModel) {
+            bgRun.source = 'model';
+            bgRun.summary = extra.summary;
+            const open = new Set(project.chatProposals.filter((p) => p.status === 'proposed').map((p) => p.title));
+            for (const card of extra.proposals) {
+              if (open.has(card.title)) continue;
+              project.chatProposals.push(card);
+              open.add(card.title);
+            }
+            await journal.step('model_pass', `Model pass queued ${extra.proposals.length} card(s).`);
+          }
+        } catch (err) {
+          await journal.step('model_pass_failed', err instanceof Error ? err.message : String(err));
+        }
+      }
+      await persistPaneWrite(project, `Orchestrator pass proposed ${bgRun.draftIds.length} draft(s).`);
+      return `${bgRun.source === 'model' ? 'Rule + model pass' : 'Rule pass'}; ${bgRun.draftIds.length} draft(s).`;
+    });
+    res.status(202).json({ ...started, pollUrl: `/api/projects/${project.id}/runs/${started.runId}` });
+    return;
+  }
+
   const journal = await beginRun(project.id, 'orchestrate', { actor: actorOf(parsed.data) });
   const run = runProjectOrchestrator(project, actorOf(parsed.data));
   await journal.step('rule_pass', `Rule pass proposed ${run.draftIds.length} draft(s).`);
@@ -838,8 +909,18 @@ projectsRouter.delete('/:projectId', async (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  projects().splice(idx, 1);
+  const [removed] = projects().splice(idx, 1);
   await store.save();
+  // The project's own documents — its shard, its run journal, its evidence
+  // files — go with it. "Deleted" has to mean deleted: these hold owner
+  // names, document titles and uploaded bytes.
+  if (removed) {
+    try {
+      await storageAdapter.deleteCaseDocuments(removed.id);
+    } catch (err) {
+      console.warn(`[projects] could not remove documents for ${removed.id}: ${(err as Error).message}`);
+    }
+  }
   res.status(204).end();
 });
 
@@ -1063,14 +1144,27 @@ projectsRouter.get('/:projectId/evidence/:evidenceId/files/:fileId', async (req,
     res.status(404).json({ error: 'File bytes not found' });
     return;
   }
-  const ascii = file.fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '').slice(0, 200) || 'document';
-  const inline = req.query.inline === '1' || req.query.inline === 'true';
-  const type = inline && file.mimeType && file.mimeType !== 'application/octet-stream' ? file.mimeType : 'application/octet-stream';
-  res.setHeader('Content-Type', type);
-  res.setHeader(
-    'Content-Disposition',
-    `${inline ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
-  );
+  /*
+   * The type is decided by the BYTES, never by `file.mimeType`.
+   *
+   * That field is whatever the client announced at upload — multer copies the
+   * part header verbatim — so it is attacker-controlled and independent of
+   * what was actually stored. This route used to echo it back and serve the
+   * result `inline`, which is stored XSS: upload HTML announced as text/html,
+   * send someone the `?inline=1` link, and it executes on this origin with
+   * access to every project the API will answer for. `nosniff` does not help
+   * when the declared type IS text/html.
+   *
+   * `document-file.ts` has held the correct rule and the signature sniffer
+   * since before this route existed; it was reachable only from the retired
+   * case path, so the defence sat on dead code while the live path shipped
+   * the bug. Now they share one implementation, and only a type this app can
+   * actually render is ever inlined.
+   */
+  const wantsInline = req.query.inline === '1' || req.query.inline === 'true';
+  const { contentType, inline } = resolveServedType(bytes, file.fileName, !wantsInline);
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Disposition', documentDisposition(inline, file.fileName));
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Length', String(bytes.length));
   res.setHeader('Cache-Control', 'private, max-age=900, must-revalidate');

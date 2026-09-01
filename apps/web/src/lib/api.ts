@@ -900,6 +900,24 @@ export const api = {
   projectRuns: (projectId: string) =>
     request<{ runs: Array<DurableRun & { state: DurableRunState; line: string }> }>(`/projects/${projectId}/runs`),
 
+  /** One run, for polling something started in the background. */
+  projectRun: (projectId: string, runId: string) =>
+    request<DurableRun & { state: DurableRunState; line: string }>(`/projects/${projectId}/runs/${runId}`),
+
+  /**
+   * Start a long operation in the background and get a run id back at once.
+   *
+   * `keptAlive` says whether the platform accepted responsibility for work
+   * that outlives the response. False on a serverless host without that hook
+   * means the run may be frozen mid-flight — in which case polling reports
+   * `interrupted` rather than hanging, which is why the caller is told.
+   */
+  startBackgroundRun: (projectId: string, kind: 'screen' | 'orchestrate', actor?: string) =>
+    request<{ runId: string; keptAlive: boolean; pollUrl: string }>(
+      `/projects/${projectId}/${kind}?background=1`,
+      { method: 'POST', body: JSON.stringify({ actor }) },
+    ),
+
   evidenceFileUrl,
 };
 

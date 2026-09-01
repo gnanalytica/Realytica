@@ -32,6 +32,9 @@ demoRouter.post('/reset', async (_req, res) => {
   store.data.nextReferenceSeq = 1;
   store.data.projects = [];
   store.data.nextProjectSeq = 1;
+  // The shard index goes too, or a reset would leave the core document
+  // naming project documents that `deleteAllDocuments` just removed.
+  store.data.projectIds = [];
   store.data.intakeSessions = [];
   try {
     await storageAdapter.deleteAllDocuments();

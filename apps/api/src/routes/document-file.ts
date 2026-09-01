@@ -123,7 +123,7 @@ export function resolveServedType(
  * Quotes, backslashes and newlines are removed rather than escaped — a
  * filename is not worth a header-injection bug.
  */
-function contentDisposition(inline: boolean, fileName: string): string {
+export function documentDisposition(inline: boolean, fileName: string): string {
   const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '').slice(0, 200) || 'document';
   return `${inline ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }
@@ -131,7 +131,7 @@ function contentDisposition(inline: boolean, fileName: string): string {
 export function sendDocumentBytes(res: Response, doc: CaseDocument, bytes: Buffer, forceDownload = false): void {
   const { contentType, inline } = resolveServedType(bytes, doc.fileName, forceDownload);
   res.setHeader('Content-Type', contentType);
-  res.setHeader('Content-Disposition', contentDisposition(inline, doc.fileName));
+  res.setHeader('Content-Disposition', documentDisposition(inline, doc.fileName));
   // Belt and braces on the same class of bug: forbid MIME sniffing, so a
   // "PDF" whose bytes are HTML cannot be re-interpreted by the browser.
   res.setHeader('X-Content-Type-Options', 'nosniff');

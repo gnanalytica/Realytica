@@ -71,6 +71,18 @@ export interface StoreData {
    * Optional so a store written before the intake existed still loads.
    */
   intakeSessions?: IntakeSession[];
+  /**
+   * The ids of the projects held in their own documents.
+   *
+   * A persistence detail, not domain data: `projects` is the array everything
+   * reads, and this is only how the core document remembers which shards to
+   * load. Present in the core document, empty in memory after load.
+   *
+   * Optional so a store written before sharding still loads — such a document
+   * carries its projects inline under `projects`, and the first save migrates
+   * them out.
+   */
+  projectIds?: string[];
 }
 
 // Re-exported for the routes that still build upload paths directly against
@@ -127,11 +139,30 @@ function normalizeStoreData(loaded: StoreData | null): StoreData {
         ? loaded.prompts
         : undefined,
     intakeSessions: Array.isArray(loaded.intakeSessions) ? loaded.intakeSessions : undefined,
+    projectIds: Array.isArray(loaded.projectIds) ? loaded.projectIds.filter((id): id is string => typeof id === 'string') : undefined,
   };
 }
 
+/**
+ * Where one project's document lives, under its own id.
+ *
+ * Rides the document path (the same one uploads use) rather than needing a
+ * new adapter method, so both backends got sharding for free and a deleted
+ * project takes its shard with it through the delete that already existed.
+ */
+const PROJECT_KEY = 'project.json';
+
 class Store {
   data: StoreData = emptyStore();
+
+  /**
+   * projectId -> the `updatedAt` its shard was last written from.
+   *
+   * The same "a record that has not moved cannot need rewriting" rule the
+   * graph sync runs on. It is what turns a save from one 700KB rewrite into
+   * one small write for the project that actually changed.
+   */
+  private persistedAt = new Map<string, string>();
 
   /** Load persisted state via the active adapter. Must be awaited once at
    * boot, before any route handler runs — after that, `data` is
@@ -139,6 +170,54 @@ class Store {
   async init(): Promise<void> {
     const loaded = await storageAdapter.readStore();
     this.data = normalizeStoreData(loaded);
+
+    /*
+     * Load the project shards named by the core document.
+     *
+     * A legacy document carries its projects inline and names no ids; those
+     * are already in `data.projects` and the first save migrates them out. A
+     * sharded document names ids and holds none, so they are fetched here —
+     * in parallel, because on Blob this is one network round trip per project
+     * and doing them in sequence would put the whole set on the cold-start
+     * path end to end.
+     *
+     * A shard that will not load is skipped with a warning rather than
+     * failing the boot: one unreadable project must not take the other
+     * projects, the cases and the prompt store down with it. It is loud
+     * because a project silently missing from the list looks exactly like a
+     * project somebody deleted.
+     */
+    const ids = this.data.projectIds ?? [];
+    if (ids.length > 0) {
+      const loadedProjects = await Promise.all(ids.map(id => this.readProject(id)));
+      const shards = loadedProjects.filter((p): p is DdProject => p !== null);
+      const missing = ids.length - shards.length;
+      if (missing > 0) console.warn(`[store] ${missing} project shard(s) named in the store could not be read`);
+      // Inline projects win only when there are no shards at all, which is
+      // the legacy shape; otherwise a half-migrated document would duplicate.
+      const byId = new Map<string, DdProject>();
+      for (const project of [...(this.data.projects ?? []), ...shards]) byId.set(project.id, project);
+      this.data.projects = [...byId.values()];
+    }
+    this.data.projectIds = undefined;
+    // Everything loaded is by definition already persisted, so nothing is
+    // rewritten until it actually changes.
+    for (const project of this.data.projects ?? []) this.persistedAt.set(project.id, project.updatedAt);
+  }
+
+  /** One project shard, or null when it is absent or unreadable. */
+  private async readProject(id: string): Promise<DdProject | null> {
+    try {
+      const bytes = await storageAdapter.getDocument(id, PROJECT_KEY);
+      if (!bytes) return null;
+      const parsed: unknown = JSON.parse(bytes.toString('utf-8'));
+      if (typeof parsed !== 'object' || parsed === null) return null;
+      const project = parsed as DdProject;
+      return typeof project.id === 'string' ? project : null;
+    } catch (err) {
+      console.warn(`[store] could not read project ${id}: ${(err as Error).message}`);
+      return null;
+    }
   }
 
   /** Mint the next human-readable case reference, e.g. "VPS-0001". */
@@ -163,13 +242,57 @@ class Store {
    * actively dangerous on serverless (see the module comment above).
    */
   async save(): Promise<void> {
-    await storageAdapter.writeStore(this.data);
-    // After the case store is durable, never before: the graph is an index
-    // over it, and an index written ahead of the thing it indexes can point at
-    // a state that never existed. Imported lazily to keep the store module
-    // free of a dependency on the graph layer, which imports it back.
+    const projects = this.data.projects ?? [];
+
+    /*
+     * Projects are written one document each, and only the ones that moved.
+     *
+     * The store used to be a single document rewritten in full on every
+     * mutation, which made concurrency a whole-workspace problem: two
+     * requests that both loaded at the same instant and both saved would have
+     * the second silently discard everything the first wrote, including
+     * projects it never touched. Sharding removes that entirely for the
+     * common case — two people on two projects now write two different
+     * documents and cannot collide at all.
+     *
+     * It also removes the write amplification the screen result introduced:
+     * a chat turn on one project no longer re-serialises every other
+     * project's evidence ledger to disk.
+     *
+     * What this does NOT fix, stated plainly so nobody reads more into it:
+     * two concurrent writers on the SAME project still resolve last-writer-
+     * wins. That window is one project and usually one person, and closing it
+     * needs a compare-and-swap the storage adapters do not offer today.
+     */
+    const changed = projects.filter(project => this.persistedAt.get(project.id) !== project.updatedAt);
+    for (const project of changed) {
+      await storageAdapter.putDocument(
+        project.id,
+        PROJECT_KEY,
+        Buffer.from(JSON.stringify(project)),
+        'application/json',
+      );
+      this.persistedAt.set(project.id, project.updatedAt);
+    }
+    // Shards for projects that are gone are dropped from the index here; the
+    // documents themselves go with the project's own delete.
+    const live = new Set(projects.map(project => project.id));
+    for (const id of [...this.persistedAt.keys()]) {
+      if (!live.has(id)) this.persistedAt.delete(id);
+    }
+
+    // The core document: everything that is not a project, plus the index of
+    // which shards to load. `projects` is written empty rather than omitted so
+    // an older build reading this document finds a shape it understands
+    // instead of a missing key.
+    await storageAdapter.writeStore({ ...this.data, projects: [], projectIds: [...live] });
+
+    // After the store is durable, never before: the graph is an index over it,
+    // and an index written ahead of the thing it indexes can point at a state
+    // that never existed. Imported lazily to keep the store module free of a
+    // dependency on the graph layer, which imports it back.
     const { syncGraph } = await import('./graph/sync');
-    await syncGraph(this.data.cases, this.data.projects ?? []);
+    await syncGraph(this.data.cases, projects);
   }
 
   /** Alias for `save()`, kept for the SIGINT/SIGTERM shutdown path. */
