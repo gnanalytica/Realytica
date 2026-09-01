@@ -7,11 +7,12 @@
  * Model conclusions stay propose-and-review.
  */
 
-import { LIFECYCLE_STAGE_LABEL } from './catalogs';
+import { CHECK_RESULT_LABEL, LIFECYCLE_STAGE_LABEL } from './catalogs';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
-import { ensureProjectShape, packCompleteness, packEvidence, patchRecordStatus, recommendedDdTypes } from './operations';
+import { ensureProjectShape, recordCheckResult, packCompleteness, packEvidence, patchRecordStatus, recommendedDdTypes } from './operations';
 import type {
+  ChatChoice,
   ActionRecord,
   ChatIngestFile,
   ChatProposal,
@@ -44,7 +45,19 @@ import {
 } from './wizard';
 import { projectNextStep, materialOpenFindings, unevidencedFindings, findingCriticSitting } from './next-step';
 import { detectChatSideIntents, handleChatSides } from './chat-sides';
+import { clarifyRecordCommand, clarifySubject, looksLikeCommand, resolveSubject, sittingTitle } from './clarify';
 import {
+  checkResultChoices,
+  describeRecorded,
+  looksLikeCheckAssign,
+  looksLikeCheckRecord,
+  looksLikeCheckRecordOnSitting,
+  parseCheckOwner,
+  parseCheckResult,
+  resultFromLabel,
+} from './check-command';
+import {
+  rankTalkSittings,
   approveAllMeansEveryOpen,
   currentTurnProposals,
   paneForTalk,
@@ -87,6 +100,7 @@ export function paneForProposalKind(kind: ChatProposalKind): ProjectCockpitPane 
   if (kind === 'snapshot_capabilities') return 'orchestrate';
   if (kind === 'start_dd' || kind === 'add_scope') return 'dd';
   if (kind === 'add_asset' || kind === 'patch_asset') return 'assets';
+  if (kind === 'record_check') return 'scope';
   if (kind === 'add_finding') return 'findings';
   if (kind === 'add_risk') return 'risks';
   if (kind === 'add_decision') return 'decisions';
@@ -191,6 +205,7 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     citedEvidenceIds: extra.citedEvidenceIds ?? [],
     citedNodeIds: extra.citedNodeIds,
     toolCalls: extra.toolCalls,
+    choices: extra.choices,
     refusedForLackOfEvidence: extra.refusedForLackOfEvidence,
     proposalIds: extra.proposalIds,
   };
@@ -199,6 +214,23 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
 function appendTurns(project: DdProject, user: ProjectChatTurn, assistant: ProjectChatTurn): void {
   project.conversation.push(user, assistant);
   project.updatedAt = assistant.at;
+}
+
+/**
+ * The same instruction, aimed at one named check.
+ *
+ * Substitutes the title the person half-named with the one they picked, so
+ * "mark the boundary check as non-compliant" becomes a message that records
+ * exactly that against "Physical boundaries match the sanctioned plan".
+ * Quoted, because a quoted title is the one form the matcher treats as
+ * decisive.
+ */
+function rewriteCheckCommand(question: string, title: string): string {
+  const stripped = question
+    .replace(/["“][^"”]*["”]/g, '')
+    .replace(/\bthe\s+[^,.]*?\bcheck\b/i, 'the check')
+    .trim();
+  return stripped.replace(/\bthe check\b/i, `the "${title}" check`);
 }
 
 const NAV_RULES: Array<{ pane: ProjectCockpitPane; test: (q: string) => boolean }> = [
@@ -251,6 +283,10 @@ export function wantsDeterministicProjectChat(
   if (startDdFromQuestion(project, q, 'probe')) return true;
   const interpreted = interpretConversation(project, q, 'probe');
   if (interpreted.imperative && interpreted.proposals.length) return true;
+  // A person recording or assigning a check is a person's own instruction:
+  // it executes, so it must not be handed to a model to paraphrase.
+  if (looksLikeCheckRecord(q) || looksLikeCheckAssign(q)) return true;
+  if (options.sitting?.checkId && looksLikeCheckRecordOnSitting(q)) return true;
   if (/\b(close|complete|done|finish)\b/.test(ql) && /\baction\b/.test(ql)) return true;
   if (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql)) return true;
   if (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql) && !wantsApprove(ql)) return true;
@@ -277,6 +313,8 @@ export function applyProjectAgentTurn(
   agent: {
     text: string;
     proposals: ChatProposal[];
+    /** Options the model offered instead of guessing. Carried onto the turn. */
+    choices?: ChatChoice[];
     navigations: Array<{ target: string } & CockpitPathExtra>;
     toolCalls?: ProjectChatTurn['toolCalls'];
     citedEvidenceIds?: string[];
@@ -297,6 +335,7 @@ export function applyProjectAgentTurn(
     ...new Set(offered.flatMap((p) => [...(p.citedNodeIds ?? []), ...(p.citedEvidenceIds ?? [])])),
   ];
   const assistantTurn = turn('assistant', agent.text, {
+    choices: agent.choices?.length ? agent.choices : undefined,
     citedEvidenceIds: [...new Set(agent.citedEvidenceIds ?? [])],
     citedNodeIds: agent.citedNodeIds ? [...new Set(agent.citedNodeIds)] : undefined,
     toolCalls: agent.toolCalls,
@@ -483,6 +522,7 @@ export function applyProjectChat(
   };
 
   let assistantText = '';
+  let choices: ChatChoice[] | undefined;
   let toolCalls: ProjectChatTurn['toolCalls'];
   let citedEvidenceIds: string[] = [];
   let citedNodeIds: string[] | undefined;
@@ -492,6 +532,34 @@ export function applyProjectChat(
   const openRisks = () => project.risks.filter((r) => r.status !== 'closed' && r.status !== 'accepted');
 
   const isShow = wantsNavigate(ql);
+  /*
+   * A command aimed at a record on the register — "close the litigation
+   * finding", "mitigate the drainage risk". These are handled further down,
+   * but the connector/side-intent branch sits above them and matches on topic
+   * words alone, so "close the litigation finding" was answered with eCourts
+   * portal routes: a real answer to a question nobody asked, while the
+   * finding stayed open. Naming it here lets the side branch stand aside for
+   * an instruction about a record we already hold.
+   */
+  const registerRecordCommand =
+    (/\b(close|complete|done|finish)\b/.test(ql) && /\baction\b/.test(ql))
+    || (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql))
+    || (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql));
+  const recordCommand =
+    registerRecordCommand || (looksLikeCommand(q) && /\b(check|scope|assessment|dd)\b/.test(ql));
+  /*
+   * The person recording, or assigning, a check. Tested before the branches
+   * that answer on topic words, because "mark the khata check compliant"
+   * names a portal, a scope and a result, and only one of those is what they
+   * asked for.
+   */
+  const checkRecordCommand =
+    !registerRecordCommand
+    && (looksLikeCheckRecord(q)
+      || looksLikeCheckAssign(q)
+      // "mark it compliant" while a check is open. "It" is the check on
+      // screen, which is the only reading, and the only safe one.
+      || (Boolean(options.sitting?.checkId) && looksLikeCheckRecordOnSitting(q)));
   const runOrchestrate = /\borchestrat/.test(ql) && !/^(open|show|go to|switch to|see|view)\b/.test(ql);
   const proposeDrafts = /\bpropose\b/.test(ql) && /\bdrafts?\b/.test(ql);
   const runValuation = /\b(run|compute|start)\b/.test(ql) && /\bvaluat/.test(ql) && !wantsProjectScreen(q);
@@ -515,7 +583,7 @@ export function applyProjectChat(
     } else {
       navigate('evidence', 'Opened evidence', extrasFromPayload(rows[0]?.payload as Record<string, unknown>));
     }
-  } else if (wantsApprove(ql)) {
+  } else if (wantsApprove(ql) && !registerRecordCommand) {
     const everyOpen = approveAllMeansEveryOpen(q);
     const targets =
       /\ball\b/.test(ql) || everyOpen
@@ -527,7 +595,32 @@ export function applyProjectChat(
       targets.push(project.chatProposals.find((p) => p.status === 'proposed')!);
     }
     if (targets.length === 0) {
-      assistantText = 'Nothing to approve. Ask “guide me” for the next cards, or attach a document.';
+      /*
+       * "Accept" is two verbs. It approves a card, and it is also what you do
+       * to a risk you have decided to live with — so "accept the flood risk"
+       * landed here, found no card, and said "nothing to approve" while the
+       * risk stayed open. When there is no card to approve but the sentence
+       * names a register, offer that reading rather than treating the word as
+       * settled.
+       */
+      const kind: 'risk' | 'finding' | 'action' | null = /\brisks?\b/.test(ql)
+        ? 'risk'
+        : /\bfindings?\b/.test(ql)
+          ? 'finding'
+          : /\bactions?\b/.test(ql)
+            ? 'action'
+            : null;
+      if (kind) {
+        const rows = kind === 'risk' ? openRisks() : kind === 'finding' ? openFindings() : openActions();
+        const verb = kind === 'risk' ? (/\baccept/.test(ql) ? 'Accept' : 'Mitigate') : 'Close';
+        const asked = clarifyRecordCommand(project, q, kind, rows, verb);
+        assistantText = `There is no card waiting for approval, so I have not written anything.\n${asked.text}`;
+        choices = asked.choices;
+        toolCalls = [{ name: 'clarify', summary: asked.summary }];
+        navigate(kind === 'risk' ? 'risks' : kind === 'finding' ? 'findings' : 'actions', '');
+      } else {
+        assistantText = 'Nothing to approve. Ask “guide me” for the next cards, or attach a document.';
+      }
     } else {
       const done: string[] = [];
       for (const item of targets) {
@@ -571,6 +664,111 @@ export function applyProjectChat(
       `${run.openFindingCount} open finding(s). Pack completeness is the health figure — not the full evidence library.`,
     ].join('\n');
     toolCalls = [{ name: 'orchestrate', summary: `Proposed ${run.draftIds.length} draft(s)` }];
+  } else if (checkRecordCommand) {
+    /*
+     * The person recording a check, through chat.
+     *
+     * Executes rather than proposes: the authorship law turns on WHO
+     * concluded, not on which surface they typed it into, and this sentence
+     * is the person concluding. A model reaching the same conclusion still
+     * has to raise a `record_check` card.
+     *
+     * The subject must resolve to exactly one check. Anything less goes to
+     * the clarifier — this is the command where a wrong guess writes a result
+     * and, for a material one, raises a finding under somebody's name.
+     */
+    const resolution = resolveSubject(project, q, { strict: true });
+    /*
+     * The check on screen settles it in two cases, and only two. When the
+     * sentence names nothing ("mark it compliant"), the check they are
+     * looking at is what "it" means. And when they picked one of the options
+     * we offered, the pick arrives pinned — so an ambiguity between two DDs
+     * carrying the same check title resolves to the one they clicked rather
+     * than re-asking the question forever.
+     *
+     * In every other case the URL is ignored. Sitting on check A and typing
+     * "mark the boundary check compliant" must never record A: the pinned
+     * record only counts when it is one of the candidates for what was typed.
+     */
+    const ranked = rankTalkSittings(project, q, 5);
+    const pinned = options.sitting?.checkId
+      ? ranked.length
+        ? ranked.find((row) => row.sitting.extra.checkId === options.sitting?.checkId)?.sitting.extra
+        : options.sitting
+      : undefined;
+    const target =
+      resolution.kind === 'confident'
+        ? sittingCheckOf(project, resolution.sitting.extra)
+        : sittingCheckOf(project, pinned);
+    if (!target) {
+      const asked = clarifySubject(project, q, resolution, {
+        sitting: options.sitting,
+        insist: true,
+        // Carry the instruction onto every option, so picking the right check
+        // records what they asked for rather than merely opening it.
+        send: (candidate) => rewriteCheckCommand(q, sittingTitle(candidate)),
+      });
+      if (asked) {
+        assistantText = asked.text;
+        choices = asked.choices;
+        toolCalls = [{ name: 'clarify', summary: asked.summary }];
+      } else {
+        assistantText = 'Name the check the way it appears on the scope, and I will record it.';
+        toolCalls = [{ name: 'clarify', summary: 'No check named' }];
+      }
+    } else {
+      const owner = looksLikeCheckAssign(q) ? parseCheckOwner(q, actor) : null;
+      const result = owner ? null : parseCheckResult(q) ?? resultFromLabel(q);
+      if (!owner && !result) {
+        /*
+         * A recording instruction whose state word is not a result —
+         * "started", "in progress", "done". There is no such check state, so
+         * offer the ones there are rather than picking the nearest.
+         */
+        choices = checkResultChoices(target.check.title, {
+          assignTo: actor,
+          sitting: { ddId: target.assessment.id, scopeId: target.scope.id, checkId: target.check.id },
+        });
+        assistantText = [
+          `A check does not have a “started” state — it stays not started until somebody concludes something, and the scope moves to in progress on its own at that point.`,
+          `Nothing has changed on “${target.check.title}”. Either put it in your name, or record what you actually found:`,
+        ].join('\n');
+        toolCalls = [{ name: 'clarify', summary: 'Result not named — offered' }];
+        navigate('scope', '', {
+          ddId: target.assessment.id,
+          scopeId: target.scope.id,
+          checkId: target.check.id,
+        });
+      } else {
+        const before = [...target.check.findingIds];
+        const recorded = recordCheckResult(
+          project,
+          target.check.id,
+          owner ? { result: target.check.result, owner } : { result: result! },
+          actor,
+        );
+        commands.push(
+          owner
+            ? `Assigned “${recorded.title}” to ${owner}`
+            : `Recorded “${recorded.title}” as ${CHECK_RESULT_LABEL[recorded.result]}`,
+        );
+        assistantText = owner
+          ? `“${recorded.title}” is in ${owner}'s name. It is still not started — recording a result is a separate step, on the right.`
+          : describeRecorded(project, recorded, before);
+        toolCalls = [
+          owner
+            ? { name: 'assign_check', summary: `${recorded.title} → ${owner}` }
+            : { name: 'record_check', summary: `${recorded.title} — ${CHECK_RESULT_LABEL[recorded.result]}` },
+        ];
+        citedNodeIds = [recorded.id, ...recorded.findingIds.filter((id) => !before.includes(id))];
+        highlightIds.push(...citedNodeIds);
+        navigate('scope', '', {
+          ddId: target.assessment.id,
+          scopeId: target.scope.id,
+          checkId: target.check.id,
+        });
+      }
+    }
   } else {
     const startDd = startDdFromQuestion(project, q, actor);
     if (startDd) {
@@ -628,7 +826,7 @@ export function applyProjectChat(
           }
         }
       } else {
-      const side = handleChatSides(project, q, actor, options.sides, options.sitting);
+      const side = recordCommand ? null : handleChatSides(project, q, actor, options.sides, options.sitting);
       if (side) {
         const cards = offer(side.proposals);
         assistantText = side.text;
@@ -673,7 +871,10 @@ export function applyProjectChat(
       citedNodeIds = [hit.id];
       highlightIds.push(hit.id);
     } else {
-      assistantText = 'No matching open action. Name it the way it appears on the register, or open the actions pane.';
+      const asked = clarifyRecordCommand(project, q, 'action', openActions(), 'Close');
+      assistantText = asked.text;
+      choices = asked.choices;
+      toolCalls = [{ name: 'clarify', summary: asked.summary }];
       navigate('actions', 'Opened actions');
     }
   } else if (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql)) {
@@ -686,9 +887,13 @@ export function applyProjectChat(
       citedNodeIds = [hit.id];
       highlightIds.push(hit.id);
     } else {
-      assistantText = 'No matching open finding. Quote the title, or ask for a briefing.';
+      const asked = clarifyRecordCommand(project, q, 'finding', openFindings(), 'Close');
+      assistantText = asked.text;
+      choices = asked.choices;
+      toolCalls = [{ name: 'clarify', summary: asked.summary }];
+      navigate('findings', 'Opened findings');
     }
-  } else if (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql) && !wantsApprove(ql)) {
+  } else if (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql)) {
     const hit = matchTitle(openRisks(), q) as RiskRecord | undefined;
     if (hit) {
       const next = /\baccept/.test(ql) ? 'accepted' : 'mitigated';
@@ -699,7 +904,11 @@ export function applyProjectChat(
       citedNodeIds = [hit.id];
       highlightIds.push(hit.id);
     } else {
-      assistantText = 'No matching open risk. Quote the title from the register.';
+      const asked = clarifyRecordCommand(project, q, 'risk', openRisks(), /\baccept/.test(ql) ? 'Accept' : 'Mitigate');
+      assistantText = asked.text;
+      choices = asked.choices;
+      toolCalls = [{ name: 'clarify', summary: asked.summary }];
+      navigate('risks', 'Opened risks');
     }
   } else if (isShow || NAV_RULES.some((r) => r.test(ql) && /^(open|show|go to|switch to|take me|see|view)\b/.test(ql))) {
     const talk = sittingWithField(project, talkSittingFromText(project, q));
@@ -712,6 +921,21 @@ export function applyProjectChat(
       if (talk.extra.evidenceId) citedEvidenceIds = [talk.extra.evidenceId];
       toolCalls = [{ name: 'navigate', summary: talk.label }];
     } else {
+      /*
+       * "Open the zzzz check" used to open the DD pane and read out today's
+       * unrelated next step. Opening a whole register is the right answer to
+       * "open evidence"; it is the wrong answer to a named thing we could not
+       * find, so try to say which named thing we thought they meant first.
+       */
+      const asked = clarifySubject(project, q, resolveSubject(project, q, { strict: true }), {
+        sitting: options.sitting,
+        insist: true,
+      });
+      if (asked) {
+        assistantText = asked.text;
+        choices = asked.choices;
+        toolCalls = [{ name: 'clarify', summary: asked.summary }];
+      } else {
       const pane = NAV_RULES.find((r) => r.test(ql))?.pane ?? 'overview';
       navigate(pane, `Opened ${pane}`);
       const brief = briefingAnswer(project, options.viewContext);
@@ -719,6 +943,7 @@ export function applyProjectChat(
       citedEvidenceIds = brief.citedEvidenceIds ?? [];
       citedNodeIds = brief.citedNodeIds;
       toolCalls = [{ name: 'navigate', summary: pane }];
+      }
     }
   } else {
     const focused = wantsAssets(ql) || wantsDdTypes(ql) || wantsScopes(ql) || wantsReport(ql) || wantsProofs(ql);
@@ -774,14 +999,28 @@ export function applyProjectChat(
         if (talk.extra.evidenceId) citedEvidenceIds = [talk.extra.evidenceId];
         toolCalls = [{ name: 'open_sitting', summary: talk.label }];
       } else {
-        const next = projectNextStep(project, actor);
-        offer(next.proposals);
-        assistantText = next.text;
-        citedEvidenceIds = next.citedEvidenceIds;
-        citedNodeIds = next.citedNodeIds;
-        highlightIds.push(...next.citedEvidenceIds, ...next.citedNodeIds);
-        toolCalls = [{ name: 'next_step', summary: next.title }];
-        navigate(next.pane, '', next.extra);
+        /*
+         * Nothing resolved exactly. Before falling through to the next-step
+         * briefing — which answers a DIFFERENT question, on a different check,
+         * in the same confident voice — see whether anything is close enough
+         * to put to the person. Asking costs a turn; guessing costs their
+         * trust in every answer that was right.
+         */
+        const asked = clarifySubject(project, q, resolveSubject(project, q), { sitting: options.sitting });
+        if (asked) {
+          assistantText = asked.text;
+          choices = asked.choices;
+          toolCalls = [{ name: 'clarify', summary: asked.summary }];
+        } else {
+          const next = projectNextStep(project, actor);
+          offer(next.proposals);
+          assistantText = next.text;
+          citedEvidenceIds = next.citedEvidenceIds;
+          citedNodeIds = next.citedNodeIds;
+          highlightIds.push(...next.citedEvidenceIds, ...next.citedNodeIds);
+          toolCalls = [{ name: 'next_step', summary: next.title }];
+          navigate(next.pane, '', next.extra);
+        }
       }
     }
     }
@@ -791,6 +1030,7 @@ export function applyProjectChat(
   }
 
   const assistantTurn = turn('assistant', assistantText, {
+    choices,
     citedEvidenceIds: [...new Set(citedEvidenceIds)],
     citedNodeIds: citedNodeIds ? [...new Set(citedNodeIds)] : undefined,
     toolCalls,

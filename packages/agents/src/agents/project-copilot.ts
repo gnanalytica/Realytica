@@ -7,7 +7,7 @@
  * issued a deterministic command (handled by applyProjectChat, not here).
  */
 
-import type { AgentStep, ChatProposal, CopilotTurn, DdProject, ProjectChatTurn, ScopeKey, SittingRef } from '@realytica/shared';
+import type { AgentStep, ChatChoice, ChatProposal, CopilotTurn, DdProject, ProjectChatTurn, ScopeKey, SittingRef } from '@realytica/shared';
 import { sittingChatHistory, talkSittingFromText } from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
 import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute, textOf } from '../providers';
@@ -25,6 +25,9 @@ Hard rules:
 1. Evidence before assertion. If the registers do not support a claim, say so. Do not invent documents, areas, values, statutes, or sign-off.
 2. Model conclusions are propose-and-review. Call propose_update or run_capability(screen|valuation) — never claim a finding/risk/action is already on the project.
 3. Person commands are not yours to invent. Do not close an action, change owner, or start a DD because you think it would be tidy. Propose a card. If they already said "set owner to X" that path is handled outside this agent.
+3a. Never guess which record they meant. If the words they used could be more than one check, scope, DD, finding, risk or action — or match none exactly — call ask_to_choose with their phrase and let them pick. Say plainly that you have changed nothing. This matters most when they asked you to CHANGE something: a wrong guess on a question wastes a turn, a wrong guess on a command writes to a register. Do not answer a different question confidently because it was the nearest one you could answer.
+3b. You may PROPOSE a check result with propose_update kind=record_check, never record one. A person saying "mark it compliant" is handled outside this agent and executes as their own instruction; you concluding the same thing is a card they accept. Your comments field must say what in the evidence supports the result — a recorded result raises a finding for every material outcome, and a finding with no reason behind it is what the critic exists to catch.
+3c. When they ask for something you have no tool for, say so in one line and offer the nearest thing you CAN do. Never let "I opened it" stand in for "I did it".
 4. Indicative valuation is not a certified IBBI certificate. Say so whenever value is discussed.
 5. When you name a DD, scope, or check, call navigate_pane with those ids so the right-hand field opens. When you cite evidence, include the evidence id.
 6. Keep the spoken answer under ~280 words. Cards carry the payload. Cite register titles in prose (Fire NOC, Approval conditions) — not truncated ids. You may put an id in parentheses after the title.
@@ -51,6 +54,8 @@ export interface RunProjectCopilotParams {
 export interface RunProjectCopilotResult {
   text: string;
   proposals: ChatProposal[];
+  /** Options offered instead of guessing which record was meant. */
+  choices: ChatChoice[];
     navigations: { target: string; ddId?: string; scopeId?: string; checkId?: string; node?: string; evidenceId?: string; findingId?: string }[];
   toolCalls: { name: string; summary: string }[];
   citedEvidenceIds: string[];
@@ -94,6 +99,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
   const empty: RunProjectCopilotResult = {
     text: '',
     proposals: [],
+    choices: [],
     navigations: [],
     toolCalls: [],
     citedEvidenceIds: [],
@@ -109,7 +115,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
     return { ...empty, text: missingCredentialsReason(route, 'the project copilot is unavailable.') };
   }
 
-  const bag: ProjectAgentCollectors = { proposals: [], navigations: [], toolCalls: [] };
+  const bag: ProjectAgentCollectors = { proposals: [], navigations: [], toolCalls: [], choices: [] };
   const tools: LlmClientTool[] = createProjectTools(project, actor, bag, {
     sitting: params.sitting,
     graphRag: params.graphRag,
@@ -171,6 +177,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
     return {
       text,
       proposals: bag.proposals,
+      choices: bag.choices,
       navigations: bag.navigations,
       toolCalls: bag.toolCalls.length ? bag.toolCalls : [{ name: 'project_copilot', summary: 'Thought with project tools' }],
       citedEvidenceIds: cites.citedEvidenceIds,

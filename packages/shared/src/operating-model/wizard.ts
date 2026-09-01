@@ -9,6 +9,7 @@ import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, sn
 import { screenProject } from './project-screen';
 import { DD_TYPE_DEFINITIONS } from './libraries';
 import {
+  recordCheckResult,
   addAction,
   addAsset,
   addDecision,
@@ -28,6 +29,7 @@ import {
 import { LIFECYCLE_STAGE_LABEL, LIFECYCLE_STAGES, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { mergeQuoteLists, proposalExtractionNotes, proposalQuotes, sittingCheckOf, type SittingRef } from './sitting';
 import type {
+  CheckResult,
   ChatIngestFile,
   ChatProposal,
   ChatProposalKind,
@@ -577,6 +579,24 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     recordId = record.id;
   } else if (item.kind === 'add_decision') {
     const record = addDecision(project, payload as unknown as CreateDecisionInput, actor);
+    recordId = record.id;
+  } else if (item.kind === 'record_check') {
+    /*
+     * A model's reading of a check, accepted by a person. Goes through the
+     * same `recordCheckResult` the scope pane calls, so a chat-accepted result
+     * and a ticked one are the same event on the audit trail — and a material
+     * result raises its finding either way.
+     */
+    const record = recordCheckResult(
+      project,
+      String(payload.checkId),
+      {
+        result: payload.result as CheckResult,
+        comments: typeof payload.comments === 'string' ? payload.comments : undefined,
+        owner: typeof payload.owner === 'string' ? payload.owner : undefined,
+      },
+      actor,
+    );
     recordId = record.id;
   } else if (item.kind === 'open_connector') {
     const shaped = connectorEvidenceInput(payload, actor);

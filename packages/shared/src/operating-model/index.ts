@@ -7,6 +7,8 @@ export * from './cockpit';
 export * from './wizard';
 export * from './next-step';
 export * from './sitting';
+export * from './clarify';
+export * from './check-command';
 export * from './chat-sides';
 export * from './project-screen';
 export * from './seed';

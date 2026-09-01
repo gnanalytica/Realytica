@@ -50,6 +50,20 @@ export function seedDemoProject(): DdProject {
       budget: 4_80_00_00_000,
       currency: 'INR',
       portfolio: 'Bengaluru residential',
+      // Recorded as typed particulars because this seed already asserts them
+      // in prose — the survey numbers in `siteAddress`, and the unconverted
+      // pocket on Sy. 42 that the land-use check below marks non-compliant.
+      // Nothing beyond that is set: khata type and area basis are matters of
+      // record nobody has put on this file, and `unknown` is the honest
+      // answer the Karnataka checks are built to report.
+      parcelId: 'Sy. Nos. 41/1, 41/2 & 42',
+      karnataka: {
+        jurisdiction: 'BMRDA',
+        khataType: 'unknown',
+        eKhataIssued: false,
+        landConversionStatus: 'agricultural',
+        areaBasis: 'unknown',
+      },
     },
     'RYT-0001',
     'Asha Menon',
@@ -451,6 +465,17 @@ export function seedBdaReferenceProject(): DdProject {
       budget: 28_00_00_000,
       currency: 'INR',
       portfolio: 'Bengaluru residential',
+      // Same discipline as RYT-0001: the survey number is written in the
+      // address, the jurisdiction is BBMP, and nothing else about the title
+      // is established on this file.
+      parcelId: 'Sy. No. 12/2',
+      karnataka: {
+        jurisdiction: 'BBMP',
+        khataType: 'unknown',
+        eKhataIssued: false,
+        landConversionStatus: 'unknown',
+        areaBasis: 'unknown',
+      },
     },
     SEED_BDA_REFERENCE_PROJECT_REFERENCE,
     'Asha Menon',

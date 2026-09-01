@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { ArrowUp, CheckCircle2, Info, MessageCircle, Paperclip, SearchX, Sparkles, Trash2, X } from 'lucide-react';
-import type { AgentStep, CopilotTurn, EvidenceItem, PropertyCase, VerificationSummary } from '@realytica/shared';
+import type { AgentStep, CopilotTurn, EvidenceItem, ScreenResult, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
 import { Badge, Button, Textarea, cn } from './ui/kit';
@@ -22,7 +22,9 @@ function TurnBubble({
   evidence,
   nodes,
   applied,
-  caseData,
+  screenResult,
+  askingPrice,
+  onPick,
   verification,
   onOpenNode,
   onOpenEvidence,
@@ -33,7 +35,10 @@ function TurnBubble({
   evidence: EvidenceItem[];
   nodes?: Array<{ id: string; label: string }>;
   applied?: string[];
-  caseData?: PropertyCase;
+  screenResult?: ScreenResult;
+  askingPrice?: number | null;
+  /** Send a message on the person's behalf when they pick an offered choice. */
+  onPick?: (text: string, sitting?: { ddId?: string; scopeId?: string; checkId?: string }) => void;
   verification?: VerificationSummary;
   onOpenNode?: (nodeId: string) => void;
   onOpenEvidence?: (id: string) => void;
@@ -154,8 +159,47 @@ function TurnBubble({
           could scroll back to. A conversation that mutates a case and keeps
           no account of it is the wrong shape for a diligence file.
         */}
-        {caseData && turn.toolCalls && turn.toolCalls.length > 0 ? (
-          <TurnVisual toolNames={turn.toolCalls.map(t => t.name)} caseData={caseData} />
+        {screenResult && turn.toolCalls && turn.toolCalls.length > 0 ? (
+          <TurnVisual
+            toolNames={turn.toolCalls.map(t => t.name)}
+            result={screenResult}
+            askingPrice={askingPrice}
+          />
+        ) : null}
+        {turn.choices && turn.choices.length > 0 && onPick ? (
+          /*
+           * Options offered because the message did not resolve to one thing.
+           * Rendered as buttons rather than a list in the prose because the
+           * point is that the person picks — a numbered list they have to
+           * retype is the same dead end with better manners. Picking sends
+           * the message they would have written, so nothing here writes on
+           * its own.
+           */
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {turn.choices.map((choice) => (
+              <li key={choice.id}>
+                <button
+                  type="button"
+                  onClick={() => onPick(choice.send, choice.sitting)}
+                  className={cn(
+                    'group flex w-full flex-col gap-0.5 rounded-lg bg-surface px-3 py-2 text-left',
+                    'ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick',
+                    'hover:bg-brand-soft hover:ring-brand/30 coarse:min-h-11',
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 text-[12.5px] text-ink group-hover:text-brand">{choice.label}</span>
+                    {choice.kind ? (
+                      <span className="shrink-0 text-mini uppercase tracking-wide text-ink-faint">{choice.kind}</span>
+                    ) : null}
+                  </span>
+                  {choice.detail ? (
+                    <span className="text-mini leading-snug text-ink-secondary">{choice.detail}</span>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : null}
         {applied && applied.length > 0 ? (
           <div className="mt-2 rounded-lg bg-good/10 px-2.5 py-2 ring-1 ring-inset ring-good/25">
@@ -291,7 +335,9 @@ export function CopilotPanel({
   appliedByTurn,
   steps,
   onOpenCommands,
-  caseData,
+  onPickChoice,
+  screenResult,
+  askingPrice,
   emptyTitle,
   emptyHint,
   placeholder,
@@ -343,12 +389,20 @@ export function CopilotPanel({
   /** Open the command bar — bound to `/` on an empty composer. */
   onOpenCommands?: () => void;
   /**
-   * The case, so a turn can draw the chart behind its answer.
+   * The last screen on this file, so a turn can draw the chart behind its
+   * answer.
    *
    * Passed rather than fetched: the chart has to be the same numbers the rest
-   * of the screen is showing, and a second read could disagree with the first.
+   * of the surface is showing, and a second read could disagree with the first.
    */
-  caseData?: PropertyCase;
+  screenResult?: ScreenResult;
+  askingPrice?: number | null;
+  /**
+   * Send an offered choice. Takes the pinned record with it, because two DDs
+   * can carry checks with identical titles and the text alone cannot say
+   * which one was on the button.
+   */
+  onPickChoice?: (text: string, sitting?: { ddId?: string; scopeId?: string; checkId?: string }) => void;
   emptyTitle?: string;
   emptyHint?: string;
   placeholder?: string;
@@ -509,7 +563,9 @@ export function CopilotPanel({
                 evidence={evidence}
                 nodes={nodes}
                 applied={appliedByTurn?.[turn.id]}
-                caseData={caseData}
+                screenResult={screenResult}
+                askingPrice={askingPrice}
+                onPick={(text, sitting) => void onPickChoice?.(text, sitting)}
                 onOpenNode={onOpenNode}
                 onOpenEvidence={onOpenEvidence}
                 onOpenDocument={onOpenDocument}

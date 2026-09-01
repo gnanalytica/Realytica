@@ -446,6 +446,51 @@ function tokenHits(haystack: string, needle: string): number {
   return tokens.filter((t) => q.includes(t)).length;
 }
 
+/**
+ * A crude English stem — enough to stop a plural missing its singular.
+ *
+ * "boundary" did not reach "Physical boundaries match the sanctioned plan",
+ * and "litigation" did not reach "Litigation and disputes are disclosed",
+ * because matching was exact-token. Deliberately shallow: this decides
+ * whether something becomes a CANDIDATE to offer, never whether it is acted
+ * on, so being generous costs a suggestion and being clever costs trust.
+ */
+function stem(token: string): string {
+  if (token.length > 4 && token.endsWith('ies')) return `${token.slice(0, -3)}y`;
+  if (token.length > 4 && (token.endsWith('ses') || token.endsWith('ches') || token.endsWith('shes'))) {
+    return token.slice(0, -2);
+  }
+  if (token.length > 3 && token.endsWith('s') && !token.endsWith('ss')) return token.slice(0, -1);
+  return token;
+}
+
+function meaningfulTokens(text: string): string[] {
+  return fold(text)
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 4 && !TALK_STOP.has(t))
+    .map(stem);
+}
+
+/**
+ * How well a title matches, on the loose reading used to build candidates.
+ *
+ * `titleScore` answers "is this certainly the thing they named". This answers
+ * "could they have meant this", and returns a deliberately small score so a
+ * loose hit can never outrank a confident one — it exists to be offered, not
+ * to be chosen.
+ */
+function looseScore(title: string, question: string): number {
+  const t = meaningfulTokens(title);
+  const q = meaningfulTokens(question);
+  if (!t.length || !q.length) return 0;
+  const shared = t.filter((token) => q.includes(token));
+  if (!shared.length) return 0;
+  // Longest shared token carries the signal: one distinctive word ("khata",
+  // "rajakaluve") means more than two generic ones.
+  const longest = Math.max(...shared.map((x) => x.length));
+  return Math.min(6, shared.length * 2 + Math.floor(longest / 4));
+}
+
 function titleScore(title: string, question: string, minLen = 5): number {
   const t = fold(title);
   const q = fold(question);
@@ -557,23 +602,49 @@ export function sittingFromTurn(project: DdProject, turn: ProjectChatTurn): Talk
  * When chat names a DD, scope, check (field), evidence row, or register title,
  * return the sitting that should open on the right.
  */
-export function talkSittingFromText(project: DdProject, text: string): TalkSitting | null {
+/**
+ * A subject the text might mean, with how strongly it matched.
+ *
+ * `confident` is the old behaviour: the whole title appeared, or a quoted
+ * phrase, or two distinctive words. `loose` is a near-miss — one stemmed word
+ * in common — and exists so that "boundary" produces something to OFFER
+ * rather than nothing to say. A loose candidate is never acted on by itself.
+ */
+export interface TalkCandidate {
+  score: number;
+  confident: boolean;
+  sitting: TalkSitting;
+}
+
+/**
+ * Everything the text could plausibly mean, best first.
+ *
+ * This ranking was always computed and all but the winner thrown away, which
+ * is why a near-miss became silence and silence became an answer about
+ * something else. Callers that want the old single answer still get it from
+ * `talkSittingFromText`; callers that need to ask the person which one they
+ * meant use this.
+ */
+export function rankTalkSittings(project: DdProject, text: string, limit = 5): TalkCandidate[] {
   const q = fold(text);
-  if (!q || TALK_SKIP.test(q)) return null;
-  type Cand = { score: number; sitting: TalkSitting };
+  if (!q || TALK_SKIP.test(q)) return [];
+  type Cand = { score: number; confident: boolean; sitting: TalkSitting };
   const cands: Cand[] = [];
-  const push = (score: number, sitting: TalkSitting) => {
+  const push = (score: number, sitting: TalkSitting, confident = true) => {
     if (score <= 0) return;
-    cands.push({ score: score + KIND_RANK[sitting.kind] / 100, sitting });
+    cands.push({ score: score + KIND_RANK[sitting.kind] / 100, confident, sitting });
   };
 
   for (const a of project.assessments) {
     for (const s of a.scopes) {
       for (const c of s.checks) {
         const byTitle = titleScore(c.title, text, 5);
+        const ev = project.evidence.find((e) => c.expectedEvidence.some((t) => fold(e.title) === fold(t)) || c.evidenceIds.includes(e.id));
         if (byTitle) {
-          const ev = project.evidence.find((e) => c.expectedEvidence.some((t) => fold(e.title) === fold(t)) || c.evidenceIds.includes(e.id));
           push(byTitle + 20, checkTalk(a, s, c, ev ? [ev.id] : []));
+        } else {
+          const loose = looseScore(c.title, text);
+          if (loose) push(loose, checkTalk(a, s, c, ev ? [ev.id] : []), false);
         }
         for (const expected of c.expectedEvidence) {
           const n = fold(expected);
@@ -639,9 +710,30 @@ export function talkSittingFromText(project: DdProject, text: string): TalkSitti
     if (score) push(score + 3, { kind: 'asset', extra: { assetId: a.id }, highlightIds: [a.id], label: a.name });
   }
 
-  if (!cands.length) return null;
+  if (!cands.length) return [];
   cands.sort((a, b) => b.score - a.score);
-  return cands[0]!.sitting;
+  const seen = new Set<string>();
+  const out: TalkCandidate[] = [];
+  for (const row of cands) {
+    const key = `${row.sitting.kind}:${JSON.stringify(row.sitting.extra)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * The single best CONFIDENT reading, or nothing.
+ *
+ * Unchanged in behaviour, deliberately: every existing caller acts on what
+ * this returns, and a loose candidate is a guess. A guess is something to
+ * offer, not something to act on, so loose hits never come out of here — they
+ * come out of `rankTalkSittings` and are put to the person by `resolveSubject`.
+ */
+export function talkSittingFromText(project: DdProject, text: string): TalkSitting | null {
+  return rankTalkSittings(project, text, 8).find((row) => row.confident)?.sitting ?? null;
 }
 
 export function sittingBrief(project: DdProject, talk: TalkSitting): string {

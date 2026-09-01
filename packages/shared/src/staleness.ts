@@ -37,6 +37,7 @@ import type {
   StalenessReport,
   StatePack,
 } from './types';
+import { resolveStatePack } from './reference';
 
 const DAY_MS = 86_400_000;
 
@@ -222,7 +223,10 @@ export function buildStaleness(caseData: PropertyCase, refData: ReferenceData, n
   // one that mattered, goes unread with it.
   //
   // So: one line, the oldest date, the count, and every source named in it.
-  const statePack = refData.statePacks.find(p => p.country === caseData.identity.country && p.state.toLowerCase() === caseData.identity.state.toLowerCase());
+  // Same resolver as the engine's. A third copy of this test is how the
+  // staleness view comes to disagree with the screen about which pack is even
+  // in force.
+  const statePack = resolveStatePack(caseData.identity, refData.statePacks);
   if (statePack) {
     const aged = packRules(statePack)
       .map(rule => ({ ...rule, ageDays: daysBetween(rule.asOf, now) }))

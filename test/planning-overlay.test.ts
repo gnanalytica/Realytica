@@ -17,6 +17,7 @@ import {
   serializePlanningOverlay,
   serializeReferenceHits,
   wantsPlanningOverlay,
+  type ChatChoice,
   type ChatProposal,
 } from '@realytica/shared';
 import { createProjectTools } from '@realytica/agents';
@@ -99,7 +100,7 @@ describe('planning overlay', () => {
   it('compare_planning queues an obtain card without writing registers', async () => {
     const project = seedDemoProject();
     const before = project.evidence.length;
-    const bag = { proposals: [] as ChatProposal[], navigations: [] as Array<{ target: string }>, toolCalls: [] as Array<{ name: string; summary: string }> };
+    const bag = { proposals: [] as ChatProposal[], navigations: [] as Array<{ target: string }>, toolCalls: [] as Array<{ name: string; summary: string }>, choices: [] as ChatChoice[] };
     const tools = createProjectTools(project, 'tester', bag) as unknown as CustomTool[];
     const found = tools.find((t) => t.name === 'compare_planning');
     assert.ok(found);

@@ -32,7 +32,7 @@ interface CustomTool {
 }
 
 function toolsFor(project = seedDemoProject()) {
-  const bag = { proposals: [], navigations: [], toolCalls: [] };
+  const bag = { proposals: [], navigations: [], toolCalls: [], choices: [] };
   const tools = createProjectTools(project, 'tester', bag) as unknown as CustomTool[];
   return { project, bag, tools };
 }
