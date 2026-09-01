@@ -48,9 +48,30 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
 
   /* --- Legal & title ----------------------------------------------- */
   'legal.title_chain': [
+    // The chain is a table because that is what it is. Everybody keeps this
+    // in a spreadsheet beside the system; keeping it here is the difference
+    // between the chain being data and being an attachment.
+    {
+      key: 'chain',
+      label: 'Chain of title',
+      kind: 'table',
+      from: 'Registered instruments',
+      proof: 'expected',
+      columns: [
+        { key: 'date', label: 'Date', kind: 'date' },
+        { key: 'instrument', label: 'Instrument', kind: 'enum', options: ['sale deed', 'gift deed', 'partition', 'grant', 'release', 'JDA', 'will', 'decree'] },
+        { key: 'from_party', label: 'From', kind: 'text' },
+        { key: 'to_party', label: 'To', kind: 'text' },
+        { key: 'extent', label: 'Extent', kind: 'area', unit: 'sqm', required: false },
+        { key: 'registered', label: 'Registered', kind: 'boolean', control: 'checkbox' },
+        { key: 'doc_no', label: 'Document no.', kind: 'text', required: false },
+      ],
+    },
     { key: 'root_year', label: 'Root of title', kind: 'date', from: 'Mother deed', hint: 'Date of the earliest instrument on file' },
-    { key: 'years_required', label: 'Years of chain required', kind: 'number', unit: 'years', hint: 'Usually 30 in Karnataka' },
-    { key: 'instrument_count', label: 'Registered instruments on file', kind: 'number' },
+    { key: 'years_required', label: 'Years of chain required', kind: 'duration', unit: 'years', hint: 'Usually 30 in Karnataka' },
+    { key: 'instrument_count', label: 'Instruments on file', kind: 'computed', formula: { op: 'count', table: 'chain' } },
+    { key: 'years_established', label: 'Years established', kind: 'computed', unit: 'years', formula: { op: 'divide', left: { op: 'days_between', left: 'as_at', right: 'root_year' }, right: { op: 'const', value: 365.25 } } },
+    { key: 'as_at', label: 'Chain established as at', kind: 'date', hint: 'Usually today, or the valuation date' },
     { key: 'unregistered_links', label: 'Links with no registered instrument', kind: 'number', required: false },
   ],
   'legal.encumbrances': [
@@ -60,18 +81,25 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
     { key: 'subsisting_charges', label: 'Charges still subsisting', kind: 'number', required: false },
   ],
   'legal.litigation': [
-    { key: 'searched_courts', label: 'Registries searched', kind: 'text', from: 'Court search report' },
+    {
+      key: 'searched_courts',
+      label: 'Registries searched',
+      kind: 'multi_enum',
+      options: ['District court', 'High Court', 'NCLT', 'DRT', 'Consumer forum', 'Revenue tribunal', 'Lok Adalat'],
+      from: 'Court search report',
+      proof: 'expected',
+    },
     { key: 'matters_found', label: 'Matters naming the parcel or a party', kind: 'number' },
     { key: 'lis_pendens', label: 'Lis pendens registered', kind: 'boolean', required: false },
   ],
 
   /* --- Approvals ---------------------------------------------------- */
-  'approvals.land_use': [
+  'regulatory.land_use': [
     { key: 'zoning', label: 'Zoning in the plan in force', kind: 'text', from: 'Zoning certificate' },
     { key: 'conversion_status', label: 'DC conversion', kind: 'enum', options: ['converted', 'agricultural', 'not applicable', 'unknown'], from: 'DC conversion order' },
     { key: 'conversion_date', label: 'Date of the conversion order', kind: 'date', from: 'DC conversion order', required: false },
   ],
-  'approvals.sanction': [
+  'regulatory.sanction': [
     { key: 'sanctioned_far', label: 'FAR sanctioned', kind: 'number', from: 'Sanctioned plan' },
     { key: 'permissible_far', label: 'FAR permissible', kind: 'number', from: 'Zoning certificate' },
     { key: 'sanctioned_area', label: 'Built-up area sanctioned', kind: 'area', unit: 'sqm', from: 'Sanctioned plan' },
@@ -79,32 +107,284 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
     { key: 'sanction_date', label: 'Date of sanction', kind: 'date', from: 'Sanctioned plan' },
     { key: 'sanction_valid_to', label: 'Sanction valid to', kind: 'date', required: false },
   ],
-  'approvals.occupancy': [
+  'regulatory.occupancy': [
     { key: 'oc_issued', label: 'Occupancy certificate issued', kind: 'boolean', from: 'Occupancy certificate' },
     { key: 'oc_date', label: 'Date of the OC', kind: 'date', required: false },
     { key: 'oc_partial', label: 'Partial OC only', kind: 'boolean', required: false },
   ],
 
   /* --- Financial ---------------------------------------------------- */
-  'financial.budget_current': [
+  'cost_quantity.budget_current': [
     { key: 'sanctioned_budget', label: 'Sanctioned budget', kind: 'money', unit: 'INR', from: 'Approved budget' },
     { key: 'current_forecast', label: 'Current forecast at completion', kind: 'money', unit: 'INR', from: 'Cost report' },
     { key: 'spent_to_date', label: 'Spent to date', kind: 'money', unit: 'INR', from: 'Cost report' },
   ],
-  'financial.commitments': [
+  'cost_quantity.commitments': [
     { key: 'committed', label: 'Committed to date', kind: 'money', unit: 'INR', from: 'Contract register' },
     { key: 'certified', label: 'Certified to date', kind: 'money', unit: 'INR', from: 'Payment certificates' },
   ],
 
   /* --- Schedule ------------------------------------------------------ */
-  'schedule.planned_vs_actual': [
+  'schedule_progress.planned_vs_actual': [
     { key: 'planned_percent', label: 'Planned progress', kind: 'percent', from: 'Baseline programme' },
     { key: 'actual_percent', label: 'Actual progress', kind: 'percent', from: 'Progress report' },
   ],
-  'schedule.forecast_completion': [
+  'schedule_progress.forecast_completion': [
     { key: 'baseline_completion', label: 'Baseline completion', kind: 'date', from: 'Baseline programme' },
     { key: 'forecast_completion', label: 'Forecast completion', kind: 'date', from: 'Progress report' },
     { key: 'contractual_completion', label: 'Contractual completion', kind: 'date', from: 'Contract', required: false },
+  ],
+
+  /* --- Regulatory: the rest ---------------------------------------- */
+  'regulatory.conditions': [
+    {
+      key: 'conditions',
+      label: 'Approval conditions',
+      kind: 'table',
+      from: 'Sanction letter',
+      proof: 'expected',
+      columns: [
+        { key: 'ref', label: 'Condition', kind: 'text' },
+        { key: 'what', label: 'What it requires', kind: 'text' },
+        { key: 'due', label: 'Due by', kind: 'date', required: false },
+        { key: 'status', label: 'Status', kind: 'enum', options: ['met', 'outstanding', 'waived', 'disputed'] },
+      ],
+    },
+    { key: 'total_conditions', label: 'Conditions in total', kind: 'computed', formula: { op: 'count', table: 'conditions' } },
+  ],
+  'regulatory.nocs': [
+    {
+      key: 'nocs',
+      label: 'Statutory NOCs',
+      kind: 'multi_enum',
+      options: ['Fire', 'Airport height', 'Pollution control', 'Lake / SWD', 'Forest', 'Ancient monuments', 'Defence', 'Railways', 'Highways'],
+      from: 'NOC file',
+    },
+    { key: 'fire_noc_valid_to', label: 'Fire NOC valid to', kind: 'date', from: 'Fire NOC', required: false, proof: 'required' },
+    { key: 'all_in_hand', label: 'All NOCs required at this stage are in hand', kind: 'boolean', control: 'switch' },
+  ],
+
+  /* --- Technical ---------------------------------------------------- */
+  'technical.drawing_register': [
+    { key: 'revision', label: 'Current drawing revision', kind: 'text', from: 'Drawing register', proof: 'required' },
+    { key: 'issued_on', label: 'Issued on', kind: 'date', from: 'Drawing register' },
+    { key: 'coordinated', label: 'Disciplines coordinated', kind: 'boolean', control: 'switch' },
+    { key: 'register', label: 'Drawing register', kind: 'evidence', accepts: 'document', required: false },
+  ],
+  'technical.structural': [
+    { key: 'design_stage', label: 'Design stage reached', kind: 'enum', control: 'segmented', options: ['concept', 'scheme', 'detailed', 'GFC'], from: 'Structural drawings' },
+    { key: 'seismic_zone', label: 'Seismic zone', kind: 'enum', options: ['II', 'III', 'IV', 'V'], from: 'Structural report' },
+    { key: 'proof_checked', label: 'Proof-checked by a third party', kind: 'boolean' },
+    { key: 'peer_review', label: 'Peer review report', kind: 'evidence', accepts: 'document', required: false },
+  ],
+  'technical.mep_capacity': [
+    { key: 'connected_load_kw', label: 'Connected load', kind: 'number', unit: 'kW', from: 'Load schedule' },
+    { key: 'sanctioned_load_kw', label: 'Sanctioned load', kind: 'number', unit: 'kW', from: 'Sanction letter', proof: 'required' },
+    { key: 'load_headroom_pct', label: 'Headroom', kind: 'computed', unit: '%', formula: { op: 'variance_pct', left: { op: 'field', key: 'sanctioned_load_kw' }, right: { op: 'field', key: 'connected_load_kw' } } },
+    { key: 'water_demand_kld', label: 'Water demand', kind: 'number', unit: 'KLD', required: false },
+    { key: 'stp_capacity_kld', label: 'STP capacity', kind: 'number', unit: 'KLD', required: false },
+  ],
+  'technical.fire_life_safety': [
+    { key: 'refuge_area_required', label: 'Refuge area required', kind: 'area', unit: 'sqm', from: 'NBC calculation' },
+    { key: 'refuge_area_provided', label: 'Refuge area provided', kind: 'area', unit: 'sqm', from: 'Sanctioned plan' },
+    { key: 'staircases', label: 'Escape staircases', kind: 'number' },
+    { key: 'site_photos', label: 'Site photographs', kind: 'evidence', accepts: 'image', required: false },
+  ],
+
+  /* --- Cost & quantity: the rest ------------------------------------ */
+  'cost_quantity.boq_alignment': [
+    { key: 'boq_value', label: 'BOQ value', kind: 'money', unit: 'INR', from: 'BOQ', proof: 'required' },
+    { key: 'measured_value', label: 'Re-measured value', kind: 'money', unit: 'INR', from: 'Quantity check' },
+    { key: 'variance_pct', label: 'Variance', kind: 'computed', unit: '%', formula: { op: 'variance_pct', left: { op: 'field', key: 'measured_value' }, right: { op: 'field', key: 'boq_value' } } },
+  ],
+  'cost_quantity.variations': [
+    {
+      key: 'variations',
+      label: 'Variations',
+      kind: 'table',
+      from: 'Variation register',
+      proof: 'expected',
+      columns: [
+        { key: 'ref', label: 'Ref', kind: 'text' },
+        { key: 'value', label: 'Value', kind: 'money', unit: 'INR' },
+        { key: 'approved_on', label: 'Approved on', kind: 'date', required: false },
+        { key: 'built', label: 'Already built', kind: 'boolean', control: 'checkbox' },
+      ],
+    },
+    { key: 'variation_total', label: 'Variations in total', kind: 'computed', unit: 'INR', formula: { op: 'sum', table: 'variations', column: 'value' } },
+  ],
+  'cost_quantity.forecast': [
+    { key: 'forecast_at_completion', label: 'Forecast at completion', kind: 'money', unit: 'INR', from: 'Cost report', proof: 'required' },
+    { key: 'forecast_dated', label: 'Forecast dated', kind: 'date', from: 'Cost report' },
+    { key: 'contingency_left', label: 'Contingency remaining', kind: 'money', unit: 'INR', required: false },
+  ],
+
+  /* --- Schedule: the rest -------------------------------------------- */
+  'schedule_progress.baseline': [
+    { key: 'baseline_approved', label: 'Baseline approved', kind: 'boolean', control: 'switch' },
+    { key: 'baseline_date', label: 'Baseline dated', kind: 'date', from: 'Baseline programme', proof: 'required' },
+    { key: 'programme', label: 'Programme file', kind: 'evidence', accepts: 'document', required: false },
+  ],
+  'schedule_progress.milestones': [
+    {
+      key: 'milestones',
+      label: 'Contract milestones',
+      kind: 'table',
+      from: 'Contract',
+      columns: [
+        { key: 'name', label: 'Milestone', kind: 'text' },
+        { key: 'contractual', label: 'Contractual', kind: 'date' },
+        { key: 'forecast', label: 'Forecast', kind: 'date', required: false },
+        { key: 'met', label: 'Met', kind: 'boolean', control: 'checkbox' },
+      ],
+    },
+  ],
+  'schedule_progress.delays': [
+    {
+      key: 'delays',
+      label: 'Delay events',
+      kind: 'table',
+      from: 'Delay register',
+      columns: [
+        { key: 'event', label: 'Event', kind: 'text' },
+        { key: 'days', label: 'Days', kind: 'duration', unit: 'days' },
+        { key: 'cause', label: 'Cause', kind: 'enum', options: ['employer', 'contractor', 'neutral', 'unresolved'] },
+        { key: 'notified', label: 'Notified in time', kind: 'boolean', control: 'checkbox' },
+      ],
+    },
+    { key: 'total_delay_days', label: 'Delay claimed in total', kind: 'computed', unit: 'days', formula: { op: 'sum', table: 'delays', column: 'days' } },
+  ],
+
+  /* --- Commercial & market ------------------------------------------- */
+  'commercial_market.comps': [
+    {
+      key: 'comparables',
+      label: 'Comparables',
+      kind: 'table',
+      from: 'Market evidence',
+      proof: 'expected',
+      columns: [
+        { key: 'address', label: 'Address', kind: 'text' },
+        { key: 'date', label: 'Transacted', kind: 'date' },
+        { key: 'area', label: 'Area', kind: 'area', unit: 'sqm' },
+        { key: 'price', label: 'Price', kind: 'money', unit: 'INR' },
+        { key: 'source', label: 'Source', kind: 'enum', options: ['registered', 'listing', 'agent', 'valuer'] },
+      ],
+    },
+    { key: 'comparable_count', label: 'Comparables on file', kind: 'computed', formula: { op: 'count', table: 'comparables' } },
+    { key: 'evidence_cutoff', label: 'Evidence cut-off', kind: 'date' },
+  ],
+  'commercial_market.absorption': [
+    { key: 'units_total', label: 'Units in the scheme', kind: 'number' },
+    { key: 'units_sold', label: 'Units sold', kind: 'number', from: 'Sales MIS', proof: 'required' },
+    { key: 'sold_pct', label: 'Sold', kind: 'computed', unit: '%', formula: { op: 'multiply', left: { op: 'divide', left: { op: 'field', key: 'units_sold' }, right: { op: 'field', key: 'units_total' } }, right: { op: 'const', value: 100 } } },
+    { key: 'velocity_per_month', label: 'Assumed velocity', kind: 'number', unit: 'units/month' },
+  ],
+
+  /* --- Financial appraisal -------------------------------------------- */
+  'financial_appraisal.revenue_assumptions': [
+    { key: 'rate_per_sqm', label: 'Assumed rate', kind: 'money', unit: 'INR/sqm', from: 'Appraisal', proof: 'required' },
+    { key: 'saleable_area', label: 'Saleable area', kind: 'area', unit: 'sqm' },
+    { key: 'gross_revenue', label: 'Gross revenue', kind: 'computed', unit: 'INR', formula: { op: 'multiply', left: { op: 'field', key: 'rate_per_sqm' }, right: { op: 'field', key: 'saleable_area' } } },
+    { key: 'assumption_dated', label: 'Assumptions dated', kind: 'date' },
+  ],
+  'financial_appraisal.margin': [
+    { key: 'gross_revenue', label: 'Gross revenue', kind: 'money', unit: 'INR', from: 'Appraisal' },
+    { key: 'total_cost', label: 'Total cost', kind: 'money', unit: 'INR', from: 'Cost plan' },
+    { key: 'margin_pct', label: 'Margin', kind: 'computed', unit: '%', formula: { op: 'variance_pct', left: { op: 'field', key: 'gross_revenue' }, right: { op: 'field', key: 'total_cost' } } },
+    { key: 'hurdle_pct', label: 'Stated hurdle', kind: 'percent', unit: '%' },
+  ],
+
+  /* --- Procurement ----------------------------------------------------- */
+  'procurement.award_completeness': [
+    { key: 'packages_awarded', label: 'Packages awarded', kind: 'number' },
+    { key: 'contracts_executed', label: 'Contracts executed', kind: 'number', from: 'Contract register', proof: 'required' },
+    { key: 'unexecuted', label: 'Awarded but unexecuted', kind: 'computed', formula: { op: 'subtract', left: { op: 'field', key: 'packages_awarded' }, right: { op: 'field', key: 'contracts_executed' } } },
+  ],
+  'procurement.security': [
+    { key: 'pbg_required', label: 'Performance security required', kind: 'money', unit: 'INR', from: 'Contract' },
+    { key: 'pbg_held', label: 'Performance security held', kind: 'money', unit: 'INR', from: 'Bank guarantee', proof: 'required' },
+    { key: 'pbg_valid_to', label: 'Valid to', kind: 'date', required: false },
+    { key: 'insurance_in_force', label: 'Insurance in force', kind: 'boolean', control: 'switch' },
+  ],
+
+  /* --- Quality ---------------------------------------------------------- */
+  'quality.ncrs': [
+    { key: 'ncrs_raised', label: 'NCRs raised', kind: 'number', from: 'NCR register' },
+    { key: 'ncrs_closed', label: 'NCRs closed with evidence', kind: 'number', from: 'NCR register', proof: 'required' },
+    { key: 'ncrs_open', label: 'Still open', kind: 'computed', formula: { op: 'subtract', left: { op: 'field', key: 'ncrs_raised' }, right: { op: 'field', key: 'ncrs_closed' } } },
+  ],
+  'quality.testing': [
+    {
+      key: 'tests',
+      label: 'Specified tests',
+      kind: 'table',
+      from: 'Test reports',
+      proof: 'expected',
+      columns: [
+        { key: 'test', label: 'Test', kind: 'text' },
+        { key: 'required', label: 'Required', kind: 'number' },
+        { key: 'done', label: 'Results on file', kind: 'number' },
+        { key: 'passed', label: 'All passed', kind: 'boolean', control: 'checkbox' },
+      ],
+    },
+  ],
+
+  /* --- HSE ---------------------------------------------------------------- */
+  'hse.incidents': [
+    { key: 'lti_count', label: 'Lost-time injuries', kind: 'number', from: 'HSE register' },
+    { key: 'near_misses', label: 'Near misses logged', kind: 'number', required: false },
+    { key: 'manhours', label: 'Man-hours worked', kind: 'number', required: false },
+    { key: 'ltifr', label: 'LTIFR (per million hours)', kind: 'computed', formula: { op: 'divide', left: { op: 'multiply', left: { op: 'field', key: 'lti_count' }, right: { op: 'const', value: 1000000 } }, right: { op: 'field', key: 'manhours' } } },
+  ],
+  'hse.training': [
+    { key: 'workforce', label: 'Workforce on site', kind: 'number' },
+    { key: 'inducted', label: 'Inducted', kind: 'number', from: 'Induction register', proof: 'required' },
+    { key: 'inducted_pct', label: 'Inducted', kind: 'computed', unit: '%', formula: { op: 'multiply', left: { op: 'divide', left: { op: 'field', key: 'inducted' }, right: { op: 'field', key: 'workforce' } }, right: { op: 'const', value: 100 } } },
+  ],
+
+  /* --- ESG ------------------------------------------------------------------ */
+  'esg.clearance': [
+    { key: 'ec_required', label: 'Environmental clearance required', kind: 'boolean', control: 'switch' },
+    { key: 'ec_granted_on', label: 'Clearance granted on', kind: 'date', from: 'EC order', required: false, proof: 'required' },
+    { key: 'compliance_reports_due', label: 'Half-yearly reports due', kind: 'number', required: false },
+    { key: 'compliance_reports_filed', label: 'Filed', kind: 'number', required: false },
+  ],
+
+  /* --- Condition & operations ------------------------------------------------ */
+  'condition_operations.survey': [
+    { key: 'survey_date', label: 'Condition survey dated', kind: 'date', from: 'Condition survey', proof: 'required' },
+    { key: 'overall_condition', label: 'Overall condition', kind: 'enum', control: 'segmented', options: ['good', 'fair', 'poor', 'dilapidated'] },
+    { key: 'photographs', label: 'Photographs', kind: 'evidence', accepts: 'image', required: false },
+    { key: 'observations', label: 'Observations', kind: 'longtext', required: false },
+  ],
+  'condition_operations.maintenance': [
+    { key: 'backlog_value', label: 'Maintenance backlog', kind: 'money', unit: 'INR', from: 'Asset register' },
+    { key: 'annual_budget', label: 'Annual maintenance budget', kind: 'money', unit: 'INR', required: false },
+    { key: 'backlog_years', label: 'Backlog in budget-years', kind: 'computed', unit: 'years', formula: { op: 'divide', left: { op: 'field', key: 'backlog_value' }, right: { op: 'field', key: 'annual_budget' } } },
+  ],
+
+  /* --- Indicative valuation --------------------------------------------------- */
+  'indicative_valuation.instruction': [
+    { key: 'purpose', label: 'Purpose', kind: 'enum', options: ['acquisition', 'lending', 'financial reporting', 'insolvency', 'internal'] },
+    { key: 'intended_user', label: 'Intended user', kind: 'text' },
+    { key: 'reliance_permitted', label: 'Reliance permitted by third parties', kind: 'boolean', control: 'switch' },
+  ],
+  'indicative_valuation.subject': [
+    { key: 'area_basis', label: 'Area basis', kind: 'enum', control: 'radio', options: ['carpet', 'built-up', 'super built-up'] },
+    { key: 'area', label: 'Area on that basis', kind: 'area', unit: 'sqm', proof: 'required', from: 'Approved drawings' },
+    { key: 'interest', label: 'Interest valued', kind: 'enum', options: ['freehold', 'leasehold', 'development rights'] },
+  ],
+  'indicative_valuation.dates': [
+    { key: 'valuation_date', label: 'Valuation date', kind: 'date' },
+    { key: 'inspection_date', label: 'Inspection date', kind: 'date' },
+    { key: 'evidence_cutoff', label: 'Evidence cut-off', kind: 'date' },
+    { key: 'inspection_gap_days', label: 'Days between inspection and valuation', kind: 'computed', unit: 'days', formula: { op: 'days_between', left: 'valuation_date', right: 'inspection_date' } },
+  ],
+  'indicative_valuation.basis': [
+    { key: 'basis', label: 'Basis of value', kind: 'enum', options: ['market value', 'investment value', 'liquidation', 'replacement cost'] },
+    { key: 'premise', label: 'Premise', kind: 'enum', options: ['as is', 'as completed', 'residual', 'forced sale'] },
+    { key: 'special_assumptions', label: 'Special assumptions', kind: 'longtext', required: false },
   ],
 };
 
@@ -154,7 +434,7 @@ export const CHECK_INSIGHT_RULES: Record<string, CheckInsightRule[]> = {
   'legal.encumbrances': [
     { kind: 'before', fields: ['ec_from', 'ec_to'], severity: 'medium', say: 'The EC window runs from {a} to {b} — the start is after the end, so the search does not cover what it claims to.' },
   ],
-  'approvals.sanction': [
+  'regulatory.sanction': [
     {
       kind: 'compare',
       fields: ['sanctioned_far', 'permissible_far'],
@@ -171,7 +451,7 @@ export const CHECK_INSIGHT_RULES: Record<string, CheckInsightRule[]> = {
     },
     { kind: 'before', fields: ['sanction_date', 'sanction_valid_to'], severity: 'high', say: 'The sanction is dated {a} and shown as valid to {b}, which is earlier. One of the two is wrong.' },
   ],
-  'financial.budget_current': [
+  'cost_quantity.budget_current': [
     {
       kind: 'compare',
       fields: ['sanctioned_budget', 'current_forecast'],
@@ -180,7 +460,7 @@ export const CHECK_INSIGHT_RULES: Record<string, CheckInsightRule[]> = {
       say: 'The sanctioned budget is {a} and the forecast at completion is {b} — {divergence} apart, past the {tolerance} threshold this check treats as material.',
     },
   ],
-  'financial.commitments': [
+  'cost_quantity.commitments': [
     {
       kind: 'compare',
       fields: ['committed', 'certified'],
@@ -189,7 +469,7 @@ export const CHECK_INSIGHT_RULES: Record<string, CheckInsightRule[]> = {
       say: '{a} committed against {b} certified — {divergence} apart. A wide gap is either work done and unbilled or commitments running ahead of delivery.',
     },
   ],
-  'schedule.planned_vs_actual': [
+  'schedule_progress.planned_vs_actual': [
     {
       kind: 'compare',
       fields: ['planned_percent', 'actual_percent'],
@@ -198,7 +478,7 @@ export const CHECK_INSIGHT_RULES: Record<string, CheckInsightRule[]> = {
       say: 'Planned {a} against actual {b} — {divergence} apart. Slippage at this scale moves the completion date, not just the curve.',
     },
   ],
-  'schedule.forecast_completion': [
+  'schedule_progress.forecast_completion': [
     { kind: 'before', fields: ['contractual_completion', 'forecast_completion'], severity: 'high', say: 'Contractual completion is {a} and the forecast is {b} — the forecast is later, so liquidated damages are already in play.' },
   ],
 };

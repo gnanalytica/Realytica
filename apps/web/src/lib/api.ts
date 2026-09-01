@@ -53,6 +53,7 @@ import type {
   ActionRecord,
   DecisionRecord,
   CheckFieldReading,
+  CheckFieldWrite,
   GeneratedReport,
   ReportBoundSource,
   ReportDriftRow,
@@ -774,7 +775,7 @@ export const api = {
   recordCheckFields: (
     projectId: string,
     checkId: string,
-    values: Record<string, string | number | boolean | null>,
+    values: Record<string, CheckFieldWrite>,
     sourceEvidenceId?: string,
   ) =>
     request<CheckFieldReading & { checkId: string; project: DdProject }>(`/projects/${projectId}/checks/${checkId}/fields`, {

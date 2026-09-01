@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import {
   checkFieldReading,
+  type CheckFieldWrite,
   CHECK_RESULT_LABEL,
   EVIDENCE_STATUS_LABEL,
   SCOPE_LABEL,
@@ -80,7 +81,7 @@ export default function ScopeWorkspace() {
    * making somebody commit to a result before they can write down a number
    * they just read is backwards.
    */
-  async function saveFields(values: Record<string, string | number | boolean | null>) {
+  async function saveFields(values: Record<string, CheckFieldWrite>) {
     if (!check) return;
     setBusy(true);
     try {

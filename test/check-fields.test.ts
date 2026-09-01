@@ -191,3 +191,74 @@ describe('recording values is not recording a result', () => {
     assert.equal(formatFieldValue({ key: 'y', label: 'Fenced', kind: 'boolean' }, { value: true, at: 'now', by: 'x' }), 'yes');
   });
 });
+
+describe('proof is a property of a value, not a kind of field', () => {
+  it('refuses a value that must cite something, and says where to look', () => {
+    // The line between a diligence record and a form. An extent read off a
+    // registered deed and an extent somebody remembered must not be able to
+    // reach a report wearing the same authority.
+    const project = createProject({ name: 'P', type: 'residential', location: 'X', city: 'Y' }, 'RYT-F3');
+    createAssessment(project, { ddType: 'construction_progress', name: 'Progress DD', owner: 'Lead', targetType: 'project' });
+    const check = project.assessments[0]!.scopes.flatMap((s) => s.checks).find((c) => c.definitionId === 'schedule_progress.baseline')!;
+
+    const bare = recordCheckFields(project, check.id, { baseline_date: '2026-01-05' });
+    assert.equal(bare.rejected.length, 1);
+    assert.match(bare.rejected[0]!.error, /has to cite what it was read from/);
+    assert.match(bare.rejected[0]!.error, /baseline programme/i, 'and names the document to look in');
+
+    const cited = recordCheckFields(project, check.id, { baseline_date: '2026-01-05' }, 'Lead', 'ev-baseline-1');
+    assert.equal(cited.rejected.length, 0);
+    assert.equal(cited.reading.values.baseline_date!.sourceEvidenceId, 'ev-baseline-1');
+  });
+
+  it('records a value with no proof requirement, and marks it unproven', () => {
+    // Not a blocker. Plenty of a diligence is recorded from a phone call
+    // before the certificate arrives; it is a state a report must be able to
+    // see, not a wall.
+    const { project, check } = landCheck();
+    recordCheckFields(project, check.id, { extent_title: 1208 });
+    const reading = checkFieldReading(check);
+    assert.equal(reading.filled, 1);
+    assert.deepEqual(reading.unproven, [], 'this field asks for no proof, so it is not unproven');
+  });
+});
+
+describe('computed fields are worked out, never stored', () => {
+  it('resolves from its siblings on every read', () => {
+    const project = createProject({ name: 'P', type: 'residential', location: 'X', city: 'Y' }, 'RYT-F4');
+    createAssessment(project, { ddType: 'hse', name: 'HSE DD', owner: 'Lead', targetType: 'project' });
+    const check = project.assessments[0]!.scopes.flatMap((s) => s.checks).find((c) => c.definitionId === 'hse.training')!;
+
+    recordCheckFields(project, check.id, { workforce: 400 }, 'Lead', 'ev-1');
+    assert.equal(checkFieldReading(check).values.inducted_pct?.value, null, 'one input is not a percentage');
+
+    recordCheckFields(project, check.id, { inducted: 380 }, 'Lead', 'ev-1');
+    assert.equal(checkFieldReading(check).values.inducted_pct?.value, 95);
+  });
+
+  it('is not counted among the fields somebody still has to answer', () => {
+    const project = createProject({ name: 'P', type: 'residential', location: 'X', city: 'Y' }, 'RYT-F5');
+    createAssessment(project, { ddType: 'hse', name: 'HSE DD', owner: 'Lead', targetType: 'project' });
+    const check = project.assessments[0]!.scopes.flatMap((s) => s.checks).find((c) => c.definitionId === 'hse.training')!;
+    const reading = checkFieldReading(check);
+    assert.ok(!reading.missing.some((d) => d.kind === 'computed'), 'nobody can fill in a formula');
+    assert.ok(!reading.defs.filter((d) => d.kind !== 'computed').length === false);
+  });
+});
+
+describe('a table field holds rows', () => {
+  it('stores a chain of title and counts it', () => {
+    const project = createProject({ name: 'P', type: 'residential', location: 'X', city: 'Y' }, 'RYT-F6');
+    createAssessment(project, { ddType: 'acquisition', name: 'Land DD', owner: 'Lead', targetType: 'project' });
+    const check = project.assessments[0]!.scopes.flatMap((s) => s.checks).find((c) => c.definitionId === 'legal.title_chain')!;
+
+    const out = recordCheckFields(project, check.id, {
+      chain: [
+        { date: '1994-06-02', instrument: 'grant', from_party: 'State of Karnataka', to_party: 'Ramaiah', registered: true },
+        { date: '1998-11-14', instrument: 'gift deed', from_party: 'Ramaiah', to_party: 'Lakshmamma', registered: true },
+      ],
+    });
+    assert.deepEqual(out.rejected, []);
+    assert.equal(out.reading.values.instrument_count?.value, 2, 'the count is computed off the rows');
+  });
+});

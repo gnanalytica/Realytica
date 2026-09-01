@@ -251,7 +251,80 @@ export type ImpactScore = 1 | 2 | 3 | 4 | 5;
 /* Library definitions (reusable, not project instances)               */
 /* ------------------------------------------------------------------ */
 
-export type CheckFieldKind = 'text' | 'number' | 'money' | 'area' | 'percent' | 'date' | 'enum' | 'boolean';
+export type CheckFieldKind =
+  /* --- plain values ------------------------------------------------ */
+  | 'text'
+  /** Free-flow prose. Rendered as a growing box, never a single line. */
+  | 'longtext'
+  | 'number'
+  | 'money'
+  | 'area'
+  | 'percent'
+  /** A span in days, months or years — the unit says which. */
+  | 'duration'
+  | 'date'
+  | 'boolean'
+  /* --- choices ------------------------------------------------------ */
+  /** One of a fixed list. `control` decides dropdown, radio or segmented. */
+  | 'enum'
+  /** Several of a fixed list — checkboxes. */
+  | 'multi_enum'
+  /* --- things that are not typed in ---------------------------------- */
+  /**
+   * Derived from other fields by a declared formula. Never writable.
+   *
+   * The third place this product draws the same line: the graph splits
+   * derived nodes from authored ones, the report splits bound blocks from
+   * prose, and a computed field is the same idea at the smallest scale. If a
+   * number can be worked out from other numbers, nobody should be able to
+   * type a different one over it.
+   */
+  | 'computed'
+  /**
+   * Repeating rows with their own column schema — a title chain, a milestone
+   * table, a schedule of tests. The thing people otherwise keep in a
+   * spreadsheet beside the system, which is where DD facts go to die.
+   */
+  | 'table'
+  /**
+   * A reference to something on the evidence register: a document, a
+   * photograph, a certificate. The value is an evidence id, so the file is
+   * held once and cited from everywhere rather than re-uploaded per check.
+   */
+  | 'evidence';
+
+/** How a choice or a switch is drawn. Presentation only — the data is the same. */
+export type CheckFieldControl = 'dropdown' | 'radio' | 'segmented' | 'switch' | 'checkbox';
+
+/**
+ * How strongly a value must be backed by something on file.
+ *
+ * This is the property that separates a diligence record from a form. An
+ * extent read off a registered deed and an extent somebody remembered are not
+ * the same fact, and a schema that cannot tell them apart will let the second
+ * one reach a report wearing the first one's authority.
+ */
+export type CheckFieldProof = 'required' | 'expected' | 'none';
+
+/**
+ * A formula over other fields on the same check.
+ *
+ * A tiny expression tree rather than a string to parse, because the two
+ * things that matter are that it cannot execute anything and that a reader
+ * can see what it computes. Every leaf is either a field key or a literal.
+ */
+export type CheckFormula =
+  | { op: 'field'; key: string }
+  | { op: 'const'; value: number }
+  | { op: 'add' | 'subtract' | 'multiply' | 'divide'; left: CheckFormula; right: CheckFormula }
+  /** `100 * (left - right) / right`, the shape most DD variances take. */
+  | { op: 'variance_pct'; left: CheckFormula; right: CheckFormula }
+  /** Sum one numeric column of a table field. */
+  | { op: 'sum'; table: string; column: string }
+  /** How many rows a table field holds. */
+  | { op: 'count'; table: string }
+  /** Whole days between two date fields, left minus right. */
+  | { op: 'days_between'; left: string; right: string };
 
 /**
  * A fact this check is actually about, declared so it can be recorded as a
@@ -271,10 +344,29 @@ export interface CheckFieldDef {
   from?: string;
   /** Defaults to true. A false here means the check can be complete without it. */
   required?: boolean;
+  /** How the control is drawn. Presentation only. */
+  control?: CheckFieldControl;
+  /** Whether this value has to cite something on the evidence register. */
+  proof?: CheckFieldProof;
+  /** `computed` only: what it works out. */
+  formula?: CheckFormula;
+  /** `table` only: the columns of each row. Columns cannot themselves be tables. */
+  columns?: CheckFieldDef[];
+  /** `evidence` only: what kind of file this expects, for the picker's filter. */
+  accepts?: 'document' | 'image' | 'any';
+  /** Numeric guards, checked on write so an impossible figure is refused at the door. */
+  min?: number;
+  max?: number;
 }
 
+/** Anything a caller may write into a field. Mirrors `CheckFieldValue['value']`. */
+export type CheckFieldWrite = string | number | boolean | string[] | CheckTableRow[] | null;
+
+/** One row of a table field, keyed by column. */
+export type CheckTableRow = Record<string, string | number | boolean | null>;
+
 export interface CheckFieldValue {
-  value: string | number | boolean | null;
+  value: string | number | boolean | string[] | CheckTableRow[] | null;
   /** The evidence row this was read off, when it came from a document. */
   sourceEvidenceId?: string;
   at: string;

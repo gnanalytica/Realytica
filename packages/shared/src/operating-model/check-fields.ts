@@ -31,7 +31,7 @@
  * data, and a new check costs a declaration rather than a component.
  */
 
-import type { CheckFieldDef, CheckFieldValue, CheckInsight, CheckInsightRule, CheckInstance, FindingSeverity } from './types';
+import type { CheckFieldDef, CheckFieldValue, CheckFormula, CheckInsight, CheckInsightRule, CheckInstance, CheckTableRow, FindingSeverity } from './types';
 
 /* ==================================================================== */
 /* Reading and writing a value                                           */
@@ -39,7 +39,10 @@ import type { CheckFieldDef, CheckFieldValue, CheckInsight, CheckInsightRule, Ch
 
 /** Nothing recorded yet — distinct from a recorded zero, which is a finding. */
 export function isBlank(value: CheckFieldValue | undefined): boolean {
-  return !value || value.value === null || value.value === '';
+  if (!value || value.value === null || value.value === '') return true;
+  // An empty table or an empty multi-select is nothing recorded, not a
+  // recorded nothing — the same distinction a blank number box carries.
+  return Array.isArray(value.value) && value.value.length === 0;
 }
 
 export function fieldNumber(value: CheckFieldValue | undefined): number | null {
@@ -58,17 +61,60 @@ export function fieldNumber(value: CheckFieldValue | undefined): number | null {
  * it rather than crash: the API returns it as a 400, and the agent tool hands
  * it back to the model so the next attempt is right instead of a retry loop.
  */
-export function validateFieldValue(def: CheckFieldDef, raw: unknown): { value: string | number | boolean | null } | { error: string } {
+export function validateFieldValue(
+  def: CheckFieldDef,
+  raw: unknown,
+): { value: CheckFieldValue['value'] } | { error: string } {
+  // A computed field is worked out, never written. Refused rather than
+  // ignored, so a caller that thought it was setting one is told.
+  if (def.kind === 'computed') {
+    return { error: `${def.label} is worked out from the other values on this check. It is not written directly.` };
+  }
   if (raw === null || raw === undefined || raw === '') return { value: null };
 
   switch (def.kind) {
+    case 'multi_enum': {
+      const list = Array.isArray(raw) ? raw.map(String) : String(raw).split(',').map((s) => s.trim()).filter(Boolean);
+      if (!def.options?.length) return { value: list };
+      const unknown = list.filter((item) => !def.options!.some((o) => o.toLowerCase() === item.toLowerCase()));
+      if (unknown.length) return { error: `${def.label}: "${unknown.join('", "')}" is not on the list. Choose from: ${def.options.join(', ')}.` };
+      return { value: def.options.filter((o) => list.some((i) => i.toLowerCase() === o.toLowerCase())) };
+    }
+    case 'table': {
+      if (!Array.isArray(raw)) return { error: `${def.label} is a table — send an array of rows.` };
+      const columns = def.columns ?? [];
+      const rows: CheckTableRow[] = [];
+      for (const [index, entry] of raw.entries()) {
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+          return { error: `${def.label} row ${index + 1} is not a row object.` };
+        }
+        const row: CheckTableRow = {};
+        for (const [key, cell] of Object.entries(entry as Record<string, unknown>)) {
+          const column = columns.find((c) => c.key === key);
+          if (!column) return { error: `${def.label} has no column "${key}". It has: ${columns.map((c) => c.key).join(', ')}.` };
+          const parsed = validateFieldValue(column, cell);
+          if ('error' in parsed) return { error: `${def.label} row ${index + 1}: ${parsed.error}` };
+          row[key] = parsed.value as CheckTableRow[string];
+        }
+        rows.push(row);
+      }
+      return { value: rows };
+    }
+    case 'evidence': {
+      const s = String(raw).trim();
+      if (!s) return { value: null };
+      return { value: s };
+    }
+    case 'duration':
     case 'number':
     case 'money':
     case 'area':
     case 'percent': {
       const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/[,\s]/g, ''));
       if (!Number.isFinite(n)) return { error: `${def.label} is a number${def.unit ? ` in ${def.unit}` : ''}. "${String(raw)}" is not one.` };
-      if (n < 0 && def.kind !== 'number') return { error: `${def.label} cannot be negative.` };
+      if (n < 0 && def.kind !== 'number' && def.kind !== 'duration') return { error: `${def.label} cannot be negative.` };
+      if (def.min !== undefined && n < def.min) return { error: `${def.label} cannot be below ${def.min}${def.unit ? ` ${def.unit}` : ''}.` };
+      if (def.max !== undefined && n > def.max) return { error: `${def.label} cannot be above ${def.max}${def.unit ? ` ${def.unit}` : ''}.` };
       return { value: n };
     }
     case 'boolean': {
@@ -92,17 +138,106 @@ export function validateFieldValue(def: CheckFieldDef, raw: unknown): { value: s
       return { value: hit };
     }
     case 'text':
+    case 'longtext':
     default:
-      return { value: String(raw).slice(0, 2000) };
+      return { value: String(raw).slice(0, def.kind === 'longtext' ? 20000 : 2000) };
   }
+}
+
+/* ==================================================================== */
+/* Formulas                                                              */
+/* ==================================================================== */
+
+/**
+ * Work out a computed field from its siblings.
+ *
+ * Returns null rather than 0 whenever any input is missing, and that
+ * propagates: a variance against a figure nobody has recorded is not zero
+ * variance, it is an unanswered question, and the two must never render the
+ * same. Division by zero is null for the same reason.
+ *
+ * No parser and no eval — the formula is a tree, every leaf is a field key or
+ * a literal, and there is nothing here that could execute a string.
+ */
+export function evaluateFormula(formula: CheckFormula, values: Record<string, CheckFieldValue>): number | null {
+  switch (formula.op) {
+    case 'const':
+      return formula.value;
+    case 'field':
+      return fieldNumber(values[formula.key]);
+    case 'add':
+    case 'subtract':
+    case 'multiply':
+    case 'divide': {
+      const left = evaluateFormula(formula.left, values);
+      const right = evaluateFormula(formula.right, values);
+      if (left === null || right === null) return null;
+      if (formula.op === 'add') return left + right;
+      if (formula.op === 'subtract') return left - right;
+      if (formula.op === 'multiply') return left * right;
+      return right === 0 ? null : left / right;
+    }
+    case 'variance_pct': {
+      const left = evaluateFormula(formula.left, values);
+      const right = evaluateFormula(formula.right, values);
+      if (left === null || right === null || right === 0) return null;
+      return ((left - right) / right) * 100;
+    }
+    case 'sum': {
+      const rows = tableRows(values[formula.table]);
+      if (rows === null) return null;
+      let total = 0;
+      for (const row of rows) {
+        const cell = row[formula.column];
+        const n = typeof cell === 'number' ? cell : Number(String(cell ?? '').replace(/[,\s]/g, ''));
+        if (Number.isFinite(n)) total += n;
+      }
+      return total;
+    }
+    case 'count': {
+      const rows = tableRows(values[formula.table]);
+      return rows === null ? null : rows.length;
+    }
+    case 'days_between': {
+      const left = values[formula.left]?.value;
+      const right = values[formula.right]?.value;
+      if (typeof left !== 'string' || typeof right !== 'string' || !left || !right) return null;
+      const a = Date.parse(left);
+      const b = Date.parse(right);
+      if (Number.isNaN(a) || Number.isNaN(b)) return null;
+      return Math.round((a - b) / 86_400_000);
+    }
+  }
+}
+
+/** The rows of a table field, or null when nothing has been entered. */
+export function tableRows(value: CheckFieldValue | undefined): CheckTableRow[] | null {
+  if (!value || !Array.isArray(value.value)) return null;
+  const rows = value.value as (string | CheckTableRow)[];
+  return rows.filter((r): r is CheckTableRow => typeof r === 'object' && r !== null);
+}
+
+/** The values a check holds, with every computed field worked out. */
+export function withComputed(defs: CheckFieldDef[], values: Record<string, CheckFieldValue>): Record<string, CheckFieldValue> {
+  const out = { ...values };
+  for (const def of defs) {
+    if (def.kind !== 'computed' || !def.formula) continue;
+    const result = evaluateFormula(def.formula, out);
+    out[def.key] = { value: result === null ? null : Math.round(result * 100) / 100, at: '', by: 'computed' };
+  }
+  return out;
 }
 
 /** Render a value the way it should read in a report or a graph node. */
 export function formatFieldValue(def: CheckFieldDef, value: CheckFieldValue | undefined): string {
   if (isBlank(value)) return '—';
   const raw = value!.value;
+  if (Array.isArray(raw)) {
+    if (def.kind === 'table') return `${raw.length} row(s)`;
+    return (raw as string[]).join(', ');
+  }
   if (typeof raw === 'boolean') return raw ? 'yes' : 'no';
-  if (def.kind === 'money' || def.kind === 'area' || def.kind === 'number') {
+  if (def.kind === 'money' || def.kind === 'area' || def.kind === 'number' || def.kind === 'computed' || def.kind === 'duration') {
     const n = fieldNumber(value);
     if (n === null) return String(raw);
     return `${n.toLocaleString('en-IN')}${def.unit ? ` ${def.unit}` : ''}`;
@@ -190,24 +325,39 @@ export function checkInsights(defs: CheckFieldDef[], values: Record<string, Chec
 /** Everything a check's fields say, ready for the panel, the report or a tool. */
 export interface CheckFieldReading {
   defs: CheckFieldDef[];
+  /** Stored values, with every computed field worked out. */
   values: Record<string, CheckFieldValue>;
   insights: CheckInsight[];
   /** Declared fields still blank. What the panel nudges toward, and what an agent should ask for. */
   missing: CheckFieldDef[];
+  /**
+   * Recorded, but with nothing on the evidence register behind it.
+   *
+   * Not an error and not a blocker — plenty of a diligence gets recorded from
+   * a phone call before the certificate arrives. It is a distinct state that
+   * a report has to be able to see, because a figure with a deed behind it
+   * and a figure somebody remembered must never print the same.
+   */
+  unproven: CheckFieldDef[];
   filled: number;
   total: number;
 }
 
 export function readCheckFields(check: CheckInstance, defs: CheckFieldDef[], rules: CheckInsightRule[]): CheckFieldReading {
-  const values = check.fields ?? {};
-  const missing = defs.filter((d) => d.required !== false && isBlank(values[d.key]));
+  const values = withComputed(defs, check.fields ?? {});
+  // A computed field is never "missing" — nobody can fill it in, and asking
+  // somebody to would be asking for the wrong thing.
+  const answerable = defs.filter((d) => d.kind !== 'computed');
   return {
     defs,
     values,
     insights: checkInsights(defs, values, rules),
-    missing,
-    filled: defs.filter((d) => !isBlank(values[d.key])).length,
-    total: defs.length,
+    missing: answerable.filter((d) => d.required !== false && isBlank(values[d.key])),
+    unproven: answerable.filter(
+      (d) => d.proof && d.proof !== 'none' && !isBlank(values[d.key]) && !values[d.key]?.sourceEvidenceId,
+    ),
+    filled: answerable.filter((d) => !isBlank(values[d.key])).length,
+    total: answerable.length,
   };
 }
 

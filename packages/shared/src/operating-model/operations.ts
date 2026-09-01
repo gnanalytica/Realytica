@@ -550,6 +550,17 @@ export function recordCheckFields(
       rejected.push({ key, error: parsed.error });
       continue;
     }
+    // A field declared `proof: 'required'` cannot be recorded on somebody's
+    // word. This is the line between a diligence record and a form: the
+    // extent a deed recites and the extent somebody remembered must not be
+    // able to reach a report wearing the same authority.
+    if (def.proof === 'required' && parsed.value !== null && !sourceEvidenceId) {
+      rejected.push({
+        key,
+        error: `${def.label} has to cite what it was read from${def.from ? ` — the ${def.from.toLowerCase()}` : ''}. File it on the evidence register first, then record the value against it.`,
+      });
+      continue;
+    }
     accepted[key] = { value: parsed.value, at, by: actor, ...(sourceEvidenceId ? { sourceEvidenceId } : {}) };
   }
 

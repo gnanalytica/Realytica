@@ -269,7 +269,20 @@ export const recordCheckFieldsBodySchema = z.object({
    * the per-field reason live in the operating model, next to the schema that
    * knows what each field is, rather than being restated at the boundary.
    */
-  values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+  values: z.record(
+    z.string(),
+    z.union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.null(),
+      // Multi-select and table rows. Shapes are checked against the field
+      // schema in the operating model, not restated here — the boundary only
+      // has to admit them.
+      z.array(z.string()),
+      z.array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))),
+    ]),
+  ),
   sourceEvidenceId: z.string().optional(),
   actor: actorSchema,
 });
