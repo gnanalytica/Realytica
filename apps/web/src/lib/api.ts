@@ -1,4 +1,6 @@
 import type {
+  DurableRun,
+  DurableRunState,
   AgentCapability,
   AgentKind,
   AgentRun,
@@ -890,6 +892,14 @@ export const api = {
     files.forEach((f) => form.append('files', f));
     return request<EvidenceAttachment[]>(`/projects/${projectId}/evidence/${evidenceId}/files`, { method: 'POST', body: form });
   },
+  /**
+   * The durable run ledger: what ran, and whether it finished. `state` is
+   * derived server-side — an `interrupted` row is a run whose process died
+   * mid-flight, which used to vanish without a trace.
+   */
+  projectRuns: (projectId: string) =>
+    request<{ runs: Array<DurableRun & { state: DurableRunState; line: string }> }>(`/projects/${projectId}/runs`),
+
   evidenceFileUrl,
 };
 

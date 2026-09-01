@@ -15,6 +15,7 @@ import {
 import { api, evidenceFileUrl } from '../../../lib/api';
 import { Badge, Button, Callout, EmptyState, useToast } from '../../../components/ui/kit';
 import { formatWhen, severityTone } from '../shared';
+import { useAsync } from '../../../lib/useAsync';
 import { ProjectGraphCanvas } from './ProjectGraphCanvas';
 import { LiveRow } from '../LiveRow';
 
@@ -295,6 +296,10 @@ export function ActionsPane({
 
 export function OrchestratePane({ project, onChanged }: { project: DdProject; onChanged: () => Promise<void> }) {
   const toast = useToast();
+  // The durable run ledger. Its one irreplaceable row is `interrupted`: a
+  // model run whose process died used to vanish without a trace, and the
+  // person who asked was left telling silence apart from refusal.
+  const { data: runLedger } = useAsync(() => api.projectRuns(project.id), [project.id, project.updatedAt]);
   const recommended = recommendedDdTypes(project.currentStage).filter(
     (d) => !project.assessments.some((a) => a.ddType === d.key && a.status !== 'archived'),
   );
@@ -340,6 +345,21 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
       ) : (
         <p className="text-[13px] text-ink-muted">No orchestrator run yet. Chat “orchestrate” or press the button.</p>
       )}
+      {runLedger?.runs.length ? (
+        <div>
+          <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Recent runs</h3>
+          <ul className="mt-2 space-y-1.5">
+            {runLedger.runs.slice(0, 8).map((row) => (
+              <li key={row.id} className="flex items-start gap-2 text-[12.5px] leading-snug">
+                <Badge tone={row.state === 'interrupted' ? 'warning' : row.state === 'failed' ? 'critical' : row.state === 'running' ? 'brand' : 'neutral'}>
+                  {row.state}
+                </Badge>
+                <span className="min-w-0 text-ink-secondary">{row.line}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {project.capabilityRuns.length ? (
         <div>
           <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Capabilities</h3>

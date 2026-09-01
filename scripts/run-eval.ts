@@ -19,11 +19,13 @@ import {
   buildEvalCases,
   capabilityNeedsFor,
   createProviderEvalExecutor,
+  modelFor,
   parseEvalRoute,
   rankEvalResults,
   readEnv,
   runEvalComparison,
   summariseRanking,
+  TIER_MODEL_ENV,
   tierFor,
 } from '@realytica/agents';
 import type { EvalCase, EvalRanking, EvalTaskKind } from '@realytica/shared';
@@ -39,7 +41,7 @@ const flag = (name: string): boolean => process.argv.includes(`--${name}`);
 async function main(): Promise<void> {
   const routeSpecs = (arg('routes') ?? '').split(',').map(s => s.trim()).filter(Boolean);
   if (routeSpecs.length === 0) {
-    console.error('Usage: pnpm eval --routes <provider:model>[,<provider:model>...] [--task <kind>] [--limit N] [--dry-run]');
+    console.error('Usage: pnpm eval --routes <provider:model>[,<provider:model>...] [--task <kind>] [--limit N] [--attempts K] [--dry-run]');
     console.error(`Tasks: ${TASKS.join(', ')}`);
     process.exit(2);
   }
@@ -51,6 +53,14 @@ async function main(): Promise<void> {
   }
   const tasks = taskArg ? [taskArg] : TASKS;
   const limit = Number(arg('limit') ?? '0') || undefined;
+  /*
+   * Repetition, off by default. One attempt measures accuracy; several
+   * measure whether the accuracy can be relied on — pass@1 renders a route
+   * that passes half the corpus every time indistinguishable from one that
+   * passes all of it half the time. Attempts multiply spend linearly, which
+   * is why the dry-run arithmetic below includes them.
+   */
+  const attempts = Math.max(1, Math.floor(Number(arg('attempts') ?? '1') || 1));
 
   // The corpus is built against a fixed date, not the clock, so two runs a
   // week apart compare the same documents. Same reason every other module here
@@ -72,7 +82,7 @@ async function main(): Promise<void> {
   let totalCalls = 0;
   const byTask: { task: EvalTaskKind; cases: EvalCase[] }[] = tasks.map(task => {
     const cases = all.filter(c => c.kind === task).slice(0, limit ?? undefined);
-    totalCalls += cases.length * routes.length;
+    totalCalls += cases.length * routes.length * attempts;
     return { task, cases };
   });
 
@@ -84,6 +94,7 @@ async function main(): Promise<void> {
     if (needs.length > 0) console.log(`  ${''.padEnd(20)} asks for: ${needs.join(', ')}`);
   }
   console.log(`\nRoutes: ${routes.map(r => `${r.provider}:${r.model}`).join(', ')}`);
+  if (attempts > 1) console.log(`Attempts per case: ${attempts} — consistency (pass^${attempts}) will be reported.`);
   console.log(`Model calls a real run would make: ${totalCalls}\n`);
 
   if (flag('dry-run')) {
@@ -124,10 +135,33 @@ async function main(): Promise<void> {
       cases,
       execute,
       now: new Date().toISOString(),
+      attempts,
     });
 
     const ranking = rankEvalResults(comparison.results);
     for (const line of summariseRanking(ranking)) console.log(`  ${line}`);
+
+    /*
+     * The routing check. The tier table is static configuration, so "does the
+     * router route well" reduces to: does the model this task's tier is
+     * CURRENTLY pointed at win this comparison? A cheaper compared route
+     * beating the configured one is a saving going unclaimed; the configured
+     * route losing on accuracy is a quality regression nobody would otherwise
+     * see, because production traffic never runs the comparison.
+     */
+    const agent = EVAL_TASK_AGENT[task];
+    const configured = modelFor(agent);
+    const bestClean = ranking.find(r => r.fabrications === 0);
+    const configuredRow = ranking.find(r => r.model === configured);
+    if (configuredRow && bestClean && bestClean.model !== configured) {
+      console.log(
+        `  ⚠ routing: tier ${tierFor(agent)} is configured for ${configured} (score ${configuredRow.meanScore.toFixed(3)}), but ${bestClean.model} ranked above it here — worth a look at ${TIER_MODEL_ENV[tierFor(agent)]}.`,
+      );
+    } else if (!configuredRow) {
+      console.log(`  routing: tier ${tierFor(agent)} currently runs ${configured}, which was not in this comparison — add it to --routes to judge the live routing.`);
+    } else {
+      console.log(`  routing: the configured ${tierFor(agent)} model (${configured}) is the best clean route here — the tier table stands.`);
+    }
     // The best route on this task is what the gate judges. A comparison run
     // deliberately includes weak routes; failing the build because a
     // known-cheap model scored badly against a known-good one would make the

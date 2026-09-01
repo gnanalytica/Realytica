@@ -2,6 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
 import {
+  runState,
+  describeRun,
   CHECK_DEFINITIONS,
   DD_TYPE_DEFINITIONS,
   LIFECYCLE_STAGES,
@@ -72,6 +74,7 @@ import {
 import { memoryStore } from '../memory';
 import { gatherChatSides } from '../project-chat-sides';
 import { ensureIdentitySiteContext } from '../site-context';
+import { beginRun, listRuns } from '../runs/journal';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
@@ -225,6 +228,23 @@ projectsRouter.get('/:projectId/dashboard', (req, res) => {
   res.json(toDashboard(project));
 });
 
+projectsRouter.get('/:projectId/runs', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  // State is derived at read time, never stored: a crashed writer cannot
+  // record that it crashed, so "interrupted" is an inference from staleness.
+  const now = new Date().toISOString();
+  const runs = (await listRuns(project.id)).map((run) => ({
+    ...run,
+    state: runState(run, now),
+    line: describeRun(run, now),
+  }));
+  res.json({ runs });
+});
+
 projectsRouter.get('/:projectId/graph', (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -310,10 +330,18 @@ projectsRouter.post('/:projectId/screen', async (req, res) => {
   }
   const actor = actorOf(req.body as { actor?: string } | undefined);
   const now = new Date().toISOString();
-  const site = await ensureIdentitySiteContext(project, projectToIdentity(project), now);
-  const applied = screenProject(project, actor, now, site);
-  await persistPaneWrite(project, 'Ran the project screen.');
-  res.status(201).json({ snapshot: applied.snapshot, valuationId: applied.valuationId, project });
+  const journal = await beginRun(project.id, 'screen', { actor });
+  try {
+    const site = await ensureIdentitySiteContext(project, projectToIdentity(project), now);
+    await journal.step('site_context', site ? 'Site context resolved.' : 'No mapping provider; screening without a pin.');
+    const applied = screenProject(project, actor, now, site);
+    await persistPaneWrite(project, 'Ran the project screen.');
+    await journal.finish(`Verdict ${applied.snapshot.verdict}.`);
+    res.status(201).json({ snapshot: applied.snapshot, valuationId: applied.valuationId, project });
+  } catch (err) {
+    await journal.fail(err instanceof Error ? err.message : String(err));
+    throw err;
+  }
 });
 
 projectsRouter.post('/:projectId/valuation', async (req, res) => {
@@ -493,6 +521,16 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const { line, clientGone } = stream;
 
   if (!deterministic && capability.available) {
+    /*
+     * The durable ledger. Everything below lives inside this one request:
+     * if the function dies mid-run there is otherwise no record the run
+     * happened. `beginRun` makes the running record durable before the first
+     * model token; steps are chained onto `journalTail` because the agent's
+     * onStep is synchronous, and the tail is awaited before the response
+     * ends so no checkpoint is left unflushed behind a sent response.
+     */
+    const journal = await beginRun(project.id, 'chat_model', { question, actor });
+    let journalTail: Promise<void> = Promise.resolve();
     try {
       let memoryText = '';
       try {
@@ -518,21 +556,41 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
           const found = await lookupShelf(query, extra);
           return found.text;
         },
-        onStep: (step: AgentStep) => line({ type: 'step', step }),
+        onStep: (step: AgentStep) => {
+          line({ type: 'step', step });
+          journalTail = journalTail.then(() => journal.step(step.kind, step.label));
+        },
       });
       if (clientGone()) {
+        // The model finished but nobody is listening and nothing was applied.
+        // That is a failed run on the ledger — the person who reopens this
+        // project should see it happened and did not land, not silence.
+        journalTail = journalTail.then(() => journal.fail('The connection dropped before the answer was applied.'));
+        await journalTail;
         res.end();
         return;
       }
       if (agent.text && !agent.text.startsWith('The project copilot is unavailable') && !agent.text.startsWith('No model endpoint')) {
         const result = applyProjectAgentTurn(project, question, agent);
         await store.save();
+        journalTail = journalTail.then(() =>
+          journal.finish(
+            result.assistantTurn.unsupportedClaims?.length
+              ? `Answered; ${result.assistantTurn.unsupportedClaims.length} unsupported figure(s) flagged.`
+              : `Answered with ${agent.toolCalls.length} tool call(s).`,
+          ),
+        );
+        await journalTail;
         line({ type: 'result', ...result, project });
         res.end();
         return;
       }
+      journalTail = journalTail.then(() => journal.fail('The copilot returned nothing usable; the wizard answered instead.'));
+      await journalTail;
     } catch (e) {
       line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'error', label: describeError(e) } });
+      journalTail = journalTail.then(() => journal.fail(describeError(e)));
+      await journalTail;
       /* fall through to the wizard — a model failure must not block chat */
     }
   }
@@ -730,7 +788,9 @@ projectsRouter.post('/:projectId/orchestrate', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
+  const journal = await beginRun(project.id, 'orchestrate', { actor: actorOf(parsed.data) });
   const run = runProjectOrchestrator(project, actorOf(parsed.data));
+  await journal.step('rule_pass', `Rule pass proposed ${run.draftIds.length} draft(s).`);
   const capability = agentCapability();
   if (capability.available) {
     try {
@@ -744,11 +804,14 @@ projectsRouter.post('/:projectId/orchestrate', async (req, res) => {
           project.chatProposals.push(card);
           openTitles.add(card.title);
         }
+        await journal.step('model_pass', `Model pass queued ${extra.proposals.length} card(s).`);
       }
-    } catch {
+    } catch (err) {
+      await journal.step('model_pass_failed', err instanceof Error ? err.message : String(err));
       /* rule run already recorded */
     }
   }
+  await journal.finish(`${run.source === 'model' ? 'Rule + model pass' : 'Rule pass'}; ${run.draftIds.length} draft(s).`);
   const drafts = project.aiDrafts.filter((d) => run.draftIds.includes(d.id));
   await persistPaneWrite(project, 'Orchestrated the next DD plan.');
   res.status(201).json({ run, drafts, project });

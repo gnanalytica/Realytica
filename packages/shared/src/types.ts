@@ -2585,6 +2585,8 @@ export interface CopilotTurn {
    * signal: a turn carrying choices changed nothing, and says so.
    */
   choices?: ChatChoice[];
+  /** Figures in a model answer that nothing on the file supports. See `ProjectChatTurn`. */
+  unsupportedClaims?: string[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -3610,6 +3612,15 @@ export interface EvalRunResult {
   capabilityGaps: CapabilityGap[];
   /** Set when the call failed outright; `score` is then absent. */
   error?: string;
+  /**
+   * Which repetition of this (route, case) pair produced this result, 1-based.
+   *
+   * Absent on results recorded before repetition existed, which is the same
+   * as 1: everything used to run exactly once. Kept on the result rather than
+   * inferred from position so a stored comparison can be re-ranked without
+   * knowing the order it ran in.
+   */
+  attempt?: number;
 }
 
 export interface EvalRanking {
@@ -3628,6 +3639,28 @@ export interface EvalRanking {
    * on score alone hides that trade; this surfaces it.
    */
   scorePerUsd: number;
+  /**
+   * Consistency, measured by repetition. Present only when the comparison ran
+   * each case more than once (`attempts > 1`).
+   *
+   * `passRate` is the share of all attempts that passed — a pass is every
+   * expectation correct and zero fabrications, so it is stricter than
+   * `meanScore`. `passConsistently` is τ-bench's pass^k: the share of CASES
+   * where every attempt passed. The gap between the two is the number that
+   * matters — a route at 0.9 passRate but 0.6 passConsistently gets the right
+   * answer often and cannot be relied on for it, and pass@1 alone renders
+   * those two routes identical. `flakyCases` counts cases with at least one
+   * pass and one non-pass: the specific places to go read transcripts.
+   *
+   * A crashed attempt counts as a failed attempt here, deliberately, even
+   * though it is excluded from `meanScore`: accuracy and reliability are
+   * different questions, and a route that errors one run in four is
+   * unreliable no matter how accurate its successes are.
+   */
+  attempts?: number;
+  passRate?: number;
+  passConsistently?: number;
+  flakyCases?: number;
 }
 
 export interface EvalComparison {

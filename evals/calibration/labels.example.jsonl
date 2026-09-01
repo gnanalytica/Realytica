@@ -1,0 +1,4 @@
+# Copy to labels.jsonl and replace with your own graded transcripts.
+# One JSON object per line. Lines starting with # are ignored.
+{"id":"example-1","human":"pass","judge":"pass","note":"replace me — critic and human both accepted the title-chain verification"}
+{"id":"example-2","human":"fail","judge":"pass","note":"replace me — the dangerous direction: critic cleared a finding a person rejected"}

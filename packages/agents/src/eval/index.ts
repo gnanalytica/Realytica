@@ -20,3 +20,4 @@ export * from './rank';
 // because it depends on the provider port and the prompt registry, and the
 // rest of this folder deliberately does not.
 export * from './executor';
+export * from './calibration';

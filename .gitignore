@@ -17,3 +17,6 @@ coverage/
 .vercel
 .env*.local
 .playwright-cli/
+
+# Human-graded calibration labels may describe real runs on real properties.
+evals/calibration/labels.jsonl
