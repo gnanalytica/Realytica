@@ -94,6 +94,23 @@ export function validateFieldValue(
           if (!column) return { error: `${def.label} has no column "${key}". It has: ${columns.map((c) => c.key).join(', ')}.` };
           const parsed = validateFieldValue(column, cell);
           if ('error' in parsed) return { error: `${def.label} row ${index + 1}: ${parsed.error}` };
+          /*
+           * One proof per row, not a list.
+           *
+           * A cell holds a scalar — that is what makes a table a table, and
+           * what keeps a row printable in a report line. An evidence column
+           * therefore cites exactly one document: the NOC certificate for THIS
+           * NOC, the closure letter for THIS condition. A row needing several
+           * documents is really several rows, or a row whose proof is a
+           * bundle filed as one evidence record.
+           */
+          if (column.kind === 'evidence' && Array.isArray(parsed.value)) {
+            if (parsed.value.length > 1) {
+              return { error: `${def.label} row ${index + 1}: ${column.label} cites one document per row — file several as one record, or split the row.` };
+            }
+            row[key] = (parsed.value[0] as string) ?? null;
+            continue;
+          }
           row[key] = parsed.value as CheckTableRow[string];
         }
         rows.push(row);
@@ -101,9 +118,26 @@ export function validateFieldValue(
       return { value: rows };
     }
     case 'evidence': {
-      const s = String(raw).trim();
-      if (!s) return { value: null };
-      return { value: s };
+      /*
+       * A list, not a string.
+       *
+       * "Site photographs" is plural in the label and was singular in the
+       * store, so the field could hold one of forty shots and the check read
+       * as satisfied. Every evidence field is a set of register rows; a field
+       * that wants exactly one is a set of size one, which costs nothing and
+       * removes the case where the second document has nowhere to go.
+       *
+       * Existence is NOT checked here — this function is pure and has no
+       * project to look in. `recordCheckFields` does it, because a field
+       * pointing at an evidence row that does not exist is a citation to
+       * nothing, and that has to be refused at the door rather than noticed in
+       * a report.
+       */
+      const list = (Array.isArray(raw) ? raw.map(String) : String(raw).split(',').map((x) => x.trim()))
+        .map((x) => x.trim())
+        .filter(Boolean);
+      if (!list.length) return { value: null };
+      return { value: [...new Set(list)] };
     }
     case 'duration':
     case 'number':
@@ -234,6 +268,10 @@ export function formatFieldValue(def: CheckFieldDef, value: CheckFieldValue | un
   const raw = value!.value;
   if (Array.isArray(raw)) {
     if (def.kind === 'table') return `${raw.length} row(s)`;
+    // Evidence holds ids, and an id is not a thing to print at a reader. The
+    // titles live on the project, which this function cannot see, so it says
+    // how many and leaves the naming to whoever has the register.
+    if (def.kind === 'evidence') return `${raw.length} document(s)`;
     return (raw as string[]).join(', ');
   }
   if (typeof raw === 'boolean') return raw ? 'yes' : 'no';
@@ -268,7 +306,15 @@ function fill(template: string, parts: Record<string, string>): string {
  * unknown is correct; "0 sqm, a 100% divergence" from an empty box is the
  * confident wrong answer this whole product exists to avoid.
  */
-export function checkInsights(defs: CheckFieldDef[], values: Record<string, CheckFieldValue>, rules: CheckInsightRule[]): CheckInsight[] {
+export function checkInsights(
+  defs: CheckFieldDef[],
+  values: Record<string, CheckFieldValue>,
+  rules: CheckInsightRule[],
+  // Injected rather than read from the clock inside, so an expiry rule is
+  // testable and so a report rendered twice in one session cannot disagree
+  // with itself about what "expired" meant.
+  now: Date = new Date(),
+): CheckInsight[] {
   const byKey = new Map(defs.map((d) => [d.key, d]));
   const out: CheckInsight[] = [];
 
@@ -334,10 +380,63 @@ export function checkInsights(defs: CheckFieldDef[], values: Record<string, Chec
         fields: [gateKey!, needKey!],
         computed: true,
       });
+      continue;
+    }
+
+    if (rule.kind === 'row_expired' || rule.kind === 'row_missing') {
+      const [tableKey] = rule.fields;
+      const def = byKey.get(tableKey!);
+      const rows = values[tableKey!]?.value;
+      if (!def || def.kind !== 'table' || !Array.isArray(rows) || !rule.column) continue;
+
+      for (const [index, entry] of (rows as CheckTableRow[]).entries()) {
+        if (typeof entry !== 'object' || entry === null) continue;
+        // The gate is what stops a register nagging about rows it should not.
+        // A NOC marked "not required" has no expiry to be past and no
+        // certificate to be missing.
+        if (rule.gate && rule.whenIn && !rule.whenIn.includes(String(entry[rule.gate] ?? ''))) continue;
+
+        const label = rowLabel(def, entry, index);
+        const cell = entry[rule.column];
+
+        if (rule.kind === 'row_missing') {
+          if (cell !== null && cell !== undefined && String(cell).trim() !== '') continue;
+          out.push({ severity: rule.severity, text: fill(rule.say, { row: label }), fields: [tableKey!], computed: true });
+          continue;
+        }
+
+        // An expiry nobody recorded is a different fact from one in the past,
+        // and only the second is this rule's business. `row_missing` is how you
+        // ask about the first.
+        if (typeof cell !== 'string' || !cell.trim()) continue;
+        const when = new Date(`${cell}T00:00:00Z`);
+        if (Number.isNaN(when.getTime()) || when.getTime() >= now.getTime()) continue;
+        const days = Math.floor((now.getTime() - when.getTime()) / 86_400_000);
+        out.push({
+          severity: rule.severity,
+          text: fill(rule.say, { row: label, a: cell, days: String(days) }),
+          fields: [tableKey!],
+          computed: true,
+        });
+      }
     }
   }
 
   return out;
+}
+
+/**
+ * What to call one row of a table in a sentence.
+ *
+ * The first column's value, because in every table declared here that is the
+ * identifying one — the NOC, the condition, the variation. Falling back to a
+ * position keeps a sentence readable when the identifying cell is the blank
+ * one being complained about.
+ */
+function rowLabel(def: CheckFieldDef, row: CheckTableRow, index: number): string {
+  const first = def.columns?.[0];
+  const value = first ? row[first.key] : undefined;
+  return value !== null && value !== undefined && String(value).trim() ? String(value) : `row ${index + 1}`;
 }
 
 /* ==================================================================== */

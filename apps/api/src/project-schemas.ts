@@ -371,6 +371,94 @@ export const classifyFindingBodySchema = z.object({
   actor: actorSchema,
 });
 
+/* --- Capture, visits and sheets ------------------------------------- */
+
+const capturePurposeSchema = z.enum([
+  'pre_construction',
+  'survey',
+  'diligence_inspection',
+  'valuation_inspection',
+  'progress',
+  'defect',
+  'handover',
+  'record',
+]);
+
+const visitLimitationSchema = z.object({
+  kind: z.enum(['no_access', 'occupied', 'weather', 'concealed', 'height', 'services_off', 'time', 'other']),
+  what: z.string().trim().min(1).max(400),
+});
+
+export const createSiteVisitBodySchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  purpose: capturePurposeSchema,
+  visitedOn: z.string().trim().min(1).max(40),
+  surveyor: z.string().trim().min(1).max(120),
+  status: z.enum(['planned', 'completed', 'aborted']).optional(),
+  accompaniedBy: z.string().max(200).optional(),
+  weather: z.string().max(200).optional(),
+  notes: z.string().max(4000).optional(),
+  limitations: z.array(visitLimitationSchema).max(40).optional(),
+  assetIds: z.array(z.string()).optional(),
+  assessmentIds: z.array(z.string()).optional(),
+  actor: actorSchema,
+});
+
+export const patchSiteVisitBodySchema = createSiteVisitBodySchema.partial().extend({ actor: actorSchema });
+
+/**
+ * `null` clears, an omitted key leaves alone.
+ *
+ * The distinction matters more here than anywhere else on this file: a photo
+ * whose geotag was wrong has to be clearable, and "I did not mention the
+ * coordinates" must never read as "remove them".
+ */
+export const setCaptureBodySchema = z.object({
+  purpose: capturePurposeSchema.optional(),
+  takenAt: z.string().max(40).optional(),
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lng: z.number().min(-180).max(180).nullable().optional(),
+  assetId: z.string().optional(),
+  visitId: z.string().optional(),
+  zone: z.string().max(120).optional(),
+  caption: z.string().max(400).optional(),
+  actor: actorSchema,
+});
+
+export const createSheetBodySchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  kind: z.enum(['master_plan', 'zoning', 'site_plan', 'layout_plan', 'survey_sketch', 'other']),
+  evidenceId: z.string().trim().min(1),
+  attachmentId: z.string().optional(),
+  asOf: z.string().max(40).optional(),
+  issuer: z.string().max(200).optional(),
+  notes: z.string().max(2000).optional(),
+  actor: actorSchema,
+});
+
+/**
+ * Control points arrive as a complete set, never one at a time.
+ *
+ * The transform is derived from all of them, so adding one moves the sheet;
+ * a caller placing three would otherwise watch it jump twice on the way. 40 is
+ * far past useful — a north-up fit stops improving after a handful — and is
+ * there to bound the request, not to express a view.
+ */
+export const setControlPointsBodySchema = z.object({
+  points: z
+    .array(
+      z.object({
+        u: z.number().min(0).max(1),
+        v: z.number().min(0).max(1),
+        lat: z.number().min(-90).max(90),
+        lng: z.number().min(-180).max(180),
+        label: z.string().max(200).optional(),
+      }),
+    )
+    .max(40),
+  actor: actorSchema,
+});
+
 export const patchStatusBodySchema = z.object({
   status: z.string().min(1),
   actor: actorSchema,

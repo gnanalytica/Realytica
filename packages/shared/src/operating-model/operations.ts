@@ -3,6 +3,9 @@ import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalog
 import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
 import type { EnvironmentalCondition, RemedialBand, RicsEscalation } from './standards';
+import { CAPTURE_OFF_SITE_M, captureDistanceM, describeCapture, isGeotagged, type CaptureFacts, type CaptureFactsInput, type CapturePurpose } from './capture';
+import { readSheetFit, type SheetFitReading, type SheetKind, type SheetRecord } from './geo-sheet';
+import type { CreateSiteVisitInput, PatchSiteVisitInput, SiteVisitRecord } from './site-visit';
 import type {
   ActionRecord,
   Asset,
@@ -20,6 +23,7 @@ import type {
   PatchAssetInput,
   DdProject,
   DecisionRecord,
+  EvidenceAttachment,
   EvidenceRecord,
   FindingRecord,
   GenerateReportInput,
@@ -91,6 +95,10 @@ export function ensureProjectShape(project: DdProject): void {
   if (!project.chatProposals) project.chatProposals = [];
   if (!project.orchestratorRuns) project.orchestratorRuns = [];
   if (!project.stakeholders) project.stakeholders = [];
+  // Files written before visits and sheets existed load without them. Migrated
+  // on read so nothing downstream ever has to test for the older shape.
+  if (!project.siteVisits) project.siteVisits = [];
+  if (!project.sheets) project.sheets = [];
   // A report written before the block model existed is migrated on read, so
   // nothing downstream has to know two shapes.
   for (const report of project.reports) ensureReportBlocks(report);
@@ -169,6 +177,8 @@ export function createProject(input: CreateProjectInput, reference: string, acto
     risks: [],
     actions: [],
     decisions: [],
+    siteVisits: [],
+    sheets: [],
     reports: [],
     valuationRuns: [],
     capabilityRuns: [],
@@ -612,6 +622,18 @@ export function recordCheckFields(
       });
       continue;
     }
+    // An evidence field is a citation, so the thing cited has to exist. A
+    // dangling id is worse than a blank: the check renders as evidenced, the
+    // report counts it, and nobody discovers the row was deleted until
+    // somebody clicks it.
+    if (def.kind === 'evidence' && Array.isArray(parsed.value)) {
+      const missing = (parsed.value as string[]).filter((evidenceId) => !project.evidence.some((e) => e.id === evidenceId));
+      if (missing.length) {
+        rejected.push({ key, error: `${def.label} cites ${missing.length === 1 ? 'a row' : 'rows'} that ${missing.length === 1 ? 'is' : 'are'} not on the evidence register: ${missing.join(', ')}.` });
+        continue;
+      }
+    }
+
     accepted[key] = { value: parsed.value, at, by: actor, ...(sourceEvidenceId ? { sourceEvidenceId } : {}) };
   }
 
@@ -930,6 +952,354 @@ export function classifyFinding(
     at,
   });
   return record;
+}
+
+/* ==================================================================== */
+/* Site visits                                                           */
+/* ==================================================================== */
+
+export function addSiteVisit(project: DdProject, input: CreateSiteVisitInput, actor = DEFAULT_ACTOR): SiteVisitRecord {
+  ensureProjectShape(project);
+  const at = nowIso();
+  const record: SiteVisitRecord = {
+    id: id('vis'),
+    title: input.title.trim(),
+    purpose: input.purpose,
+    visitedOn: input.visitedOn,
+    status: input.status ?? 'completed',
+    surveyor: input.surveyor.trim(),
+    accompaniedBy: input.accompaniedBy,
+    weather: input.weather,
+    notes: input.notes,
+    limitations: input.limitations ?? [],
+    assetIds: input.assetIds ?? [],
+    assessmentIds: input.assessmentIds ?? [],
+    findingIds: [],
+    createdAt: at,
+    updatedAt: at,
+  };
+  project.siteVisits.push(record);
+  touch(project, at);
+  audit(project, { actor, action: 'create', entityType: 'site_visit', entityId: record.id, newValue: record.title, at });
+  return record;
+}
+
+export function patchSiteVisit(project: DdProject, visitId: string, input: PatchSiteVisitInput, actor = DEFAULT_ACTOR): SiteVisitRecord {
+  ensureProjectShape(project);
+  const record = project.siteVisits.find((v) => v.id === visitId);
+  if (!record) throw new Error('Site visit not found');
+  if (input.title !== undefined) record.title = input.title.trim();
+  if (input.purpose !== undefined) record.purpose = input.purpose;
+  if (input.visitedOn !== undefined) record.visitedOn = input.visitedOn;
+  if (input.status !== undefined) record.status = input.status;
+  if (input.surveyor !== undefined) record.surveyor = input.surveyor.trim();
+  if (input.accompaniedBy !== undefined) record.accompaniedBy = input.accompaniedBy || undefined;
+  if (input.weather !== undefined) record.weather = input.weather || undefined;
+  if (input.notes !== undefined) record.notes = input.notes || undefined;
+  if (input.limitations !== undefined) record.limitations = input.limitations;
+  if (input.assetIds !== undefined) record.assetIds = input.assetIds;
+  if (input.assessmentIds !== undefined) record.assessmentIds = input.assessmentIds;
+  const at = nowIso();
+  record.updatedAt = at;
+  touch(project, at);
+  audit(project, { actor, action: 'patch', entityType: 'site_visit', entityId: record.id, newValue: record.title, at });
+  return record;
+}
+
+/** Every attachment on the file taken on this visit, with the evidence row it hangs off. */
+export function visitPhotos(project: DdProject, visitId: string): Array<{ evidence: EvidenceRecord; attachment: EvidenceAttachment }> {
+  ensureProjectShape(project);
+  const out: Array<{ evidence: EvidenceRecord; attachment: EvidenceAttachment }> = [];
+  for (const evidence of project.evidence) {
+    for (const attachment of evidence.attachments) {
+      if (attachment.capture?.visitId === visitId) out.push({ evidence, attachment });
+    }
+  }
+  return out;
+}
+
+export interface VisitCoverageRow {
+  visitId: string;
+  title: string;
+  visitedOn: string;
+  purpose: CapturePurpose;
+  surveyor: string;
+  photos: number;
+  /** How many of those carry a position off the file rather than a person's word. */
+  geotagged: number;
+  assetsCovered: number;
+  limitations: number;
+  /**
+   * The distinction that makes the limitations list mean anything.
+   *
+   * An empty array is a CLAIM — it says the surveyor got everywhere. A visit
+   * where nobody filled the section in is a different thing entirely, and a
+   * report that renders both as "no limitations" has invented a completeness
+   * nobody asserted.
+   */
+  limitationsStated: boolean;
+}
+
+export function visitCoverage(project: DdProject): VisitCoverageRow[] {
+  ensureProjectShape(project);
+  return project.siteVisits.map((visit) => {
+    const photos = visitPhotos(project, visit.id);
+    return {
+      visitId: visit.id,
+      title: visit.title,
+      visitedOn: visit.visitedOn,
+      purpose: visit.purpose,
+      surveyor: visit.surveyor,
+      photos: photos.length,
+      geotagged: photos.filter((p) => isGeotagged(p.attachment.capture)).length,
+      assetsCovered: visit.assetIds.length,
+      limitations: visit.limitations.length,
+      // `notes` standing in for "somebody worked through this section" is
+      // deliberate: there is no separate "I checked and there were none" flag,
+      // and adding one would be a box nobody ticks. A visit with neither a
+      // limitation nor a note has simply not been written up.
+      limitationsStated: visit.limitations.length > 0 || Boolean(visit.notes?.trim()),
+    };
+  });
+}
+
+/* ==================================================================== */
+/* What a photograph claims about itself                                 */
+/* ==================================================================== */
+
+export interface CaptureConcern {
+  evidenceId: string;
+  attachmentId: string;
+  fileName: string;
+  code: 'off_site' | 'no_taken_at' | 'stale_for_valuation' | 'no_purpose';
+  say: string;
+}
+
+/**
+ * Where a photograph's own metadata argues with the file it was filed on.
+ *
+ * Computed, never stored, and deliberately narrow: four checks, each of which
+ * a person could make themselves in ten seconds and none of which anybody
+ * makes across four hundred photographs. Nothing here rejects a file — a shot
+ * two kilometres away might be of the access road, and a baseline with no
+ * timestamp is still worth keeping. They are things a reader should be told
+ * before citing one, which is a different act from refusing it.
+ */
+export function captureConcerns(project: DdProject): CaptureConcern[] {
+  ensureProjectShape(project);
+  /*
+   * The site's own pin, read straight off the stored geocode.
+   *
+   * `planningPinOf` is the fuller answer and cannot be called from here — it
+   * lives downstream of `capabilities`, which is downstream of this file. What
+   * it adds over this line is a fallback to a coordinate pulled during a chat,
+   * and that is exactly the wrong thing to measure a photograph against: a
+   * transient lookup is not where the property is. The stored geocode, or
+   * nothing.
+   */
+  const point = project.siteContext?.location?.point;
+  const site = point && Number.isFinite(point.lat) && Number.isFinite(point.lng) ? { lat: point.lat, lng: point.lng } : undefined;
+  const out: CaptureConcern[] = [];
+
+  for (const evidence of project.evidence) {
+    for (const attachment of evidence.attachments) {
+      const capture = attachment.capture;
+      if (!attachment.mimeType.startsWith('image/')) continue;
+      const where = { evidenceId: evidence.id, attachmentId: attachment.id, fileName: attachment.fileName };
+
+      if (!capture?.purpose) {
+        out.push({ ...where, code: 'no_purpose', say: 'No purpose recorded, so what this photograph is meant to show is not on the file.' });
+      }
+
+      const distance = captureDistanceM(capture, site);
+      if (distance !== null && distance > CAPTURE_OFF_SITE_M) {
+        out.push({
+          ...where,
+          code: 'off_site',
+          say: `The camera recorded this ${(distance / 1000).toFixed(1)} km from the site. Either it is of somewhere else, or the geotag is wrong — say which before citing it.`,
+        });
+      }
+
+      if (capture?.purpose === 'pre_construction' && !capture.takenAt) {
+        out.push({
+          ...where,
+          code: 'no_taken_at',
+          say: 'A pre-construction baseline with no capture date proves nothing about what changed. Record when it was taken.',
+        });
+      }
+
+      if (capture?.purpose === 'valuation_inspection' && !capture.takenAt) {
+        out.push({
+          ...where,
+          code: 'no_taken_at',
+          say: 'A valuation inspection photograph has to carry its date — the valuation is stated as at one.',
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Set or correct what a file says about its own capture.
+ *
+ * Separate from the upload because most of these facts are not known at the
+ * moment of upload: a batch of forty shots is dropped in first and sorted into
+ * purposes, assets and zones afterwards. Correcting a coordinate a person
+ * typed is ordinary; note that doing so sets the source to `stated`, so an
+ * edited position can never pass as one the camera recorded.
+ */
+export function setAttachmentCapture(
+  project: DdProject,
+  evidenceId: string,
+  attachmentId: string,
+  input: CaptureFactsInput,
+  actor = DEFAULT_ACTOR,
+): EvidenceAttachment {
+  ensureProjectShape(project);
+  const evidence = project.evidence.find((e) => e.id === evidenceId);
+  const attachment = evidence?.attachments.find((a) => a.id === attachmentId);
+  if (!evidence || !attachment) throw new Error('Attachment not found');
+  if (input.visitId && !project.siteVisits.some((v) => v.id === input.visitId)) throw new Error('Site visit not found');
+  if (input.assetId && !project.assets.some((a) => a.id === input.assetId)) throw new Error('Asset not found');
+
+  const capture: CaptureFacts = { ...(attachment.capture ?? {}) };
+  if (input.purpose !== undefined) capture.purpose = input.purpose;
+  if (input.zone !== undefined) capture.zone = input.zone || undefined;
+  if (input.caption !== undefined) capture.caption = input.caption || undefined;
+  if (input.assetId !== undefined) capture.assetId = input.assetId || undefined;
+  if (input.visitId !== undefined) capture.visitId = input.visitId || undefined;
+  if (input.takenAt !== undefined) {
+    capture.takenAt = input.takenAt || undefined;
+    capture.takenAtSource = input.takenAt ? 'stated' : undefined;
+  }
+  if (input.lat !== undefined || input.lng !== undefined) {
+    /*
+     * `??` is wrong here and was the bug: `null ?? existing` yields the
+     * existing value, so an explicit clear silently kept the old coordinate.
+     * Absent and null are different instructions and have to be told apart by
+     * `=== undefined`, not by nullishness.
+     *
+     * Sending one half also clears both: half a coordinate is not a position,
+     * and keeping the surviving half would leave a latitude paired with a
+     * longitude nobody stands behind.
+     */
+    const lat = input.lat === undefined ? capture.lat : input.lat;
+    const lng = input.lng === undefined ? capture.lng : input.lng;
+    if (lat === null || lng === null || lat === undefined || lng === undefined) {
+      delete capture.lat;
+      delete capture.lng;
+      delete capture.latLngSource;
+    } else {
+      if (!Number.isFinite(lat) || lat < -90 || lat > 90) throw new Error('Latitude has to be between -90 and 90.');
+      if (!Number.isFinite(lng) || lng < -180 || lng > 180) throw new Error('Longitude has to be between -180 and 180.');
+      capture.lat = lat;
+      capture.lng = lng;
+      // A position somebody typed is their claim, never the camera's — even
+      // when they are only nudging one the camera supplied.
+      capture.latLngSource = 'stated';
+    }
+  }
+
+  attachment.capture = capture;
+  const at = nowIso();
+  evidence.updatedAt = at;
+  touch(project, at);
+  audit(project, { actor, action: 'patch', entityType: 'attachment', entityId: attachment.id, newValue: describeCapture(capture), at });
+  return attachment;
+}
+
+/* ==================================================================== */
+/* Sheets placed on the ground                                           */
+/* ==================================================================== */
+
+export function addSheet(
+  project: DdProject,
+  input: { title: string; kind: SheetKind; evidenceId: string; attachmentId?: string; asOf?: string; issuer?: string; notes?: string },
+  actor = DEFAULT_ACTOR,
+): SheetRecord {
+  ensureProjectShape(project);
+  if (!project.evidence.some((e) => e.id === input.evidenceId)) {
+    throw new Error('A sheet has to name the evidence row its file is filed on.');
+  }
+  const at = nowIso();
+  const record: SheetRecord = {
+    id: id('sht'),
+    title: input.title.trim(),
+    kind: input.kind,
+    evidenceId: input.evidenceId,
+    attachmentId: input.attachmentId,
+    asOf: input.asOf,
+    issuer: input.issuer,
+    notes: input.notes,
+    controlPoints: [],
+    createdAt: at,
+    updatedAt: at,
+  };
+  project.sheets.push(record);
+  touch(project, at);
+  audit(project, { actor, action: 'create', entityType: 'sheet', entityId: record.id, newValue: record.title, at });
+  return record;
+}
+
+/**
+ * Replace a sheet's control points wholesale.
+ *
+ * All at once rather than one at a time because the transform is derived from
+ * the whole set: adding a point moves the sheet, and a caller that added three
+ * would otherwise see it jump twice on the way. The fit is recomputed on read,
+ * so nothing here stores a placement.
+ */
+export function setSheetControlPoints(
+  project: DdProject,
+  sheetId: string,
+  points: Array<{ u: number; v: number; lat: number; lng: number; label?: string }>,
+  actor = DEFAULT_ACTOR,
+): SheetRecord {
+  ensureProjectShape(project);
+  const sheet = project.sheets.find((s) => s.id === sheetId);
+  if (!sheet) throw new Error('Sheet not found');
+  for (const p of points) {
+    if (!Number.isFinite(p.u) || p.u < 0 || p.u > 1 || !Number.isFinite(p.v) || p.v < 0 || p.v > 1) {
+      throw new Error('A control point sits on the sheet, so u and v are fractions between 0 and 1.');
+    }
+    if (!Number.isFinite(p.lat) || p.lat < -90 || p.lat > 90) throw new Error('Latitude has to be between -90 and 90.');
+    if (!Number.isFinite(p.lng) || p.lng < -180 || p.lng > 180) throw new Error('Longitude has to be between -180 and 180.');
+  }
+  sheet.controlPoints = points.map((p) => ({ id: id('gcp'), u: p.u, v: p.v, lat: p.lat, lng: p.lng, label: p.label?.trim() || undefined }));
+  const at = nowIso();
+  sheet.updatedAt = at;
+  touch(project, at);
+  audit(project, {
+    actor,
+    action: 'patch',
+    entityType: 'sheet',
+    entityId: sheet.id,
+    newValue: `${points.length} control point(s) — ${readSheetFit(sheet.controlPoints).verdict}`,
+    at,
+  });
+  return sheet;
+}
+
+export function removeSheet(project: DdProject, sheetId: string, actor = DEFAULT_ACTOR): void {
+  ensureProjectShape(project);
+  const index = project.sheets.findIndex((s) => s.id === sheetId);
+  if (index < 0) throw new Error('Sheet not found');
+  const [removed] = project.sheets.splice(index, 1);
+  const at = nowIso();
+  touch(project, at);
+  audit(project, { actor, action: 'delete', entityType: 'sheet', entityId: removed!.id, oldValue: removed!.title, at });
+}
+
+export interface SheetPlacement {
+  sheet: SheetRecord;
+  reading: SheetFitReading;
+}
+
+/** Every sheet on the file with its placement worked out fresh. */
+export function sheetPlacements(project: DdProject): SheetPlacement[] {
+  ensureProjectShape(project);
+  return project.sheets.map((sheet) => ({ sheet, reading: readSheetFit(sheet.controlPoints) }));
 }
 
 export function addDecision(project: DdProject, input: CreateDecisionInput, actor = DEFAULT_ACTOR): DecisionRecord {

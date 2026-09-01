@@ -164,15 +164,39 @@ export const CHECK_FIELDS: Record<string, CheckFieldDef[]> = {
     },
     { key: 'total_conditions', label: 'Conditions in total', kind: 'computed', formula: { op: 'count', table: 'conditions' } },
   ],
+  /*
+   * A row per NOC, because a project has eight of them and they expire
+   * separately.
+   *
+   * This was a multi-select of which NOCs apply plus a single fire-NOC expiry
+   * date. That shape can say "we need a lake NOC" and can never say who issued
+   * it, what its number is, when it runs out, or which file proves it — so the
+   * check that exists to answer "are the NOCs in hand" could not answer it for
+   * seven of the eight. The evidence column is the point: a NOC nobody can
+   * produce the certificate for is not in hand, whatever the row says.
+   */
   'regulatory.nocs': [
     {
       key: 'nocs',
       label: 'Statutory NOCs',
-      kind: 'multi_enum',
-      options: ['Fire', 'Airport height', 'Pollution control', 'Lake / SWD', 'Forest', 'Ancient monuments', 'Defence', 'Railways', 'Highways'],
+      kind: 'table',
       from: 'NOC file',
+      columns: [
+        {
+          key: 'noc',
+          label: 'NOC',
+          kind: 'enum',
+          options: ['Fire', 'Airport height', 'Pollution control', 'Lake / SWD', 'Forest', 'Ancient monuments', 'Defence', 'Railways', 'Highways', 'Environment (EC)', 'Other'],
+        },
+        { key: 'authority', label: 'Issuing authority', kind: 'text' },
+        { key: 'number', label: 'Reference number', kind: 'text' },
+        { key: 'issued_on', label: 'Issued', kind: 'date' },
+        { key: 'valid_to', label: 'Valid to', kind: 'date' },
+        { key: 'status', label: 'Status', kind: 'enum', options: ['in hand', 'applied', 'expired', 'not required', 'refused'] },
+        { key: 'certificate', label: 'Certificate', kind: 'evidence', accepts: 'document' },
+      ],
     },
-    { key: 'fire_noc_valid_to', label: 'Fire NOC valid to', kind: 'date', from: 'Fire NOC', required: false, proof: 'required' },
+    { key: 'noc_count', label: 'NOCs recorded', kind: 'computed', formula: { op: 'count', table: 'nocs' } },
     { key: 'all_in_hand', label: 'All NOCs required at this stage are in hand', kind: 'boolean', control: 'switch' },
   ],
 
@@ -524,6 +548,35 @@ export const CHECK_INSIGHT_RULES: Record<string, CheckInsightRule[]> = {
   ],
   'schedule_progress.forecast_completion': [
     { kind: 'before', fields: ['contractual_completion', 'forecast_completion'], severity: 'high', say: 'Contractual completion is {a} and the forecast is {b} — the forecast is later, so liquidated damages are already in play.' },
+  ],
+  'regulatory.nocs': [
+    {
+      kind: 'row_expired',
+      fields: ['nocs'],
+      column: 'valid_to',
+      gate: 'status',
+      whenIn: ['in hand'],
+      severity: 'high',
+      say: '{row} is recorded as in hand but expired on {a} — {days} day(s) ago. An expired NOC is not a NOC.',
+    },
+    {
+      kind: 'row_missing',
+      fields: ['nocs'],
+      column: 'certificate',
+      gate: 'status',
+      whenIn: ['in hand'],
+      severity: 'medium',
+      say: '{row} is recorded as in hand with no certificate filed against it. Nobody can produce it from this file.',
+    },
+    {
+      kind: 'row_missing',
+      fields: ['nocs'],
+      column: 'valid_to',
+      gate: 'status',
+      whenIn: ['in hand'],
+      severity: 'low',
+      say: '{row} has no validity date, so there is nothing to diarise or to test against completion.',
+    },
   ],
   'indicative_valuation.subject': [
     {

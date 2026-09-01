@@ -10,12 +10,25 @@ import {
   PROJECT_ARCHETYPES,
   SCOPE_DEFINITIONS,
   addAction,
+  captureConcerns,
+  patchSiteVisit,
+  readSheetFit,
+  sheetPlacements,
+  visitCoverage,
+  removeSheet,
   setActionCost,
+  setAttachmentCapture,
+  setSheetControlPoints,
+  type CaptureFacts,
+  type CapturePurpose,
   addAsset,
   addDecision,
   addEvidence,
   addFinding,
+  addSheet,
+  addSiteVisit,
   classifyFinding,
+  CAPTURE_PURPOSES,
   addRisk,
   attachEvidenceFile,
   buildProjectGraph,
@@ -88,6 +101,7 @@ import {
   runProjectOrchestratorAgent,
   textOf,
 } from '@realytica/agents';
+import { readExifCapture } from '../exif';
 import { memoryStore } from '../memory';
 import { gatherChatSides } from '../project-chat-sides';
 import { ensureIdentitySiteContext } from '../site-context';
@@ -111,7 +125,12 @@ import {
   createDecisionBodySchema,
   createEvidenceBodySchema,
   createFindingBodySchema,
+  createSheetBodySchema,
+  createSiteVisitBodySchema,
+  patchSiteVisitBodySchema,
   setActionCostBodySchema,
+  setCaptureBodySchema,
+  setControlPointsBodySchema,
   createProjectBodySchema,
   createRiskBodySchema,
   editReportBlockBodySchema,
@@ -1304,10 +1323,59 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
     res.status(400).json({ error: 'No files uploaded' });
     return;
   }
+  /*
+   * Capture mapping, sent as plain multipart fields beside the files.
+   *
+   * Applied to IMAGES only. A deed dropped into the same batch does not
+   * inherit "north boundary, valuation inspection" just because the uploader
+   * was standing somewhere when they picked the files — a scanned conveyance
+   * has no capture facts, and giving it some would turn the moment somebody
+   * dragged a file into the browser into a statement about the property.
+   *
+   * An unknown purpose or a visit that is not on this file is a 400 rather
+   * than a silent drop: the person typed a mapping, and losing it quietly is
+   * how the mapping stops happening.
+   */
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const rawPurpose = typeof body.purpose === 'string' ? body.purpose.trim() : '';
+  if (rawPurpose && !(CAPTURE_PURPOSES as readonly string[]).includes(rawPurpose)) {
+    res.status(400).json({ error: `Unknown capture purpose "${rawPurpose}"` });
+    return;
+  }
+  const visitId = typeof body.visitId === 'string' && body.visitId.trim() ? body.visitId.trim() : undefined;
+  if (visitId && !(project.siteVisits ?? []).some((v) => v.id === visitId)) {
+    res.status(400).json({ error: 'Site visit not found on this project' });
+    return;
+  }
+  const assetId = typeof body.assetId === 'string' && body.assetId.trim() ? body.assetId.trim() : undefined;
+  if (assetId && !project.assets.some((a) => a.id === assetId)) {
+    res.status(400).json({ error: 'Asset not found on this project' });
+    return;
+  }
+  const zone = typeof body.zone === 'string' ? body.zone.trim().slice(0, 120) : '';
+
   try {
     const attached = [];
     for (const file of files) {
       const storageKey = documentKey({ id: randomUUID(), fileName: file.originalname });
+      const isImage = file.mimetype.startsWith('image/');
+      // The phone already stamped where and when the shot was taken. Asking
+      // somebody to retype what the file carries is how it stops being
+      // recorded at all — and the source is kept so a coordinate read off the
+      // file never reads like one a person vouched for.
+      const exif = isImage ? readExifCapture(file.buffer) : {};
+      const capture: CaptureFacts = isImage
+        ? {
+            ...(rawPurpose ? { purpose: rawPurpose as CapturePurpose } : {}),
+            ...(visitId ? { visitId } : {}),
+            ...(assetId ? { assetId } : {}),
+            ...(zone ? { zone } : {}),
+            ...(exif.takenAt ? { takenAt: exif.takenAt, takenAtSource: 'exif' as const } : {}),
+            ...(exif.lat !== undefined && exif.lng !== undefined
+              ? { lat: exif.lat, lng: exif.lng, latLngSource: 'exif' as const }
+              : {}),
+          }
+        : {};
       await storageAdapter.putDocument(project.id, storageKey, file.buffer, file.mimetype);
       attached.push(
         attachEvidenceFile(
@@ -1318,6 +1386,7 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
             mimeType: file.mimetype,
             sizeBytes: file.size,
             storageKey,
+            capture,
           },
           actorOf(req.body as { actor?: string } | undefined),
         ),
@@ -1578,6 +1647,146 @@ projectsRouter.patch('/:projectId/decisions/:decisionId', async (req, res) => {
     const record = patchRecordStatus(project, project.decisions, req.params.decisionId, parsed.data.status as never, 'decision', actorOf(parsed.data));
     await persistPaneWrite(project, `Updated decision “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/* ==================================================================== */
+/* Site visits, capture and sheets                                       */
+/* ==================================================================== */
+
+projectsRouter.post('/:projectId/visits', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = createSiteVisitBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = addSiteVisit(project, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Recorded site visit “${record.title}”.`, { citedNodeIds: [record.id] });
+    res.status(201).json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+projectsRouter.patch('/:projectId/visits/:visitId', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = patchSiteVisitBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = patchSiteVisit(project, req.params.visitId, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Updated site visit “${record.title}”.`, { citedNodeIds: [record.id] });
+    res.json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+projectsRouter.get('/:projectId/visits', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  res.json({ visits: project.siteVisits ?? [], coverage: visitCoverage(project), concerns: captureConcerns(project) });
+});
+
+projectsRouter.patch('/:projectId/evidence/:evidenceId/files/:fileId/capture', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = setCaptureBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const attachment = setAttachmentCapture(project, req.params.evidenceId, req.params.fileId, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Described capture of “${attachment.fileName}”.`, { citedEvidenceIds: [req.params.evidenceId] });
+    res.json(attachment);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+projectsRouter.get('/:projectId/sheets', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  // The fit is worked out here rather than stored, so a sheet can never carry
+  // a placement from control points that were since moved.
+  res.json({ sheets: sheetPlacements(project) });
+});
+
+projectsRouter.post('/:projectId/sheets', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = createSheetBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = addSheet(project, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Added sheet “${record.title}”.`, { citedEvidenceIds: [record.evidenceId] });
+    res.status(201).json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+projectsRouter.put('/:projectId/sheets/:sheetId/control-points', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = setControlPointsBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const sheet = setSheetControlPoints(project, req.params.sheetId, parsed.data.points, actorOf(parsed.data));
+    const reading = readSheetFit(sheet.controlPoints);
+    await persistPaneWrite(project, `Placed sheet “${sheet.title}” — ${reading.say}`, { citedNodeIds: [sheet.id] });
+    res.json({ sheet, reading });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+projectsRouter.delete('/:projectId/sheets/:sheetId', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    removeSheet(project, req.params.sheetId, actorOf(req.body as { actor?: string } | undefined));
+    await store.save();
+    res.status(204).end();
   } catch (err) {
     fail(res, err);
   }

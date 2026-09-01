@@ -73,6 +73,45 @@ describe('every rule reads fields that exist on its own check', () => {
     assert.deepEqual(problems, []);
   });
 
+  it('names a real column when it reads inside a table', () => {
+    // The same "declared and describes nothing" failure as the dead check ids,
+    // one level down: a row rule naming a column the table does not have is a
+    // rule that silently never fires, and a NOC register that never warns
+    // about an expired NOC is worse than one with no rule at all.
+    const problems: string[] = [];
+    for (const [checkId, rules] of Object.entries(CHECK_INSIGHT_RULES)) {
+      for (const rule of rules) {
+        if (rule.kind !== 'row_expired' && rule.kind !== 'row_missing') continue;
+        const table = (CHECK_FIELDS[checkId] ?? []).find((f) => f.key === rule.fields[0]);
+        if (table?.kind !== 'table') {
+          problems.push(`${checkId}: ${rule.kind} reads "${rule.fields[0]}", which is not a table here`);
+          continue;
+        }
+        const columns = new Set((table.columns ?? []).map((c) => c.key));
+        if (!rule.column || !columns.has(rule.column)) problems.push(`${checkId}: ${rule.kind} reads column "${rule.column}", which the table does not have`);
+        if (rule.gate && !columns.has(rule.gate)) problems.push(`${checkId}: ${rule.kind} gates on column "${rule.gate}", which the table does not have`);
+      }
+    }
+    assert.deepEqual(problems, []);
+  });
+
+  it('gates every row rule on a column whose values it could actually match', () => {
+    // A gate listing a status the column does not offer never fires either,
+    // and reads in the source exactly like one that does.
+    const problems: string[] = [];
+    for (const [checkId, rules] of Object.entries(CHECK_INSIGHT_RULES)) {
+      for (const rule of rules) {
+        if (!rule.gate || !rule.whenIn) continue;
+        const table = (CHECK_FIELDS[checkId] ?? []).find((f) => f.key === rule.fields[0]);
+        const gate = (table?.columns ?? []).find((c) => c.key === rule.gate);
+        if (!gate?.options?.length) continue;
+        const unknown = rule.whenIn.filter((v) => !gate.options!.includes(v));
+        if (unknown.length) problems.push(`${checkId}: gate "${rule.gate}" can never equal ${unknown.join(', ')}`);
+      }
+    }
+    assert.deepEqual(problems, []);
+  });
+
   it('states a tolerance on every comparison', () => {
     // A tolerance is a judgement somebody should be able to argue with. An
     // implicit default is one nobody can find to argue with.

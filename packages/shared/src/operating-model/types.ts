@@ -31,6 +31,9 @@ export type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } fr
  * long way from the citation that makes them mean anything.
  */
 import type { EnvironmentalCondition, Iso19650Ref, RemedialBand, RicsEscalation } from './standards';
+import type { CaptureFacts } from './capture';
+import type { SheetRecord } from './geo-sheet';
+import type { SiteVisitRecord } from './site-visit';
 
 /* ------------------------------------------------------------------ */
 /* Catalog keys                                                        */
@@ -396,13 +399,22 @@ export interface CheckInsightRule {
    * carpet figure beside it; a quoted carpet area does not, and a plain
    * `require` would nag on both.
    */
-  kind: 'compare' | 'before' | 'require' | 'require_if';
+  kind: 'compare' | 'before' | 'require' | 'require_if' | 'row_expired' | 'row_missing';
   /** The field keys the rule reads, in the order the template names them. */
   fields: string[];
   /** Relative tolerance for `compare`. Defaults to 1%. */
   tolerance?: number;
-  /** `require_if` only: the gate values that make the second field necessary. */
+  /** `require_if` and `row_missing`: the gate values that make the other field necessary. */
   whenIn?: string[];
+  /**
+   * The row rules read INSIDE a table, which is where a register of eight NOCs
+   * or twenty approval conditions actually lives. `fields` names the table;
+   * `column` names the cell the rule is about, and `gate` the cell that
+   * decides whether it matters — an expired date on a NOC marked "not
+   * required" is not a finding.
+   */
+  column?: string;
+  gate?: string;
   /** Template with {a}, {b}, {divergence}, {tolerance}. */
   say: string;
   severity: FindingSeverity;
@@ -602,6 +614,16 @@ export interface EvidenceAttachment {
   sizeBytes: number;
   storageKey: string;
   uploadedAt: string;
+  /**
+   * Where and when this file claims it was captured, and who claims it.
+   *
+   * On a photograph this is most of what makes it evidence rather than a
+   * picture. Absent on a deed, and correctly so — a scanned conveyance has no
+   * capture facts, and inventing an uploaded-at as a taken-at would turn the
+   * moment somebody dragged a file into the browser into a statement about
+   * when the property looked like that.
+   */
+  capture?: CaptureFacts;
 }
 
 export interface FindingRecord {
@@ -1241,6 +1263,15 @@ export interface DdProject {
   risks: RiskRecord[];
   actions: ActionRecord[];
   decisions: DecisionRecord[];
+  /**
+   * Site visits, and the sheets somebody has placed on the map.
+   *
+   * Both are registers rather than fields on something else: a visit exists
+   * whether or not it produced a photograph, and a master plan sheet is
+   * consulted by several checks at once.
+   */
+  siteVisits: SiteVisitRecord[];
+  sheets: SheetRecord[];
   reports: GeneratedReport[];
   valuationRuns: ValuationRun[];
   capabilityRuns: CapabilityRun[];

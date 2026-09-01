@@ -18,6 +18,7 @@ import {
   packCompleteness,
   recommendedDdTypes,
 } from './operations';
+import type { CaptureFacts } from './capture';
 import type {
   ActionAging,
   AiDraft,
@@ -86,7 +87,7 @@ export function patchProject(project: DdProject, input: PatchProjectInput, actor
 export function attachEvidenceFile(
   project: DdProject,
   evidenceId: string,
-  file: { fileName: string; mimeType: string; sizeBytes: number; storageKey: string },
+  file: { fileName: string; mimeType: string; sizeBytes: number; storageKey: string; capture?: CaptureFacts },
   actor = 'operator',
 ): EvidenceAttachment {
   ensureProjectShape(project);
@@ -100,6 +101,10 @@ export function attachEvidenceFile(
     sizeBytes: file.sizeBytes,
     storageKey: file.storageKey,
     uploadedAt: at,
+    // Only when there is something to say. An empty capture object on every
+    // scanned deed would make "no capture facts" and "capture facts we never
+    // filled in" indistinguishable, and the register renders those differently.
+    ...(file.capture && Object.keys(file.capture).length ? { capture: file.capture } : {}),
   };
   record.attachments.push(attachment);
   record.fileName = file.fileName;
