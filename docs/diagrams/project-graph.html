@@ -1,0 +1,677 @@
+<title>Harohalli File Graph</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* ------------------------------------------------------------------
+   Tokens. Lifted from the product's own index.css so the page reads as
+   the same system, not a lookalike. Light is the bare :root; dark is
+   redefined twice so both the OS setting and an explicit toggle win.
+   ------------------------------------------------------------------ */
+:root {
+  --s1: #fcfcfb;  --s2: #ffffff;  --s3: #f2f1ed;
+  --ink: #0b0b0b; --ink2: #52514e; --ink3: #7b7a74;
+  --rule: #e4e3dd; --axis: #c3c2b7;
+  --brand: #2a78d6;
+
+  /* Categorical: one hue per LAYER, in ontology order. Validated on the
+     adjacent pairlist (worst CVD dE 17.6, normal-vision 29.0), which is
+     the honest model here because the atlas orders layers into fixed
+     lanes. Kind is carried by the label, never by hue. */
+  --L-entity: #2a78d6;
+  --L-evidence: #008300;
+  --L-claim: #e87ba4;
+  --L-judgement: #4a3aa7;
+  --L-deliberation: #1baf7a;
+
+  /* Reserved. Never a categorical slot — these only ever mean state,
+     and they arrive as a stripe plus a word, not as a fill. */
+  --critical: #d03b3b;
+  --warning: #b07d00;
+
+  --shadow: 0 1px 2px rgb(11 11 11 / .05), 0 8px 24px -12px rgb(11 11 11 / .14);
+  --radius: 7px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --s1: #1a1a19; --s2: #222220; --s3: #141413;
+    --ink: #ffffff; --ink2: #c3c2b7; --ink3: #8d8c85;
+    --rule: #302f2d; --axis: #383835;
+    --brand: #3987e5;
+    --L-entity: #3987e5;
+    --L-evidence: #26a626;
+    --L-claim: #d55181;
+    --L-judgement: #9085e9;
+    --L-deliberation: #199e70;
+    --critical: #e06767;
+    --warning: #d9a520;
+    --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -12px rgb(0 0 0 / .7);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --s1: #1a1a19; --s2: #222220; --s3: #141413;
+  --ink: #ffffff; --ink2: #c3c2b7; --ink3: #8d8c85;
+  --rule: #302f2d; --axis: #383835;
+  --brand: #3987e5;
+  --L-entity: #3987e5;
+  --L-evidence: #26a626;
+  --L-claim: #d55181;
+  --L-judgement: #9085e9;
+  --L-deliberation: #199e70;
+  --critical: #e06767;
+  --warning: #d9a520;
+  --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -12px rgb(0 0 0 / .7);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--s1);
+  color: var(--ink);
+  font: 400 14px/1.5 "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, .display { font-family: Archivo, "IBM Plex Sans", ui-sans-serif, sans-serif; }
+.mono, code { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+.tnum { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
+button { font: inherit; color: inherit; }
+
+/* ---------------- masthead ---------------- */
+.mast {
+  border-bottom: 1px solid var(--rule);
+  background: var(--s2);
+  padding: 20px 24px 0;
+}
+.mast-in { max-width: 1560px; margin: 0 auto; }
+.eyebrow {
+  font: 500 11px/1 "IBM Plex Mono", monospace;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--ink3);
+}
+.mast h1 {
+  font-size: clamp(22px, 2.6vw, 30px); font-weight: 700; letter-spacing: -.018em;
+  margin: 9px 0 4px; text-wrap: balance;
+}
+.mast .sub { color: var(--ink2); max-width: 74ch; margin: 0 0 16px; }
+.facts { display: flex; flex-wrap: wrap; gap: 0; border-top: 1px solid var(--rule); }
+.fact { padding: 11px 22px 13px 0; margin-right: 22px; border-right: 1px solid var(--rule); }
+.fact:last-child { border-right: 0; }
+.fact .k { font: 500 10px/1 "IBM Plex Mono", monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); }
+.fact .v { font-family: Archivo, sans-serif; font-weight: 600; font-size: 17px; margin-top: 5px; letter-spacing: -.01em; }
+.fact .v small { font-weight: 500; font-size: 12px; color: var(--ink2); font-family: "IBM Plex Sans", sans-serif; }
+
+/* ---------------- tabs ---------------- */
+.tabs { display: flex; gap: 2px; margin-top: 14px; }
+.tab {
+  appearance: none; background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: 9px 14px 10px; cursor: pointer; color: var(--ink2);
+  font-family: Archivo, sans-serif; font-weight: 600; font-size: 13.5px; letter-spacing: -.005em;
+}
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--brand); }
+
+/* ---------------- shell ---------------- */
+.shell { max-width: 1560px; margin: 0 auto; padding: 20px 24px 56px; display: grid; gap: 20px; grid-template-columns: minmax(0,1fr); }
+@media (min-width: 1140px) { .shell { grid-template-columns: minmax(0,1fr) 340px; align-items: start; } }
+.panel { background: var(--s2); border: 1px solid var(--rule); border-radius: var(--radius); box-shadow: var(--shadow); }
+.panel-h { padding: 13px 16px; border-bottom: 1px solid var(--rule); display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.panel-h h2 { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: -.006em; }
+.panel-h .note { color: var(--ink3); font-size: 12px; }
+
+/* ---------------- atlas ---------------- */
+.lanes { display: grid; grid-template-columns: repeat(5, minmax(196px, 1fr)); gap: 0; overflow-x: auto; }
+.lane { border-right: 1px solid var(--rule); padding: 0 0 10px; min-width: 0; }
+.lane:last-child { border-right: 0; }
+.lane-h { padding: 13px 14px 11px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 8px; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 2px var(--s2); }
+.lane-h .nm { font-family: Archivo, sans-serif; font-weight: 600; font-size: 12.5px; letter-spacing: .01em; }
+.lane-h .ct { margin-left: auto; font: 500 11px/1 "IBM Plex Mono", monospace; color: var(--ink3); font-variant-numeric: tabular-nums; }
+.lane-note { padding: 8px 14px 4px; color: var(--ink3); font-size: 11.5px; line-height: 1.45; }
+.kindbtn {
+  display: block; width: 100%; text-align: left; appearance: none; background: none;
+  border: 0; border-bottom: 1px solid var(--rule); padding: 9px 14px 10px; cursor: pointer;
+}
+.kindbtn:hover, .kindbtn.on { background: var(--s3); }
+.kindbtn .row { display: flex; align-items: baseline; gap: 8px; }
+.kindbtn .nm { font-weight: 500; font-size: 13px; }
+.kindbtn .n { margin-left: auto; font: 500 12px/1 "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--ink2); }
+.kindbtn .meter { display:block; height: 3px; border-radius: 2px; margin-top: 7px; opacity: .85; }
+.kindbtn .ex { display: block; color: var(--ink3); font-size: 11.5px; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------------- explore ---------------- */
+.bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 11px 16px; border-bottom: 1px solid var(--rule); }
+input[type="search"], select {
+  font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--axis);
+  background: var(--s1); color: var(--ink); min-width: 0;
+}
+input[type="search"] { flex: 1 1 200px; }
+.hops { display: flex; gap: 0; border: 1px solid var(--axis); border-radius: 6px; overflow: hidden; }
+.hops button { appearance: none; background: var(--s1); border: 0; border-right: 1px solid var(--axis); padding: 6px 11px; cursor: pointer; font-size: 13px; }
+.hops button:last-child { border-right: 0; }
+.hops button[aria-pressed="true"] { background: var(--brand); color: #fff; }
+.lbl { font: 500 10.5px/1 "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--ink3); }
+.canvas-wrap { position: relative; background: var(--s1); border-radius: 0 0 var(--radius) var(--radius); overflow: hidden; }
+svg.canvas { display: block; width: 100%; height: clamp(440px, 62vh, 720px); cursor: grab; touch-action: none; }
+svg.canvas.drag { cursor: grabbing; }
+.gnode { cursor: pointer; }
+.gnode text { font: 500 10.5px/1 "IBM Plex Sans", sans-serif; fill: var(--ink); pointer-events: none; }
+.gnode .plate { stroke: var(--s1); stroke-width: 2; }
+.gnode.dim { opacity: .26; }
+.edge { fill: none; stroke: var(--axis); stroke-width: 1.4; opacity: .5; }
+.edge.hot { stroke: var(--brand); opacity: 1; stroke-width: 2; }
+.edge.dim { opacity: .1; }
+.ring { fill: none; stroke: var(--rule); stroke-dasharray: 3 6; }
+.ringlab { font: 500 9.5px/1 "IBM Plex Mono", monospace; fill: var(--ink3); letter-spacing: .1em; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 10px 16px 12px; border-top: 1px solid var(--rule); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink2); }
+.hint { position: absolute; right: 12px; bottom: 10px; font: 400 11px/1.4 "IBM Plex Sans", sans-serif; color: var(--ink3); background: color-mix(in srgb, var(--s1) 86%, transparent); padding: 4px 8px; border-radius: 5px; pointer-events: none; }
+
+/* ---------------- inspector ---------------- */
+.insp { position: sticky; top: 16px; }
+.insp .body { padding: 15px 16px 18px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; border-radius: 999px;
+  padding: 3px 9px 3px 7px; font: 500 11px/1.5 "IBM Plex Mono", monospace;
+  border: 1px solid var(--rule); background: var(--s1); color: var(--ink2);
+}
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+.insp h3 { font-size: 16px; font-weight: 600; margin: 11px 0 4px; letter-spacing: -.012em; text-wrap: balance; }
+.insp .detail { color: var(--ink2); font-size: 13px; margin: 0 0 12px; }
+.idline { font: 400 10.5px/1.5 "IBM Plex Mono", monospace; color: var(--ink3); word-break: break-all; background: var(--s3); padding: 6px 8px; border-radius: 5px; }
+.relgrp { margin-top: 14px; }
+.relgrp > .lbl { display: block; margin-bottom: 6px; }
+.relrow { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-top: 1px solid var(--rule); }
+.relrow .arr { font: 400 11px/1.6 "IBM Plex Mono", monospace; color: var(--ink3); flex: 0 0 auto; }
+.relrow button { appearance: none; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font-size: 12.5px; color: var(--ink); }
+.relrow button:hover { color: var(--brand); text-decoration: underline; }
+.stripe { border-left: 3px solid var(--critical); padding-left: 9px; }
+.alarm { color: var(--critical); font-weight: 500; font-size: 12px; display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+.empty { color: var(--ink3); font-size: 13px; line-height: 1.55; }
+
+/* ---------------- ontology + table ---------------- */
+.ont { padding: 4px 16px 18px; }
+.ontgrp { border-top: 1px solid var(--rule); padding: 13px 0 4px; }
+.ontgrp:first-child { border-top: 0; }
+.ontgrp h3 { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin: 0 0 3px; }
+.ontgrp p { color: var(--ink3); font-size: 12px; margin: 0 0 9px; max-width: 76ch; }
+.kindtags { display: flex; flex-wrap: wrap; gap: 6px; }
+.kindtag { font: 500 11.5px/1 "IBM Plex Mono", monospace; padding: 5px 8px; border-radius: 5px; border: 1px solid var(--rule); background: var(--s1); }
+.kindtag i { font-style: normal; color: var(--ink3); margin-left: 6px; font-variant-numeric: tabular-nums; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font: 500 10.5px/1 "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--ink3); position: sticky; top: 0; background: var(--s2); }
+td.mono { font-size: 11.5px; color: var(--ink2); }
+tbody tr:hover { background: var(--s3); }
+.scroller { max-height: 560px; overflow-y: auto; }
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: no-preference) {
+  .gnode, .edge { transition: opacity .16s ease; }
+}
+</style>
+
+<header class="mast">
+  <div class="mast-in">
+    <div class="eyebrow">Realytica &middot; project graph</div>
+    <h1 id="projName">&nbsp;</h1>
+    <p class="sub">
+      One diligence file, projected into the graph the product stores. Five layers, left to right in the
+      order the ontology declares them: what exists, what we hold, what the sources say, what we concluded,
+      and how we got there. Every node and edge below came out of <code>buildProjectGraph</code> — nothing here is drawn by hand.
+    </p>
+    <div class="facts" id="facts"></div>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" id="tab-atlas" aria-selected="true" aria-controls="v-atlas">Atlas</button>
+      <button class="tab" role="tab" id="tab-explore" aria-selected="false" aria-controls="v-explore">Explore</button>
+      <button class="tab" role="tab" id="tab-ont" aria-selected="false" aria-controls="v-ont">Ontology</button>
+      <button class="tab" role="tab" id="tab-table" aria-selected="false" aria-controls="v-table">Every node</button>
+    </div>
+  </div>
+</header>
+
+<main class="shell">
+  <div>
+    <section class="panel" id="v-atlas" role="tabpanel" aria-labelledby="tab-atlas">
+      <div class="panel-h">
+        <h2>The shape of the file</h2>
+        <span class="note">Every node, grouped by kind inside its layer. Pick one to inspect it.</span>
+      </div>
+      <div class="lanes" id="lanes"></div>
+    </section>
+
+    <section class="panel" id="v-explore" role="tabpanel" aria-labelledby="tab-explore" hidden>
+      <div class="bar">
+        <input type="search" id="q" placeholder="Search the file — try “title”, “conversion”, “Sy. No.”" aria-label="Search nodes">
+        <select id="qpick" aria-label="Matching nodes"></select>
+        <span class="lbl">Hops</span>
+        <span class="hops" id="hops">
+          <button type="button" data-h="1">1</button>
+          <button type="button" data-h="2" aria-pressed="true">2</button>
+          <button type="button" data-h="3">3</button>
+        </span>
+      </div>
+      <div class="canvas-wrap">
+        <svg class="canvas" id="cv" role="img" aria-label="Node-link neighbourhood of the selected node"></svg>
+        <div class="hint">Drag to pan &middot; scroll to zoom &middot; click a node to re-centre</div>
+      </div>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <section class="panel" id="v-ont" role="tabpanel" aria-labelledby="tab-ont" hidden>
+      <div class="panel-h">
+        <h2>The closed vocabulary</h2>
+        <span class="note">21 node kinds, 28 relations. Anything outside this is rejected, not stored.</span>
+      </div>
+      <div class="ont" id="ont"></div>
+      <div class="panel-h" style="border-top:1px solid var(--rule)">
+        <h2>Endpoint rules</h2>
+        <span class="note">Which kinds a relation may join, in the direction it is drawn.</span>
+      </div>
+      <div class="tablewrap"><table id="reltable"></table></div>
+    </section>
+
+    <section class="panel" id="v-table" role="tabpanel" aria-labelledby="tab-table" hidden>
+      <div class="bar">
+        <input type="search" id="tq" placeholder="Filter every node" aria-label="Filter table">
+        <select id="tlayer" aria-label="Filter by layer"><option value="">All layers</option></select>
+        <span class="note lbl" id="tcount"></span>
+      </div>
+      <div class="tablewrap scroller"><table id="nodetable"></table></div>
+    </section>
+  </div>
+
+  <aside class="panel insp" aria-live="polite">
+    <div class="panel-h"><h2 id="inspTitle">Inspector</h2></div>
+    <div class="body" id="insp"></div>
+  </aside>
+</main>
+
+<script id="payload" type="application/json">{"p":{"id":"prj_1a05d95f962-179ca8f17683c-e228a1a27907e","name":"Harohalli Greenfield Township","reference":"RYT-0001","location":"Harohalli, Kanakapura Road","city":"Bengaluru","health":"red","stage":"construction","type":"residential","area":48562,"parcelId":"Sy. Nos. 41/1, 41/2 & 42","karnataka":{"jurisdiction":"BMRDA","khataType":"unknown","eKhataIssued":false,"landConversionStatus":"agricultural","areaBasis":"unknown"},"integrity":67,"headline":"DC conversion order ALN(SLR)CR-703/2025-26 is dated 2026-09-14, after the date of this analysis (2026-09-01) \u2014 a document cannot be dated in the future."},"n":[["prj_1a05d95f962-179ca8f17683c-e228a1a27907e","project","entity","derived","Harohalli Greenfield Township","RYT-0001"],["ast_1a05d95f962-347a70236f7-bbb893d561a8a","asset","entity","derived","Tower A","Residential tower"],["ast_1a05d95f962-804b85dae1fa2-963a0f3f4371d","asset","entity","derived","Tower B","Residential tower"],["ast_1a05d95f962-8cd18692a60c5-9e2b599f5aced","asset","entity","derived","Tower C","Residential tower"],["ast_1a05d95f962-ec9118a4cf2ec-16bf56a2d0674","asset","entity","derived","Clubhouse","Amenity building"],["ast_1a05d95f962-c69d256aacf33-a12c861bc776c","asset","entity","derived","Roads and external works","Infrastructure"],["ast_1a05d95f962-11c45f29cb119-fb6ff0859e5de","asset","entity","derived","Utilities","Central utilities"],["ast_1a05d95f962-5b4f2dae793c7-c4face5cb3e9","asset","entity","derived","STP","STP"],["ast_1a05d95f962-8eed82d34d284-dd5b59c065b52","asset","entity","derived","WTP","WTP"],["ast_1a05d95f962-fdc9c99c7b2d1-b6a848712692c","asset","entity","derived","Substation","Electrical"],["dd_1a05d95f963-f08df7c6f1b44-ae38290368e0b","assessment","judgement","derived","Land Acquisition DD","completed"],["scp_1a05d95f963-b52bf3d73c04c-9c45c70eac20f","scope","judgement","derived","Land & Site","6 checks \u00b7 not_started"],["chk_1a05d95f963-41a758d192f13-79323d49a198e","check","judgement","derived","Parcel identification matches title and survey","pending"],["chk_1a05d95f963-e5c839baba80e-b585ac52ffcdc","check","judgement","derived","Physical boundaries match the sanctioned plan","pending"],["chk_1a05d95f963-5220d604dad7c-cb897a5858e79","check","judgement","derived","Legal and physical access is adequate","pending"],["chk_1a05d95f963-24cab97ac6b38-7710ab30a63f7","check","judgement","derived","Geotechnical conditions are known and buildable","pending"],["chk_1a05d95f963-57e08608757b6-485a1ad1544f","check","judgement","derived","Flood and drain constraints are identified","pending"],["chk_1a05d95f963-ed010fe57739e-69c4b5993fe47","check","judgement","derived","Utility availability is confirmed","pending"],["scp_1a05d95f963-23f1814e68f29-a099dbd559942","scope","judgement","derived","Legal","5 checks \u00b7 in_progress"],["chk_1a05d95f963-f38912e1c213c-c7692128f3835","check","judgement","derived","Title chain is continuous and registered","partially_compliant"],["chk_1a05d95f963-dae267dc049ca-60ce8afa8b85f","check","judgement","derived","Encumbrances are identified and current","compliant"],["chk_1a05d95f963-49ae67e705af9-e2b10f97a3ec5","check","judgement","derived","Litigation and disputes are disclosed","pending"],["chk_1a05d95f963-b0decc3783e3e-5cac5a1d87614","check","judgement","derived","Development rights and JDA/JV terms are enforceable","pending"],["chk_1a05d95f963-6f4eeb067816-060ef26bd8b53","check","judgement","derived","Third-party rights and restrictions are mapped","pending"],["scp_1a05d95f963-e31b9114b779b-97e636e5e64e5","scope","judgement","derived","Regulatory & Planning","5 checks \u00b7 in_progress"],["chk_1a05d95f963-7b7faa1f046f6-4ecce544aa1fd","check","judgement","derived","Proposed use matches permitted land use","non_compliant"],["chk_1a05d95f963-b352550dc2013-1b5f61cd835ec","check","judgement","derived","Building sanction is current and covers the target","pending"],["chk_1a05d95f963-2d8c530b02679-0cb99674d57fa","check","judgement","derived","Approval conditions are tracked to evidence","pending"],["chk_1a05d95f963-7ac312b7ed8ea-f739dd0286c5c","check","judgement","derived","Statutory NOCs required at this stage are in hand","pending"],["chk_1a05d95f963-82c54a1e7f86d-b22d958fa2709","check","judgement","derived","Completion / occupancy position is known","pending"],["scp_1a05d95f963-3937fc13be77b-66e717dbfa778","scope","judgement","derived","Technical & Design","5 checks \u00b7 not_started"],["chk_1a05d95f963-0240e8bb2059-a0530b89e98d7","check","judgement","derived","Latest drawings are identified and coordinated","pending"],["chk_1a05d95f963-6ff1bd9bc41f1-7422997700915","check","judgement","derived","Structural design is complete for the current stage","pending"],["chk_1a05d95f963-98273b07e8243-af107c862b51a","check","judgement","derived","MEP capacities meet the load schedule","pending"],["chk_1a05d95f963-b4676506a0726-719becd5d9f18","check","judgement","derived","Fire and life-safety provisions match the sanctioned scheme","pending"],["chk_1a05d95f963-472c1b05a1e06-f8e1019cadda","check","judgement","derived","Known constructability clashes are logged","pending"],["scp_1a05d95f963-ad066825965ac-6d5296716baa2","scope","judgement","derived","Commercial & Market","4 checks \u00b7 not_started"],["chk_1a05d95f963-1325ada6e2678-a1f82dbf1e52a","check","judgement","derived","Comparable evidence is current and relevant","pending"],["chk_1a05d95f963-612511a7f191f-fb11c47799303","check","judgement","derived","Product mix matches local demand evidence","pending"],["chk_1a05d95f963-4baf4da337aaa-248893286c856","check","judgement","derived","Absorption / velocity assumptions are sourced","pending"],["chk_1a05d95f963-b75f29e9db5ae-bc4a0ff7a61e","check","judgement","derived","Location factors supporting price are documented","pending"],["scp_1a05d95f963-6e462ecaa61ae-01e9c7a7cb1f","scope","judgement","derived","Financial / Appraisal","4 checks \u00b7 not_started"],["chk_1a05d95f963-6cb90a062da97-8f1285c484fda","check","judgement","derived","Revenue assumptions are dated and sourced","pending"],["chk_1a05d95f963-028509c25defe-54a511b265b6f","check","judgement","derived","Cost assumptions reconcile to the cost plan","pending"],["chk_1a05d95f963-120d20885a27f-6c9fe4546fec7","check","judgement","derived","Margin / residual meets the stated hurdle","pending"],["chk_1a05d95f963-d0d9015c97f5a-a22dd03cd6d64","check","judgement","derived","Downside cases are run on the material drivers","pending"],["scp_1a05d95f963-c771cf6b0a4eb-485eea5a058f2","scope","judgement","derived","Indicative Valuation","6 checks \u00b7 in_progress"],["chk_1a05d95f963-802c721e06215-f5a4327bad9c4","check","judgement","derived","Valuation purpose, intended use and audience are recorded","compliant"],["chk_1a05d95f963-c588856001fff-8649416ccbdca","check","judgement","derived","Subject asset, area basis and ownership assumption are identified","pending"],["chk_1a05d95f963-d0dcaf263a95d-e79a39621ff8a","check","judgement","derived","Valuation date, inspection date and evidence cut-off are set","pending"],["chk_1a05d95f963-c051cbee2e8c6-3c3ef437ea2ad","check","judgement","derived","Basis and premise of value are stated","pending"],["chk_1a05d95f963-cd937463f86b-a8599ab3e8c4","check","judgement","derived","Legal and planning assumptions are pulled from those scopes","pending"],["chk_1a05d95f963-ec203f13d5c61-1f0be8b6e4de2","check","judgement","derived","Method selection is justified and reconciled","pending"],["dd_1a05d95f967-a3b725e42a4cc-e67d258a49d6d","assessment","judgement","derived","Construction Progress DD #04 \u2014 Tower A","active"],["scp_1a05d95f967-9f2ca7b5cd0a-7e58e80e12ad7","scope","judgement","derived","Technical & Design","5 checks \u00b7 in_progress"],["chk_1a05d95f967-f8ad3633b2125-b876fa7d06ce","check","judgement","derived","Latest drawings are identified and coordinated","pending"],["chk_1a05d95f967-5e9b5e3c81646-16d3e1e07c6d8","check","judgement","derived","Structural design is complete for the current stage","pending"],["chk_1a05d95f967-70f8dc71608f1-5fb5c2733d99d","check","judgement","derived","MEP capacities meet the load schedule","pending"],["chk_1a05d95f967-048d1657803fc-59606604b13f7","check","judgement","derived","Fire and life-safety provisions match the sanctioned scheme","non_compliant"],["chk_1a05d95f967-307ebedb27c0d-dfe5936df6fe6","check","judgement","derived","Known constructability clashes are logged","pending"],["scp_1a05d95f967-c35d24598cfc2-79644acbb9e72","scope","judgement","derived","Schedule & Progress","5 checks \u00b7 in_progress"],["chk_1a05d95f967-5af214f904b73-f7fb632a2bb55","check","judgement","derived","An approved baseline exists","pending"],["chk_1a05d95f967-f99b16a9246f8-3d8b9e67d7d9d","check","judgement","derived","Contract milestones are tracked to evidence","pending"],["chk_1a05d95f967-eee87055f1353-3abfd1d3b8acd","check","judgement","derived","Planned versus actual is evidenced, not asserted","partially_compliant"],["chk_1a05d95f967-036355ae693c1-717f9e91460c","check","judgement","derived","Delay events are logged with cause and impact","pending"],["chk_1a05d95f967-2b0092b238c13-711ed056c3e28","check","judgement","derived","Forecast completion is consistent with remaining work","pending"],["scp_1a05d95f967-ba3419c054ec6-53932331731e3","scope","judgement","derived","Quality","4 checks \u00b7 not_started"],["chk_1a05d95f967-98f61ee2a2a1a-0a90d583eb1b8","check","judgement","derived","Inspection regime is operating","pending"],["chk_1a05d95f967-7fac51db95a71-1af11cdf9b44","check","judgement","derived","Specified tests have results on file","pending"],["chk_1a05d95f967-39b846b9ca722-b40beb2e8541c","check","judgement","derived","NCRs and snags are tracked to closure evidence","pending"],["chk_1a05d95f967-0264d71fae78f-cba060fb9e0ff","check","judgement","derived","Recurring defects are identified","pending"],["scp_1a05d95f967-0adfa98636f56-078b518de9f09","scope","judgement","derived","HSE","4 checks \u00b7 not_started"],["chk_1a05d95f967-3229be7efa81b-d080b1ca4489c","check","judgement","derived","High-risk work is under permit","pending"],["chk_1a05d95f967-0d3bd9df254e1-a7c46cf4fed47","check","judgement","derived","Incidents are logged and closed","pending"],["chk_1a05d95f967-7a21ffa1bc3fb-2c7719e325c8b","check","judgement","derived","Inductions and statutory training are current","pending"],["chk_1a05d95f967-e67e4d6051-211473d63a84d","check","judgement","derived","Emergency plan and equipment are in place","pending"],["scp_1a05d95f967-2af713db3a9da-508a76b6d2268","scope","judgement","derived","Cost & Quantity","5 checks \u00b7 not_started"],["chk_1a05d95f967-16101ad8da853-429454081c365","check","judgement","derived","Current budget is identified and dated","pending"],["chk_1a05d95f967-c794572620674-82cc840f998b2","check","judgement","derived","BOQ quantities align with the current design","pending"],["chk_1a05d95f967-63537e4c171fd-e073ca03d8812","check","judgement","derived","Committed cost is reconcilable to contracts","pending"],["chk_1a05d95f967-9aeb3a33979fa-873b73fb477d4","check","judgement","derived","Variations are approved before they are built","pending"],["chk_1a05d95f967-3fb81844d0be8-0a642965ce3d2","check","judgement","derived","Forecast at completion is current","pending"],["scp_1a05d95f967-1fe49c54716f3-6e1d38f73b0e","scope","judgement","derived","Regulatory & Planning","5 checks \u00b7 not_started"],["chk_1a05d95f967-108adac2e68d-ee63d921e808b","check","judgement","derived","Proposed use matches permitted land use","pending"],["chk_1a05d95f967-d1696e5f0025e-15a3605553913","check","judgement","derived","Building sanction is current and covers the target","pending"],["chk_1a05d95f967-81fc008a6cd9c-d35d7a8e04a0b","check","judgement","derived","Approval conditions are tracked to evidence","pending"],["chk_1a05d95f967-17c0988ac397d-4f2e9b176636b","check","judgement","derived","Statutory NOCs required at this stage are in hand","pending"],["chk_1a05d95f967-6339d277affb1-ac9a1f011a80e","check","judgement","derived","Completion / occupancy position is known","pending"],["dd_1a05d95f96c-ab5dcb121df7e-e938e8c3fcb7","assessment","judgement","derived","Design DD \u2014 Tower B","active"],["scp_1a05d95f96c-bc2489fc83164-9f65ad94f3cc1","scope","judgement","derived","Technical & Design","5 checks \u00b7 not_started"],["chk_1a05d95f96c-7c7996be7146a-0fe093d9f9b2c","check","judgement","derived","Latest drawings are identified and coordinated","pending"],["chk_1a05d95f96c-1e207edb7284e-281a4873b55b2","check","judgement","derived","Structural design is complete for the current stage","pending"],["chk_1a05d95f96c-66b4a4a11d123-029d9c9866ae","check","judgement","derived","MEP capacities meet the load schedule","pending"],["chk_1a05d95f96c-1d5c6cf2eacdb-5f306081e33e1","check","judgement","derived","Fire and life-safety provisions match the sanctioned scheme","pending"],["chk_1a05d95f96c-50c98c254b42e-dbc277a87739c","check","judgement","derived","Known constructability clashes are logged","pending"],["scp_1a05d95f96c-e53a42dc63f9c-2144ce3f79c81","scope","judgement","derived","Regulatory & Planning","5 checks \u00b7 not_started"],["chk_1a05d95f96c-bc391af08fe84-ce847ea7f3c9f","check","judgement","derived","Proposed use matches permitted land use","pending"],["chk_1a05d95f96c-25354caf10232-5a3eed631f557","check","judgement","derived","Building sanction is current and covers the target","pending"],["chk_1a05d95f96c-f8d92f0fa562a-1f7ee57b32ecb","check","judgement","derived","Approval conditions are tracked to evidence","pending"],["chk_1a05d95f96c-f78cca2056e7-dd2e006bb8b6e","check","judgement","derived","Statutory NOCs required at this stage are in hand","pending"],["chk_1a05d95f96c-79dcbca6fcc71-0cac2b50bd8bf","check","judgement","derived","Completion / occupancy position is known","pending"],["scp_1a05d95f96c-f99e9d19dc60a-4894d17b4c3b2","scope","judgement","derived","Cost & Quantity","5 checks \u00b7 not_started"],["chk_1a05d95f96c-8b659e74df15-7fd03f7842235","check","judgement","derived","Current budget is identified and dated","pending"],["chk_1a05d95f96c-011f95eb549d4-cee4856056212","check","judgement","derived","BOQ quantities align with the current design","pending"],["chk_1a05d95f96c-8077289f18bfb-f980456e279ff","check","judgement","derived","Committed cost is reconcilable to contracts","pending"],["chk_1a05d95f96c-3acf048670ab6-a0138ac6b955","check","judgement","derived","Variations are approved before they are built","pending"],["chk_1a05d95f96c-fad78cc0169f8-da89e9009b84b","check","judgement","derived","Forecast at completion is current","pending"],["scp_1a05d95f96c-b07bb3204b8df-0cc480cc6ddf7","scope","judgement","derived","Schedule & Progress","5 checks \u00b7 not_started"],["chk_1a05d95f96c-dc7978c18c2ae-8c111cb95919b","check","judgement","derived","An approved baseline exists","pending"],["chk_1a05d95f96c-c5b6679fdc68a-c87f038c3f957","check","judgement","derived","Contract milestones are tracked to evidence","pending"],["chk_1a05d95f96c-8a844d0e9a5f9-70e8f46427377","check","judgement","derived","Planned versus actual is evidenced, not asserted","pending"],["chk_1a05d95f96c-b9d33e877ff58-a9523cc0d3252","check","judgement","derived","Delay events are logged with cause and impact","pending"],["chk_1a05d95f96c-4e42eebd87c92-2d7f7394dfa4e","check","judgement","derived","Forecast completion is consistent with remaining work","pending"],["scp_1a05d95f96c-ef7d9b18806f4-9b6b32b2d376","scope","judgement","derived","Environmental / ESG","3 checks \u00b7 not_started"],["chk_1a05d95f96c-34fa1881d916-0c8d7346381d6","check","judgement","derived","Environmental clearance / consent conditions are tracked","pending"],["chk_1a05d95f96c-c7c8a3ff7fa8-743ef17ef688a","check","judgement","derived","Construction waste handling is evidenced","pending"],["chk_1a05d95f96c-cdf2dcfc09af3-cd3face9e7bb7","check","judgement","derived","Community complaints are logged","pending"],["dd_1a05d95f96e-988d944892975-262850bed64e8","assessment","judgement","derived","Regulatory DD #02","active"],["scp_1a05d95f96e-b523d6170c9b7-20959f673ca0c","scope","judgement","derived","Regulatory & Planning","5 checks \u00b7 not_started"],["chk_1a05d95f96e-3efd4556968de-c824e9ac98794","check","judgement","derived","Proposed use matches permitted land use","pending"],["chk_1a05d95f96e-0a5719f91d9cb-4c179b1cc814e","check","judgement","derived","Building sanction is current and covers the target","pending"],["chk_1a05d95f96e-db2c633ad985d-8d5a9434c24f7","check","judgement","derived","Approval conditions are tracked to evidence","pending"],["chk_1a05d95f96e-708bee4dfa64b-1ddc0fc01a169","check","judgement","derived","Statutory NOCs required at this stage are in hand","pending"],["chk_1a05d95f96e-a559e7901c616-53723dd7ef13d","check","judgement","derived","Completion / occupancy position is known","pending"],["scp_1a05d95f96e-f943ce1ed0deb-91aec2773ec93","scope","judgement","derived","Legal","5 checks \u00b7 not_started"],["chk_1a05d95f96e-d173e5733dba9-8b57159714259","check","judgement","derived","Title chain is continuous and registered","pending"],["chk_1a05d95f96e-bbbcc5c330302-e19e59a2eb235","check","judgement","derived","Encumbrances are identified and current","pending"],["chk_1a05d95f96e-a5c961ffd7a16-014ee08a33f5a","check","judgement","derived","Litigation and disputes are disclosed","pending"],["chk_1a05d95f96e-cda4e8d24677c-135935bf66b74","check","judgement","derived","Development rights and JDA/JV terms are enforceable","pending"],["chk_1a05d95f96e-49c6712e77867-7891cc441d4b1","check","judgement","derived","Third-party rights and restrictions are mapped","pending"],["scp_1a05d95f96e-b19acd019ad1b-ce270a0e58dfc","scope","judgement","derived","Environmental / ESG","3 checks \u00b7 not_started"],["chk_1a05d95f96e-66f2e6329e3da-81f18652487c3","check","judgement","derived","Environmental clearance / consent conditions are tracked","pending"],["chk_1a05d95f96e-202db38e5d409-68fe039244cd5","check","judgement","derived","Construction waste handling is evidenced","pending"],["chk_1a05d95f96e-c80dc901bcbad-b9222e33a369d","check","judgement","derived","Community complaints are logged","pending"],["dd_1a05d95f970-ad7b379c1eccc-1087ed263deee","assessment","judgement","derived","Cost & Schedule DD #04","active"],["scp_1a05d95f970-cd7f78e107f94-3cc55dc27b4d9","scope","judgement","derived","Cost & Quantity","5 checks \u00b7 not_started"],["chk_1a05d95f970-ccdd107ace9b1-67959d2f1b515","check","judgement","derived","Current budget is identified and dated","pending"],["chk_1a05d95f970-979b7479a7592-936c66c6c5ef6","check","judgement","derived","BOQ quantities align with the current design","pending"],["chk_1a05d95f970-8f2e7f17b2dfe-50a03499c4469","check","judgement","derived","Committed cost is reconcilable to contracts","pending"],["chk_1a05d95f970-4fdb7920aabaf-7a02d6caf329b","check","judgement","derived","Variations are approved before they are built","pending"],["chk_1a05d95f970-051420619b2af-12b184db4e9bf","check","judgement","derived","Forecast at completion is current","pending"],["scp_1a05d95f970-38455c5fc1e66-6cdaa48c5cd2f","scope","judgement","derived","Schedule & Progress","5 checks \u00b7 not_started"],["chk_1a05d95f970-a0a9c5a318115-34362aa6224c3","check","judgement","derived","An approved baseline exists","pending"],["chk_1a05d95f970-38d3df5898f43-749174f0e90ee","check","judgement","derived","Contract milestones are tracked to evidence","pending"],["chk_1a05d95f970-fdd9bb63366de-64414fda1389a","check","judgement","derived","Planned versus actual is evidenced, not asserted","pending"],["chk_1a05d95f970-cdd078a891818-c4424adba652a","check","judgement","derived","Delay events are logged with cause and impact","pending"],["chk_1a05d95f970-4d3a34895004-a3cda8556b255","check","judgement","derived","Forecast completion is consistent with remaining work","pending"],["scp_1a05d95f970-1edf6de0510cd-e52b6cb073ef1","scope","judgement","derived","Procurement & Contractual","3 checks \u00b7 not_started"],["chk_1a05d95f970-e1f9c4341b714-133d282fdf05f","check","judgement","derived","Awarded packages have executed contracts","pending"],["chk_1a05d95f970-484155750b801-d3a48511b1abc","check","judgement","derived","Performance security and insurance are in force","pending"],["chk_1a05d95f970-bf80b048ca5bd-4f2d3446126e4","check","judgement","derived","Known claims and notices are registered","pending"],["ev_1a05d95f963-899f12f569798-b3ea4a4afdf6c","evidence","evidence","derived","Title extract","expected"],["ev_1a05d95f963-a224a130a3c93-90de050221cd6","evidence","evidence","derived","Survey plan","expected"],["ev_1a05d95f963-bd3f251f8b30e-331f9c3dfd55f","evidence","evidence","derived","Cadastral map","expected"],["ev_1a05d95f963-ceba7081351d7-4ea22f660f7a7","evidence","evidence","derived","Boundary survey","expected"],["ev_1a05d95f963-5bb9d7b743909-ba0a6f5e233a2","evidence","evidence","derived","Site photographs","expected"],["ev_1a05d95f963-7646172febbe6-c3978c1fb724a","evidence","evidence","derived","Sanctioned layout","expected"],["ev_1a05d95f963-39318719c08de-949a84dc79e5","evidence","evidence","derived","Title schedule","expected"],["ev_1a05d95f963-e72c3c950ed34-8324f7e124ec9","evidence","evidence","derived","Layout plan","expected"],["ev_1a05d95f963-54d1ec61b22a6-78c8b55e7b8a6","evidence","evidence","derived","Soil report","expected"],["ev_1a05d95f963-44f5c2d1d91bf-b2a3791d3c213","evidence","evidence","derived","Topo survey","expected"],["ev_1a05d95f963-d76ac04278011-6788200483571","evidence","evidence","derived","Survey","expected"],["ev_1a05d95f964-eee7dcbc0ac92-491c8180e6736","evidence","evidence","derived","Authority maps","expected"],["ev_1a05d95f964-20dfb70e4973b-fd276d29c8de9","evidence","evidence","derived","Utility maps","expected"],["ev_1a05d95f964-a6b7f6f69e842-51d0ea1480b85","evidence","evidence","derived","NOCs","expected"],["ev_1a05d95f964-53e175490c241-5a7b6ab095e9c","evidence","evidence","derived","Correspondence","expected"],["ev_1a05d95f964-043b181b42067-a8416bec026cc","evidence","evidence","derived","Mother deed","expected"],["ev_1a05d95f964-451dc5d2cfc06-e66c9616609d2","evidence","evidence","derived","Sale deeds","expected"],["ev_1a05d95f964-04e36f4f24da1-203801856f133","evidence","evidence","derived","Encumbrance certificate","expected"],["ev_1a05d95f964-dc20b3f1f79eb-7841cf08b2068","evidence","evidence","derived","Charge documents","expected"],["ev_1a05d95f964-6232d7bc1142d-92627512f8ea9","evidence","evidence","derived","Court records","expected"],["ev_1a05d95f964-a10268a2a564-08fa44773480b","evidence","evidence","derived","Legal opinion","expected"],["ev_1a05d95f964-a6e7c81e3f606-766481b0f2b5f","evidence","evidence","derived","Seller disclosure","expected"],["ev_1a05d95f964-0fef27bed80c9-3cb2108a73148","evidence","evidence","derived","JDA/JV","expected"],["ev_1a05d95f964-d45105ce1856b-a126a0938b832","evidence","evidence","derived","POA","expected"],["ev_1a05d95f964-3dd0d2914e9ab-3d5837435c166","evidence","evidence","derived","Registration extract","expected"],["ev_1a05d95f964-abbb835666cd9-3cb23154a39c3","evidence","evidence","derived","Leases","expected"],["ev_1a05d95f964-0e8635331f997-4c2bc6fc3fb7","evidence","evidence","derived","POAs","expected"],["ev_1a05d95f964-ac6f9fdd849aa-f5f8462b78de","evidence","evidence","derived","Master plan extract","expected"],["ev_1a05d95f964-9e435f8fa9551-a0cad596e3f39","evidence","evidence","derived","Zoning certificate","expected"],["ev_1a05d95f964-c89941ec21a93-c85f3d40193a4","evidence","evidence","derived","Conversion order","expected"],["ev_1a05d95f964-d4342da9e4a2a-a75a2d7662673","evidence","evidence","derived","Sanctioned plan","expected"],["ev_1a05d95f964-48c78e77536e6-8fcc16c0a3843","evidence","evidence","derived","Permit","expected"],["ev_1a05d95f964-8999489d25671-442a5084fe1ba","evidence","evidence","derived","Revision approvals","expected"],["ev_1a05d95f964-ae2e7ec73a002-1cf283ededb1","evidence","evidence","derived","Approval letters","expected"],["ev_1a05d95f964-92157c4193b-115be93f78a38","evidence","evidence","derived","Condition tracker","expected"],["ev_1a05d95f964-2798d749ac072-31182a0fb61e2","evidence","evidence","derived","Closure evidence","expected"],["ev_1a05d95f964-b53c3d4779969-30e50b6982bc3","evidence","evidence","derived","Fire NOC","expected"],["ev_1a05d95f964-32c7b36e3d8f4-2c94905d6c528","evidence","evidence","derived","EC","expected"],["ev_1a05d95f964-5c97548588f12-710cf4021e119","evidence","evidence","derived","Utility NOCs","expected"],["ev_1a05d95f964-ab464d0dbbf6b-c29aee31a0746","evidence","evidence","derived","CC","expected"],["ev_1a05d95f964-906173f37bc82-536ce2032ead3","evidence","evidence","derived","OC","expected"],["ev_1a05d95f964-d814863632eca-b091fe77d3bf9","evidence","evidence","derived","Application status","expected"],["ev_1a05d95f964-ba61d1a5c93b1-e12933d7b232a","evidence","evidence","derived","Drawing register","expected"],["ev_1a05d95f964-370916d883b26-daa3e819074c1","evidence","evidence","derived","Latest IFC set","expected"],["ev_1a05d95f964-ae8f02864b154-0a0af4fc4c48b","evidence","evidence","derived","RFI log","expected"],["ev_1a05d95f964-c1e15acac9fde-aae2c6c2121a6","evidence","evidence","derived","Structural drawings","expected"],["ev_1a05d95f964-40c3aa578007e-429747516cbd8","evidence","evidence","derived","Design report","expected"],["ev_1a05d95f964-768996e9baf5a-c55137e29ff89","evidence","evidence","derived","Peer review","expected"],["ev_1a05d95f964-29d72d341fabc-5d12c7632957f","evidence","evidence","derived","Load schedule","expected"],["ev_1a05d95f964-4f8dfe76905ca-3d2d585f64d02","evidence","evidence","derived","MEP drawings","expected"],["ev_1a05d95f964-b374af83a861e-f0c60afd3f744","evidence","evidence","derived","Equipment data","expected"],["ev_1a05d95f964-03609372b341c-dc630b4ccfdfe","evidence","evidence","derived","Fire drawings","expected"],["ev_1a05d95f964-36e73bd3c998b-7a46f5218561e","evidence","evidence","derived","Site inspection","expected"],["ev_1a05d95f964-90a965b8111a-e740461b5f47a","evidence","evidence","derived","Coordination model / drawings","expected"],["ev_1a05d95f964-898f65fcccfb2-0e9ecec0a3b4c","evidence","evidence","derived","Meeting minutes","expected"],["ev_1a05d95f964-2f12fb500627c-56b464ee70836","evidence","evidence","derived","Comparable set","expected"],["ev_1a05d95f964-b0586393fd81d-941870e5e8098","evidence","evidence","derived","Transaction data","expected"],["ev_1a05d95f964-e56dd7825bade-66270e2ea5239","evidence","evidence","derived","Listings","expected"],["ev_1a05d95f964-f330bae0f445e-b6c18447acf47","evidence","evidence","derived","Market report","expected"],["ev_1a05d95f964-136568ad28e9b-c1fc52c8b1d9e","evidence","evidence","derived","Sales data","expected"],["ev_1a05d95f964-4ebe47384e284-f80b32ee92c15","evidence","evidence","derived","Competitor product mix","expected"],["ev_1a05d95f964-cea210f02e7c8-c3397beb20852","evidence","evidence","derived","Location note","expected"],["ev_1a05d95f964-e6bf47d648546-904ddf6b97e35","evidence","evidence","derived","Maps","expected"],["ev_1a05d95f964-ad9fbbb6da30a-96d2635600329","evidence","evidence","derived","Competitor list","expected"],["ev_1a05d95f964-41c690f516ab2-8e7288b2cc211","evidence","evidence","derived","Appraisal model","expected"],["ev_1a05d95f964-da24442b20772-5970241a4d853","evidence","evidence","derived","Market comps","expected"],["ev_1a05d95f964-25c6ff4d25bd8-889e27e85185d","evidence","evidence","derived","Price list","expected"],["ev_1a05d95f964-b25c5c3e09a42-b7405b1b047b","evidence","evidence","derived","Cost plan","expected"],["ev_1a05d95f964-66d000c7980a8-9d90089800772","evidence","evidence","derived","Appraisal output","expected"],["ev_1a05d95f964-ec4a3c2e1493e-b2c1e18637dbc","evidence","evidence","derived","Investment policy","expected"],["ev_1a05d95f964-03655abbdd50f-cbbd36f433aa3","evidence","evidence","derived","Sensitivity table","expected"],["ev_1a05d95f964-3f4d57ef2abff-d630e04581f65","evidence","evidence","derived","Scenario note","expected"],["ev_1a05d95f964-2eae338fa7e15-1fd1c1ce9edc8","evidence","evidence","derived","Engagement note","expected"],["ev_1a05d95f964-011ef260c2313-0078663d6eb5e","evidence","evidence","derived","DD brief","expected"],["ev_1a05d95f964-fc59a1fa7e6a2-fc9598016843d","evidence","evidence","derived","Project/asset record","expected"],["ev_1a05d95f964-6aa4f6d4d19ee-af5a6072d68b4","evidence","evidence","derived","Title","expected"],["ev_1a05d95f965-c725ae05b6b4e-77274e3eb1688","evidence","evidence","derived","Site visit record","expected"],["ev_1a05d95f965-aa1f36343b1c2-4a82252f74672","evidence","evidence","derived","Evidence register","expected"],["ev_1a05d95f965-3a62cbb5ff51e-86746ded29761","evidence","evidence","derived","Method setup","expected"],["ev_1a05d95f965-e0c73ab9a3859-97ebb7e2b1a7a","evidence","evidence","derived","Assumption register","expected"],["ev_1a05d95f965-e53f2b24273b9-b6b6ab88c41c3","evidence","evidence","derived","Legal findings","expected"],["ev_1a05d95f965-1260be83d22f8-868b9044bbae4","evidence","evidence","derived","Regulatory findings","expected"],["ev_1a05d95f965-c516f2a3fb2c6-792cda756332d","evidence","evidence","derived","Title / approvals","expected"],["ev_1a05d95f965-36568b90aa643-ebed33965db02","evidence","evidence","derived","Worksheets","expected"],["ev_1a05d95f965-ae60e2e7b668-3e11a4f738aed","evidence","evidence","derived","Comps","expected"],["ev_1a05d95f965-a677c89c64967-db02863d6517f","evidence","evidence","derived","Registered sale deed \u2014 Sy. 41/1","used"],["ev_1a05d95f965-6d8aee4cd82d-7a69c88820702","evidence","evidence","derived","Encumbrance certificate \u2014 30 year","used"],["ev_1a05d95f967-0f747781afba1-50f0f7e63d9d2","evidence","evidence","derived","Drawing register","expected"],["ev_1a05d95f967-09f3ceaceec23-b45971dab4c82","evidence","evidence","derived","Latest IFC set","expected"],["ev_1a05d95f967-27cea934c8917-4aa6e3b262e53","evidence","evidence","derived","RFI log","expected"],["ev_1a05d95f967-5383d27dd75cb-c28709b74469f","evidence","evidence","derived","Structural drawings","expected"],["ev_1a05d95f967-e896b6f3244b1-1695707909b41","evidence","evidence","derived","Design report","expected"],["ev_1a05d95f967-5a3234643d0c6-10ea391fe4c04","evidence","evidence","derived","Peer review","expected"],["ev_1a05d95f967-a50ccddfa9cb9-d9c2f4d848b58","evidence","evidence","derived","Load schedule","expected"],["ev_1a05d95f967-cf6933674e686-12fb3208a1fda","evidence","evidence","derived","MEP drawings","expected"],["ev_1a05d95f967-10d9ab9a97887-651376ce63dc9","evidence","evidence","derived","Equipment data","expected"],["ev_1a05d95f967-edc9893006dd3-ae5c604d0db7c","evidence","evidence","derived","Fire drawings","expected"],["ev_1a05d95f967-38bfd6f6543cd-4d64f3b70e1ce","evidence","evidence","derived","Sanctioned plan","expected"],["ev_1a05d95f967-6c20be33f7431-1897aa73a7ee9","evidence","evidence","derived","Site inspection","expected"],["ev_1a05d95f967-00348ae90749e-699c1ce27e605","evidence","evidence","derived","Coordination model / drawings","expected"],["ev_1a05d95f967-021104d7734c2-a13ba7956d14c","evidence","evidence","derived","Meeting minutes","expected"],["ev_1a05d95f968-7af655b3b94e9-2e100febbb206","evidence","evidence","derived","Approved programme","expected"],["ev_1a05d95f968-110b8e8bdbfd5-d1c5bbddbc4a6","evidence","evidence","derived","Baseline approval","expected"],["ev_1a05d95f968-979ab8aea9db5-938621abb203a","evidence","evidence","derived","Contract","expected"],["ev_1a05d95f968-4326f88e74c74-799c155279486","evidence","evidence","derived","Milestone certificates","expected"],["ev_1a05d95f968-093a52670145f-02692ae59eab","evidence","evidence","derived","Progress report","expected"],["ev_1a05d95f968-fb7325e040b19-1e54f7ce9d08f","evidence","evidence","derived","Site photographs","expected"],["ev_1a05d95f968-ce37cc5620d9d-c17f6422386f7","evidence","evidence","derived","Quantity records","expected"],["ev_1a05d95f968-157c6034699fa-bf495ed694618","evidence","evidence","derived","Delay log","expected"],["ev_1a05d95f968-d7f30afb8cc25-ab7d41878e438","evidence","evidence","derived","Correspondence","expected"],["ev_1a05d95f968-a7c859b68c594-4b9f488e54ad9","evidence","evidence","derived","Updated programme","expected"],["ev_1a05d95f968-e040f4182f263-93b46270d7166","evidence","evidence","derived","Inspection reports","expected"],["ev_1a05d95f968-53f316400f73e-31c605e30223c","evidence","evidence","derived","ITP","expected"],["ev_1a05d95f968-d23227600e0ba-9ea750faa6076","evidence","evidence","derived","Photos","expected"],["ev_1a05d95f968-7cb9806059a32-6104610635811","evidence","evidence","derived","Test reports","expected"],["ev_1a05d95f968-4b4c9aade2ea1-a0896f1583031","evidence","evidence","derived","Specifications","expected"],["ev_1a05d95f968-314905b5190b8-506595834b6f9","evidence","evidence","derived","NCR log","expected"],["ev_1a05d95f968-e47a8d0aac5b7-e89266b91a48","evidence","evidence","derived","Snag list","expected"],["ev_1a05d95f968-f97f17eb2ff42-f0a6e3c29734b","evidence","evidence","derived","Closure photos","expected"],["ev_1a05d95f968-4321b295f084d-47d207e8aa1ed","evidence","evidence","derived","NCR taxonomy","expected"],["ev_1a05d95f968-de7dffb51c914-640623fb532e8","evidence","evidence","derived","Snag analysis","expected"],["ev_1a05d95f968-923d40508d827-dfba425302b58","evidence","evidence","derived","Permit register","expected"],["ev_1a05d95f968-10db4abab8dc9-2b7fe5c83d152","evidence","evidence","derived","Site audit","expected"],["ev_1a05d95f968-1e6cc04b90e5c-381c9c1a1f462","evidence","evidence","derived","Incident log","expected"],["ev_1a05d95f968-84cfada94fc38-3f6d7a6f679e6","evidence","evidence","derived","Investigation reports","expected"],["ev_1a05d95f968-7c1e4d8f798f2-39f206f502216","evidence","evidence","derived","Training records","expected"],["ev_1a05d95f968-3ff7def4376ee-0939c41e783e2","evidence","evidence","derived","Induction log","expected"],["ev_1a05d95f969-62b972a8eee64-23cd9a909a33f","evidence","evidence","derived","Emergency plan","expected"],["ev_1a05d95f969-9df473b901766-ad9dde2748d06","evidence","evidence","derived","Drill records","expected"],["ev_1a05d95f969-af2ebd3e8e117-d6090fa974db8","evidence","evidence","derived","Cost plan","expected"],["ev_1a05d95f969-124446d6c791c-23dc51cf22f52","evidence","evidence","derived","Approved budget","expected"],["ev_1a05d95f969-5ba580d47b1e1-08a2e4e1b613a","evidence","evidence","derived","Board paper","expected"],["ev_1a05d95f969-239f3ae130eea-dc3277ee1f78f","evidence","evidence","derived","BOQ","expected"],["ev_1a05d95f969-b7aa4c900efcf-11fa62f4c4d8d","evidence","evidence","derived","Latest drawings","expected"],["ev_1a05d95f969-36dc31211898d-78aa74bf1869e","evidence","evidence","derived","Quantity takeoff","expected"],["ev_1a05d95f969-758cba77f5b19-4828a28a1cd59","evidence","evidence","derived","Contracts","expected"],["ev_1a05d95f969-b7f3ef14afd25-09fc1bec4e536","evidence","evidence","derived","POs","expected"],["ev_1a05d95f969-1aea5749cbf96-733d50c0562bd","evidence","evidence","derived","Commitment report","expected"],["ev_1a05d95f969-adb56f88c4b9e-4036bd3d7dda3","evidence","evidence","derived","Variation orders","expected"],["ev_1a05d95f96b-76ea1b36d37ea-14c8f244289e7","evidence","evidence","derived","Site instructions","expected"],["ev_1a05d95f96b-96e4afe98cef1-a87a5654ac959","evidence","evidence","derived","Approval trail","expected"],["ev_1a05d95f96b-9c89e7442e033-824ccf6d7ec84","evidence","evidence","derived","Cost report","expected"],["ev_1a05d95f96b-e80741ed84cd-0d2c36cecf1aa","evidence","evidence","derived","Risk register","expected"],["ev_1a05d95f96b-08d805dbe600d-91f287280d6d8","evidence","evidence","derived","Master plan extract","expected"],["ev_1a05d95f96b-c178b8b0a4ede-895a3bb3a058b","evidence","evidence","derived","Zoning certificate","expected"],["ev_1a05d95f96b-3d2836ea1523b-558537c3eec15","evidence","evidence","derived","Conversion order","expected"],["ev_1a05d95f96b-5a87f864559a1-4f98968134bd6","evidence","evidence","derived","Permit","expected"],["ev_1a05d95f96b-b8bebb5b43be4-56c61943c09e4","evidence","evidence","derived","Revision approvals","expected"],["ev_1a05d95f96b-ca8dca49ea3ef-309db359ac5c8","evidence","evidence","derived","Approval letters","expected"],["ev_1a05d95f96b-d7f7465bce849-9d9222f5f148e","evidence","evidence","derived","Condition tracker","expected"],["ev_1a05d95f96b-dbf4cd2323193-e32bc94a9a0b3","evidence","evidence","derived","Closure evidence","expected"],["ev_1a05d95f96b-ec7367a958ff2-59e0a2ad7017b","evidence","evidence","derived","Fire NOC","expected"],["ev_1a05d95f96b-26404927a7adf-331d54997b019","evidence","evidence","derived","EC","expected"],["ev_1a05d95f96b-5bbb6c9dccf7-0fb1cace2f8d1","evidence","evidence","derived","Utility NOCs","expected"],["ev_1a05d95f96b-fc7e9d50e822-096bbbf5492b6","evidence","evidence","derived","CC","expected"],["ev_1a05d95f96b-ad06a4b027f13-c52a22c28edf3","evidence","evidence","derived","OC","expected"],["ev_1a05d95f96c-99d7f04f15c25-2c42103b65e98","evidence","evidence","derived","Application status","expected"],["ev_1a05d95f96c-be544bc12d849-01bae69a5bdbb","evidence","evidence","derived","Drawing DR-018 \u2014 fire escape, rev C","used"],["ev_1a05d95f96c-6b70b63749a4c-f68e745259369","evidence","evidence","derived","Site inspection SI-221 \u2014 Tower A L7\u2013L9","used"],["ev_1a05d95f96c-ff8f1ffe84df7-efe1a7baa21b9","evidence","evidence","derived","Drawing register","expected"],["ev_1a05d95f96c-6523b4ea9a094-6f0ee3cb996bc","evidence","evidence","derived","Latest IFC set","expected"],["ev_1a05d95f96c-0d76b40eb7cc4-f7339d2a97f7a","evidence","evidence","derived","RFI log","expected"],["ev_1a05d95f96c-a493b4bdadc1-47b676282cec8","evidence","evidence","derived","Structural drawings","expected"],["ev_1a05d95f96c-bc362ebe273b5-792415054860f","evidence","evidence","derived","Design report","expected"],["ev_1a05d95f96c-687dfd5adf48e-9a08f116a223f","evidence","evidence","derived","Peer review","expected"],["ev_1a05d95f96c-87058aeae1ff7-5b823c8d1e93a","evidence","evidence","derived","Load schedule","expected"],["ev_1a05d95f96c-6511e5732c7a8-a7afa53278c73","evidence","evidence","derived","MEP drawings","expected"],["ev_1a05d95f96c-912ec6a721cf2-17cd984299c16","evidence","evidence","derived","Equipment data","expected"],["ev_1a05d95f96c-6340cdcb47a0b-c00873690a397","evidence","evidence","derived","Fire drawings","expected"],["ev_1a05d95f96c-bbdf60312f1e-42037673a8b1d","evidence","evidence","derived","Sanctioned plan","expected"],["ev_1a05d95f96c-b2477c97362c5-681e6930b437b","evidence","evidence","derived","Site inspection","expected"],["ev_1a05d95f96c-de34dc08db493-88f50c7dbfc4c","evidence","evidence","derived","Coordination model / drawings","expected"],["ev_1a05d95f96c-812691afced53-9ff2452c43b86","evidence","evidence","derived","Meeting minutes","expected"],["ev_1a05d95f96c-3f7316434f9b1-83c1b8468176c","evidence","evidence","derived","Master plan extract","expected"],["ev_1a05d95f96c-fbefee8eba3de-14914ad97e407","evidence","evidence","derived","Zoning certificate","expected"],["ev_1a05d95f96c-602d7f1ea759e-1adeccdcc586b","evidence","evidence","derived","Conversion order","expected"],["ev_1a05d95f96d-9cefd7cc38b2e-1600332062d61","evidence","evidence","derived","Permit","expected"],["ev_1a05d95f96d-89a972068da73-9c4fec07cdc5a","evidence","evidence","derived","Revision approvals","expected"],["ev_1a05d95f96d-bb8cad5cd4731-9d5c39753ed7c","evidence","evidence","derived","Approval letters","expected"],["ev_1a05d95f96d-e96f0b9f7f19f-16b0fcc507e81","evidence","evidence","derived","Condition tracker","expected"],["ev_1a05d95f96d-131903d98d16d-faa111fe11d86","evidence","evidence","derived","Closure evidence","expected"],["ev_1a05d95f96d-99b892e001e84-887115d6d14ec","evidence","evidence","derived","Fire NOC","expected"],["ev_1a05d95f96d-167a420f679bf-a8270c6c58296","evidence","evidence","derived","EC","expected"],["ev_1a05d95f96d-0a750966753ed-228bd6f36e20e","evidence","evidence","derived","Utility NOCs","expected"],["ev_1a05d95f96d-6246c695701ae-a66773cd5487a","evidence","evidence","derived","CC","expected"],["ev_1a05d95f96d-33f66fefaf711-604399eba59e1","evidence","evidence","derived","OC","expected"],["ev_1a05d95f96d-3130aac50aea-5a3d52169c931","evidence","evidence","derived","Application status","expected"],["ev_1a05d95f96d-d36ccb70c20c6-5165b5b068d09","evidence","evidence","derived","Cost plan","expected"],["ev_1a05d95f96d-002d93044959a-23b5bce5fb65e","evidence","evidence","derived","Approved budget","expected"],["ev_1a05d95f96d-47965ec81cc1d-2f568296eaa57","evidence","evidence","derived","Board paper","expected"],["ev_1a05d95f96d-dad04764215ea-11628bc9c8699","evidence","evidence","derived","BOQ","expected"],["ev_1a05d95f96d-1c367faf09adb-ec5b6dc21f3e1","evidence","evidence","derived","Latest drawings","expected"],["ev_1a05d95f96d-e19a5623ee788-772a1af5d64f9","evidence","evidence","derived","Quantity takeoff","expected"],["ev_1a05d95f96d-49f8fbbe91f85-651576b78f11","evidence","evidence","derived","Contracts","expected"],["ev_1a05d95f96d-734a18bf4f07b-db72639a5a0d4","evidence","evidence","derived","POs","expected"],["ev_1a05d95f96d-51a1a5f33315f-e9143ec78f7ba","evidence","evidence","derived","Commitment report","expected"],["ev_1a05d95f96d-ea4862a5fb4be-1a2af432ed538","evidence","evidence","derived","Variation orders","expected"],["ev_1a05d95f96d-e4a554298f751-1cfdffc4e4414","evidence","evidence","derived","Site instructions","expected"],["ev_1a05d95f96d-34ee43996d28b-6ee5828dec55a","evidence","evidence","derived","Approval trail","expected"],["ev_1a05d95f96d-6b9d20632d98d-7711b0e4d2215","evidence","evidence","derived","Cost report","expected"],["ev_1a05d95f96d-90cf0318873b8-992660fdf1419","evidence","evidence","derived","Progress report","expected"],["ev_1a05d95f96d-eb7d5bc52879e-350cfe8eaff94","evidence","evidence","derived","Risk register","expected"],["ev_1a05d95f96d-e47d8a7418801-7aef8f573d265","evidence","evidence","derived","Approved programme","expected"],["ev_1a05d95f96d-55c2f596a17fc-fb224fa81e45d","evidence","evidence","derived","Baseline approval","expected"],["ev_1a05d95f96d-686ca58d1891f-0591fb2dbeb16","evidence","evidence","derived","Contract","expected"],["ev_1a05d95f96d-3a2610afb6f1e-d31583d944ef1","evidence","evidence","derived","Milestone certificates","expected"],["ev_1a05d95f96d-fea86e2f3713e-9d374d61156ce","evidence","evidence","derived","Site photographs","expected"],["ev_1a05d95f96e-fb43ad31b97f2-6d78fa1618528","evidence","evidence","derived","Quantity records","expected"],["ev_1a05d95f96e-636b1deaa0039-50c290bda2e0a","evidence","evidence","derived","Delay log","expected"],["ev_1a05d95f96e-417e92e5ae0ce-af3e8b7d0503d","evidence","evidence","derived","Correspondence","expected"],["ev_1a05d95f96e-b6c7dcb10f644-1a269407bf9e3","evidence","evidence","derived","Updated programme","expected"],["ev_1a05d95f96e-067c81553b3f2-3357045e1a3e4","evidence","evidence","derived","Consent","expected"],["ev_1a05d95f96e-a4761b22bb096-2d1dfd7479536","evidence","evidence","derived","Monitoring reports","expected"],["ev_1a05d95f96e-a07bca5220d17-dc83e6a3cb2e3","evidence","evidence","derived","Waste records","expected"],["ev_1a05d95f96e-c18eff7aeddb8-cbd6a9adb77d8","evidence","evidence","derived","Contractor method statement","expected"],["ev_1a05d95f96e-90457d89b55e1-6f54152797649","evidence","evidence","derived","Photos","expected"],["ev_1a05d95f96e-3fe7c781eda17-25cd1ceafdcc3","evidence","evidence","derived","Complaint log","expected"],["ev_1a05d95f96e-e238d1262e1d5-370edad82810f","evidence","evidence","derived","Master plan extract","expected"],["ev_1a05d95f96e-b885e6db670f6-e9ceb2cc8b924","evidence","evidence","derived","Zoning certificate","expected"],["ev_1a05d95f96e-7658c64e27758-24a7457662fc4","evidence","evidence","derived","Conversion order","expected"],["ev_1a05d95f96e-87cb15aa697fc-c040f0c659e31","evidence","evidence","derived","Sanctioned plan","expected"],["ev_1a05d95f96e-0bca309883ec-e786425819cf8","evidence","evidence","derived","Permit","expected"],["ev_1a05d95f96e-a95b2a8a2e5ca-3fd486e21392e","evidence","evidence","derived","Revision approvals","expected"],["ev_1a05d95f96e-ff1dd8d3247fe-76dc696c2aae","evidence","evidence","derived","Approval letters","expected"],["ev_1a05d95f96e-8ce2800a46ea9-b36cf092a4c99","evidence","evidence","derived","Condition tracker","expected"],["ev_1a05d95f96f-2ea87c224c26a-9bf62c0c65dca","evidence","evidence","derived","Closure evidence","expected"],["ev_1a05d95f96f-5e56dbd611a2e-d13fb6293e466","evidence","evidence","derived","Fire NOC","expected"],["ev_1a05d95f96f-0e0c7102cab6f-876d32b0bd34","evidence","evidence","derived","EC","expected"],["ev_1a05d95f96f-e80628c2ce5fc-5149e27c459f","evidence","evidence","derived","Utility NOCs","expected"],["ev_1a05d95f96f-aad9ed0af1166-967e85ac13d2e","evidence","evidence","derived","CC","expected"],["ev_1a05d95f96f-36eb7014980d8-78a11bb0697c9","evidence","evidence","derived","OC","expected"],["ev_1a05d95f96f-00b6309df8f8-02e69af5e31ba","evidence","evidence","derived","Application status","expected"],["ev_1a05d95f96f-fb6059f261e56-6ba1f5244e95b","evidence","evidence","derived","Mother deed","expected"],["ev_1a05d95f96f-245a096937db8-b84f13ef6990a","evidence","evidence","derived","Sale deeds","expected"],["ev_1a05d95f96f-669f7bf5145ea-2fd515e20a251","evidence","evidence","derived","Encumbrance certificate","expected"],["ev_1a05d95f96f-9d51bba837e22-b1dc6806b13e5","evidence","evidence","derived","Charge documents","expected"],["ev_1a05d95f96f-d0a697f856a47-dae88d772484","evidence","evidence","derived","Court records","expected"],["ev_1a05d95f96f-d4c279bd18cc4-3fcca263cca31","evidence","evidence","derived","Legal opinion","expected"],["ev_1a05d95f96f-fd34982c746cf-a4802cccf0ef8","evidence","evidence","derived","Seller disclosure","expected"],["ev_1a05d95f96f-3c8998ca7a01b-3448ff58820ea","evidence","evidence","derived","JDA/JV","expected"],["ev_1a05d95f96f-2fbf444efc4f6-9759c7195ce3f","evidence","evidence","derived","POA","expected"],["ev_1a05d95f96f-4d8cf1ead45dd-c3fe783256477","evidence","evidence","derived","Registration extract","expected"],["ev_1a05d95f96f-ef69f8c2366c2-3b309c2f4e155","evidence","evidence","derived","Title schedule","expected"],["ev_1a05d95f970-c95a923a0739e-315db7866f812","evidence","evidence","derived","Leases","expected"],["ev_1a05d95f970-1b765fc6e20ce-7ad9a4a1e4b3e","evidence","evidence","derived","POAs","expected"],["ev_1a05d95f970-f5a68b281281-e71fe2d0c115b","evidence","evidence","derived","Consent","expected"],["ev_1a05d95f970-eb35b1f319a2d-c8447b88dc5d","evidence","evidence","derived","Monitoring reports","expected"],["ev_1a05d95f970-b16cd7243a19a-b74eed9cccfb1","evidence","evidence","derived","Waste records","expected"],["ev_1a05d95f970-345c3464fc1bc-426cf182fcd3f","evidence","evidence","derived","Contractor method statement","expected"],["ev_1a05d95f970-cad47f79c9032-bdbb486a0705f","evidence","evidence","derived","Photos","expected"],["ev_1a05d95f970-64e984270d115-6077a5724a0b1","evidence","evidence","derived","Complaint log","expected"],["ev_1a05d95f970-0a719a1ddf723-7507de3e03a8a","evidence","evidence","derived","Correspondence","expected"],["ev_1a05d95f970-88fe12f0a7dd7-3fbd01f0dc891","evidence","evidence","derived","Cost plan","expected"],["ev_1a05d95f970-2201a92a85c3-9cb5f50212a61","evidence","evidence","derived","Approved budget","expected"],["ev_1a05d95f970-b6281a1138328-9d186f6f0b2a3","evidence","evidence","derived","Board paper","expected"],["ev_1a05d95f970-b824912629e3c-1c5fa472c6911","evidence","evidence","derived","BOQ","expected"],["ev_1a05d95f970-2b6cf11e2f2ce-d65b31c2d0fe7","evidence","evidence","derived","Latest drawings","expected"],["ev_1a05d95f971-2815edaa44a7b-4cc163651f804","evidence","evidence","derived","Quantity takeoff","expected"],["ev_1a05d95f971-332daeaff2243-9a4ad9cb4c57f","evidence","evidence","derived","Contracts","expected"],["ev_1a05d95f971-0bc0bd454f3d6-fa709cd7f5613","evidence","evidence","derived","POs","expected"],["ev_1a05d95f971-12e379c6a6416-48dc39409f503","evidence","evidence","derived","Commitment report","expected"],["ev_1a05d95f973-2bf9c0e38d5ad-abd13b91e9e75","evidence","evidence","derived","Variation orders","expected"],["ev_1a05d95f973-679011cf7155-8ca54e81c805c","evidence","evidence","derived","Site instructions","expected"],["ev_1a05d95f973-aad35683ccf8e-f8499bbc7f215","evidence","evidence","derived","Approval trail","expected"],["ev_1a05d95f973-38c668d4b9193-e14d4a4385b2c","evidence","evidence","derived","Cost report","expected"],["ev_1a05d95f974-eca6686a5a4c-a56aef5103976","evidence","evidence","derived","Progress report","expected"],["ev_1a05d95f974-17dc2ebc211a9-0c89b77c7e5f9","evidence","evidence","derived","Risk register","expected"],["ev_1a05d95f974-2d605a6c6b9c-638f2c84cda2d","evidence","evidence","derived","Approved programme","expected"],["ev_1a05d95f974-0fa2ca829b36-906ec7f8862fd","evidence","evidence","derived","Baseline approval","expected"],["ev_1a05d95f974-cffa78a06c743-57635a11ef956","evidence","evidence","derived","Contract","expected"],["ev_1a05d95f974-04058f3939c3a-083d80b6b6f85","evidence","evidence","derived","Milestone certificates","expected"],["ev_1a05d95f974-01e6401bbc931-e90069c1b75b","evidence","evidence","derived","Site photographs","expected"],["ev_1a05d95f974-d46390790b9bd-1b8bfa4dd03ae","evidence","evidence","derived","Quantity records","expected"],["ev_1a05d95f974-0229d39b83bcb-cc8c5daa5cf15","evidence","evidence","derived","Delay log","expected"],["ev_1a05d95f974-c50fd01754728-eaaea1c65a511","evidence","evidence","derived","Correspondence","expected"],["ev_1a05d95f974-9cdb117ffe407-5e652bf42e2cd","evidence","evidence","derived","Updated programme","expected"],["ev_1a05d95f974-da97f8305347e-7ccc79f07dd0f","evidence","evidence","derived","LOI","expected"],["ev_1a05d95f974-dad56af91d701-468c31c12ae3e","evidence","evidence","derived","Board approval","expected"],["ev_1a05d95f974-5ddc5b830a9d-4b65aca06b96b","evidence","evidence","derived","Bank guarantees","expected"],["ev_1a05d95f974-af5b5773c5563-a6c67a85f1e6c","evidence","evidence","derived","Insurance certificates","expected"],["ev_1a05d95f974-35593a798826d-7b1a41d10a91d","evidence","evidence","derived","Claim notices","expected"],["ev_1a05d95f9ab-f65fd167c42c-e09412f07696b","evidence","evidence","derived","Khata extract + khata certificate","expected"],["fnd_1a05d95f966-604e09af7172c-077b69aec256c","finding","judgement","derived","Unregistered partition in the 1987\u20131998 title link","high \u00b7 Legal"],["fnd_1a05d95f966-1cb135779d5c3-3ee2c52790c38","finding","judgement","derived","Unconverted agricultural pocket on Sy. 42","critical \u00b7 Regulatory & Planning"],["fnd_1a05d95f96c-5a16bd77905a-1140310a7c9eb","finding","judgement","derived","Fire escape width differs from approved drawing DR-018","critical \u00b7 Technical & Design"],["fnd_1a05d95f975-ac588655d5269-136beb59e1f15","finding","judgement","derived","Tower A structure two weeks behind June baseline","medium \u00b7 Schedule & Progress"],["fnd_1a05d95f976-20adad63d3bf7-9e48293e8790e","finding","judgement","derived","Open RFI on Tower B podium transfer beam","medium \u00b7 Technical & Design"],["fnd_1a05d95f9a7-0848fe8cb7157-26cd4fe427707","finding","judgement","derived","Required documents missing","high \u00b7 Legal"],["fnd_1a05d95f9a7-130f72d690418-4f65b9931f53d","finding","judgement","derived","Tenure not confirmed","high \u00b7 Legal"],["fnd_1a05d95f9a8-338281d4ebcd6-8067f858f2fdf","finding","judgement","derived","Asking price well above indicative value","high \u00b7 Financial / Appraisal"],["fnd_1a05d95f9a8-b4132a14ea13c-743e41860afb8","finding","judgement","derived","Unconverted agricultural land under non-agricultural use","critical \u00b7 Regulatory & Planning"],["fnd_1a05d95f9a8-72b7fc2414c0f-2d596a6f376f6","finding","judgement","derived","Occupancy certificate not on file","medium \u00b7 Legal"],["fnd_1a05d95f9a8-a2c5799875fa1-f080368fdcb24","finding","judgement","derived","K-RERA registration not on record","medium \u00b7 Legal"],["fnd_1a05d95f9a8-083870972165d-8bdf5cdfc13f6","finding","judgement","derived","BMRDA acquisition/de-notification status unconfirmed","medium \u00b7 Legal"],["fnd_1a05d95f9a8-d4d980a6a573c-4a4a02ef666f2","finding","judgement","derived","Quoted area basis is not RERA carpet area","medium \u00b7 Legal"],["fnd_1a05d95f9ab-1f5e8d158848d-eef741b5b320b","finding","judgement","derived","DC conversion order ALN(SLR)CR-703/2025-26 is dated 2026-09-14, after the date of this analysis (2026-09-01) \u2014 a document cannot be dated in the future.","high \u00b7 Legal"],["rsk_1a05d95f966-750037e76b2a9-d24878c51f0dd","risk","judgement","derived","Acquisition delayed by conversion of Sy. 42","critical"],["rsk_1a05d95f974-7469ed4b24d06-1dfa6320fb30f","risk","judgement","derived","Rework cost and delay from fire-escape widening","high"],["rsk_1a05d95f974-1de8fcd458481-319f29b2bfdba","risk","judgement","derived","Fire approval risk on Tower A","critical"],["rsk_1a05d95f9a7-9c6e58adb477-96596a7dfaaaf","risk","judgement","derived","Required documents missing","high"],["rsk_1a05d95f9a8-4304260844741-61b779c0a5c67","risk","judgement","derived","Tenure not confirmed","high"],["rsk_1a05d95f9a8-60d65e4498b43-4ecbc501c6939","risk","judgement","derived","Asking price well above indicative value","high"],["rsk_1a05d95f9a8-65a4480e3ed17-2219661abc73","risk","judgement","derived","Unconverted agricultural land under non-agricultural use","critical"],["rsk_1a05d95f9a8-e01370f439a09-b87f33c352591","risk","judgement","derived","Occupancy certificate not on file","medium"],["rsk_1a05d95f9a8-26e0913d1b9a1-b0435443c5966","risk","judgement","derived","K-RERA registration not on record","medium"],["rsk_1a05d95f9a8-b4e27bb9d80aa-0f76ab95a56a2","risk","judgement","derived","BMRDA acquisition/de-notification status unconfirmed","medium"],["rsk_1a05d95f9a8-1b8d5e22b7589-38a97eff3c678","risk","judgement","derived","Quoted area basis is not RERA carpet area","medium"],["act_1a05d95f967-20fc2ae39303c-c299c49c728e4","action","judgement","derived","Obtain DC conversion for Sy. 42 remainder","not_started"],["act_1a05d95f975-3989e5a48cd43-32d6227afa036","action","judgement","derived","Rectify Tower A L8 escape width and reinspect","not_started"],["act_1a05d95f975-a0f63ad45a9d6-f7280bfe23add","action","judgement","derived","Submit revised fire detail to the authority","not_started"],["act_1a05d95f9a9-e26db2e4bb73-e623432490122","action","judgement","derived","Resolve: Unconverted agricultural land under non-agricultural use","not_started"],["act_1a05d95f9a9-74f2895593e5-961286ed9a6f7","action","judgement","derived","Verify parcel identity against the registry","not_started"],["act_1a05d95f9a9-0bac42111885f-fce26c4af3a77","action","judgement","derived","Confirm vacant possession / tenancy status","not_started"],["act_1a05d95f9aa-026d79b66c9d2-65f68b6149746","action","judgement","derived","Sense-check the indicative value with a lender","not_started"],["act_1a05d95f9aa-8a4aaa2363e47-31ed14ace7793","action","judgement","derived","Obtain Khata extract + khata certificate","not_started"],["act_1a05d95f9aa-53e304d8268ca-569ba860c1b39","action","judgement","derived","Resolve: Required documents missing","not_started"],["act_1a05d95f9aa-b4ac05b70ba52-868a30762e96a","action","judgement","derived","Confirm tenure and lease terms","not_started"],["act_1a05d95f9aa-28ea717676b2f-08bd7edfba247","action","judgement","derived","Build a negotiation case from the anchor breakdown","not_started"],["act_1a05d95f9ab-befd59b7ee8db-165db6d95849c","action","judgement","derived","Commission an independent valuation before completion","not_started"],["dec_1a05d95f967-d9bc520173fdf-6caeff517fe2b","decision","judgement","derived","Proceed to acquire with conversion as a condition precedent","approved"],["dec_1a05d95f975-329eb46be6d3c-a7a9c87c0f265","decision","judgement","derived","Approve remediation plan before next payment milestone","pending"],["dec_1a05d95f9ac-4c74ffda7e3ab-165ac330e9ec6","decision","judgement","derived","Screen: do not pursue","proposed"],["rpt_1a05d95f975-7284e422f9b13-24e324de8c891","report","judgement","derived","Red flag report \u2014 Harohalli Greenfield Township","red_flag"],["rpt_1a05d95f976-1ab3f8a56271-c304b36cf56f5","report","judgement","derived","Executive DD report \u2014 Harohalli Greenfield Township","executive_dd"],["rpt_1a05d95f9ac-2c3e5a4e66a21-683610d8e935","report","judgement","derived","Red flag report \u2014 Harohalli Greenfield Township","red_flag"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::parcel","parcel","entity","derived","Sy. Nos. 41/1, 41/2 & 42","48,562 sqm"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::authority::BMRDA","authority","entity","derived","BMRDA","Planning and revenue jurisdiction"],["stk-1","party","entity","derived","Sundaram & Co","Title counsel \u00b7 Sundaram & Co LLP"],["stk-2","party","entity","derived","HDFC Bank","Lender"],["stk-3","party","entity","derived","Mindspace Architects","Architect"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::node-parcel-41-141-242-ad6b48","parcel","entity","derived","Sy. Nos. 41/1, 41/2 & 42","7 instrument(s) \u00b7 22.3y established \u00b7 3 break(s)"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::node-instrument-motherdeeddocev1a05d95f964043b181b42067a-ff1feb","instrument","entity","derived","Mother deed (1996)","1996-01-09 \u00b7 48562 sqm"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::node-instrument-motherdeeddocev1a05d95f96ffb6059f261e566-a6f9f8","instrument","entity","derived","Mother deed (2002)","2002-04-02 \u00b7 48562 sqm"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::node-instrument-titledeedka739740-642d03","instrument","entity","derived","Sale / title deed KA-739740 (2015)","2015-02-10 \u00b7 48562 sqm"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::node-party-ananyanair-aca2ca","party","entity","derived","Ananya Nair","Title party"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::node-instrument-titledeedka194085-9c4bb5","instrument","entity","derived","Sale / title deed KA-194085 (2016)","2016-02-07 \u00b7 48562 sqm"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::node-party-ananyaiyer-aaba4d","party","entity","derived","Ananya Iyer","Title party"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::node-instrument-titledeedka753074-098c04","instrument","entity","derived","Sale / title deed KA-753074 (2018)","2018-05-07 \u00b7 48562 sqm"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::node-party-ananyapillai-de24ed","party","entity","derived","Ananya Pillai","Title party"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::node-instrument-jointdevelopmentagreementdocev1a05d95f96-15d5b4","instrument","entity","derived","Joint development agreement","undated"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::node-instrument-jointdevelopmentagreementdocev1a05d95f96-524ff3","instrument","entity","derived","Joint development agreement","undated"],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::contradiction-date_impossible-abf04cbb","contradiction","claim","derived","Date of DC conversion order ALN(SLR)CR-703/2025-26","serious \u00b7 DC conversion order ALN(SLR)CR-703/2025-26 is dated 2026-09-14, after the date of this analysis "],["prj_1a05d95f962-179ca8f17683c-e228a1a27907e::title::contradiction-status_conflict-c0e70a51","contradiction","claim","derived","Land conversion status","serious \u00b7 The case records the land as still agricultural, but a deputy commissioner conversion order (ALN"],["chat:cht_1a05d95f9ae-ef461838e2135-994252b0ce022","question","deliberation","derived","Ask","Guide me"],["chat:cht_1a05d95f9b9-5ad98d5e1f8a2-d2f16847a2ee8","thought","deliberation","derived","Insight","Today on Harohalli Greenfield Township (RYT-0001). Regulatory & Planning \u00b7 Approval cond"],["chat:cht_1a05d95f9b9-50a53910c2dd-5d279d22db522","question","deliberation","derived","Ask","What is blocking the legal DD?"],["chat:cht_1a05d95f9f0-e5a66fd0499a6-77e1659ec1962","thought","deliberation","derived","Insight","That could be 2 things on this file, and I have not assumed one. Pick one and I will ope"],["prp_1a05d95f9b9-5e2fd8505753f-abf9ead928073","proposal","deliberation","derived","Request Approval letters","proposed"],["aid_1a05d95f987-80af4b4052bea-04c63fe7d86f3","proposal","deliberation","derived","Request 8 outstanding evidence item(s)","action \u00b7 draft"],["aid_1a05d95f987-137bbd2e25177-23e74668b59ef","proposal","deliberation","derived","Risk from: Unregistered partition in the 1987\u20131998 title link","risk \u00b7 draft"],["aid_1a05d95f987-b6ab0f0c6fd81-c78efaa585f29","proposal","deliberation","derived","106 checks still pending or missing evidence","check_comment \u00b7 draft"],["aid_1a05d95f987-928530355b221-dc966339c436a","proposal","deliberation","derived","DD plan at Construction","orchestrator_plan \u00b7 draft"]],"e":[["has_asset",0,1],["has_asset",0,2],["has_asset",0,3],["has_asset",0,4],["has_asset",0,5],["has_asset",0,6],["contains",6,7],["contains",6,8],["contains",6,9],["assessed_by",0,10],["has_scope",10,11],["has_check",11,12],["has_check",11,13],["has_check",11,14],["has_check",11,15],["has_check",11,16],["has_check",11,17],["has_scope",10,18],["has_check",18,19],["supported_by",19,236],["supported_by",19,237],["produces",19,433],["has_check",18,20],["supported_by",20,237],["has_check",18,21],["has_check",18,22],["has_check",18,23],["has_scope",10,24],["has_check",24,25],["produces",25,434],["has_check",24,26],["has_check",24,27],["has_check",24,28],["has_check",24,29],["has_scope",10,30],["has_check",30,31],["has_check",30,32],["has_check",30,33],["has_check",30,34],["has_check",30,35],["has_scope",10,36],["has_check",36,37],["has_check",36,38],["has_check",36,39],["has_check",36,40],["has_scope",10,41],["has_check",41,42],["has_check",41,43],["has_check",41,44],["has_check",41,45],["has_scope",10,46],["has_check",46,47],["has_check",46,48],["has_check",46,49],["has_check",46,50],["has_check",46,51],["has_check",46,52],["assessed_by",0,53],["targets",53,1],["has_scope",53,54],["has_check",54,55],["has_check",54,56],["has_check",54,57],["has_check",54,58],["supported_by",58,308],["supported_by",58,309],["produces",58,435],["has_check",54,59],["has_scope",53,60],["has_check",60,61],["has_check",60,62],["has_check",60,63],["produces",63,436],["has_check",60,64],["has_check",60,65],["has_scope",53,66],["has_check",66,67],["has_check",66,68],["has_check",66,69],["has_check",66,70],["has_scope",53,71],["has_check",71,72],["has_check",71,73],["has_check",71,74],["has_check",71,75],["has_scope",53,76],["has_check",76,77],["has_check",76,78],["has_check",76,79],["has_check",76,80],["has_check",76,81],["has_scope",53,82],["has_check",82,83],["has_check",82,84],["has_check",82,85],["has_check",82,86],["has_check",82,87],["assessed_by",0,88],["targets",88,2],["has_scope",88,89],["has_check",89,90],["has_check",89,91],["has_check",89,92],["has_check",89,93],["has_check",89,94],["has_scope",88,95],["has_check",95,96],["has_check",95,97],["has_check",95,98],["has_check",95,99],["has_check",95,100],["has_scope",88,101],["has_check",101,102],["has_check",101,103],["has_check",101,104],["has_check",101,105],["has_check",101,106],["has_scope",88,107],["has_check",107,108],["has_check",107,109],["has_check",107,110],["has_check",107,111],["has_check",107,112],["has_scope",88,113],["has_check",113,114],["has_check",113,115],["has_check",113,116],["assessed_by",0,117],["has_scope",117,118],["has_check",118,119],["has_check",118,120],["has_check",118,121],["has_check",118,122],["has_check",118,123],["has_scope",117,124],["has_check",124,125],["has_check",124,126],["has_check",124,127],["has_check",124,128],["has_check",124,129],["has_scope",117,130],["has_check",130,131],["has_check",130,132],["has_check",130,133],["assessed_by",0,134],["has_scope",134,135],["has_check",135,136],["has_check",135,137],["has_check",135,138],["has_check",135,139],["has_check",135,140],["has_scope",134,141],["has_check",141,142],["has_check",141,143],["has_check",141,144],["has_check",141,145],["has_check",141,146],["has_scope",134,147],["has_check",147,148],["has_check",147,149],["has_check",147,150],["supported_by",10,151],["supported_by",12,151],["supported_by",10,152],["supported_by",12,152],["supported_by",10,153],["supported_by",12,153],["supported_by",10,154],["supported_by",13,154],["supported_by",10,155],["supported_by",13,155],["supported_by",10,156],["supported_by",13,156],["supported_by",10,157],["supported_by",14,157],["supported_by",10,158],["supported_by",14,158],["supported_by",10,159],["supported_by",15,159],["supported_by",10,160],["supported_by",15,160],["supported_by",10,161],["supported_by",16,161],["supported_by",10,162],["supported_by",16,162],["supported_by",10,163],["supported_by",17,163],["supported_by",10,164],["supported_by",17,164],["supported_by",10,165],["supported_by",17,165],["supported_by",10,166],["supported_by",19,166],["supported_by",10,167],["supported_by",19,167],["supported_by",10,168],["supported_by",19,168],["supported_by",10,169],["supported_by",20,169],["supported_by",10,170],["supported_by",21,170],["supported_by",10,171],["supported_by",21,171],["supported_by",10,172],["supported_by",21,172],["supported_by",10,173],["supported_by",22,173],["supported_by",10,174],["supported_by",22,174],["supported_by",10,175],["supported_by",22,175],["supported_by",10,176],["supported_by",23,176],["supported_by",10,177],["supported_by",23,177],["supported_by",10,178],["supported_by",25,178],["supported_by",10,179],["supported_by",25,179],["supported_by",10,180],["supported_by",25,180],["supported_by",10,181],["supported_by",26,181],["supported_by",10,182],["supported_by",26,182],["supported_by",10,183],["supported_by",26,183],["supported_by",10,184],["supported_by",27,184],["supported_by",10,185],["supported_by",27,185],["supported_by",10,186],["supported_by",27,186],["supported_by",10,187],["supported_by",28,187],["supported_by",10,188],["supported_by",28,188],["supported_by",10,189],["supported_by",28,189],["supported_by",10,190],["supported_by",29,190],["supported_by",10,191],["supported_by",29,191],["supported_by",10,192],["supported_by",29,192],["supported_by",10,193],["supported_by",31,193],["supported_by",10,194],["supported_by",31,194],["supported_by",10,195],["supported_by",31,195],["supported_by",10,196],["supported_by",32,196],["supported_by",10,197],["supported_by",32,197],["supported_by",10,198],["supported_by",32,198],["supported_by",10,199],["supported_by",33,199],["supported_by",10,200],["supported_by",33,200],["supported_by",10,201],["supported_by",33,201],["supported_by",10,202],["supported_by",34,202],["supported_by",10,203],["supported_by",34,203],["supported_by",10,204],["supported_by",35,204],["supported_by",10,205],["supported_by",35,205],["supported_by",10,206],["supported_by",37,206],["supported_by",10,207],["supported_by",37,207],["supported_by",10,208],["supported_by",37,208],["supported_by",10,209],["supported_by",38,209],["supported_by",10,210],["supported_by",38,210],["supported_by",10,211],["supported_by",38,211],["supported_by",10,212],["supported_by",40,212],["supported_by",10,213],["supported_by",40,213],["supported_by",10,214],["supported_by",40,214],["supported_by",10,215],["supported_by",42,215],["supported_by",10,216],["supported_by",42,216],["supported_by",10,217],["supported_by",42,217],["supported_by",10,218],["supported_by",43,218],["supported_by",10,219],["supported_by",44,219],["supported_by",10,220],["supported_by",44,220],["supported_by",10,221],["supported_by",45,221],["supported_by",10,222],["supported_by",45,222],["supported_by",10,223],["supported_by",47,223],["supported_by",10,224],["supported_by",47,224],["supported_by",10,225],["supported_by",48,225],["supported_by",10,226],["supported_by",48,226],["supported_by",10,227],["supported_by",49,227],["supported_by",10,228],["supported_by",49,228],["supported_by",10,229],["supported_by",50,229],["supported_by",10,230],["supported_by",50,230],["supported_by",10,231],["supported_by",51,231],["supported_by",10,232],["supported_by",51,232],["supported_by",10,233],["supported_by",51,233],["supported_by",10,234],["supported_by",52,234],["supported_by",10,235],["supported_by",52,235],["supported_by",10,236],["supported_by",10,237],["supported_by",53,238],["supported_by",55,238],["supported_by",53,239],["supported_by",55,239],["supported_by",53,240],["supported_by",55,240],["supported_by",53,241],["supported_by",56,241],["supported_by",53,242],["supported_by",56,242],["supported_by",53,243],["supported_by",56,243],["supported_by",53,244],["supported_by",57,244],["supported_by",53,245],["supported_by",57,245],["supported_by",53,246],["supported_by",57,246],["supported_by",53,247],["supported_by",58,247],["supported_by",53,248],["supported_by",58,248],["supported_by",53,249],["supported_by",58,249],["supported_by",53,250],["supported_by",59,250],["supported_by",53,251],["supported_by",59,251],["supported_by",53,252],["supported_by",61,252],["supported_by",53,253],["supported_by",61,253],["supported_by",53,254],["supported_by",62,254],["supported_by",53,255],["supported_by",62,255],["supported_by",53,256],["supported_by",62,256],["supported_by",53,257],["supported_by",63,257],["supported_by",53,258],["supported_by",63,258],["supported_by",53,259],["supported_by",64,259],["supported_by",53,260],["supported_by",64,260],["supported_by",53,261],["supported_by",64,261],["supported_by",53,262],["supported_by",67,262],["supported_by",53,263],["supported_by",67,263],["supported_by",53,264],["supported_by",67,264],["supported_by",53,265],["supported_by",68,265],["supported_by",53,266],["supported_by",68,266],["supported_by",53,267],["supported_by",69,267],["supported_by",53,268],["supported_by",69,268],["supported_by",53,269],["supported_by",69,269],["supported_by",53,270],["supported_by",70,270],["supported_by",53,271],["supported_by",70,271],["supported_by",53,272],["supported_by",72,272],["supported_by",53,273],["supported_by",72,273],["supported_by",53,274],["supported_by",73,274],["supported_by",53,275],["supported_by",73,275],["supported_by",53,276],["supported_by",74,276],["supported_by",53,277],["supported_by",74,277],["supported_by",53,278],["supported_by",75,278],["supported_by",53,279],["supported_by",75,279],["supported_by",53,280],["supported_by",77,280],["supported_by",53,281],["supported_by",77,281],["supported_by",53,282],["supported_by",77,282],["supported_by",53,283],["supported_by",78,283],["supported_by",53,284],["supported_by",78,284],["supported_by",53,285],["supported_by",78,285],["supported_by",53,286],["supported_by",79,286],["supported_by",53,287],["supported_by",79,287],["supported_by",53,288],["supported_by",79,288],["supported_by",53,289],["supported_by",80,289],["supported_by",53,290],["supported_by",80,290],["supported_by",53,291],["supported_by",80,291],["supported_by",53,292],["supported_by",81,292],["supported_by",53,293],["supported_by",81,293],["supported_by",53,294],["supported_by",83,294],["supported_by",53,295],["supported_by",83,295],["supported_by",53,296],["supported_by",83,296],["supported_by",53,297],["supported_by",84,297],["supported_by",53,298],["supported_by",84,298],["supported_by",53,299],["supported_by",85,299],["supported_by",53,300],["supported_by",85,300],["supported_by",53,301],["supported_by",85,301],["supported_by",53,302],["supported_by",86,302],["supported_by",53,303],["supported_by",86,303],["supported_by",53,304],["supported_by",86,304],["supported_by",53,305],["supported_by",87,305],["supported_by",53,306],["supported_by",87,306],["supported_by",53,307],["supported_by",87,307],["supported_by",53,308],["supported_by",53,309],["supported_by",88,310],["supported_by",90,310],["supported_by",88,311],["supported_by",90,311],["supported_by",88,312],["supported_by",90,312],["supported_by",88,313],["supported_by",91,313],["supported_by",88,314],["supported_by",91,314],["supported_by",88,315],["supported_by",91,315],["supported_by",88,316],["supported_by",92,316],["supported_by",88,317],["supported_by",92,317],["supported_by",88,318],["supported_by",92,318],["supported_by",88,319],["supported_by",93,319],["supported_by",88,320],["supported_by",93,320],["supported_by",88,321],["supported_by",93,321],["supported_by",88,322],["supported_by",94,322],["supported_by",88,323],["supported_by",94,323],["supported_by",88,324],["supported_by",96,324],["supported_by",88,325],["supported_by",96,325],["supported_by",88,326],["supported_by",96,326],["supported_by",88,327],["supported_by",97,327],["supported_by",88,328],["supported_by",97,328],["supported_by",88,329],["supported_by",98,329],["supported_by",88,330],["supported_by",98,330],["supported_by",88,331],["supported_by",98,331],["supported_by",88,332],["supported_by",99,332],["supported_by",88,333],["supported_by",99,333],["supported_by",88,334],["supported_by",99,334],["supported_by",88,335],["supported_by",100,335],["supported_by",88,336],["supported_by",100,336],["supported_by",88,337],["supported_by",100,337],["supported_by",88,338],["supported_by",102,338],["supported_by",88,339],["supported_by",102,339],["supported_by",88,340],["supported_by",102,340],["supported_by",88,341],["supported_by",103,341],["supported_by",88,342],["supported_by",103,342],["supported_by",88,343],["supported_by",103,343],["supported_by",88,344],["supported_by",104,344],["supported_by",88,345],["supported_by",104,345],["supported_by",88,346],["supported_by",104,346],["supported_by",88,347],["supported_by",105,347],["supported_by",88,348],["supported_by",105,348],["supported_by",88,349],["supported_by",105,349],["supported_by",88,350],["supported_by",106,350],["supported_by",88,351],["supported_by",106,351],["supported_by",88,352],["supported_by",106,352],["supported_by",88,353],["supported_by",108,353],["supported_by",88,354],["supported_by",108,354],["supported_by",88,355],["supported_by",109,355],["supported_by",88,356],["supported_by",109,356],["supported_by",88,357],["supported_by",110,357],["supported_by",88,358],["supported_by",110,358],["supported_by",88,359],["supported_by",111,359],["supported_by",88,360],["supported_by",111,360],["supported_by",88,361],["supported_by",111,361],["supported_by",88,362],["supported_by",114,362],["supported_by",88,363],["supported_by",114,363],["supported_by",88,364],["supported_by",115,364],["supported_by",88,365],["supported_by",115,365],["supported_by",88,366],["supported_by",115,366],["supported_by",88,367],["supported_by",116,367],["supported_by",117,368],["supported_by",119,368],["supported_by",117,369],["supported_by",119,369],["supported_by",117,370],["supported_by",119,370],["supported_by",117,371],["supported_by",120,371],["supported_by",117,372],["supported_by",120,372],["supported_by",117,373],["supported_by",120,373],["supported_by",117,374],["supported_by",121,374],["supported_by",117,375],["supported_by",121,375],["supported_by",117,376],["supported_by",121,376],["supported_by",117,377],["supported_by",122,377],["supported_by",117,378],["supported_by",122,378],["supported_by",117,379],["supported_by",122,379],["supported_by",117,380],["supported_by",123,380],["supported_by",117,381],["supported_by",123,381],["supported_by",117,382],["supported_by",123,382],["supported_by",117,383],["supported_by",125,383],["supported_by",117,384],["supported_by",125,384],["supported_by",117,385],["supported_by",125,385],["supported_by",117,386],["supported_by",126,386],["supported_by",117,387],["supported_by",127,387],["supported_by",117,388],["supported_by",127,388],["supported_by",117,389],["supported_by",127,389],["supported_by",117,390],["supported_by",128,390],["supported_by",117,391],["supported_by",128,391],["supported_by",117,392],["supported_by",128,392],["supported_by",117,393],["supported_by",129,393],["supported_by",117,394],["supported_by",129,394],["supported_by",117,395],["supported_by",129,395],["supported_by",117,396],["supported_by",131,396],["supported_by",117,397],["supported_by",131,397],["supported_by",117,398],["supported_by",132,398],["supported_by",117,399],["supported_by",132,399],["supported_by",117,400],["supported_by",132,400],["supported_by",117,401],["supported_by",133,401],["supported_by",117,402],["supported_by",133,402],["supported_by",134,403],["supported_by",136,403],["supported_by",134,404],["supported_by",136,404],["supported_by",134,405],["supported_by",136,405],["supported_by",134,406],["supported_by",137,406],["supported_by",134,407],["supported_by",137,407],["supported_by",134,408],["supported_by",137,408],["supported_by",134,409],["supported_by",138,409],["supported_by",134,410],["supported_by",138,410],["supported_by",134,411],["supported_by",138,411],["supported_by",134,412],["supported_by",139,412],["supported_by",134,413],["supported_by",139,413],["supported_by",134,414],["supported_by",139,414],["supported_by",134,415],["supported_by",140,415],["supported_by",134,416],["supported_by",140,416],["supported_by",134,417],["supported_by",140,417],["supported_by",134,418],["supported_by",142,418],["supported_by",134,419],["supported_by",142,419],["supported_by",134,420],["supported_by",143,420],["supported_by",134,421],["supported_by",143,421],["supported_by",134,422],["supported_by",144,422],["supported_by",134,423],["supported_by",144,423],["supported_by",134,424],["supported_by",145,424],["supported_by",134,425],["supported_by",145,425],["supported_by",134,426],["supported_by",145,426],["supported_by",134,427],["supported_by",148,427],["supported_by",134,428],["supported_by",148,428],["supported_by",134,429],["supported_by",149,429],["supported_by",134,430],["supported_by",149,430],["supported_by",134,431],["supported_by",150,431],["found",10,433],["supported_by",433,236],["supported_by",433,237],["found",10,434],["found",53,435],["found",117,435],["found",134,435],["found",88,435],["supported_by",435,308],["supported_by",435,309],["found",53,436],["found",88,437],["raises",434,447],["raises",435,448],["raises",435,449],["raises",438,450],["raises",439,451],["raises",440,452],["raises",441,453],["raises",442,454],["raises",443,455],["raises",444,456],["raises",445,457],["requires",434,458],["requires",435,459],["requires",448,459],["requires",435,460],["informs",434,470],["informs",435,471],["informs",448,471],["informs",438,472],["informs",439,472],["informs",440,472],["informs",441,472],["informs",442,472],["informs",443,472],["informs",444,472],["informs",445,472],["informs",446,472],["informs",450,472],["informs",451,472],["informs",452,472],["informs",453,472],["informs",454,472],["informs",455,472],["informs",456,472],["informs",457,472],["reported_in",0,473],["reported_in",0,474],["reported_in",0,475],["sited_at",0,476],["sited_at",1,476],["sited_at",2,476],["sited_at",3,476],["sited_at",4,476],["sited_at",5,476],["sited_at",6,476],["governed_by",476,477],["engaged_on",0,478],["engaged_on",0,479],["engaged_on",0,480],["derives_from",481,476],["affects",482,481],["affects",483,481],["derives_from",483,482],["affects",484,481],["derives_from",484,483],["conveyed_to",484,485],["affects",486,481],["derives_from",486,484],["conveyed_to",486,487],["affects",488,481],["derives_from",488,486],["conveyed_to",488,489],["affects",490,481],["derives_from",490,488],["affects",491,481],["derives_from",491,490],["contradicts",492,481],["contradicts",492,476],["contradicts",493,481],["contradicts",493,476],["raised_on",494,0],["raised_on",495,0],["cites",495,85],["cites",495,82],["cites",495,434],["cites",495,184],["raised_on",496,0],["raised_on",497,0],["raised_on",498,0],["raised_on",499,0],["raised_on",500,0],["raised_on",501,0],["raised_on",502,0]],"ont":{"kinds":[{"kind":"project","layer":"entity"},{"kind":"asset","layer":"entity"},{"kind":"parcel","layer":"entity"},{"kind":"party","layer":"entity"},{"kind":"instrument","layer":"entity"},{"kind":"authority","layer":"entity"},{"kind":"encumbrance","layer":"entity"},{"kind":"approval","layer":"entity"},{"kind":"evidence","layer":"evidence"},{"kind":"contradiction","layer":"claim"},{"kind":"assessment","layer":"judgement"},{"kind":"scope","layer":"judgement"},{"kind":"check","layer":"judgement"},{"kind":"finding","layer":"judgement"},{"kind":"risk","layer":"judgement"},{"kind":"action","layer":"judgement"},{"kind":"decision","layer":"judgement"},{"kind":"report","layer":"judgement"},{"kind":"question","layer":"deliberation"},{"kind":"thought","layer":"deliberation"},{"kind":"proposal","layer":"deliberation"}],"rels":[{"rel":"has_asset","from":["project"],"to":["asset"]},{"rel":"contains","from":["asset"],"to":["asset"]},{"rel":"assessed_by","from":["project"],"to":["assessment"]},{"rel":"targets","from":["assessment"],"to":["asset"]},{"rel":"has_scope","from":["assessment"],"to":["scope"]},{"rel":"has_check","from":["scope"],"to":["check"]},{"rel":"reported_in","from":["project"],"to":["report"]},{"rel":"has_risk","from":["project"],"to":["risk"]},{"rel":"sited_at","from":["project","asset"],"to":["parcel"]},{"rel":"engaged_on","from":["project"],"to":["party"]},{"rel":"conveyed_by","from":["instrument"],"to":["party"]},{"rel":"conveyed_to","from":["instrument"],"to":["party"]},{"rel":"affects","from":["instrument","approval","encumbrance"],"to":["parcel"]},{"rel":"derives_from","from":["instrument","parcel"],"to":["instrument","parcel"]},{"rel":"encumbers","from":["encumbrance"],"to":["parcel"]},{"rel":"issued_by","from":["approval","encumbrance","instrument"],"to":["authority"]},{"rel":"governed_by","from":["parcel","project"],"to":["authority"]},{"rel":"supported_by","from":["check","finding","risk","action","report","assessment"],"to":["evidence"]},{"rel":"contradicts","from":["contradiction"]},{"rel":"about","from":["check","finding","risk","action"],"to":["parcel","asset"]},{"rel":"produces","from":["check"],"to":["finding"]},{"rel":"found","from":["assessment"],"to":["finding"]},{"rel":"raises","from":["finding"],"to":["risk"]},{"rel":"requires","from":["finding","check","risk"],"to":["action"]},{"rel":"informs","from":["finding","risk"],"to":["decision"]},{"rel":"raised_on","from":["question","thought","proposal"],"to":["project"]},{"rel":"cites","from":["question","thought","proposal"]},{"rel":"became","from":["proposal"]}]}}</script>
+<script>
+(() => {
+  const RAW = JSON.parse(document.getElementById('payload').textContent);
+  const P = RAW.p;
+  const NODES = RAW.n.map(([id, kind, layer, origin, label, detail], i) => ({ i, id, kind, layer, origin, label, detail }));
+  const EDGES = RAW.e.map(([rel, from, to], i) => ({ i, rel, from, to }));
+  const ONT = RAW.ont;
+
+  const LAYERS = ['entity', 'evidence', 'claim', 'judgement', 'deliberation'];
+  const LAYER_BLURB = {
+    entity: 'What exists. The land, the people, the deeds, the bodies that govern them — added when the title chain the screen already computed stopped being thrown away.',
+    evidence: 'What we hold. Every document on file, with the status it was accepted at.',
+    claim: 'What the sources say, including where two of them disagree.',
+    judgement: 'What we concluded. The assessments, their scopes and checks, and everything those produced.',
+    deliberation: 'How we got here. Questions, model answers and proposals — cited by conclusions, never relied on by them.',
+  };
+  const colour = (layer) => `var(--L-${layer})`;
+  const adj = new Map();
+  for (const n of NODES) adj.set(n.i, []);
+  for (const e of EDGES) { adj.get(e.from).push(e); adj.get(e.to).push(e); }
+
+  const ALARM = /critical|missing_evidence|non_compliant/i;
+  const isAlarming = (n) =>
+    (n.kind === 'finding' && /critical|serious/i.test(n.detail || '')) ||
+    (n.kind === 'risk' && /critical/i.test(n.detail || '')) ||
+    (n.kind === 'check' && ALARM.test(n.detail || '')) ||
+    (n.kind === 'contradiction' && /critical|serious/i.test(n.detail || ''));
+
+  const pretty = (s) => s.replace(/_/g, ' ');
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  /* ---------------- masthead ---------------- */
+  document.getElementById('projName').textContent = P.name;
+  const facts = [
+    ['Reference', P.reference],
+    ['Where', `${P.location}, ${P.city}`],
+    ['Parcel', P.parcelId || '—'],
+    ['Land', P.area ? `${P.area.toLocaleString('en-IN')} <small>sqm</small>` : '—'],
+    ['Jurisdiction', P.karnataka ? P.karnataka.jurisdiction : '—'],
+    ['Title integrity', P.integrity != null ? `${P.integrity} <small>/ 100</small>` : '—'],
+    ['Graph', `${NODES.length} <small>nodes</small> &middot; ${EDGES.length} <small>edges</small>`],
+  ];
+  document.getElementById('facts').innerHTML = facts
+    .map(([k, v]) => `<div class="fact"><div class="k">${esc(k)}</div><div class="v tnum">${v}</div></div>`)
+    .join('');
+
+  /* ---------------- tabs ---------------- */
+  const TABS = ['atlas', 'explore', 'ont', 'table'];
+  function showTab(name) {
+    for (const t of TABS) {
+      document.getElementById('tab-' + t).setAttribute('aria-selected', String(t === name));
+      document.getElementById('v-' + t).hidden = t !== name;
+    }
+    if (name === 'explore') draw();
+  }
+  for (const t of TABS) document.getElementById('tab-' + t).addEventListener('click', () => showTab(t));
+
+  /* ---------------- atlas ---------------- */
+  const byLayer = new Map(LAYERS.map((l) => [l, []]));
+  for (const n of NODES) byLayer.get(n.layer).push(n);
+  const maxKind = Math.max(...LAYERS.flatMap((l) => {
+    const c = new Map();
+    for (const n of byLayer.get(l)) c.set(n.kind, (c.get(n.kind) || 0) + 1);
+    return [...c.values()];
+  }));
+
+  document.getElementById('lanes').innerHTML = LAYERS.map((layer) => {
+    const rows = byLayer.get(layer);
+    const kinds = new Map();
+    for (const n of rows) { if (!kinds.has(n.kind)) kinds.set(n.kind, []); kinds.get(n.kind).push(n); }
+    const ordered = [...kinds.entries()].sort((a, b) => b[1].length - a[1].length);
+    return `<div class="lane">
+      <div class="lane-h">
+        <span class="swatch" style="background:${colour(layer)}"></span>
+        <span class="nm">${pretty(layer)}</span>
+        <span class="ct">${rows.length}</span>
+      </div>
+      <p class="lane-note">${esc(LAYER_BLURB[layer])}</p>
+      ${ordered.map(([kind, list]) => `
+        <button class="kindbtn" type="button" data-kind="${kind}">
+          <span class="row"><span class="nm">${esc(pretty(kind))}</span><span class="n tnum">${list.length}</span></span>
+          <span class="meter" style="background:${colour(layer)};width:${Math.max(6, (list.length / maxKind) * 100)}%"></span>
+          <span class="ex">${esc(list[0].label)}</span>
+        </button>`).join('')}
+    </div>`;
+  }).join('');
+
+  document.getElementById('lanes').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.kindbtn');
+    if (!btn) return;
+    for (const b of document.querySelectorAll('.kindbtn')) b.classList.toggle('on', b === btn);
+    showKind(btn.dataset.kind);
+  });
+
+  /* ---------------- inspector ---------------- */
+  const insp = document.getElementById('insp');
+  const inspTitle = document.getElementById('inspTitle');
+  let current = null;
+
+  function chip(n) {
+    return `<span class="chip"><span class="dot" style="background:${colour(n.layer)}"></span>${esc(n.kind)}</span>`;
+  }
+
+  function showKind(kind) {
+    const list = NODES.filter((n) => n.kind === kind);
+    inspTitle.textContent = pretty(kind);
+    insp.innerHTML = `
+      <span class="chip"><span class="dot" style="background:${colour(list[0].layer)}"></span>${esc(list[0].layer)} layer</span>
+      <h3>${list.length} ${esc(pretty(kind))}${list.length === 1 ? '' : 's'} on this file</h3>
+      <div class="relgrp"><span class="lbl">All of them</span>
+        ${list.slice(0, 60).map((n) => `<div class="relrow${isAlarming(n) ? ' stripe' : ''}">
+          <button type="button" data-go="${n.i}">${esc(n.label)}</button></div>`).join('')}
+        ${list.length > 60 ? `<p class="empty" style="margin-top:8px">…and ${list.length - 60} more. The “Every node” tab lists them all.</p>` : ''}
+      </div>`;
+  }
+
+  function showNode(n) {
+    current = n;
+    const out = adj.get(n.i).filter((e) => e.from === n.i);
+    const inc = adj.get(n.i).filter((e) => e.to === n.i);
+    const group = (edges, dir) => {
+      if (!edges.length) return '';
+      const byRel = new Map();
+      for (const e of edges) {
+        if (!byRel.has(e.rel)) byRel.set(e.rel, []);
+        byRel.get(e.rel).push(NODES[dir === 'out' ? e.to : e.from]);
+      }
+      return [...byRel.entries()].map(([rel, others]) => `
+        <div class="relgrp">
+          <span class="lbl">${dir === 'out' ? '' : '&larr; '}${esc(rel)}${dir === 'out' ? ' &rarr;' : ''}</span>
+          ${others.slice(0, 14).map((o) => `<div class="relrow${isAlarming(o) ? ' stripe' : ''}">
+            <span class="arr" style="color:${colour(o.layer)}">${esc(o.kind)}</span>
+            <button type="button" data-go="${o.i}">${esc(o.label)}</button></div>`).join('')}
+          ${others.length > 14 ? `<div class="relrow"><span class="empty">…and ${others.length - 14} more</span></div>` : ''}
+        </div>`).join('');
+    };
+    inspTitle.textContent = 'Node';
+    insp.innerHTML = `
+      ${chip(n)}
+      <span class="chip" title="derived is rebuilt from the registers; authored exists nowhere else">${esc(n.origin)}</span>
+      ${isAlarming(n) ? '<div class="alarm" style="margin-top:10px">&#9679; Flagged — this is what a neighbourhood query pulls in even when you did not ask for it.</div>' : ''}
+      <h3>${esc(n.label)}</h3>
+      ${n.detail ? `<p class="detail">${esc(n.detail)}</p>` : ''}
+      <div class="idline">${esc(n.id)}</div>
+      ${group(out, 'out')}
+      ${group(inc, 'in')}
+      ${!out.length && !inc.length ? '<p class="empty" style="margin-top:14px">Nothing joins to this node.</p>' : ''}`;
+  }
+
+  insp.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-go]');
+    if (!b) return;
+    const n = NODES[+b.dataset.go];
+    seed = n;
+    showNode(n);
+    showTab('explore');
+  });
+
+  /* ---------------- explore: radial-by-hop layout ---------------- */
+  let seed = NODES.find((n) => n.kind === 'parcel') || NODES[0];
+  let hops = 2;
+  const CAP = 150;
+  const cv = document.getElementById('cv');
+  let view = { x: 0, y: 0, k: 1 };
+
+  function neighbourhood() {
+    const depth = new Map([[seed.i, 0]]);
+    let frontier = [seed.i];
+    for (let h = 1; h <= hops; h += 1) {
+      const next = [];
+      for (const i of frontier) {
+        for (const e of adj.get(i)) {
+          const other = e.from === i ? e.to : e.from;
+          if (depth.has(other)) continue;
+          depth.set(other, h);
+          next.push(other);
+        }
+      }
+      frontier = next;
+      if (!frontier.length) break;
+    }
+    let kept = [...depth.keys()];
+    let truncated = 0;
+    if (kept.length > CAP) {
+      // Keep the closest, then anything flagged — a subgraph that hid a
+      // critical finding would look clean and be a lie.
+      kept.sort((a, b) => (depth.get(a) - depth.get(b)) || (isAlarming(NODES[b]) - isAlarming(NODES[a])));
+      truncated = kept.length - CAP;
+      kept = kept.slice(0, CAP);
+    }
+    const set = new Set(kept);
+    return { depth, set, truncated, edges: EDGES.filter((e) => set.has(e.from) && set.has(e.to)) };
+  }
+
+  function draw() {
+    const { depth, set, truncated, edges } = neighbourhood();
+    const W = 1000, H = 640, cx = W / 2, cy = H / 2;
+    const rings = new Map();
+    for (const i of set) {
+      const d = depth.get(i);
+      if (!rings.has(d)) rings.set(d, []);
+      rings.get(d).push(i);
+    }
+    const pos = new Map();
+    const maxD = Math.max(...rings.keys());
+    let ringR = [];
+    for (const [d, members] of [...rings.entries()].sort((a, b) => a[0] - b[0])) {
+      if (d === 0) { pos.set(members[0], [cx, cy]); ringR[0] = 0; continue; }
+      // Sort by layer then kind so the ring reads as ordered bands rather
+      // than a scatter — the same left-to-right order the atlas uses.
+      members.sort((a, b) =>
+        LAYERS.indexOf(NODES[a].layer) - LAYERS.indexOf(NODES[b].layer) ||
+        NODES[a].kind.localeCompare(NODES[b].kind) ||
+        NODES[a].label.localeCompare(NODES[b].label));
+      const sub = Math.ceil(members.length / 46);
+      const base = 92 + (d - 1) * (sub > 1 ? 96 : 118);
+      ringR[d] = base + (sub - 1) * 46;
+      members.forEach((i, k) => {
+        const band = k % sub;
+        const inBand = Math.floor(k / sub);
+        const perBand = Math.ceil(members.length / sub);
+        const r = base + band * 46;
+        const a = (inBand / perBand) * Math.PI * 2 - Math.PI / 2 + (d % 2 ? 0 : 0.09);
+        pos.set(i, [cx + Math.cos(a) * r * 1.42, cy + Math.sin(a) * r]);
+      });
+    }
+
+    const ringMarks = [...rings.keys()].filter((d) => d > 0).sort().map((d) =>
+      `<ellipse class="ring" cx="${cx}" cy="${cy}" rx="${(ringR[d] * 1.42).toFixed(1)}" ry="${ringR[d].toFixed(1)}"></ellipse>
+       <text class="ringlab" text-anchor="middle" x="${cx}" y="${(cy - ringR[d] - 7).toFixed(1)}">${d} HOP${d > 1 ? 'S' : ''}</text>`).join('');
+
+    const edgeMarks = edges.map((e) => {
+      const [x1, y1] = pos.get(e.from), [x2, y2] = pos.get(e.to);
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      const bend = 0.12;
+      const qx = mx + (y2 - y1) * bend, qy = my - (x2 - x1) * bend;
+      return `<path class="edge" data-e="${e.i}" d="M${x1.toFixed(1)} ${y1.toFixed(1)} Q${qx.toFixed(1)} ${qy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}"><title>${esc(NODES[e.from].label)} —${esc(e.rel)}→ ${esc(NODES[e.to].label)}</title></path>`;
+    }).join('');
+
+    const nodeMarks = [...set].map((i) => {
+      const n = NODES[i], [x, y] = pos.get(i), d = depth.get(i);
+      const r = d === 0 ? 11 : d === 1 ? 7 : 5;
+      const show = d <= 1 || set.size < 46;
+      const label = n.label.length > 30 ? n.label.slice(0, 29) + '…' : n.label;
+      return `<g class="gnode" data-n="${i}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+        <circle class="plate" r="${r}" fill="${colour(n.layer)}"></circle>
+        ${isAlarming(n) ? `<circle r="${r + 3.5}" fill="none" stroke="var(--critical)" stroke-width="2"></circle>` : ''}
+        ${show ? `<text x="${x < cx ? -(r + 5) : r + 5}" y="3.5" text-anchor="${x < cx ? 'end' : 'start'}">${esc(label)}</text>` : ''}
+        <title>${esc(n.kind)} · ${esc(n.label)}${n.detail ? ' · ' + esc(n.detail) : ''}</title>
+      </g>`;
+    }).join('');
+
+    cv.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    cv.innerHTML = `<g id="stage" transform="translate(${view.x},${view.y}) scale(${view.k})">${ringMarks}${edgeMarks}${nodeMarks}</g>`;
+
+    document.getElementById('legend').innerHTML =
+      LAYERS.map((l) => `<span><span class="swatch" style="background:${colour(l)}"></span>${pretty(l)}</span>`).join('') +
+      `<span><span class="swatch" style="background:none;box-shadow:inset 0 0 0 2px var(--critical);border-radius:50%"></span>flagged</span>` +
+      `<span style="color:var(--ink3)">${set.size} of ${NODES.length} nodes · ${edges.length} edges${truncated ? ` · ${truncated} further nodes not drawn` : ''}</span>`;
+
+    for (const g of cv.querySelectorAll('.gnode')) {
+      g.addEventListener('click', () => { seed = NODES[+g.dataset.n]; showNode(seed); draw(); });
+      g.addEventListener('mouseenter', () => hover(+g.dataset.n, true));
+      g.addEventListener('mouseleave', () => hover(+g.dataset.n, false));
+    }
+  }
+
+  function hover(i, on) {
+    const touching = new Set(adj.get(i).map((e) => e.i));
+    const nbr = new Set([i]);
+    for (const e of adj.get(i)) nbr.add(e.from === i ? e.to : e.from);
+    for (const p of cv.querySelectorAll('.edge')) {
+      p.classList.toggle('hot', on && touching.has(+p.dataset.e));
+      p.classList.toggle('dim', on && !touching.has(+p.dataset.e));
+    }
+    for (const g of cv.querySelectorAll('.gnode')) g.classList.toggle('dim', on && !nbr.has(+g.dataset.n));
+  }
+
+  /* pan + zoom */
+  let dragging = null;
+  cv.addEventListener('pointerdown', (ev) => {
+    if (ev.target.closest('.gnode')) return;
+    dragging = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y };
+    cv.classList.add('drag'); cv.setPointerCapture(ev.pointerId);
+  });
+  cv.addEventListener('pointermove', (ev) => {
+    if (!dragging) return;
+    const box = cv.getBoundingClientRect(), s = 1000 / box.width;
+    view.x = dragging.vx + (ev.clientX - dragging.x) * s;
+    view.y = dragging.vy + (ev.clientY - dragging.y) * s;
+    const st = cv.querySelector('#stage');
+    if (st) st.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
+  });
+  const endDrag = () => { dragging = null; cv.classList.remove('drag'); };
+  cv.addEventListener('pointerup', endDrag);
+  cv.addEventListener('pointercancel', endDrag);
+  cv.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    const k = Math.min(3.5, Math.max(0.4, view.k * (ev.deltaY < 0 ? 1.12 : 1 / 1.12)));
+    view.k = k;
+    const st = cv.querySelector('#stage');
+    if (st) st.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
+  }, { passive: false });
+
+  document.getElementById('hops').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button');
+    if (!b) return;
+    hops = +b.dataset.h;
+    for (const x of document.querySelectorAll('#hops button')) x.setAttribute('aria-pressed', String(x === b));
+    draw();
+  });
+
+  /* search → seed */
+  const q = document.getElementById('q'), qpick = document.getElementById('qpick');
+  function runSearch() {
+    const needle = q.value.trim().toLowerCase();
+    const hits = needle
+      ? NODES.filter((n) => n.label.toLowerCase().includes(needle) || (n.detail || '').toLowerCase().includes(needle) || n.kind === needle).slice(0, 40)
+      : [];
+    qpick.innerHTML = hits.length
+      ? hits.map((n) => `<option value="${n.i}">${esc(n.kind)} — ${esc(n.label.slice(0, 52))}</option>`).join('')
+      : '<option value="">no match</option>';
+    qpick.hidden = !hits.length;
+    if (hits.length) { seed = hits[0]; showNode(seed); draw(); }
+  }
+  q.addEventListener('input', runSearch);
+  qpick.addEventListener('change', () => {
+    if (!qpick.value) return;
+    seed = NODES[+qpick.value]; showNode(seed); draw();
+  });
+  qpick.hidden = true;
+
+  /* ---------------- ontology ---------------- */
+  const counts = new Map();
+  for (const n of NODES) counts.set(n.kind, (counts.get(n.kind) || 0) + 1);
+  document.getElementById('ont').innerHTML = LAYERS.map((layer) => {
+    const kinds = ONT.kinds.filter((k) => k.layer === layer);
+    return `<div class="ontgrp">
+      <h3><span class="swatch" style="background:${colour(layer)}"></span>${pretty(layer)}</h3>
+      <p>${esc(LAYER_BLURB[layer])}</p>
+      <div class="kindtags">${kinds.map((k) =>
+        `<span class="kindtag">${esc(k.kind)}<i>${counts.get(k.kind) || 0}</i></span>`).join('')}</div>
+    </div>`;
+  }).join('');
+
+  const relUsed = new Map();
+  for (const e of EDGES) relUsed.set(e.rel, (relUsed.get(e.rel) || 0) + 1);
+  document.getElementById('reltable').innerHTML =
+    `<thead><tr><th>Relation</th><th>From</th><th>To</th><th>On this file</th></tr></thead><tbody>` +
+    ONT.rels.map((r) => `<tr>
+      <td class="mono" style="color:var(--ink)">${esc(r.rel)}</td>
+      <td class="mono">${r.from ? r.from.map(esc).join(', ') : 'any'}</td>
+      <td class="mono">${r.to ? r.to.map(esc).join(', ') : 'any'}</td>
+      <td class="tnum">${relUsed.get(r.rel) || '—'}</td></tr>`).join('') + '</tbody>';
+
+  /* ---------------- table view ---------------- */
+  const tq = document.getElementById('tq'), tlayer = document.getElementById('tlayer');
+  tlayer.innerHTML += LAYERS.map((l) => `<option value="${l}">${pretty(l)}</option>`).join('');
+  function renderTable() {
+    const needle = tq.value.trim().toLowerCase();
+    const rows = NODES.filter((n) =>
+      (!tlayer.value || n.layer === tlayer.value) &&
+      (!needle || n.label.toLowerCase().includes(needle) || n.kind.includes(needle) || (n.detail || '').toLowerCase().includes(needle)));
+    document.getElementById('tcount').textContent = `${rows.length} of ${NODES.length}`;
+    document.getElementById('nodetable').innerHTML =
+      `<thead><tr><th>Kind</th><th>Label</th><th>Detail</th><th>Layer</th><th>Origin</th></tr></thead><tbody>` +
+      rows.slice(0, 600).map((n) => `<tr>
+        <td class="mono" style="color:${colour(n.layer)}">${esc(n.kind)}</td>
+        <td><button type="button" data-go="${n.i}" style="appearance:none;background:none;border:0;padding:0;text-align:left;cursor:pointer;color:inherit;font:inherit">${esc(n.label)}</button></td>
+        <td class="mono">${esc(n.detail || '')}</td>
+        <td class="mono">${esc(n.layer)}</td>
+        <td class="mono">${esc(n.origin)}</td></tr>`).join('') + '</tbody>';
+  }
+  tq.addEventListener('input', renderTable);
+  tlayer.addEventListener('change', renderTable);
+  document.getElementById('nodetable').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-go]');
+    if (!b) return;
+    seed = NODES[+b.dataset.go]; showNode(seed); showTab('explore');
+  });
+  renderTable();
+
+  showNode(seed);
+  draw();
+})();
+</script>
