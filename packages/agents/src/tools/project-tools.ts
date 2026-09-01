@@ -11,6 +11,10 @@ import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import {
   CHECK_RESULTS,
   candidateChoices,
+  checkFieldReading,
+  findCheck,
+  formatFieldValue,
+  isBlank,
   isLiveBlock,
   openReportOf,
   reportIsFrozen,
@@ -68,6 +72,7 @@ const PROPOSE_KINDS = [
   'add_risk',
   'add_decision',
   'record_check',
+  'record_check_fields',
   'generate_report',
   'edit_report',
   'run_valuation',
@@ -230,6 +235,13 @@ function validateProposal(kind: ChatProposalKind, payload: Record<string, unknow
     return 'actions need title, kind, owner, priority.';
   }
   if (kind === 'add_risk' && (!str('title') || !str('category') || !str('cause'))) return 'add_risk needs title, category, cause.';
+  if (kind === 'record_check_fields') {
+    if (!str('checkId')) return 'record_check_fields needs checkId.';
+    const values = payload.values;
+    if (typeof values !== 'object' || values === null || Array.isArray(values) || Object.keys(values).length === 0) {
+      return 'record_check_fields needs values — an object of fieldKey to value. Call get_check_fields for the keys.';
+    }
+  }
   if (kind === 'edit_report') {
     if (!str('reportId')) return 'edit_report needs reportId.';
     const hasText = typeof payload.text === 'string';
@@ -469,7 +481,7 @@ export function createProjectTools(
         payloadJson: {
           type: 'string',
           description:
-            'JSON object for the kind: edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?}; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
+            'JSON object for the kind: record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?}; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
         },
       },
     } as const,

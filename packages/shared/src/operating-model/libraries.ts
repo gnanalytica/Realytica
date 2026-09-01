@@ -1,4 +1,5 @@
-import type { CheckDefinition, DdTypeDefinition, ScopeDefinition, ScopeKey } from './types';
+import type { CheckDefinition, CheckFieldDef, CheckInsightRule, DdTypeDefinition, ScopeDefinition, ScopeKey } from './types';
+import { CHECK_FIELDS, CHECK_INSIGHT_RULES } from './check-schemas';
 
 function checks(
   scopeKey: ScopeKey,
@@ -25,6 +26,11 @@ function checks(
     method: row.method ?? 'Review evidence against the stated criteria and record the result with source links.',
     severityGuidance: row.severity ?? 'Material exceptions become findings; missing evidence is recorded as missing, not as pass.',
     standards: row.standards,
+    // Declared beside the check rather than inline, so the library stays
+    // readable as a catalogue of what to check and the schemas stay readable
+    // as a table of what each one records.
+    fields: CHECK_FIELDS[`${scopeKey}.${row.id}`],
+    insightRules: CHECK_INSIGHT_RULES[`${scopeKey}.${row.id}`],
   }));
 }
 

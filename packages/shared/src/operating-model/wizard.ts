@@ -22,6 +22,7 @@ import {
   createAssessment,
   ensureProjectShape,
   generateReport,
+  recordCheckFields,
   editReportBlock,
   insertReportBlock,
   retuneReportBlock,
@@ -554,6 +555,13 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
       actor,
     );
     recordId = record.id;
+  } else if (item.kind === 'record_check_fields') {
+    const outcome = recordCheckFields(project, String(payload.checkId), (payload.values ?? {}) as Record<string, unknown>, actor);
+    // A card whose values will not coerce must not commit silently: the
+    // person accepted a set of numbers, and half of them landing is worse
+    // than none.
+    if (outcome.rejected.length) throw new Error(outcome.rejected.map((r) => r.error).join(' '));
+    recordId = outcome.check.id;
   } else if (item.kind === 'edit_report') {
     // A report edit card carries exactly one of three shapes, and none of
     // them can write a bound block's text — the model may add prose, rewrite

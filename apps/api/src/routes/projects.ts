@@ -30,6 +30,9 @@ import {
   proposeAiDrafts,
   recordCheckResult,
   refreshProjectDerived,
+  checkFieldReading,
+  findCheck,
+  recordCheckFields,
   detachReportBlock,
   editReportBlock,
   insertReportBlock,
@@ -109,6 +112,7 @@ import {
   createRiskBodySchema,
   editReportBlockBodySchema,
   generateReportBodySchema,
+  recordCheckFieldsBodySchema,
   insertReportBlockBodySchema,
   moveReportBlockBodySchema,
   retuneReportBlockBodySchema,
@@ -1172,6 +1176,61 @@ projectsRouter.post('/:projectId/checks/:checkId', async (req, res) => {
       citedNodeIds: [check.id],
     });
     res.json({ check, project });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** What this check records, what it holds, and what those numbers say. */
+projectsRouter.get('/:projectId/checks/:checkId/fields', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    const { check } = findCheck(project, req.params.checkId);
+    res.json({ checkId: check.id, title: check.title, ...checkFieldReading(check) });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * Write values onto a check.
+ *
+ * All or nothing: a rejected value takes the whole write with it, and the
+ * reasons come back per field so the caller can fix them rather than guess.
+ * Writing values never records a result — what the numbers mean is arithmetic,
+ * whether the check passes is somebody's judgement.
+ */
+projectsRouter.put('/:projectId/checks/:checkId/fields', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = recordCheckFieldsBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const outcome = recordCheckFields(
+      project,
+      req.params.checkId,
+      parsed.data.values,
+      actorOf(parsed.data),
+      parsed.data.sourceEvidenceId,
+    );
+    if (outcome.rejected.length) {
+      res.status(400).json({ error: outcome.rejected.map((r) => r.error).join(' '), rejected: outcome.rejected });
+      return;
+    }
+    await persistPaneWrite(project, `Recorded ${Object.keys(parsed.data.values).length} value(s) on “${outcome.check.title}”.`, {
+      citedNodeIds: [outcome.check.id],
+    });
+    res.json({ checkId: outcome.check.id, ...outcome.reading, project });
   } catch (err) {
     fail(res, err);
   }

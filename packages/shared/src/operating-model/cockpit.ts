@@ -61,6 +61,7 @@ import { projectNextStep, materialOpenFindings, unevidencedFindings, findingCrit
 import { detectChatSideIntents, handleChatSides } from './chat-sides';
 import { clarifyRecordCommand, clarifySubject, looksLikeCommand, resolveSubject, sittingTitle } from './clarify';
 import { verifyAttribution } from './attribution';
+import { trimTurn } from './brevity';
 import {
   checkResultChoices,
   describeRecorded,
@@ -115,7 +116,7 @@ export function paneForProposalKind(kind: ChatProposalKind): ProjectCockpitPane 
   if (kind === 'snapshot_capabilities') return 'orchestrate';
   if (kind === 'start_dd' || kind === 'add_scope') return 'dd';
   if (kind === 'add_asset' || kind === 'patch_asset') return 'assets';
-  if (kind === 'record_check') return 'scope';
+  if (kind === 'record_check' || kind === 'record_check_fields') return 'scope';
   if (kind === 'add_finding') return 'findings';
   if (kind === 'add_risk') return 'risks';
   if (kind === 'add_decision') return 'decisions';
@@ -222,6 +223,8 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     toolCalls: extra.toolCalls,
     choices: extra.choices,
     unsupportedClaims: extra.unsupportedClaims,
+    heldQuestions: extra.heldQuestions,
+    trimmed: extra.trimmed,
     refusedForLackOfEvidence: extra.refusedForLackOfEvidence,
     proposalIds: extra.proposalIds,
   };
@@ -361,8 +364,19 @@ export function applyProjectAgentTurn(
    * turns only — this function IS the model path.
    */
   const attribution = verifyAttribution(project, agent.text);
-  const assistantTurn = turn('assistant', agent.text, {
+  /*
+   * The other way-out check, and it sits here for the same reason: this is the
+   * last point that sees the exact text a person will read. A prompt rule
+   * about brevity degrades on precisely the hard turn where a wall of text is
+   * least useful, and "ask one question at a time" fails predictably — the
+   * model asks three, the person answers the last, and two are lost. Held
+   * rather than cut, so the interview continues.
+   */
+  const brief = trimTurn(agent.text);
+  const assistantTurn = turn('assistant', brief.text, {
     choices: agent.choices?.length ? agent.choices : undefined,
+    heldQuestions: brief.heldQuestions.length ? brief.heldQuestions : undefined,
+    trimmed: brief.trimmed || undefined,
     unsupportedClaims: attribution.unsupported.length ? attribution.unsupported.map((c) => c.text) : undefined,
     citedEvidenceIds: [...new Set(agent.citedEvidenceIds ?? [])],
     citedNodeIds: agent.citedNodeIds ? [...new Set(agent.citedNodeIds)] : undefined,

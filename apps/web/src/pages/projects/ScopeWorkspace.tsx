@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import {
+  checkFieldReading,
   CHECK_RESULT_LABEL,
   EVIDENCE_STATUS_LABEL,
   SCOPE_LABEL,
@@ -14,6 +15,7 @@ import {
   type FindingSeverity,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
+import { CheckFields } from '../../components/CheckFields';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Field, Modal, Select, Textarea, cn, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { checkTone } from './shared';
@@ -64,6 +66,32 @@ export default function ScopeWorkspace() {
   const quotes = check ? quotesForCheck(project, check.id) : [];
   const sittingQuotes = sittingCheck ? quotesForCheck(project, sittingCheck.id) : [];
   const liveIds = [...(highlightIds ?? []), ...(requestedCheck ? [requestedCheck] : [])];
+
+  // Read live from the check rather than held in state: recording a value
+  // re-reads the project, and the insights must recompute from what is stored
+  // rather than from a copy that has already drifted.
+  const reading = check ? checkFieldReading(check) : { defs: [], values: {}, insights: [], missing: [], filled: 0, total: 0 };
+
+  /**
+   * Values save as they are entered, one field at a time.
+   *
+   * Deliberately not batched behind the “Record result” button: transcribing
+   * what a deed says is not the same act as concluding the check passes, and
+   * making somebody commit to a result before they can write down a number
+   * they just read is backwards.
+   */
+  async function saveFields(values: Record<string, string | number | boolean | null>) {
+    if (!check) return;
+    setBusy(true);
+    try {
+      const { project: next } = await api.recordCheckFields(project.id, check.id, values);
+      setProject(next);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not record that value', 'critical');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function save() {
     if (!check) return;
@@ -186,6 +214,13 @@ export default function ScopeWorkspace() {
           <div className="space-y-3">
             <p className="text-[13px] text-ink-secondary">{check.purpose}</p>
             <p className="text-[12px] text-ink-muted">Acceptance: {check.acceptanceCriteria}</p>
+            <CheckFields
+              defs={reading.defs}
+              values={reading.values}
+              insights={reading.insights}
+              disabled={busy}
+              onCommit={(values) => void saveFields(values)}
+            />
             <Field label="Result">
               <Select value={result} onChange={(e) => setResult(e.target.value as CheckResult)}>
                 {RESULTS.map((r) => (

@@ -251,6 +251,62 @@ export type ImpactScore = 1 | 2 | 3 | 4 | 5;
 /* Library definitions (reusable, not project instances)               */
 /* ------------------------------------------------------------------ */
 
+export type CheckFieldKind = 'text' | 'number' | 'money' | 'area' | 'percent' | 'date' | 'enum' | 'boolean';
+
+/**
+ * A fact this check is actually about, declared so it can be recorded as a
+ * value rather than described in a comment box.
+ *
+ * See `check-fields.ts` for why the prose was not enough.
+ */
+export interface CheckFieldDef {
+  key: string;
+  label: string;
+  kind: CheckFieldKind;
+  /** sqm, ft, INR, years — shown beside the input and carried into the report. */
+  unit?: string;
+  options?: string[];
+  hint?: string;
+  /** Which document is expected to supply it. Shown so a person knows where to look. */
+  from?: string;
+  /** Defaults to true. A false here means the check can be complete without it. */
+  required?: boolean;
+}
+
+export interface CheckFieldValue {
+  value: string | number | boolean | null;
+  /** The evidence row this was read off, when it came from a document. */
+  sourceEvidenceId?: string;
+  at: string;
+  by: string;
+}
+
+/**
+ * A rule that turns recorded values into an observation.
+ *
+ * Arithmetic, not generation: the engine owns conclusions drawn from numbers,
+ * exactly as it owns the screen's. A model may read an insight; it may not
+ * author one.
+ */
+export interface CheckInsightRule {
+  kind: 'compare' | 'before' | 'require';
+  /** The field keys the rule reads, in the order the template names them. */
+  fields: string[];
+  /** Relative tolerance for `compare`. Defaults to 1%. */
+  tolerance?: number;
+  /** Template with {a}, {b}, {divergence}, {tolerance}. */
+  say: string;
+  severity: FindingSeverity;
+}
+
+export interface CheckInsight {
+  severity: FindingSeverity;
+  text: string;
+  fields: string[];
+  /** Always true today. Present so a model-authored one could never pass as computed. */
+  computed: boolean;
+}
+
 export interface CheckDefinition {
   id: string;
   scopeKey: ScopeKey;
@@ -262,6 +318,10 @@ export interface CheckDefinition {
   method: string;
   severityGuidance: string;
   standards?: string;
+  /** What this check records, beyond a result and a comment. */
+  fields?: CheckFieldDef[];
+  /** What the recorded values mean, computed. */
+  insightRules?: CheckInsightRule[];
 }
 
 export interface ScopeDefinition {
@@ -334,6 +394,14 @@ export interface CheckInstance {
   evidenceIds: string[];
   findingIds: string[];
   comments: string;
+  /**
+   * The facts this check recorded, keyed by field.
+   *
+   * Absent on a check instantiated before its definition declared any, which
+   * is why every reader goes through `readCheckFields` rather than indexing
+   * into it directly.
+   */
+  fields?: Record<string, CheckFieldValue>;
   owner?: string;
   reviewer?: string;
   updatedAt: string;
@@ -804,6 +872,16 @@ export interface ProjectChatTurn {
    * the exact failure this product exists to prevent.
    */
   unsupportedClaims?: string[];
+  /**
+   * Questions the model asked beyond the first, held rather than shown.
+   *
+   * An interview asks one thing at a time; a turn with three questions gets
+   * the last one answered and loses the other two. These are kept so the
+   * thread can continue rather than cut, and surfaced as "next, I'll ask…".
+   */
+  heldQuestions?: string[];
+  /** Prose was dropped to fit the turn budget, so the UI can offer “say more”. */
+  trimmed?: boolean;
   citedEvidenceIds: string[];
   citedNodeIds?: string[];
   toolCalls?: { name: string; summary: string }[];
@@ -822,6 +900,14 @@ export type ChatProposalKind =
   | 'add_risk'
   | 'add_decision'
   | 'record_check'
+  /**
+   * Values read off a document onto a check's declared fields.
+   *
+   * Separate from `record_check` because they are different acts: recording
+   * values is transcription, recording a result is a conclusion. A model may
+   * propose the first far more readily than the second.
+   */
+  | 'record_check_fields'
   | 'generate_report'
   /**
    * A change to a report's own words: a paragraph added, or one rewritten.

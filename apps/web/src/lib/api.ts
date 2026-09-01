@@ -52,6 +52,7 @@ import type {
   RiskRecord,
   ActionRecord,
   DecisionRecord,
+  CheckFieldReading,
   GeneratedReport,
   ReportBoundSource,
   ReportDriftRow,
@@ -767,6 +768,19 @@ export const api = {
     request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/issue`, { method: 'POST', body: JSON.stringify({ actor }) }),
   reportDrift: (projectId: string, reportId: string) =>
     request<{ reportId: string; status: string; rows: ReportDriftRow[] }>(`/projects/${projectId}/reports/${reportId}/drift`),
+
+  checkFields: (projectId: string, checkId: string) =>
+    request<CheckFieldReading & { checkId: string; title: string }>(`/projects/${projectId}/checks/${checkId}/fields`),
+  recordCheckFields: (
+    projectId: string,
+    checkId: string,
+    values: Record<string, string | number | boolean | null>,
+    sourceEvidenceId?: string,
+  ) =>
+    request<CheckFieldReading & { checkId: string; project: DdProject }>(`/projects/${projectId}/checks/${checkId}/fields`, {
+      method: 'PUT',
+      body: JSON.stringify({ values, sourceEvidenceId }),
+    }),
 
   patchProject: (projectId: string, body: PatchProjectInput & { actor?: string }) =>
     request<DdProject>(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(body) }),

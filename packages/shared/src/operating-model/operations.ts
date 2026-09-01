@@ -1,5 +1,6 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
 import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
+import { readCheckFields, validateFieldValue, type CheckFieldReading } from './check-fields';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
 import type {
   ActionRecord,
@@ -26,6 +27,9 @@ import type {
   ProjectHealth,
   ProjectSummary,
   RecordCheckInput,
+  CheckFieldDef,
+  CheckFieldValue,
+  CheckInsightRule,
   ReportBlock,
   ReportBody,
   ReportBoundSource,
@@ -337,6 +341,7 @@ function instantiateScope(assessmentId: string, scopeKey: ScopeKey, at: string):
     result: 'pending',
     evidenceIds: [],
     findingIds: [],
+    ...(def.fields?.length ? { fields: {} } : {}),
     comments: '',
     updatedAt: at,
   }));
@@ -476,6 +481,93 @@ const MATERIAL_RESULTS = new Set(['non_compliant', 'partially_compliant', 'unabl
 
 export function isMaterialCheckResult(result: RecordCheckInput['result']): boolean {
   return MATERIAL_RESULTS.has(result);
+}
+
+/**
+ * The definition behind an instantiated check, for its field schema.
+ *
+ * A check instance copies its title and criteria at instantiation so it is
+ * stable if the library moves, but the SCHEMA is deliberately read live: a
+ * field added to a definition should appear on the checks already running,
+ * because it is a question that was always worth answering and nobody wants
+ * to re-instantiate a DD to be asked it.
+ */
+export function checkSchema(check: CheckInstance): { fields: CheckFieldDef[]; rules: CheckInsightRule[] } {
+  const def = CHECK_DEFINITIONS.find((d) => d.id === check.definitionId);
+  return { fields: def?.fields ?? [], rules: def?.insightRules ?? [] };
+}
+
+/** Everything this check's fields say — schema, values, what is missing, and the arithmetic. */
+export function checkFieldReading(check: CheckInstance): CheckFieldReading {
+  const { fields, rules } = checkSchema(check);
+  return readCheckFields(check, fields, rules);
+}
+
+export interface RecordCheckFieldsResult {
+  check: CheckInstance;
+  /** Values that would not coerce, with the reason. Nothing partial is written. */
+  rejected: { key: string; error: string }[];
+  reading: CheckFieldReading;
+}
+
+/**
+ * Write values onto a check.
+ *
+ * All or nothing on validation: a half-written field set is worse than a
+ * refused one, because the person walks away believing the numbers are in.
+ * An unknown key is rejected by name rather than ignored — a model that
+ * invented a field should be told, not silently humoured.
+ *
+ * Writing a value NEVER records a result. What the numbers mean is the
+ * check's insight rules; whether the check passes is somebody's judgement,
+ * and conflating the two is how an automated tolerance ends up signing off a
+ * title.
+ */
+export function recordCheckFields(
+  project: DdProject,
+  checkId: string,
+  values: Record<string, unknown>,
+  actor = DEFAULT_ACTOR,
+  sourceEvidenceId?: string,
+): RecordCheckFieldsResult {
+  const { check } = findCheck(project, checkId);
+  const { fields } = checkSchema(check);
+  if (!fields.length) throw new Error(`“${check.title}” does not record typed fields — use the result and comments.`);
+
+  const at = nowIso();
+  const byKey = new Map(fields.map((f) => [f.key, f]));
+  const rejected: { key: string; error: string }[] = [];
+  const accepted: Record<string, CheckFieldValue> = {};
+
+  for (const [key, raw] of Object.entries(values)) {
+    const def = byKey.get(key);
+    if (!def) {
+      rejected.push({ key, error: `“${check.title}” has no field called "${key}". It records: ${fields.map((f) => f.key).join(', ')}.` });
+      continue;
+    }
+    const parsed = validateFieldValue(def, raw);
+    if ('error' in parsed) {
+      rejected.push({ key, error: parsed.error });
+      continue;
+    }
+    accepted[key] = { value: parsed.value, at, by: actor, ...(sourceEvidenceId ? { sourceEvidenceId } : {}) };
+  }
+
+  if (rejected.length === 0) {
+    check.fields = { ...(check.fields ?? {}), ...accepted };
+    check.updatedAt = at;
+    touch(project, at);
+    audit(project, {
+      actor,
+      action: 'record_check_fields',
+      entityType: 'check',
+      entityId: check.id,
+      newValue: Object.keys(accepted).join(', '),
+      at,
+    });
+  }
+
+  return { check, rejected, reading: checkFieldReading(check) };
 }
 
 export function recordCheckResult(project: DdProject, checkId: string, input: RecordCheckInput, actor = DEFAULT_ACTOR): CheckInstance {

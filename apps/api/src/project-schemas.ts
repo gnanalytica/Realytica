@@ -263,6 +263,17 @@ export const moveReportBlockBodySchema = z.object({
   actor: actorSchema,
 });
 
+export const recordCheckFieldsBodySchema = z.object({
+  /**
+   * Values keyed by field. Loosely typed here on purpose — the coercion and
+   * the per-field reason live in the operating model, next to the schema that
+   * knows what each field is, rather than being restated at the boundary.
+   */
+  values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+  sourceEvidenceId: z.string().optional(),
+  actor: actorSchema,
+});
+
 export const patchProjectBodySchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   description: z.string().max(4000).optional(),
