@@ -112,17 +112,30 @@ import type {
   FlowRunResult,
   FlowNodeType,
 } from '@realytica/shared';
-import { authHeader, signOut } from './auth';
+import { authHeader, renewToken, signOut } from './auth';
 
 const BASE = '/api';
 
 /**
- * Every call goes out with the ID token, and a 401 drops it.
+ * Every call goes out with the ID token, and a 401 gets one more chance.
  *
  * Centralised here rather than at each of the two hundred call sites, so a
  * method added later is authenticated by construction. `onUnauthorised` is how
  * the app learns it has been signed out — the token expiring mid-session looks
  * exactly like never having had one, and both should land on the same screen.
+ *
+ * ## Why a 401 is no longer the end
+ *
+ * It used to be: the first 401 dropped the session and threw whoever was
+ * typing at the sign-in screen, losing whatever they had not saved. But an
+ * expired token is not a refused one, and the difference is worth a round
+ * trip. So a 401 buys exactly one renewal and one retry; if that comes back
+ * 401 as well, the server is saying no rather than "not any more", and the
+ * door is the right answer.
+ *
+ * One retry, never a loop. A server that answers 401 to a freshly minted token
+ * would otherwise be met with an infinite renewal storm, which is a far worse
+ * failure than being signed out.
  */
 let onUnauthorised: (() => void) | null = null;
 
@@ -130,8 +143,8 @@ export function setUnauthorisedHandler(fn: (() => void) | null): void {
   onUnauthorised = fn;
 }
 
-function headersFor(init?: RequestInit): Record<string, string> {
-  const auth = authHeader();
+async function headersFor(init?: RequestInit): Promise<Record<string, string>> {
+  const auth = await authHeader();
   // FormData sets its own multipart boundary; naming a content type here would
   // break the upload.
   return init?.body instanceof FormData ? auth : { 'Content-Type': 'application/json', ...auth };
@@ -144,12 +157,44 @@ function noteStatus(status: number): void {
   }
 }
 
+/**
+ * `fetch` with the token attached, renewed once if the server refuses it.
+ *
+ * Every call in this file goes through here, streaming ones included, so the
+ * retry is not something a new endpoint has to remember. The `init.body` this
+ * re-sends is a string or a `FormData`, both of which are re-readable; a
+ * stream body would not be, and nothing here uses one.
+ *
+ * `noteStatus` is deliberately *not* called on the first 401 — signing out
+ * before the retry would clear the very session the retry is trying to
+ * rescue, and would flash the door on screen for the length of a round trip.
+ */
+export async function fetchWithAuth(url: string, init?: RequestInit): Promise<Response> {
+  const send = async (): Promise<Response> =>
+    fetch(url, {
+      ...init,
+      headers: { ...(await headersFor(init)), ...(init?.headers as Record<string, string> | undefined) },
+    });
+
+  const first = await send();
+  if (first.status !== 401) {
+    noteStatus(first.status);
+    return first;
+  }
+
+  const renewed = await renewToken();
+  if (!renewed) {
+    noteStatus(401);
+    return first;
+  }
+
+  const second = await send();
+  noteStatus(second.status);
+  return second;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: { ...headersFor(init), ...(init?.headers as Record<string, string> | undefined) },
-  });
-  noteStatus(res.status);
+  const res = await fetchWithAuth(`${BASE}${path}`, init);
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try {
@@ -193,12 +238,10 @@ async function askCopilotStreaming(
   viewContext?: string,
   onStep?: (step: AgentStep) => void,
 ): Promise<CopilotAnswer> {
-  const res = await fetch(`${BASE}/cases/${id}/agents/copilot`, {
+  const res = await fetchWithAuth(`${BASE}/cases/${id}/agents/copilot`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify({ question, viewContext }),
   });
-  noteStatus(res.status);
 
   // A failure BEFORE the first line is still an ordinary status + JSON body:
   // validation, a missing case, no credentials. Only a failure after the
@@ -938,13 +981,11 @@ export const api = {
     },
     opts?: { onStep?: (step: AgentStep) => void; signal?: AbortSignal },
   ) =>
-    fetch(`${BASE}/projects/${projectId}/chat`, {
+    fetchWithAuth(`${BASE}/projects/${projectId}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify(body),
       signal: opts?.signal,
     }).then(async (res) => {
-      noteStatus(res.status);
       if (!res.ok) {
         let message = `${res.status} ${res.statusText}`;
         try {
@@ -976,13 +1017,11 @@ export const api = {
     if (body.sitting?.ddId) form.append('ddId', body.sitting.ddId);
     if (body.sitting?.scopeId) form.append('scopeId', body.sitting.scopeId);
     if (body.sitting?.checkId) form.append('checkId', body.sitting.checkId);
-    return fetch(`${BASE}/projects/${projectId}/chat/files`, {
+    return fetchWithAuth(`${BASE}/projects/${projectId}/chat/files`, {
       method: 'POST',
-      headers: authHeader(),
       body: form,
       signal: opts?.signal,
     }).then(async (res) => {
-      noteStatus(res.status);
       if (!res.ok) {
         let message = `${res.status} ${res.statusText}`;
         try {

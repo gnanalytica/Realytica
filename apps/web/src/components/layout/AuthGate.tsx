@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { onAuthChange, signedIn } from '../../lib/auth';
+import { onAuthChange, setTokenRefresher, signedIn } from '../../lib/auth';
+import { cancelSilentToken, googleClientId, requestSilentToken } from '../../lib/google-identity';
 import { api, setUnauthorisedHandler } from '../../lib/api';
 import SignIn from '../../pages/SignIn';
 import { Spinner } from '../ui/kit';
@@ -55,12 +56,28 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [settle]);
 
   useEffect(() => {
-    // A token expiring mid-session looks exactly like never having had one.
-    setUnauthorisedHandler(() =>
+    /*
+     * How the app renews a token, registered once and for the whole session.
+     *
+     * It has to live here rather than in `SignIn`, which is only mounted when
+     * nobody is signed in — the moment renewal matters is precisely the moment
+     * that component is absent. A build with no client id registers nothing,
+     * and `auth.ts` then behaves exactly as it did before renewal existed.
+     */
+    if (!googleClientId()) return;
+    setTokenRefresher(() => requestSilentToken());
+    return () => setTokenRefresher(null);
+  }, []);
+
+  useEffect(() => {
+    // Reached only once renewal has already been tried and refused, so this is
+    // now a genuine "sign in again" rather than an hourly interruption.
+    setUnauthorisedHandler(() => {
+      cancelSilentToken();
       setState((prev) =>
         prev.kind === 'open' ? prev : { kind: 'needs-sign-in', notice: 'Your session ran out. Sign in again.' },
-      ),
-    );
+      );
+    });
     return () => setUnauthorisedHandler(null);
   }, []);
 
