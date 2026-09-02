@@ -18,7 +18,9 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:5174',
+        // Overridable so a second dev server can be pointed at an API running
+        // with authentication on, without editing this file.
+        target: process.env.REALYTICA_API_TARGET ?? 'http://localhost:5174',
         changeOrigin: true,
       },
     },

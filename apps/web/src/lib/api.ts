@@ -101,15 +101,46 @@ import type {
   OrchestratorRun,
   GisOverlayRead,
   ParcelBoundary,
+  WorkspaceRole,
 } from '@realytica/shared';
+import { authHeader, signOut } from './auth';
 
 const BASE = '/api';
 
+/**
+ * Every call goes out with the ID token, and a 401 drops it.
+ *
+ * Centralised here rather than at each of the two hundred call sites, so a
+ * method added later is authenticated by construction. `onUnauthorised` is how
+ * the app learns it has been signed out — the token expiring mid-session looks
+ * exactly like never having had one, and both should land on the same screen.
+ */
+let onUnauthorised: (() => void) | null = null;
+
+export function setUnauthorisedHandler(fn: (() => void) | null): void {
+  onUnauthorised = fn;
+}
+
+function headersFor(init?: RequestInit): Record<string, string> {
+  const auth = authHeader();
+  // FormData sets its own multipart boundary; naming a content type here would
+  // break the upload.
+  return init?.body instanceof FormData ? auth : { 'Content-Type': 'application/json', ...auth };
+}
+
+function noteStatus(status: number): void {
+  if (status === 401) {
+    signOut();
+    onUnauthorised?.();
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: init?.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
     ...init,
+    headers: { ...headersFor(init), ...(init?.headers as Record<string, string> | undefined) },
   });
+  noteStatus(res.status);
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
     try {
@@ -155,9 +186,10 @@ async function askCopilotStreaming(
 ): Promise<CopilotAnswer> {
   const res = await fetch(`${BASE}/cases/${id}/agents/copilot`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify({ question, viewContext }),
   });
+  noteStatus(res.status);
 
   // A failure BEFORE the first line is still an ordinary status + JSON body:
   // validation, a missing case, no credentials. Only a failure after the
@@ -295,6 +327,23 @@ export interface HealthResponse {
   cases?: number;
   projects?: number;
   upload: UploadLimits;
+  /** Which identity provider this deployment trusts, if any. */
+  auth?: { mode: 'identity_platform' | 'google' | 'oidc' | 'off' };
+}
+
+/** Who I am and who else is in this workspace, as the server sees it. */
+export interface MembersResponse {
+  tenant: { id: string; name: string; autoJoinDomain?: string } | null;
+  me: { subject: string; email: string; name?: string; tenantId: string; role: WorkspaceRole };
+  members: Array<{
+    email: string;
+    name?: string;
+    role: WorkspaceRole;
+    signedIn: boolean;
+    invitedBy?: string;
+    createdAt: string;
+    lastSeenAt?: string;
+  }>;
 }
 
 /**
@@ -347,6 +396,29 @@ export function evidenceFileUrl(
 
 export const api = {
   health: () => request<HealthResponse>('/health'),
+
+  members: () => request<MembersResponse>('/members'),
+
+  inviteMember: (email: string, role: WorkspaceRole) =>
+    request<{ email: string; role: WorkspaceRole }>('/members', {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+    }),
+
+  setMemberRole: (email: string, role: WorkspaceRole) =>
+    request<{ email: string; role: WorkspaceRole }>(`/members/${encodeURIComponent(email)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    }),
+
+  removeMember: (email: string) =>
+    request<void>(`/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
+
+  setAutoJoinDomain: (autoJoinDomain: string | null) =>
+    request<{ id: string; name: string; autoJoinDomain?: string }>('/members', {
+      method: 'PATCH',
+      body: JSON.stringify({ autoJoinDomain }),
+    }),
 
   reference: () => request<ReferenceData>('/reference'),
 
@@ -928,10 +1000,11 @@ export const api = {
   ) =>
     fetch(`${BASE}/projects/${projectId}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
       body: JSON.stringify(body),
       signal: opts?.signal,
     }).then(async (res) => {
+      noteStatus(res.status);
       if (!res.ok) {
         let message = `${res.status} ${res.statusText}`;
         try {
@@ -965,9 +1038,11 @@ export const api = {
     if (body.sitting?.checkId) form.append('checkId', body.sitting.checkId);
     return fetch(`${BASE}/projects/${projectId}/chat/files`, {
       method: 'POST',
+      headers: authHeader(),
       body: form,
       signal: opts?.signal,
     }).then(async (res) => {
+      noteStatus(res.status);
       if (!res.ok) {
         let message = `${res.status} ${res.statusText}`;
         try {

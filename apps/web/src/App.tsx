@@ -1,7 +1,9 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import AppShell from './components/layout/AppShell';
+import { AuthGate } from './components/layout/AuthGate';
 import { ToastHost } from './components/ui/kit';
 import About from './pages/About';
+import Members from './pages/Members';
 import Observability from './pages/Observability';
 import Prompts from './pages/Prompts';
 import Landing from './pages/Landing';
@@ -26,8 +28,16 @@ export default function App() {
   return (
     <ToastHost>
       <Routes>
+        {/* The landing page is the one thing outside the gate: somebody has to
+            be able to read what this is before being asked to sign in. */}
         <Route index element={<Landing />} />
-        <Route element={<AppShell />}>
+        <Route
+          element={
+            <AuthGate>
+              <AppShell />
+            </AuthGate>
+          }
+        >
           <Route path="app" element={<Navigate to="/projects" replace />} />
           <Route path="projects" element={<ProjectList />} />
           <Route path="projects/new" element={<NewProject />} />
@@ -52,6 +62,7 @@ export default function App() {
           <Route path="libraries" element={<Libraries />} />
           <Route path="observability" element={<Observability />} />
           <Route path="prompts" element={<Prompts />} />
+          <Route path="members" element={<Members />} />
           <Route path="about" element={<About />} />
           <Route path="*" element={<Navigate to="/projects" replace />} />
         </Route>

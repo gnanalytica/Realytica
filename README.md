@@ -156,8 +156,21 @@ number) and letters are left alone, because there is no English spelling of a
 survey number, only the survey number. The quote is always in the document's
 own script — a quote a reader cannot find on the page is not a quote.
 
-**Environment variables**, all optional — the screening engine is deterministic
-and needs none of them:
+**Authentication is the one variable that is not optional in a deployment.**
+`REALYTICA_AUTH_MODE=off` runs every request as one local operator and refuses
+to start when `NODE_ENV=production`. See [docs/auth.md](docs/auth.md) for the
+Google Cloud setup — five minutes for an OAuth client, or Identity Platform if
+you want more providers later.
+
+| Variable | Effect |
+| --- | --- |
+| `REALYTICA_AUTH_MODE` | `google`, `identity_platform`, `oidc` or `off`. With anything but `off`, every API route needs a verified Google ID token and is scoped to the caller's workspace. |
+| `REALYTICA_AUTH_CLIENT_ID` / `_PROJECT` / `_ISSUER` `_AUDIENCE` `_JWKS_URL` | Which provider to trust, depending on the mode. |
+| `REALYTICA_AUTH_BOOTSTRAP_EMAILS` | Who may claim the first workspace. Unset, the first person to sign in does — right for a firm standing up its own instance, wrong for a public URL. |
+| `VITE_GOOGLE_CLIENT_ID` | Build-time, for the web app's sign-in button. The same client id; it is public by design. |
+
+**The rest are optional** — the screening engine is deterministic and needs
+none of them:
 
 | Variable | Effect |
 | --- | --- |
