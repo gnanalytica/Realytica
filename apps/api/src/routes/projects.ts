@@ -1,6 +1,13 @@
 import { Router, type Request } from 'express';
 import { needs, principalOf } from '../auth/middleware';
-import { gateWrites, redactResponses, requireArea, workspaceOnly, workspaceWrites } from '../auth/project-guard';
+import {
+  gateWrites,
+  redactResponses,
+  requireArea,
+  withinReach,
+  workspaceOnly,
+  workspaceWrites,
+} from '../auth/project-guard';
 import {
   WriteRefused,
   accessTo,
@@ -476,7 +483,11 @@ projectsRouter.get('/:projectId/graph', (req, res) => {
     return;
   }
   refreshProjectDerived(project);
-  const built = buildProjectGraph(project);
+  // Built from the projection, not the file. The graph answers with nodes and
+  // edges rather than a project, so the response redactor never sees it — and
+  // a picture of the whole file is a better disclosure of it than the
+  // registers are, because it shows what connects to what.
+  const built = buildProjectGraph(projectFor(req, project));
   res.json({ ...built, adapter: graphAdapter.kind });
 });
 
@@ -613,9 +624,10 @@ projectsRouter.get('/:projectId/graph/neighbourhood', async (req, res) => {
     return;
   }
   refreshProjectDerived(project);
+  const seen = projectFor(req, project);
   const query = typeof req.query.query === 'string' ? req.query.query : typeof req.query.q === 'string' ? req.query.q : '';
   const hops = clampGraphHops(Number(req.query.hops) || 2);
-  const live = retrieveProjectNeighbourhood(project, query, hops);
+  const live = retrieveProjectNeighbourhood(seen, query, hops);
   if (live.seeds.length === 0) {
     res.json({
       query,
@@ -639,8 +651,19 @@ projectsRouter.get('/:projectId/graph/neighbourhood', async (req, res) => {
       hops,
     );
     if (stored && stored.nodes.length > 0) {
-      graph = stored;
-      source = graphAdapter.kind;
+      // The stored graph is the whole file's, including nodes for work this
+      // reader cannot open. A k-hop walk is exactly how somebody would find
+      // those, so it is cut back to what the projection contains — and the
+      // live graph above is the floor, so a narrowed reader still gets an
+      // answer rather than an empty one.
+      const reachable = withinReach(req, project, stored);
+      // The live graph, built from the projection, is the floor: a narrowed
+      // reader whose stored neighbourhood was entirely withheld still gets the
+      // answer their own scope supports rather than an empty one.
+      if (reachable.nodes.length > 0) {
+        graph = reachable;
+        source = graphAdapter.kind;
+      }
     }
   } catch {
     source = 'live';
@@ -664,7 +687,7 @@ projectsRouter.get('/:projectId/graph/trace/:nodeId', (req, res) => {
     return;
   }
   refreshProjectDerived(project);
-  const cone = traceProjectNode(projectGraphOf(project), req.params.nodeId);
+  const cone = traceProjectNode(projectGraphOf(projectFor(req, project)), req.params.nodeId);
   if (!cone) {
     res.status(404).json({ error: `No node "${req.params.nodeId}" in this file's graph.` });
     return;

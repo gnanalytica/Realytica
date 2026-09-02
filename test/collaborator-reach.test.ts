@@ -364,6 +364,68 @@ describe('a reviewer, who was put on the project to read it', () => {
   });
 });
 
+describe('the graph, which draws the whole file', () => {
+  /*
+   * The graph store is keyed by project in every query it makes, so it never
+   * crosses a workspace — the leak here is a narrower one and worth naming
+   * precisely, because reporting it as cross-tenant would have sent the fix to
+   * the wrong layer. It crosses a *grant*: a node per assessment, scope,
+   * check, document, finding and risk, answered as nodes and edges rather than
+   * as a project, so the response redactor never sees it. A picture of a file
+   * discloses more than its registers do, because it shows what connects to
+   * what.
+   */
+  it('draws only what the reader can open', async () => {
+    const res = await call('GET', `/api/projects/${theirs.id}/graph`, { token: sam() });
+    assert.equal(res.status, 200);
+    const ids = new Set((res.body as { nodes: Array<{ id: string }> }).nodes.map((n) => n.id));
+    assert.ok(!ids.has(hidden.checkId), 'a check outside the grant was drawn');
+    assert.ok(!ids.has(hidden.scopeId), 'a scope outside the grant was drawn');
+    assert.ok(!ids.has(hidden.assessmentId));
+    assert.ok(!ids.has(hidden.evidenceId));
+    assert.ok(ids.has(allowed.checkId), 'and their own work must still be there');
+  });
+
+  it('leaves no line pointing at a node it removed', async () => {
+    const res = await call('GET', `/api/projects/${theirs.id}/graph`, { token: sam() });
+    const { nodes, edges } = res.body as {
+      nodes: Array<{ id: string }>;
+      edges: Array<{ from: string; to: string }>;
+    };
+    const ids = new Set(nodes.map((n) => n.id));
+    for (const edge of edges) {
+      assert.ok(ids.has(edge.from) && ids.has(edge.to), `an edge points at a node that is not here: ${edge.from} → ${edge.to}`);
+    }
+  });
+
+  it('does not let a walk out of the neighbourhood reach it either', async () => {
+    const res = await call(
+      'GET',
+      `/api/projects/${theirs.id}/graph/neighbourhood?query=${encodeURIComponent(allowed.checkId)}&hops=4`,
+      { token: sam() },
+    );
+    assert.equal(res.status, 200);
+    const ids = new Set((res.body as { nodes: Array<{ id: string }> }).nodes.map((n) => n.id));
+    assert.ok(!ids.has(hidden.checkId));
+    assert.ok(!ids.has(hidden.scopeId));
+  });
+
+  it('gives the developer the whole picture, unchanged', async () => {
+    const res = await call('GET', `/api/projects/${theirs.id}/graph`, { token: dev() });
+    const ids = new Set((res.body as { nodes: Array<{ id: string }> }).nodes.map((n) => n.id));
+    assert.ok(ids.has(hidden.checkId) && ids.has(allowed.checkId));
+  });
+
+  it('still keeps the nodes the graph invented, which are on no register', async () => {
+    // `<projectId>::approval::krera` and its neighbours are not records, so a
+    // prefix rule would have dropped them and taken the half of the picture
+    // that is about the land with them.
+    const res = await call('GET', `/api/projects/${theirs.id}/graph`, { token: sam() });
+    const ids = (res.body as { nodes: Array<{ id: string }> }).nodes.map((n) => n.id);
+    assert.ok(ids.some((id) => id.includes('::')), `no synthesised node survived: ${ids.length} nodes`);
+  });
+});
+
 describe('staffing a project from its own screen', () => {
   const meera = () => tokenFor('sub-meera', 'meera@survey.in');
   let grantId = '';

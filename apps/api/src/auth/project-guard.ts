@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import type { DdProject, GrantArea } from '@realytica/shared';
+import type { DdProject, GrantArea, ProjectGraphEdge, ProjectGraphNode } from '@realytica/shared';
 import { store } from '../store';
 import { accessTo, outOfReach, projectFor } from './access';
 
@@ -220,4 +220,35 @@ function guardWorkspace(req: Request, res: Response, next: NextFunction, readsAr
     return;
   }
   next();
+}
+
+/**
+ * Cut a stored graph back to what this reader may see.
+ *
+ * The graph store is keyed by project in every query, so it never crosses a
+ * workspace. It does cross a grant: it holds a node per assessment, scope,
+ * check, document, finding and risk on the file, and a k-hop walk from a seed
+ * a collaborator can see is exactly how somebody would reach the ones they
+ * cannot.
+ *
+ * The test is the write gate's, not a guess about id shapes: a node goes only
+ * when its id names a record that is on the real file and not in this reader's
+ * projection. The graph invents ids of its own for parcels, authorities and
+ * approvals — `<projectId>::approval::krera` — which are on no register and
+ * would be dropped by any prefix rule, taking the half of the picture that is
+ * about the land with them.
+ *
+ * An edge with either end gone goes too. A dangling edge is a shape the graph
+ * validator rejects, and a line to nowhere is its own disclosure.
+ */
+export function withinReach<T extends { nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] }>(
+  req: Request,
+  project: DdProject,
+  graph: T,
+): T {
+  const blocked = outOfReach(req, project);
+  if (blocked.size === 0) return graph;
+  const nodes = graph.nodes.filter((n) => !blocked.has(n.id));
+  const kept = new Set(nodes.map((n) => n.id));
+  return { ...graph, nodes, edges: graph.edges.filter((e) => kept.has(e.from) && kept.has(e.to)) };
 }
