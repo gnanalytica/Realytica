@@ -26,7 +26,7 @@
  *   product is built to avoid.
  */
 
-import { portsOf } from './catalogue';
+import { nodeLabel, portsOf } from './catalogue';
 import { asText, evaluateGroup, fillTemplate, readPath, writePath, type Payload } from './payload';
 import {
   BRANCH_DEFAULT_PORT,
@@ -206,7 +206,7 @@ export async function runFlow(flow: Flow, options: FlowRunOptions): Promise<Flow
     if (outOfBudget()) return;
 
     if (node.disabled) {
-      record({ nodeId: node.id, kind: node.kind, label: node.label ?? node.kind, status: 'skipped', at: now(), durationMs: 0, detail: 'Turned off.' });
+      record({ nodeId: node.id, kind: node.kind, label: nodeLabel(node), status: 'skipped', at: now(), durationMs: 0, detail: 'Turned off.' });
       for (const next of nextFrom(node.id, DEFAULT_OUT_PORT)) await walk(next, into);
       return;
     }
@@ -216,7 +216,9 @@ export async function runFlow(flow: Flow, options: FlowRunOptions): Promise<Flow
     const step = (over: Partial<FlowRunStep>): FlowRunStep => ({
       nodeId: node.id,
       kind: node.kind,
-      label: node.label ?? node.kind,
+      // The node's own name, not its kind: a trace reading "query, filter,
+      // output" tells somebody what the shapes were, not what ran.
+      label: nodeLabel(node),
       status: 'ok',
       at: now(),
       durationMs: Date.now() - began,
@@ -314,7 +316,7 @@ export async function runFlow(flow: Flow, options: FlowRunOptions): Promise<Flow
     };
   }
 
-  record({ nodeId: trigger.id, kind: 'trigger', label: trigger.label ?? 'Trigger', status: 'ok', at: startedAt, durationMs: 0, tookPort: DEFAULT_OUT_PORT });
+  record({ nodeId: trigger.id, kind: 'trigger', label: nodeLabel(trigger), status: 'ok', at: startedAt, durationMs: 0, tookPort: DEFAULT_OUT_PORT });
   for (const next of nextFrom(trigger.id, DEFAULT_OUT_PORT)) await walk(next, payload);
 
   return {

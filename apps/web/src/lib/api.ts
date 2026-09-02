@@ -105,6 +105,12 @@ import type {
   ProjectGrant,
   CreateProjectGrantInput,
   WorkItem,
+  CredentialKind,
+  CredentialRecord,
+  Flow,
+  FlowProblem,
+  FlowRunResult,
+  FlowNodeType,
 } from '@realytica/shared';
 import { authHeader, signOut } from './auth';
 
@@ -357,6 +363,42 @@ export interface MembersResponse {
   }>;
 }
 
+/** Everything the canvas needs to draw a palette and fill an inspector. */
+export interface FlowCatalogue {
+  nodeTypes: FlowNodeType[];
+  agents: Array<{ agent: string; tier: string; model: string }>;
+  connectors: Array<{
+    id: string;
+    label: string;
+    authority: string;
+    access: string;
+    whatItWouldHaveAnswered: string;
+    manualRoute: string | null;
+  }>;
+  prompts: Array<{ key: string; label: string; versions: Array<{ id: string; label: string; builtIn: boolean; active: boolean }> }>;
+  credentials: CredentialRecord[];
+  credentialKinds: CredentialKind[];
+}
+
+export interface FlowSummary {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  nodeCount: number;
+  updatedAt: string;
+  updatedBy: string;
+  version: number;
+  canRun: boolean;
+}
+
+/** A flow and what is wrong with it. The canvas needs both on every read. */
+export interface FlowEnvelope {
+  flow: Flow;
+  problems: FlowProblem[];
+  canRun: boolean;
+}
+
 /** Who is on one project, and the staff who reach it without being named. */
 export interface ProjectPeopleResponse {
   people: Array<ProjectGrant & { name?: string; signedIn: boolean }>;
@@ -418,6 +460,28 @@ export const api = {
     request<void>(`/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
 
   myWork: () => request<{ items: WorkItem[]; asOf: string }>('/work'),
+
+  flowCatalogue: () => request<FlowCatalogue>('/flows/catalogue'),
+
+  listFlows: () => request<FlowSummary[]>('/flows'),
+
+  getFlow: (id: string) => request<FlowEnvelope>(`/flows/${id}`),
+
+  createFlow: (name: string) =>
+    request<FlowEnvelope>('/flows', { method: 'POST', body: JSON.stringify({ name }) }),
+
+  saveFlow: (id: string, flow: Pick<Flow, 'name' | 'description' | 'nodes' | 'edges' | 'enabled'>) =>
+    request<FlowEnvelope>(`/flows/${id}`, { method: 'PUT', body: JSON.stringify(flow) }),
+
+  deleteFlow: (id: string) => request<void>(`/flows/${id}`, { method: 'DELETE' }),
+
+  runFlow: (id: string, body: { projectId: string; dryRun?: boolean; input?: Record<string, unknown> }) =>
+    request<FlowRunResult & { dryRun: boolean }>(`/flows/${id}/run`, { method: 'POST', body: JSON.stringify(body) }),
+
+  saveCredential: (body: { label: string; kind: CredentialKind; secret: string; username?: string; target?: string }) =>
+    request<CredentialRecord>('/flows/credentials', { method: 'POST', body: JSON.stringify(body) }),
+
+  deleteCredential: (id: string) => request<void>(`/flows/credentials/${id}`, { method: 'DELETE' }),
 
   assign: (projectId: string, targetId: string, owner: string) =>
     request<{ assigned: { id: string; owner: string; title: string }; project: DdProject }>(

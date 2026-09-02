@@ -534,6 +534,37 @@ export function ProgressBar({
 /* Form controls                                                       */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The id a `Field` minted, for whichever control ends up inside it.
+ *
+ * Through context rather than `cloneElement` because a field's child is often
+ * a wrapper — `OwnerInput`, a picker, anything composed — and cloning would
+ * put the id on the wrapper while the actual `<input>` stayed nameless. Every
+ * control below reads this and uses it only when it has no id of its own, so
+ * a caller who wants to manage the id still can.
+ *
+ * Until this existed, `Field` took an `htmlFor` that almost no call site
+ * passed, which meant a screen reader announced most of this app's inputs with
+ * no name at all — and the failure was invisible to anyone not using one.
+ */
+const FieldIdContext = createContext<string | undefined>(undefined);
+
+/**
+ * The id this control should carry, if any.
+ *
+ * A control that names itself — `aria-label` on one of several inputs inside a
+ * composite — does not take the field's id, and that rule is what stops a
+ * `Field` wrapping a condition editor from stamping one id onto six inputs.
+ * Duplicate ids are invalid, and worse here than merely invalid: they undo the
+ * association this context exists to create, so every input in the group
+ * points at the same label and the group's own labels stop being announced.
+ */
+export function useFieldId(own?: string, selfLabelled?: unknown): string | undefined {
+  const inherited = useContext(FieldIdContext);
+  if (own) return own;
+  return selfLabelled ? undefined : inherited;
+}
+
 export function Field({
   label,
   hint,
@@ -551,13 +582,15 @@ export function Field({
   children: ReactNode;
   className?: string;
 }) {
+  const generated = useId();
+  const id = htmlFor ?? generated;
   return (
     <div className={cn('min-w-0', className)}>
-      <label htmlFor={htmlFor} className="mb-1 flex items-baseline gap-1 text-xs font-medium text-ink-secondary">
+      <label htmlFor={id} className="mb-1 flex items-baseline gap-1 text-xs font-medium text-ink-secondary">
         {label}
         {required ? <span className="text-critical">*</span> : null}
       </label>
-      {children}
+      <FieldIdContext.Provider value={id}>{children}</FieldIdContext.Provider>
       {error ? (
         <p className="mt-1 flex items-center gap-1 text-xs text-critical">
           <XCircle size={12} /> {error}
@@ -587,8 +620,8 @@ const CONTROL =
   'hover:ring-[var(--text-muted)] ' +
   'placeholder:text-ink-muted focus:ring-2 focus:ring-brand disabled:opacity-60 disabled:hover:ring-[var(--ring)]';
 
-export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...rest} className={cn(CONTROL, 'h-9', className)} />;
+export function Input({ className, id, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+  return <input {...rest} id={useFieldId(id, rest['aria-label'])} className={cn(CONTROL, 'h-9', className)} />;
 }
 
 /*
@@ -598,15 +631,22 @@ export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputEleme
  * add it when something does rather than on principle.
  */
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
-  function Textarea({ className, ...rest }, ref) {
-    return <textarea ref={ref} {...rest} className={cn(CONTROL, 'min-h-[76px] py-2 leading-relaxed', className)} />;
+  function Textarea({ className, id, ...rest }, ref) {
+    return (
+      <textarea
+        ref={ref}
+        {...rest}
+        id={useFieldId(id, rest['aria-label'])}
+        className={cn(CONTROL, 'min-h-[76px] py-2 leading-relaxed', className)}
+      />
+    );
   },
 );
 
-export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ className, id, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <div className="relative min-w-0">
-      <select {...rest} className={cn(CONTROL, 'h-9 appearance-none pr-8', className)}>
+      <select {...rest} id={useFieldId(id, rest['aria-label'])} className={cn(CONTROL, 'h-9 appearance-none pr-8', className)}>
         {children}
       </select>
       <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-muted" />

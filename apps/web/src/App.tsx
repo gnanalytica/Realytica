@@ -5,6 +5,8 @@ import { ToastHost } from './components/ui/kit';
 import About from './pages/About';
 import Members from './pages/Members';
 import MyWork from './pages/MyWork';
+import FlowList from './pages/flows/FlowList';
+import FlowStudio from './pages/flows/FlowStudio';
 import Observability from './pages/Observability';
 import Prompts from './pages/Prompts';
 import Landing from './pages/Landing';
@@ -42,6 +44,8 @@ export default function App() {
         >
           <Route path="app" element={<Navigate to="/projects" replace />} />
           <Route path="work" element={<MyWork />} />
+          <Route path="flows" element={<FlowList />} />
+          <Route path="flows/:flowId" element={<FlowStudio />} />
           <Route path="projects" element={<ProjectList />} />
           <Route path="projects/new" element={<NewProject />} />
           <Route path="projects/:projectId" element={<ProjectLayout />}>
