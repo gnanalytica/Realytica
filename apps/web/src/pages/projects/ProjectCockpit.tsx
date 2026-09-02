@@ -354,6 +354,26 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     return rows.slice(0, 4);
   }, [project.assets.length, next.title, pendingDrafts]);
 
+  /**
+   * The dock is a pointer to something not on screen. When the work pane is
+   * already showing that very check, it is the same card twice — once with the
+   * tick and cross, once without — and a person has to work out which one is
+   * live. Desktop only: on mobile the two surfaces are never visible at once,
+   * so the dock is the only way to act without leaving the conversation.
+   */
+  const onScreenAlready = useCallback(
+    (talk: TalkSitting | null) =>
+      Boolean(
+        isDesktop &&
+          pane === 'scope' &&
+          talk &&
+          ((talk.kind === 'check' && talk.extra.checkId === searchParams.get('check')) ||
+            (talk.kind === 'scope' && talk.extra.scopeId === params.scopeId && !searchParams.get('check'))),
+      ),
+    [isDesktop, pane, searchParams, params.scopeId],
+  );
+  const dockIsEcho = onScreenAlready(dockTalk);
+
   const dockCardIds = useMemo(() => {
     if (dockTalk?.kind !== 'check' || !dockTalk.extra.checkId) return new Set<string>();
     return new Set(proposalsPinnedToCheck(project, dockTalk.extra.checkId).map((p) => p.id));
@@ -391,7 +411,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       emptyHint={next.why}
       placeholder={isDesktop ? 'What should we do next? · Set owner to … · Guide me' : 'Ask this project…'}
       dock={
-        dockTalk && (dockTalk.kind === 'check' || dockTalk.kind === 'scope') ? (
+        dockTalk && !dockIsEcho && (dockTalk.kind === 'check' || dockTalk.kind === 'scope') ? (
           <SittingDock
             project={project}
             talk={dockTalk}
@@ -408,7 +428,9 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       renderTurnExtras={(turn) => {
         const talk = sittingFromTurn(project, turn);
         const field = talk && (talk.kind === 'check' || talk.kind === 'scope') ? talk : null;
-        const docked = field && dockTalk ? sameSitting(field, dockTalk) : false;
+        // "Docked" also covers the work pane already showing it: a chip that
+        // opens something you are looking at is a control that does nothing.
+        const docked = onScreenAlready(field) || (field && dockTalk ? sameSitting(field, dockTalk) : false);
         return (
           <>
             {field && !docked ? <SittingChip talk={field} onOpen={() => setDockTalk(field)} /> : null}

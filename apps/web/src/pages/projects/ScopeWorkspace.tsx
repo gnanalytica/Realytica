@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import {
   checkFieldReading,
@@ -36,7 +36,7 @@ const RESULTS: CheckResult[] = [
 
 export default function ScopeWorkspace() {
   const { ddId, scopeId } = useParams<{ ddId: string; scopeId: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { project, setProject, onApproveProposal, onSkipProposal, proposalBusy, highlightIds, onOpenCited } =
     useOutletContext<ProjectOutlet>();
   const toast = useToast();
@@ -49,6 +49,64 @@ export default function ScopeWorkspace() {
   const [evidenceIds, setEvidenceIds] = useState<string[]>([]);
   const [severity, setSeverity] = useState<FindingSeverity>('high');
   const [busy, setBusy] = useState(false);
+
+  /** The sitting lives in the URL, so it survives a reload and can be linked. */
+  const selectCheck = useCallback(
+    (id: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('check', id);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  /**
+   * Sixty-two checks a project, and until now every one of them cost a click to
+   * select and a click to record, with a scroll between.
+   *
+   * Bound at the window rather than on a focused list because the thing being
+   * driven — the sitting card — is not where the pointer is, and asking a
+   * reviewer to click into a list before the arrows work is the friction this
+   * is meant to remove. Typing anywhere real gives the keys straight back.
+   */
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (checkId) return; // the details modal owns the keyboard while it is open
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(input|textarea|select|button)$/i.test(el.tagName))) return;
+      const checks = scope?.checks ?? [];
+      if (checks.length === 0) return;
+
+      const at = checks.findIndex((c) => c.id === requestedCheck);
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        selectCheck((checks[Math.min(checks.length - 1, at + 1)] as CheckInstance).id);
+        return;
+      }
+      if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        selectCheck((checks[at <= 0 ? 0 : at - 1] as CheckInstance).id);
+        return;
+      }
+      const here = at >= 0 ? checks[at] : undefined;
+      if (!here || here.result !== 'pending' || busy) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        void recordLean(here, 'compliant');
+      } else if (e.key === 'x' || e.key === 'X') {
+        e.preventDefault();
+        void recordLean(here, 'missing_evidence');
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   function openCheck(ch: { id: string; result: CheckResult; comments: string; evidenceIds: string[] }) {
     setCheckId(ch.id);
@@ -149,6 +207,18 @@ export default function ScopeWorkspace() {
       });
       setProject(updated);
       toast(next === 'compliant' ? 'Recorded compliant' : 'Recorded missing evidence', 'good');
+      // Land on the next thing to do rather than on the thing just done. The
+      // next check is read out of the response, not out of `scope`, which is
+      // still the copy from before this write.
+      const after = updated.assessments
+        .find((a) => a.id === ddId)
+        ?.scopes.find((s) => s.id === scopeId)?.checks;
+      if (after) {
+        const at = after.findIndex((c) => c.id === ch.id);
+        const onwards = after.slice(at + 1).find((c) => c.result === 'pending');
+        const wrapped = onwards ?? after.slice(0, at).find((c) => c.result === 'pending');
+        if (wrapped) selectCheck(wrapped.id);
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not record check', 'critical');
     } finally {
@@ -159,6 +229,7 @@ export default function ScopeWorkspace() {
   function selectField(ch: CheckInstance) {
     if (onOpenCited) onOpenCited(ch.id);
   }
+
 
   return (
     <div className="space-y-4">
@@ -190,7 +261,15 @@ export default function ScopeWorkspace() {
       ) : null}
 
       <Card>
-        <CardHeader title="Checks" />
+        <CardHeader
+          title="Checks"
+          action={
+            <p className="hidden text-[11px] text-ink-muted sm:block">
+              <kbd className="font-mono">↑↓</kbd> move · <kbd className="font-mono">↵</kbd> tick ·{' '}
+              <kbd className="font-mono">X</kbd> cross
+            </p>
+          }
+        />
         <CardBody className="divide-y divide-hairline p-0">
           {scope.checks.map((ch) => (
             <CheckRow
