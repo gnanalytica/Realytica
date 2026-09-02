@@ -159,3 +159,42 @@ export function assertWorkspaceWork(req: Request, project: DdProject, what: stri
   if (resolved.access.kind === 'full') return;
   throw new WriteRefused(`${what} is not yours to change on this project.`, 403);
 }
+
+/**
+ * Carry a chat turn written against the projection back onto the real file.
+ *
+ * The projection's `conversation` is a filtered copy, so turns pushed onto it
+ * would otherwise be lost at the end of the request. Proposals raised in the
+ * turn go back too: an approval card nobody can commit is worse than no card.
+ *
+ * Every turn is stamped with who wrote it. That stamp is what makes a
+ * collaborator's own thread readable to them later — an unattributed turn
+ * cannot be shown to be theirs, so it stays inside.
+ */
+export function mergeConversation(project: DdProject, canvas: DdProject, actor: string, from: number): void {
+  if (canvas !== project) {
+    const known = new Set(project.conversation.map((t) => t.id));
+    for (const t of canvas.conversation) if (!known.has(t.id)) project.conversation.push(t);
+
+    const raised = new Set((project.chatProposals ?? []).map((p) => p.id));
+    for (const p of canvas.chatProposals ?? []) {
+      if (!raised.has(p.id)) (project.chatProposals ??= []).push(p);
+    }
+    project.updatedAt = canvas.updatedAt;
+  }
+  stampActor(project, from, actor);
+}
+
+/**
+ * Name the author of the turns this request just wrote.
+ *
+ * From an index, never over the whole thread: turns written before any of this
+ * existed have no author, and guessing one would hand a collaborator the
+ * developer's old conversation the first time they said hello.
+ */
+export function stampActor(project: DdProject, from: number, actor: string): void {
+  for (let i = Math.max(0, from); i < project.conversation.length; i += 1) {
+    const turn = project.conversation[i];
+    if (turn && !turn.actor) turn.actor = actor;
+  }
+}

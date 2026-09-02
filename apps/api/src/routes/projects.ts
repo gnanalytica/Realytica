@@ -4,6 +4,8 @@ import { gateWrites, redactResponses, requireArea, workspaceOnly, workspaceWrite
 import {
   WriteRefused,
   accessTo,
+  mergeConversation,
+  stampActor,
   assertMayWrite,
   assertWorkspaceWork,
   liveGrant,
@@ -98,9 +100,13 @@ import {
   retrieveProjectNeighbourhood,
   traceProjectNode,
   validateProjectGraph,
+  withheldAnswer,
+  withheldBriefing,
   type ChatIngestFile,
   type DdProject,
   type ProjectChatResult,
+  type ProjectChatTurn,
+  type ProjectView,
   type ProjectGraphEdge,
   type ProjectGraphNode,
   type SittingRef,
@@ -412,7 +418,7 @@ projectsRouter.patch('/:projectId', async (req, res) => {
     return;
   }
   patchProject(project, parsed.data, actorOf(req));
-  await persistPaneWrite(project, 'Updated project details.', { citedNodeIds: [project.id] });
+  await persistPaneWrite(req, project, 'Updated project details.', { citedNodeIds: [project.id] });
   res.json(project);
 });
 
@@ -680,7 +686,7 @@ projectsRouter.post('/:projectId/screen', async (req, res) => {
       const site = await ensureIdentitySiteContext(project, projectToIdentity(project), now);
       await journal.step('site_context', site ? 'Site context resolved.' : 'No mapping provider; screening without a pin.');
       const applied = screenProject(project, actor, now, site);
-      await persistPaneWrite(project, 'Ran the project screen.');
+      await persistPaneWrite(req, project, 'Ran the project screen.');
       return `Verdict ${applied.snapshot.verdict}.`;
     });
     res.status(202).json({ ...started, pollUrl: `/api/projects/${project.id}/runs/${started.runId}` });
@@ -692,7 +698,7 @@ projectsRouter.post('/:projectId/screen', async (req, res) => {
     const site = await ensureIdentitySiteContext(project, projectToIdentity(project), now);
     await journal.step('site_context', site ? 'Site context resolved.' : 'No mapping provider; screening without a pin.');
     const applied = screenProject(project, actor, now, site);
-    await persistPaneWrite(project, 'Ran the project screen.');
+    await persistPaneWrite(req, project, 'Ran the project screen.');
     await journal.finish(`Verdict ${applied.snapshot.verdict}.`);
     res.status(201).json({ snapshot: applied.snapshot, valuationId: applied.valuationId, project });
   } catch (err) {
@@ -709,7 +715,7 @@ projectsRouter.post('/:projectId/valuation', async (req, res) => {
   }
   const actor = actorOf(req);
   const run = createValuationRun(project, actor);
-  await persistPaneWrite(project, 'Created a valuation run.');
+  await persistPaneWrite(req, project, 'Created a valuation run.');
   res.status(201).json(run);
 });
 
@@ -726,7 +732,7 @@ projectsRouter.patch('/:projectId/valuation/:runId', async (req, res) => {
   }
   try {
     const run = setValuationSignOff(project, req.params.runId, parsed.data.signOff, actorOf(req));
-    await persistPaneWrite(project, `Updated valuation sign-off to ${parsed.data.signOff}.`);
+    await persistPaneWrite(req, project, `Updated valuation sign-off to ${parsed.data.signOff}.`);
     res.json(run);
   } catch (err) {
     fail(res, err);
@@ -746,7 +752,7 @@ projectsRouter.patch('/:projectId/valuation/:runId/valuer', async (req, res) => 
   }
   try {
     const run = setValuationValuer(project, req.params.runId, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Recorded the valuer on this valuation.`, { citedNodeIds: [run.id] });
+    await persistPaneWrite(req, project, `Recorded the valuer on this valuation.`, { citedNodeIds: [run.id] });
     res.json({ run, rule8: valuationRule8(run) });
   } catch (err) {
     fail(res, err);
@@ -775,7 +781,7 @@ projectsRouter.post('/:projectId/capabilities', async (req, res) => {
     return;
   }
   const runs = snapshotCapabilities(project, actorOf(req));
-  await persistPaneWrite(project, 'Snapshot capabilities.');
+  await persistPaneWrite(req, project, 'Snapshot capabilities.');
   res.json(runs);
 });
 
@@ -792,7 +798,7 @@ projectsRouter.post('/:projectId/ai/drafts', async (req, res) => {
   }
   const capability = agentCapability();
   const drafts = proposeAiDrafts(project, actorOf(req), 'rule');
-  await persistPaneWrite(project, `Proposed ${drafts.length} AI draft(s).`);
+  await persistPaneWrite(req, project, `Proposed ${drafts.length} AI draft(s).`);
   res.status(201).json({ drafts, agent: { available: capability.available, reason: capability.reason } });
 });
 
@@ -809,7 +815,7 @@ projectsRouter.patch('/:projectId/ai/drafts/:draftId', async (req, res) => {
   }
   try {
     const draft = reviewAiDraft(project, req.params.draftId, parsed.data.status, parsed.data.reviewNote, actorOf(req));
-    await persistPaneWrite(project, `Reviewed draft “${draft.title}” (${parsed.data.status}).`);
+    await persistPaneWrite(req, project, `Reviewed draft “${draft.title}” (${parsed.data.status}).`);
     res.json(draft);
   } catch (err) {
     fail(res, err);
@@ -871,13 +877,36 @@ async function rememberProject(project: DdProject): Promise<void> {
 }
 
 async function persistPaneWrite(
+  req: Request,
   project: DdProject,
   summary: string,
   extra?: { citedNodeIds?: string[]; citedEvidenceIds?: string[] },
 ): Promise<void> {
+  const before = project.conversation.length;
   noteProjectEdit(project, summary, extra);
+  // Every pane write leaves a turn in the thread. Naming its author here, in
+  // the one place they are all written, is what lets a collaborator read back
+  // their own work without reading the developer's.
+  stampActor(project, before, actorOf(req));
   await rememberProject(project);
   await store.save();
+}
+
+/**
+ * Say "you do not have access to that" rather than letting an empty register
+ * read as a fact.
+ *
+ * Applied after the answer is composed, whichever path composed it, because
+ * the failure it closes is not a leak — it is the opposite. A collaborator
+ * asking what the site is worth, and being told there is no valuation on the
+ * file when there is one, has been lied to by a system that thought it was
+ * protecting something.
+ */
+function sayWhatIsMissing(seen: ProjectView, question: string, result: { assistantTurn: ProjectChatTurn }): void {
+  const note = withheldAnswer(seen, question);
+  if (!note) return;
+  const text = result.assistantTurn.text.trim();
+  result.assistantTurn.text = text ? `${note}\n\n${text}` : note;
 }
 
 function sittingFromBody(value: unknown): SittingRef | undefined {
@@ -907,8 +936,24 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const question = parsed.data.question;
   const actor = actorOf(req);
   const sitting = parsed.data.sitting;
+  /*
+   * Everything below reads `canvas`, never `project`.
+   *
+   * For staff the two are the same object. For a collaborator the canvas is
+   * their projection, and that is the whole safety argument for the chat: a
+   * model told to withhold the valuation mentions it, and nobody finds out
+   * which conversation leaked. A model handed a file with no valuation on it
+   * cannot cite one however it is prompted.
+   *
+   * `turnsBefore` is where the thread stood, so the turns this request writes
+   * can be carried back and given an author at the end.
+   */
+  const seen = viewFor(req, project);
+  const canvas = seen.project;
+  const turnsBefore = project.conversation.length;
+  const unseen = withheldBriefing(seen);
   const capability = agentCapability();
-  const deterministic = wantsDeterministicProjectChat(project, question, { sitting });
+  const deterministic = wantsDeterministicProjectChat(canvas, question, { sitting });
   const stream = beginNdjson(res);
   const { line, clientGone } = stream;
 
@@ -926,18 +971,18 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     try {
       let memoryText = '';
       try {
-        const recall = await recallForProject(memoryStore, project, { now: new Date().toISOString() });
+        const recall = await recallForProject(memoryStore, canvas, { now: new Date().toISOString() });
         memoryText = renderMemoryForPrompt(recall);
       } catch {
         memoryText = '';
       }
       const agent = await runProjectCopilot({
-        project,
+        project: canvas,
         question,
         actor,
         viewContext: parsed.data.viewContext,
-        history: project.conversation,
-        memory: memoryText || undefined,
+        history: canvas.conversation,
+        memory: [unseen, memoryText].filter(Boolean).join('\n\n') || undefined,
         sitting,
         graphRag: {
           kind: graphAdapter.kind,
@@ -963,7 +1008,9 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         return;
       }
       if (agent.text && !agent.text.startsWith('The project copilot is unavailable') && !agent.text.startsWith('No model endpoint')) {
-        const result = applyProjectAgentTurn(project, question, agent);
+        const result = applyProjectAgentTurn(canvas, question, agent);
+        sayWhatIsMissing(seen, question, result);
+        mergeConversation(project, canvas, actor, turnsBefore);
         await store.save();
         journalTail = journalTail.then(() =>
           journal.finish(
@@ -973,7 +1020,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
           ),
         );
         await journalTail;
-        line({ type: 'result', ...result, project });
+        line({ type: 'result', ...result, project: canvas });
         res.end();
         return;
       }
@@ -989,11 +1036,11 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
 
   let sides: Awaited<ReturnType<typeof gatherChatSides>>;
   try {
-    sides = await gatherChatSides(project, question);
+    sides = await gatherChatSides(canvas, question);
   } catch {
     sides = undefined;
   }
-  const result = applyProjectChat(project, question, {
+  const result = applyProjectChat(canvas, question, {
     actor,
     viewContext: parsed.data.viewContext,
     sides,
@@ -1003,7 +1050,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   if (capability.available && !skipLlmForChat(result)) {
     try {
       const { provider, route } = resolveRoute('analyst_copilot');
-      const guide = renderProjectGuide(project);
+      const guide = renderProjectGuide(canvas);
       const llm = await provider.complete({
         agent: 'analyst_copilot',
         model: route.model,
@@ -1013,9 +1060,10 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
             text:
               'You are the project DD copilot. Answer only from the register briefing and today\'s next step. Name one move. If they do not support an answer, say so. Do not invent findings, values, evidence, or sign-off. Do not list the evidence library. Do not file documents or start DDs — those are person-approved cards. Keep under 280 words. Cite titles, not truncated ids.',
           },
+          ...(unseen ? [{ text: unseen }] : []),
         ],
         messages: [
-          { role: 'user', content: `Register briefing:\n${projectRegisterBriefing(project, parsed.data.viewContext)}` },
+          { role: 'user', content: `Register briefing:\n${projectRegisterBriefing(canvas, parsed.data.viewContext)}` },
           { role: 'user', content: `Today's next step:\n${guide.text}` },
           { role: 'user', content: question },
         ],
@@ -1024,7 +1072,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
       if (text) {
         result.assistantTurn.text = text;
         result.assistantTurn.toolCalls = [{ name: 'analyst_copilot', summary: 'Answered from project registers' }];
-        const last = project.conversation[project.conversation.length - 1];
+        const last = canvas.conversation[canvas.conversation.length - 1];
         if (last?.id === result.assistantTurn.id) {
           last.text = text;
           last.toolCalls = result.assistantTurn.toolCalls;
@@ -1039,9 +1087,11 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     res.end();
     return;
   }
+  sayWhatIsMissing(seen, question, result);
+  mergeConversation(project, canvas, actor, turnsBefore);
   if (result.commands.some((c) => /approved/i.test(c))) await rememberProject(project);
   await store.save();
-  line({ type: 'result', ...result, project });
+  line({ type: 'result', ...result, project: canvas });
   res.end();
 });
 
@@ -1062,6 +1112,9 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
     return;
   }
   refreshProjectDerived(project);
+  const seen = viewFor(req, project);
+  const canvas = seen.project;
+  const turnsBefore = project.conversation.length;
   const stream = beginNdjson(res);
   const { line, clientGone } = stream;
   const ingest: ChatIngestFile[] = [];
@@ -1084,7 +1137,7 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
   let enriched = ingest;
   try {
     enriched = await enrichIngestWithDocumentIntelligence({
-      project,
+      project: canvas,
       files: ingest,
       buffers: files.map((f) => f.buffer),
       onStep: (step) => line({ type: 'step', step }),
@@ -1098,14 +1151,16 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
   }
   const question = typeof req.body?.question === 'string' ? req.body.question : '';
   const viewContext = typeof req.body?.viewContext === 'string' ? req.body.viewContext : undefined;
-  const result = applyProjectChat(project, question, {
+  const result = applyProjectChat(canvas, question, {
     actor: actorOf(req),
     viewContext,
     ingest: enriched,
     sitting,
   });
+  sayWhatIsMissing(seen, question, result);
+  mergeConversation(project, canvas, actorOf(req), turnsBefore);
   await store.save();
-  line({ type: 'result', ...result, project });
+  line({ type: 'result', ...result, project: canvas });
   res.end();
 });
 
@@ -1217,7 +1272,7 @@ projectsRouter.post('/:projectId/orchestrate', async (req, res) => {
           await journal.step('model_pass_failed', err instanceof Error ? err.message : String(err));
         }
       }
-      await persistPaneWrite(project, `Orchestrator pass proposed ${bgRun.draftIds.length} draft(s).`);
+      await persistPaneWrite(req, project, `Orchestrator pass proposed ${bgRun.draftIds.length} draft(s).`);
       return `${bgRun.source === 'model' ? 'Rule + model pass' : 'Rule pass'}; ${bgRun.draftIds.length} draft(s).`;
     });
     res.status(202).json({ ...started, pollUrl: `/api/projects/${project.id}/runs/${started.runId}` });
@@ -1249,7 +1304,7 @@ projectsRouter.post('/:projectId/orchestrate', async (req, res) => {
   }
   await journal.finish(`${run.source === 'model' ? 'Rule + model pass' : 'Rule pass'}; ${run.draftIds.length} draft(s).`);
   const drafts = project.aiDrafts.filter((d) => run.draftIds.includes(d.id));
-  await persistPaneWrite(project, 'Orchestrated the next DD plan.');
+  await persistPaneWrite(req, project, 'Orchestrated the next DD plan.');
   res.status(201).json({ run, drafts, project });
 });
 
@@ -1261,7 +1316,7 @@ projectsRouter.post('/:projectId/ai/drafts/:draftId/commit', async (req, res) =>
   }
   try {
     const result = commitAiDraft(project, req.params.draftId, actorOf(req));
-    await persistPaneWrite(project, `Committed draft “${result.draft.title}”.`);
+    await persistPaneWrite(req, project, `Committed draft “${result.draft.title}”.`);
     res.json(result);
   } catch (err) {
     fail(res, err);
@@ -1302,7 +1357,7 @@ projectsRouter.post('/:projectId/assets', async (req, res) => {
   }
   try {
     const asset = addAsset(project, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Added asset “${asset.name}”.`, { citedNodeIds: [asset.id] });
+    await persistPaneWrite(req, project, `Added asset “${asset.name}”.`, { citedNodeIds: [asset.id] });
     res.status(201).json(asset);
   } catch (err) {
     fail(res, err);
@@ -1322,7 +1377,7 @@ projectsRouter.post('/:projectId/stage', async (req, res) => {
   }
   try {
     const record = changeStage(project, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Changed stage to ${parsed.data.stage}.`);
+    await persistPaneWrite(req, project, `Changed stage to ${parsed.data.stage}.`);
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -1342,7 +1397,7 @@ projectsRouter.post('/:projectId/assessments', async (req, res) => {
   }
   try {
     const assessment = createAssessment(project, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Started “${assessment.name}”.`, { citedNodeIds: [assessment.id] });
+    await persistPaneWrite(req, project, `Started “${assessment.name}”.`, { citedNodeIds: [assessment.id] });
     res.status(201).json(assessment);
   } catch (err) {
     fail(res, err);
@@ -1362,7 +1417,7 @@ projectsRouter.patch('/:projectId/assessments/:ddId', async (req, res) => {
   }
   try {
     const assessment = setAssessmentStatus(project, req.params.ddId, parsed.data.status as never, actorOf(req));
-    await persistPaneWrite(project, `Updated “${assessment.name}” to ${parsed.data.status}.`, { citedNodeIds: [assessment.id] });
+    await persistPaneWrite(req, project, `Updated “${assessment.name}” to ${parsed.data.status}.`, { citedNodeIds: [assessment.id] });
     res.json(assessment);
   } catch (err) {
     fail(res, err);
@@ -1391,7 +1446,7 @@ projectsRouter.post('/:projectId/checks/:checkId', async (req, res) => {
   }
   try {
     const check = recordCheckResult(project, req.params.checkId, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Recorded “${check.title}” as ${CHECK_RESULT_LABEL[check.result]}.`, {
+    await persistPaneWrite(req, project, `Recorded “${check.title}” as ${CHECK_RESULT_LABEL[check.result]}.`, {
       citedNodeIds: [check.id],
     });
     res.json({ check, project });
@@ -1446,7 +1501,7 @@ projectsRouter.put('/:projectId/checks/:checkId/fields', async (req, res) => {
       res.status(400).json({ error: outcome.rejected.map((r) => r.error).join(' '), rejected: outcome.rejected });
       return;
     }
-    await persistPaneWrite(project, `Recorded ${Object.keys(parsed.data.values).length} value(s) on “${outcome.check.title}”.`, {
+    await persistPaneWrite(req, project, `Recorded ${Object.keys(parsed.data.values).length} value(s) on “${outcome.check.title}”.`, {
       citedNodeIds: [outcome.check.id],
     });
     res.json({ checkId: outcome.check.id, ...outcome.reading, project });
@@ -1467,7 +1522,7 @@ projectsRouter.post('/:projectId/evidence', async (req, res) => {
     return;
   }
   const record = addEvidence(project, parsed.data, actorOf(req));
-  await persistPaneWrite(project, `Added evidence “${record.title}”.`, { citedEvidenceIds: [record.id] });
+  await persistPaneWrite(req, project, `Added evidence “${record.title}”.`, { citedEvidenceIds: [record.id] });
   res.status(201).json(record);
 });
 
@@ -1494,7 +1549,7 @@ projectsRouter.patch('/:projectId/evidence/:evidenceId', async (req, res) => {
       },
       actorOf(req),
     );
-    await persistPaneWrite(project, `Updated evidence “${record.title}” to ${record.status}.`, {
+    await persistPaneWrite(req, project, `Updated evidence “${record.title}” to ${record.status}.`, {
       citedEvidenceIds: [record.id],
     });
     res.json(record);
@@ -1535,6 +1590,7 @@ projectsRouter.post('/:projectId/evidence/status', async (req, res) => {
       updateEvidenceStatus(project, id, parsed.data.status, {}, actor);
     }
     await persistPaneWrite(
+      req,
       project,
       `Set ${ids.length} evidence row(s) to ${parsed.data.status}.`,
       { citedEvidenceIds: ids },
@@ -1630,7 +1686,7 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
         ),
       );
     }
-    await persistPaneWrite(project, `Attached ${attached.length} file(s) to evidence.`, {
+    await persistPaneWrite(req, project, `Attached ${attached.length} file(s) to evidence.`, {
       citedEvidenceIds: [req.params.evidenceId],
     });
     res.status(201).json(attached);
@@ -1721,6 +1777,7 @@ projectsRouter.post('/:projectId/evidence/files', evidenceUpload.array('files', 
     }
     const rows = new Set(ids).size;
     await persistPaneWrite(
+      req,
       project,
       `Filed ${attached.length} document(s) against ${rows} evidence row(s).`,
       { citedEvidenceIds: [...new Set(ids)] },
@@ -1790,7 +1847,7 @@ projectsRouter.post('/:projectId/findings', async (req, res) => {
   if (parsed.data.linkAssessmentIds?.length) {
     linkFindingAcross(project, record.id, { assessmentIds: parsed.data.linkAssessmentIds }, actorOf(req));
   }
-  await persistPaneWrite(project, `Logged finding “${record.title}”.`, { citedNodeIds: [record.id] });
+  await persistPaneWrite(req, project, `Logged finding “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
 });
 
@@ -1807,7 +1864,7 @@ projectsRouter.post('/:projectId/findings/:findingId/links', async (req, res) =>
   }
   try {
     const record = linkFindingAcross(project, req.params.findingId, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Linked finding “${record.title}” across DDs.`, { citedNodeIds: [record.id] });
+    await persistPaneWrite(req, project, `Linked finding “${record.title}” across DDs.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -1827,7 +1884,7 @@ projectsRouter.patch('/:projectId/findings/:findingId', async (req, res) => {
   }
   try {
     const record = patchRecordStatus(project, project.findings, req.params.findingId, parsed.data.status as never, 'finding', actorOf(req));
-    await persistPaneWrite(project, `Updated finding “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
+    await persistPaneWrite(req, project, `Updated finding “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -1847,7 +1904,7 @@ projectsRouter.patch('/:projectId/findings/:findingId/classification', async (re
   }
   try {
     const record = classifyFinding(project, req.params.findingId, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Classified finding “${record.title}”.`, { citedNodeIds: [record.id] });
+    await persistPaneWrite(req, project, `Classified finding “${record.title}”.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -1866,7 +1923,7 @@ projectsRouter.post('/:projectId/risks', async (req, res) => {
     return;
   }
   const record = addRisk(project, parsed.data, actorOf(req));
-  await persistPaneWrite(project, `Logged risk “${record.title}”.`, { citedNodeIds: [record.id] });
+  await persistPaneWrite(req, project, `Logged risk “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
 });
 
@@ -1883,7 +1940,7 @@ projectsRouter.patch('/:projectId/risks/:riskId', async (req, res) => {
   }
   try {
     const record = patchRecordStatus(project, project.risks, req.params.riskId, parsed.data.status as never, 'risk', actorOf(req));
-    await persistPaneWrite(project, `Updated risk “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
+    await persistPaneWrite(req, project, `Updated risk “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -1902,7 +1959,7 @@ projectsRouter.post('/:projectId/actions', async (req, res) => {
     return;
   }
   const record = addAction(project, parsed.data, actorOf(req));
-  await persistPaneWrite(project, `Logged action “${record.title}”.`, { citedNodeIds: [record.id] });
+  await persistPaneWrite(req, project, `Logged action “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
 });
 
@@ -1919,7 +1976,7 @@ projectsRouter.patch('/:projectId/actions/:actionId', async (req, res) => {
   }
   try {
     const record = patchRecordStatus(project, project.actions, req.params.actionId, parsed.data.status as never, 'action', actorOf(req));
-    await persistPaneWrite(project, `Updated action “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
+    await persistPaneWrite(req, project, `Updated action “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -1939,7 +1996,7 @@ projectsRouter.patch('/:projectId/actions/:actionId/cost', async (req, res) => {
   }
   try {
     const record = setActionCost(project, req.params.actionId, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Priced action “${record.title}”.`, { citedNodeIds: [record.id] });
+    await persistPaneWrite(req, project, `Priced action “${record.title}”.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -1958,7 +2015,7 @@ projectsRouter.post('/:projectId/decisions', async (req, res) => {
     return;
   }
   const record = addDecision(project, parsed.data, actorOf(req));
-  await persistPaneWrite(project, `Logged decision “${record.title}”.`, { citedNodeIds: [record.id] });
+  await persistPaneWrite(req, project, `Logged decision “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
 });
 
@@ -1975,7 +2032,7 @@ projectsRouter.patch('/:projectId/decisions/:decisionId', async (req, res) => {
   }
   try {
     const record = patchRecordStatus(project, project.decisions, req.params.decisionId, parsed.data.status as never, 'decision', actorOf(req));
-    await persistPaneWrite(project, `Updated decision “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
+    await persistPaneWrite(req, project, `Updated decision “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -1999,7 +2056,7 @@ projectsRouter.post('/:projectId/visits', async (req, res) => {
   }
   try {
     const record = addSiteVisit(project, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Recorded site visit “${record.title}”.`, { citedNodeIds: [record.id] });
+    await persistPaneWrite(req, project, `Recorded site visit “${record.title}”.`, { citedNodeIds: [record.id] });
     res.status(201).json(record);
   } catch (err) {
     fail(res, err);
@@ -2019,7 +2076,7 @@ projectsRouter.patch('/:projectId/visits/:visitId', async (req, res) => {
   }
   try {
     const record = patchSiteVisit(project, req.params.visitId, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Updated site visit “${record.title}”.`, { citedNodeIds: [record.id] });
+    await persistPaneWrite(req, project, `Updated site visit “${record.title}”.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
     fail(res, err);
@@ -2048,7 +2105,7 @@ projectsRouter.patch('/:projectId/evidence/:evidenceId/files/:fileId/capture', a
   }
   try {
     const attachment = setAttachmentCapture(project, req.params.evidenceId, req.params.fileId, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Described capture of “${attachment.fileName}”.`, { citedEvidenceIds: [req.params.evidenceId] });
+    await persistPaneWrite(req, project, `Described capture of “${attachment.fileName}”.`, { citedEvidenceIds: [req.params.evidenceId] });
     res.json(attachment);
   } catch (err) {
     fail(res, err);
@@ -2145,7 +2202,7 @@ projectsRouter.post('/:projectId/photographs/read', async (req, res) => {
     });
   }
 
-  await persistPaneWrite(project, `Read ${targets.length} photograph(s) — ${drafts} proposed finding(s).`, {
+  await persistPaneWrite(req, project, `Read ${targets.length} photograph(s) — ${drafts} proposed finding(s).`, {
     citedEvidenceIds: [...new Set(targets.map((t) => t.evidenceId))],
   });
   res.json({ read: targets.length, drafts, documents, results });
@@ -2175,7 +2232,7 @@ projectsRouter.post('/:projectId/sheets', async (req, res) => {
   }
   try {
     const record = addSheet(project, parsed.data, actorOf(req));
-    await persistPaneWrite(project, `Added sheet “${record.title}”.`, { citedEvidenceIds: [record.evidenceId] });
+    await persistPaneWrite(req, project, `Added sheet “${record.title}”.`, { citedEvidenceIds: [record.evidenceId] });
     res.status(201).json(record);
   } catch (err) {
     fail(res, err);
@@ -2196,7 +2253,7 @@ projectsRouter.put('/:projectId/sheets/:sheetId/control-points', async (req, res
   try {
     const sheet = setSheetControlPoints(project, req.params.sheetId, parsed.data.points, actorOf(req));
     const reading = readSheetFit(sheet.controlPoints);
-    await persistPaneWrite(project, `Placed sheet “${sheet.title}” — ${reading.say}`, { citedNodeIds: [sheet.id] });
+    await persistPaneWrite(req, project, `Placed sheet “${sheet.title}” — ${reading.say}`, { citedNodeIds: [sheet.id] });
     res.json({ sheet, reading });
   } catch (err) {
     fail(res, err);
@@ -2234,7 +2291,7 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
     { kind: parsed.data.kind, assessmentIds: parsed.data.assessmentIds, generatedBy: parsed.data.generatedBy ?? actorOf(req) },
     actorOf(req),
   );
-  await persistPaneWrite(project, `Generated “${report.title}”.`, { citedNodeIds: [report.id] });
+  await persistPaneWrite(req, project, `Generated “${report.title}”.`, { citedNodeIds: [report.id] });
   res.status(201).json(report);
 });
 
@@ -2269,7 +2326,7 @@ async function reportEdit(
     res.status(400).json({ error: err instanceof Error ? err.message : 'That change could not be made.' });
     return;
   }
-  await persistPaneWrite(project, outcome.note, { citedNodeIds: outcome.cited });
+  await persistPaneWrite(req, project, outcome.note, { citedNodeIds: outcome.cited });
   res.json(outcome.body ?? project.reports.find((r) => r.id === req.params.reportId));
 }
 

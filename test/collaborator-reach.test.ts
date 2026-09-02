@@ -276,6 +276,70 @@ describe('what a granted collaborator can change', () => {
   });
 });
 
+describe('the chat, which is the surface that leaks', () => {
+  /** The chat streams NDJSON, so the response redactor never sees it. */
+  async function ask(question: string, token: string): Promise<{ text: string; project: DdProject }> {
+    const res = await realFetch(`${base}/api/projects/${theirs.id}/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ question }),
+    });
+    const lines = (await res.text()).split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+    const result = lines.find((l) => l.type === 'result') as
+      | { assistantTurn: { text: string }; project: DdProject }
+      | undefined;
+    assert.ok(result, 'the chat answered with no result line');
+    return { text: result.assistantTurn.text, project: result.project };
+  }
+
+  it('hands back the redacted project, not the file', async () => {
+    const { project } = await ask('where are we', sam());
+    assert.equal(project.assessments.length, 1);
+    assert.equal(project.valuationRuns?.length ?? 0, 0);
+    assert.equal(project.audit?.length ?? 0, 0);
+  });
+
+  it('says they do not have access, rather than that there is none', async () => {
+    const { text } = await ask('what is the valuation on this site', sam());
+    assert.match(text, /do not have access to the valuation/i);
+    assert.doesNotMatch(text, /there is no valuation/i);
+  });
+
+  it('shows a collaborator their own thread and nobody else’s', async () => {
+    await ask('this is mine to see', sam());
+    const { project } = await ask('and this one', sam());
+    assert.ok(project.conversation.length > 0, 'their own turns must come back');
+    assert.ok(
+      project.conversation.every((t) => t.actor === 'sam@site.in'),
+      'a turn that is not theirs came back in their thread',
+    );
+  });
+
+  it('kept those turns on the real file, where the developer can read them', async () => {
+    const { store } = await import('../apps/api/src/store');
+    const live = store.data.projects!.find((p) => p.id === theirs.id)!;
+    const mine = live.conversation.filter((t) => t.actor === 'sam@site.in');
+    assert.ok(mine.length >= 4, `expected the contractor’s turns on the file, found ${mine.length}`);
+  });
+
+  it('does not show the developer’s thread to the collaborator', async () => {
+    await ask('a private note about the price', dev());
+    const { project } = await ask('anything new', sam());
+    assert.ok(
+      project.conversation.every((t) => t.actor === 'sam@site.in'),
+      'the developer’s turn reached the contractor',
+    );
+
+    // And it is on the file, beside theirs — withheld from a reader, not lost.
+    const { store } = await import('../apps/api/src/store');
+    const live = store.data.projects!.find((p) => p.id === theirs.id)!;
+    assert.ok(
+      live.conversation.some((t) => t.actor === 'dev@builders.in'),
+      'the developer’s own thread must be on the file',
+    );
+  });
+});
+
 describe('a reviewer, who was put on the project to read it', () => {
   before(async () => {
     const { store } = await import('../apps/api/src/store');

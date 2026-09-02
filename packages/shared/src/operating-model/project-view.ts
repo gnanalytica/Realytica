@@ -264,3 +264,54 @@ export function projectRecordIds(project: DdProject): Set<string> {
   walk(project, 0);
   return found;
 }
+
+/**
+ * The words that mean somebody is asking about a part they cannot see.
+ *
+ * Only for the parts a question can name outright. "Is there a valuation on
+ * this?" is unmistakable; "what is the status" could be about anything, so the
+ * collections are left to the briefing the model is given — which contains
+ * only what this reader may see, and is told to say so rather than to answer
+ * from an emptiness.
+ */
+const ASKED_ABOUT: Partial<Record<WithheldPart, RegExp>> = {
+  valuation: /\b(valuation|valued?|value|worth|appraisal|price per|psf|dcf|indicative)\b/i,
+  reports: /\b(report|deliverable|dossier|issued? (the )?report)\b/i,
+  decisions: /\b(decision|decisions|sign[- ]?off|signoff|go\/no[- ]?go|approval to proceed)\b/i,
+  commercials: /\b(budget|cost of the deal|commercials?|spend|consideration|purchase price)\b/i,
+  site_record: /\b(site visit|inspection|site record|master ?plan|sheet|survey)\b/i,
+};
+
+/**
+ * What to say when the question lands on something withheld.
+ *
+ * The distinction this exists for: a chat that answers "there is no valuation
+ * on this file" when there is one has not protected anything, it has lied. An
+ * empty register is a list; an empty answer is a claim.
+ */
+export function withheldAnswer(view: ProjectView, question: string): string | undefined {
+  if (view.complete) return undefined;
+  const hit = view.withheld.filter((part) => ASKED_ABOUT[part]?.test(question));
+  if (hit.length === 0) return undefined;
+  const names = hit.map((part) => WITHHELD_LABEL[part]);
+  const list = names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]!}`;
+  return `You do not have access to ${list}. Ask whoever put you on this project if you need it.`;
+}
+
+/**
+ * The line that goes to the model, so it does not answer from an emptiness.
+ *
+ * Instruction is a weak guarantee and this does not rely on it — the model is
+ * handed a project that does not contain the withheld parts, so it cannot cite
+ * them however it is prompted. This only stops the *other* failure: reporting
+ * what was removed as if it were absent.
+ */
+export function withheldBriefing(view: ProjectView): string | undefined {
+  if (view.complete || view.withheld.length === 0) return undefined;
+  const names = view.withheld.map((part) => WITHHELD_LABEL[part]);
+  return (
+    `This person is a collaborator on part of this project. They have not been given: ${names.join('; ')}. ` +
+    'Those are not on the briefing you were given. If they ask about one, say plainly that they do not have ' +
+    'access to it — never that it does not exist, and never that there is none on the file.'
+  );
+}
