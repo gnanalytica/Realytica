@@ -36,6 +36,7 @@ import {
   LOOP_DONE_PORT,
   type Flow,
   type FlowNode,
+  type TriggerOn,
 } from './types';
 
 /* ==================================================================== */
@@ -116,6 +117,52 @@ export interface FlowProposal {
   draft: 'finding' | 'action' | 'evidence_request' | 'note';
   title: string;
   body?: string;
+}
+
+/* ==================================================================== */
+/* What a run leaves behind, kept                                        */
+/* ==================================================================== */
+
+/**
+ * A run, written down.
+ *
+ * The engine's `FlowRunResult` is what a run *was*; this is that plus the
+ * facts nobody can reconstruct afterwards — whose workspace, which project,
+ * whether it was a rehearsal, and what set it off. Without the last of those,
+ * a scheduled run and a mis-click are indistinguishable in the history, which
+ * makes the history useless for the question people actually ask of it: why
+ * did this happen at three in the morning.
+ *
+ * A summary is the same record with the bulky parts removed, so a list of
+ * fifty runs does not ship fifty payloads to draw a table of dates.
+ */
+export interface FlowRunRecord extends FlowRunResult {
+  id: string;
+  tenantId: string;
+  projectId: string;
+  /** A rehearsal reached nothing. Recorded, because otherwise the trace lies about what it cost. */
+  dryRun: boolean;
+  /** The person who pressed Run, or the mechanism that did. */
+  startedBy: string;
+  /** Which trigger fired. `manual` is a person. */
+  trigger: TriggerOn;
+}
+
+/** A run without its steps or payload, for a list. */
+export type FlowRunSummary = Omit<FlowRunRecord, 'steps' | 'payload' | 'proposals'> & {
+  stepCount: number;
+  proposalCount: number;
+  failedCount: number;
+};
+
+export function summariseRun(run: FlowRunRecord): FlowRunSummary {
+  const { steps, payload: _payload, proposals, ...rest } = run;
+  return {
+    ...rest,
+    stepCount: steps.length,
+    proposalCount: proposals.length,
+    failedCount: steps.filter((s) => s.status === 'failed').length,
+  };
 }
 
 /** The default ceiling. High enough for a real pipeline, low enough to end. */

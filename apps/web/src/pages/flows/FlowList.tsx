@@ -85,8 +85,24 @@ export default function FlowList() {
                   <p className="text-[12px] text-ink-muted">
                     {flow.nodeCount} node(s) · changed {formatWhen(flow.updatedAt)} by {flow.updatedBy}
                   </p>
+                  {flow.lastRun ? (
+                    <p className="text-[12px] text-ink-muted">
+                      last ran {formatWhen(flow.lastRun.startedAt)}
+                      {flow.lastRun.dryRun ? ' as a rehearsal' : ''} ·{' '}
+                      {flow.lastRun.status === 'ok'
+                        ? `${flow.lastRun.stepCount} step(s)`
+                        : flow.lastRun.status.replace('_', ' ')}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  {/* A flow that is on and failing is the one thing this list
+                      must not make you open it to discover. */}
+                  {flow.lastRun && flow.lastRun.status !== 'ok' ? (
+                    <Badge tone={flow.lastRun.status === 'failed' ? 'critical' : 'warning'}>
+                      Last run {flow.lastRun.status.replace('_', ' ')}
+                    </Badge>
+                  ) : null}
                   {flow.canRun ? null : <Badge tone="critical">Needs fixing</Badge>}
                   <Badge tone={flow.enabled ? 'good' : 'neutral'}>{flow.enabled ? 'Enabled' : 'Off'}</Badge>
                 </div>

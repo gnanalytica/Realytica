@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Maximize2, Play, Redo2, Save, Undo2 } from 'lucide-react';
+import { History, Maximize2, Play, Redo2, Save, Undo2 } from 'lucide-react';
 import {
   FLOW_NODE_GROUP_LABEL,
   FLOW_NODE_KINDS,
   FLOW_NODE_TYPES,
   type FlowNodeKind,
-  type FlowRunResult,
+  type FlowRunRecord,
+  type FlowRunSummary,
 } from '@realytica/shared';
 import { api, type FlowCatalogue } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
-import { Badge, Button, Callout, Card, CardBody, Input, Select, Skeleton, Toggle, cn, useToast } from '../../components/ui/kit';
+import { Badge, Button, Callout, Card, CardBody, EmptyState, Input, Select, Skeleton, Spinner, Tabs, Toggle, cn, useToast } from '../../components/ui/kit';
 import { nextSpot } from './geometry';
 import { FlowCanvas } from './FlowCanvas';
 import { NodeInspector } from './NodeInspector';
@@ -63,8 +64,33 @@ export default function FlowStudio() {
   const [running, setRunning] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [projectId, setProjectId] = useState('');
-  const [result, setResult] = useState<(FlowRunResult & { dryRun: boolean }) | null>(null);
+  const [result, setResult] = useState<FlowRunRecord | null>(null);
   const [fitNonce, setFitNonce] = useState(0);
+  const [panel, setPanel] = useState<'run' | 'history'>('run');
+  const [history, setHistory] = useState<FlowRunSummary[] | null>(null);
+  const [loadingRun, setLoadingRun] = useState(false);
+
+  /**
+   * The history is fetched when the tab is first opened, not on mount.
+   *
+   * A flow being edited is usually a flow nobody is asking about the past of,
+   * and paying for fifty summaries on every open would be a request per canvas
+   * visit for a panel most visits never look at.
+   */
+  const refreshHistory = useCallback(async () => {
+    if (!flowId) return;
+    try {
+      setHistory(await api.flowRuns(flowId));
+    } catch {
+      // A history that will not load must not break the canvas. The panel says
+      // so itself; the flow is still editable and still runnable.
+      setHistory([]);
+    }
+  }, [flowId]);
+
+  useEffect(() => {
+    if (panel === 'history' && history === null) void refreshHistory();
+  }, [panel, history, refreshHistory]);
 
   useEffect(() => {
     if (!projectId && projects.data?.[0]) setProjectId(projects.data[0].id);
@@ -107,11 +133,29 @@ export default function FlowStudio() {
     try {
       const out = await api.runFlow(editor.flow.id, { projectId, dryRun });
       setResult(out);
+      setPanel('run');
+      // The run just became part of the history, so a stale list would show
+      // everything except the thing that just happened.
+      if (history !== null) void refreshHistory();
       toast(out.status === 'ok' ? (out.dryRun ? 'Rehearsed' : 'Ran') : `Finished ${out.status.replace('_', ' ')}`, out.status === 'ok' ? 'good' : 'warning');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not run', 'critical');
     } finally {
       setRunning(false);
+    }
+  }
+
+  /** Open a past run in the trace panel — the same view a fresh run lands in. */
+  async function openRun(runId: string) {
+    setLoadingRun(true);
+    try {
+      const run = await api.flowRun(runId);
+      setResult(run);
+      setPanel('run');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not open that run', 'critical');
+    } finally {
+      setLoadingRun(false);
     }
   }
 
@@ -188,13 +232,36 @@ export default function FlowStudio() {
               onDelete={() => editor.removeNode(selectedNode.id)}
               onDuplicate={() => editor.duplicateNode(selectedNode.id)}
             />
-          ) : result ? (
-            <RunTrace result={result} onClose={() => setResult(null)} />
           ) : (
-            <div className="p-4 text-[12.5px] text-ink-muted">
-              <p className="font-medium text-ink">Nothing selected.</p>
-              <p className="mt-1">Drag a node from the left onto the canvas, or click one to set it up.</p>
-              <p className="mt-3">A rehearsal reaches nothing and spends nothing. Turn “Rehearse” off only when you mean it.</p>
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="px-2 pt-2">
+                <Tabs
+                  active={panel}
+                  onChange={(key) => setPanel(key as 'run' | 'history')}
+                  tabs={[
+                    { key: 'run', label: result ? (result.dryRun ? 'Rehearsal' : 'Run') : 'Run' },
+                    { key: 'history', label: 'History' },
+                  ]}
+                />
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {panel === 'history' ? (
+                  <RunHistory
+                    runs={history}
+                    activeRunId={result?.id}
+                    loading={loadingRun}
+                    onOpen={(runId) => void openRun(runId)}
+                  />
+                ) : result ? (
+                  <RunTrace result={result} onClose={() => setResult(null)} />
+                ) : (
+                  <div className="p-4 text-[12.5px] text-ink-muted">
+                    <p className="font-medium text-ink">Nothing selected.</p>
+                    <p className="mt-1">Drag a node from the left onto the canvas, or click one to set it up.</p>
+                    <p className="mt-3">A rehearsal reaches nothing and spends nothing. Turn “Rehearse” off only when you mean it.</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -242,13 +309,109 @@ function Palette({ onAdd }: { onAdd: (kind: FlowNodeKind) => void }) {
   );
 }
 
-function RunTrace({ result, onClose }: { result: FlowRunResult & { dryRun: boolean }; onClose: () => void }) {
+/** How a run started, said the way somebody would say it. */
+const TRIGGER_LABEL: Record<FlowRunSummary['trigger'], string> = {
+  manual: 'by hand',
+  project_created: 'a project was created',
+  evidence_uploaded: 'evidence was uploaded',
+  assessment_started: 'an assessment started',
+  schedule: 'on schedule',
+};
+
+function runTone(status: FlowRunSummary['status']): 'good' | 'warning' | 'critical' {
+  if (status === 'failed') return 'critical';
+  if (status === 'cut_short') return 'warning';
+  return 'good';
+}
+
+/** A date somebody can place without doing arithmetic. */
+function when(iso: string): string {
+  const then = new Date(iso);
+  const minutes = Math.round((Date.now() - then.getTime()) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h ago`;
+  return then.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Every run this flow has had, newest first.
+ *
+ * The question this answers is "when did it start failing", so the list leads
+ * with outcome and time rather than with a run id nobody memorises. A
+ * rehearsal is marked, because a history where a rehearsal and a real run look
+ * alike would report cost that was never spent.
+ */
+function RunHistory({
+  runs,
+  activeRunId,
+  loading,
+  onOpen,
+}: {
+  runs: FlowRunSummary[] | null;
+  activeRunId?: string;
+  loading: boolean;
+  onOpen: (runId: string) => void;
+}) {
+  if (runs === null) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <Spinner />
+      </div>
+    );
+  }
+
+  if (runs.length === 0) {
+    return (
+      <EmptyState
+        icon={<History size={20} />}
+        title="This flow has not run yet"
+        description="Rehearse it against a project and the run will be kept here — what fired it, what each node decided, and what it proposed."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-1.5 p-3">
+      {runs.map((run) => (
+        <button
+          key={run.id}
+          type="button"
+          disabled={loading}
+          onClick={() => onOpen(run.id)}
+          className={cn(
+            'w-full rounded-lg border px-2.5 py-2 text-left transition-colors hover:bg-sunken disabled:opacity-60',
+            run.id === activeRunId ? 'border-brand bg-brand-soft' : 'border-hairline',
+          )}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-[12.5px] font-medium text-ink">{when(run.startedAt)}</p>
+            <div className="flex shrink-0 items-center gap-1">
+              {run.dryRun ? <Badge tone="neutral">rehearsal</Badge> : null}
+              <Badge tone={runTone(run.status)}>{run.status.replace('_', ' ')}</Badge>
+            </div>
+          </div>
+          <p className="mt-0.5 truncate text-[11px] text-ink-muted">
+            {TRIGGER_LABEL[run.trigger]} · {run.startedBy} · {run.stepCount} step{run.stepCount === 1 ? '' : 's'}
+            {run.failedCount > 0 ? ` · ${run.failedCount} failed` : ''}
+            {run.proposalCount > 0 ? ` · ${run.proposalCount} proposed` : ''}
+          </p>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RunTrace({ result, onClose }: { result: FlowRunRecord; onClose: () => void }) {
   return (
     <div className="flex h-full flex-col overflow-y-auto p-3">
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-[13px] font-semibold text-ink">{result.dryRun ? 'Rehearsal' : 'Run'}</p>
-          <p className="text-[11.5px] text-ink-muted">{result.steps.length} step(s) · {result.status.replace('_', ' ')}</p>
+          <p className="text-[11.5px] text-ink-muted">
+            {when(result.startedAt)} · {TRIGGER_LABEL[result.trigger]} · {result.steps.length} step(s) ·{' '}
+            {result.status.replace('_', ' ')}
+          </p>
         </div>
         <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
       </div>

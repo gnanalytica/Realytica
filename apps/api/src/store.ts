@@ -1,5 +1,6 @@
 import type {
   Flow,
+  FlowRunRecord,
   StoredCredential,
   LlmCallRecord,
   MemoryFact,
@@ -72,6 +73,19 @@ export interface StoreData {
    * one without a second fetch.
    */
   flows?: Flow[];
+  /**
+   * What happened when a flow ran.
+   *
+   * Kept because a run that leaves no trace cannot be asked about, and the
+   * question people have about automation is always retrospective: why did
+   * this fire, what did it decide, what did it cost. A result returned once to
+   * whoever happened to be looking is not an answer to any of those.
+   *
+   * Bounded per flow rather than globally — see `flows/runs.ts`. A global cap
+   * would let one busy flow evict the history of every other one, which is the
+   * opposite of what a retention rule is for.
+   */
+  flowRuns?: FlowRunRecord[];
   /**
    * Secrets flow nodes authenticate with.
    *

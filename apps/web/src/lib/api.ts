@@ -109,7 +109,8 @@ import type {
   CredentialRecord,
   Flow,
   FlowProblem,
-  FlowRunResult,
+  FlowRunRecord,
+  FlowRunSummary,
   FlowNodeType,
 } from '@realytica/shared';
 import { authHeader, renewToken, signOut } from './auth';
@@ -433,6 +434,8 @@ export interface FlowSummary {
   updatedBy: string;
   version: number;
   canRun: boolean;
+  /** The most recent run, so a list can say "enabled, and failing since Tuesday". */
+  lastRun?: FlowRunSummary;
 }
 
 /** A flow and what is wrong with it. The canvas needs both on every read. */
@@ -519,7 +522,11 @@ export const api = {
   deleteFlow: (id: string) => request<void>(`/flows/${id}`, { method: 'DELETE' }),
 
   runFlow: (id: string, body: { projectId: string; dryRun?: boolean; input?: Record<string, unknown> }) =>
-    request<FlowRunResult & { dryRun: boolean }>(`/flows/${id}/run`, { method: 'POST', body: JSON.stringify(body) }),
+    request<FlowRunRecord>(`/flows/${id}/run`, { method: 'POST', body: JSON.stringify(body) }),
+
+  flowRuns: (id: string) => request<FlowRunSummary[]>(`/flows/${id}/runs`),
+
+  flowRun: (runId: string) => request<FlowRunRecord>(`/flows/runs/${runId}`),
 
   saveCredential: (body: { label: string; kind: CredentialKind; secret: string; username?: string; target?: string }) =>
     request<CredentialRecord>('/flows/credentials', { method: 'POST', body: JSON.stringify(body) }),

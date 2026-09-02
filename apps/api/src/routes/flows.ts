@@ -25,6 +25,7 @@ import {
   updateCredential,
 } from '../flows/credentials';
 import { CredentialKeyMissing } from '../flows/secret-box';
+import { forgetRuns, latestRunPerFlow, recordRun, runFor, runsFor } from '../flows/runs';
 
 /**
  * The agentic framework as an editable thing.
@@ -126,8 +127,16 @@ function withProblems(flow: Flow) {
 
 flowsRouter.get('/', needs('read'), (req, res) => {
   const me = principalOf(req);
+  const flowsForMe = mine(me.tenantId);
+  // One pass over the history for the whole list rather than one lookup per
+  // row: an enabled flow whose last run failed is the single most useful thing
+  // this screen can say, and it should not cost a query per flow to say it.
+  const latest = latestRunPerFlow(
+    me.tenantId,
+    flowsForMe.map((f) => f.id),
+  );
   res.json(
-    mine(me.tenantId)
+    flowsForMe
       .map((f) => ({
         id: f.id,
         name: f.name,
@@ -138,6 +147,7 @@ flowsRouter.get('/', needs('read'), (req, res) => {
         updatedBy: f.updatedBy,
         version: f.version,
         canRun: flowCanRun(f),
+        lastRun: latest[f.id],
       }))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
   );
@@ -219,6 +229,9 @@ flowsRouter.delete('/:flowId', needs('admin'), async (req, res) => {
     return;
   }
   await store.save();
+  // Every read of the history is keyed by flow id, so runs of a deleted flow
+  // are unreachable — keeping them would be storing what nobody can ask for.
+  await forgetRuns([req.params.flowId]);
   res.status(204).end();
 });
 
@@ -270,7 +283,50 @@ flowsRouter.post('/:flowId/run', needs('write'), async (req, res) => {
     input: { project: { id: project.id, name: project.name, reference: project.reference }, ...(parsed.data.input ?? {}) },
     dryRun,
   });
-  res.json({ ...result, dryRun });
+
+  // Written down before it is returned. A run that only ever existed in one
+  // HTTP response cannot be asked about afterwards, and afterwards is when
+  // every question about automation gets asked.
+  const record = await recordRun({
+    result,
+    tenantId: me.tenantId,
+    projectId: project.id,
+    dryRun,
+    startedBy: me.email,
+    trigger: 'manual',
+  });
+  res.json(record);
+});
+
+/* ==================================================================== */
+/* History                                                               */
+/* ==================================================================== */
+
+/**
+ * What this flow has done. Any member may read it: a run spends the
+ * workspace's money and touches its projects, so who ran what is not
+ * an administrator's private business.
+ */
+flowsRouter.get('/:flowId/runs', needs('read'), (req, res) => {
+  const me = principalOf(req);
+  // Through `mine` rather than straight to the runs, so a flow in another
+  // workspace is a 404 rather than an empty list — an empty list would confirm
+  // the id exists, which is the leak the projection rule exists to close.
+  if (!mine(me.tenantId).some((f) => f.id === req.params.flowId)) {
+    res.status(404).json({ error: 'Flow not found' });
+    return;
+  }
+  res.json(runsFor(me.tenantId, req.params.flowId));
+});
+
+/** One run in full: every step, what it produced, what it proposed. */
+flowsRouter.get('/runs/:runId', needs('read'), (req, res) => {
+  const run = runFor(principalOf(req).tenantId, req.params.runId);
+  if (!run) {
+    res.status(404).json({ error: 'Run not found' });
+    return;
+  }
+  res.json(run);
 });
 
 /* ==================================================================== */

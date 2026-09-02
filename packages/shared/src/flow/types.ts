@@ -241,9 +241,33 @@ export interface OutputNodeConfig {
   bodyTemplate?: string;
 }
 
+/**
+ * What starts a run.
+ *
+ * A closed set because each one is a place in the codebase that has to emit an
+ * event — a kind here with nothing emitting it is a trigger an operator can
+ * select and then wait forever on, which is precisely the state this list was
+ * in before the runner existed.
+ */
+export type TriggerOn =
+  /** Somebody pressed Run. Always available; needs nothing to emit it. */
+  | 'manual'
+  | 'project_created'
+  | 'evidence_uploaded'
+  | 'assessment_started'
+  | 'schedule';
+
+export const TRIGGER_KINDS: TriggerOn[] = [
+  'manual',
+  'project_created',
+  'evidence_uploaded',
+  'assessment_started',
+  'schedule',
+];
+
 export interface TriggerNodeConfig {
   /** What starts a run. */
-  on: 'manual' | 'project_created' | 'evidence_uploaded' | 'assessment_started' | 'schedule';
+  on: TriggerOn;
   /** For `schedule`: a plain interval in minutes rather than cron, because cron is a second language. */
   everyMinutes?: number;
 }
