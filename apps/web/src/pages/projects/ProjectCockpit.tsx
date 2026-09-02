@@ -27,7 +27,7 @@ import { api } from '../../lib/api';
 import { CopilotPanel } from '../../components/CopilotPanel';
 import { Badge, Button, cn, useToast } from '../../components/ui/kit';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
-import { LAYOUTS, LAYOUT_LABEL, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
+import { EMPTY_CHAT_WIDTH, LAYOUTS, LAYOUT_LABEL, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
 import type { CockpitLayout } from './cockpit/layout';
 import { healthTone } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -187,10 +187,14 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     paneFromProjectPath(typeof window === 'undefined' ? '' : window.location.pathname) === 'overview' ? 'chat' : 'work',
   );
 
+  const threadEmpty = (project.conversation ?? []).length === 0;
+
   useEffect(() => {
     const preset = LAYOUTS[layout].chat;
-    if (preset !== null && !draggingRef.current) setChatWidth(readChatWidth() ?? preset);
-  }, [layout]);
+    if (preset === null || draggingRef.current) return;
+    // A width the person dragged for themselves outranks either default.
+    setChatWidth(readChatWidth() ?? (threadEmpty ? EMPTY_CHAT_WIDTH : preset));
+  }, [layout, threadEmpty]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

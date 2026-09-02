@@ -17,6 +17,7 @@ import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { LiveRow } from './LiveRow';
+import { useStickyState } from '../../lib/useStickyState';
 
 type Lens = 'open' | 'done' | 'all';
 
@@ -37,7 +38,7 @@ export default function Diligence() {
   const [priorId, setPriorId] = useState('');
   const [extra, setExtra] = useState<ScopeKey[]>([]);
   const [busy, setBusy] = useState(false);
-  const [lens, setLens] = useState<Lens>('open');
+  const [lens, setLens] = useStickyState<Lens>(project.id, 'ddLens', 'open', (v) => v in LENS_LABEL);
   const [query, setQuery] = useState('');
 
   const preset = DD_TYPE_DEFINITIONS.find((d) => d.key === ddType)!;

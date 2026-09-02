@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { buildProjectGraph, type ProjectGraphNode } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader, Select } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
+import { useStickyState } from '../../lib/useStickyState';
 
 const KIND_ORDER: ProjectGraphNode['kind'][] = [
   'project',
@@ -24,7 +25,12 @@ const KIND_ORDER: ProjectGraphNode['kind'][] = [
 export default function ProjectGraph() {
   const { project, onOpenCited } = useOutletContext<ProjectOutlet>();
   const graph = useMemo(() => buildProjectGraph(project), [project]);
-  const [kind, setKind] = useState<'all' | ProjectGraphNode['kind']>('all');
+  const [kind, setKind] = useStickyState<'all' | ProjectGraphNode['kind']>(
+    project.id,
+    'graphKind',
+    'all',
+    (v) => v === 'all' || (KIND_ORDER as readonly string[]).includes(v),
+  );
   const nodes = kind === 'all' ? graph.nodes : graph.nodes.filter((n) => n.kind === kind || n.kind === 'project');
   const nodeIds = new Set(nodes.map((n) => n.id));
   const edges = graph.edges.filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to));

@@ -97,6 +97,8 @@ export function GisOverlayCard({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [read, setRead] = useState<GisOverlayRead | null>(null);
+  /** Whether there is anything to draw. Declared here because the map effect reads it. */
+  const canMap = Boolean(read?.pin || read?.survey);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -151,7 +153,9 @@ export function GisOverlayCard({
       layersRef.current = {};
       tilesRef.current = {};
     };
-  }, []);
+    // Re-runs when the canvas appears, because a project with no pin and no
+    // survey does not render one — see the map block below.
+  }, [canMap]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -356,7 +360,6 @@ export function GisOverlayCard({
   const liveBbmp = Boolean(read?.maps.liveOverlays.some((s) => s.key === 'bbmp_gis'));
   const lakeCount = read?.features.filter((f) => f.kind === 'civic_lake').length ?? 0;
   const wardCount = read?.features.filter((f) => f.kind === 'civic_ward').length ?? 0;
-  const canMap = Boolean(read?.pin || read?.survey);
   // The reference shelf — where to get the real sheet, and what must never be
   // filed as one. It belongs on the file, but it is reading for the land-use
   // sitting, not for the dashboard, so it folds away until asked for.
@@ -487,14 +490,22 @@ export function GisOverlayCard({
           </p>
         ) : null}
 
-        <div className={cn('overflow-hidden rounded-lg ring-1 ring-inset ring-[var(--ring)]', !canMap && loading ? 'min-h-[220px] bg-sunken' : '')}>
-          <div ref={mapEl} className="gis-map z-0 h-[min(420px,55vh)] w-full" />
-          {!canMap && !loading ? (
-            <p className="border-t border-hairline bg-sunken px-3 py-2 text-[12.5px] text-ink-secondary">
-              No pin and no survey sketch yet — geocode the site address, or upload a surveyor&apos;s GeoJSON/KML.
-            </p>
-          ) : null}
-        </div>
+        {/*
+          A map of nothing is four hundred pixels of black with zoom controls
+          on it, and until now that was the first thing a new project showed.
+          The canvas only exists once there is a pin or a survey to put on it.
+        */}
+        {canMap ? (
+          <div className="overflow-hidden rounded-lg ring-1 ring-inset ring-[var(--ring)]">
+            <div ref={mapEl} className="gis-map z-0 h-[min(420px,55vh)] w-full" />
+          </div>
+        ) : loading ? (
+          <div className="min-h-[120px] rounded-lg bg-sunken ring-1 ring-inset ring-[var(--ring)]" />
+        ) : (
+          <p className="rounded-lg bg-sunken px-3 py-2.5 text-[12.5px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+            No pin and no survey sketch yet — geocode the site address, or upload a surveyor&apos;s GeoJSON/KML.
+          </p>
+        )}
 
         {loading && !read ? <p className="text-[12.5px] text-ink-muted">Building the overlay…</p> : null}
 

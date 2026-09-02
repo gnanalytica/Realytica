@@ -37,6 +37,7 @@ import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
 import { EvidenceProof } from './EvidenceProof';
 import { EvidenceDropButton, EvidenceDropZone } from '../../components/EvidenceDropZone';
+import { useStickyState } from '../../lib/useStickyState';
 
 const EVIDENCE_STATUSES = Object.keys(EVIDENCE_STATUS_LABEL) as EvidenceStatus[];
 const FINDING_STATUSES = Object.keys(FINDING_STATUS_LABEL) as FindingStatus[];
@@ -50,7 +51,12 @@ export function EvidenceRegister() {
   const assessmentId = searchParams.get('dd') ?? undefined;
   const focusId = searchParams.get('evidence') ?? undefined;
   const focusPage = searchParams.get('page');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'gaps' | EvidenceStatus>('gaps');
+  const [statusFilter, setStatusFilter] = useStickyState<'all' | 'gaps' | EvidenceStatus>(
+    project.id,
+    'evidenceStatus',
+    'gaps',
+    (v) => v === 'all' || v === 'gaps' || (EVIDENCE_STATUSES as string[]).includes(v),
+  );
   const [query, setQuery] = useState('');
   const [proofId, setProofId] = useState<string | null>(focusId ?? null);
   const scoped = assessmentId ? project.evidence.filter((e) => e.assessmentIds.includes(assessmentId)) : project.evidence;
