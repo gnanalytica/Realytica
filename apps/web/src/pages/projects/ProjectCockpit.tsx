@@ -30,6 +30,7 @@ import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { EMPTY_CHAT_WIDTH, LAYOUTS, LAYOUT_LABEL, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
 import type { CockpitLayout } from './cockpit/layout';
 import { healthTone } from './shared';
+import { RouteErrorBoundary } from '../../components/layout/ErrorBoundary';
 import type { ProjectOutlet } from './ProjectLayout';
 import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
 import { CockpitPaneStrip, paneLabel } from './cockpit/rail';
@@ -474,11 +475,17 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       ) : null}
       {fillRight ? (
         <div className="min-h-0 min-w-0 flex-1">
-          <Outlet context={workOutlet} />
+          {/* One broken pane must not take the project tabs with it. */}
+          <RouteErrorBoundary>
+            <Outlet context={workOutlet} />
+          </RouteErrorBoundary>
         </div>
       ) : (
         <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4">
-          <Outlet context={workOutlet} />
+          {/* One broken pane must not take the project tabs with it. */}
+          <RouteErrorBoundary>
+            <Outlet context={workOutlet} />
+          </RouteErrorBoundary>
         </div>
       )}
     </>

@@ -168,6 +168,7 @@ you want more providers later.
 | `REALYTICA_AUTH_CLIENT_ID` / `_PROJECT` / `_ISSUER` `_AUDIENCE` `_JWKS_URL` | Which provider to trust, depending on the mode. |
 | `REALYTICA_AUTH_BOOTSTRAP_EMAILS` | Who may claim the first workspace. Unset, the first person to sign in does — right for a firm standing up its own instance, wrong for a public URL. |
 | `VITE_GOOGLE_CLIENT_ID` | Build-time, for the web app's sign-in button. The same client id; it is public by design. |
+| `REALYTICA_ALLOWED_ORIGINS` | Comma-separated exact origins the web app is served from. Unset means "reflect whatever asks", which is refused when `NODE_ENV=production` for the same reason `AUTH_MODE=off` is. |
 
 **The rest are optional** — the screening engine is deterministic and needs
 none of them:
@@ -183,6 +184,8 @@ none of them:
 | `REALYTICA_GOOGLE_MAPS_API_KEY` | Turns on geocoding, Street View and nearby amenities. Absent, the site context reports named gaps rather than empty results. |
 | `REALYTICA_GOOGLE_MAPS_API_KEY` (again, for context) | Note the parcel outline needs none of this — a KML or GeoJSON boundary is a file you supply, and it works with no mapping provider configured. |
 | `REALYTICA_RECORDS_BASE_URL` / `_API_KEY` / `_KINDS` | Connects a statutory-records vendor. All three are required — `_KINDS` is a comma-separated coverage list and is deliberately not defaulted, because a provider that claims a record kind it cannot deliver manufactures a failed fetch where an honest one would name the manual route. Optional alongside: `_LABEL`, `_REGIONS`, `_AUTH_HEADER`, `_TIMEOUT_MS`, `_MONITOR=1`. |
+| `REALYTICA_RATE_LIMIT_API` / `_MODEL` / `_UPLOAD` | Requests per minute per person, defaulting to 600 / 30 / 60. The tiers differ because the costs do: a register read is a memory lookup, a chat turn spends money at a provider. Counted per instance, so this is a brake on one runaway client rather than a defence against a distributed one — that wants the platform's own limiter. |
+| `REALYTICA_CSP` | A Content-Security-Policy passed through verbatim. Deliberately not defaulted: a policy has to admit your identity provider, your tile server and the PDF worker, and one that is subtly wrong breaks sign-in rather than degrading. |
 
 ### Other commands
 

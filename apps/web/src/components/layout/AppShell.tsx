@@ -3,6 +3,7 @@ import { AreaUnitProvider } from '../../lib/units';
 import { readPref, writePref } from '../../lib/prefs';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { Outlet, useLocation } from 'react-router-dom';
+import { RouteErrorBoundary } from './ErrorBoundary';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 
@@ -55,7 +56,11 @@ export default function AppShell() {
         <TopBar onOpenMobile={() => setMobileOpen(true)} />
         <main className={projectWorkspace ? 'min-h-0 min-w-0 flex-1 overflow-hidden p-0' : 'min-w-0 flex-1 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8'}>
           <div className={projectWorkspace ? 'h-full min-h-0 w-full' : 'mx-auto w-full max-w-[1400px]'}>
-            <Outlet />
+            {/* Inside the shell, not around it: a pane that throws leaves the
+                sidebar and top bar standing, so the way out is a click away. */}
+            <RouteErrorBoundary>
+              <Outlet />
+            </RouteErrorBoundary>
           </div>
         </main>
       </div>

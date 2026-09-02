@@ -21,6 +21,7 @@ import { flowsRouter } from './routes/flows';
 import { promptsRouter } from './routes/prompts';
 import { graphAdapter } from './graph';
 import { authenticate, authSettings, initAuth, needs } from './auth/middleware';
+import { corsPolicy, rateLimits, securityHeaders } from './http/hardening';
 import { reportOperators } from './auth/operator';
 import { membersRouter } from './routes/members';
 
@@ -38,8 +39,23 @@ import { readEnv } from '@realytica/agents';
  */
 export const app = express();
 app.disable('x-powered-by');
-app.use(cors());
+/*
+ * Trust the platform's proxy so `req.secure` and `req.ip` are the client's
+ * facts rather than the load balancer's. Both the HSTS check and the rate
+ * limiter's fallback key read them.
+ */
+app.set('trust proxy', 1);
+app.use(securityHeaders());
+app.use(cors(corsPolicy()));
 app.use(express.json({ limit: '2mb' }));
+
+/*
+ * Throttles, built once at module load so their counters live as long as the
+ * instance does. See `./http/hardening.ts` for what they can and cannot do —
+ * in short, they stop one client hammering one instance, and a distributed
+ * attacker is still the platform's problem.
+ */
+const limits = rateLimits();
 
 // One line per request: method, path, status, duration.
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -83,6 +99,13 @@ app.get('/api/health', (_req, res) => {
 app.use('/api', authenticate);
 
 /*
+ * Then the throttle, below the gate rather than above it, so it counts a
+ * person rather than an address — a NAT'd office would otherwise share one
+ * budget and one runaway script would lock out the floor.
+ */
+app.use('/api', limits.api);
+
+/*
  * Reference data and the libraries are read-only and the same for everybody;
  * the project routes carry their own method gate. Telemetry is model spend and
  * prompts are what the agents are told to do — both are the workspace's
@@ -90,6 +113,17 @@ app.use('/api', authenticate);
  */
 app.use('/api/reference', needs('read'), referenceRouter);
 app.use('/api/libraries', needs('read'), librariesRouter);
+/*
+ * A model call and an upload cost orders of magnitude more than a register
+ * read, so they carry their own tighter budget on top of the general one. The
+ * paths are listed rather than the router being wrapped wholesale: reading a
+ * project must not be rationed at the rate of running an agent over it.
+ */
+app.use('/api/projects/:projectId/chat', limits.expensive);
+app.use('/api/projects/:projectId/screen', limits.expensive);
+app.use('/api/projects/:projectId/ai/drafts', limits.expensive);
+app.use('/api/projects/:projectId/photographs/read', limits.expensive);
+app.use('/api/projects/:projectId/evidence', limits.upload);
 app.use('/api/projects', projectsRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);
 app.use('/api/sources', needs('read'), sourcesRouter);
@@ -100,6 +134,7 @@ app.use('/api/work', workRouter);
 // A flow decides what the agents do and what they cost, so reading one is any
 // member's business and changing one is the workspace's — the router carries
 // that split per route rather than being gated wholesale here.
+app.use('/api/flows/:flowId/run', limits.expensive);
 app.use('/api/flows', flowsRouter);
 app.use('/api/members', membersRouter);
 
