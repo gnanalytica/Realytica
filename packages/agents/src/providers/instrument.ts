@@ -37,6 +37,35 @@ export function telemetrySinkInstalled(): boolean {
 }
 
 /**
+ * How a call learns which workspace it belongs to.
+ *
+ * A resolver rather than a field, and installed rather than imported, for two
+ * separate reasons. Installed, because this package must not know the API
+ * exists — the app owns request scoping and hands in a way to read it, exactly
+ * as it hands in a sink. A resolver rather than a parameter, because `caseId`
+ * beside it is the version that was threaded by hand: it is optional on every
+ * request type, almost no call site fills it in, and the per-case cost filter
+ * consequently matches almost nothing. Attribution that depends on being
+ * remembered is attribution that is absent, and absent here means every
+ * workspace admin reads every workspace's bill.
+ */
+let tenantOf: (() => string | undefined) | null = null;
+
+export function setTenantResolver(next: (() => string | undefined) | null): void {
+  tenantOf = next;
+}
+
+/** Never throws: a resolver that misbehaves costs an unattributed record, not a run. */
+function currentTenant(): string | undefined {
+  if (!tenantOf) return undefined;
+  try {
+    return tenantOf() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Wrap a provider so every call through it is timed, priced and recorded.
  *
  * Applied at `providerFor`, which is the one place every agent reaches a
@@ -50,6 +79,7 @@ export function telemetrySinkInstalled(): boolean {
 export function instrument(provider: LlmProvider, id: ProviderId): LlmProvider {
   const start = (agent: AgentKind, model: string, caseId?: string) => ({
     caseId,
+    tenantId: currentTenant(),
     agent,
     // Read from the route rather than passed in: the tier is what the routing
     // decision recorded, and a second opinion here could disagree with the

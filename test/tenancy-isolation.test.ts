@@ -310,3 +310,67 @@ describe('the last owner', () => {
     assert.equal(res.status, 409);
   });
 });
+
+describe('what a model call cost', () => {
+  /*
+   * The leak this closes was not a route that forgot to check. `/api/telemetry`
+   * was behind `admin` and always had been — but the records had no workspace
+   * on them, so every workspace's admin was reading every workspace's bill,
+   * correctly authorised and completely wrong.
+   */
+  let bootstrapTenant = '';
+  let outsider = '';
+
+  before(async () => {
+    const { store } = await import('../apps/api/src/store');
+    bootstrapTenant = store.data.tenants![0]!.id;
+    outsider = tokenFor('sub-other', 'meera@firm-three.in', 'Meera');
+
+    const { telemetrySink } = await import('../apps/api/src/telemetry');
+    const call = (id: string, tenantId?: string) => ({
+      id,
+      ...(tenantId ? { tenantId } : {}),
+      agent: 'analyst_copilot' as const,
+      tier: 'reasoning' as const,
+      provider: 'anthropic' as const,
+      model: 'claude-test',
+      startedAt: new Date().toISOString(),
+      durationMs: 100,
+      usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, estimatedCostUsd: 0.01 },
+      outcome: 'succeeded' as const,
+      capabilityGaps: [],
+      retries: 0,
+    });
+    await telemetrySink.record(call('llm-firm-one', bootstrapTenant));
+    await telemetrySink.record(call('llm-firm-three', 'tnt_other'));
+    await telemetrySink.record(call('llm-nobody'));
+  });
+
+  async function callIds(token: string): Promise<string[]> {
+    const res = await call('GET', '/api/telemetry', { token });
+    assert.equal(res.status, 200);
+    return (res.body as { recentCalls: Array<{ id: string }> }).recentCalls.map((c) => c.id);
+  }
+
+  it('shows a workspace its own spend', async () => {
+    const ids = await callIds(asha());
+    assert.ok(ids.includes('llm-firm-one'));
+    assert.ok(!ids.includes('llm-firm-three'), 'another firm’s bill reached this one');
+  });
+
+  it('shows the other workspace only its own', async () => {
+    const ids = await callIds(outsider);
+    assert.deepEqual(ids, ['llm-firm-three']);
+  });
+
+  it('gives an unattributed call to the first workspace, not to everybody', async () => {
+    // Warm-up probes, scripts, and everything recorded before the field
+    // existed. The same rule a project written before tenancy gets.
+    assert.ok((await callIds(asha())).includes('llm-nobody'));
+    assert.ok(!(await callIds(outsider)).includes('llm-nobody'));
+  });
+
+  it('is not something a viewer can read at all', async () => {
+    assert.equal((await call('GET', '/api/telemetry', { token: rivals() })).status, 403);
+  });
+});

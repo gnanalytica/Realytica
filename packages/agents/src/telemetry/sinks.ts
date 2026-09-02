@@ -63,6 +63,7 @@ export function matchesQuery(record: LlmCallRecord, query: TelemetryQuery = {}):
   // counting a call on the boundary twice.
   if (query.since !== undefined && started < timeOf(query.since, Number.NEGATIVE_INFINITY)) return false;
   if (query.until !== undefined && started >= timeOf(query.until, Number.POSITIVE_INFINITY)) return false;
+  if (query.tenants && !query.tenants.includes(record.tenantId ?? null)) return false;
   if (!matches(query.caseId, record.caseId)) return false;
   if (!matches(query.agent, record.agent)) return false;
   if (!matches(query.provider, record.provider)) return false;

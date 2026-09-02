@@ -105,6 +105,19 @@ export interface TelemetryQuery {
   since?: string;
   /** Exclusive upper bound on `startedAt`, ISO-8601. Exclusive so adjacent windows tile without double-counting. */
   until?: string;
+  /**
+   * Whose calls to count.
+   *
+   * `null` in the list means "records with no workspace on them" — calls made
+   * outside a request, and calls recorded before this field existed. It is a
+   * value rather than a flag because the caller has to decide who those
+   * belong to, and there is no answer this layer could pick that would be
+   * right on both a single-workspace install and a shared deployment.
+   *
+   * Absent means no constraint, which is what a script or an eval harness
+   * wants and what no signed-in reader should ever get.
+   */
+  tenants?: readonly (string | null)[];
   caseId?: OneOrMany<string>;
   agent?: OneOrMany<AgentKind>;
   provider?: OneOrMany<ProviderId>;

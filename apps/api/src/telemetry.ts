@@ -1,5 +1,11 @@
 import type { LlmCallRecord } from '@realytica/shared';
-import { setTelemetrySink, PersistedTelemetrySink, type TelemetryPersistence } from '@realytica/agents';
+import {
+  setTelemetrySink,
+  setTenantResolver,
+  PersistedTelemetrySink,
+  type TelemetryPersistence,
+} from '@realytica/agents';
+import { currentTenantId } from './auth/current';
 import { store } from './store';
 
 /**
@@ -50,4 +56,9 @@ export const telemetrySink = new PersistedTelemetrySink(persistence);
  */
 export function initTelemetry(): void {
   setTelemetrySink(telemetrySink);
+  // And whose bill each call lands on. Read from the request in flight rather
+  // than passed down, because a workspace id threaded through every agent is
+  // one that goes missing at the call sites nobody remembered to update — see
+  // `caseId`, which is exactly that field and is absent on most calls.
+  setTenantResolver(currentTenantId);
 }

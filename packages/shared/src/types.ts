@@ -3505,6 +3505,20 @@ export type LlmCallOutcome = 'succeeded' | 'refused' | 'failed';
  */
 export interface LlmCallRecord {
   id: string;
+  /**
+   * The workspace the call was made for.
+   *
+   * Stamped from the signed-in principal at the moment the call goes out
+   * rather than passed by each call site, because `caseId` below proved that
+   * the passed-in version is the one that ends up absent: most calls in the
+   * app never set it, so a per-case attribution was really no attribution.
+   * Spend is somebody's bill, and a bill nobody can be scoped to is one every
+   * workspace admin on the deployment gets to read.
+   *
+   * Absent for a call made outside a request — a warm-up probe, an evaluation
+   * run, a script.
+   */
+  tenantId?: string;
   /** Absent for calls not made on behalf of a case, e.g. an evaluation run. */
   caseId?: string;
   agent: AgentKind;

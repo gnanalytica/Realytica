@@ -45,6 +45,8 @@ import { systemClock, type Clock, type RecordedLlmCall, type TelemetrySink } fro
 
 /** What is known before the call goes out. */
 export interface CallStart {
+  /** The workspace this call is billed to. Absent outside a request. */
+  tenantId?: string;
   /** Absent for calls not made on behalf of a case — an evaluation run, a warm-up probe. */
   caseId?: string;
   agent: AgentKind;
@@ -232,6 +234,7 @@ function buildRecord(
     costConfidence: price.confidence,
   };
 
+  if (start.tenantId) record.tenantId = start.tenantId;
   if (start.caseId) record.caseId = start.caseId;
   if (firstTokenAtMs !== null) record.timeToFirstTokenMs = Math.max(0, firstTokenAtMs - startedAtMs);
   if (finish.error) record.error = finish.error;

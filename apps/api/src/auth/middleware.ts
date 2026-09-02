@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { can, type Capability, type Membership, type Principal, type Tenant } from '@realytica/shared';
 import { store } from '../store';
+import { withPrincipal } from './current';
 import { readAuthSettings, type AuthSettings } from './config';
 import { resolvePrincipal } from './principal';
 import { TokenRejected, verifyIdToken } from './verify';
@@ -110,7 +111,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     const { principal, changed } = localPrincipal();
     req.principal = principal;
     if (changed) await store.save();
-    next();
+    withPrincipal(principal, next);
     return;
   }
 
@@ -132,7 +133,10 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     }
     req.principal = resolved.principal;
     if (resolved.changed) await store.save();
-    next();
+    // Everything downstream — including a model call six frames inside an
+    // agent — runs with this principal in scope, so telemetry can be
+    // attributed without every call site knowing a workspace exists.
+    withPrincipal(resolved.principal, next);
   } catch (err) {
     if (err instanceof TokenRejected) {
       console.warn(`auth: rejected a token — ${err.message}`);

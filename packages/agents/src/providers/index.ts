@@ -10,4 +10,4 @@ export * from './types';
 export * from './registry';
 export { anthropicProvider, buildCompleteParams, citationGap, buildToolRunnerParams, clientToolFromRunnable, toContentBlocks } from './anthropic';
 
-export { setTelemetrySink, telemetrySinkInstalled } from './instrument';
+export { instrument, setTelemetrySink, setTenantResolver, telemetrySinkInstalled } from './instrument';

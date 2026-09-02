@@ -2,6 +2,8 @@ import { Router } from 'express';
 import type { AgentKind, LlmCallOutcome, ProviderId } from '@realytica/shared';
 import { summariseTelemetry } from '@realytica/agents';
 import { telemetrySink } from '../telemetry';
+import { store } from '../store';
+import { principalOf } from '../auth/middleware';
 
 /**
  * What every model call cost, how long it took, and what it could not do.
@@ -11,6 +13,21 @@ import { telemetrySink } from '../telemetry';
  * performance view disagree about which window they are describing.
  */
 export const telemetryRouter = Router();
+
+/**
+ * Whose calls this reader may count.
+ *
+ * Always their own workspace, and never a parameter — a filter the caller can
+ * widen is not a boundary. Records with no workspace on them (a warm-up probe,
+ * a script, anything recorded before the field existed) belong to the first
+ * workspace on the deployment, which is the same rule `accessTo` already
+ * applies to a project written before tenancy: on a single-workspace install
+ * they are plainly theirs, and on a shared one they are plainly not everyone's.
+ */
+function readableBy(tenantId: string): (string | null)[] {
+  const bootstrap = store.data.tenants?.[0]?.id;
+  return tenantId === bootstrap ? [tenantId, null] : [tenantId];
+}
 
 /** Default window. Long enough to cover a working session, short enough that the summary is about now. */
 const DEFAULT_WINDOW_MINUTES = 24 * 60;
@@ -27,6 +44,7 @@ telemetryRouter.get('/', async (req, res) => {
 
   const records = await telemetrySink.query({
     since,
+    tenants: readableBy(principalOf(req).tenantId),
     caseId: csv(req.query.caseId),
     agent: csv(req.query.agent) as AgentKind[] | undefined,
     provider: csv(req.query.provider) as ProviderId[] | undefined,
