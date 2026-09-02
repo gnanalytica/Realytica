@@ -3,11 +3,12 @@ import { useOutletContext } from 'react-router-dom';
 import { REPORT_KIND_LABEL, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Modal, Select, useToast } from '../../components/ui/kit';
+import { ReportEditor } from './ReportEditor';
 import type { ProjectOutlet } from './ProjectLayout';
 import { formatWhen } from './shared';
 
 export default function Reports() {
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, onOpenCited } = useOutletContext<ProjectOutlet>();
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<ReportKind>('executive_dd');
@@ -41,7 +42,9 @@ export default function Reports() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-[62ch] text-[13px] text-ink-secondary">
-          Reports are views of the registers, not a second copy of the facts. Generating one does not create a data silo.
+          A report is half alive. Sections with a coloured rail read the registers and update as the file does; the rest are
+          your words and nothing regenerates them. Detach a live section when you need to say it differently — the report
+          will show that it stopped updating.
         </p>
         <Button onClick={() => setOpen(true)}>Generate report</Button>
       </div>
@@ -66,19 +69,13 @@ export default function Reports() {
           </Card>
           {view ? (
             <Card>
-              <CardHeader title={view.title} subtitle={`${view.status} · ${view.generatedBy}`} action={<Badge>{REPORT_KIND_LABEL[view.kind]}</Badge>} />
-              <CardBody className="space-y-4">
-                <p className="text-[14px] text-ink">{view.body.summary}</p>
-                {view.body.sections.map((section) => (
-                  <section key={section.heading}>
-                    <h3 className="text-[13px] font-semibold text-ink">{section.heading}</h3>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px] text-ink-secondary">
-                      {section.paragraphs.map((p, i) => (
-                        <li key={`${section.heading}-${i}`}>{p}</li>
-                      ))}
-                    </ul>
-                  </section>
-                ))}
+              <CardBody>
+                <ReportEditor
+                  project={project}
+                  report={view}
+                  onChanged={async () => setProject(await api.getProject(project.id))}
+                  onOpenRecord={onOpenCited}
+                />
               </CardBody>
             </Card>
           ) : null}

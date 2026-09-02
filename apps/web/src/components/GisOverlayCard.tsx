@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layers, MapPinned, RefreshCw, Upload } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { DdProject, GisContextFeature, GisOverlayHit, GisOverlayRead } from '@realytica/shared';
+import { sheetIsPlaceable, type DdProject, type GisContextFeature, type GisOverlayHit, type GisOverlayRead, type SheetPlacement } from '@realytica/shared';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, cn } from './ui/kit';
 import { api } from '../lib/api';
 
@@ -107,6 +107,10 @@ export function GisOverlayCard({
   const [showBbmp, setShowBbmp] = useState(true);
   const [showLakes, setShowLakes] = useState(true);
   const [showWards, setShowWards] = useState(true);
+  const [sheets, setSheets] = useState<SheetPlacement[]>([]);
+  const [showSheet, setShowSheet] = useState(true);
+  const [sheetOpacity, setSheetOpacity] = useState(0.6);
+  const sheetRef = useRef<L.ImageOverlay | null>(null);
 
   async function load(force = false) {
     setLoading(true);
@@ -238,6 +242,79 @@ export function GisOverlayCard({
   }, [read, showWater, showLanduse, showLakes, showWards, showSurvey]);
 
   useEffect(() => {
+    let live = true;
+    void api
+      .listSheets(project.id)
+      .then((r) => {
+        if (live) setSheets(r.sheets);
+      })
+      .catch(() => {
+        // A map that loses its sheet list is still a map. The Site record page
+        // is where a placement problem is diagnosed and reported.
+      });
+    return () => {
+      live = false;
+    };
+  }, [project.id, project.updatedAt]);
+
+  /*
+   * The best-placed sheet, not the first one added.
+   *
+   * Ranked by how much is known about the placement: a verified fit beats one
+   * we know is loose, and both beat one nothing has checked. Picking by
+   * insertion order meant a sheet somebody placed carefully sat behind an
+   * older rough one, on a layer whose whole value is being trustworthy.
+   *
+   * The toggle, the slider and the caveat all read this same value, so they
+   * can never describe a different sheet from the one drawn.
+   */
+  const placedSheet = useMemo(() => {
+    const rank: Record<string, number> = { good: 0, loose: 1, unchecked: 2 };
+    return sheets
+      .filter((s) => sheetIsPlaceable(s.reading) && s.reading.fit && s.sheet.attachmentId)
+      .sort((a, b) => (rank[a.reading.verdict] ?? 9) - (rank[b.reading.verdict] ?? 9))[0];
+  }, [sheets]);
+
+  /*
+   * The placed sheet, drawn under the vector layers.
+   *
+   * `L.imageOverlay` takes a bounding box, which is exactly the north-up model
+   * `fitSheet` produces — and exactly why a rotated sheet is refused rather
+   * than drawn: there is no box that holds it correctly, and a plan boundary a
+   * few hundred metres out is a thing somebody would act on.
+   *
+   * One sheet at a time, the first placeable one. Two rasters stacked at 60%
+   * are unreadable and neither can be trusted; choosing between them is the
+   * Site record page's job, not a slider's.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return undefined;
+    if (sheetRef.current) {
+      map.removeLayer(sheetRef.current);
+      sheetRef.current = null;
+    }
+    if (!placedSheet || !showSheet) return undefined;
+    const placed = placedSheet;
+    const { north, south, east, west } = placed.reading.fit!.bounds;
+    const layer = L.imageOverlay(
+      `/api/projects/${project.id}/evidence/${placed.sheet.evidenceId}/files/${placed.sheet.attachmentId}?inline=1`,
+      [
+        [south, west],
+        [north, east],
+      ],
+      { opacity: sheetOpacity, interactive: false },
+    );
+    layer.addTo(map);
+    layer.bringToBack();
+    sheetRef.current = layer;
+    return () => {
+      map.removeLayer(layer);
+      if (sheetRef.current === layer) sheetRef.current = null;
+    };
+  }, [placedSheet, showSheet, sheetOpacity, project.id]);
+
+  useEffect(() => {
     const map = mapRef.current;
     if (!map) return undefined;
     if (wmsRef.current) {
@@ -363,6 +440,25 @@ export function GisOverlayCard({
               BBMP WMS lakes/parks
             </button>
           ) : null}
+          {placedSheet ? (
+            <>
+              <button type="button" className={toggleClass(showSheet)} onClick={() => setShowSheet((v) => !v)}>
+                {placedSheet.sheet.title}
+              </button>
+              {showSheet ? (
+                <input
+                  type="range"
+                  min={0.15}
+                  max={1}
+                  step={0.05}
+                  value={sheetOpacity}
+                  onChange={(e) => setSheetOpacity(Number(e.target.value))}
+                  aria-label="Sheet opacity"
+                  className="h-6 w-24 accent-[var(--brand)]"
+                />
+              ) : null}
+            </>
+          ) : null}
           {read?.osm.error ? <Badge tone="warning">OSM {read.osm.error}</Badge> : null}
           {read ? (
             <Badge tone="neutral">
@@ -370,6 +466,21 @@ export function GisOverlayCard({
             </Badge>
           ) : null}
         </div>
+
+        {placedSheet && showSheet ? (
+          /* A raster somebody will read a boundary off, so how well it is
+             placed travels with it. `unchecked` especially: two control points
+             fit exactly by construction, and a viewer who does not know that
+             will read a perfect fit as a verified one. */
+          <p
+            className={cn(
+              'text-[11.5px]',
+              placedSheet.reading.verdict === 'good' ? 'text-ink-muted' : 'text-status-warning',
+            )}
+          >
+            {placedSheet.sheet.title}: {placedSheet.reading.say}
+          </p>
+        ) : null}
 
         <div className={cn('overflow-hidden rounded-lg ring-1 ring-inset ring-[var(--ring)]', !canMap && loading ? 'min-h-[220px] bg-sunken' : '')}>
           <div ref={mapEl} className="gis-map z-0 h-[min(420px,55vh)] w-full" />

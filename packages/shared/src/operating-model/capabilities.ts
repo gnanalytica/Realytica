@@ -18,6 +18,11 @@ import {
   packCompleteness,
   recommendedDdTypes,
 } from './operations';
+import { runValuationApproaches } from './valuation-run';
+import { VALUATION_METHOD_LABEL } from './valuation-model';
+import { rule8Summary, type Rule8Summary, type ValuerIdentity } from './ibbi';
+import type { CaptureFacts } from './capture';
+import type { PhotoObservation } from './photo-observation';
 import type {
   ActionAging,
   AiDraft,
@@ -86,7 +91,7 @@ export function patchProject(project: DdProject, input: PatchProjectInput, actor
 export function attachEvidenceFile(
   project: DdProject,
   evidenceId: string,
-  file: { fileName: string; mimeType: string; sizeBytes: number; storageKey: string },
+  file: { fileName: string; mimeType: string; sizeBytes: number; storageKey: string; capture?: CaptureFacts },
   actor = 'operator',
 ): EvidenceAttachment {
   ensureProjectShape(project);
@@ -100,6 +105,10 @@ export function attachEvidenceFile(
     sizeBytes: file.sizeBytes,
     storageKey: file.storageKey,
     uploadedAt: at,
+    // Only when there is something to say. An empty capture object on every
+    // scanned deed would make "no capture facts" and "capture facts we never
+    // filled in" indistinguishable, and the register renders those differently.
+    ...(file.capture && Object.keys(file.capture).length ? { capture: file.capture } : {}),
   };
   record.attachments.push(attachment);
   record.fileName = file.fileName;
@@ -150,60 +159,34 @@ function defaultPremise(project: DdProject): ValuationPremise {
 export function computeIndicativeValuation(project: DdProject, actor = 'operator'): Omit<ValuationRun, 'id' | 'createdAt' | 'createdBy' | 'status' | 'signOff'> {
   ensureProjectShape(project);
   const locality = matchProjectLocality(project);
-  const landArea = project.landAreaSqm ?? 0;
-  const builtUp = project.builtUpAreaSqm ?? 0;
-  const saleable = project.saleableAreaSqm || builtUp;
-  const landRate = locality?.medianLandRatePerSqm ?? 18_000;
-  const builtRate = locality?.medianPricePerSqm ?? 85_000;
-  const replacement = locality?.replacementCostPerSqm ?? 45_000;
-  const yieldRate = locality?.grossYield ?? 0.04;
+  const working = runValuationApproaches(project, locality ?? undefined);
+  const { reconciliation } = working;
 
-  const landValue = landArea > 0 ? landArea * landRate : undefined;
-  const buildingReplacement = builtUp > 0 ? builtUp * replacement : undefined;
-  const comparableValue = saleable > 0 ? saleable * builtRate : undefined;
-  const costValue = (landValue ?? 0) + (buildingReplacement ?? 0);
-  const incomeValue = saleable > 0 ? (saleable * builtRate * yieldRate) / 0.07 : undefined;
-
-  const approaches = [
-    comparableValue
-      ? { approach: 'market' as const, amount: comparableValue, notes: `Saleable ${saleable.toLocaleString()} sqm × ${inr(builtRate)}/sqm locality median.`, weight: 0.4 }
-      : null,
-    costValue > 0
-      ? { approach: 'cost' as const, amount: costValue, notes: `Land ${inr(landValue ?? 0)} + replacement ${inr(buildingReplacement ?? 0)}.`, weight: 0.3 }
-      : null,
-    incomeValue
-      ? { approach: 'income' as const, amount: incomeValue, notes: `Stabilised income capitalised at 7% using ${((yieldRate) * 100).toFixed(1)}% gross yield.`, weight: 0.15 }
-      : null,
-    landValue && buildingReplacement
-      ? {
-          approach: 'residual' as const,
-          amount: Math.max(0, (comparableValue ?? 0) - buildingReplacement),
-          notes: 'GDV less replacement cost as a residual land check. Not a full development appraisal.',
-          weight: 0.15,
-        }
-      : null,
-  ].filter((a): a is NonNullable<typeof a> => a !== null);
-
-  const weightSum = approaches.reduce((n, a) => n + a.weight, 0) || 1;
-  const indicatedValue = approaches.reduce((n, a) => n + a.amount * (a.weight / weightSum), 0);
   const relied = project.evidence.filter((e) => e.used);
   const considered = project.evidence.filter((e) => e.considered && !e.used);
   const gaps = project.evidence.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested');
   const legalFindings = project.findings.filter((f) => (f.discipline === 'legal' || f.discipline === 'regulatory') && f.status !== 'closed' && f.status !== 'rejected');
 
+  const cost = working.runs.find((r) => r.method === 'depreciated_replacement_cost');
+  const comparable = working.runs.find((r) => r.method === 'comparable_rate');
+
   return {
     localityId: locality?.id,
     localityLabel: locality ? `${locality.locality}, ${locality.city}` : undefined,
-    landValue,
-    buildingReplacement,
-    comparableValue,
-    indicatedValue,
-    low: indicatedValue * 0.88,
-    high: indicatedValue * 1.12,
+    // Kept for the readers that predate the working. Each is the amount of the
+    // approach that produced it, or undefined when that approach did not run —
+    // never a partial figure standing in for one that failed.
+    landValue: cost?.steps.find((s) => s.label === 'Land')?.value,
+    buildingReplacement: cost?.steps.find((s) => s.label === 'Less depreciation')?.value,
+    comparableValue: comparable?.amount ?? undefined,
+    indicatedValue: reconciliation.indicated ?? 0,
+    low: reconciliation.low ?? 0,
+    high: reconciliation.high ?? 0,
     currency: project.currency,
+    working,
     ibbi: {
       instruction: `Indicative decision-support valuation of ${project.name} for internal DD. Intended audience: project owner / investment committee. This is not a certified valuation.`,
-      subject: `${project.name}, ${project.location}, ${project.city}. Land ${landArea.toLocaleString() || 'n/a'} sqm, BUA ${builtUp.toLocaleString() || 'n/a'} sqm, saleable ${saleable.toLocaleString() || 'n/a'} sqm. Stage: ${LIFECYCLE_STAGE_LABEL[project.currentStage]}.`,
+      subject: `${project.name}, ${project.location}, ${project.city}. Land ${(project.landAreaSqm ?? 0).toLocaleString() || 'n/a'} sqm, BUA ${(project.builtUpAreaSqm ?? 0).toLocaleString() || 'n/a'} sqm. Valued on ${working.area.value ? `${working.area.value.toLocaleString()} sqm — ${working.area.label}` : 'no recorded area'}. Stage: ${LIFECYCLE_STAGE_LABEL[project.currentStage]}.`,
       dates: {
         valuationDate: nowIso().slice(0, 10),
         evidenceCutoff: nowIso().slice(0, 10),
@@ -213,19 +196,69 @@ export function computeIndicativeValuation(project: DdProject, actor = 'operator
       legalPlanningAssumptions: legalFindings.length
         ? legalFindings.map((f) => `${f.severity}: ${f.title}`).join('; ')
         : 'No open legal/planning findings recorded. Absence of findings is not a clean title.',
-      approaches,
-      reconciliation: indicatedValue
-        ? `Weighted indication ${inr(indicatedValue)} (range ${inr(indicatedValue * 0.88)}–${inr(indicatedValue * 1.12)}). Market and cost are the primary anchors; income and residual are cross-checks. Gaps in evidence reduce confidence and are listed, not implied as nil.`
-        : 'Insufficient area inputs to compute a range. Record land and built-up area on the project.',
+      approaches: working.runs
+        .filter((r) => r.amount !== null)
+        .map((r) => ({ approach: r.approach, amount: r.amount!, notes: `${r.formula}. ${r.weightBasis}`, weight: r.weight })),
+      /*
+       * Three outcomes, three different things to tell somebody.
+       *
+       * Nothing ran → go and record the inputs. Several ran and disagreed →
+       * go and check the one that looks wrong. A figure → here it is with its
+       * band. Collapsing the first two into one sentence printed "No approach
+       * could be run." over four approaches that had all run.
+       */
+      reconciliation:
+        reconciliation.outcome === 'no_approach_ran'
+          ? `No approach could be run. ${reconciliation.skippedMethods.map((m) => `${VALUATION_METHOD_LABEL[m.method]} — ${m.because}`).join('; ')}. Record those inputs on the Indicative valuation scope and run again.`
+          : reconciliation.outcome === 'approaches_disagree'
+            ? `No figure is given. ${reconciliation.spreadBasis}${reconciliation.skippedMethods.length ? ` Also not run: ${reconciliation.skippedMethods.map((m) => `${VALUATION_METHOD_LABEL[m.method]} (${m.because})`).join('; ')}.` : ''}`
+            : `${inr(reconciliation.indicated ?? 0)} (${inr(reconciliation.low ?? 0)}–${inr(reconciliation.high ?? 0)}). ${reconciliation.spreadBasis}${reconciliation.skippedMethods.length ? ` Not run: ${reconciliation.skippedMethods.map((m) => `${VALUATION_METHOD_LABEL[m.method]} (${m.because})`).join('; ')}.` : ''}`,
       caveats: [
         'Indicative only. Not an IBBI-registered valuer’s report and not to be used as certified value.',
-        'Locality rates are reference medians, not a matched comparable set inspected for this asset.',
+        ...(working.runs.some((r) => r.inputs.some((i) => i.source.kind === 'locality'))
+          ? ['One or more rates are locality reference medians rather than comparables inspected for this asset. Each is marked on the input it was used for.']
+          : []),
         `${gaps.length} evidence gap(s) remain. Relied-upon: ${relied.length}. Considered not used: ${considered.length}.`,
         actor ? `Prepared by ${actor} from live project registers.` : 'Prepared from live project registers.',
       ],
       evidenceReliedUponIds: relied.map((e) => e.id),
       evidenceConsideredIds: considered.map((e) => e.id),
       evidenceGapIds: gaps.map((e) => e.id),
+      rule8: {
+        // Everything here is DERIVED. The three items a computation cannot
+        // supply — the valuer's identity, their conflict disclosure and the
+        // date of appointment — stay absent rather than being filled with
+        // something plausible, and `rule8Completeness` reports them missing.
+        reportedOn: nowIso().slice(0, 10),
+        inspections: (project.siteVisits ?? [])
+          .filter((v) => v.status === 'completed' || v.status === 'aborted')
+          .map((v) => ({
+            visitId: v.id,
+            visitedOn: v.visitedOn,
+            by: v.surveyor,
+            // The limitations travel into the valuation, which is the point of
+            // Rule 8(3)(f): a value formed without seeing the roof is a value
+            // with a hole in it, and the reader has to be able to see the hole.
+            limitations: v.limitations.map((l) => l.what),
+          })),
+        majorFactors: [
+          ...working.runs
+            .filter((r) => r.amount !== null)
+            .map((r) => `${VALUATION_METHOD_LABEL[r.method]}: ${r.weightBasis}`),
+          ...working.externalities.applied.map((a) => `${a.label} at ${a.metres} m — ${(a.pct * 100).toFixed(0)}%. ${a.say}`),
+          ...(working.reconciliation.skippedMethods.length
+            ? [`Not run: ${working.reconciliation.skippedMethods.map((m) => `${VALUATION_METHOD_LABEL[m.method]} (${m.because})`).join('; ')}.`]
+            : []),
+        ],
+        standardsFollowed: [
+          'Companies (Registered Valuers and Valuation) Rules 2017, Rule 8 — used as a report-contents checklist.',
+          'IBBI Guidelines on Use of Caveats, Limitations and Disclaimers, 2020.',
+        ],
+        restrictionsOnUse: [
+          'Prepared for the project owner and investment committee named in the instruction, for internal due-diligence decisions only.',
+          'Not to be relied on by a lender, a court, a tribunal or any third party, and not to be used for any statutory purpose requiring a registered valuer.',
+        ],
+      },
     },
   };
 }
@@ -258,6 +291,64 @@ export function createValuationRun(project: DdProject, actor = 'operator'): Valu
   });
   snapshotCapabilities(project, actor);
   return run;
+}
+
+/**
+ * The two Rule 8 items nothing can compute: who is signing, and what they hold.
+ *
+ * Kept as its own operation rather than a field on the run because both are
+ * statements a PERSON makes, and the moment either could be defaulted the
+ * report would carry a disclosure nobody made. `declaredConflict: false` with
+ * an empty list is a positive statement — "I considered this and have none" —
+ * and is a different fact from the disclosure being absent, which is why the
+ * argument is required rather than optional.
+ *
+ * Nothing here checks a registration number against IBBI's register. That is a
+ * lookup this product does not do, and validating the format alone would give
+ * a number an air of having been verified.
+ */
+export function setValuationValuer(
+  project: DdProject,
+  runId: string,
+  input: {
+    valuer: ValuerIdentity;
+    declaredConflict: boolean;
+    interests?: string[];
+    appointedOn?: string;
+  },
+  actor = 'operator',
+): ValuationRun {
+  ensureProjectShape(project);
+  const run = project.valuationRuns.find((r) => r.id === runId);
+  if (!run) throw new Error('Valuation run not found');
+  if (!input.valuer.name.trim()) throw new Error('A valuation has to name who is signing it.');
+  if (input.declaredConflict && !(input.interests ?? []).length) {
+    throw new Error('An interest was declared but not described. Say what it is, or declare none.');
+  }
+
+  const at = nowIso();
+  run.ibbi.rule8 = {
+    ...(run.ibbi.rule8 ?? {}),
+    valuer: input.valuer,
+    conflict: { declared: input.declaredConflict, interests: input.interests ?? [], statedBy: actor, statedAt: at },
+    ...(input.appointedOn ? { appointedOn: input.appointedOn } : {}),
+  };
+  touch(project, at);
+  project.audit.push({
+    id: id('aud'),
+    at,
+    actor,
+    action: 'valuation_valuer',
+    entityType: 'valuation',
+    entityId: run.id,
+    newValue: `${input.valuer.name}${input.valuer.registrationNumber ? ` (${input.valuer.registrationNumber})` : ''} · ${input.declaredConflict ? `${(input.interests ?? []).length} interest(s) declared` : 'no interest declared'}`,
+  });
+  return run;
+}
+
+/** Which of the twelve Rule 8(3) items this run answers, computed fresh. */
+export function valuationRule8(run: ValuationRun): Rule8Summary {
+  return rule8Summary(run.ibbi, run.ibbi.rule8 ?? {});
 }
 
 export function setValuationSignOff(project: DdProject, runId: string, signOff: ValuationRun['signOff'], actor = 'operator'): ValuationRun {
@@ -430,6 +521,108 @@ function pushDraft(project: DdProject, draft: Omit<AiDraft, 'id' | 'createdAt' |
   };
   project.aiDrafts.push(record);
   return record;
+}
+
+/* ==================================================================== */
+/* What a model saw in a photograph                                      */
+/* ==================================================================== */
+
+/**
+ * File a reading, and raise its defects as cards.
+ *
+ * Two things happen here and the split between them is the point. The
+ * OBSERVATION goes onto the attachment, plainly attributed, where it sits
+ * beside the person's caption without ever becoming it. The suggested
+ * findings become DRAFTS — the same propose-and-review path a chat proposal
+ * or a rule-generated draft takes — so a defect a model spotted in a
+ * photograph reaches the findings register by exactly the same road as one it
+ * inferred from a deed: a person reads it and accepts it.
+ *
+ * There is deliberately no option to skip that. A photograph is the input a
+ * model reads most confidently and a defect is the conclusion a buyer acts on
+ * hardest, and the two together are the last place this product should be
+ * making its own entries.
+ */
+export function recordPhotoObservation(
+  project: DdProject,
+  evidenceId: string,
+  attachmentId: string,
+  observation: PhotoObservation,
+  actor = 'operator',
+): { attachment: EvidenceAttachment; drafts: AiDraft[] } {
+  ensureProjectShape(project);
+  const evidence = project.evidence.find((e) => e.id === evidenceId);
+  const attachment = evidence?.attachments.find((a) => a.id === attachmentId);
+  if (!evidence || !attachment) throw new Error('Attachment not found');
+
+  attachment.observation = observation;
+
+  const drafts: AiDraft[] = [];
+  for (const suggestion of observation.suggestedFindings) {
+    drafts.push(
+      pushDraft(project, {
+        kind: 'finding',
+        title: suggestion.title,
+        // Observed and reasoning stay in separate sentences all the way to the
+        // card. Merged, they read as one confident statement, and the reviewer
+        // loses the only thing that lets them disagree with half of it.
+        body: [
+          `Seen in ${attachment.fileName}: ${suggestion.observed}`,
+          `Why it may matter (the model's reasoning, not a finding): ${suggestion.whyItMayMatter}`,
+          `Read by ${observation.model} at confidence ${(suggestion.confidence * 100).toFixed(0)}%.`,
+          observation.limits ? `What this photograph does not show: ${observation.limits}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        source: 'model',
+        createdBy: actor,
+        proposedPayload: {
+          title: suggestion.title,
+          description: `${suggestion.observed} ${suggestion.whyItMayMatter}`.trim(),
+          severity: suggestion.suggestedSeverity,
+          // Every photograph-sourced finding lands under technical unless a
+          // person moves it. Letting the model pick a discipline would be a
+          // second judgement smuggled in behind the first, and the discipline
+          // decides which report section it appears in.
+          discipline: 'technical',
+          evidenceIds: [evidenceId],
+        },
+      }),
+    );
+  }
+
+  const at = nowIso();
+  evidence.updatedAt = at;
+  touch(project, at);
+  project.audit.push({
+    id: id('aud'),
+    at,
+    actor,
+    action: 'read_photograph',
+    entityType: 'attachment',
+    entityId: attachment.id,
+    newValue: `${observation.subject} · ${observation.notes.length} note(s) · ${drafts.length} card(s)`,
+  });
+  return { attachment, drafts };
+}
+
+/** Photographs on the file that no model has read yet. */
+export function unreadPhotographs(project: DdProject): Array<{ evidenceId: string; attachment: EvidenceAttachment }> {
+  ensureProjectShape(project);
+  const out: Array<{ evidenceId: string; attachment: EvidenceAttachment }> = [];
+  // A sheet's scan is a plan, not a photograph — the same exemption
+  // `captureConcerns` makes, for the same reason.
+  const sheetFiles = new Set((project.sheets ?? []).map((sheet) => sheet.attachmentId).filter(Boolean) as string[]);
+  for (const evidence of project.evidence) {
+    if (evidence.kind === 'drawing' || evidence.kind === 'gis') continue;
+    for (const attachment of evidence.attachments) {
+      if (!attachment.mimeType.startsWith('image/')) continue;
+      if (sheetFiles.has(attachment.id)) continue;
+      if (attachment.observation) continue;
+      out.push({ evidenceId: evidence.id, attachment });
+    }
+  }
+  return out;
 }
 
 export function proposeAiDrafts(project: DdProject, actor = 'operator', source: AiDraft['source'] = 'rule'): AiDraft[] {

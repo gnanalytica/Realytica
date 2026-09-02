@@ -1,5 +1,11 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
 import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
+import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
+import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
+import type { EnvironmentalCondition, RemedialBand, RicsEscalation } from './standards';
+import { CAPTURE_OFF_SITE_M, captureDistanceM, describeCapture, isGeotagged, type CaptureFacts, type CaptureFactsInput, type CapturePurpose } from './capture';
+import { readSheetFit, type SheetFitReading, type SheetKind, type SheetRecord } from './geo-sheet';
+import type { CreateSiteVisitInput, PatchSiteVisitInput, SiteVisitRecord } from './site-visit';
 import type {
   ActionRecord,
   Asset,
@@ -17,6 +23,7 @@ import type {
   PatchAssetInput,
   DdProject,
   DecisionRecord,
+  EvidenceAttachment,
   EvidenceRecord,
   FindingRecord,
   GenerateReportInput,
@@ -25,7 +32,12 @@ import type {
   ProjectHealth,
   ProjectSummary,
   RecordCheckInput,
+  CheckFieldDef,
+  CheckFieldValue,
+  CheckInsightRule,
+  ReportBlock,
   ReportBody,
+  ReportBoundSource,
   ReportSection,
   RiskRecord,
   ScopeInstance,
@@ -83,6 +95,13 @@ export function ensureProjectShape(project: DdProject): void {
   if (!project.chatProposals) project.chatProposals = [];
   if (!project.orchestratorRuns) project.orchestratorRuns = [];
   if (!project.stakeholders) project.stakeholders = [];
+  // Files written before visits and sheets existed load without them. Migrated
+  // on read so nothing downstream ever has to test for the older shape.
+  if (!project.siteVisits) project.siteVisits = [];
+  if (!project.sheets) project.sheets = [];
+  // A report written before the block model existed is migrated on read, so
+  // nothing downstream has to know two shapes.
+  for (const report of project.reports) ensureReportBlocks(report);
   for (const row of project.evidence) {
     if (!row.attachments) row.attachments = [];
   }
@@ -158,6 +177,8 @@ export function createProject(input: CreateProjectInput, reference: string, acto
     risks: [],
     actions: [],
     decisions: [],
+    siteVisits: [],
+    sheets: [],
     reports: [],
     valuationRuns: [],
     capabilityRuns: [],
@@ -195,6 +216,8 @@ export function addAsset(project: DdProject, input: CreateAssetInput, actor = DE
     parentId: input.parentId,
     name: input.name.trim(),
     assetType: input.assetType.trim(),
+    uniclassCode: input.uniclassCode?.trim() || undefined,
+    uniclassTitle: input.uniclassTitle?.trim() || undefined,
     description: input.description,
     zone: input.zone,
     currentStage: stage,
@@ -227,6 +250,8 @@ export function patchAsset(project: DdProject, assetId: string, input: PatchAsse
   const previous = asset.name;
   if (input.name !== undefined) asset.name = input.name.trim();
   if (input.assetType !== undefined) asset.assetType = input.assetType.trim();
+  if (input.uniclassCode !== undefined) asset.uniclassCode = input.uniclassCode.trim() || undefined;
+  if (input.uniclassTitle !== undefined) asset.uniclassTitle = input.uniclassTitle.trim() || undefined;
   if (input.description !== undefined) asset.description = input.description;
   if (input.zone !== undefined) asset.zone = input.zone;
   if (input.responsible !== undefined) asset.responsible = input.responsible;
@@ -331,6 +356,7 @@ function instantiateScope(assessmentId: string, scopeKey: ScopeKey, at: string):
     result: 'pending',
     evidenceIds: [],
     findingIds: [],
+    ...(def.fields?.length ? { fields: {} } : {}),
     comments: '',
     updatedAt: at,
   }));
@@ -472,6 +498,162 @@ export function isMaterialCheckResult(result: RecordCheckInput['result']): boole
   return MATERIAL_RESULTS.has(result);
 }
 
+/**
+ * The definition behind an instantiated check, for its field schema.
+ *
+ * A check instance copies its title and criteria at instantiation so it is
+ * stable if the library moves, but the SCHEMA is deliberately read live: a
+ * field added to a definition should appear on the checks already running,
+ * because it is a question that was always worth answering and nobody wants
+ * to re-instantiate a DD to be asked it.
+ */
+export function checkSchema(check: CheckInstance): { fields: CheckFieldDef[]; rules: CheckInsightRule[] } {
+  const def = CHECK_DEFINITIONS.find((d) => d.id === check.definitionId);
+  return { fields: def?.fields ?? [], rules: def?.insightRules ?? [] };
+}
+
+/** Everything this check's fields say — schema, values, what is missing, and the arithmetic. */
+export function checkFieldReading(check: CheckInstance): CheckFieldReading {
+  const { fields, rules } = checkSchema(check);
+  return readCheckFields(check, fields, rules);
+}
+
+export interface ProjectToleranceRow extends ToleranceReading {
+  checkId: string;
+  checkTitle: string;
+  scopeKey: ScopeKey;
+  assessmentId: string;
+  assessmentName: string;
+}
+
+/**
+ * Every comparison on the file, normalised so they can be read against each
+ * other.
+ *
+ * Worst first, where "worst" is how many times past its OWN tolerance a
+ * divergence fell — not the raw percentage. A 3% budget variance inside a 5%
+ * threshold and a 3% extent variance against a 1% one are not comparable
+ * facts, and ranking them by percentage would put the harmless one above the
+ * finding.
+ *
+ * Breaches — a divergence against a zero tolerance, like an FAR above what
+ * the plan permits — sort to the very top and stay there. There is no
+ * "slightly over" on a threshold that admits nothing.
+ */
+export function projectTolerances(project: DdProject): ProjectToleranceRow[] {
+  ensureProjectShape(project);
+  const rows: ProjectToleranceRow[] = [];
+  for (const assessment of project.assessments) {
+    for (const scope of assessment.scopes) {
+      for (const check of scope.checks) {
+        const { fields, rules } = checkSchema(check);
+        if (!fields.length || !rules.length) continue;
+        for (const reading of toleranceReadings(fields, withComputed(fields, check.fields ?? {}), rules)) {
+          rows.push({
+            ...reading,
+            checkId: check.id,
+            checkTitle: check.title,
+            scopeKey: scope.scopeKey,
+            assessmentId: assessment.id,
+            assessmentName: assessment.name,
+          });
+        }
+      }
+    }
+  }
+  return rows.sort((a, b) => b.overBy - a.overBy || b.divergence - a.divergence);
+}
+
+export interface RecordCheckFieldsResult {
+  check: CheckInstance;
+  /** Values that would not coerce, with the reason. Nothing partial is written. */
+  rejected: { key: string; error: string }[];
+  reading: CheckFieldReading;
+}
+
+/**
+ * Write values onto a check.
+ *
+ * All or nothing on validation: a half-written field set is worse than a
+ * refused one, because the person walks away believing the numbers are in.
+ * An unknown key is rejected by name rather than ignored — a model that
+ * invented a field should be told, not silently humoured.
+ *
+ * Writing a value NEVER records a result. What the numbers mean is the
+ * check's insight rules; whether the check passes is somebody's judgement,
+ * and conflating the two is how an automated tolerance ends up signing off a
+ * title.
+ */
+export function recordCheckFields(
+  project: DdProject,
+  checkId: string,
+  values: Record<string, unknown>,
+  actor = DEFAULT_ACTOR,
+  sourceEvidenceId?: string,
+): RecordCheckFieldsResult {
+  const { check } = findCheck(project, checkId);
+  const { fields } = checkSchema(check);
+  if (!fields.length) throw new Error(`“${check.title}” does not record typed fields — use the result and comments.`);
+
+  const at = nowIso();
+  const byKey = new Map(fields.map((f) => [f.key, f]));
+  const rejected: { key: string; error: string }[] = [];
+  const accepted: Record<string, CheckFieldValue> = {};
+
+  for (const [key, raw] of Object.entries(values)) {
+    const def = byKey.get(key);
+    if (!def) {
+      rejected.push({ key, error: `“${check.title}” has no field called "${key}". It records: ${fields.map((f) => f.key).join(', ')}.` });
+      continue;
+    }
+    const parsed = validateFieldValue(def, raw);
+    if ('error' in parsed) {
+      rejected.push({ key, error: parsed.error });
+      continue;
+    }
+    // A field declared `proof: 'required'` cannot be recorded on somebody's
+    // word. This is the line between a diligence record and a form: the
+    // extent a deed recites and the extent somebody remembered must not be
+    // able to reach a report wearing the same authority.
+    if (def.proof === 'required' && parsed.value !== null && !sourceEvidenceId) {
+      rejected.push({
+        key,
+        error: `${def.label} has to cite what it was read from${def.from ? ` — the ${def.from.toLowerCase()}` : ''}. File it on the evidence register first, then record the value against it.`,
+      });
+      continue;
+    }
+    // An evidence field is a citation, so the thing cited has to exist. A
+    // dangling id is worse than a blank: the check renders as evidenced, the
+    // report counts it, and nobody discovers the row was deleted until
+    // somebody clicks it.
+    if (def.kind === 'evidence' && Array.isArray(parsed.value)) {
+      const missing = (parsed.value as string[]).filter((evidenceId) => !project.evidence.some((e) => e.id === evidenceId));
+      if (missing.length) {
+        rejected.push({ key, error: `${def.label} cites ${missing.length === 1 ? 'a row' : 'rows'} that ${missing.length === 1 ? 'is' : 'are'} not on the evidence register: ${missing.join(', ')}.` });
+        continue;
+      }
+    }
+
+    accepted[key] = { value: parsed.value, at, by: actor, ...(sourceEvidenceId ? { sourceEvidenceId } : {}) };
+  }
+
+  if (rejected.length === 0) {
+    check.fields = { ...(check.fields ?? {}), ...accepted };
+    check.updatedAt = at;
+    touch(project, at);
+    audit(project, {
+      actor,
+      action: 'record_check_fields',
+      entityType: 'check',
+      entityId: check.id,
+      newValue: Object.keys(accepted).join(', '),
+      at,
+    });
+  }
+
+  return { check, rejected, reading: checkFieldReading(check) };
+}
+
 export function recordCheckResult(project: DdProject, checkId: string, input: RecordCheckInput, actor = DEFAULT_ACTOR): CheckInstance {
   const { assessment, scope, check } = findCheck(project, checkId);
   const at = nowIso();
@@ -552,6 +734,7 @@ export function addEvidence(project: DdProject, input: CreateEvidenceInput, acto
     scopeInstanceIds: input.scopeInstanceIds ?? [],
     checkIds: input.checkIds ?? [],
     fileName: input.fileName,
+    iso19650: input.iso19650,
     attachments: [],
     quotes: input.quotes,
     extractionNotes: input.extractionNotes,
@@ -619,6 +802,8 @@ export function addFinding(project: DdProject, input: CreateFindingInput, actor 
     actionIds: [],
     decisionIds: [],
     includeInReport: true,
+    escalation: input.escalation,
+    environmentalCondition: input.environmentalCondition,
     createdAt: at,
     updatedAt: at,
   };
@@ -674,6 +859,8 @@ export function addAction(project: DdProject, input: CreateActionInput, actor = 
     priority: input.priority,
     dueDate: input.dueDate,
     status: 'not_started',
+    costEstimate: input.costEstimate,
+    costBand: input.costBand,
     findingIds: input.findingIds ?? [],
     riskIds: input.riskIds ?? [],
     evidenceIds: input.evidenceIds ?? [],
@@ -695,6 +882,442 @@ export function addAction(project: DdProject, input: CreateActionInput, actor = 
   audit(project, { actor, action: 'create', entityType: 'action', entityId: record.id, newValue: record.title, at });
   refreshProjectDerived(project);
   return record;
+}
+
+/**
+ * What a remedy costs, and when the money falls.
+ *
+ * Separate from creating the action because the two facts arrive at different
+ * times: an action is raised the moment a defect is found, and priced days or
+ * weeks later when somebody has actually asked a contractor. Folding the
+ * figure into creation would mean either raising actions late or carrying a
+ * zero that reads as free.
+ */
+export function setActionCost(
+  project: DdProject,
+  actionId: string,
+  input: { costEstimate?: number | null; costBand?: RemedialBand | null },
+  actor = DEFAULT_ACTOR,
+): ActionRecord {
+  const record = project.actions.find((a) => a.id === actionId);
+  if (!record) throw new Error('Action not found');
+  if (input.costEstimate !== undefined) {
+    if (input.costEstimate !== null && (!Number.isFinite(input.costEstimate) || input.costEstimate < 0)) {
+      throw new Error('A remedial cost cannot be negative.');
+    }
+    record.costEstimate = input.costEstimate ?? undefined;
+  }
+  if (input.costBand !== undefined) record.costBand = input.costBand ?? undefined;
+  const at = nowIso();
+  record.updatedAt = at;
+  touch(project, at);
+  audit(project, {
+    actor,
+    action: 'patch',
+    entityType: 'action',
+    entityId: record.id,
+    newValue: `${record.costBand ?? 'unbanded'}${typeof record.costEstimate === 'number' ? ` · ${record.costEstimate}` : ''}`,
+    at,
+  });
+  return record;
+}
+
+/**
+ * The two classifications a finding can carry, set after the fact.
+ *
+ * Escalation especially: whether somebody had to be told is often known only
+ * once the surveyor is off site, and it is the one field on a finding whose
+ * absence is itself a fact worth recording — an escalated defect with nobody
+ * named as notified is a gap the report should show, not hide.
+ */
+export function classifyFinding(
+  project: DdProject,
+  findingId: string,
+  input: { escalation?: RicsEscalation | null; environmentalCondition?: EnvironmentalCondition | null },
+  actor = DEFAULT_ACTOR,
+): FindingRecord {
+  const record = project.findings.find((f) => f.id === findingId);
+  if (!record) throw new Error('Finding not found');
+  if (input.escalation !== undefined) record.escalation = input.escalation ?? undefined;
+  if (input.environmentalCondition !== undefined) record.environmentalCondition = input.environmentalCondition ?? undefined;
+  const at = nowIso();
+  record.updatedAt = at;
+  touch(project, at);
+  audit(project, {
+    actor,
+    action: 'patch',
+    entityType: 'finding',
+    entityId: record.id,
+    newValue: [record.escalation?.immediateAction ? 'immediate action' : null, record.environmentalCondition ?? null].filter(Boolean).join(' · ') || 'classification cleared',
+    at,
+  });
+  return record;
+}
+
+/* ==================================================================== */
+/* Site visits                                                           */
+/* ==================================================================== */
+
+export function addSiteVisit(project: DdProject, input: CreateSiteVisitInput, actor = DEFAULT_ACTOR): SiteVisitRecord {
+  ensureProjectShape(project);
+  const at = nowIso();
+  const record: SiteVisitRecord = {
+    id: id('vis'),
+    title: input.title.trim(),
+    purpose: input.purpose,
+    visitedOn: input.visitedOn,
+    status: input.status ?? 'completed',
+    surveyor: input.surveyor.trim(),
+    accompaniedBy: input.accompaniedBy,
+    weather: input.weather,
+    notes: input.notes,
+    limitations: input.limitations ?? [],
+    assetIds: input.assetIds ?? [],
+    assessmentIds: input.assessmentIds ?? [],
+    findingIds: [],
+    createdAt: at,
+    updatedAt: at,
+  };
+  project.siteVisits.push(record);
+  touch(project, at);
+  audit(project, { actor, action: 'create', entityType: 'site_visit', entityId: record.id, newValue: record.title, at });
+  return record;
+}
+
+export function patchSiteVisit(project: DdProject, visitId: string, input: PatchSiteVisitInput, actor = DEFAULT_ACTOR): SiteVisitRecord {
+  ensureProjectShape(project);
+  const record = project.siteVisits.find((v) => v.id === visitId);
+  if (!record) throw new Error('Site visit not found');
+  if (input.title !== undefined) record.title = input.title.trim();
+  if (input.purpose !== undefined) record.purpose = input.purpose;
+  if (input.visitedOn !== undefined) record.visitedOn = input.visitedOn;
+  if (input.status !== undefined) record.status = input.status;
+  if (input.surveyor !== undefined) record.surveyor = input.surveyor.trim();
+  if (input.accompaniedBy !== undefined) record.accompaniedBy = input.accompaniedBy || undefined;
+  if (input.weather !== undefined) record.weather = input.weather || undefined;
+  if (input.notes !== undefined) record.notes = input.notes || undefined;
+  if (input.limitations !== undefined) record.limitations = input.limitations;
+  if (input.assetIds !== undefined) record.assetIds = input.assetIds;
+  if (input.assessmentIds !== undefined) record.assessmentIds = input.assessmentIds;
+  const at = nowIso();
+  record.updatedAt = at;
+  touch(project, at);
+  audit(project, { actor, action: 'patch', entityType: 'site_visit', entityId: record.id, newValue: record.title, at });
+  return record;
+}
+
+/** Every attachment on the file taken on this visit, with the evidence row it hangs off. */
+export function visitPhotos(project: DdProject, visitId: string): Array<{ evidence: EvidenceRecord; attachment: EvidenceAttachment }> {
+  ensureProjectShape(project);
+  const out: Array<{ evidence: EvidenceRecord; attachment: EvidenceAttachment }> = [];
+  for (const evidence of project.evidence) {
+    for (const attachment of evidence.attachments) {
+      if (attachment.capture?.visitId === visitId) out.push({ evidence, attachment });
+    }
+  }
+  return out;
+}
+
+export interface VisitCoverageRow {
+  visitId: string;
+  title: string;
+  visitedOn: string;
+  purpose: CapturePurpose;
+  surveyor: string;
+  photos: number;
+  /** How many of those carry a position off the file rather than a person's word. */
+  geotagged: number;
+  assetsCovered: number;
+  limitations: number;
+  /**
+   * The distinction that makes the limitations list mean anything.
+   *
+   * An empty array is a CLAIM — it says the surveyor got everywhere. A visit
+   * where nobody filled the section in is a different thing entirely, and a
+   * report that renders both as "no limitations" has invented a completeness
+   * nobody asserted.
+   */
+  limitationsStated: boolean;
+}
+
+export function visitCoverage(project: DdProject): VisitCoverageRow[] {
+  ensureProjectShape(project);
+  return project.siteVisits.map((visit) => {
+    const photos = visitPhotos(project, visit.id);
+    return {
+      visitId: visit.id,
+      title: visit.title,
+      visitedOn: visit.visitedOn,
+      purpose: visit.purpose,
+      surveyor: visit.surveyor,
+      photos: photos.length,
+      geotagged: photos.filter((p) => isGeotagged(p.attachment.capture)).length,
+      assetsCovered: visit.assetIds.length,
+      limitations: visit.limitations.length,
+      // `notes` standing in for "somebody worked through this section" is
+      // deliberate: there is no separate "I checked and there were none" flag,
+      // and adding one would be a box nobody ticks. A visit with neither a
+      // limitation nor a note has simply not been written up.
+      limitationsStated: visit.limitations.length > 0 || Boolean(visit.notes?.trim()),
+    };
+  });
+}
+
+/* ==================================================================== */
+/* What a photograph claims about itself                                 */
+/* ==================================================================== */
+
+export interface CaptureConcern {
+  evidenceId: string;
+  attachmentId: string;
+  fileName: string;
+  code: 'off_site' | 'no_taken_at' | 'stale_for_valuation' | 'no_purpose';
+  say: string;
+}
+
+/**
+ * Where a photograph's own metadata argues with the file it was filed on.
+ *
+ * Computed, never stored, and deliberately narrow: four checks, each of which
+ * a person could make themselves in ten seconds and none of which anybody
+ * makes across four hundred photographs. Nothing here rejects a file — a shot
+ * two kilometres away might be of the access road, and a baseline with no
+ * timestamp is still worth keeping. They are things a reader should be told
+ * before citing one, which is a different act from refusing it.
+ */
+export function captureConcerns(project: DdProject): CaptureConcern[] {
+  ensureProjectShape(project);
+  /*
+   * The site's own pin, read straight off the stored geocode.
+   *
+   * `planningPinOf` is the fuller answer and cannot be called from here — it
+   * lives downstream of `capabilities`, which is downstream of this file. What
+   * it adds over this line is a fallback to a coordinate pulled during a chat,
+   * and that is exactly the wrong thing to measure a photograph against: a
+   * transient lookup is not where the property is. The stored geocode, or
+   * nothing.
+   */
+  const point = project.siteContext?.location?.point;
+  const site = point && Number.isFinite(point.lat) && Number.isFinite(point.lng) ? { lat: point.lat, lng: point.lng } : undefined;
+  const out: CaptureConcern[] = [];
+
+  /*
+   * A scanned plan is an image and is not a photograph.
+   *
+   * Caught by looking at the screen: a BDA master plan sheet, uploaded as a
+   * JPEG, was told it had "no purpose recorded, so what this photograph is
+   * meant to show is not on the file". It is a drawing. It has no capture
+   * facts, it never will, and nagging about them is how a panel of genuine
+   * concerns becomes one somebody scrolls past.
+   *
+   * Two exemptions, because either alone leaves a gap: a file some sheet
+   * points at is definitively a plan, and a row filed under a plan-ish kind is
+   * one before any sheet record exists.
+   */
+  const sheetFiles = new Set((project.sheets ?? []).map((sheet) => sheet.attachmentId).filter(Boolean) as string[]);
+  const NOT_PHOTOGRAPHS = new Set(['drawing', 'gis']);
+
+  for (const evidence of project.evidence) {
+    if (NOT_PHOTOGRAPHS.has(evidence.kind)) continue;
+    for (const attachment of evidence.attachments) {
+      const capture = attachment.capture;
+      if (!attachment.mimeType.startsWith('image/')) continue;
+      if (sheetFiles.has(attachment.id)) continue;
+      const where = { evidenceId: evidence.id, attachmentId: attachment.id, fileName: attachment.fileName };
+
+      if (!capture?.purpose) {
+        out.push({ ...where, code: 'no_purpose', say: 'No purpose recorded, so what this photograph is meant to show is not on the file.' });
+      }
+
+      const distance = captureDistanceM(capture, site);
+      if (distance !== null && distance > CAPTURE_OFF_SITE_M) {
+        out.push({
+          ...where,
+          code: 'off_site',
+          say: `The camera recorded this ${(distance / 1000).toFixed(1)} km from the site. Either it is of somewhere else, or the geotag is wrong — say which before citing it.`,
+        });
+      }
+
+      if (capture?.purpose === 'pre_construction' && !capture.takenAt) {
+        out.push({
+          ...where,
+          code: 'no_taken_at',
+          say: 'A pre-construction baseline with no capture date proves nothing about what changed. Record when it was taken.',
+        });
+      }
+
+      if (capture?.purpose === 'valuation_inspection' && !capture.takenAt) {
+        out.push({
+          ...where,
+          code: 'no_taken_at',
+          say: 'A valuation inspection photograph has to carry its date — the valuation is stated as at one.',
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Set or correct what a file says about its own capture.
+ *
+ * Separate from the upload because most of these facts are not known at the
+ * moment of upload: a batch of forty shots is dropped in first and sorted into
+ * purposes, assets and zones afterwards. Correcting a coordinate a person
+ * typed is ordinary; note that doing so sets the source to `stated`, so an
+ * edited position can never pass as one the camera recorded.
+ */
+export function setAttachmentCapture(
+  project: DdProject,
+  evidenceId: string,
+  attachmentId: string,
+  input: CaptureFactsInput,
+  actor = DEFAULT_ACTOR,
+): EvidenceAttachment {
+  ensureProjectShape(project);
+  const evidence = project.evidence.find((e) => e.id === evidenceId);
+  const attachment = evidence?.attachments.find((a) => a.id === attachmentId);
+  if (!evidence || !attachment) throw new Error('Attachment not found');
+  if (input.visitId && !project.siteVisits.some((v) => v.id === input.visitId)) throw new Error('Site visit not found');
+  if (input.assetId && !project.assets.some((a) => a.id === input.assetId)) throw new Error('Asset not found');
+
+  const capture: CaptureFacts = { ...(attachment.capture ?? {}) };
+  if (input.purpose !== undefined) capture.purpose = input.purpose;
+  if (input.zone !== undefined) capture.zone = input.zone || undefined;
+  if (input.caption !== undefined) capture.caption = input.caption || undefined;
+  if (input.assetId !== undefined) capture.assetId = input.assetId || undefined;
+  if (input.visitId !== undefined) capture.visitId = input.visitId || undefined;
+  if (input.takenAt !== undefined) {
+    capture.takenAt = input.takenAt || undefined;
+    capture.takenAtSource = input.takenAt ? 'stated' : undefined;
+  }
+  if (input.lat !== undefined || input.lng !== undefined) {
+    /*
+     * `??` is wrong here and was the bug: `null ?? existing` yields the
+     * existing value, so an explicit clear silently kept the old coordinate.
+     * Absent and null are different instructions and have to be told apart by
+     * `=== undefined`, not by nullishness.
+     *
+     * Sending one half also clears both: half a coordinate is not a position,
+     * and keeping the surviving half would leave a latitude paired with a
+     * longitude nobody stands behind.
+     */
+    const lat = input.lat === undefined ? capture.lat : input.lat;
+    const lng = input.lng === undefined ? capture.lng : input.lng;
+    if (lat === null || lng === null || lat === undefined || lng === undefined) {
+      delete capture.lat;
+      delete capture.lng;
+      delete capture.latLngSource;
+    } else {
+      if (!Number.isFinite(lat) || lat < -90 || lat > 90) throw new Error('Latitude has to be between -90 and 90.');
+      if (!Number.isFinite(lng) || lng < -180 || lng > 180) throw new Error('Longitude has to be between -180 and 180.');
+      capture.lat = lat;
+      capture.lng = lng;
+      // A position somebody typed is their claim, never the camera's — even
+      // when they are only nudging one the camera supplied.
+      capture.latLngSource = 'stated';
+    }
+  }
+
+  attachment.capture = capture;
+  const at = nowIso();
+  evidence.updatedAt = at;
+  touch(project, at);
+  audit(project, { actor, action: 'patch', entityType: 'attachment', entityId: attachment.id, newValue: describeCapture(capture), at });
+  return attachment;
+}
+
+/* ==================================================================== */
+/* Sheets placed on the ground                                           */
+/* ==================================================================== */
+
+export function addSheet(
+  project: DdProject,
+  input: { title: string; kind: SheetKind; evidenceId: string; attachmentId?: string; asOf?: string; issuer?: string; notes?: string },
+  actor = DEFAULT_ACTOR,
+): SheetRecord {
+  ensureProjectShape(project);
+  if (!project.evidence.some((e) => e.id === input.evidenceId)) {
+    throw new Error('A sheet has to name the evidence row its file is filed on.');
+  }
+  const at = nowIso();
+  const record: SheetRecord = {
+    id: id('sht'),
+    title: input.title.trim(),
+    kind: input.kind,
+    evidenceId: input.evidenceId,
+    attachmentId: input.attachmentId,
+    asOf: input.asOf,
+    issuer: input.issuer,
+    notes: input.notes,
+    controlPoints: [],
+    createdAt: at,
+    updatedAt: at,
+  };
+  project.sheets.push(record);
+  touch(project, at);
+  audit(project, { actor, action: 'create', entityType: 'sheet', entityId: record.id, newValue: record.title, at });
+  return record;
+}
+
+/**
+ * Replace a sheet's control points wholesale.
+ *
+ * All at once rather than one at a time because the transform is derived from
+ * the whole set: adding a point moves the sheet, and a caller that added three
+ * would otherwise see it jump twice on the way. The fit is recomputed on read,
+ * so nothing here stores a placement.
+ */
+export function setSheetControlPoints(
+  project: DdProject,
+  sheetId: string,
+  points: Array<{ u: number; v: number; lat: number; lng: number; label?: string }>,
+  actor = DEFAULT_ACTOR,
+): SheetRecord {
+  ensureProjectShape(project);
+  const sheet = project.sheets.find((s) => s.id === sheetId);
+  if (!sheet) throw new Error('Sheet not found');
+  for (const p of points) {
+    if (!Number.isFinite(p.u) || p.u < 0 || p.u > 1 || !Number.isFinite(p.v) || p.v < 0 || p.v > 1) {
+      throw new Error('A control point sits on the sheet, so u and v are fractions between 0 and 1.');
+    }
+    if (!Number.isFinite(p.lat) || p.lat < -90 || p.lat > 90) throw new Error('Latitude has to be between -90 and 90.');
+    if (!Number.isFinite(p.lng) || p.lng < -180 || p.lng > 180) throw new Error('Longitude has to be between -180 and 180.');
+  }
+  sheet.controlPoints = points.map((p) => ({ id: id('gcp'), u: p.u, v: p.v, lat: p.lat, lng: p.lng, label: p.label?.trim() || undefined }));
+  const at = nowIso();
+  sheet.updatedAt = at;
+  touch(project, at);
+  audit(project, {
+    actor,
+    action: 'patch',
+    entityType: 'sheet',
+    entityId: sheet.id,
+    newValue: `${points.length} control point(s) — ${readSheetFit(sheet.controlPoints).verdict}`,
+    at,
+  });
+  return sheet;
+}
+
+export function removeSheet(project: DdProject, sheetId: string, actor = DEFAULT_ACTOR): void {
+  ensureProjectShape(project);
+  const index = project.sheets.findIndex((s) => s.id === sheetId);
+  if (index < 0) throw new Error('Sheet not found');
+  const [removed] = project.sheets.splice(index, 1);
+  const at = nowIso();
+  touch(project, at);
+  audit(project, { actor, action: 'delete', entityType: 'sheet', entityId: removed!.id, oldValue: removed!.title, at });
+}
+
+export interface SheetPlacement {
+  sheet: SheetRecord;
+  reading: SheetFitReading;
+}
+
+/** Every sheet on the file with its placement worked out fresh. */
+export function sheetPlacements(project: DdProject): SheetPlacement[] {
+  ensureProjectShape(project);
+  return project.sheets.map((sheet) => ({ sheet, reading: readSheetFit(sheet.controlPoints) }));
 }
 
 export function addDecision(project: DdProject, input: CreateDecisionInput, actor = DEFAULT_ACTOR): DecisionRecord {
@@ -976,196 +1599,30 @@ function targetLabel(project: DdProject, assessment: DdAssessment): string {
   return assessment.targetAssetIds.map((idValue) => assetName(project, idValue)).join(', ') || 'Selected assets';
 }
 
-function buildReportBody(project: DdProject, kind: GenerateReportInput['kind'], assessmentIds: string[]): ReportBody {
-  const assessments = assessmentIds.length
-    ? project.assessments.filter((a) => assessmentIds.includes(a.id))
-    : project.assessments;
-  const findings = assessments.length
-    ? project.findings.filter((f) => f.assessmentIds.some((idValue) => assessments.some((a) => a.id === idValue)))
-    : project.findings;
-  const risks = assessments.length
-    ? project.risks.filter((r) => r.assessmentIds.some((idValue) => assessments.some((a) => a.id === idValue)))
-    : project.risks;
-  const openFindings = findings.filter((f) => f.status === 'open' || f.status === 'under_review' || f.status === 'accepted');
-  const critical = openFindings.filter((f) => f.severity === 'critical' || f.severity === 'high');
-  const missing = project.evidence.filter((e) => {
-    if (!['expected', 'requested', 'missing'].includes(e.status)) return false;
-    if (!assessments.length) return true;
-    return e.assessmentIds.some((idValue) => assessments.some((a) => a.id === idValue));
-  });
-  const openActions = project.actions.filter((a) => a.status !== 'closed');
-  const sections: ReportSection[] = [];
-
-  if (kind === 'red_flag') {
-    sections.push({
-      heading: 'Red flags',
-      paragraphs: critical.length
-        ? critical.map((f) => `${f.severity.toUpperCase()} · ${f.title} — ${f.description}`)
-        : ['No critical or high open findings on the selected assessments.'],
-      recordIds: critical.map((f) => f.id),
-    });
-    sections.push({
-      heading: 'Material risks',
-      paragraphs: risks.filter((r) => r.materiality === 'high' || r.materiality === 'critical').map((r) => `${r.title} (${r.category}) — ${r.cause}`),
-      recordIds: risks.map((r) => r.id),
-    });
-    sections.push({
-      heading: 'Missing evidence affecting confidence',
-      paragraphs: missing.length ? missing.map((e) => e.title) : ['No missing/expected items on the selected assessments.'],
-      recordIds: missing.map((e) => e.id),
-    });
-  } else if (kind === 'evidence_completeness') {
-    const stats = evidenceCompleteness(project, assessments[0]?.id);
-    sections.push({
-      heading: 'Evidence status',
-      paragraphs: [
-        `${stats.expected} items on the register.`,
-        `${stats.received} received, ${stats.validated} validated, ${stats.used} relied upon, ${stats.missing} still expected/requested/missing.`,
-        `Completeness ${stats.percent}%. Evidence considered is distinct from evidence used.`,
-      ],
-    });
-    sections.push({
-      heading: 'Gaps',
-      paragraphs: missing.map((e) => `${e.title} — ${e.status}`),
-      recordIds: missing.map((e) => e.id),
-    });
-  } else if (kind === 'open_risk_action') {
-    sections.push({
-      heading: 'Open risks',
-      paragraphs: risks.filter((r) => r.status !== 'closed').map((r) => `${r.title} · ${r.status} · owner ${r.owner ?? 'unassigned'}`),
-    });
-    sections.push({
-      heading: 'Open actions',
-      paragraphs: openActions.map((a) => `${a.title} · ${a.status} · ${a.owner}${a.dueDate ? ` · due ${a.dueDate}` : ''}`),
-    });
-  } else if (kind === 'changes_since_previous') {
-    const primary = assessments[0];
-    const diff = primary ? changesSincePrevious(project, primary.id) : null;
-    if (!diff) {
-      sections.push({
-        heading: 'Changes since previous DD',
-        paragraphs: ['This assessment has no linked prior DD. Set a prior assessment to enable the comparison.'],
-      });
-    } else {
-      sections.push({
-        heading: `Compared with ${diff.priorName}`,
-        paragraphs: [
-          `${diff.newFindings.length} new findings.`,
-          `${diff.closedFindings.length} prior items closed or not repeated.`,
-          `${diff.unresolvedFindings.length} unresolved carry-forwards.`,
-          `${diff.repeatedTitles.length} titles seen in both assessments.`,
-        ],
-      });
-      sections.push({
-        heading: 'New findings',
-        paragraphs: diff.newFindings.map((f) => f.title),
-        recordIds: diff.newFindings.map((f) => f.id),
-      });
-      sections.push({
-        heading: 'Unresolved from prior DD',
-        paragraphs: diff.unresolvedFindings.map((f) => `${f.title} (${f.status})`),
-        recordIds: diff.unresolvedFindings.map((f) => f.id),
-      });
-    }
-  } else if (kind === 'indicative_valuation') {
-    const valScope = assessments.flatMap((a) => a.scopes).find((s) => s.scopeKey === 'indicative_valuation');
-    const valChecks = valScope?.checks ?? [];
-    sections.push({
-      heading: 'Indicative valuation — decision support only',
-      paragraphs: [
-        'This is an indicative, IBBI-structured decision-support record. It is not a certified valuation and must not be relied upon as one unless a registered valuer signs a separate professional report.',
-        `Purpose / instruction: ${valChecks.find((c) => c.definitionId.endsWith('.instruction'))?.comments || 'Not yet completed.'}`,
-        `Subject: ${project.name}, ${project.location}. Stage: ${LIFECYCLE_STAGE_LABEL[project.currentStage]}.`,
-      ],
-    });
-    sections.push({
-      heading: 'Evidence relied upon versus considered',
-      paragraphs: [
-        `Relied upon (used): ${project.evidence.filter((e) => e.used).length}.`,
-        `Considered but not used: ${project.evidence.filter((e) => e.considered && !e.used).length}.`,
-        `Missing / expected: ${missing.length}. Gaps reduce confidence and must be shown, not implied as nil.`,
-      ],
-    });
-    sections.push({
-      heading: 'Method and caveats',
-      paragraphs: valChecks.map((c) => `${c.title}: ${c.result}${c.comments ? ` — ${c.comments}` : ''}`),
-    });
-  } else if (kind === 'handover_readiness') {
-    sections.push({
-      heading: 'Handover readiness',
-      paragraphs: [
-        `${openFindings.length} open findings remain.`,
-        `${project.actions.filter((a) => a.status !== 'closed').length} open actions.`,
-        `${missing.length} evidence gaps.`,
-      ],
-    });
-    sections.push({
-      heading: 'Open findings blocking handover',
-      paragraphs: openFindings.map((f) => `${f.severity} · ${f.title}`),
-      recordIds: openFindings.map((f) => f.id),
-    });
-  } else {
-    // executive / detailed
-    sections.push({
-      heading: 'Project',
-      paragraphs: [
-        `${project.name} (${project.reference}) — ${project.city}.`,
-        `Stage: ${LIFECYCLE_STAGE_LABEL[project.currentStage]}. Health: ${project.health}.`,
-        assessments.length
-          ? `Assessments included: ${assessments.map((a) => `${a.name} · ${targetLabel(project, a)}`).join('; ')}.`
-          : 'All project assessments included.',
-      ],
-    });
-    sections.push({
-      heading: 'Key findings',
-      paragraphs: (kind === 'detailed_dd' ? openFindings : critical.length ? critical : openFindings.slice(0, 8)).map(
-        (f) => `${f.severity.toUpperCase()} · ${SCOPE_LABEL[f.discipline]} · ${f.title} — ${f.description}`,
-      ),
-      recordIds: openFindings.map((f) => f.id),
-    });
-    sections.push({
-      heading: 'Risks',
-      paragraphs: risks.filter((r) => r.status !== 'closed').map((r) => `${r.title} (${r.category}, ${r.materiality}) — ${r.cause}`),
-      recordIds: risks.map((r) => r.id),
-    });
-    sections.push({
-      heading: 'Actions',
-      paragraphs: openActions.map((a) => `${a.title} · ${a.owner} · ${a.status}`),
-    });
-    sections.push({
-      heading: 'Evidence gaps',
-      paragraphs: missing.slice(0, 20).map((e) => e.title),
-    });
-    if (kind === 'detailed_dd') {
-      for (const assessment of assessments) {
-        for (const scope of assessment.scopes) {
-          const c = scopeCompleteness(scope);
-          sections.push({
-            heading: `${assessment.name} · ${SCOPE_LABEL[scope.scopeKey]}`,
-            paragraphs: [
-              `Completion ${c.percent}% (${c.done}/${c.total} checks). ${c.findings} findings from checks. ${c.missing} missing-evidence results.`,
-              ...scope.checks
-                .filter((ch) => ch.result !== 'pending' && ch.result !== 'compliant' && ch.result !== 'not_applicable')
-                .map((ch) => `${ch.title}: ${ch.result}${ch.comments ? ` — ${ch.comments}` : ''}`),
-            ],
-          });
-        }
-      }
-    }
-  }
-
-  const summary =
-    kind === 'red_flag'
-      ? `${critical.length} high/critical findings, ${missing.length} evidence gaps on ${assessments.length || 'all'} assessment(s).`
-      : `${project.name}: ${openFindings.length} open findings, ${risks.filter((r) => r.status !== 'closed').length} open risks, ${missing.length} evidence gaps. Generated from live registers — not a separate silo.`;
-
-  return { summary, sections };
-}
-
+/**
+ * A new report opens as a document of blocks, not a frozen page of text.
+ *
+ * Most of them are bound: they read the registers on every render, so the
+ * report is level with the file the moment the file moves. The rest are empty
+ * prose blocks — the opinion, the recommendation — waiting for the one thing
+ * no amount of regeneration can produce.
+ *
+ * The assessment scope the caller asked for is pushed down onto every bound
+ * block rather than applied once here. That is what lets a person widen one
+ * section back out to the whole file without regenerating the document and
+ * losing what they wrote.
+ */
 export function generateReport(project: DdProject, input: GenerateReportInput, actor = DEFAULT_ACTOR): GeneratedReport {
   const at = nowIso();
   const assessmentIds = input.assessmentIds ?? [];
-  const body = buildReportBody(project, input.kind, assessmentIds);
+  const blocks: ReportBlock[] = reportTemplate(input.kind).map((row) => ({
+    id: id('rbk'),
+    heading: row.heading,
+    origin: row.source ? 'derived' : 'authored',
+    ...(row.source ? { source: assessmentIds.length ? { ...row.source, assessmentIds } : row.source } : {}),
+    ...(row.source ? {} : { text: row.text ?? '' }),
+  }));
+  const body: ReportBody = { summary: reportSummaryLine(project), blocks };
   const report: GeneratedReport = {
     id: id('rpt'),
     kind: input.kind,
@@ -1181,6 +1638,244 @@ export function generateReport(project: DdProject, input: GenerateReportInput, a
   touch(project, at);
   audit(project, { actor, action: 'generate_report', entityType: 'report', entityId: report.id, newValue: report.kind, at });
   return report;
+}
+
+/* ==================================================================== */
+/* Editing a report                                                      */
+/* ==================================================================== */
+
+/**
+ * Every edit goes through here, and every one of them is refused on a frozen
+ * report.
+ *
+ * An issued report went to somebody. Letting it be edited afterwards — even
+ * with the best intentions — means the document a bank holds and the document
+ * this system shows have quietly diverged, with nothing recording that they
+ * did. Reissue instead: `superseded` says plainly that a later version exists.
+ */
+function editableReport(project: DdProject, reportId: string): GeneratedReport {
+  const report = project.reports.find((r) => r.id === reportId);
+  if (!report) throw new Error(`No report "${reportId}" on this project.`);
+  if (reportIsFrozen(report.status)) {
+    throw new Error(
+      `This report is ${report.status} and can no longer be edited. Generate a new one — the issued version stays exactly as it was read.`,
+    );
+  }
+  ensureReportBlocks(report);
+  return report;
+}
+
+function blockIn(report: GeneratedReport, blockId: string): ReportBlock {
+  const block = report.body.blocks.find((b) => b.id === blockId);
+  if (!block) throw new Error(`No block "${blockId}" in this report.`);
+  return block;
+}
+
+function stamp(report: GeneratedReport, block: ReportBlock, actor: string, at: string): void {
+  block.editedAt = at;
+  block.editedBy = actor;
+  report.body.summary = '';
+}
+
+/** Add a block. Prose by default; pass a source to bind one to the registers. */
+export function insertReportBlock(
+  project: DdProject,
+  reportId: string,
+  input: { heading?: string; text?: string; source?: ReportBoundSource; afterBlockId?: string },
+  actor = DEFAULT_ACTOR,
+): ReportBlock {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  if (input.source && !isReportBoundSource(input.source.kind)) {
+    throw new Error(`"${input.source.kind}" is not something a report block can read.`);
+  }
+  const block: ReportBlock = {
+    id: id('rbk'),
+    heading: input.heading,
+    origin: input.source ? 'derived' : 'authored',
+    ...(input.source ? { source: input.source } : { text: input.text ?? '' }),
+    editedAt: at,
+    editedBy: actor,
+  };
+  const at_index = input.afterBlockId ? report.body.blocks.findIndex((b) => b.id === input.afterBlockId) : -1;
+  if (at_index >= 0) report.body.blocks.splice(at_index + 1, 0, block);
+  else report.body.blocks.push(block);
+  touch(project, at);
+  audit(project, { actor, action: 'insert_report_block', entityType: 'report', entityId: reportId, newValue: input.heading ?? input.source?.kind ?? 'prose', at });
+  return block;
+}
+
+/**
+ * Write into a block.
+ *
+ * A bound block refuses the text outright rather than accepting it and
+ * quietly ceasing to be live. Somebody who wants to say it differently wants
+ * `detachReportBlock`, and making them ask for that by name is the point: it
+ * is the moment a live reading becomes a person's words, and it should be a
+ * decision rather than a side effect of typing.
+ */
+export function editReportBlock(
+  project: DdProject,
+  reportId: string,
+  blockId: string,
+  input: { heading?: string; text?: string },
+  actor = DEFAULT_ACTOR,
+): ReportBlock {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const block = blockIn(report, blockId);
+  if (input.heading !== undefined) block.heading = input.heading;
+  if (input.text !== undefined) {
+    if (block.origin === 'derived') {
+      throw new Error(
+        `“${block.heading ?? REPORT_SOURCE_LABEL[block.source!.kind]}” reads the registers, so its text is not yours to write. `
+          + 'Detach it first if you need to say this differently — the report will then show that the paragraph stopped updating.',
+      );
+    }
+    block.text = input.text;
+  }
+  stamp(report, block, actor, at);
+  touch(project, at);
+  audit(project, { actor, action: 'edit_report_block', entityType: 'report', entityId: reportId, newValue: blockId, at });
+  return block;
+}
+
+/** Change what a bound block asks the registers for. Never its words. */
+export function retuneReportBlock(
+  project: DdProject,
+  reportId: string,
+  blockId: string,
+  source: ReportBoundSource,
+  actor = DEFAULT_ACTOR,
+): ReportBlock {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const block = blockIn(report, blockId);
+  if (block.origin !== 'derived') throw new Error('That block holds somebody’s words, not a register reading — there is nothing to retune.');
+  if (!isReportBoundSource(source.kind)) throw new Error(`"${source.kind}" is not something a report block can read.`);
+  block.source = source;
+  stamp(report, block, actor, at);
+  touch(project, at);
+  audit(project, { actor, action: 'retune_report_block', entityType: 'report', entityId: reportId, newValue: source.kind, at });
+  return block;
+}
+
+/**
+ * Turn a live block into prose, keeping what it currently says.
+ *
+ * The record of where it came from stays on the block. A reader looking at a
+ * paragraph that reads like a register summary is entitled to know it stopped
+ * being one on a particular day — that is the whole difference between an
+ * honest edit and a document that has drifted without telling anyone.
+ */
+export function detachReportBlock(project: DdProject, reportId: string, blockId: string, actor = DEFAULT_ACTOR): ReportBlock {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const block = blockIn(report, blockId);
+  if (block.origin !== 'derived') return block;
+  const resolved = resolveReportBlock(project, block);
+  block.detachedFrom = block.source?.kind;
+  block.detachedAt = at;
+  block.origin = 'authored';
+  block.text = resolved.lines.join('\n');
+  delete block.source;
+  stamp(report, block, actor, at);
+  touch(project, at);
+  audit(project, { actor, action: 'detach_report_block', entityType: 'report', entityId: reportId, newValue: block.detachedFrom ?? blockId, at });
+  return block;
+}
+
+/**
+ * Put a detached block back on the registers.
+ *
+ * Discards the edited text, which is why it is a separate verb rather than a
+ * toggle: somebody has to mean it.
+ */
+export function reattachReportBlock(project: DdProject, reportId: string, blockId: string, actor = DEFAULT_ACTOR): ReportBlock {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const block = blockIn(report, blockId);
+  if (!block.detachedFrom) throw new Error('That block was written from scratch, so there is no reading to go back to.');
+  block.origin = 'derived';
+  block.source = { kind: block.detachedFrom };
+  delete block.text;
+  delete block.detachedAt;
+  delete block.detachedFrom;
+  stamp(report, block, actor, at);
+  touch(project, at);
+  audit(project, { actor, action: 'reattach_report_block', entityType: 'report', entityId: reportId, newValue: blockId, at });
+  return block;
+}
+
+export function removeReportBlock(project: DdProject, reportId: string, blockId: string, actor = DEFAULT_ACTOR): void {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const index = report.body.blocks.findIndex((b) => b.id === blockId);
+  if (index < 0) throw new Error(`No block "${blockId}" in this report.`);
+  report.body.blocks.splice(index, 1);
+  touch(project, at);
+  audit(project, { actor, action: 'remove_report_block', entityType: 'report', entityId: reportId, newValue: blockId, at });
+}
+
+export function moveReportBlock(project: DdProject, reportId: string, blockId: string, toIndex: number, actor = DEFAULT_ACTOR): void {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const from = report.body.blocks.findIndex((b) => b.id === blockId);
+  if (from < 0) throw new Error(`No block "${blockId}" in this report.`);
+  const [block] = report.body.blocks.splice(from, 1);
+  const target = Math.max(0, Math.min(report.body.blocks.length, toIndex));
+  report.body.blocks.splice(target, 0, block!);
+  touch(project, at);
+  audit(project, { actor, action: 'move_report_block', entityType: 'report', entityId: reportId, newValue: `${from}→${target}`, at });
+}
+
+/**
+ * Issue the report: snapshot every live block and stop the document moving.
+ *
+ * This is the moment the report becomes a thing somebody else holds. From
+ * here the registers may say whatever they like and this document will keep
+ * saying what it said — and `reportDrift` will show, on demand, exactly how
+ * far the two have travelled apart. A report that silently kept updating
+ * after it was sent would be the more dangerous of the two failures, because
+ * nobody would know to look.
+ */
+export function issueReport(project: DdProject, reportId: string, actor = DEFAULT_ACTOR): GeneratedReport {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  for (const block of report.body.blocks) {
+    if (block.origin !== 'derived' || !block.source) continue;
+    const resolved = resolveReportBlock(project, block);
+    block.frozen = resolved.lines;
+    block.frozenRecordIds = resolved.recordIds;
+  }
+  report.body.summary = reportSummaryLine(project);
+  report.status = 'issued';
+  report.reviewer = actor;
+  touch(project, at);
+  audit(project, { actor, action: 'issue_report', entityType: 'report', entityId: reportId, newValue: 'issued', at });
+  return report;
+}
+
+/**
+ * Bring a report generated before blocks existed into the block shape.
+ *
+ * Every migrated section becomes AUTHORED, not bound. That is deliberate and
+ * it is the conservative reading: the old body was a frozen snapshot, so its
+ * words are what the report said, and guessing which register each section
+ * used to read would risk a paragraph silently changing under a report
+ * somebody already sent. They arrive as prose, and a person can rebind one
+ * deliberately if they want it live.
+ */
+export function ensureReportBlocks(report: GeneratedReport): void {
+  if (Array.isArray(report.body.blocks)) return;
+  const sections = report.body.sections ?? [];
+  report.body.blocks = sections.map((section) => ({
+    id: id('rbk'),
+    heading: section.heading,
+    origin: 'authored' as const,
+    text: section.paragraphs.join('\n'),
+  }));
+  delete report.body.sections;
 }
 
 export function assetTree(project: DdProject): Array<Asset & { depth: number; path: string }> {

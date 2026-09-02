@@ -11,6 +11,16 @@ import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import {
   CHECK_RESULTS,
   candidateChoices,
+  checkFieldReading,
+  findCheck,
+  formatFieldValue,
+  isBlank,
+  isLiveBlock,
+  openReportOf,
+  reportIsFrozen,
+  reportSummaryLine,
+  resolveReportBlock,
+  REPORT_SOURCE_LABEL,
   rankTalkSittings,
   DD_CONNECTORS,
   PROJECT_COCKPIT_PANES,
@@ -20,11 +30,21 @@ import {
   compareProjectPlanning,
   createChatProposal,
   extractProjectSubgraph,
+  captureConcerns,
+  conditionRatings,
+  observationIsUseful,
+  escalatedFindings,
   findProjectNodes,
   findingCriticSitting,
   landUseSittingOf,
   lookupReferences,
   packCompleteness,
+  remedialCostSummary,
+  ricsConditionRating,
+  sheetPlacements,
+  visitCoverage,
+  ENVIRONMENTAL_CONDITION_CAVEAT,
+  RICS_RATING_LABEL,
   paneForProposalKind,
   paneForTalk,
   portalForCheck,
@@ -62,7 +82,9 @@ const PROPOSE_KINDS = [
   'add_risk',
   'add_decision',
   'record_check',
+  'record_check_fields',
   'generate_report',
+  'edit_report',
   'run_valuation',
   'run_screen',
   'patch_project',
@@ -223,6 +245,23 @@ function validateProposal(kind: ChatProposalKind, payload: Record<string, unknow
     return 'actions need title, kind, owner, priority.';
   }
   if (kind === 'add_risk' && (!str('title') || !str('category') || !str('cause'))) return 'add_risk needs title, category, cause.';
+  if (kind === 'record_check_fields') {
+    if (!str('checkId')) return 'record_check_fields needs checkId.';
+    const values = payload.values;
+    if (typeof values !== 'object' || values === null || Array.isArray(values) || Object.keys(values).length === 0) {
+      return 'record_check_fields needs values — an object of fieldKey to value. Call get_check_fields for the keys.';
+    }
+  }
+  if (kind === 'edit_report') {
+    if (!str('reportId')) return 'edit_report needs reportId.';
+    const hasText = typeof payload.text === 'string';
+    const hasSource = typeof payload.source === 'object' && payload.source !== null;
+    if (!hasText && !hasSource) return 'edit_report needs text (a paragraph) or source (what a live section reads).';
+    // The rule this whole feature turns on, checked before a card is even
+    // queued: a model may add prose or retune a section, never restate what
+    // the registers say in its own words.
+    if (hasSource && !str('blockId')) return 'Changing what a section reads needs the blockId of that section.';
+  }
   if (kind === 'add_decision' && (!str('title') || !str('decisionType') || !str('decisionMaker') || !str('rationale'))) {
     return 'add_decision needs title, decisionType, decisionMaker, rationale.';
   }
@@ -354,8 +393,128 @@ export function createProjectTools(
         status: f.status,
         discipline: f.discipline,
         description: f.description,
+        // Derived here rather than stored on the record, so a model reading a
+        // finding sees the same traffic light the report prints.
+        conditionRating: ricsConditionRating(f.severity),
+        conditionRatingLabel: RICS_RATING_LABEL[ricsConditionRating(f.severity)],
+        immediateAction: f.escalation?.immediateAction ?? false,
+        notifiedTo: f.escalation?.notifiedTo,
+        environmentalCondition: f.environmentalCondition,
+        environmentalConditionCaveat: f.environmentalCondition ? ENVIRONMENTAL_CONDITION_CAVEAT : undefined,
         evidence: evidence.map((e) => ({ id: e.id, title: e.title, status: e.status })),
         unevidenced: f.evidenceIds.length === 0,
+      });
+    },
+  });
+
+  /**
+   * The three readings a client asks for in the standards' own words.
+   *
+   * One tool rather than three because they are always read together — "what
+   * is broken, how bad, what does it cost" is a single question — and because
+   * each is a pure derivation the model must not be tempted to recompute. The
+   * shortfalls travel with the total for the same reason they do in the
+   * report: a model that sees only the sum will quote the sum.
+   */
+  const getStandardsView = betaTool({
+    name: 'get_standards_view',
+    description:
+      'Read the RICS condition-rating spread, the remedial cost by band, and any finding escalated for immediate action. Use when asked what is wrong, how serious, what it will cost, or to write a technical DD summary. Never add up the actions yourself — this is the arithmetic.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { includeClosed: { type: 'boolean' } },
+    } as const,
+    run: async ({ includeClosed }) => {
+      const openOnly = includeClosed !== true;
+      const cost = remedialCostSummary(project, { openOnly });
+      bag.toolCalls.push({ name: 'get_standards_view', summary: `${cost.currency} ${Math.round(cost.total).toLocaleString('en-IN')} priced` });
+      return JSON.stringify({
+        conditionRatings: conditionRatings(project, { openOnly }),
+        remedialCost: cost,
+        escalated: escalatedFindings(project).map((f) => ({
+          id: f.id,
+          title: f.title,
+          severity: f.severity,
+          notifiedTo: f.escalation?.notifiedTo ?? null,
+          notifiedAt: f.escalation?.notifiedAt ?? null,
+        })),
+        caveat:
+          cost.unbanded || cost.uncosted
+            ? `${cost.unbanded} open action(s) carry no band and ${cost.uncosted} banded one(s) carry no figure — the total covers neither. Say so if you quote it.`
+            : undefined,
+      });
+    },
+  });
+
+  /**
+   * What is known from having LOOKED at the place, as against having been sent
+   * documents about it.
+   *
+   * Given to the model as one read because the three parts only mean anything
+   * together: a photograph is worth what its purpose and date make it worth, a
+   * visit is worth what it could actually reach, and a sheet is worth how well
+   * it is placed. The limitations especially — a model that lists what was
+   * inspected without saying what was not will write "no defect found" where
+   * the honest sentence is "the roof was not looked at".
+   */
+  const getSiteRecord = betaTool({
+    name: 'get_site_record',
+    description:
+      'Read the site visits, what each one could NOT inspect, what the photographs on file claim about themselves, and how well any plan sheet is placed. Use before saying anything about condition, what was seen on site, or a master plan. Never state that something was inspected without checking the limitations here.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: {} } as const,
+    run: async () => {
+      const coverage = visitCoverage(project);
+      const concerns = captureConcerns(project);
+      bag.toolCalls.push({ name: 'get_site_record', summary: `${coverage.length} visit(s), ${concerns.length} capture concern(s)` });
+      return JSON.stringify({
+        visits: (project.siteVisits ?? []).map((visit) => ({
+          id: visit.id,
+          title: visit.title,
+          visitedOn: visit.visitedOn,
+          purpose: visit.purpose,
+          status: visit.status,
+          surveyor: visit.surveyor,
+          weather: visit.weather,
+          limitations: visit.limitations,
+          // The distinction a report turns on: an empty list claims full
+          // access, a visit nobody wrote up claims nothing.
+          limitationsStated: coverage.find((c) => c.visitId === visit.id)?.limitationsStated ?? false,
+          photos: coverage.find((c) => c.visitId === visit.id)?.photos ?? 0,
+        })),
+        photographConcerns: concerns,
+        // Every reading a model has made of a photograph on this file,
+        // attributed. A copilot quoting one of these must say it came off a
+        // photograph and that a model wrote it — the register does, the report
+        // does, and an answer in the chat that does not is the weakest link.
+        photographs: project.evidence.flatMap((e) =>
+          e.attachments
+            .filter((a) => observationIsUseful(a.observation))
+            .map((a) => ({
+              evidenceId: e.id,
+              fileName: a.fileName,
+              readBy: a.observation!.model,
+              subject: a.observation!.subject,
+              description: a.observation!.description,
+              notes: a.observation!.notes,
+              limits: a.observation!.limits,
+              // The suggestions are deliberately NOT here. They are cards
+              // awaiting a person; a model that could read them back would
+              // start citing its own unaccepted proposals as file content.
+              proposedFindings: a.observation!.suggestedFindings.length,
+            })),
+        ),
+        sheets: sheetPlacements(project).map(({ sheet, reading }) => ({
+          id: sheet.id,
+          title: sheet.title,
+          kind: sheet.kind,
+          issuer: sheet.issuer,
+          asOf: sheet.asOf,
+          verdict: reading.verdict,
+          say: reading.say,
+        })),
+        caveat:
+          'A photograph geotag is what the camera claimed, not where the shot was taken. A sheet placement is derived from control points a person placed. A photograph reading is what a model saw, never a diagnosis — say so if you use one. None of these is a survey.',
       });
     },
   });
@@ -452,7 +611,7 @@ export function createProjectTools(
         payloadJson: {
           type: 'string',
           description:
-            'JSON object for the kind: record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?}; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
+            'JSON object for the kind: record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?}; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
         },
       },
     } as const,
@@ -843,6 +1002,8 @@ export function createProjectTools(
     getSitting,
     getCheck,
     getFinding,
+    getStandardsView,
+    getSiteRecord,
     searchRegisters,
     getSubgraph,
     traceConclusion,

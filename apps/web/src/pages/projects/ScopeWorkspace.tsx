@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import {
+  checkFieldReading,
+  type CheckFieldDef,
+  type CheckFieldWrite,
   CHECK_RESULT_LABEL,
   EVIDENCE_STATUS_LABEL,
   SCOPE_LABEL,
@@ -14,6 +17,7 @@ import {
   type FindingSeverity,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
+import { CheckFields } from '../../components/CheckFields';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Field, Modal, Select, Textarea, cn, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { checkTone } from './shared';
@@ -64,6 +68,57 @@ export default function ScopeWorkspace() {
   const quotes = check ? quotesForCheck(project, check.id) : [];
   const sittingQuotes = sittingCheck ? quotesForCheck(project, sittingCheck.id) : [];
   const liveIds = [...(highlightIds ?? []), ...(requestedCheck ? [requestedCheck] : [])];
+
+  // Read live from the check rather than held in state: recording a value
+  // re-reads the project, and the insights must recompute from what is stored
+  // rather than from a copy that has already drifted.
+  const reading = check ? checkFieldReading(check) : { defs: [], values: {}, insights: [], missing: [], filled: 0, total: 0 };
+
+  /**
+   * Values save as they are entered, one field at a time.
+   *
+   * Deliberately not batched behind the “Record result” button: transcribing
+   * what a deed says is not the same act as concluding the check passes, and
+   * making somebody commit to a result before they can write down a number
+   * they just read is backwards.
+   */
+  async function saveFields(values: Record<string, CheckFieldWrite>) {
+    if (!check) return;
+    setBusy(true);
+    try {
+      const { project: next } = await api.recordCheckFields(project.id, check.id, values);
+      setProject(next);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not record that value', 'critical');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Files dropped straight onto a check field.
+   *
+   * Creates the evidence row AND uploads in one go, because the alternative is
+   * leave the check, open the register, create a row, upload, come back, find
+   * it — and four of those five steps are where a citation gets abandoned.
+   *
+   * The row is titled after the field so the register stays readable to
+   * somebody who never opens this check: "Site photographs — Fire & life
+   * safety" says where it came from, which a filename does not.
+   */
+  async function attachToField(def: CheckFieldDef, files: File[]): Promise<string[]> {
+    if (!check) return [];
+    const record = await api.addEvidence(project.id, {
+      title: `${def.label} — ${check.title}`,
+      kind: def.accepts === 'image' ? 'photograph' : 'document',
+      status: 'received',
+      checkIds: [check.id],
+      assessmentIds: assessment ? [assessment.id] : [],
+    });
+    await api.uploadEvidenceFiles(project.id, record.id, files);
+    setProject(await api.getProject(project.id));
+    return [record.id];
+  }
 
   async function save() {
     if (!check) return;
@@ -186,6 +241,15 @@ export default function ScopeWorkspace() {
           <div className="space-y-3">
             <p className="text-[13px] text-ink-secondary">{check.purpose}</p>
             <p className="text-[12px] text-ink-muted">Acceptance: {check.acceptanceCriteria}</p>
+            <CheckFields
+              defs={reading.defs}
+              values={reading.values}
+              insights={reading.insights}
+              disabled={busy}
+              evidence={project.evidence}
+              onAttachEvidence={attachToField}
+              onCommit={(values) => void saveFields(values)}
+            />
             <Field label="Result">
               <Select value={result} onChange={(e) => setResult(e.target.value as CheckResult)}>
                 {RESULTS.map((r) => (

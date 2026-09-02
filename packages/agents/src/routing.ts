@@ -53,6 +53,11 @@ export function formatRoute(_provider: 'anthropic', model: string): string {
 export const AGENT_CAPABILITY_NEEDS: Record<AgentKind, CapabilityGap[]> = {
   property_discovery: ['server_web_search_unavailable', 'prompt_caching_unavailable'],
   document_intelligence: ['citations_unavailable', 'pdf_input_unavailable', 'prompt_caching_unavailable', 'strict_tools_unavailable'],
+  // No citations listed: an image block carries none on any provider, so there
+  // is nothing here to lose. Strict tools keep the answer inside the declared
+  // shape at the provider, which matters more than usual when the shape is the
+  // thing stopping a description turning into a diagnosis.
+  photo_intelligence: ['prompt_caching_unavailable', 'strict_tools_unavailable', 'adaptive_thinking_unavailable'],
   proof_pathways: ['prompt_caching_unavailable', 'adaptive_thinking_unavailable', 'strict_tools_unavailable'],
   market_research: ['server_web_search_unavailable', 'prompt_caching_unavailable'],
   explorer: ['server_web_search_unavailable', 'adaptive_thinking_unavailable'],

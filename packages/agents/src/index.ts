@@ -18,6 +18,7 @@ export * from './tools/command-tools';
 export * from './tools/project-tools';
 
 export * from './agents/document-intelligence';
+export * from './agents/photo-intelligence';
 export * from './agents/proof-pathways';
 export * from './agents/copilot';
 export * from './agents/project-copilot';

@@ -2257,6 +2257,19 @@ export type AgentKind =
   | 'critic'
   | 'explorer'
   | 'document_intelligence'
+  /**
+   * Reads a photograph and says what is VISIBLE in it.
+   *
+   * Separate from document intelligence rather than a mode of it, because the
+   * two are asked opposite questions. Extraction pulls stated facts off a page
+   * and quotes them; this one describes a scene nobody wrote down, where there
+   * is nothing to quote and every sentence is the model's own. The prompt that
+   * makes one honest would make the other useless.
+   *
+   * It may never state a cause, a severity or a remedy — those are findings,
+   * and a finding is a person's to accept. See `photo-observation.ts`.
+   */
+  | 'photo_intelligence'
   | 'proof_pathways'
   | 'analyst_copilot'
   | 'market_research'

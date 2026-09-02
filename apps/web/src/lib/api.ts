@@ -48,11 +48,28 @@ import type {
   DdAssessment,
   CheckInstance,
   EvidenceRecord,
+  CaptureConcern,
+  CaptureFactsInput,
+  CreateSiteVisitInput,
+  EnvironmentalCondition,
   FindingRecord,
+  PatchSiteVisitInput,
+  RemedialBand,
+  RicsEscalation,
   RiskRecord,
+  SheetFitReading,
+  SheetKind,
+  SheetPlacement,
+  SheetRecord,
+  SiteVisitRecord,
+  VisitCoverageRow,
   ActionRecord,
   DecisionRecord,
+  CheckFieldReading,
+  CheckFieldWrite,
   GeneratedReport,
+  ReportBoundSource,
+  ReportDriftRow,
   StageRecord,
   CreateProjectInput,
   CreateAssetInput,
@@ -722,6 +739,48 @@ export const api = {
     request<FindingRecord>(`/projects/${projectId}/findings/${findingId}/links`, { method: 'POST', body: JSON.stringify(body) }),
   patchFinding: (projectId: string, findingId: string, status: string) =>
     request<FindingRecord>(`/projects/${projectId}/findings/${findingId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  /* `null` clears; an omitted key leaves that classification alone. */
+  classifyFinding: (
+    projectId: string,
+    findingId: string,
+    body: { escalation?: RicsEscalation | null; environmentalCondition?: EnvironmentalCondition | null; actor?: string },
+  ) => request<FindingRecord>(`/projects/${projectId}/findings/${findingId}/classification`, { method: 'PATCH', body: JSON.stringify(body) }),
+  /* --- Site visits, capture and sheets ------------------------------ */
+  listVisits: (projectId: string) =>
+    request<{ visits: SiteVisitRecord[]; coverage: VisitCoverageRow[]; concerns: CaptureConcern[] }>(`/projects/${projectId}/visits`),
+  addVisit: (projectId: string, body: CreateSiteVisitInput & { actor?: string }) =>
+    request<SiteVisitRecord>(`/projects/${projectId}/visits`, { method: 'POST', body: JSON.stringify(body) }),
+  patchVisit: (projectId: string, visitId: string, body: PatchSiteVisitInput & { actor?: string }) =>
+    request<SiteVisitRecord>(`/projects/${projectId}/visits/${visitId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  /** `null` clears a fact; an omitted key leaves it alone. */
+  setCapture: (projectId: string, evidenceId: string, fileId: string, body: CaptureFactsInput & { actor?: string }) =>
+    request<EvidenceAttachment>(`/projects/${projectId}/evidence/${evidenceId}/files/${fileId}/capture`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  /** Omit fileId to read every photograph no model has looked at yet. */
+  readPhotographs: (projectId: string, body: { evidenceId?: string; fileId?: string; limit?: number } = {}) =>
+    request<{ read: number; drafts: number; documents: number; note?: string; results?: Array<{ fileName: string; subject: string; notes: number; error?: string }> }>(
+      `/projects/${projectId}/photographs/read`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  listSheets: (projectId: string) => request<{ sheets: SheetPlacement[] }>(`/projects/${projectId}/sheets`),
+  addSheet: (
+    projectId: string,
+    body: { title: string; kind: SheetKind; evidenceId: string; attachmentId?: string; asOf?: string; issuer?: string; notes?: string; actor?: string },
+  ) => request<SheetRecord>(`/projects/${projectId}/sheets`, { method: 'POST', body: JSON.stringify(body) }),
+  setControlPoints: (
+    projectId: string,
+    sheetId: string,
+    points: Array<{ u: number; v: number; lat: number; lng: number; label?: string }>,
+  ) =>
+    request<{ sheet: SheetRecord; reading: SheetFitReading }>(`/projects/${projectId}/sheets/${sheetId}/control-points`, {
+      method: 'PUT',
+      body: JSON.stringify({ points }),
+    }),
+  removeSheet: (projectId: string, sheetId: string) =>
+    request<void>(`/projects/${projectId}/sheets/${sheetId}`, { method: 'DELETE' }),
+
   addRisk: (projectId: string, body: CreateRiskInput & { actor?: string }) =>
     request<RiskRecord>(`/projects/${projectId}/risks`, { method: 'POST', body: JSON.stringify(body) }),
   patchRisk: (projectId: string, riskId: string, status: string) =>
@@ -730,12 +789,60 @@ export const api = {
     request<ActionRecord>(`/projects/${projectId}/actions`, { method: 'POST', body: JSON.stringify(body) }),
   patchAction: (projectId: string, actionId: string, status: string) =>
     request<ActionRecord>(`/projects/${projectId}/actions/${actionId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  setActionCost: (
+    projectId: string,
+    actionId: string,
+    body: { costEstimate?: number | null; costBand?: RemedialBand | null; actor?: string },
+  ) => request<ActionRecord>(`/projects/${projectId}/actions/${actionId}/cost`, { method: 'PATCH', body: JSON.stringify(body) }),
   addDecision: (projectId: string, body: CreateDecisionInput & { actor?: string }) =>
     request<DecisionRecord>(`/projects/${projectId}/decisions`, { method: 'POST', body: JSON.stringify(body) }),
   patchDecision: (projectId: string, decisionId: string, status: string) =>
     request<DecisionRecord>(`/projects/${projectId}/decisions/${decisionId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   generateReport: (projectId: string, body: GenerateReportInput) =>
     request<GeneratedReport>(`/projects/${projectId}/reports`, { method: 'POST', body: JSON.stringify(body) }),
+  /* --- Editing a report -------------------------------------------- */
+  insertReportBlock: (
+    projectId: string,
+    reportId: string,
+    body: { heading?: string; text?: string; source?: ReportBoundSource; afterBlockId?: string; actor?: string },
+  ) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks`, { method: 'POST', body: JSON.stringify(body) }),
+  editReportBlock: (projectId: string, reportId: string, blockId: string, body: { heading?: string; text?: string; actor?: string }) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  retuneReportBlock: (projectId: string, reportId: string, blockId: string, source: ReportBoundSource, actor?: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}/source`, {
+      method: 'PUT',
+      body: JSON.stringify({ source, actor }),
+    }),
+  detachReportBlock: (projectId: string, reportId: string, blockId: string, actor?: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}/detach`, { method: 'POST', body: JSON.stringify({ actor }) }),
+  reattachReportBlock: (projectId: string, reportId: string, blockId: string, actor?: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}/reattach`, { method: 'POST', body: JSON.stringify({ actor }) }),
+  moveReportBlock: (projectId: string, reportId: string, blockId: string, toIndex: number, actor?: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ toIndex, actor }),
+    }),
+  removeReportBlock: (projectId: string, reportId: string, blockId: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}`, { method: 'DELETE' }),
+  issueReport: (projectId: string, reportId: string, actor?: string) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/issue`, { method: 'POST', body: JSON.stringify({ actor }) }),
+  reportDrift: (projectId: string, reportId: string) =>
+    request<{ reportId: string; status: string; rows: ReportDriftRow[] }>(`/projects/${projectId}/reports/${reportId}/drift`),
+
+  checkFields: (projectId: string, checkId: string) =>
+    request<CheckFieldReading & { checkId: string; title: string }>(`/projects/${projectId}/checks/${checkId}/fields`),
+  recordCheckFields: (
+    projectId: string,
+    checkId: string,
+    values: Record<string, CheckFieldWrite>,
+    sourceEvidenceId?: string,
+  ) =>
+    request<CheckFieldReading & { checkId: string; project: DdProject }>(`/projects/${projectId}/checks/${checkId}/fields`, {
+      method: 'PUT',
+      body: JSON.stringify({ values, sourceEvidenceId }),
+    }),
+
   patchProject: (projectId: string, body: PatchProjectInput & { actor?: string }) =>
     request<DdProject>(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   projectDashboard: (projectId: string) => request<ProjectDashboard>(`/projects/${projectId}/dashboard`),

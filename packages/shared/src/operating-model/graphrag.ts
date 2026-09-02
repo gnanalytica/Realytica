@@ -64,6 +64,11 @@ const TRACE_CONTEXT = new Set<ProjectGraphEdgeKind>([
 
 function isAlarming(node: ProjectGraphNode): boolean {
   const detail = (node.detail ?? '').toLowerCase();
+  // "Immediate action" is alarming at ANY severity — it is the separate RICS
+  // question of whether somebody could be hurt today, and a medium-severity
+  // defect that had to be escalated is exactly the row a pruned subgraph must
+  // not drop.
+  if (node.kind === 'finding' && detail.includes('immediate action')) return true;
   if (node.kind === 'finding' && (detail.includes('critical') || detail.includes('high'))) return true;
   if (node.kind === 'risk' && detail.includes('critical')) return true;
   if (node.kind === 'check' && (detail.includes('missing_evidence') || detail.includes('non_compliant'))) return true;

@@ -14,6 +14,7 @@ import Diligence from './pages/projects/Diligence';
 import DdWorkspace from './pages/projects/DdWorkspace';
 import ScopeWorkspace from './pages/projects/ScopeWorkspace';
 import { EvidenceRegister, FindingRegister } from './pages/projects/Registers';
+import SiteRecord from './pages/projects/SiteRecord';
 import { RisksActions, DecisionRegister } from './pages/projects/RisksDecisions';
 import Reports from './pages/projects/Reports';
 import Libraries from './pages/projects/Libraries';
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="dd/:ddId" element={<DdWorkspace />} />
             <Route path="dd/:ddId/scopes/:scopeId" element={<ScopeWorkspace />} />
             <Route path="evidence" element={<EvidenceRegister />} />
+            <Route path="visits" element={<SiteRecord />} />
             <Route path="findings" element={<FindingRegister />} />
             <Route path="risks" element={<RisksActions />} />
             <Route path="decisions" element={<DecisionRegister />} />

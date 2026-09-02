@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Link, useOutletContext } from 'react-router-dom';
+import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import {
+  projectTolerances,
   ASSESSMENT_STATUS_LABEL,
   CAPABILITY_KIND_LABEL,
   LIFECYCLE_STAGE_LABEL,
@@ -18,6 +19,7 @@ import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 import { LiveRow } from './LiveRow';
 import { GisOverlayCard } from '../../components/GisOverlayCard';
+import { ToleranceChart } from '../../components/charts';
 
 export default function Overview() {
   const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
@@ -27,6 +29,11 @@ export default function Overview() {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const dash = toDashboard(project);
+  // Recomputed on every render from the live checks, like everything else that
+  // reads the registers — a chart of a snapshot would drift the moment a value
+  // is recorded three panes away.
+  const tolerances = projectTolerances(project);
+  const navigate = useNavigate();
   const step = projectNextStep(project);
   const pack = dash.packCompleteness ?? packCompleteness(project);
   const material = materialOpenFindings(project);
@@ -93,6 +100,18 @@ export default function Overview() {
       <p className="text-[11px] text-ink-muted">
         Library completeness {dash.evidenceCompleteness.percent}% ({dash.evidenceCompleteness.missing} expected rows) is the long tail — not today’s pack.
       </p>
+
+      {tolerances.length > 0 ? (
+        <Card>
+          <CardHeader
+            title="Where the numbers disagree"
+            subtitle="Every comparison on this file, plotted as a multiple of its own tolerance — so a 3% budget variance and a 3% extent variance sit where they belong rather than side by side."
+          />
+          <CardBody>
+            <ToleranceChart rows={tolerances} onSelect={(checkId) => navigate(`../dd?check=${encodeURIComponent(checkId)}`)} />
+          </CardBody>
+        </Card>
+      ) : null}
 
       <GisOverlayCard project={project} onChanged={async () => setProject(await api.getProject(project.id))} />
 

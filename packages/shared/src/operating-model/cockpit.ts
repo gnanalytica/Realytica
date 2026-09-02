@@ -10,7 +10,21 @@
 import { CHECK_RESULT_LABEL, LIFECYCLE_STAGE_LABEL } from './catalogs';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
-import { ensureProjectShape, recordCheckResult, packCompleteness, packEvidence, patchRecordStatus, recommendedDdTypes } from './operations';
+import {
+  detachReportBlock,
+  editReportBlock,
+  ensureProjectShape,
+  insertReportBlock,
+  issueReport,
+  packCompleteness,
+  packEvidence,
+  patchRecordStatus,
+  reattachReportBlock,
+  recommendedDdTypes,
+  recordCheckResult,
+  removeReportBlock,
+} from './operations';
+import { interpretReportCommand, looksLikeReportCommand, openReportOf } from './report-command';
 import type {
   ChatChoice,
   ActionRecord,
@@ -47,6 +61,7 @@ import { projectNextStep, materialOpenFindings, unevidencedFindings, findingCrit
 import { detectChatSideIntents, handleChatSides } from './chat-sides';
 import { clarifyRecordCommand, clarifySubject, looksLikeCommand, resolveSubject, sittingTitle } from './clarify';
 import { verifyAttribution } from './attribution';
+import { trimTurn } from './brevity';
 import {
   checkResultChoices,
   describeRecorded,
@@ -79,6 +94,7 @@ export const PROJECT_COCKPIT_PANES = [
   'dd',
   'scope',
   'evidence',
+  'visits',
   'findings',
   'risks',
   'actions',
@@ -101,11 +117,11 @@ export function paneForProposalKind(kind: ChatProposalKind): ProjectCockpitPane 
   if (kind === 'snapshot_capabilities') return 'orchestrate';
   if (kind === 'start_dd' || kind === 'add_scope') return 'dd';
   if (kind === 'add_asset' || kind === 'patch_asset') return 'assets';
-  if (kind === 'record_check') return 'scope';
+  if (kind === 'record_check' || kind === 'record_check_fields') return 'scope';
   if (kind === 'add_finding') return 'findings';
   if (kind === 'add_risk') return 'risks';
   if (kind === 'add_decision') return 'decisions';
-  if (kind === 'generate_report') return 'reports';
+  if (kind === 'generate_report' || kind === 'edit_report') return 'reports';
   return 'overview';
 }
 
@@ -144,6 +160,8 @@ export function cockpitPath(
         ['evidence', extra?.evidenceId],
         ['page', extra?.page],
       ]);
+    case 'visits':
+      return `${base}/visits`;
     case 'findings':
       return withQuery(`${base}/findings`, [['finding', extra?.findingId]]);
     case 'risks':
@@ -208,6 +226,8 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     toolCalls: extra.toolCalls,
     choices: extra.choices,
     unsupportedClaims: extra.unsupportedClaims,
+    heldQuestions: extra.heldQuestions,
+    trimmed: extra.trimmed,
     refusedForLackOfEvidence: extra.refusedForLackOfEvidence,
     proposalIds: extra.proposalIds,
   };
@@ -288,6 +308,10 @@ export function wantsDeterministicProjectChat(
   // A person recording or assigning a check is a person's own instruction:
   // it executes, so it must not be handed to a model to paraphrase.
   if (looksLikeCheckRecord(q) || looksLikeCheckAssign(q)) return true;
+  // A person editing their own report is their own instruction, same as
+  // recording a check. It executes; a model reaching the same conclusion
+  // raises a card.
+  if (looksLikeReportCommand(q, Boolean(openReportOf(project)))) return true;
   if (options.sitting?.checkId && looksLikeCheckRecordOnSitting(q)) return true;
   if (/\b(close|complete|done|finish)\b/.test(ql) && /\baction\b/.test(ql)) return true;
   if (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql)) return true;
@@ -343,8 +367,19 @@ export function applyProjectAgentTurn(
    * turns only — this function IS the model path.
    */
   const attribution = verifyAttribution(project, agent.text);
-  const assistantTurn = turn('assistant', agent.text, {
+  /*
+   * The other way-out check, and it sits here for the same reason: this is the
+   * last point that sees the exact text a person will read. A prompt rule
+   * about brevity degrades on precisely the hard turn where a wall of text is
+   * least useful, and "ask one question at a time" fails predictably — the
+   * model asks three, the person answers the last, and two are lost. Held
+   * rather than cut, so the interview continues.
+   */
+  const brief = trimTurn(agent.text);
+  const assistantTurn = turn('assistant', brief.text, {
     choices: agent.choices?.length ? agent.choices : undefined,
+    heldQuestions: brief.heldQuestions.length ? brief.heldQuestions : undefined,
+    trimmed: brief.trimmed || undefined,
     unsupportedClaims: attribution.unsupported.length ? attribution.unsupported.map((c) => c.text) : undefined,
     citedEvidenceIds: [...new Set(agent.citedEvidenceIds ?? [])],
     citedNodeIds: agent.citedNodeIds ? [...new Set(agent.citedNodeIds)] : undefined,
@@ -570,6 +605,7 @@ export function applyProjectChat(
       // "mark it compliant" while a check is open. "It" is the check on
       // screen, which is the only reading, and the only safe one.
       || (Boolean(options.sitting?.checkId) && looksLikeCheckRecordOnSitting(q)));
+  const reportCommand = looksLikeReportCommand(q, Boolean(openReportOf(project)));
   const runOrchestrate = /\borchestrat/.test(ql) && !/^(open|show|go to|switch to|see|view)\b/.test(ql);
   const proposeDrafts = /\bpropose\b/.test(ql) && /\bdrafts?\b/.test(ql);
   const runValuation = /\b(run|compute|start)\b/.test(ql) && /\bvaluat/.test(ql) && !wantsProjectScreen(q);
@@ -674,6 +710,63 @@ export function applyProjectChat(
       `${run.openFindingCount} open finding(s). Pack completeness is the health figure — not the full evidence library.`,
     ].join('\n');
     toolCalls = [{ name: 'orchestrate', summary: `Proposed ${run.draftIds.length} draft(s)` }];
+  } else if (reportCommand) {
+    /*
+     * The person editing their own report, through chat.
+     *
+     * Executes rather than proposes, for the same reason recording a check
+     * does: the authorship law turns on WHO concluded, not on which surface
+     * they typed it into. What it will not do is write into a block that
+     * reads the registers — `editReportBlock` refuses that outright, and a
+     * detach is a thing somebody has to ask for by name.
+     */
+    const read = interpretReportCommand(project, q);
+    if (read.choices?.length) {
+      choices = read.choices;
+      assistantText = 'That could be more than one section. Nothing has changed — pick the one you meant.';
+    } else if (!read.command || !read.report) {
+      assistantText = read.say ?? 'I could not tell what to change in the report.';
+    } else {
+      const report = read.report;
+      const cmd = read.command;
+      try {
+        if (cmd.kind === 'issue') {
+          issueReport(project, report.id, actor);
+          assistantText =
+            `Issued “${report.title}”. Every live section is now frozen at what it said just now, and the report will not move again. `
+            + 'The reports pane shows what the registers have done since.';
+          commands.push(`Issued ${report.title}`);
+        } else if (cmd.kind === 'add_note') {
+          const block = insertReportBlock(project, report.id, { text: cmd.text, afterBlockId: cmd.blockId }, actor);
+          assistantText = cmd.blockId
+            ? 'Added, in your words, under that section.'
+            : 'Added at the end — I could not tell which section you meant, and putting your words under the wrong heading changes what you said.';
+          commands.push(`Added a note to ${report.title}`);
+          citedNodeIds = [block.id];
+        } else if (cmd.kind === 'remove_block') {
+          removeReportBlock(project, report.id, cmd.blockId!, actor);
+          assistantText = 'Removed. Nothing in the registers changed — this only took it out of the report.';
+          commands.push(`Removed a section from ${report.title}`);
+        } else if (cmd.kind === 'detach_block') {
+          const block = detachReportBlock(project, report.id, cmd.blockId!, actor);
+          assistantText =
+            `“${block.heading ?? 'That section'}” is yours to edit now. It keeps what it said, and the report shows that it stopped `
+            + 'updating today — a paragraph that reads like a register summary should never quietly stop being one.';
+          commands.push(`Detached a section of ${report.title}`);
+        } else if (cmd.kind === 'reattach_block') {
+          reattachReportBlock(project, report.id, cmd.blockId!, actor);
+          assistantText = 'Back on the registers. Whatever was typed there is gone — it reads live again.';
+          commands.push(`Reattached a section of ${report.title}`);
+        } else if (cmd.kind === 'rename_block') {
+          editReportBlock(project, report.id, cmd.blockId!, { heading: cmd.heading }, actor);
+          assistantText = `Renamed to “${cmd.heading}”.`;
+          commands.push(`Renamed a section of ${report.title}`);
+        }
+      } catch (err) {
+        assistantText = err instanceof Error ? err.message : 'That change could not be made.';
+      }
+    }
+    navigate('reports', 'Opened the report');
   } else if (checkRecordCommand) {
     /*
      * The person recording a check, through chat.

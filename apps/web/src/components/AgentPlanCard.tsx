@@ -20,6 +20,7 @@ const AGENT_LABEL: Record<AgentKind, string> = {
   critic: 'Critic',
   explorer: 'Explorer',
   document_intelligence: 'Document Intelligence',
+  photo_intelligence: 'Photo Intelligence',
   proof_pathways: 'Proof Pathways',
   analyst_copilot: 'Analyst Copilot',
   market_research: 'Market Research',

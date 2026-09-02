@@ -67,6 +67,18 @@ export type ProjectGraphNodeKind =
   | 'approval'
   /* --- evidence: what we hold ------------------------------------ */
   | 'evidence'
+  /**
+   * An occasion of LOOKING, as against a document received.
+   *
+   * In the evidence layer rather than the judgement one, and the limitations
+   * are why: a visit is where evidence came from, and what could not be seen
+   * on it bounds every conclusion drawn from it. Traversing "what is this
+   * finding resting on" has to reach the visit and find "the roof was not
+   * inspected", or the traversal has answered the wrong question.
+   */
+  | 'site_visit'
+  /** A plan sheet placed on the ground from control points. */
+  | 'sheet'
   /* --- claims: what the evidence says ---------------------------- */
   /** Two sources disagreeing about the same subject, kept as its own node. */
   | 'contradiction'
@@ -94,6 +106,8 @@ export const PROJECT_NODE_KINDS: readonly ProjectGraphNodeKind[] = [
   'encumbrance',
   'approval',
   'evidence',
+  'site_visit',
+  'sheet',
   'contradiction',
   'assessment',
   'scope',
@@ -118,6 +132,8 @@ const LAYER_BY_KIND: Record<ProjectGraphNodeKind, ProjectGraphLayer> = {
   encumbrance: 'entity',
   approval: 'entity',
   evidence: 'evidence',
+  site_visit: 'evidence',
+  sheet: 'evidence',
   contradiction: 'claim',
   // An assessment and a scope are containers for judgement rather than
   // judgements themselves, but they carry a status that IS a conclusion
@@ -176,6 +192,17 @@ export type ProjectGraphEdgeKind =
   | 'has_check'
   | 'reported_in'
   | 'has_risk'
+  /** The file's own record of an occasion of looking. */
+  | 'has_visit'
+  /** A sheet somebody has placed on the map. */
+  | 'has_sheet'
+  /**
+   * Seen on that visit.
+   *
+   * From a photograph or a finding to the visit it came off, which is what
+   * makes the visit's limitations reachable from anything that rests on it.
+   */
+  | 'observed_on'
   /* --- the property itself --------------------------------------- */
   /** project | asset -> the parcel it stands on. */
   | 'sited_at'
@@ -232,6 +259,9 @@ export const PROJECT_EDGE_KINDS: readonly ProjectGraphEdgeKind[] = [
   'has_check',
   'reported_in',
   'has_risk',
+  'has_visit',
+  'has_sheet',
+  'observed_on',
   'sited_at',
   'engaged_on',
   'conveyed_by',
@@ -277,6 +307,9 @@ export const PROJECT_EDGE_ENDPOINT_RULES: Record<
   has_check: { from: ['scope'], to: ['check'] },
   reported_in: { from: ['project'], to: ['report'] },
   has_risk: { from: ['project'], to: ['risk'] },
+  has_visit: { from: ['project'], to: ['site_visit'] },
+  has_sheet: { from: ['project'], to: ['sheet'] },
+  observed_on: { from: ['evidence', 'finding'], to: ['site_visit'] },
 
   sited_at: { from: ['project', 'asset'], to: ['parcel'] },
   engaged_on: { from: ['project'], to: ['party'] },

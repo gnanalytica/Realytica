@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
-import { LIFECYCLE_STAGE_LABEL, LIFECYCLE_STAGES, type LifecycleStage } from '@realytica/shared';
+import { LIFECYCLE_STAGE_LABEL, LIFECYCLE_STAGES, UNICLASS_ENTITIES, looksLikeUniclassCode, type LifecycleStage } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
 import { assetTree } from '@realytica/shared';
@@ -15,6 +15,7 @@ export default function Assets() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [assetType, setAssetType] = useState('Residential tower');
+  const [uniclassCode, setUniclassCode] = useState('');
   const [parentId, setParentId] = useState('');
   const [stage, setStage] = useState<LifecycleStage>(project.currentStage);
   const [stageAsset, setStageAsset] = useState<string | null>(null);
@@ -28,6 +29,8 @@ export default function Assets() {
       await api.addAsset(project.id, {
         name,
         assetType,
+        uniclassCode: uniclassCode.trim() || undefined,
+        uniclassTitle: UNICLASS_ENTITIES.find((e) => e.code === uniclassCode.trim())?.title,
         parentId: parentId || undefined,
         currentStage: stage,
       });
@@ -35,6 +38,7 @@ export default function Assets() {
       setOpen(false);
       setName('');
       setAssetType('Residential tower');
+      setUniclassCode('');
       setParentId('');
       toast('Asset added', 'good');
     } catch (e) {
@@ -82,6 +86,12 @@ export default function Assets() {
                     {asset.assetType}
                     {asset.responsible ? ` · ${asset.responsible}` : ''}
                   </p>
+                  {asset.uniclassCode ? (
+                    <p className="text-[11px] text-ink-muted" title="Uniclass 2015 Entities — structured to ISO 12006-2, and how a cost consultant or a BIM model names the same thing.">
+                      {asset.uniclassCode}
+                      {asset.uniclassTitle ? ` · ${asset.uniclassTitle}` : ''}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge>{LIFECYCLE_STAGE_LABEL[asset.currentStage]}</Badge>
@@ -119,6 +129,30 @@ export default function Assets() {
           </Field>
           <Field label="Asset type">
             <Input value={assetType} onChange={(e) => setAssetType(e.target.value)} />
+          </Field>
+          {/* A datalist rather than a dropdown: the suggestions are a working
+              subset of a table with thousands of rows, maintained at source, so
+              the field has to take a code this build has never seen. Refusing
+              one would make the field wrong every time NBS publishes. */}
+          <Field
+            label="Uniclass code"
+            hint={
+              uniclassCode.trim() && !looksLikeUniclassCode(uniclassCode) && !UNICLASS_ENTITIES.some((e) => e.code === uniclassCode.trim())
+                ? 'That does not look like a Uniclass code (e.g. En_20_20_53). Kept as typed.'
+                : 'Optional. What a cost consultant or a BIM model calls this — it sits beside your own asset type, not instead of it.'
+            }
+          >
+            <Input
+              list="uniclass-entities"
+              value={uniclassCode}
+              onChange={(e) => setUniclassCode(e.target.value)}
+              placeholder="En_20_20_53"
+            />
+            <datalist id="uniclass-entities">
+              {UNICLASS_ENTITIES.map((e) => (
+                <option key={e.code} value={e.code}>{e.title}</option>
+              ))}
+            </datalist>
           </Field>
           <Field label="Parent" hint="Leave empty for a top-level asset.">
             <Select value={parentId} onChange={(e) => setParentId(e.target.value)}>

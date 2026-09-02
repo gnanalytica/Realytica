@@ -1,4 +1,5 @@
-import type { CheckDefinition, DdTypeDefinition, ScopeDefinition, ScopeKey } from './types';
+import type { CheckDefinition, CheckFieldDef, CheckInsightRule, DdTypeDefinition, ScopeDefinition, ScopeKey } from './types';
+import { CHECK_FIELDS, CHECK_INSIGHT_RULES } from './check-schemas';
 
 function checks(
   scopeKey: ScopeKey,
@@ -25,6 +26,11 @@ function checks(
     method: row.method ?? 'Review evidence against the stated criteria and record the result with source links.',
     severityGuidance: row.severity ?? 'Material exceptions become findings; missing evidence is recorded as missing, not as pass.',
     standards: row.standards,
+    // Declared beside the check rather than inline, so the library stays
+    // readable as a catalogue of what to check and the schemas stay readable
+    // as a table of what each one records.
+    fields: CHECK_FIELDS[`${scopeKey}.${row.id}`],
+    insightRules: CHECK_INSIGHT_RULES[`${scopeKey}.${row.id}`],
   }));
 }
 
@@ -374,6 +380,25 @@ export const CHECK_DEFINITIONS: CheckDefinition[] = [
       evidence: ['Survey', 'Authority maps', 'Site photographs'],
       criteria: 'Known drains, lakes and flood levels are plotted and either clear of the scheme or mitigated with evidence.',
       standards: 'Local planning / NGT lake and rajakaluve buffer practice where applicable.',
+    },
+    {
+      /*
+       * What the site is NEXT to, as against what is on it.
+       *
+       * Its own check because it is the only place a valuation can learn that
+       * a transmission corridor runs over the plot. Every valuer in Bengaluru
+       * prices these and the product had nowhere to record one — the
+       * comparable adjustments were road width, corner, facing, dimensions and
+       * layout approval, every one of them positive or neutral, so there was
+       * no way for a number to go down because of where the site is.
+       */
+      id: 'constraints',
+      section: 'Surroundings',
+      title: 'What the site is next to is recorded, with distances',
+      purpose: 'A transmission corridor, a rajakaluve, a cremation ground or a quarry all price into a site, and none of them is visible from the title.',
+      evidence: ['Site visit', 'Survey plan', 'Authority maps', 'Site photographs'],
+      criteria: 'Each feature within its material distance is recorded with a measured or estimated distance and the source of that distance. An empty list is a claim that the surroundings were looked at and were clear.',
+      standards: 'Electricity Rules clearance for transmission corridors; NGT/BBMP buffers for drains and lakes.',
     },
     {
       id: 'utilities',
@@ -857,6 +882,54 @@ export const CHECK_DEFINITIONS: CheckDefinition[] = [
       purpose: 'Market, income, cost, residual — unused methods need a reason.',
       evidence: ['Worksheets', 'Comps', 'Cost plan'],
       criteria: 'Selected methods, excluded methods, weights and a range (not a point) are recorded with confidence and missing-evidence impact.',
+    },
+    /*
+     * Four checks, one per approach, because the inputs to a valuation are
+     * facts about the asset and belong on the file rather than inside a
+     * function.
+     *
+     * This is what connects the scope to the number. Before these existed the
+     * computation read `project.saleableAreaSqm` and a locality median, so a
+     * valuer could evidence an area against an approved drawing on
+     * `indicative_valuation.subject` and watch the valuation use a different
+     * one. Now the approach reads what was recorded here, and an input nobody
+     * recorded stops its approach running rather than defaulting to something.
+     */
+    {
+      id: 'comparable_inputs',
+      section: 'Methods',
+      title: 'The comparable evidence behind the rate is recorded',
+      purpose: 'A rate with no comparables behind it is a locality median wearing a valuation’s clothes.',
+      evidence: ['Comparable schedule', 'Transaction records', 'Broker confirmations'],
+      criteria: 'Rate applied, how many comparables it rests on, and the adjustments made to them are recorded. A rate taken from a reference median rather than inspected comparables is marked as such.',
+      standards: 'IBBI Rule 8(3)(g) information sources, (h) procedures adopted.',
+    },
+    {
+      id: 'cost_inputs',
+      section: 'Methods',
+      title: 'Replacement cost is depreciated for age and condition',
+      purpose: 'An undepreciated replacement cost overstates an old building by whatever share of its life has run.',
+      evidence: ['Cost plan', 'Age/completion record', 'Condition survey'],
+      criteria: 'Replacement rate, effective age and expected total life are recorded so depreciation is computed rather than assumed nil.',
+      standards: 'Cost approach requires depreciation — physical, functional and economic.',
+    },
+    {
+      id: 'income_inputs',
+      section: 'Methods',
+      title: 'Income inputs support a capitalisation, not a yield multiple',
+      purpose: 'Capital value × gross yield ÷ a fixed cap rate is the comparable number in disguise, not an income approach.',
+      evidence: ['Rent roll', 'Lease schedule', 'Operating statement', 'Yield evidence'],
+      criteria: 'Achievable rent, vacancy allowance, operating expenses and the capitalisation rate are each recorded, so net operating income is computed from evidence.',
+      standards: 'IBBI Rule 8(3)(h)/(j) — procedures and the major factors behind them.',
+    },
+    {
+      id: 'residual_inputs',
+      section: 'Methods',
+      title: 'Residual land value carries profit, finance and fees',
+      purpose: 'GDV less construction cost is not a residual appraisal — it omits every reason a developer would decline the site.',
+      evidence: ['Development appraisal', 'Cost plan', 'Funding terms', 'Programme'],
+      criteria: 'Gross development value, construction cost, professional fees, finance, marketing and the developer’s required profit are recorded with the build period.',
+      standards: 'Residual method per RICS valuation of development property.',
     },
   ]),
 ];

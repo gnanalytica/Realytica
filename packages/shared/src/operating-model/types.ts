@@ -23,6 +23,21 @@ import type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } fr
 
 export type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } from './project-ontology';
 
+/**
+ * Type-only, and one direction: `standards.ts` reads `FindingSeverity` from
+ * here, and the records here borrow its vocabulary. Both imports erase, so
+ * there is no cycle at runtime — and the alternative, restating RICS bands and
+ * ASTM conditions as bare string unions in this file, would put the words a
+ * long way from the citation that makes them mean anything.
+ */
+import type { EnvironmentalCondition, Iso19650Ref, RemedialBand, RicsEscalation } from './standards';
+import type { CaptureFacts } from './capture';
+import type { PhotoObservation } from './photo-observation';
+import type { SheetRecord } from './geo-sheet';
+import type { SiteVisitRecord } from './site-visit';
+import type { Rule8Additions } from './ibbi';
+import type { ValuationWorking } from './valuation-run';
+
 /* ------------------------------------------------------------------ */
 /* Catalog keys                                                        */
 /* ------------------------------------------------------------------ */
@@ -251,6 +266,171 @@ export type ImpactScore = 1 | 2 | 3 | 4 | 5;
 /* Library definitions (reusable, not project instances)               */
 /* ------------------------------------------------------------------ */
 
+export type CheckFieldKind =
+  /* --- plain values ------------------------------------------------ */
+  | 'text'
+  /** Free-flow prose. Rendered as a growing box, never a single line. */
+  | 'longtext'
+  | 'number'
+  | 'money'
+  | 'area'
+  | 'percent'
+  /** A span in days, months or years — the unit says which. */
+  | 'duration'
+  | 'date'
+  | 'boolean'
+  /* --- choices ------------------------------------------------------ */
+  /** One of a fixed list. `control` decides dropdown, radio or segmented. */
+  | 'enum'
+  /** Several of a fixed list — checkboxes. */
+  | 'multi_enum'
+  /* --- things that are not typed in ---------------------------------- */
+  /**
+   * Derived from other fields by a declared formula. Never writable.
+   *
+   * The third place this product draws the same line: the graph splits
+   * derived nodes from authored ones, the report splits bound blocks from
+   * prose, and a computed field is the same idea at the smallest scale. If a
+   * number can be worked out from other numbers, nobody should be able to
+   * type a different one over it.
+   */
+  | 'computed'
+  /**
+   * Repeating rows with their own column schema — a title chain, a milestone
+   * table, a schedule of tests. The thing people otherwise keep in a
+   * spreadsheet beside the system, which is where DD facts go to die.
+   */
+  | 'table'
+  /**
+   * A reference to something on the evidence register: a document, a
+   * photograph, a certificate. The value is an evidence id, so the file is
+   * held once and cited from everywhere rather than re-uploaded per check.
+   */
+  | 'evidence';
+
+/** How a choice or a switch is drawn. Presentation only — the data is the same. */
+export type CheckFieldControl = 'dropdown' | 'radio' | 'segmented' | 'switch' | 'checkbox';
+
+/**
+ * How strongly a value must be backed by something on file.
+ *
+ * This is the property that separates a diligence record from a form. An
+ * extent read off a registered deed and an extent somebody remembered are not
+ * the same fact, and a schema that cannot tell them apart will let the second
+ * one reach a report wearing the first one's authority.
+ */
+export type CheckFieldProof = 'required' | 'expected' | 'none';
+
+/**
+ * A formula over other fields on the same check.
+ *
+ * A tiny expression tree rather than a string to parse, because the two
+ * things that matter are that it cannot execute anything and that a reader
+ * can see what it computes. Every leaf is either a field key or a literal.
+ */
+export type CheckFormula =
+  | { op: 'field'; key: string }
+  | { op: 'const'; value: number }
+  | { op: 'add' | 'subtract' | 'multiply' | 'divide'; left: CheckFormula; right: CheckFormula }
+  /** `100 * (left - right) / right`, the shape most DD variances take. */
+  | { op: 'variance_pct'; left: CheckFormula; right: CheckFormula }
+  /** Sum one numeric column of a table field. */
+  | { op: 'sum'; table: string; column: string }
+  /** How many rows a table field holds. */
+  | { op: 'count'; table: string }
+  /** Whole days between two date fields, left minus right. */
+  | { op: 'days_between'; left: string; right: string };
+
+/**
+ * A fact this check is actually about, declared so it can be recorded as a
+ * value rather than described in a comment box.
+ *
+ * See `check-fields.ts` for why the prose was not enough.
+ */
+export interface CheckFieldDef {
+  key: string;
+  label: string;
+  kind: CheckFieldKind;
+  /** sqm, ft, INR, years — shown beside the input and carried into the report. */
+  unit?: string;
+  options?: string[];
+  hint?: string;
+  /** Which document is expected to supply it. Shown so a person knows where to look. */
+  from?: string;
+  /** Defaults to true. A false here means the check can be complete without it. */
+  required?: boolean;
+  /** How the control is drawn. Presentation only. */
+  control?: CheckFieldControl;
+  /** Whether this value has to cite something on the evidence register. */
+  proof?: CheckFieldProof;
+  /** `computed` only: what it works out. */
+  formula?: CheckFormula;
+  /** `table` only: the columns of each row. Columns cannot themselves be tables. */
+  columns?: CheckFieldDef[];
+  /** `evidence` only: what kind of file this expects, for the picker's filter. */
+  accepts?: 'document' | 'image' | 'any';
+  /** Numeric guards, checked on write so an impossible figure is refused at the door. */
+  min?: number;
+  max?: number;
+}
+
+/** Anything a caller may write into a field. Mirrors `CheckFieldValue['value']`. */
+export type CheckFieldWrite = string | number | boolean | string[] | CheckTableRow[] | null;
+
+/** One row of a table field, keyed by column. */
+export type CheckTableRow = Record<string, string | number | boolean | null>;
+
+export interface CheckFieldValue {
+  value: string | number | boolean | string[] | CheckTableRow[] | null;
+  /** The evidence row this was read off, when it came from a document. */
+  sourceEvidenceId?: string;
+  at: string;
+  by: string;
+}
+
+/**
+ * A rule that turns recorded values into an observation.
+ *
+ * Arithmetic, not generation: the engine owns conclusions drawn from numbers,
+ * exactly as it owns the screen's. A model may read an insight; it may not
+ * author one.
+ */
+export interface CheckInsightRule {
+  /**
+   * `require_if` is the conditional one: a field that is only needed because
+   * of what another field says. A quoted super built-up area needs a RERA
+   * carpet figure beside it; a quoted carpet area does not, and a plain
+   * `require` would nag on both.
+   */
+  kind: 'compare' | 'before' | 'require' | 'require_if' | 'row_expired' | 'row_missing';
+  /** The field keys the rule reads, in the order the template names them. */
+  fields: string[];
+  /** Relative tolerance for `compare`. Defaults to 1%. */
+  tolerance?: number;
+  /** `require_if` and `row_missing`: the gate values that make the other field necessary. */
+  whenIn?: string[];
+  /**
+   * The row rules read INSIDE a table, which is where a register of eight NOCs
+   * or twenty approval conditions actually lives. `fields` names the table;
+   * `column` names the cell the rule is about, and `gate` the cell that
+   * decides whether it matters — an expired date on a NOC marked "not
+   * required" is not a finding.
+   */
+  column?: string;
+  gate?: string;
+  /** Template with {a}, {b}, {divergence}, {tolerance}. */
+  say: string;
+  severity: FindingSeverity;
+}
+
+export interface CheckInsight {
+  severity: FindingSeverity;
+  text: string;
+  fields: string[];
+  /** Always true today. Present so a model-authored one could never pass as computed. */
+  computed: boolean;
+}
+
 export interface CheckDefinition {
   id: string;
   scopeKey: ScopeKey;
@@ -262,6 +442,10 @@ export interface CheckDefinition {
   method: string;
   severityGuidance: string;
   standards?: string;
+  /** What this check records, beyond a result and a comment. */
+  fields?: CheckFieldDef[];
+  /** What the recorded values mean, computed. */
+  insightRules?: CheckInsightRule[];
 }
 
 export interface ScopeDefinition {
@@ -309,7 +493,17 @@ export interface Asset {
   id: string;
   parentId?: string;
   name: string;
+  /** This product's own word for what it is — free text, and it stays free. */
   assetType: string;
+  /**
+   * Uniclass 2015 Entities code, when somebody has classified it.
+   *
+   * Optional and additive: `assetType` is what the team calls it, this is what
+   * a cost consultant or a BIM model calls the same thing. Neither replaces
+   * the other, and an unclassified asset is not a defective one.
+   */
+  uniclassCode?: string;
+  uniclassTitle?: string;
   description?: string;
   zone?: string;
   currentStage: LifecycleStage;
@@ -334,6 +528,14 @@ export interface CheckInstance {
   evidenceIds: string[];
   findingIds: string[];
   comments: string;
+  /**
+   * The facts this check recorded, keyed by field.
+   *
+   * Absent on a check instantiated before its definition declared any, which
+   * is why every reader goes through `readCheckFields` rather than indexing
+   * into it directly.
+   */
+  fields?: Record<string, CheckFieldValue>;
   owner?: string;
   reviewer?: string;
   updatedAt: string;
@@ -392,6 +594,14 @@ export interface EvidenceRecord {
   supersededById?: string;
   rejectionReason?: string;
   fileName?: string;
+  /**
+   * ISO 19650 information-container reference, as far as it is known.
+   *
+   * The filename it arrived as stays in `fileName` — this is the structured
+   * reading of it, and every part is optional because a diligence pack
+   * collects documents from a dozen sources and most arrive with none of it.
+   */
+  iso19650?: Iso19650Ref;
   attachments: EvidenceAttachment[];
   /** Verbatim DI quotes copied off the ingest card when the person approved. */
   quotes?: Array<{ text: string; page?: number }>;
@@ -407,6 +617,24 @@ export interface EvidenceAttachment {
   sizeBytes: number;
   storageKey: string;
   uploadedAt: string;
+  /**
+   * Where and when this file claims it was captured, and who claims it.
+   *
+   * On a photograph this is most of what makes it evidence rather than a
+   * picture. Absent on a deed, and correctly so — a scanned conveyance has no
+   * capture facts, and inventing an uploaded-at as a taken-at would turn the
+   * moment somebody dragged a file into the browser into a statement about
+   * when the property looked like that.
+   */
+  capture?: CaptureFacts;
+  /**
+   * What a model saw, kept apart from what the photographer said.
+   *
+   * Never merged into `capture.caption`. The caption is a person's; this is a
+   * reading, and a sentence with no author is the one thing a diligence file
+   * cannot carry.
+   */
+  observation?: PhotoObservation;
 }
 
 export interface FindingRecord {
@@ -432,6 +660,24 @@ export interface FindingRecord {
   duplicateOfId?: string;
   supersededById?: string;
   includeInReport: boolean;
+  /**
+   * RICS keeps "dangerous" apart from "serious", and so does this.
+   *
+   * The condition rating is DERIVED from `severity` — see
+   * `ricsConditionRating` — so there is never a second stored grading to drift
+   * from the first. This is the other half: whether somebody had to be told
+   * before the report was written, which no severity scale can express.
+   */
+  escalation?: RicsEscalation;
+  /**
+   * ASTM E1527 classification, on environmental findings only.
+   *
+   * Vocabulary borrowed, protection not. Always rendered with
+   * `ENVIRONMENTAL_CONDITION_CAVEAT` — the standard's force is a US liability
+   * shield India has no analogue for, and an HREC here says "cleaned up, no
+   * restrictions left" and nothing more.
+   */
+  environmentalCondition?: EnvironmentalCondition;
   createdAt: string;
   updatedAt: string;
 }
@@ -471,6 +717,16 @@ export interface ActionRecord {
   status: ActionStatus;
   comments?: string;
   escalation?: string;
+  /**
+   * What the remedy costs, in the project's currency.
+   *
+   * A buyer does not primarily want a list of defects; they want to know what
+   * has to be spent before completion, in the first year, and over the hold.
+   * That table cannot be built from priorities alone, which is why the figure
+   * and its band sit on the action rather than being inferred from one.
+   */
+  costEstimate?: number;
+  costBand?: RemedialBand;
   findingIds: string[];
   riskIds: string[];
   evidenceIds: string[];
@@ -513,9 +769,100 @@ export interface GeneratedReport {
   reviewer?: string;
 }
 
+export type ReportBoundSourceKind =
+  | 'particulars'
+  | 'title_chain'
+  | 'findings'
+  | 'risks'
+  | 'actions'
+  | 'decisions'
+  | 'evidence_gaps'
+  | 'dd_progress'
+  | 'checks'
+  | 'valuation'
+  | 'remedial_cost'
+  | 'site_visits'
+  | 'changes_since_previous';
+
+/**
+ * What a bound block asks the registers for.
+ *
+ * Small on purpose. Every knob here is one a person would actually reach for
+ * while writing — "only the material ones", "only this DD", "legal only" —
+ * and nothing here can express a query whose answer the reader could not
+ * check by opening the register themselves.
+ */
+export interface ReportBoundSource {
+  kind: ReportBoundSourceKind;
+  /** Narrow to one or more assessments. Empty or absent means the whole file. */
+  assessmentIds?: string[];
+  /** Critical and high only. */
+  materialOnly?: boolean;
+  /** Defaults to true — closed records are left out unless asked for. */
+  openOnly?: boolean;
+  /** Narrow findings to one discipline. */
+  discipline?: ScopeKey;
+}
+
+export type ReportBlockOrigin = 'derived' | 'authored';
+
+/**
+ * One block of a report: either a live reading of the registers, or a
+ * person's own words.
+ *
+ * See `report-blocks.ts` for why the two cannot be the same thing.
+ */
+export interface ReportBlock {
+  id: string;
+  /** Shown above the block. Editable whatever the block's origin. */
+  heading?: string;
+  /**
+   * `derived` blocks re-resolve from the registers and cannot be typed into.
+   * `authored` blocks hold text nothing regenerates.
+   */
+  origin: ReportBlockOrigin;
+  /** Present on a derived block: what it reads. */
+  source?: ReportBoundSource;
+  /** Present on an authored block: what somebody wrote. */
+  text?: string;
+  /**
+   * What this block said when the report was issued.
+   *
+   * An issued report went to somebody, so it must stop moving. This is what
+   * it showed at that moment; the difference against the live registers is
+   * computed by `reportDrift` rather than hidden.
+   */
+  frozen?: string[];
+  frozenRecordIds?: string[];
+  /**
+   * Set when a bound block was turned into prose, with the source it came
+   * from. Recorded rather than erased: a reader is entitled to know that a
+   * paragraph which looks like a register reading is a person's words frozen
+   * at a date.
+   */
+  detachedAt?: string;
+  detachedFrom?: ReportBoundSourceKind;
+  editedAt?: string;
+  editedBy?: string;
+}
+
+export interface ResolvedReportBlock {
+  lines: string[];
+  recordIds: string[];
+  /** Said instead of inventing a line, when the registers have nothing to show. */
+  note?: string;
+}
+
 export interface ReportBody {
+  /** Recomputed on read. Never stored, never edited — see `reportSummaryLine`. */
   summary: string;
-  sections: ReportSection[];
+  blocks: ReportBlock[];
+  /**
+   * The pre-block shape, kept only so a report generated before this existed
+   * can still be read. `ensureProjectShape` migrates one into `blocks` on
+   * load; nothing writes it any more.
+   */
+  sections?: ReportSection[];
 }
 
 export interface ReportSection {
@@ -556,6 +903,15 @@ export interface IbbiValuationSections {
   evidenceReliedUponIds: string[];
   evidenceConsideredIds: string[];
   evidenceGapIds: string[];
+  /**
+   * The Rule 8(3) items the original seven headings had no home for.
+   *
+   * Optional because runs written before it load without one, and because
+   * several of them can only be filled in by a person — nothing computes a
+   * conflict disclosure. `rule8Completeness` reads this alongside the sections
+   * above and reports which of the twelve the report can actually satisfy.
+   */
+  rule8?: Rule8Additions;
 }
 
 export interface ValuationRun {
@@ -567,10 +923,27 @@ export interface ValuationRun {
   landValue?: number;
   buildingReplacement?: number;
   comparableValue?: number;
+  /**
+   * Zero when no approach had all of its inputs.
+   *
+   * `working.reconciliation.indicated` is null in that case and IS the honest
+   * answer; this stays a number only because every reader of it predates the
+   * working and expects one. Anything rendering a value must check
+   * `working.reconciliation.indicated` first — a valuation of zero and a
+   * valuation that could not be computed are different facts.
+   */
   indicatedValue: number;
   low: number;
   high: number;
   currency: 'INR' | 'EUR';
+  /**
+   * The formula, the inputs, where each came from, and the working.
+   *
+   * Optional only because runs written before it exists load without one.
+   * Everything new carries it, and it is what makes the number checkable
+   * rather than merely printed.
+   */
+  working?: ValuationWorking;
   ibbi: IbbiValuationSections;
   createdAt: string;
   createdBy: string;
@@ -715,6 +1088,16 @@ export interface ProjectChatTurn {
    * the exact failure this product exists to prevent.
    */
   unsupportedClaims?: string[];
+  /**
+   * Questions the model asked beyond the first, held rather than shown.
+   *
+   * An interview asks one thing at a time; a turn with three questions gets
+   * the last one answered and loses the other two. These are kept so the
+   * thread can continue rather than cut, and surfaced as "next, I'll ask…".
+   */
+  heldQuestions?: string[];
+  /** Prose was dropped to fit the turn budget, so the UI can offer “say more”. */
+  trimmed?: boolean;
   citedEvidenceIds: string[];
   citedNodeIds?: string[];
   toolCalls?: { name: string; summary: string }[];
@@ -733,7 +1116,23 @@ export type ChatProposalKind =
   | 'add_risk'
   | 'add_decision'
   | 'record_check'
+  /**
+   * Values read off a document onto a check's declared fields.
+   *
+   * Separate from `record_check` because they are different acts: recording
+   * values is transcription, recording a result is a conclusion. A model may
+   * propose the first far more readily than the second.
+   */
+  | 'record_check_fields'
   | 'generate_report'
+  /**
+   * A change to a report's own words: a paragraph added, or one rewritten.
+   *
+   * Never a change to a bound block's text — a model may not restate what the
+   * registers say, only add prose beside it or change what a block asks for.
+   * See `report-blocks.ts`.
+   */
+  | 'edit_report'
   | 'run_valuation'
   | 'run_screen'
   | 'patch_project'
@@ -902,6 +1301,15 @@ export interface DdProject {
   risks: RiskRecord[];
   actions: ActionRecord[];
   decisions: DecisionRecord[];
+  /**
+   * Site visits, and the sheets somebody has placed on the map.
+   *
+   * Both are registers rather than fields on something else: a visit exists
+   * whether or not it produced a photograph, and a master plan sheet is
+   * consulted by several checks at once.
+   */
+  siteVisits: SiteVisitRecord[];
+  sheets: SheetRecord[];
   reports: GeneratedReport[];
   valuationRuns: ValuationRun[];
   capabilityRuns: CapabilityRun[];
@@ -1058,6 +1466,8 @@ export interface PatchProjectInput {
 export interface CreateAssetInput {
   name: string;
   assetType: string;
+  uniclassCode?: string;
+  uniclassTitle?: string;
   parentId?: string;
   currentStage?: LifecycleStage;
   zone?: string;
@@ -1068,6 +1478,8 @@ export interface CreateAssetInput {
 export interface PatchAssetInput {
   name?: string;
   assetType?: string;
+  uniclassCode?: string;
+  uniclassTitle?: string;
   description?: string;
   zone?: string;
   responsible?: string;
@@ -1111,6 +1523,7 @@ export interface CreateEvidenceInput {
   scopeInstanceIds?: string[];
   checkIds?: string[];
   fileName?: string;
+  iso19650?: Iso19650Ref;
   quotes?: Array<{ text: string; page?: number }>;
   extractionNotes?: string;
 }
@@ -1128,6 +1541,8 @@ export interface CreateFindingInput {
   assetIds?: string[];
   assessmentIds?: string[];
   evidenceIds?: string[];
+  escalation?: RicsEscalation;
+  environmentalCondition?: EnvironmentalCondition;
 }
 
 export interface CreateRiskInput {
@@ -1152,6 +1567,8 @@ export interface CreateActionInput {
   priority: FindingSeverity;
   description?: string;
   dueDate?: string;
+  costEstimate?: number;
+  costBand?: RemedialBand;
   findingIds?: string[];
   riskIds?: string[];
   evidenceIds?: string[];

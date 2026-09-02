@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
+  rule8Summary,
+  titleGraphFromProject,
   VALUATION_APPROACH_LABEL,
   VALUATION_BASIS_LABEL,
   VALUATION_PREMISE_LABEL,
@@ -11,6 +13,8 @@ import {
 import { api } from '../../lib/api';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Select, useToast } from '../../components/ui/kit';
 import { ScreenResultPanel } from '../../components/ScreenResultPanel';
+import { ValuationWorkingPanel } from '../../components/ValuationWorkingPanel';
+import { TitleChainDiagram } from '../../components/charts';
 import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 
@@ -24,6 +28,10 @@ export default function Valuation() {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const runs = [...(project.valuationRuns ?? [])].slice().reverse();
+  // Read from the project graph, which holds the title entities the screen
+  // works out — rather than from the full TitleGraph, which runScreen builds
+  // and discards.
+  const titleGraph = titleGraphFromProject(project);
   const latest = runs[0];
 
   async function run() {
@@ -81,10 +89,27 @@ export default function Valuation() {
         <EmptyState title="No valuation run yet" description="Uses land and built-up areas plus locality medians. Record areas on the project for a usable range." />
       ) : (
         <Card>
+          {/*
+            `indicatedValue` is 0 when there is no figure, and a headline of ₹0
+            is the most misleading thing this page could show — it reads as a
+            valuation of nothing rather than as no valuation. The outcome says
+            which of the three situations this is, and the headline says it in
+            words instead of printing a zero.
+          */}
           <CardHeader
-            title={money(latest.indicatedValue, latest.currency)}
-            subtitle={`${money(latest.low, latest.currency)} – ${money(latest.high, latest.currency)} · ${latest.localityLabel ?? 'no locality match'} · ${formatWhen(latest.createdAt)}`}
-            action={<Badge>{VALUATION_RUN_STATUS_LABEL[latest.status]}</Badge>}
+            title={
+              !latest.working || latest.working.reconciliation.outcome === 'indicated'
+                ? money(latest.indicatedValue, latest.currency)
+                : latest.working.reconciliation.outcome === 'approaches_disagree'
+                  ? 'No figure — the approaches disagree'
+                  : 'No figure — nothing could be run'
+            }
+            subtitle={
+              !latest.working || latest.working.reconciliation.outcome === 'indicated'
+                ? `${money(latest.low, latest.currency)} – ${money(latest.high, latest.currency)} · ${latest.localityLabel ?? 'no locality match'} · ${formatWhen(latest.createdAt)}`
+                : `${latest.working.reconciliation.spreadBasis} · ${formatWhen(latest.createdAt)}`
+            }
+            action={<Badge tone={!latest.working || latest.working.reconciliation.outcome === 'indicated' ? 'neutral' : 'warning'}>{VALUATION_RUN_STATUS_LABEL[latest.status]}</Badge>}
           />
           <CardBody className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
@@ -102,17 +127,26 @@ export default function Valuation() {
             </section>
             <section>
               <h3 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Approaches</h3>
-              <ul className="mt-2 space-y-2">
-                {latest.ibbi.approaches.map((a) => (
-                  <li key={a.approach} className="flex items-start justify-between gap-3 text-[13px]">
-                    <span>
-                      <span className="font-medium text-ink">{VALUATION_APPROACH_LABEL[a.approach]}</span>
-                      <span className="block text-ink-secondary">{a.notes}</span>
-                    </span>
-                    <span className="shrink-0 font-mono text-ink">{money(a.amount, latest.currency)}</span>
-                  </li>
-                ))}
-              </ul>
+              {/* The working when the run carries it. Runs written before the
+                  formula model exists fall back to the summary line, which is
+                  all they ever had. */}
+              {latest.working ? (
+                <div className="mt-2">
+                  <ValuationWorkingPanel working={latest.working} currency={latest.currency} />
+                </div>
+              ) : (
+                <ul className="mt-2 space-y-2">
+                  {latest.ibbi.approaches.map((a) => (
+                    <li key={a.approach} className="flex items-start justify-between gap-3 text-[13px]">
+                      <span>
+                        <span className="font-medium text-ink">{VALUATION_APPROACH_LABEL[a.approach]}</span>
+                        <span className="block text-ink-secondary">{a.notes}</span>
+                      </span>
+                      <span className="shrink-0 font-mono text-ink">{money(a.amount, latest.currency)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
             <section>
               <h3 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Reconciliation</h3>
@@ -126,6 +160,8 @@ export default function Valuation() {
                 ))}
               </ul>
             </section>
+            <Rule8Checklist sections={latest.ibbi} />
+
             <p className="font-mono text-[11px] text-ink-muted">
               Relied upon {latest.ibbi.evidenceReliedUponIds.length} · considered {latest.ibbi.evidenceConsideredIds.length} · gaps {latest.ibbi.evidenceGapIds.length}
             </p>
@@ -161,7 +197,18 @@ export default function Valuation() {
               {formatWhen(project.lastScreenResult.generatedAt)} · engine {project.lastScreenResult.engineVersion}
             </span>
           </h2>
-          <ScreenResultPanel result={project.lastScreenResult} />
+          <ScreenResultPanel result={project.lastScreenResult} askingPrice={project.budget} />
+          {titleGraph.nodes.length > 0 ? (
+            <Card>
+              <CardHeader
+                title="Title structure"
+                subtitle="Who, through what, over what, and subject to what — read left to right, the order a title opinion is written in."
+              />
+              <CardBody>
+                <TitleChainDiagram graph={titleGraph} summary={project.lastScreenResult.titleGraph} />
+              </CardBody>
+            </Card>
+          ) : null}
         </section>
       ) : null}
     </div>
@@ -175,5 +222,47 @@ function FieldSignOff({ value, onChange }: { value: ValuationSignOff; onChange: 
         <option key={k} value={k}>{VALUATION_SIGN_OFF_LABEL[k]}</option>
       ))}
     </Select>
+  );
+}
+
+/**
+ * Which of the twelve Rule 8(3) items this report answers.
+ *
+ * Computed rather than asserted, because a report that quietly omits the
+ * conflict disclosure looks exactly like one that had nothing to disclose. The
+ * notes read as instructions rather than diagnoses — the only useful thing a
+ * completeness readout can do is tell somebody what to go and do.
+ *
+ * The summary line is deliberately never congratulatory: twelve of twelve is a
+ * complete STRUCTURE, and a structure is not a certificate.
+ */
+function Rule8Checklist({ sections }: { sections: Parameters<typeof rule8Summary>[0] }) {
+  const summary = rule8Summary(sections, sections.rule8 ?? {});
+  return (
+    <section>
+      <h3 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">IBBI Rule 8(3) report contents</h3>
+      <p className="mt-1 text-[12px] text-ink-secondary">{summary.say}</p>
+      <ul className="mt-2 space-y-1">
+        {summary.rows.map((row) => (
+          <li key={row.item} className="flex items-baseline gap-2 text-[12px]">
+            <span
+              className={
+                row.status === 'stated'
+                  ? 'w-14 shrink-0 font-mono text-[10.5px] text-status-good-text'
+                  : row.status === 'partial'
+                    ? 'w-14 shrink-0 font-mono text-[10.5px] text-status-warning'
+                    : 'w-14 shrink-0 font-mono text-[10.5px] text-status-critical'
+              }
+            >
+              {row.clause}
+            </span>
+            <span className="min-w-0">
+              <span className={row.status === 'missing' ? 'text-ink-muted' : 'text-ink'}>{row.says}</span>
+              {row.note ? <span className="block text-[11px] text-ink-muted">{row.note}</span> : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

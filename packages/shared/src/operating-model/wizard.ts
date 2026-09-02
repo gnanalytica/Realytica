@@ -22,6 +22,10 @@ import {
   createAssessment,
   ensureProjectShape,
   generateReport,
+  recordCheckFields,
+  editReportBlock,
+  insertReportBlock,
+  retuneReportBlock,
   patchAsset,
   recommendedDdTypes,
   updateEvidenceStatus,
@@ -50,6 +54,7 @@ import type {
   PatchProjectInput,
   ProjectArchetype,
   ReportKind,
+  ReportBoundSource,
   ScopeKey,
 } from './types';
 import { connectorEvidenceInput } from './chat-sides';
@@ -550,6 +555,45 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
       actor,
     );
     recordId = record.id;
+  } else if (item.kind === 'record_check_fields') {
+    const outcome = recordCheckFields(project, String(payload.checkId), (payload.values ?? {}) as Record<string, unknown>, actor);
+    // A card whose values will not coerce must not commit silently: the
+    // person accepted a set of numbers, and half of them landing is worse
+    // than none.
+    if (outcome.rejected.length) throw new Error(outcome.rejected.map((r) => r.error).join(' '));
+    recordId = outcome.check.id;
+  } else if (item.kind === 'edit_report') {
+    // A report edit card carries exactly one of three shapes, and none of
+    // them can write a bound block's text — the model may add prose, rewrite
+    // prose it or somebody else wrote, or change what a block asks the
+    // registers for. `editReportBlock` refuses the fourth case outright.
+    const reportId = String(payload.reportId);
+    const blockId = typeof payload.blockId === 'string' ? payload.blockId : '';
+    if (payload.source && blockId) {
+      const record = retuneReportBlock(project, reportId, blockId, payload.source as ReportBoundSource, actor);
+      recordId = record.id;
+    } else if (blockId) {
+      const record = editReportBlock(
+        project,
+        reportId,
+        blockId,
+        { text: typeof payload.text === 'string' ? payload.text : undefined, heading: typeof payload.heading === 'string' ? payload.heading : undefined },
+        actor,
+      );
+      recordId = record.id;
+    } else {
+      const record = insertReportBlock(
+        project,
+        reportId,
+        {
+          heading: typeof payload.heading === 'string' ? payload.heading : undefined,
+          text: typeof payload.text === 'string' ? payload.text : '',
+          afterBlockId: typeof payload.afterBlockId === 'string' ? payload.afterBlockId : undefined,
+        },
+        actor,
+      );
+      recordId = record.id;
+    }
   } else if (item.kind === 'run_valuation') {
     const record = createValuationRun(project, actor);
     recordId = record.id;

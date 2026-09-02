@@ -3,14 +3,31 @@ import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   EVIDENCE_KIND_LABEL,
   EVIDENCE_STATUS_LABEL,
+  CAPTURE_PURPOSES,
+  CAPTURE_PURPOSE_LABEL,
+  ENVIRONMENTAL_CONDITION_CAVEAT,
+  ENVIRONMENTAL_CONDITION_LABEL,
   FINDING_STATUS_LABEL,
+  RICS_RATING_LABEL,
   SCOPE_LABEL,
   SEVERITY_LABEL,
+  describeCapture,
+  observationIsUseful,
+  iso19650Completeness,
+  iso19650Name,
   quotesForEvidence,
+  ricsConditionRating,
+  type CapturePurpose,
+  type EnvironmentalCondition,
+  type EvidenceAttachment,
+  type EvidenceRecord,
   type EvidenceKind,
   type EvidenceStatus,
+  type FindingRecord,
   type FindingSeverity,
   type FindingStatus,
+  type Iso19650Ref,
+  type RicsEscalation,
   type ScopeKey,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
@@ -48,6 +65,8 @@ export function EvidenceRegister() {
   const [title, setTitle] = useState('');
   const [kind, setKind] = useState<EvidenceKind>('document');
   const [source, setSource] = useState('');
+  const [iso, setIso] = useState<Iso19650Ref>({});
+  const [reading, setReading] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -60,10 +79,18 @@ export function EvidenceRegister() {
   async function add() {
     setBusy(true);
     try {
-      await api.addEvidence(project.id, { title, kind, source: source || undefined, status: 'received', assessmentIds: assessmentId ? [assessmentId] : [] });
+      await api.addEvidence(project.id, {
+        title,
+        kind,
+        source: source || undefined,
+        status: 'received',
+        assessmentIds: assessmentId ? [assessmentId] : [],
+        iso19650: Object.values(iso).some(Boolean) ? iso : undefined,
+      });
       setProject(await api.getProject(project.id));
       setOpen(false);
       setTitle('');
+      setIso({});
       toast('Evidence recorded', 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not add evidence', 'critical');
@@ -78,6 +105,32 @@ export function EvidenceRegister() {
       setProject(await api.getProject(project.id));
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not update', 'critical');
+    }
+  }
+
+  async function readPhoto(evidenceId: string, fileId: string) {
+    setReading(fileId);
+    try {
+      const out = await api.readPhotographs(project.id, { evidenceId, fileId });
+      setProject(await api.getProject(project.id));
+      const first = out.results?.[0];
+      if (first?.error) toast(first.error, 'warning');
+      else if (out.drafts) toast(`Read — ${out.drafts} finding(s) proposed for review`, 'good');
+      else if (out.documents) toast('That is a photographed document — read through extraction instead', 'good');
+      else toast('Read', 'good');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not read that photograph', 'critical');
+    } finally {
+      setReading(null);
+    }
+  }
+
+  async function setCapture(evidenceId: string, fileId: string, body: Parameters<typeof api.setCapture>[3]) {
+    try {
+      await api.setCapture(project.id, evidenceId, fileId, body);
+      setProject(await api.getProject(project.id));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not describe the capture', 'critical');
     }
   }
 
@@ -115,19 +168,41 @@ export function EvidenceRegister() {
                     {e.used ? ' · used' : e.considered ? ' · considered' : ''}
                     {(e.attachments ?? []).length ? ` · ${e.attachments.length} file(s)` : ''}
                   </p>
-                  {(e.attachments ?? []).length ? (
-                    <p className="mt-1 flex flex-wrap gap-2">
-                      {e.attachments.map((f) => (
-                        <button
-                          key={f.id}
-                          type="button"
-                          onClick={() => setProofId(e.id)}
-                          className="text-[12px] text-brand underline"
-                        >
-                          {f.fileName}
-                        </button>
-                      ))}
+                  {e.iso19650 ? (
+                    // Derived from the parts, never stored — the name is a view
+                    // of the reference, and two copies of it would drift.
+                    <p
+                      className="mt-0.5 font-mono text-[11px] text-ink-muted"
+                      title={`ISO 19650 information container name. XX is the standard's own placeholder for a part nobody has recorded — ${iso19650Completeness(e.iso19650).known} of ${iso19650Completeness(e.iso19650).total} known.`}
+                    >
+                      {iso19650Name(project.reference, e.iso19650)}
                     </p>
+                  ) : null}
+                  {(e.attachments ?? []).length ? (
+                    <ul className="mt-1 space-y-1">
+                      {e.attachments.map((f) => (
+                        <li key={f.id}>
+                          <button type="button" onClick={() => setProofId(e.id)} className="text-[12px] text-brand underline">
+                            {f.fileName}
+                          </button>
+                          {f.mimeType.startsWith('image/') ? (
+                            <>
+                              <CaptureStrip
+                                evidence={e}
+                                attachment={f}
+                                visits={project.siteVisits ?? []}
+                                onChange={(body) => void setCapture(e.id, f.id, body)}
+                              />
+                              <ObservationStrip
+                                attachment={f}
+                                busy={reading === f.id}
+                                onRead={() => void readPhoto(e.id, f.id)}
+                              />
+                            </>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
                   ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -214,6 +289,34 @@ export function EvidenceRegister() {
             </Select>
           </Field>
           <Field label="Source"><Input value={source} onChange={(e) => setSource(e.target.value)} /></Field>
+          {/* Every part optional, and the name still forms. A pack collects
+              documents from a dozen sources and most arrive with none of this
+              known; refusing to name anything until all six are filled would
+              mean naming nothing. Unknown parts become the standard's own XX. */}
+          <Field
+            label="Document reference (ISO 19650)"
+            hint={`Optional, part by part. This one would be named ${iso19650Name(project.reference, iso)}.`}
+          >
+            <div className="grid grid-cols-3 gap-2">
+              {(
+                [
+                  ['originator', 'Originator'],
+                  ['volume', 'Volume'],
+                  ['level', 'Level'],
+                  ['type', 'Type (DR/SP/RP)'],
+                  ['role', 'Role (A/C/S/K/M)'],
+                  ['number', 'Number'],
+                ] as [keyof Iso19650Ref, string][]
+              ).map(([key, label]) => (
+                <Input
+                  key={key}
+                  placeholder={label}
+                  value={iso[key] ?? ''}
+                  onChange={(e) => setIso((prev) => ({ ...prev, [key]: e.target.value }))}
+                />
+              ))}
+            </div>
+          </Field>
         </div>
       </Modal>
     </div>
@@ -258,6 +361,15 @@ export function FindingRegister() {
     }
   }
 
+  async function classify(id: string, body: { escalation?: RicsEscalation | null; environmentalCondition?: EnvironmentalCondition | null }) {
+    try {
+      await api.classifyFinding(project.id, id, body);
+      setProject(await api.getProject(project.id));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not classify', 'critical');
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -282,7 +394,10 @@ export function FindingRegister() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge tone={severityTone(f.severity)}>{SEVERITY_LABEL[f.severity]}</Badge>
+                    {/* Derived from the severity beside it, never stored — see `ricsConditionRating`. */}
+                    <Badge tone={severityTone(f.severity)} title={`RICS condition rating ${ricsConditionRating(f.severity)}: ${RICS_RATING_LABEL[ricsConditionRating(f.severity)]}`}>
+                      {ricsConditionRating(f.severity)} · {SEVERITY_LABEL[f.severity]}
+                    </Badge>
                     <Select value={f.status} onChange={(e) => void setStatus(f.id, e.target.value as FindingStatus)}>
                       {FINDING_STATUSES.map((s) => (
                         <option key={s} value={s}>{FINDING_STATUS_LABEL[s]}</option>
@@ -290,6 +405,7 @@ export function FindingRegister() {
                     </Select>
                   </div>
                 </div>
+                <FindingClassification finding={f} onChange={(body) => void classify(f.id, body)} />
               </LiveRow>
             ))}
           </CardBody>
@@ -325,6 +441,213 @@ export function FindingRegister() {
           </Field>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * The two things a severity cannot say.
+ *
+ * "Serious" and "somebody could be hurt today" are different questions, and
+ * RICS keeps them apart: the rating grades the defect, the escalation records
+ * that a person was told before the report existed. So the toggle is its own
+ * control rather than a fifth severity — and once it is on, the row asks who
+ * was notified, because an escalated defect with nobody named is the gap worth
+ * showing rather than the one worth hiding.
+ *
+ * The environmental class is on every finding rather than only the ESG ones:
+ * contamination surfaces under legal (an indemnity), technical (a slab) and
+ * ESG alike, and hiding the field behind a discipline would mean the finding
+ * that most needs the word cannot carry it.
+ */
+function FindingClassification({
+  finding,
+  onChange,
+}: {
+  finding: FindingRecord;
+  onChange: (body: { escalation?: RicsEscalation | null; environmentalCondition?: EnvironmentalCondition | null }) => void;
+}) {
+  const escalated = finding.escalation?.immediateAction ?? false;
+  const [notified, setNotified] = useState(finding.escalation?.notifiedTo ?? '');
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-ink-muted">
+      <label className="flex items-center gap-1.5">
+        <input
+          type="checkbox"
+          checked={escalated}
+          onChange={(e) =>
+            onChange({
+              escalation: e.target.checked
+                ? { immediateAction: true, notifiedTo: notified.trim() || undefined, notifiedAt: new Date().toISOString().slice(0, 10) }
+                : null,
+            })
+          }
+        />
+        Immediate action
+      </label>
+      {escalated ? (
+        <span className="flex items-center gap-1.5">
+          <Input
+            className="h-6 w-40 text-[11px]"
+            placeholder="Who was told"
+            value={notified}
+            onChange={(e) => setNotified(e.target.value)}
+            onBlur={() =>
+              onChange({ escalation: { immediateAction: true, notifiedTo: notified.trim() || undefined, notifiedAt: finding.escalation?.notifiedAt } })
+            }
+          />
+          {finding.escalation?.notifiedTo ? (
+            <span>notified{finding.escalation.notifiedAt ? ` on ${finding.escalation.notifiedAt}` : ''}</span>
+          ) : (
+            <span className="text-status-warning">nobody recorded as notified</span>
+          )}
+        </span>
+      ) : null}
+      <span className="flex items-center gap-1.5">
+        <Select
+          className="h-6 text-[11px]"
+          value={finding.environmentalCondition ?? ''}
+          onChange={(e) => onChange({ environmentalCondition: (e.target.value || null) as EnvironmentalCondition | null })}
+        >
+          <option value="">Not an environmental finding</option>
+          {(Object.keys(ENVIRONMENTAL_CONDITION_LABEL) as EnvironmentalCondition[]).map((c) => (
+            <option key={c} value={c}>{ENVIRONMENTAL_CONDITION_LABEL[c].split(' — ')[0]}</option>
+          ))}
+        </Select>
+        {finding.environmentalCondition ? <span title={ENVIRONMENTAL_CONDITION_CAVEAT}>ASTM E1527 · vocabulary only, no US liability protection</span> : null}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * What a photograph says about itself, and the two things a person adds.
+ *
+ * The line above the controls is `describeCapture` — one function, so the
+ * register, the check panel, the report and an agent's reading of a photograph
+ * all say the same sentence with the same caveats. It names the SOURCE of
+ * every fact, because "geotagged" and "somebody says this is the north
+ * boundary" are different strengths of claim.
+ *
+ * Only purpose and visit are editable here. Position and taken-at are the
+ * camera's, and while they can be corrected (on the proof view, where the
+ * photograph is actually visible), doing it from a list of filenames is how a
+ * coordinate gets typed against the wrong shot.
+ */
+function CaptureStrip({
+  evidence,
+  attachment,
+  visits,
+  onChange,
+}: {
+  evidence: EvidenceRecord;
+  attachment: EvidenceAttachment;
+  visits: Array<{ id: string; title: string; visitedOn: string }>;
+  onChange: (body: { purpose?: CapturePurpose; visitId?: string; caption?: string }) => void;
+}) {
+  const capture = attachment.capture;
+  return (
+    <div className="ml-0.5 mt-0.5 space-y-1 border-l border-hairline pl-2">
+      <p className="text-[11px] text-ink-muted">{describeCapture(capture)}</p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Select
+          className="h-6 text-[11px]"
+          value={capture?.purpose ?? ''}
+          onChange={(e) => onChange({ purpose: (e.target.value || undefined) as CapturePurpose | undefined })}
+          aria-label={`Purpose of ${attachment.fileName}`}
+        >
+          <option value="">No purpose recorded</option>
+          {CAPTURE_PURPOSES.map((p) => (
+            <option key={p} value={p}>{CAPTURE_PURPOSE_LABEL[p]}</option>
+          ))}
+        </Select>
+        {visits.length ? (
+          <Select
+            className="h-6 text-[11px]"
+            value={capture?.visitId ?? ''}
+            onChange={(e) => onChange({ visitId: e.target.value })}
+            aria-label={`Visit for ${attachment.fileName}`}
+          >
+            <option value="">Not on a recorded visit</option>
+            {visits.map((v) => (
+              <option key={v.id} value={v.id}>{v.title} — {v.visitedOn}</option>
+            ))}
+          </Select>
+        ) : null}
+        <span className="sr-only">{evidence.title}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What a model saw, under what a person said, never mixed with it.
+ *
+ * Rendered as a quotation rather than as file content: the "Read by
+ * claude-…" prefix is the cheapest possible guard against a description
+ * acquiring the file's own voice, and it is the same guard `describeObservation`
+ * puts on the graph node and the report.
+ *
+ * The proposed findings are COUNTED here and shown nowhere else. They live on
+ * the AI drafts pane, where accepting one is a deliberate act with the whole
+ * card in front of you — showing them inline would put a model's guess at a
+ * defect in the same visual register as a filed observation, one glance away
+ * from being read as a finding.
+ */
+function ObservationStrip({
+  attachment,
+  busy,
+  onRead,
+}: {
+  attachment: EvidenceAttachment;
+  busy: boolean;
+  onRead: () => void;
+}) {
+  const observation = attachment.observation;
+
+  if (!observation) {
+    return (
+      <button type="button" disabled={busy} onClick={onRead} className="ml-0.5 mt-0.5 block text-[11px] text-brand underline disabled:opacity-50">
+        {busy ? 'Reading…' : 'Read this photograph'}
+      </button>
+    );
+  }
+
+  if (!observationIsUseful(observation)) {
+    // A photograph a model could not read is a different thing from one
+    // nobody has looked at, and the file says which.
+    return (
+      <p className="ml-0.5 mt-0.5 border-l border-hairline pl-2 text-[11px] text-ink-muted">
+        Could not be read: {observation.limits ?? 'no reason recorded'}.{' '}
+        <button type="button" disabled={busy} onClick={onRead} className="text-brand underline disabled:opacity-50">
+          try again
+        </button>
+      </p>
+    );
+  }
+
+  return (
+    <div className="ml-0.5 mt-0.5 space-y-1 border-l-2 border-brand/30 pl-2">
+      <p className="text-[11px] text-ink-secondary">
+        <span className="text-ink-muted">Read by {observation.model}:</span> {observation.description}
+      </p>
+      {observation.notes.length ? (
+        <ul className="space-y-0.5">
+          {observation.notes.map((n, i) => (
+            <li key={i} className="text-[11px] text-ink-secondary">
+              {n.text}
+              <span className="text-ink-muted"> — {(n.confidence * 100).toFixed(0)}% sure{n.wouldSettle ? `; ${n.wouldSettle} would settle it` : ''}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {observation.limits ? <p className="text-[11px] text-ink-muted">Not shown by this photograph: {observation.limits}</p> : null}
+      {observation.suggestedFindings.length ? (
+        <p className="text-[11px] text-status-warning">
+          {observation.suggestedFindings.length} finding(s) proposed — waiting for review on the AI drafts pane.
+        </p>
+      ) : null}
     </div>
   );
 }

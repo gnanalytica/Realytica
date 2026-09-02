@@ -10,10 +10,30 @@ import {
   PROJECT_ARCHETYPES,
   SCOPE_DEFINITIONS,
   addAction,
+  CAPTURE_PURPOSE_LABEL,
+  captureConcerns,
+  patchSiteVisit,
+  recordPhotoObservation,
+  unreadPhotographs,
+  readSheetFit,
+  sheetPlacements,
+  visitCoverage,
+  removeSheet,
+  setActionCost,
+  setValuationValuer,
+  valuationRule8,
+  setAttachmentCapture,
+  setSheetControlPoints,
+  type CaptureFacts,
+  type CapturePurpose,
   addAsset,
   addDecision,
   addEvidence,
   addFinding,
+  addSheet,
+  addSiteVisit,
+  classifyFinding,
+  CAPTURE_PURPOSES,
   addRisk,
   attachEvidenceFile,
   buildProjectGraph,
@@ -30,6 +50,18 @@ import {
   proposeAiDrafts,
   recordCheckResult,
   refreshProjectDerived,
+  checkFieldReading,
+  findCheck,
+  recordCheckFields,
+  detachReportBlock,
+  editReportBlock,
+  insertReportBlock,
+  issueReport,
+  moveReportBlock,
+  reattachReportBlock,
+  removeReportBlock,
+  reportDrift,
+  retuneReportBlock,
   reviewAiDraft,
   runProjectOrchestrator,
   setAssessmentStatus,
@@ -66,6 +98,7 @@ import {
   agentCapability,
   describeError,
   enrichIngestWithDocumentIntelligence,
+  runPhotoIntelligence,
   extractFactsFromProject,
   recallForProject,
   renderMemoryForPrompt,
@@ -74,6 +107,17 @@ import {
   runProjectOrchestratorAgent,
   textOf,
 } from '@realytica/agents';
+import { readExifCapture } from '../exif';
+
+/**
+ * A hard ceiling on one read request.
+ *
+ * A site visit produces forty photographs and each read is a vision call, so
+ * an unbounded run is a bill nobody agreed to. Twelve is roughly one visit's
+ * worth of the shots that matter; a caller with more asks again, which is a
+ * decision they take with the first bill in front of them.
+ */
+const PHOTO_READ_CAP = 12;
 import { memoryStore } from '../memory';
 import { gatherChatSides } from '../project-chat-sides';
 import { ensureIdentitySiteContext } from '../site-context';
@@ -92,13 +136,26 @@ import {
   changeStageBodySchema,
   createActionBodySchema,
   createAssessmentBodySchema,
+  classifyFindingBodySchema,
   createAssetBodySchema,
   createDecisionBodySchema,
   createEvidenceBodySchema,
   createFindingBodySchema,
+  createSheetBodySchema,
+  setValuerBodySchema,
+  createSiteVisitBodySchema,
+  patchSiteVisitBodySchema,
+  setActionCostBodySchema,
+  setCaptureBodySchema,
+  setControlPointsBodySchema,
   createProjectBodySchema,
   createRiskBodySchema,
+  editReportBlockBodySchema,
   generateReportBodySchema,
+  recordCheckFieldsBodySchema,
+  insertReportBlockBodySchema,
+  moveReportBlockBodySchema,
+  retuneReportBlockBodySchema,
   linkFindingBodySchema,
   patchEvidenceBodySchema,
   patchProjectBodySchema,
@@ -538,6 +595,41 @@ projectsRouter.patch('/:projectId/valuation/:runId', async (req, res) => {
   } catch (err) {
     fail(res, err);
   }
+});
+
+projectsRouter.patch('/:projectId/valuation/:runId/valuer', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = setValuerBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const run = setValuationValuer(project, req.params.runId, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Recorded the valuer on this valuation.`, { citedNodeIds: [run.id] });
+    res.json({ run, rule8: valuationRule8(run) });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** Which of the twelve Rule 8(3) items this run answers, computed fresh. */
+projectsRouter.get('/:projectId/valuation/:runId/rule8', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const run = project.valuationRuns.find((r) => r.id === req.params.runId);
+  if (!run) {
+    res.status(404).json({ error: 'Valuation run not found' });
+    return;
+  }
+  res.json(valuationRule8(run));
 });
 
 projectsRouter.post('/:projectId/capabilities', async (req, res) => {
@@ -1164,6 +1256,61 @@ projectsRouter.post('/:projectId/checks/:checkId', async (req, res) => {
   }
 });
 
+/** What this check records, what it holds, and what those numbers say. */
+projectsRouter.get('/:projectId/checks/:checkId/fields', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    const { check } = findCheck(project, req.params.checkId);
+    res.json({ checkId: check.id, title: check.title, ...checkFieldReading(check) });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * Write values onto a check.
+ *
+ * All or nothing: a rejected value takes the whole write with it, and the
+ * reasons come back per field so the caller can fix them rather than guess.
+ * Writing values never records a result — what the numbers mean is arithmetic,
+ * whether the check passes is somebody's judgement.
+ */
+projectsRouter.put('/:projectId/checks/:checkId/fields', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = recordCheckFieldsBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const outcome = recordCheckFields(
+      project,
+      req.params.checkId,
+      parsed.data.values,
+      actorOf(parsed.data),
+      parsed.data.sourceEvidenceId,
+    );
+    if (outcome.rejected.length) {
+      res.status(400).json({ error: outcome.rejected.map((r) => r.error).join(' '), rejected: outcome.rejected });
+      return;
+    }
+    await persistPaneWrite(project, `Recorded ${Object.keys(parsed.data.values).length} value(s) on “${outcome.check.title}”.`, {
+      citedNodeIds: [outcome.check.id],
+    });
+    res.json({ checkId: outcome.check.id, ...outcome.reading, project });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 projectsRouter.post('/:projectId/evidence', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -1228,10 +1375,59 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
     res.status(400).json({ error: 'No files uploaded' });
     return;
   }
+  /*
+   * Capture mapping, sent as plain multipart fields beside the files.
+   *
+   * Applied to IMAGES only. A deed dropped into the same batch does not
+   * inherit "north boundary, valuation inspection" just because the uploader
+   * was standing somewhere when they picked the files — a scanned conveyance
+   * has no capture facts, and giving it some would turn the moment somebody
+   * dragged a file into the browser into a statement about the property.
+   *
+   * An unknown purpose or a visit that is not on this file is a 400 rather
+   * than a silent drop: the person typed a mapping, and losing it quietly is
+   * how the mapping stops happening.
+   */
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const rawPurpose = typeof body.purpose === 'string' ? body.purpose.trim() : '';
+  if (rawPurpose && !(CAPTURE_PURPOSES as readonly string[]).includes(rawPurpose)) {
+    res.status(400).json({ error: `Unknown capture purpose "${rawPurpose}"` });
+    return;
+  }
+  const visitId = typeof body.visitId === 'string' && body.visitId.trim() ? body.visitId.trim() : undefined;
+  if (visitId && !(project.siteVisits ?? []).some((v) => v.id === visitId)) {
+    res.status(400).json({ error: 'Site visit not found on this project' });
+    return;
+  }
+  const assetId = typeof body.assetId === 'string' && body.assetId.trim() ? body.assetId.trim() : undefined;
+  if (assetId && !project.assets.some((a) => a.id === assetId)) {
+    res.status(400).json({ error: 'Asset not found on this project' });
+    return;
+  }
+  const zone = typeof body.zone === 'string' ? body.zone.trim().slice(0, 120) : '';
+
   try {
     const attached = [];
     for (const file of files) {
       const storageKey = documentKey({ id: randomUUID(), fileName: file.originalname });
+      const isImage = file.mimetype.startsWith('image/');
+      // The phone already stamped where and when the shot was taken. Asking
+      // somebody to retype what the file carries is how it stops being
+      // recorded at all — and the source is kept so a coordinate read off the
+      // file never reads like one a person vouched for.
+      const exif = isImage ? readExifCapture(file.buffer) : {};
+      const capture: CaptureFacts = isImage
+        ? {
+            ...(rawPurpose ? { purpose: rawPurpose as CapturePurpose } : {}),
+            ...(visitId ? { visitId } : {}),
+            ...(assetId ? { assetId } : {}),
+            ...(zone ? { zone } : {}),
+            ...(exif.takenAt ? { takenAt: exif.takenAt, takenAtSource: 'exif' as const } : {}),
+            ...(exif.lat !== undefined && exif.lng !== undefined
+              ? { lat: exif.lat, lng: exif.lng, latLngSource: 'exif' as const }
+              : {}),
+          }
+        : {};
       await storageAdapter.putDocument(project.id, storageKey, file.buffer, file.mimetype);
       attached.push(
         attachEvidenceFile(
@@ -1242,6 +1438,7 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
             mimeType: file.mimetype,
             sizeBytes: file.size,
             storageKey,
+            capture,
           },
           actorOf(req.body as { actor?: string } | undefined),
         ),
@@ -1359,6 +1556,26 @@ projectsRouter.patch('/:projectId/findings/:findingId', async (req, res) => {
   }
 });
 
+projectsRouter.patch('/:projectId/findings/:findingId/classification', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = classifyFindingBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = classifyFinding(project, req.params.findingId, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Classified finding “${record.title}”.`, { citedNodeIds: [record.id] });
+    res.json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 projectsRouter.post('/:projectId/risks', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -1431,6 +1648,26 @@ projectsRouter.patch('/:projectId/actions/:actionId', async (req, res) => {
   }
 });
 
+projectsRouter.patch('/:projectId/actions/:actionId/cost', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = setActionCostBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = setActionCost(project, req.params.actionId, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Priced action “${record.title}”.`, { citedNodeIds: [record.id] });
+    res.json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 projectsRouter.post('/:projectId/decisions', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -1467,6 +1704,242 @@ projectsRouter.patch('/:projectId/decisions/:decisionId', async (req, res) => {
   }
 });
 
+/* ==================================================================== */
+/* Site visits, capture and sheets                                       */
+/* ==================================================================== */
+
+projectsRouter.post('/:projectId/visits', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = createSiteVisitBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = addSiteVisit(project, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Recorded site visit “${record.title}”.`, { citedNodeIds: [record.id] });
+    res.status(201).json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+projectsRouter.patch('/:projectId/visits/:visitId', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = patchSiteVisitBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = patchSiteVisit(project, req.params.visitId, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Updated site visit “${record.title}”.`, { citedNodeIds: [record.id] });
+    res.json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+projectsRouter.get('/:projectId/visits', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  res.json({ visits: project.siteVisits ?? [], coverage: visitCoverage(project), concerns: captureConcerns(project) });
+});
+
+projectsRouter.patch('/:projectId/evidence/:evidenceId/files/:fileId/capture', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = setCaptureBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const attachment = setAttachmentCapture(project, req.params.evidenceId, req.params.fileId, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Described capture of “${attachment.fileName}”.`, { citedEvidenceIds: [req.params.evidenceId] });
+    res.json(attachment);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * Read the photographs on this file.
+ *
+ * One at a time when a `fileId` is given, otherwise every image no model has
+ * looked at yet. Bounded concurrency and a hard cap, because a site visit
+ * produces forty photographs and an unbounded fan-out over forty vision calls
+ * is a bill nobody agreed to.
+ *
+ * A photographed DOCUMENT is handed straight to the extraction path rather
+ * than described: a khata extract shot on a phone is worth the survey number
+ * on it, not a sentence about a printed page. The photo agent's contribution
+ * on that branch is the routing decision, which is exactly what it is for.
+ */
+projectsRouter.post('/:projectId/photographs/read', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const body = (req.body ?? {}) as { fileId?: string; evidenceId?: string; limit?: number; actor?: string };
+  const actor = actorOf(body);
+
+  const targets = body.fileId && body.evidenceId
+    ? project.evidence
+        .filter((e) => e.id === body.evidenceId)
+        .flatMap((e) => e.attachments.filter((a) => a.id === body.fileId).map((a) => ({ evidenceId: e.id, attachment: a })))
+    : unreadPhotographs(project).slice(0, Math.max(1, Math.min(PHOTO_READ_CAP, body.limit ?? PHOTO_READ_CAP)));
+
+  if (!targets.length) {
+    res.json({ read: 0, drafts: 0, documents: 0, note: 'No unread photograph on this file.' });
+    return;
+  }
+
+  const identity = projectToIdentity(project);
+  let drafts = 0;
+  let documents = 0;
+  const results: Array<{ fileName: string; subject: string; notes: number; error?: string }> = [];
+
+  for (const target of targets) {
+    const bytes = await storageAdapter.getDocument(project.id, target.attachment.storageKey);
+    const capture = target.attachment.capture;
+    const outcome = await runPhotoIntelligence({
+      projectId: project.id,
+      evidenceId: target.evidenceId,
+      attachmentId: target.attachment.id,
+      fileName: target.attachment.fileName,
+      mimeType: target.attachment.mimeType,
+      fileBytes: bytes ? Buffer.from(bytes) : null,
+      identity,
+      purposeLabel: capture?.purpose ? CAPTURE_PURPOSE_LABEL[capture.purpose] : undefined,
+      zone: capture?.zone,
+      takenAt: capture?.takenAt,
+    });
+
+    // Filed whatever the outcome. An empty observation carrying "we could not
+    // read this one, here is why" is a materially different thing on a
+    // diligence file from a photograph nobody has looked at yet, and a batch
+    // that silently left twenty blank would erase that difference.
+    const { drafts: made } = recordPhotoObservation(project, target.evidenceId, target.attachment.id, outcome.observation, actor);
+    drafts += made.length;
+
+    if (outcome.isDocument && bytes) {
+      documents += 1;
+      // The same bytes, through the agent that reads documents properly. Its
+      // notes land on the evidence row, where an extraction's output belongs.
+      const enriched = await enrichIngestWithDocumentIntelligence({
+        project,
+        files: [
+          {
+            fileName: target.attachment.fileName,
+            mimeType: target.attachment.mimeType,
+            sizeBytes: target.attachment.sizeBytes,
+            storageKey: target.attachment.storageKey,
+          },
+        ],
+        buffers: [Buffer.from(bytes)],
+      });
+      const row = project.evidence.find((e) => e.id === target.evidenceId);
+      if (row && enriched[0]?.extractionNotes) row.extractionNotes = enriched[0].extractionNotes;
+      if (row && enriched[0]?.quotes?.length) row.quotes = enriched[0].quotes;
+    }
+
+    results.push({
+      fileName: target.attachment.fileName,
+      subject: outcome.observation.subject,
+      notes: outcome.observation.notes.length,
+      ...(outcome.run.error ? { error: outcome.run.error } : {}),
+    });
+  }
+
+  await persistPaneWrite(project, `Read ${targets.length} photograph(s) — ${drafts} proposed finding(s).`, {
+    citedEvidenceIds: [...new Set(targets.map((t) => t.evidenceId))],
+  });
+  res.json({ read: targets.length, drafts, documents, results });
+});
+
+projectsRouter.get('/:projectId/sheets', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  // The fit is worked out here rather than stored, so a sheet can never carry
+  // a placement from control points that were since moved.
+  res.json({ sheets: sheetPlacements(project) });
+});
+
+projectsRouter.post('/:projectId/sheets', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = createSheetBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = addSheet(project, parsed.data, actorOf(parsed.data));
+    await persistPaneWrite(project, `Added sheet “${record.title}”.`, { citedEvidenceIds: [record.evidenceId] });
+    res.status(201).json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+projectsRouter.put('/:projectId/sheets/:sheetId/control-points', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = setControlPointsBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const sheet = setSheetControlPoints(project, req.params.sheetId, parsed.data.points, actorOf(parsed.data));
+    const reading = readSheetFit(sheet.controlPoints);
+    await persistPaneWrite(project, `Placed sheet “${sheet.title}” — ${reading.say}`, { citedNodeIds: [sheet.id] });
+    res.json({ sheet, reading });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+projectsRouter.delete('/:projectId/sheets/:sheetId', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    removeSheet(project, req.params.sheetId, actorOf(req.body as { actor?: string } | undefined));
+    await store.save();
+    res.status(204).end();
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 projectsRouter.post('/:projectId/reports', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -1485,4 +1958,138 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
   );
   await persistPaneWrite(project, `Generated “${report.title}”.`, { citedNodeIds: [report.id] });
   res.status(201).json(report);
+});
+
+/* ==================================================================== */
+/* Editing a report                                                      */
+/* ==================================================================== */
+
+/**
+ * One handler for every block operation.
+ *
+ * The operations themselves refuse what must be refused — writing into a
+ * bound block, editing an issued report — by throwing with the reason a
+ * person needs to read. Catching here and returning that reason as a 400
+ * keeps the rule in one place: the route never re-implements a judgement the
+ * operating model has already made.
+ */
+async function reportEdit(
+  req: Parameters<Parameters<typeof projectsRouter.post>[1]>[0],
+  res: Parameters<Parameters<typeof projectsRouter.post>[1]>[1],
+  work: (project: DdProject, actor: string) => { note: string; cited?: string[]; body?: unknown },
+): Promise<void> {
+  const project = findProject(req.params.projectId as string);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const actor = actorOf((req.body ?? {}) as { actor?: string });
+  let outcome: { note: string; cited?: string[]; body?: unknown };
+  try {
+    outcome = work(project, actor);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'That change could not be made.' });
+    return;
+  }
+  await persistPaneWrite(project, outcome.note, { citedNodeIds: outcome.cited });
+  res.json(outcome.body ?? project.reports.find((r) => r.id === req.params.reportId));
+}
+
+projectsRouter.post('/:projectId/reports/:reportId/blocks', async (req, res) => {
+  const parsed = insertReportBlockBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  await reportEdit(req, res, (project, actor) => {
+    const block = insertReportBlock(project, req.params.reportId, parsed.data, actor);
+    return { note: parsed.data.source ? 'Added a live section to the report.' : 'Added a section to the report.', cited: [block.id] };
+  });
+});
+
+projectsRouter.patch('/:projectId/reports/:reportId/blocks/:blockId', async (req, res) => {
+  const parsed = editReportBlockBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  await reportEdit(req, res, (project, actor) => {
+    editReportBlock(project, req.params.reportId, req.params.blockId, parsed.data, actor);
+    return { note: 'Edited the report.', cited: [req.params.blockId] };
+  });
+});
+
+projectsRouter.put('/:projectId/reports/:reportId/blocks/:blockId/source', async (req, res) => {
+  const parsed = retuneReportBlockBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  await reportEdit(req, res, (project, actor) => {
+    retuneReportBlock(project, req.params.reportId, req.params.blockId, parsed.data.source, actor);
+    return { note: 'Changed what that section reads.', cited: [req.params.blockId] };
+  });
+});
+
+projectsRouter.post('/:projectId/reports/:reportId/blocks/:blockId/detach', async (req, res) => {
+  await reportEdit(req, res, (project, actor) => {
+    const block = detachReportBlock(project, req.params.reportId, req.params.blockId, actor);
+    return { note: `“${block.heading ?? 'A section'}” is no longer reading the registers.`, cited: [block.id] };
+  });
+});
+
+projectsRouter.post('/:projectId/reports/:reportId/blocks/:blockId/reattach', async (req, res) => {
+  await reportEdit(req, res, (project, actor) => {
+    reattachReportBlock(project, req.params.reportId, req.params.blockId, actor);
+    return { note: 'That section reads the registers again.', cited: [req.params.blockId] };
+  });
+});
+
+projectsRouter.post('/:projectId/reports/:reportId/blocks/:blockId/move', async (req, res) => {
+  const parsed = moveReportBlockBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  await reportEdit(req, res, (project, actor) => {
+    moveReportBlock(project, req.params.reportId, req.params.blockId, parsed.data.toIndex, actor);
+    return { note: 'Moved a section.', cited: [req.params.blockId] };
+  });
+});
+
+projectsRouter.delete('/:projectId/reports/:reportId/blocks/:blockId', async (req, res) => {
+  await reportEdit(req, res, (project, actor) => {
+    removeReportBlock(project, req.params.reportId, req.params.blockId, actor);
+    return { note: 'Removed a section from the report. Nothing in the registers changed.' };
+  });
+});
+
+/**
+ * Issue the report, which is the moment it stops moving.
+ *
+ * Irreversible on purpose: the alternative is an issued document that quietly
+ * keeps updating after somebody has relied on it, and that failure is silent
+ * where this one is merely inconvenient. A later version is a new report.
+ */
+projectsRouter.post('/:projectId/reports/:reportId/issue', async (req, res) => {
+  await reportEdit(req, res, (project, actor) => {
+    const report = issueReport(project, req.params.reportId, actor);
+    return { note: `Issued “${report.title}”. It is frozen at what it said just now.`, cited: [report.id], body: report };
+  });
+});
+
+/** What the registers have done since this report was issued. */
+projectsRouter.get('/:projectId/reports/:reportId/drift', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  refreshProjectDerived(project);
+  const report = project.reports.find((r) => r.id === req.params.reportId);
+  if (!report) {
+    res.status(404).json({ error: 'Report not found' });
+    return;
+  }
+  res.json({ reportId: report.id, status: report.status, rows: reportDrift(project, report.body.blocks) });
 });
