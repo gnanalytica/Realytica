@@ -97,15 +97,12 @@ export default function Overview() {
           value={String(dash.ddProgress.filter((d) => d.status === 'active' || d.status === 'in_review').length)}
         />
       </div>
-      <p className="text-[11px] text-ink-muted">
-        Library completeness {dash.evidenceCompleteness.percent}% ({dash.evidenceCompleteness.missing} expected rows) is the long tail — not today’s pack.
-      </p>
 
       {tolerances.length > 0 ? (
         <Card>
           <CardHeader
-            title="Where the numbers disagree"
-            subtitle="Every comparison on this file, plotted as a multiple of its own tolerance — so a 3% budget variance and a 3% extent variance sit where they belong rather than side by side."
+            title="Tolerance breaches"
+            info="Each comparison is plotted as a multiple of its own tolerance, so variances of different kinds are comparable."
           />
           <CardBody>
             <ToleranceChart rows={tolerances} onSelect={(checkId) => navigate(`../dd?check=${encodeURIComponent(checkId)}`)} />
@@ -171,7 +168,7 @@ export default function Overview() {
           <CardHeader title="DD progress" action={<Link to="dd" className="text-[12px] text-brand">All DDs</Link>} />
           <CardBody className="space-y-3">
             {dash.ddProgress.length === 0 ? (
-              <p className="text-[13px] text-ink-muted">No assessments yet. Start one from Due diligence.</p>
+              <p className="text-[13px] text-ink-muted">No assessments yet.</p>
             ) : (
               dash.ddProgress.map((row) => (
                 <LiveRow key={row.id} id={row.id} highlightIds={highlightIds} variant="flush">
@@ -194,7 +191,8 @@ export default function Overview() {
         <Card>
           <CardHeader
             title="Lifecycle"
-            subtitle={`${LIFECYCLE_STAGE_LABEL[project.currentStage]} — changing stage does not overwrite prior DDs`}
+            subtitle={LIFECYCLE_STAGE_LABEL[project.currentStage]}
+            info="Changing stage does not overwrite prior assessments."
             action={<Button size="sm" onClick={() => setStageOpen(true)}>Change stage</Button>}
           />
           <CardBody className="space-y-2">
@@ -212,7 +210,7 @@ export default function Overview() {
       </div>
 
       <Card>
-        <CardHeader title="Capabilities" subtitle="Reusable engines on this project — not a second silo" action={<Link to="valuation" className="text-[12px] text-brand">Valuation</Link>} />
+        <CardHeader title="Capabilities" action={<Link to="valuation" className="text-[12px] text-brand">Valuation</Link>} />
         <CardBody className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {dash.capabilities.map((cap) => (
             <div key={cap.kind} className="rounded-lg border border-hairline p-3">
@@ -258,7 +256,7 @@ export default function Overview() {
               ))}
             </Select>
           </Field>
-          <Field label="Reason" hint="Stored on the stage history with actor and date.">
+          <Field label="Reason" hint="Kept on the stage history.">
             <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} />
           </Field>
         </div>

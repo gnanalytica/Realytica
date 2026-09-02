@@ -32,18 +32,15 @@ export default function ProjectGraph() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-[62ch] text-[13px] text-ink-secondary">
-          Tree navigation in the rest of the app; this is the graph of data links — findings shared across DDs, evidence used, risks and actions they raise.
-        </p>
+      <div className="flex flex-wrap items-center gap-3">
         <Select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} className="w-full max-w-xs sm:w-48">
           <option value="all">All nodes ({graph.nodes.length})</option>
           {KIND_ORDER.map((k) => (
             <option key={k} value={k}>{k} ({graph.nodes.filter((n) => n.kind === k).length})</option>
           ))}
         </Select>
+        <p className="tabular text-[12px] text-ink-muted">{nodes.length} nodes · {edges.length} links</p>
       </div>
-      <p className="font-mono text-[11px] text-ink-muted">{nodes.length} nodes · {edges.length} links</p>
       <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
         {grouped.map((group) => (
           <Card key={group.kind}>

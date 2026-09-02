@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { AI_DRAFT_KIND_LABEL, AI_DRAFT_STATUS_LABEL, type AiDraftStatus } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Callout, Card, CardBody, EmptyState, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, useToast } from '../../components/ui/kit';
 import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 
@@ -58,17 +58,11 @@ export default function AiDrafts() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-[62ch] text-[13px] text-ink-secondary">
-          Controlled AI: drafts are proposed from live registers. Nothing writes a finding, risk or action until a person reviews and commits.
-        </p>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <Button onClick={() => void propose()} disabled={busy}>Propose from registers</Button>
       </div>
-      <Callout title="Manual-first">
-        The DD operating model works with no model key. A configured model does not auto-commit. Orchestrator plans recommend next DDs; they do not run them.
-      </Callout>
       {drafts.length === 0 ? (
-        <EmptyState title="No drafts yet" description="Propose from evidence gaps, material findings and unfinished checks. Review before anything lands in a register." />
+        <EmptyState title="No drafts yet" description="Nothing lands in a register until you commit it." />
       ) : (
         <div className="space-y-3">
           {drafts.map((d) => (

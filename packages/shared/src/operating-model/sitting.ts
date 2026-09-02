@@ -390,7 +390,10 @@ export function noteProjectEdit(
   const user = paneTurn('user', text, { citedNodeIds: cited, citedEvidenceIds: evidenceIds });
   const assistant = paneTurn(
     'assistant',
-    'Recorded from the work pane. Live on this file, in this thread, and on the knowledge graph.',
+    // One word. The citation chips and the tool-call row below it already say
+    // where this landed; repeating that on every pane edit fills the thread
+    // with the same three lines and buries the edits themselves.
+    'Recorded.',
     {
       citedNodeIds: cited,
       citedEvidenceIds: evidenceIds,

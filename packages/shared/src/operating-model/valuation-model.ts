@@ -310,7 +310,7 @@ export function reconcile(runs: ValuationApproachRun[]): ValuationReconciliation
       indicated: null,
       low: null,
       high: null,
-      spreadBasis: `The approaches span ${Math.round(lowest).toLocaleString('en-IN')}–${Math.round(highest).toLocaleString('en-IN')} — ${(spread * 100).toFixed(0)}% about their own blend. That is disagreement rather than cross-checking, and a blend of figures this far apart is a number none of them supports. Each approach is shown; the one that looks wrong usually has one input that is.`,
+      spreadBasis: `The approaches span ${Math.round(lowest).toLocaleString('en-IN')}–${Math.round(highest).toLocaleString('en-IN')} — ${(spread * 100).toFixed(0)}% about their own blend: disagreement rather than cross-checking, and a blend of figures this far apart is a number none of them supports.`,
       usedMethods: usable.map((r) => r.method),
       skippedMethods: skipped,
     };

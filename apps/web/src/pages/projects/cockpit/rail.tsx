@@ -1,6 +1,8 @@
+import { useMemo, useState } from 'react';
 import {
   Building2,
   Camera,
+  ChevronDown,
   CircleDollarSign,
   ClipboardList,
   FileStack,
@@ -14,139 +16,151 @@ import {
   Workflow,
 } from 'lucide-react';
 import {
-  ASSESSMENT_STATUS_LABEL,
   SCOPE_LABEL,
+  scopeCompleteness,
   type DdProject,
   type ProjectCockpitPane,
 } from '@realytica/shared';
-import { Button, cn } from '../../../components/ui/kit';
+import { cn } from '../../../components/ui/kit';
 
-export const RAIL: Array<{
-  group: string;
-  items: Array<{ pane: ProjectCockpitPane; label: string; short: string; icon: typeof Waypoints }>;
-}> = [
+/**
+ * Navigation in two rows rather than thirteen chips.
+ *
+ * The first row is the five things a file is: what it looks like, what is
+ * being assessed, what has been recorded, what it is worth, what goes out.
+ * The second row is where you are inside that — sub-tabs for most sections,
+ * and for Assess the actual assessment and its scopes, because "which DD am
+ * I in" is a navigation question, not a page.
+ *
+ * Every pane keeps its route. Consolidation here is about what is on screen
+ * at once, not about removing surfaces.
+ */
+
+export type CockpitSectionKey = 'overview' | 'assess' | 'records' | 'valuation' | 'report';
+
+export interface CockpitTab {
+  pane: ProjectCockpitPane;
+  label: string;
+  icon: typeof Waypoints;
+  /** Panes that light this tab without being it. */
+  also?: ProjectCockpitPane[];
+}
+
+export interface CockpitSection {
+  key: CockpitSectionKey;
+  label: string;
+  icon: typeof Waypoints;
+  /** Where the section opens. */
+  home: ProjectCockpitPane;
+  tabs: CockpitTab[];
+}
+
+export const SECTIONS: CockpitSection[] = [
   {
-    group: 'Look',
-    items: [
-      { pane: 'overview', label: 'Overview', short: 'Overview', icon: LayoutDashboard },
-      { pane: 'assets', label: 'Assets', short: 'Assets', icon: Building2 },
+    key: 'overview',
+    label: 'Overview',
+    icon: LayoutDashboard,
+    home: 'overview',
+    tabs: [
+      { pane: 'overview', label: 'Summary', icon: LayoutDashboard },
+      { pane: 'graph', label: 'Graph', icon: Waypoints },
     ],
   },
   {
-    group: 'Diligence',
-    items: [{ pane: 'dd', label: 'Assessments', short: 'Assess', icon: ClipboardList }],
+    key: 'assess',
+    label: 'Assess',
+    icon: ClipboardList,
+    home: 'dd',
+    tabs: [{ pane: 'dd', label: 'Assessments', icon: ClipboardList, also: ['scope'] }],
   },
   {
-    group: 'Registers',
-    items: [
-      { pane: 'evidence', label: 'Evidence', short: 'Evidence', icon: FileStack },
-      { pane: 'visits', label: 'Site record', short: 'Site', icon: Camera },
-      { pane: 'findings', label: 'Findings', short: 'Findings', icon: Search },
-      { pane: 'risks', label: 'Risks & actions', short: 'Risks', icon: GitBranch },
-      { pane: 'decisions', label: 'Decisions', short: 'Decisions', icon: Scale },
-      { pane: 'reports', label: 'Reports', short: 'Reports', icon: FileText },
+    key: 'records',
+    label: 'Records',
+    icon: FileStack,
+    home: 'evidence',
+    tabs: [
+      { pane: 'evidence', label: 'Evidence', icon: FileStack },
+      { pane: 'visits', label: 'Site', icon: Camera },
+      { pane: 'findings', label: 'Findings', icon: Search },
+      { pane: 'risks', label: 'Risks', icon: GitBranch, also: ['actions'] },
+      { pane: 'decisions', label: 'Decisions', icon: Scale },
+      { pane: 'assets', label: 'Assets', icon: Building2 },
     ],
   },
   {
-    group: 'Intelligence',
-    items: [
-      { pane: 'graph', label: 'Graph', short: 'Graph', icon: Waypoints },
-      { pane: 'valuation', label: 'Valuation', short: 'Value', icon: CircleDollarSign },
-      { pane: 'orchestrate', label: 'Orchestrator', short: 'Orchestrate', icon: Workflow },
-      { pane: 'drafts', label: 'AI drafts', short: 'Drafts', icon: Sparkles },
+    key: 'valuation',
+    label: 'Value',
+    icon: CircleDollarSign,
+    home: 'valuation',
+    tabs: [{ pane: 'valuation', label: 'Valuation', icon: CircleDollarSign }],
+  },
+  {
+    key: 'report',
+    label: 'Report',
+    icon: FileText,
+    home: 'reports',
+    tabs: [
+      { pane: 'reports', label: 'Reports', icon: FileText },
+      { pane: 'drafts', label: 'Drafts', icon: Sparkles },
+      { pane: 'orchestrate', label: 'Orchestrator', icon: Workflow },
     ],
   },
 ];
 
-const FLAT = RAIL.flatMap((g) => g.items);
+const TABS = SECTIONS.flatMap((s) => s.tabs.map((t) => ({ section: s, tab: t })));
+
+export function tabHolding(pane: ProjectCockpitPane): { section: CockpitSection; tab: CockpitTab } {
+  return (
+    TABS.find((r) => r.tab.pane === pane || r.tab.also?.includes(pane)) ??
+    (TABS[0] as { section: CockpitSection; tab: CockpitTab })
+  );
+}
+
+export function sectionOf(pane: ProjectCockpitPane): CockpitSectionKey {
+  return tabHolding(pane).section.key;
+}
 
 export function paneLabel(pane: ProjectCockpitPane): string {
+  // Where a tab label only makes sense next to its siblings ("Summary" under
+  // Overview), the standalone name is the section's.
+  if (pane === 'overview') return 'Overview';
   if (pane === 'scope') return 'Scope';
   if (pane === 'actions') return 'Risks & actions';
-  return FLAT.find((i) => i.pane === pane)?.label ?? 'Overview';
+  return tabHolding(pane).tab.label;
 }
 
 export function paneActive(current: ProjectCockpitPane, item: ProjectCockpitPane): boolean {
   if (current === item) return true;
-  if (item === 'dd' && current === 'scope') return true;
-  if (item === 'risks' && current === 'actions') return true;
-  return false;
+  return tabHolding(current).tab.pane === item;
+}
+
+/** Counts that a person should not have to open a section to learn. */
+export interface RailBadges {
+  overdue: number;
+  pendingDrafts: number;
+}
+
+function badgeFor(pane: ProjectCockpitPane, badges: RailBadges): number | null {
+  if ((pane === 'risks' || pane === 'actions') && badges.overdue > 0) return badges.overdue;
+  if (pane === 'drafts' && badges.pendingDrafts > 0) return badges.pendingDrafts;
+  return null;
+}
+
+function sectionBadge(section: CockpitSection, badges: RailBadges): number | null {
+  const total = section.tabs.reduce((sum, t) => sum + (badgeFor(t.pane, badges) ?? 0), 0);
+  return total > 0 ? total : null;
 }
 
 const CHIP_SCROLL =
   'flex gap-1.5 overflow-x-auto overscroll-x-contain touch-pan-x pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 
-export function CockpitRailNav({
-  pane,
-  project,
-  ddId,
-  scopeId,
-  overdue,
-  pendingDrafts,
-  onGo,
-}: {
-  pane: ProjectCockpitPane;
-  project: DdProject;
-  ddId?: string;
-  scopeId?: string;
-  overdue: number;
-  pendingDrafts: number;
-  onGo: (pane: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string }) => void;
-}) {
-  return (
-    <nav aria-label="Project views" className="flex w-[200px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline bg-surface py-3">
-      {RAIL.map((group) => (
-        <div key={group.group}>
-          <div className="px-3.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.07em] text-ink-muted">
-            {group.group}
-          </div>
-          <ul className="flex flex-col gap-px px-1.5">
-            {group.items.map((item) => {
-              const Icon = item.icon;
-              const on = paneActive(pane, item.pane);
-              const badge =
-                (item.pane === 'risks' || item.pane === 'actions') && overdue > 0
-                  ? overdue
-                  : item.pane === 'drafts' && pendingDrafts > 0
-                    ? pendingDrafts
-                    : null;
-              return (
-                <li key={item.pane}>
-                  <button
-                    type="button"
-                    onClick={() => onGo(item.pane)}
-                    aria-current={on ? 'true' : undefined}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px] coarse:min-h-11',
-                      on ? 'bg-brand-soft font-semibold text-brand' : 'text-ink-secondary hover:text-ink',
-                    )}
-                  >
-                    <Icon size={13} />
-                    <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
-                    {badge != null ? (
-                      <span className="tabular rounded-full bg-warning/25 px-1.5 text-[10.5px] text-ink">{badge}</span>
-                    ) : null}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          {group.group === 'Diligence' ? (
-            <DiligenceTree project={project} ddId={ddId} scopeId={scopeId} onGo={onGo} variant="tree" />
-          ) : null}
-        </div>
-      ))}
-      <div className="mx-3.5 my-2 h-px bg-hairline" />
-      <div className="px-3.5">
-        <p className="text-[11px] leading-relaxed text-ink-muted">
-          Chat is wired through agents. They propose; you approve; this pane updates live.
-        </p>
-        <Button size="sm" variant="ghost" className="mt-2 w-full" onClick={() => onGo('orchestrate')}>
-          Orchestrate
-        </Button>
-      </div>
-    </nav>
-  );
+/** Wide enough to wrap; narrow enough that a row has to scroll. */
+function chipRow(wrap: boolean): string {
+  return wrap ? 'flex flex-wrap gap-1.5' : CHIP_SCROLL;
+}
+
+function Count({ n }: { n: number }) {
+  return <span className="tabular rounded-full bg-warning/25 px-1.5 text-[10px] text-ink">{n}</span>;
 }
 
 export function CockpitPaneStrip({
@@ -168,137 +182,196 @@ export function CockpitPaneStrip({
   onGo: (pane: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string }) => void;
   wrap?: boolean;
 }) {
+  const badges = { overdue, pendingDrafts };
+  const here = tabHolding(pane).section;
+
   return (
     <div className={cn('shrink-0 space-y-1.5 border-b border-hairline bg-surface py-2', wrap ? 'px-4' : 'px-3')}>
-      <div className={wrap ? 'flex flex-wrap gap-1.5' : CHIP_SCROLL}>
-        {FLAT.map((item) => {
-          const Icon = item.icon;
-          const on = paneActive(pane, item.pane);
-          const badge =
-            (item.pane === 'risks' || item.pane === 'actions') && overdue > 0
-              ? overdue
-              : item.pane === 'drafts' && pendingDrafts > 0
-                ? pendingDrafts
-                : null;
+      <div className={chipRow(wrap)}>
+        {SECTIONS.map((section) => {
+          const Icon = section.icon;
+          const on = section.key === here.key;
+          const count = sectionBadge(section, badges);
           return (
             <button
-              key={item.pane}
+              key={section.key}
               type="button"
-              onClick={() => onGo(item.pane)}
+              onClick={() => onGo(section.home)}
               aria-current={on ? 'true' : undefined}
               className={cn(
-                'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] coarse:min-h-11',
-                on ? 'bg-brand-soft font-semibold text-brand' : 'bg-sunken text-ink-secondary',
+                'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] coarse:min-h-11',
+                on ? 'bg-brand-soft font-semibold text-brand' : 'bg-sunken text-ink-secondary hover:text-ink',
               )}
             >
-              <Icon size={12} />
-              {item.short}
-              {badge != null ? (
-                <span className="tabular rounded-full bg-warning/25 px-1.5 text-[10px] text-ink">{badge}</span>
-              ) : null}
+              <Icon size={13} />
+              {section.label}
+              {count != null ? <Count n={count} /> : null}
             </button>
           );
         })}
       </div>
-      <DiligenceTree project={project} ddId={ddId} scopeId={scopeId} onGo={onGo} variant="chips" />
+
+      {here.key === 'assess' ? (
+        <AssessNav project={project} ddId={ddId} scopeId={scopeId} onGo={onGo} wrap={wrap} />
+      ) : here.tabs.length > 1 ? (
+        <div className={chipRow(wrap)}>
+          {here.tabs.map((tab) => {
+            const on = paneActive(pane, tab.pane);
+            const count = badgeFor(tab.pane, badges);
+            return (
+              <button
+                key={tab.pane}
+                type="button"
+                onClick={() => onGo(tab.pane)}
+                aria-current={on ? 'true' : undefined}
+                className={cn(
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] coarse:min-h-11',
+                  on ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
+                )}
+              >
+                {tab.label}
+                {count != null ? <Count n={count} /> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function DiligenceTree({
+/**
+ * Assess navigates a tree, not a list of tabs: which assessment, then which
+ * scope. Past a handful of assessments a row of chips stops being scannable,
+ * so it becomes a menu that says which one you are in.
+ */
+const CHIPS_UNTIL = 4;
+
+function AssessNav({
   project,
   ddId,
   scopeId,
   onGo,
-  variant,
+  wrap,
 }: {
   project: DdProject;
   ddId?: string;
   scopeId?: string;
   onGo: (pane: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string }) => void;
-  variant: 'tree' | 'chips';
+  wrap: boolean;
 }) {
-  const rows = project.assessments.filter((a) => a.status !== 'archived').slice(0, 8);
-  if (rows.length === 0) return null;
+  const [open, setOpen] = useState(false);
+  const rows = useMemo(() => project.assessments.filter((a) => a.status !== 'archived'), [project.assessments]);
   const current = rows.find((a) => a.id === ddId);
+  if (rows.length === 0) return null;
 
-  if (variant === 'chips') {
-    return (
-      <>
-        <div className={CHIP_SCROLL}>
-          {rows.map((a) => (
+  const picker =
+    rows.length <= CHIPS_UNTIL ? (
+      <div className={chipRow(wrap)}>
+        <button
+          type="button"
+          onClick={() => onGo('dd')}
+          aria-current={!ddId ? 'true' : undefined}
+          className={cn(
+            'inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-[11.5px] coarse:min-h-11',
+            !ddId ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
+          )}
+        >
+          All DDs
+        </button>
+        {rows.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            onClick={() => onGo('dd', { ddId: a.id })}
+            aria-current={ddId === a.id ? 'true' : undefined}
+            className={cn(
+              'inline-flex max-w-[14rem] shrink-0 items-center truncate rounded-full px-2.5 py-1 text-[11.5px] coarse:min-h-11',
+              ddId === a.id ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
+            )}
+          >
+            {a.name}
+          </button>
+        ))}
+      </div>
+    ) : (
+      <div className="relative flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="inline-flex max-w-[18rem] items-center gap-1.5 rounded-full bg-sunken px-2.5 py-1 text-[11.5px] text-ink-secondary hover:text-ink coarse:min-h-11"
+        >
+          <span className="truncate">{current ? current.name : `All assessments (${rows.length})`}</span>
+          <ChevronDown size={12} />
+        </button>
+        {ddId ? (
+          <button
+            type="button"
+            onClick={() => onGo('dd')}
+            className="text-[11.5px] text-ink-muted hover:text-ink coarse:min-h-11"
+          >
+            All
+          </button>
+        ) : null}
+        {open ? (
+          <>
             <button
-              key={a.id}
               type="button"
-              onClick={() => onGo('dd', { ddId: a.id })}
-              className={cn(
-                'inline-flex max-w-[14rem] shrink-0 truncate rounded-full px-2.5 py-1 text-[11.5px] coarse:min-h-11',
-                ddId === a.id ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted',
-              )}
-            >
-              {a.name}
-            </button>
-          ))}
-        </div>
-        {current && current.scopes.length > 0 ? (
-          <div className={CHIP_SCROLL}>
-            {current.scopes.map((scope) => (
+              aria-label="Close"
+              className="fixed inset-0 z-30 cursor-default"
+              onClick={() => setOpen(false)}
+            />
+            <ul className="absolute left-0 top-full z-40 mt-1 max-h-72 w-[20rem] overflow-y-auto rounded-lg bg-surface p-1 shadow-pop ring-1 ring-[var(--ring)]">
+              {rows.map((a) => (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      onGo('dd', { ddId: a.id });
+                    }}
+                    className={cn(
+                      'w-full truncate rounded-md px-2.5 py-1.5 text-left text-[12px] hover:bg-sunken coarse:min-h-11',
+                      ddId === a.id ? 'font-medium text-brand' : 'text-ink-secondary',
+                    )}
+                  >
+                    {a.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+      </div>
+    );
+
+  return (
+    <>
+      {picker}
+      {current && current.scopes.length > 0 ? (
+        <div className={chipRow(wrap)}>
+          {current.scopes.map((scope) => {
+            const c = scopeCompleteness(scope);
+            const on = scopeId === scope.id;
+            return (
               <button
                 key={scope.id}
                 type="button"
                 onClick={() => onGo('scope', { ddId: current.id, scopeId: scope.id })}
+                aria-current={on ? 'true' : undefined}
                 className={cn(
-                  'inline-flex shrink-0 rounded-full px-2.5 py-1 text-[11.5px] coarse:min-h-11',
-                  scopeId === scope.id ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted',
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] coarse:min-h-11',
+                  on ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
                 )}
               >
                 {SCOPE_LABEL[scope.scopeKey]}
+                <span className="tabular text-[10px] text-ink-muted">{c.done}/{c.total}</span>
               </button>
-            ))}
-          </div>
-        ) : null}
-      </>
-    );
-  }
-
-  return (
-    <ul className="mt-0.5 flex flex-col gap-px px-1.5">
-      {rows.map((a) => {
-        const on = ddId === a.id;
-        return (
-          <li key={a.id}>
-            <button
-              type="button"
-              onClick={() => onGo('dd', { ddId: a.id })}
-              className={cn(
-                'flex w-full flex-col rounded-lg px-2.5 py-1.5 pl-7 text-left coarse:min-h-11',
-                on ? 'bg-brand-soft text-brand' : 'text-ink-secondary hover:text-ink',
-              )}
-            >
-              <span className="truncate text-[12px] font-medium">{a.name}</span>
-              <span className="font-mono text-[10px] text-ink-muted">{ASSESSMENT_STATUS_LABEL[a.status]}</span>
-            </button>
-            {on && a.scopes.length > 0 ? (
-              <ul className="mt-0.5 flex flex-col gap-px">
-                {a.scopes.map((scope) => (
-                  <li key={scope.id}>
-                    <button
-                      type="button"
-                      onClick={() => onGo('scope', { ddId: a.id, scopeId: scope.id })}
-                      className={cn(
-                        'w-full truncate rounded-lg px-2.5 py-1 pl-9 text-left text-[11.5px] coarse:min-h-11',
-                        scopeId === scope.id ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
-                      )}
-                    >
-                      {SCOPE_LABEL[scope.scopeKey]}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
+            );
+          })}
+        </div>
+      ) : null}
+    </>
   );
 }

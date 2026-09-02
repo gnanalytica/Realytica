@@ -167,14 +167,11 @@ export default function ScopeWorkspace() {
           {assessment.name}
         </Link>
         <h2 className="mt-1 text-lg font-semibold text-ink">{SCOPE_LABEL[scope.scopeKey]}</h2>
-        <p className="mt-1 text-[13px] text-ink-secondary">
-          Filtered view of the project registers for this scope. Completing a check can create a finding when the result is material.
-        </p>
       </div>
 
       {sittingCheck ? (
         <Card className="ring-1 ring-inset ring-brand/25">
-          <CardHeader title="This field" subtitle="Tick or cross — you close the check" />
+          <CardHeader title="This field" />
           <CardBody>
             <FieldAdvise
               check={sittingCheck}

@@ -7,6 +7,8 @@ import {
   SCOPE_LABEL,
   assessmentProgress,
   recommendedDdTypes,
+  scopeCompleteness,
+  type DdAssessment,
   type DdTargetType,
   type DdTypeKey,
   type ScopeKey,
@@ -15,6 +17,13 @@ import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { LiveRow } from './LiveRow';
+
+type Lens = 'open' | 'done' | 'all';
+
+const LENS_LABEL: Record<Lens, string> = { open: 'Open', done: 'Completed', all: 'All' };
+
+/** Past this many assessments, the eye needs a filter more than it needs a list. */
+const FILTER_FROM = 4;
 
 export default function Diligence() {
   const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
@@ -28,6 +37,8 @@ export default function Diligence() {
   const [priorId, setPriorId] = useState('');
   const [extra, setExtra] = useState<ScopeKey[]>([]);
   const [busy, setBusy] = useState(false);
+  const [lens, setLens] = useState<Lens>('open');
+  const [query, setQuery] = useState('');
 
   const preset = DD_TYPE_DEFINITIONS.find((d) => d.key === ddType)!;
   const recommended = useMemo(() => recommendedDdTypes(project.currentStage), [project.currentStage]);
@@ -54,66 +65,133 @@ export default function Diligence() {
     }
   }
 
-  const active = project.assessments.filter((a) => a.status !== 'completed' && a.status !== 'archived');
-  const done = project.assessments.filter((a) => a.status === 'completed' || a.status === 'archived');
+  const closed = (a: DdAssessment) => a.status === 'completed' || a.status === 'archived';
+  const counts = {
+    open: project.assessments.filter((a) => !closed(a)).length,
+    done: project.assessments.filter(closed).length,
+    all: project.assessments.length,
+  };
 
-  function group(title: string, rows: typeof project.assessments) {
-    if (rows.length === 0) return null;
-    return (
-      <div className="space-y-2">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">{title}</h2>
-        {rows.map((a) => {
-          const progress = assessmentProgress(a);
-          return (
-            <Link key={a.id} to={a.id} className="block">
-              <LiveRow id={a.id} highlightIds={highlightIds} variant="flush">
-              <Card className="transition-colors hover:bg-sunken/60">
-                <CardBody className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[14px] font-semibold text-ink">{a.name}</p>
-                    <p className="mt-1 text-[12px] text-ink-secondary">
-                      Target: {a.targetType === 'project' ? 'Whole project' : a.targetAssetIds.map((id) => project.assets.find((x) => x.id === id)?.name ?? id).join(', ')}
-                    </p>
-                    <p className="mt-1 text-[12px] text-ink-muted">
-                      {a.scopes.map((s) => SCOPE_LABEL[s.scopeKey]).join(' · ')}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <Badge>{ASSESSMENT_STATUS_LABEL[a.status]}</Badge>
-                    <p className="mt-2 font-mono text-[12px] text-ink-secondary">{progress.percent}% · {progress.checkDone}/{progress.checkTotal} checks</p>
-                  </div>
-                </CardBody>
-              </Card>
-              </LiveRow>
-            </Link>
-          );
-        })}
-      </div>
-    );
-  }
+  // Search covers the assessment's name, its type and the scopes inside it,
+  // because "where is the flood check" is a likelier question than "what was
+  // that assessment called".
+  const q = query.trim().toLowerCase();
+  const rows = project.assessments.filter((a) => {
+    if (lens === 'open' && closed(a)) return false;
+    if (lens === 'done' && !closed(a)) return false;
+    if (!q) return true;
+    const hay = [
+      a.name,
+      DD_TYPE_DEFINITIONS.find((d) => d.key === a.ddType)?.label ?? a.ddType,
+      ...a.scopes.map((s) => SCOPE_LABEL[s.scopeKey]),
+    ]
+      .join(' ')
+      .toLowerCase();
+    return hay.includes(q);
+  });
+
+  const showFilters = project.assessments.length >= FILTER_FROM;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="max-w-[62ch] text-[13px] text-ink-secondary">
-          DD types are templates, not app tabs. Several assessments can run at once against different targets.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => setOpen(true)}>Start DD</Button>
-        </div>
+        {showFilters ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex gap-1">
+              {(['open', 'done', 'all'] as Lens[]).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setLens(k)}
+                  aria-pressed={lens === k}
+                  className={
+                    lens === k
+                      ? 'rounded-full bg-brand-soft px-2.5 py-1 text-[12px] font-medium text-brand'
+                      : 'rounded-full px-2.5 py-1 text-[12px] text-ink-muted hover:text-ink'
+                  }
+                >
+                  {LENS_LABEL[k]} {counts[k]}
+                </button>
+              ))}
+            </div>
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter by name or scope"
+              className="w-56"
+              aria-label="Filter assessments"
+            />
+          </div>
+        ) : (
+          <span />
+        )}
+        <Button onClick={() => setOpen(true)}>Start DD</Button>
       </div>
 
       {project.assessments.length === 0 ? (
         <EmptyState
           title="No due diligence assessments"
-          description="Pick a DD type. Scopes and checks instantiate from the library; expected evidence is added to the project register."
+          description="Scopes and checks instantiate from the library; expected evidence is added to the register."
           action={<Button onClick={() => setOpen(true)}>Start the first DD</Button>}
         />
+      ) : rows.length === 0 ? (
+        <p className="text-[13px] text-ink-muted">Nothing matches.</p>
       ) : (
-        <>
-          {group('Active', active)}
-          {group('Completed', done)}
-        </>
+        <ul className="space-y-2">
+          {rows.map((a) => {
+            const progress = assessmentProgress(a);
+            const target =
+              a.targetType === 'project'
+                ? 'Whole project'
+                : a.targetAssetIds.map((id) => project.assets.find((x) => x.id === id)?.name ?? id).join(', ');
+            return (
+              <li key={a.id}>
+                <LiveRow id={a.id} highlightIds={highlightIds} variant="flush">
+                  <Card>
+                    <CardBody className="space-y-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <Link to={a.id} className="text-[14px] font-semibold text-ink hover:text-brand">
+                            {a.name}
+                          </Link>
+                          <p className="mt-0.5 text-[12px] text-ink-muted">{target}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <Badge>{ASSESSMENT_STATUS_LABEL[a.status]}</Badge>
+                          <p className="tabular mt-1.5 text-[12px] text-ink-secondary">
+                            {progress.checkDone}/{progress.checkTotal} checks
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="h-1.5 overflow-hidden rounded-full bg-sunken">
+                        <div className="h-full bg-brand" style={{ width: `${progress.percent}%` }} />
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5">
+                        {a.scopes.map((s) => {
+                          const c = scopeCompleteness(s);
+                          return (
+                            <Link
+                              key={s.id}
+                              to={`${a.id}/scopes/${s.id}`}
+                              className="inline-flex items-center gap-1.5 rounded-full bg-sunken px-2.5 py-1 text-[11.5px] text-ink-secondary hover:text-brand coarse:min-h-11"
+                            >
+                              {SCOPE_LABEL[s.scopeKey]}
+                              <span className="tabular text-[10.5px] text-ink-muted">
+                                {c.done}/{c.total}
+                              </span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </CardBody>
+                  </Card>
+                </LiveRow>
+              </li>
+            );
+          })}
+        </ul>
       )}
 
       <Modal
@@ -136,7 +214,7 @@ export default function Diligence() {
               Recommended at {project.currentStage.replaceAll('_', ' ')}: {recommended.map((d) => d.label).join(', ')}
             </p>
           ) : null}
-          <Field label="DD type">
+          <Field label="DD type" hint={preset.purpose}>
             <Select
               value={ddType}
               onChange={(e) => {
@@ -150,7 +228,6 @@ export default function Diligence() {
               ))}
             </Select>
           </Field>
-          <p className="text-[12px] text-ink-secondary">{preset.purpose}</p>
           <Field label="Name" hint="Defaults to the DD type label.">
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
@@ -181,10 +258,10 @@ export default function Diligence() {
               </div>
             </Field>
           ) : null}
-          <Field label="Default scopes from this template">
+          <Field label="Scopes from this template">
             <p className="text-[13px] text-ink">{preset.defaultScopes.map((k) => SCOPE_LABEL[k]).join(', ') || 'None — add extra scopes for a custom DD.'}</p>
           </Field>
-          <Field label="Additional scopes" hint={ddType === 'custom' ? 'Required for a custom DD.' : 'Optional extras beyond the template.'}>
+          <Field label="Additional scopes" hint={ddType === 'custom' ? 'Required for a custom DD.' : undefined}>
             <div className="max-h-36 space-y-1 overflow-y-auto rounded-lg border border-hairline p-2">
               {SCOPE_DEFINITIONS.filter((s) => !preset.defaultScopes.includes(s.key)).map((s) => (
                 <label key={s.key} className="flex items-center gap-2 text-[13px]">
@@ -200,7 +277,7 @@ export default function Diligence() {
               ))}
             </div>
           </Field>
-          <Field label="Prior DD" hint="Optional. Enables changes-since-previous.">
+          <Field label="Prior DD" hint="Enables changes-since-previous.">
             <Select value={priorId} onChange={(e) => setPriorId(e.target.value)}>
               <option value="">None</option>
               {project.assessments.map((a) => (

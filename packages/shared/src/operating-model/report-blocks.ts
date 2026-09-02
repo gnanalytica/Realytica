@@ -517,5 +517,5 @@ export function reportSummaryLine(project: DdProject): string {
   const material = open.filter((f) => MATERIAL.has(f.severity));
   const gaps = project.evidence.filter((e) => ['expected', 'requested', 'missing'].includes(e.status));
   const risks = project.risks.filter((r) => r.status !== 'closed');
-  return `${open.length} open finding(s), ${material.length} material · ${risks.length} open risk(s) · ${gaps.length} evidence gap(s). Read from the registers, not a second copy of them.`;
+  return `${open.length} open finding(s), ${material.length} material · ${risks.length} open risk(s) · ${gaps.length} evidence gap(s).`;
 }

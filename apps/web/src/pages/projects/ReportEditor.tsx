@@ -43,7 +43,7 @@ import {
   type ReportDriftRow,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Callout, Select, cn, useToast } from '../../components/ui/kit';
+import { Badge, Button, Callout, InfoTip, Select, cn, useToast } from '../../components/ui/kit';
 
 interface Props {
   project: DdProject;
@@ -101,6 +101,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Badge tone={frozen ? 'neutral' : 'good'}>{frozen ? report.status : 'live'}</Badge>
+          <InfoTip label="Sections with a coloured rail read the registers and update as the file does. The rest are your words. Detaching a live section stops it updating, and the report says so." />
           {!frozen ? (
             <Button
               variant="ghost"

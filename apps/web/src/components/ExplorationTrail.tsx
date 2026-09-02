@@ -295,7 +295,6 @@ export function ExplorationTrail({
     <Card>
       <CardHeader
         title="Exploration"
-        subtitle="Open-ended web research — what it chased, what it found, and what it could not check at all"
         icon={<Compass size={16} />}
       />
       <CardBody>

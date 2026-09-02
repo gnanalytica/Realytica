@@ -34,7 +34,7 @@ export function SchematicYieldCard({ yieldResult, country }: { yieldResult: Sche
     <Card>
       <CardHeader
         title="What this site can hold"
-        subtitle="A first-pass sizing against published norms — not a site plan, and not a sanctioned scheme"
+        info="A first-pass sizing against published norms — not a site plan, and not a sanctioned scheme."
         icon={<Building2 size={16} />}
       />
       <CardBody className="flex flex-col gap-4">

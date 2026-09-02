@@ -154,7 +154,6 @@ function CheckPeek({
         <button type="button" onClick={() => onOpen('scope', talk.extra)} className="w-full text-left">
           <p className="text-[12px] text-ink-muted">{SCOPE_LABEL[hit.scope.scopeKey]} · {hit.assessment.name}</p>
           <p className="mt-0.5 text-[13.5px] font-semibold leading-snug text-ink">{check.title}</p>
-          <p className="mt-1 text-[12px] text-ink-secondary">Tick or cross on the right. You close the check.</p>
         </button>
         {pinned.length ? (
           <div className="space-y-1.5">

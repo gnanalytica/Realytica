@@ -14,6 +14,7 @@ const GO: Array<{ pane: ProjectCockpitPane; label: string; hint: string }> = [
   { pane: 'assets', label: 'Open assets', hint: 'Go' },
   { pane: 'dd', label: 'Open assessments', hint: 'Go' },
   { pane: 'evidence', label: 'Open evidence', hint: 'Go' },
+  { pane: 'visits', label: 'Open site record', hint: 'Go' },
   { pane: 'findings', label: 'Open findings', hint: 'Go' },
   { pane: 'risks', label: 'Open risks & actions', hint: 'Go' },
   { pane: 'decisions', label: 'Open decisions', hint: 'Go' },

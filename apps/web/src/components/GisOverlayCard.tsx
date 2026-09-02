@@ -3,7 +3,7 @@ import { Layers, MapPinned, RefreshCw, Upload } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { sheetIsPlaceable, type DdProject, type GisContextFeature, type GisOverlayHit, type GisOverlayRead, type SheetPlacement } from '@realytica/shared';
-import { Badge, Button, Callout, Card, CardBody, CardHeader, cn } from './ui/kit';
+import { Badge, Button, Callout, Card, CardBody, CardHeader, Disclosure, cn } from './ui/kit';
 import { api } from '../lib/api';
 
 /**
@@ -342,7 +342,14 @@ export function GisOverlayCard({
   const notes = useMemo(
     () =>
       (read?.hits ?? []).filter(
-        (h) => h.severity === 'info' && h.code !== 'map_sitting' && h.code !== 'withdrawn_sheet',
+        (h) =>
+          h.severity === 'info' &&
+          h.code !== 'map_sitting' &&
+          h.code !== 'withdrawn_sheet' &&
+          // Unconditional: these two fire on every project and describe the
+          // card rather than this pin. They are in the header tooltip.
+          h.code !== 'not_rmp' &&
+          h.code !== 'not_drain_class',
       ),
     [read],
   );
@@ -350,6 +357,11 @@ export function GisOverlayCard({
   const lakeCount = read?.features.filter((f) => f.kind === 'civic_lake').length ?? 0;
   const wardCount = read?.features.filter((f) => f.kind === 'civic_ward').length ?? 0;
   const canMap = Boolean(read?.pin || read?.survey);
+  // The reference shelf — where to get the real sheet, and what must never be
+  // filed as one. It belongs on the file, but it is reading for the land-use
+  // sitting, not for the dashboard, so it folds away until asked for.
+  const shelf =
+    (read?.maps.sittings.length ?? 0) + (read?.withdrawnSheets.length ?? 0) + (read?.maps.refused.length ?? 0);
 
   const onFile = async (file: File) => {
     setBusy(true);
@@ -370,7 +382,7 @@ export function GisOverlayCard({
     <Card>
       <CardHeader
         title="GIS overlay"
-        subtitle="Pin and survey sketch versus OSM and OpenCity civic layers — not the master-plan sheet"
+        info="OpenStreetMap water and landuse and OpenCity GBA wards / BBMP lakes are context around the geocoded pin. This does not georeference RMP sheets: the land-use hatch still has to be read from the sheet or a certified extract, and a blue OSM polygon is not a classified lake or rajakaluve. A mouse-drawn shape is not a survey."
         icon={<MapPinned size={16} />}
         action={
           <div className="flex flex-wrap items-center gap-1.5">
@@ -394,13 +406,6 @@ export function GisOverlayCard({
         }
       />
       <CardBody className="flex flex-col gap-3">
-        <Callout tone="info" title="This is not the RMP hatch">
-          OpenStreetMap water/landuse and OpenCity GBA wards / BBMP lakes are context around the geocoded pin. They are
-          not the land-use designation on the sheet in force, and they are not a classified lake or rajakaluve. DPPlans
-          and GISMaps.in are not drawn. RMP-2031 archive PDFs are withdrawn. Obtain the BDA/LPA extract on the land-use
-          sitting. A mouse-drawn shape is not a survey.
-        </Callout>
-
         {error ? (
           <Callout tone="warning" title="Overlay did not finish">
             {error}
@@ -516,6 +521,17 @@ export function GisOverlayCard({
           </div>
         ) : null}
 
+        {read?.planning.inForce ? (
+          <p className="text-[11.5px] leading-relaxed text-ink-muted">
+            Plan in force: {read.planning.inForce.title}. Master plan extract{' '}
+            {read.planning.thisFile.hasMasterPlanExtract ? 'held' : 'not held'} on this file. Zoning certificate{' '}
+            {read.planning.thisFile.hasZoningCertificate ? 'held' : 'not held'}.
+          </p>
+        ) : null}
+
+        {shelf > 0 ? (
+          <Disclosure title="Official maps and what not to file" count={shelf}>
+            <div className="space-y-3">
         {read ? (
           liveBbmp ? (
             <p className="text-[12px] leading-relaxed text-ink-muted">
@@ -529,9 +545,7 @@ export function GisOverlayCard({
             </p>
           )
         ) : null}
-
         {read?.dpplansHint ? <p className="text-[12px] leading-relaxed text-ink-muted">{read.dpplansHint}</p> : null}
-
         {read?.maps.sittings.length ? (
           <div className="space-y-1.5">
             <p className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">
@@ -568,14 +582,6 @@ export function GisOverlayCard({
           </div>
         ) : null}
 
-        {read?.planning.inForce ? (
-          <p className="text-[11.5px] leading-relaxed text-ink-muted">
-            Plan in force: {read.planning.inForce.title}. Master plan extract{' '}
-            {read.planning.thisFile.hasMasterPlanExtract ? 'held' : 'not held'} on this file. Zoning certificate{' '}
-            {read.planning.thisFile.hasZoningCertificate ? 'held' : 'not held'}.
-          </p>
-        ) : null}
-
         {read?.maps.refused.length ? (
           <Callout tone="neutral" title="Not used as overlay">
             {read.maps.refused.map((s) => (
@@ -587,6 +593,9 @@ export function GisOverlayCard({
               </p>
             ))}
           </Callout>
+        ) : null}
+            </div>
+          </Disclosure>
         ) : null}
       </CardBody>
     </Card>

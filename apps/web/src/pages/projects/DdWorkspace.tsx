@@ -8,12 +8,65 @@ import {
   filterFindings,
   scopeCompleteness,
   type AssessmentStatus,
+  type CheckResult,
+  type ScopeInstance,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Callout, Card, CardBody, CardHeader, Select, useToast } from '../../components/ui/kit';
+import { Badge, Callout, Card, CardBody, Select, TONE_FILL, cn, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { checkTone } from './shared';
 import { LiveRow } from './LiveRow';
+
+/**
+ * A scope's checks as one bar rather than a row of identical pills.
+ *
+ * Six "Not started" badges say the same thing six times and crowd out the one
+ * badge that matters. A segment per result keeps the colour — which is the
+ * part a reader actually scans for — and spends a single line on it.
+ */
+function ResultBar({ scope }: { scope: ScopeInstance }) {
+  // Recorded results only. A pending check is the empty part of the track: it
+  // must not be given a colour, because every colour in this product means a
+  // verdict and "not started" is the absence of one.
+  const order: CheckResult[] = [
+    'non_compliant',
+    'requires_expert_review',
+    'partially_compliant',
+    'missing_evidence',
+    'unable_to_verify',
+    'compliant',
+    'not_applicable',
+  ];
+  const total = scope.checks.length;
+  if (total === 0) return null;
+  const segments = order
+    .map((result) => ({ result, n: scope.checks.filter((c) => c.result === result).length }))
+    .filter((s) => s.n > 0);
+  const pending = scope.checks.filter((c) => c.result === 'pending').length;
+
+  return (
+    <div>
+      <div className="flex h-1.5 gap-px overflow-hidden rounded-full bg-sunken">
+        {segments.map((s) => (
+          <span
+            key={s.result}
+            title={`${s.n} ${CHECK_RESULT_LABEL[s.result].toLowerCase()}`}
+            className={cn('block h-1.5', TONE_FILL[checkTone(s.result)])}
+            style={{ width: `${(s.n / total) * 100}%`, minWidth: 3 }}
+          />
+        ))}
+      </div>
+      <p className="mt-1.5 text-[11.5px] text-ink-secondary">
+        {[
+          ...segments.map((s) => `${s.n} ${CHECK_RESULT_LABEL[s.result].toLowerCase()}`),
+          pending > 0 ? `${pending} not started` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </p>
+    </div>
+  );
+}
 
 export default function DdWorkspace() {
   const { ddId } = useParams<{ ddId: string }>();
@@ -51,18 +104,18 @@ export default function DdWorkspace() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <Link to={`/projects/${project.id}/dd`} className="text-[12px] text-brand">All assessments</Link>
-          <h2 className="mt-1 text-lg font-semibold text-ink">{assessment.name}</h2>
-          <p className="mt-1 text-[13px] text-ink-secondary">
-            {assessment.objective} · Target: {target} · Owner {assessment.owner}
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-ink">{assessment.name}</h2>
+          <p className="tabular mt-1 text-[12.5px] text-ink-secondary">
+            {target} · {assessment.owner} · {progress.checkDone}/{progress.checkTotal} checks · {findings.length} findings
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <Badge>{ASSESSMENT_STATUS_LABEL[assessment.status]}</Badge>
-            <Select
+          <Select
             value={assessment.status}
             onChange={(e) => void setStatus(e.target.value as AssessmentStatus)}
+            aria-label="Assessment status"
             className="w-full sm:w-40"
           >
             {(['draft', 'active', 'in_review', 'completed', 'archived'] as AssessmentStatus[]).map((s) => (
@@ -71,10 +124,6 @@ export default function DdWorkspace() {
           </Select>
         </div>
       </div>
-
-      <p className="font-mono text-[12px] text-ink-muted">
-        {progress.percent}% complete · {progress.checkDone}/{progress.checkTotal} checks · {findings.length} findings on this DD
-      </p>
 
       {diff ? (
         <Callout tone="info" title={`Changes since ${diff.priorName}`}>
@@ -86,23 +135,26 @@ export default function DdWorkspace() {
         {assessment.scopes.map((scope) => {
           const c = scopeCompleteness(scope);
           return (
-            <Link key={scope.id} to={`scopes/${scope.id}`}>
-              <LiveRow id={scope.id} highlightIds={highlightIds} variant="flush">
-              <Card className="h-full transition-colors hover:bg-sunken/60">
-                <CardHeader title={SCOPE_LABEL[scope.scopeKey]} subtitle={`${c.percent}% · ${c.done}/${c.total} checks`} />
-                <CardBody>
-                  <p className="text-[12px] text-ink-secondary">
-                    {c.findings} findings from checks · {c.missing} missing-evidence results
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-1">
-                    {scope.checks.slice(0, 6).map((ch) => (
-                      <Badge key={ch.id} tone={checkTone(ch.result)}>{CHECK_RESULT_LABEL[ch.result]}</Badge>
-                    ))}
-                  </div>
-                </CardBody>
-              </Card>
-              </LiveRow>
-            </Link>
+            <LiveRow key={scope.id} id={scope.id} highlightIds={highlightIds} variant="flush">
+              <Link to={`scopes/${scope.id}`} className="block h-full">
+                <Card className="h-full transition-colors hover:bg-sunken/60">
+                  <CardBody className="space-y-2.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-[13px] font-semibold text-ink">{SCOPE_LABEL[scope.scopeKey]}</p>
+                      <p className="tabular shrink-0 text-[12px] text-ink-muted">{c.done}/{c.total}</p>
+                    </div>
+                    <ResultBar scope={scope} />
+                    {c.findings > 0 || c.missing > 0 ? (
+                      <p className="text-[11.5px] text-ink-muted">
+                        {[c.findings > 0 ? `${c.findings} findings` : null, c.missing > 0 ? `${c.missing} missing evidence` : null]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                    ) : null}
+                  </CardBody>
+                </Card>
+              </Link>
+            </LiveRow>
           );
         })}
       </div>

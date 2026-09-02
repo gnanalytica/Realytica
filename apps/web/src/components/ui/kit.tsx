@@ -21,7 +21,8 @@ const TONE_TEXT: Record<Tone, string> = {
   critical: 'text-critical',
 };
 
-const TONE_DOT: Record<Tone, string> = {
+/** The solid fill for a tone — dots, rails and segmented bars all use it. */
+export const TONE_FILL: Record<Tone, string> = {
   neutral: 'bg-[var(--axis)]',
   brand: 'bg-brand',
   info: 'bg-brand',
@@ -79,15 +80,22 @@ export function Card({ className, children, as: As = 'section' }: { className?: 
   );
 }
 
+/**
+ * `subtitle` occupies a line of the screen forever; `info` occupies none until
+ * asked. A caveat that a reader must not miss belongs in `subtitle`; one that
+ * only matters when they wonder belongs in `info`.
+ */
 export function CardHeader({
   title,
   subtitle,
+  info,
   icon,
   action,
   className,
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
+  info?: ReactNode;
   icon?: ReactNode;
   action?: ReactNode;
   className?: string;
@@ -97,12 +105,30 @@ export function CardHeader({
       <div className="flex min-w-0 items-start gap-2.5">
         {icon ? <span className="mt-0.5 shrink-0 text-ink-muted">{icon}</span> : null}
         <div className="min-w-0">
-          <h2 className="truncate text-[13px] font-semibold tracking-tight text-ink">{title}</h2>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <h2 className="truncate text-[13px] font-semibold tracking-tight text-ink">{title}</h2>
+            {info ? <InfoTip label={info} /> : null}
+          </div>
           {subtitle ? <p className="mt-0.5 text-xs leading-snug text-ink-secondary">{subtitle}</p> : null}
         </div>
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </header>
+  );
+}
+
+/** The affordance that says "there is a caveat here" without spending a line on it. */
+export function InfoTip({ label, className }: { label: ReactNode; className?: string }) {
+  return (
+    <Tooltip label={label} className={className}>
+      <button
+        type="button"
+        aria-label="About this"
+        className="shrink-0 rounded-full p-0.5 text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      >
+        <Info size={12} aria-hidden="true" />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -225,7 +251,7 @@ export function Badge({
 }
 
 export function Dot({ tone = 'neutral', className }: { tone?: Tone; className?: string }) {
-  return <span className={cn('inline-block h-2 w-2 shrink-0 rounded-full', TONE_DOT[tone], className)} />;
+  return <span className={cn('inline-block h-2 w-2 shrink-0 rounded-full', TONE_FILL[tone], className)} />;
 }
 
 export function Stat({
@@ -498,7 +524,7 @@ export function ProgressBar({
         </div>
       )}
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-sunken ring-1 ring-inset ring-[var(--ring)]">
-        <div className={cn('h-full rounded-full transition-[width] duration-500', TONE_DOT[tone])} style={{ width: `${v}%` }} />
+        <div className={cn('h-full rounded-full transition-[width] duration-500', TONE_FILL[tone])} style={{ width: `${v}%` }} />
       </div>
     </div>
   );

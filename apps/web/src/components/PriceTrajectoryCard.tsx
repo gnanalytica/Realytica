@@ -18,7 +18,7 @@ export function PriceTrajectoryCard({ trajectory }: { trajectory: PriceTrajector
     <Card>
       <CardHeader
         title="This parcel's own price record"
-        subtitle="Registered considerations from the title chain, joined to today's indicative mid. No other party's transaction appears here."
+        info="Registered considerations from the title chain, joined to today's indicative mid. No other party's transaction appears here."
         icon={<History size={16} />}
         action={
           trajectory.registeredCagrPct !== undefined ? (

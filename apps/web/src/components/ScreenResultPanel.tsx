@@ -96,7 +96,7 @@ export function ScreenResultPanel({ result, askingPrice }: { result: ScreenResul
       <Card>
         <CardHeader
           title="Indicative range"
-          subtitle="A band, never a point. Each anchor carries its own range, weight and rationale."
+          info="A band, never a point. Each anchor carries its own range, weight and rationale."
         />
         <CardBody className="space-y-5">
           <ValueRangeChart
@@ -234,7 +234,7 @@ export function ScreenResultPanel({ result, askingPrice }: { result: ScreenResul
 
       {result.drivers.length > 0 ? (
         <Card>
-          <CardHeader title="Value drivers" subtitle="What pushes this site above or below the locality median." />
+          <CardHeader title="Value drivers" />
           <CardBody className="space-y-4">
             <DriverImpactChart drivers={result.drivers} />
             <ul className="space-y-2">
@@ -256,7 +256,7 @@ export function ScreenResultPanel({ result, askingPrice }: { result: ScreenResul
         <Card>
           <CardHeader
             title="Comparables"
-            subtitle="Adjusted price per m² against recency. Adjustments are shown per transaction."
+            info="Adjusted price per m² against recency. Adjustments are shown per transaction."
           />
           <CardBody>
             <ComparablesChart comparables={result.comparables} currency={currency} />

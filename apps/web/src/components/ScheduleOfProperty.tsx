@@ -105,7 +105,6 @@ export function ScheduleOfProperty({ graph }: { graph: TitleGraph }) {
     <Card>
       <CardHeader
         title="Schedule of property"
-        subtitle="What the deeds say this land is bounded by, and how big they say it is"
         icon={<Compass size={16} />}
       />
       <CardBody className="flex flex-col gap-4">

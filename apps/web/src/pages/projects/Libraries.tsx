@@ -6,9 +6,6 @@ export default function Libraries() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-ink">Libraries</h1>
-        <p className="mt-1 max-w-[62ch] text-[13px] text-ink-secondary">
-          Reusable DD types, scopes and checks. Instantiating a DD copies these into the project; editing an instance does not change the library.
-        </p>
       </div>
       <Card>
         <CardHeader title="DD types" subtitle={`${DD_TYPE_DEFINITIONS.length} templates`} />

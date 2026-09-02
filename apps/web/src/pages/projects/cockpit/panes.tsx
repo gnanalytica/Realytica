@@ -49,9 +49,6 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
     <div className="space-y-4 p-4">
       <div>
         <h2 className="text-[15px] font-semibold text-ink">Work</h2>
-        <p className="mt-1 text-[12.5px] text-ink-secondary">
-          Project facts, assets, DDs and findings. Chat writes here live when you approve an update.
-        </p>
       </div>
 
       {project.lastScreen ? (
@@ -93,7 +90,7 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
       <div>
         <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Assets</h3>
         {assets.length === 0 ? (
-          <p className="mt-2 text-[13px] text-ink-muted">No assets yet. Tell chat to add one, then approve.</p>
+          <p className="mt-2 text-[13px] text-ink-muted">No assets yet.</p>
         ) : (
           <ul className="mt-2 space-y-2">
             {project.assets.map((a) => (
@@ -113,7 +110,7 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
       {active.length === 0 ? (
         <EmptyState
           title="No assessments yet"
-          description="Start a DD from Due diligence. The orchestrator only recommends templates."
+          description="Start one from Assess."
           action={
             <Link to="../dd" className="text-[13px] text-brand">
               Open due diligence
@@ -182,7 +179,7 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
       <div>
         <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Risks</h3>
         {project.risks.filter((r) => r.status !== 'closed' && r.status !== 'accepted').length === 0 ? (
-          <p className="mt-2 text-[13px] text-ink-muted">No open risks. Say “add risk: …” in chat.</p>
+          <p className="mt-2 text-[13px] text-ink-muted">No open risks.</p>
         ) : (
           <ul className="mt-2 space-y-2">
             {project.risks
@@ -333,9 +330,6 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-[15px] font-semibold text-ink">Orchestrator</h2>
-          <p className="mt-1 max-w-[52ch] text-[12.5px] text-ink-secondary">
-            Plans the next DD move from live registers, then a planner agent can add cards. It proposes; it does not write findings.
-          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => void run()} disabled={background.busy}>
@@ -355,9 +349,6 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
         </Callout>
       ) : null}
       {background.error ? <Callout tone="critical" title="Background run">{background.error}</Callout> : null}
-      <Callout title="Manual-first">
-        Stage {LIFECYCLE_STAGE_LABEL[project.currentStage]}. AI is optional. Accepting a plan does not start a DD.
-      </Callout>
       {recommended.length > 0 ? (
         <p className="text-[13px] text-ink">
           Recommended templates not yet running: {recommended.map((d) => d.label).join(', ')}.
@@ -431,7 +422,6 @@ export function DraftsPane({ project, onChanged }: { project: DdProject; onChang
   return (
     <div className="space-y-3 p-4">
       <h2 className="text-[15px] font-semibold text-ink">AI drafts</h2>
-      <p className="text-[12.5px] text-ink-secondary">Nothing writes a finding, risk or action until a person commits.</p>
       {drafts.length === 0 ? (
         <EmptyState title="No drafts yet" description="Run the orchestrator or ask chat to propose drafts from registers." />
       ) : (

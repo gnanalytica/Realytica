@@ -94,7 +94,6 @@ export function SiteConstraintsCard({
     <Card>
       <CardHeader
         title="What else restricts this parcel"
-        subtitle="Restrictions that never appear in a deed — record what has actually been checked"
         icon={<Landmark size={16} />}
         action={
           <Button variant="primary" size="sm" icon={<Save size={14} />} loading={saving} disabled={!dirty} onClick={() => void save()}>

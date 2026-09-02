@@ -246,7 +246,7 @@ function PerformanceTable({ rows }: { rows: ProviderPerformance[] }) {
     <Card>
       <CardHeader
         title="Performance by route"
-        subtitle="Median rather than mean — one slow outlier should not define a route's profile"
+        info="Median rather than mean — one slow outlier should not define a route's profile."
         icon={<Gauge size={16} />}
       />
       <CardBody>

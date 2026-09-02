@@ -96,7 +96,6 @@ export function AgentPlanCard({ plan, actualSpendUsd }: { plan: AgentPlan | unde
     <Card>
       <CardHeader
         title="Agent plan"
-        subtitle="What the planner decided this case needs — and what it chose not to do"
         icon={<ClipboardList size={16} />}
       />
       <CardBody className="flex flex-col gap-4">

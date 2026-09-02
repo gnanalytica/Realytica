@@ -33,7 +33,7 @@ export function DisclosureCard({
     <Card>
       <CardHeader
         title="What we may search for"
-        subtitle="Searching for this property means telling a search index about it. This decides how much."
+        info="Searching for this property means telling a search index about it. This decides how much."
         icon={<Globe size={16} />}
       />
       <CardBody className="flex flex-col gap-4">

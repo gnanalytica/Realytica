@@ -33,7 +33,7 @@ import {
   type VisitLimitationKind,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, InfoTip, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { SheetPlacer } from '../../components/SheetPlacer';
 
@@ -68,18 +68,14 @@ export default function SiteRecord() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-[62ch] text-[13px] text-ink-secondary">
-          Visits and the sheets placed on the map. What a surveyor could <em>not</em> see is recorded here too — a report that omits it
-          reads as more complete than it is.
-        </p>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <Button onClick={() => setOpen(true)}>Record a visit</Button>
       </div>
 
       {concerns.length ? (
         <Card>
           <CardBody className="space-y-1.5">
-            <p className="text-[11px] uppercase tracking-[0.12em] text-ink-muted">What the photographs say about themselves</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Capture warnings</p>
             {/* Computed from the files, never stored. Nothing here rejects a
                 photograph — a shot two kilometres away might be of the access
                 road — but a reader should be told before citing one. */}
@@ -156,9 +152,9 @@ export default function SiteRecord() {
       </section>
 
       <section className="space-y-2">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex items-center gap-1.5">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Sheets on the map</h2>
-          <p className="text-[11px] text-ink-muted">A sheet is placed from control points; the placement is worked out fresh every time.</p>
+          <InfoTip label="A sheet is placed from its control points, and the placement is worked out fresh every time." />
         </div>
         {placements.length === 0 ? (
           <EmptyState

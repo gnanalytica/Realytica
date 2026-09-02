@@ -52,10 +52,6 @@ export default function ProjectList() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-ink">Projects</h1>
-          <p className="mt-1 max-w-[62ch] text-[13px] text-ink-secondary">
-            The project is the system of record. Due diligence assessments run against it; findings, risks, actions and
-            decisions live here — not inside a one-off report.
-          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="ghost" icon={<RotateCw size={14} />} onClick={() => void refresh()} disabled={loading}>

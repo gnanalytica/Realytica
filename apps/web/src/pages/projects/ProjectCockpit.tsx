@@ -3,7 +3,6 @@ import { Link, Outlet, useLocation, useNavigate, useParams, useSearchParams } fr
 import { LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
 import {
   PROJECT_HEALTH_LABEL,
-  SCOPE_LABEL,
   cockpitPath,
   graphNodeLabels,
   isProjectCockpitPane,
@@ -446,17 +445,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           <span className="text-ink-muted"> · {liveLabel}</span>
           {highlightIds.length ? <span className="sr-only">{highlightIds.join(', ')}</span> : null}
         </div>
-      ) : null}
-      {currentDd && (pane === 'dd' || pane === 'scope') && params.ddId && isDesktop ? (
-        <p className="shrink-0 border-b border-hairline px-4 py-1.5 text-[11.5px] text-ink-muted">
-          {currentDd.name}
-          {params.scopeId
-            ? ` · ${(() => {
-                const key = currentDd.scopes.find((s) => s.id === params.scopeId)?.scopeKey;
-                return key ? SCOPE_LABEL[key] : '';
-              })()}`
-            : ''}
-        </p>
       ) : null}
       {fillRight ? (
         <div className="min-h-0 min-w-0 flex-1">

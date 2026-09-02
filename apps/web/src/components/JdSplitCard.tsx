@@ -27,7 +27,7 @@ export function JdSplitCard({ split, evidence }: { split: JdSplitAssessment; evi
     <Card>
       <CardHeader
         title="The sharing ratio, as a land price"
-        subtitle="Arithmetic on the screen's own figures — the scheme's gross realisation and the land-rate band. Not a new opinion of value."
+        info="Arithmetic on the screen's own figures — the scheme's gross realisation and the land-rate band. Not a new opinion of value."
         icon={<Handshake size={16} />}
         action={<Badge tone={meta.tone}>{meta.label}</Badge>}
       />

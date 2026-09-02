@@ -11,7 +11,7 @@ import {
   type ValuationSignOff,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Select, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Select, useToast } from '../../components/ui/kit';
 import { ScreenResultPanel } from '../../components/ScreenResultPanel';
 import { ValuationWorkingPanel } from '../../components/ValuationWorkingPanel';
 import { TitleChainDiagram } from '../../components/charts';
@@ -72,18 +72,14 @@ export default function Valuation() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-[62ch] text-[13px] text-ink-secondary">
-          IBBI-structured indicative valuation. Decision support only — not a certified value unless a registered valuer signs a separate professional report.
+        <p className="text-[13px] text-ink-secondary">
+          Indicative. Not a certified value unless a registered valuer signs a professional report.
         </p>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => void screen()} disabled={busy}>Run property screen</Button>
           <Button onClick={() => void run()} disabled={busy}>Run indicative valuation</Button>
         </div>
       </div>
-
-      <Callout tone="warning" title="Not a certified valuation">
-        Sign-off on this screen records workflow state (unsigned / internal review / valuer required). It does not issue an IBBI certificate.
-      </Callout>
 
       {!latest ? (
         <EmptyState title="No valuation run yet" description="Uses land and built-up areas plus locality medians. Record areas on the project for a usable range." />
@@ -202,7 +198,6 @@ export default function Valuation() {
             <Card>
               <CardHeader
                 title="Title structure"
-                subtitle="Who, through what, over what, and subject to what — read left to right, the order a title opinion is written in."
               />
               <CardBody>
                 <TitleChainDiagram graph={titleGraph} summary={project.lastScreenResult.titleGraph} />

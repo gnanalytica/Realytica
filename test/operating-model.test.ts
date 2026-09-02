@@ -941,7 +941,9 @@ describe('sitting', () => {
     noteProjectEdit(project, `Recorded “${title}” as Compliant.`, { citedNodeIds: [checkId] });
     assert.equal(project.conversation.length, before + 2);
     assert.match(project.conversation.at(-2)!.text, new RegExp(title));
-    assert.match(project.conversation.at(-1)!.text, /work pane/i);
+    // The acknowledgement is one word; what marks it as a pane write is the
+    // tool call, not the prose.
+    assert.equal(project.conversation.at(-1)!.toolCalls?.[0]?.name, 'pane_write');
     assert.ok(sittingFromCitedId(project, checkId)?.kind === 'check');
   });
 });

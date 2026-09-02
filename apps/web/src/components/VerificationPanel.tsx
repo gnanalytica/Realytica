@@ -201,7 +201,6 @@ export function VerificationPanel({ verification }: { verification: Verification
     <Card>
       <CardHeader
         title="Verification"
-        subtitle="The critic's adversarial check of every claim the other agents made against this case's own evidence"
         icon={<ShieldQuestion size={16} />}
       />
       <CardBody className="flex flex-col gap-4">

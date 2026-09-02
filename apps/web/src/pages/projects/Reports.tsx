@@ -40,12 +40,7 @@ export default function Reports() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-[62ch] text-[13px] text-ink-secondary">
-          A report is half alive. Sections with a coloured rail read the registers and update as the file does; the rest are
-          your words and nothing regenerates them. Detach a live section when you need to say it differently — the report
-          will show that it stopped updating.
-        </p>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <Button onClick={() => setOpen(true)}>Generate report</Button>
       </div>
       {project.reports.length === 0 ? (
