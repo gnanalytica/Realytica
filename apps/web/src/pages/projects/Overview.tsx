@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import {
   projectTolerances,
@@ -14,11 +14,19 @@ import {
   type LifecycleStage,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, Field, Modal, Select, StatTile, Textarea, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Field, Modal, Select, Skeleton, StatTile, Textarea, useToast } from '../../components/ui/kit';
 import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 import { LiveRow } from './LiveRow';
-import { GisOverlayCard } from '../../components/GisOverlayCard';
+/*
+ * The map carries Leaflet, which is the largest thing on the overview and is
+ * of no use at all to anybody who never scrolls to it. Lazy so the rest of the
+ * project — every register, every chart — paints without waiting for a mapping
+ * library.
+ */
+const GisOverlayCard = lazy(() =>
+  import('../../components/GisOverlayCard').then((m) => ({ default: m.GisOverlayCard })),
+);
 import { ToleranceChart } from '../../components/charts';
 
 export default function Overview() {
@@ -110,7 +118,9 @@ export default function Overview() {
         </Card>
       ) : null}
 
-      <GisOverlayCard project={project} onChanged={async () => setProject(await api.getProject(project.id))} />
+      <Suspense fallback={<Skeleton className="h-48 w-full rounded-xl" />}>
+        <GisOverlayCard project={project} onChanged={async () => setProject(await api.getProject(project.id))} />
+      </Suspense>
 
       {project.portfolio ? (
         <p className="text-[12px] text-ink-muted">Portfolio: {project.portfolio}</p>

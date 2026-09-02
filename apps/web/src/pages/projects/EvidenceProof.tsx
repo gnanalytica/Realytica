@@ -4,9 +4,16 @@ import type { EvidenceAttachment, EvidenceRecord } from '@realytica/shared';
 import { evidenceFileUrl } from '../../lib/api';
 import { Button } from '../../components/ui/kit';
 import { fetchEvidenceFile, renderKindFor, type DocumentSourceState } from '../../components/viewer/source';
-import { DocxView } from '../../components/viewer/DocxView';
 
+/*
+ * Both readers are loaded only when a document of that kind is opened.
+ *
+ * They carry the two largest dependencies in the app — a PDF engine and a
+ * .docx converter — and most sessions open neither. Paying for them before the
+ * sign-in screen paints was the single biggest thing in the bundle.
+ */
 const PdfView = lazy(() => import('../../components/viewer/PdfView').then((m) => ({ default: m.PdfView })));
+const DocxView = lazy(() => import('../../components/viewer/DocxView').then((m) => ({ default: m.DocxView })));
 
 export function EvidenceProof({
   projectId,
@@ -137,7 +144,13 @@ function ProofBody({
       </Suspense>
     );
   }
-  if (kind === 'docx') return <DocxView blob={state.blob} highlightTerm={highlightTerm} />;
+  if (kind === 'docx') {
+    return (
+      <Suspense fallback={<Shell>Loading the document reader…</Shell>}>
+        <DocxView blob={state.blob} highlightTerm={highlightTerm} />
+      </Suspense>
+    );
+  }
   if (kind === 'image') {
     return (
       <div className="h-full overflow-auto p-4">

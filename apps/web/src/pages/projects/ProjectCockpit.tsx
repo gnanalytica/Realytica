@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
 import {
@@ -25,7 +25,7 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { CopilotPanel } from '../../components/CopilotPanel';
-import { Badge, Button, cn, useToast } from '../../components/ui/kit';
+import { Badge, Button, Spinner, cn, useToast } from '../../components/ui/kit';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { EMPTY_CHAT_WIDTH, LAYOUTS, LAYOUT_LABEL, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
 import type { CockpitLayout } from './cockpit/layout';
@@ -161,6 +161,15 @@ function extrasForNavigation(
 }
 
 type MobileSurface = 'chat' | 'work';
+
+/** While one of the two lazily-loaded project tabs arrives. */
+function PaneWaiting() {
+  return (
+    <div className="flex h-full min-h-[40vh] animate-fade-in items-center justify-center">
+      <Spinner size={18} />
+    </div>
+  );
+}
 
 export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const { project, refresh, setProject } = outlet;
@@ -475,16 +484,22 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       ) : null}
       {fillRight ? (
         <div className="min-h-0 min-w-0 flex-1">
-          {/* One broken pane must not take the project tabs with it. */}
+          {/* One broken pane must not take the project tabs with it, and the
+              two lazily-loaded tabs need somewhere to wait. */}
           <RouteErrorBoundary>
-            <Outlet context={workOutlet} />
+            <Suspense fallback={<PaneWaiting />}>
+              <Outlet context={workOutlet} />
+            </Suspense>
           </RouteErrorBoundary>
         </div>
       ) : (
         <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4">
-          {/* One broken pane must not take the project tabs with it. */}
+          {/* One broken pane must not take the project tabs with it, and the
+              two lazily-loaded tabs need somewhere to wait. */}
           <RouteErrorBoundary>
-            <Outlet context={workOutlet} />
+            <Suspense fallback={<PaneWaiting />}>
+              <Outlet context={workOutlet} />
+            </Suspense>
           </RouteErrorBoundary>
         </div>
       )}
