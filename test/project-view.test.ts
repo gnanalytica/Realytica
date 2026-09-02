@@ -17,6 +17,8 @@ import assert from 'node:assert/strict';
 import {
   GRANT_AREAS,
   createAssessment,
+  createProjectGrant,
+  patchProjectGrant,
   fullView,
   projectView,
   seedDemoProject,
@@ -327,5 +329,52 @@ describe('nothing survives that should not', () => {
         e.scopeInstanceIds.length > 0 && e.scopeInstanceIds.every((id) => otherScopeIds.has(id));
       assert.ok(!onlyOther, `"${e.title}" belongs only to the other assessment`);
     }
+  });
+});
+
+describe('writing a grant down', () => {
+  it('defaults every unspecified field to the closed position', () => {
+    const grant = createProjectGrant(
+      { email: 'Contractor@Outside.in ' },
+      { id: 'g1', tenantId: 't1', projectId: 'p1', createdBy: 'dev@firm.in', now: '2026-01-01T00:00:00.000Z' },
+    );
+    assert.equal(grant.role, 'reviewer');
+    assert.equal(grant.allAssessments, false);
+    assert.deepEqual(grant.assessmentIds, []);
+    assert.equal(grant.allScopes, false);
+    assert.deepEqual(grant.scopeKeys, []);
+    assert.deepEqual(grant.areas, []);
+    assert.equal(grant.expiresAt, undefined);
+    assert.equal(grant.email, 'Contractor@Outside.in', 'the address is trimmed, not folded');
+  });
+
+  it('gives that person a shell and nothing in it', () => {
+    const project = seedDemoProject();
+    const grant = createProjectGrant(
+      { email: 'nobody@outside.in' },
+      { id: 'g1', tenantId: 't1', projectId: project.id, createdBy: 'dev@firm.in' },
+    );
+    const { project: seen } = projectView(project, { kind: 'granted', grant, email: 'nobody@outside.in' });
+    assert.deepEqual(seen.assessments, []);
+    assert.deepEqual(seen.evidence, []);
+    assert.deepEqual(seen.findings, []);
+  });
+
+  it('leaves the rest alone when a change names one field', () => {
+    // The failure this closes: a screen that PATCHes only the role, and
+    // silently revokes every assessment because absent read as empty.
+    const grant = grantOf({ allAssessments: true, areas: ['valuation'], expiresAt: '2027-01-01T00:00:00.000Z' });
+    patchProjectGrant(grant, { role: 'contributor' });
+    assert.equal(grant.role, 'contributor');
+    assert.equal(grant.allAssessments, true);
+    assert.deepEqual(grant.areas, ['valuation']);
+    assert.equal(grant.expiresAt, '2027-01-01T00:00:00.000Z');
+  });
+
+  it('clears a field when the change says so out loud', () => {
+    const grant = grantOf({ areas: ['valuation', 'reports'], expiresAt: '2027-01-01T00:00:00.000Z' });
+    patchProjectGrant(grant, { areas: [], expiresAt: '' });
+    assert.deepEqual(grant.areas, []);
+    assert.equal(grant.expiresAt, undefined);
   });
 });

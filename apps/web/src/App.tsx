@@ -23,6 +23,7 @@ import Libraries from './pages/projects/Libraries';
 import Valuation from './pages/projects/Valuation';
 import AiDrafts from './pages/projects/AiDrafts';
 import { CockpitGraph, CockpitOrchestrate } from './pages/projects/cockpit/embed';
+import ProjectPeople from './pages/projects/ProjectPeople';
 
 export default function App() {
   return (
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="graph" element={<CockpitGraph />} />
             <Route path="ai" element={<AiDrafts />} />
             <Route path="orchestrate" element={<CockpitOrchestrate />} />
+            <Route path="people" element={<ProjectPeople />} />
           </Route>
           <Route path="libraries" element={<Libraries />} />
           <Route path="observability" element={<Observability />} />

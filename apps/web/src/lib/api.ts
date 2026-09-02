@@ -102,6 +102,8 @@ import type {
   GisOverlayRead,
   ParcelBoundary,
   WorkspaceRole,
+  ProjectGrant,
+  CreateProjectGrantInput,
 } from '@realytica/shared';
 import { authHeader, signOut } from './auth';
 
@@ -346,6 +348,12 @@ export interface MembersResponse {
   }>;
 }
 
+/** Who is on one project, and the staff who reach it without being named. */
+export interface ProjectPeopleResponse {
+  people: Array<ProjectGrant & { name?: string; signedIn: boolean }>;
+  staff: Array<{ email: string; name?: string; role: WorkspaceRole }>;
+}
+
 /**
  * What the prompt editor sends when saving.
  *
@@ -413,6 +421,20 @@ export const api = {
 
   removeMember: (email: string) =>
     request<void>(`/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
+
+  projectPeople: (projectId: string) => request<ProjectPeopleResponse>(`/projects/${projectId}/people`),
+
+  addProjectPerson: (projectId: string, body: CreateProjectGrantInput) =>
+    request<ProjectGrant>(`/projects/${projectId}/people`, { method: 'POST', body: JSON.stringify(body) }),
+
+  setProjectPersonReach: (projectId: string, grantId: string, body: Partial<CreateProjectGrantInput>) =>
+    request<ProjectGrant>(`/projects/${projectId}/people/${grantId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  removeProjectPerson: (projectId: string, grantId: string) =>
+    request<void>(`/projects/${projectId}/people/${grantId}`, { method: 'DELETE' }),
 
   setAutoJoinDomain: (autoJoinDomain: string | null) =>
     request<{ id: string; name: string; autoJoinDomain?: string }>('/members', {

@@ -12,16 +12,19 @@ import {
   Scale,
   Search,
   Sparkles,
+  Users,
   Waypoints,
   Workflow,
 } from 'lucide-react';
 import {
   SCOPE_LABEL,
+  reachesEveryProject,
   scopeCompleteness,
   type DdProject,
   type ProjectCockpitPane,
 } from '@realytica/shared';
 import { cn } from '../../../components/ui/kit';
+import { useMe } from '../../../lib/useMe';
 
 /**
  * Navigation in two rows rather than thirteen chips.
@@ -64,6 +67,7 @@ export const SECTIONS: CockpitSection[] = [
     tabs: [
       { pane: 'overview', label: 'Summary', icon: LayoutDashboard },
       { pane: 'graph', label: 'Graph', icon: Waypoints },
+      { pane: 'people', label: 'People', icon: Users },
     ],
   },
   {
@@ -183,7 +187,13 @@ export function CockpitPaneStrip({
   wrap?: boolean;
 }) {
   const badges = { overdue, pendingDrafts };
+  const me = useMe();
   const here = tabHolding(pane).section;
+
+  // Who else is on a file is the workspace's business. A collaborator asking
+  // for it gets a 404, so showing them the tab would only be an invitation to
+  // find that out.
+  const tabs = here.tabs.filter((t) => t.pane !== 'people' || (me ? reachesEveryProject(me.role) : false));
 
   return (
     <div className={cn('shrink-0 space-y-1.5 border-b border-hairline bg-surface py-2', wrap ? 'px-4' : 'px-3')}>
@@ -213,9 +223,9 @@ export function CockpitPaneStrip({
 
       {here.key === 'assess' ? (
         <AssessNav project={project} ddId={ddId} scopeId={scopeId} onGo={onGo} wrap={wrap} />
-      ) : here.tabs.length > 1 ? (
+      ) : tabs.length > 1 ? (
         <div className={chipRow(wrap)}>
-          {here.tabs.map((tab) => {
+          {tabs.map((tab) => {
             const on = paneActive(pane, tab.pane);
             const count = badgeFor(tab.pane, badges);
             return (

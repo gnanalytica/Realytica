@@ -364,6 +364,99 @@ describe('a reviewer, who was put on the project to read it', () => {
   });
 });
 
+describe('staffing a project from its own screen', () => {
+  const meera = () => tokenFor('sub-meera', 'meera@survey.in');
+  let grantId = '';
+
+  it('refuses a collaborator the roster', async () => {
+    // Who else is on the file, and on how much of it, is not theirs to read.
+    assert.equal((await call('GET', `/api/projects/${theirs.id}/people`, { token: sam() })).status, 404);
+  });
+
+  it('shows the developer who is on the file and who reaches it anyway', async () => {
+    const res = await call('GET', `/api/projects/${theirs.id}/people`, { token: dev() });
+    assert.equal(res.status, 200);
+    const body = res.body as { people: Array<{ email: string }>; staff: Array<{ email: string }> };
+    assert.deepEqual(body.people.map((p) => p.email), ['sam@site.in']);
+    assert.deepEqual(body.staff.map((s) => s.email), ['dev@builders.in']);
+  });
+
+  it('takes somebody who is not in the workspace yet', async () => {
+    const assessment = theirs.assessments[0]!;
+    const res = await call('POST', `/api/projects/${theirs.id}/people`, {
+      token: dev(),
+      body: {
+        email: 'meera@survey.in',
+        role: 'reviewer',
+        assessmentIds: [assessment.id],
+        scopeKeys: [assessment.scopes[0]!.scopeKey],
+      },
+    });
+    assert.equal(res.status, 201);
+    grantId = (res.body as { id: string }).id;
+  });
+
+  it('lets them in on their first sign-in, onto that project only', async () => {
+    const res = await call('GET', '/api/projects', { token: meera() });
+    assert.equal(res.status, 200);
+    assert.deepEqual((res.body as Array<{ id: string }>).map((p) => p.id), [theirs.id]);
+  });
+
+  it('defaults everything else to closed', async () => {
+    const res = await call('GET', `/api/projects/${theirs.id}`, { token: meera() });
+    assert.equal(res.status, 200);
+    const seen = res.body as DdProject;
+    assert.equal(seen.assessments.length, 1);
+    assert.equal(seen.reports?.length ?? 0, 0);
+    assert.equal(seen.valuationRuns?.length ?? 0, 0);
+    // A reviewer, because nothing said otherwise.
+    const write = await call('POST', `/api/projects/${theirs.id}/checks/${allowed.checkId}`, {
+      token: meera(),
+      body: { result: 'compliant' },
+    });
+    assert.equal(write.status, 403);
+  });
+
+  it('refuses to write a grant for staff, who already reach everything', async () => {
+    const res = await call('POST', `/api/projects/${theirs.id}/people`, {
+      token: dev(),
+      body: { email: 'dev@builders.in' },
+    });
+    assert.equal(res.status, 409);
+  });
+
+  it('leaves the rest of a grant alone when only one part is changed', async () => {
+    const res = await call('PATCH', `/api/projects/${theirs.id}/people/${grantId}`, {
+      token: dev(),
+      body: { role: 'contributor' },
+    });
+    assert.equal(res.status, 200);
+    const grant = res.body as ProjectGrant;
+    assert.equal(grant.role, 'contributor');
+    assert.equal(grant.assessmentIds.length, 1, 'a partial change must not revoke the rest');
+    assert.equal(grant.scopeKeys.length, 1);
+  });
+
+  it('ends access when they come off the project', async () => {
+    assert.equal((await call('DELETE', `/api/projects/${theirs.id}/people/${grantId}`, { token: dev() })).status, 204);
+    assert.equal((await call('GET', `/api/projects/${theirs.id}`, { token: meera() })).status, 404);
+  });
+
+  it('does not throw them out of the workspace, because they may be on other sites', async () => {
+    const res = await call('GET', '/api/members', { token: meera() });
+    assert.equal(res.status, 200);
+    assert.equal((res.body as { me: { role: string } }).me.role, 'collaborator');
+  });
+
+  it('is not a collaborator’s button to press', async () => {
+    const res = await call('POST', `/api/projects/${theirs.id}/people`, {
+      token: sam(),
+      body: { email: 'a-friend@outside.in', allAssessments: true, allScopes: true, role: 'contributor' },
+    });
+    assert.equal(res.status, 404);
+  });
+});
+
 describe('a grant that has run out', () => {
   before(async () => {
     const { store } = await import('../apps/api/src/store');

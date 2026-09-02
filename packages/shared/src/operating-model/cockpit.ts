@@ -104,6 +104,7 @@ export const PROJECT_COCKPIT_PANES = [
   'graph',
   'drafts',
   'orchestrate',
+  'people',
 ] as const;
 
 export type ProjectCockpitPane = (typeof PROJECT_COCKPIT_PANES)[number];
@@ -186,6 +187,8 @@ export function cockpitPath(
       return `${base}/ai`;
     case 'orchestrate':
       return `${base}/orchestrate`;
+    case 'people':
+      return `${base}/people`;
   }
 }
 

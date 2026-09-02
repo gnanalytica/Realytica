@@ -142,3 +142,57 @@ export function describeGrant(grant: ProjectGrant): string {
   if (grant.areas.length > 0) parts.push(grant.areas.map((a) => GRANT_AREA_LABEL[a].toLowerCase()).join(', '));
   return parts.join(' · ');
 }
+
+/**
+ * Write a grant down.
+ *
+ * Every field is defaulted to the closed position: a reviewer, no assessments,
+ * no scopes, no areas. Adding somebody and forgetting to tick anything gives
+ * them a project shell and nothing else, which is the failure that is safe.
+ */
+export function createProjectGrant(
+  input: CreateProjectGrantInput,
+  where: { id: string; tenantId: string; projectId: string; createdBy: string; now?: string },
+): ProjectGrant {
+  return {
+    id: where.id,
+    tenantId: where.tenantId,
+    projectId: where.projectId,
+    email: input.email.trim(),
+    role: input.role ?? 'reviewer',
+    allAssessments: input.allAssessments ?? false,
+    assessmentIds: [...new Set(input.assessmentIds ?? [])],
+    allScopes: input.allScopes ?? false,
+    scopeKeys: [...new Set(input.scopeKeys ?? [])],
+    areas: [...new Set(input.areas ?? [])],
+    ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+    ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+    createdAt: where.now ?? new Date().toISOString(),
+    createdBy: where.createdBy,
+  };
+}
+
+/**
+ * Apply a change to a grant.
+ *
+ * Absent means "leave it", not "clear it" — a screen that sends only what it
+ * changed must not silently revoke the rest. Clearing is done by sending the
+ * empty list.
+ */
+export function patchProjectGrant(grant: ProjectGrant, input: Partial<CreateProjectGrantInput>): ProjectGrant {
+  if (input.role) grant.role = input.role;
+  if (input.allAssessments !== undefined) grant.allAssessments = input.allAssessments;
+  if (input.assessmentIds) grant.assessmentIds = [...new Set(input.assessmentIds)];
+  if (input.allScopes !== undefined) grant.allScopes = input.allScopes;
+  if (input.scopeKeys) grant.scopeKeys = [...new Set(input.scopeKeys)];
+  if (input.areas) grant.areas = [...new Set(input.areas)];
+  if (input.expiresAt !== undefined) {
+    if (input.expiresAt) grant.expiresAt = input.expiresAt;
+    else delete grant.expiresAt;
+  }
+  if (input.note !== undefined) {
+    if (input.note.trim()) grant.note = input.note.trim();
+    else delete grant.note;
+  }
+  return grant;
+}

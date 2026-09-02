@@ -147,6 +147,7 @@ import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { UPLOAD_LIMITS } from './documents';
 import { projectSiteContextRouter } from './site-context';
+import { projectPeopleRouter } from './project-people';
 import { projectGisOverlayRouter } from './gis-overlay';
 import { graphAdapter } from '../graph';
 import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
@@ -357,6 +358,10 @@ projectsRouter.use('/:projectId/assets', workspaceWrites);
 projectsRouter.use('/:projectId/stage', workspaceWrites);
 projectsRouter.use('/:projectId/assessments', workspaceWrites);
 projectsRouter.use('/:projectId/graph', workspaceWrites);
+
+// Staffing the site. Who else is on a file, and on how much of it, is the
+// workspace's business — a contractor does not get the roster.
+projectsRouter.use('/:projectId/people', workspaceOnly, projectPeopleRouter);
 
 projectsRouter.use('/:projectId/site-context', projectSiteContextRouter);
 projectsRouter.use('/:projectId/gis-overlay', projectGisOverlayRouter);
