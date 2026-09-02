@@ -38,6 +38,12 @@ export interface VersionHistoryProps {
    * selected, because arriving from a run should not change what is running.
    */
   highlightVersionId?: string | null;
+  /**
+   * The reader may look but not change. The history is still worth reading —
+   * what the agents are told is not a secret — so the rows stay and only the
+   * controls go.
+   */
+  readOnly?: boolean;
   className?: string;
 }
 
@@ -49,6 +55,7 @@ export function VersionHistory({
   onDelete,
   busyVersionId,
   highlightVersionId,
+  readOnly = false,
   className,
 }: VersionHistoryProps) {
   const [pendingActivate, setPendingActivate] = useState<PromptVersion | null>(null);
@@ -141,7 +148,7 @@ export function VersionHistory({
                 </div>
               ) : null}
 
-              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              <div className={cn('mt-2.5 flex-wrap items-center gap-1.5', readOnly ? 'hidden' : 'flex')}>
                 {isActive ? (
                   <span className="text-mini font-medium text-brand">In force for every run of this prompt</span>
                 ) : (

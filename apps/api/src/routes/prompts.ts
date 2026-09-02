@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import type { PromptDescriptor } from '@realytica/shared';
 import { promptStore } from '../prompts';
+import { needsOperator } from '../auth/operator';
 
 /**
  * The prompt registry as an editable resource.
@@ -16,6 +17,22 @@ import { promptStore } from '../prompts';
  * after every edit will eventually show a stale answer for one frame.
  */
 export const promptsRouter = Router();
+
+/*
+ * Reading is an admin's; changing is the deployment operator's.
+ *
+ * Mounted rather than repeated on the four write routes, so a fifth added
+ * later inherits it. `needs('admin')` above this router is still what keeps a
+ * member out entirely — this narrows the half of the surface that reaches
+ * across workspaces.
+ */
+promptsRouter.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+    next();
+    return;
+  }
+  needsOperator(req, res, next);
+});
 
 const draftSchema = z.object({
   label: z.string().max(200).default(''),

@@ -336,7 +336,15 @@ export interface HealthResponse {
 /** Who I am and who else is in this workspace, as the server sees it. */
 export interface MembersResponse {
   tenant: { id: string; name: string; autoJoinDomain?: string } | null;
-  me: { subject: string; email: string; name?: string; tenantId: string; role: WorkspaceRole };
+  me: {
+    subject: string;
+    email: string;
+    name?: string;
+    tenantId: string;
+    role: WorkspaceRole;
+    /** Runs the deployment, as opposed to a workspace in it. Edits the prompts. */
+    operator: boolean;
+  };
   members: Array<{
     email: string;
     name?: string;

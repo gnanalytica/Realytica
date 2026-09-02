@@ -130,25 +130,84 @@ email can be reassigned inside a company, a subject cannot, so a later invite
 to the same address cannot promote an account that already exists.
 
 An owner can open the workspace to a whole domain, which admits colleagues as
-**members** and never as admins. Public mailbox domains (gmail.com and friends)
+**staff** and never as managers. Public mailbox domains (gmail.com and friends)
 are refused: "anyone with a gmail address may join" is not a workspace.
 
 ### Roles
 
-| | Read | Write | Manage members | Own the workspace |
+The shape is a developer and their people. Four roles reach every project in
+the workspace; the fifth reaches only what it is given.
+
+| | Reads every project | Writes | Manages people | Owns the workspace |
 |---|---|---|---|---|
 | **Owner** | ✓ | ✓ | ✓ | ✓ |
-| **Admin** | ✓ | ✓ | ✓ | |
-| **Member** | ✓ | ✓ | | |
+| **Manager** | ✓ | ✓ | ✓ | |
+| **Staff** | ✓ | ✓ | | |
 | **Viewer** | ✓ | | | |
+| **Collaborator** | — | per grant | | |
 
 Write covers everything on a file: checks, evidence, findings, risks, reports.
-Admin adds creating and deleting projects and running the member list. Owner
+Manager adds creating and deleting projects and running the people list. Owner
 adds transferring the workspace.
 
 A workspace always keeps at least one owner. The last one cannot demote or
 remove themselves — there is no way back into a workspace that has nobody who
 can administer it.
+
+### Collaborators, and what a grant says
+
+A collaborator — a contractor, a consultant, a site helper — reaches **nothing
+until they are named on a project**, under **People** on the project itself.
+The grant narrows in four steps:
+
+```
+project  →  which assessments  →  which scopes inside them  →  which areas
+```
+
+Areas are the parts of a file that belong to no scope: the valuation, the
+decisions, the reports, the budget, the site record. Each is off unless ticked,
+and `allAssessments: false` with an empty list means none rather than all — a
+convention where "empty" silently meant "everything" is the one that puts the
+wrong contractor on the acquisition file.
+
+A grant can carry an expiry, which the server enforces. Contractors churn and
+nobody remembers to revoke.
+
+Three things follow from the grant rather than being written per route:
+
+- **Reads are redacted, not filtered.** The project handed to any reader —
+  including the chat, the search index and the graph — is a copy with the
+  withheld parts absent. A model told to withhold the valuation mentions it; a
+  model handed a file that has no valuation on it cannot.
+- **Writes are gated separately.** The API mutates the real project, not the
+  copy, so a request naming a record that exists but is not in the caller's
+  projection is refused — whether the id came from the path or the body.
+- **Refusals are 404.** For the same reason as a project in another workspace:
+  a 403 answers the question the caller was really asking.
+
+### Who runs the deployment
+
+Two things reach past a workspace and are therefore not any admin's:
+
+- **Model spend** (`/api/telemetry`) is scoped to the caller's workspace. Every
+  call is stamped with the workspace that made it, so one firm never reads
+  another's bill.
+- **The prompt registry** (`/api/prompts`) is one registry for the whole
+  deployment. Any admin may read it; changing it needs an operator:
+
+  ```bash
+  REALYTICA_OPERATORS=ops@yourfirm.in,partner@yourfirm.in
+  ```
+
+  Unset, the owner of the *only* workspace on the deployment is the operator —
+  which is what a local install and a single-firm deployment are, and neither
+  should need configuration to edit a prompt. That rule stops the moment a
+  second workspace appears: a shared deployment has no operator until somebody
+  says who it is. Refusing an edit is recoverable; letting one firm rewrite
+  another's agents is not.
+
+Agent memory is cross-project by design and workspace-scoped by enforcement: a
+fact learned on one firm's file is never recalled into another firm's prompt.
 
 ---
 

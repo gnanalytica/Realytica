@@ -9,6 +9,7 @@ import {
 } from '@realytica/shared';
 import { store } from '../store';
 import { needs, principalOf } from '../auth/middleware';
+import { isOperator } from '../auth/operator';
 
 /**
  * Who is in this workspace, and what they may do.
@@ -39,7 +40,11 @@ membersRouter.get('/', needs('read'), (req, res) => {
   const tenant = (store.data.tenants ?? []).find((t) => t.id === me.tenantId);
   res.json({
     tenant: tenant ? { id: tenant.id, name: tenant.name, autoJoinDomain: tenant.autoJoinDomain } : null,
-    me,
+    // Whether this person runs the deployment, as opposed to a workspace in
+    // it. Carried here because it is what every screen already asks for when
+    // it asks who is signed in, and because the prompts page needs it to stop
+    // offering an edit the server will refuse.
+    me: { ...me, operator: isOperator(me) },
     members: rows(me.tenantId)
       .map((m) => ({
         email: m.email,

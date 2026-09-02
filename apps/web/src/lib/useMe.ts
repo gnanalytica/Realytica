@@ -18,6 +18,8 @@ export interface Me {
   name?: string;
   tenantId: string;
   role: WorkspaceRole;
+  /** Runs the deployment rather than a workspace in it. */
+  operator: boolean;
 }
 
 let cached: Me | null = null;

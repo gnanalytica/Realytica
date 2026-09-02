@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { PromptDescriptor, PromptVersion } from '@realytica/shared';
 import { api as appApi } from '../lib/api';
+import { useMe } from '../lib/useMe';
 import {
   Badge,
   Button,
@@ -235,6 +236,16 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
   const highlightVersionId = linkedVersionId;
   const [saving, setSaving] = useState(false);
   const [busyVersionId, setBusyVersionId] = useState<string | null>(null);
+  /*
+   * These prompts are one registry for the whole deployment. Any admin may
+   * read them — what the agents are told is worth being able to see — but
+   * rewriting them reaches across every workspace on the install, so it takes
+   * standing the workspace roles do not grant. The refusal that matters is the
+   * server's; hiding the controls is only so nobody edits for ten minutes and
+   * then finds out.
+   */
+  const me = useMe();
+  const mayEdit = me?.operator ?? false;
   const [dirty, setDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
 
@@ -503,6 +514,13 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
         </div>
       )}
 
+      {persists && me && !mayEdit ? (
+        <Callout tone="info" title="These prompts are read-only for you">
+          One registry serves every workspace on this deployment, so a change here would rewrite the instructions
+          every other workspace’s agents run under. Whoever runs the deployment makes that change.
+        </Callout>
+      ) : null}
+
       {!persists ? (
         <Callout tone="warning" title="Changes are held in this page only" collapsible>
           No prompt endpoint is available in this build, so versions created here live in the browser tab and vanish on
@@ -556,20 +574,22 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
               }
               icon={<ScrollText size={16} />}
               action={
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon={<Plus size={13} />}
-                  data-testid="new-version"
-                  onClick={() =>
-                    guard(() => {
-                      const base = activeVersion(selected) ?? builtInVersion(selected) ?? selected.versions[0];
-                      if (base) setEditor({ mode: 'new', baseVersionId: base.id });
-                    })
-                  }
-                >
-                  New version
-                </Button>
+                mayEdit ? (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon={<Plus size={13} />}
+                    data-testid="new-version"
+                    onClick={() =>
+                      guard(() => {
+                        const base = activeVersion(selected) ?? builtInVersion(selected) ?? selected.versions[0];
+                        if (base) setEditor({ mode: 'new', baseVersionId: base.id });
+                      })
+                    }
+                  >
+                    New version
+                  </Button>
+                ) : null
               }
             />
             <CardBody className="flex flex-col gap-3">
@@ -619,6 +639,7 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
                       highlightVersionId={highlightVersionId}
                       prompt={selected}
                       busyVersionId={busyVersionId}
+                      readOnly={!mayEdit}
                       onActivate={(versionId) => void activate(selected, versionId)}
                       onDelete={(versionId) => void remove(selected, versionId)}
                       onEdit={(versionId) => guard(() => setEditor({ mode: 'edit', baseVersionId: versionId }))}
