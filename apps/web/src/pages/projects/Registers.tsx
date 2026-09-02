@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
+  ownedBy,
   EVIDENCE_KIND_LABEL,
   EVIDENCE_STATUS_LABEL,
   CAPTURE_PURPOSES,
@@ -31,13 +32,15 @@ import {
   type ScopeKey,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, cn, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
 import { EvidenceProof } from './EvidenceProof';
 import { EvidenceDropButton, EvidenceDropZone } from '../../components/EvidenceDropZone';
 import { useStickyState } from '../../lib/useStickyState';
+import { useMe } from '../../lib/useMe';
+import { AssignCell } from '../../components/AssignCell';
 
 const EVIDENCE_STATUSES = Object.keys(EVIDENCE_STATUS_LABEL) as EvidenceStatus[];
 const FINDING_STATUSES = Object.keys(FINDING_STATUS_LABEL) as FindingStatus[];
@@ -60,6 +63,11 @@ export function EvidenceRegister() {
     (v) => v === 'all' || v === 'gaps' || (EVIDENCE_STATUSES as string[]).includes(v),
   );
   const [query, setQuery] = useState('');
+  // Not sticky, unlike the status filter: "mine" is a question somebody asks
+  // on the way past, and finding the register silently narrowed to it a week
+  // later reads as documents having gone missing.
+  const [mineOnly, setMineOnly] = useState(false);
+  const me = useMe();
   const [proofId, setProofId] = useState<string | null>(focusId ?? null);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -70,8 +78,10 @@ export function EvidenceRegister() {
     if (statusFilter === 'gaps' && !GAP_STATUSES.includes(e.status)) return false;
     if (statusFilter !== 'all' && statusFilter !== 'gaps' && e.status !== statusFilter) return false;
     if (query.trim() && !e.title.toLowerCase().includes(query.trim().toLowerCase())) return false;
+    if (mineOnly && !(me && ownedBy(e.owner, me))) return false;
     return true;
   });
+  const mineCount = me ? scoped.filter((e) => ownedBy(e.owner, me)).length : 0;
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [kind, setKind] = useState<EvidenceKind>('document');
@@ -186,6 +196,19 @@ export function EvidenceRegister() {
           ))}
         </Select>
         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by title" className="w-full max-w-xs" />
+        {mineCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => setMineOnly((v) => !v)}
+            aria-pressed={mineOnly}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] coarse:min-h-11',
+              mineOnly ? 'bg-brand-soft font-semibold text-brand' : 'bg-sunken text-ink-secondary hover:text-ink',
+            )}
+          >
+            Mine <span className="text-ink-muted">{mineCount}</span>
+          </button>
+        ) : null}
         <div className="flex-grow" />
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={() => setOpen(true)}>Record an item</Button>
@@ -263,6 +286,13 @@ export function EvidenceRegister() {
                     {e.used ? ' · used' : e.considered ? ' · considered' : ''}
                     {(e.attachments ?? []).length ? ` · ${e.attachments.length} file(s)` : ''}
                   </p>
+                  <AssignCell
+                    className="-ml-1.5"
+                    project={project}
+                    targetId={e.id}
+                    owner={e.owner}
+                    onAssigned={setProject}
+                  />
                   {e.iso19650 ? (
                     // Derived from the parts, never stored — the name is a view
                     // of the reference, and two copies of it would drift.
@@ -487,6 +517,13 @@ export function FindingRegister() {
                     <p className="mt-1 text-[11px] text-ink-muted">
                       {SCOPE_LABEL[f.discipline]} · {f.assessmentIds.length} DD link(s) · {f.evidenceIds.length} evidence · {f.riskIds.length} risks · {f.actionIds.length} actions
                     </p>
+                    <AssignCell
+                      className="mt-0.5 -ml-1.5"
+                      project={project}
+                      targetId={f.id}
+                      owner={f.owner}
+                      onAssigned={setProject}
+                    />
                   </div>
                   <div className="flex items-center gap-2">
                     {/* Derived from the severity beside it, never stored — see `ricsConditionRating`. */}

@@ -17,6 +17,7 @@ import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { LiveRow } from './LiveRow';
+import { OwnerInput } from '../../components/OwnerInput';
 import { useStickyState } from '../../lib/useStickyState';
 
 type Lens = 'open' | 'done' | 'all';
@@ -233,7 +234,7 @@ export default function Diligence() {
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Owner">
-            <Input value={owner} onChange={(e) => setOwner(e.target.value)} />
+            <OwnerInput value={owner} onChange={setOwner} project={project} />
           </Field>
           <Field label="Target">
             <Select value={targetType} onChange={(e) => setTargetType(e.target.value as DdTargetType)}>

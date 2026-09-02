@@ -4,6 +4,7 @@ import { AuthGate } from './components/layout/AuthGate';
 import { ToastHost } from './components/ui/kit';
 import About from './pages/About';
 import Members from './pages/Members';
+import MyWork from './pages/MyWork';
 import Observability from './pages/Observability';
 import Prompts from './pages/Prompts';
 import Landing from './pages/Landing';
@@ -40,6 +41,7 @@ export default function App() {
           }
         >
           <Route path="app" element={<Navigate to="/projects" replace />} />
+          <Route path="work" element={<MyWork />} />
           <Route path="projects" element={<ProjectList />} />
           <Route path="projects/new" element={<NewProject />} />
           <Route path="projects/:projectId" element={<ProjectLayout />}>

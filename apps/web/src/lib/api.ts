@@ -104,6 +104,7 @@ import type {
   WorkspaceRole,
   ProjectGrant,
   CreateProjectGrantInput,
+  WorkItem,
 } from '@realytica/shared';
 import { authHeader, signOut } from './auth';
 
@@ -429,6 +430,14 @@ export const api = {
 
   removeMember: (email: string) =>
     request<void>(`/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
+
+  myWork: () => request<{ items: WorkItem[]; asOf: string }>('/work'),
+
+  assign: (projectId: string, targetId: string, owner: string) =>
+    request<{ assigned: { id: string; owner: string; title: string }; project: DdProject }>(
+      `/projects/${projectId}/assign`,
+      { method: 'PUT', body: JSON.stringify({ targetId, owner }) },
+    ),
 
   projectPeople: (projectId: string) => request<ProjectPeopleResponse>(`/projects/${projectId}/people`),
 

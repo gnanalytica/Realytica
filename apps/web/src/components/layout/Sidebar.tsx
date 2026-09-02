@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronsLeft, ChevronsRight, BookOpen, FolderTree, Gauge, Info, ScrollText, Users, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, BookOpen, CircleCheck, FolderTree, Gauge, Info, ScrollText, Users, X } from 'lucide-react';
 import { cn } from '../ui/kit';
 
 export interface SidebarProps {
@@ -18,6 +18,9 @@ interface NavItem {
 }
 
 const PROJECT_ITEMS: NavItem[] = [
+  // First, above Projects, because it is the question somebody opens this
+  // app to answer and the projects list does not answer it.
+  { to: '/work', label: 'My work', icon: CircleCheck, end: false },
   { to: '/projects', label: 'Projects', icon: FolderTree, end: false },
   { to: '/libraries', label: 'Libraries', icon: BookOpen, end: false },
 ];

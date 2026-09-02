@@ -16,6 +16,7 @@ import { librariesRouter, projectsRouter } from './routes/projects';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
+import { workRouter } from './routes/work';
 import { promptsRouter } from './routes/prompts';
 import { graphAdapter } from './graph';
 import { authenticate, authSettings, initAuth, needs } from './auth/middleware';
@@ -93,6 +94,7 @@ app.use('/api/sources', needs('read'), sourcesRouter);
 app.use('/api/telemetry', needs('admin'), telemetryRouter);
 app.use('/api/prompts', needs('admin'), promptsRouter);
 app.use('/api/demo', demoRouter);
+app.use('/api/work', workRouter);
 app.use('/api/members', membersRouter);
 
 // 404 for any unmatched /api/* route.

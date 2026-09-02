@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LIFECYCLE_STAGES, PROJECT_ARCHETYPES, type LifecycleStage, type ProjectArchetype } from '@realytica/shared';
 import { api } from '../../lib/api';
+import { OwnerInput } from '../../components/OwnerInput';
 import { Button, Card, CardBody, CardHeader, Field, Input, Select, Textarea, useToast } from '../../components/ui/kit';
 
 export default function NewProject() {
@@ -98,7 +99,7 @@ export default function NewProject() {
             </Field>
           </div>
           <Field label="Owner / DD lead" hint="Optional">
-            <Input value={owner} onChange={(e) => setOwner(e.target.value)} />
+            <OwnerInput value={owner} onChange={setOwner} />
           </Field>
           <Field label="Developer" hint="Optional">
             <Input value={developer} onChange={(e) => setDeveloper(e.target.value)} />

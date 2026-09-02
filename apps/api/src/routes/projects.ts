@@ -92,6 +92,7 @@ import {
   toProjectSummary,
   updateEvidenceStatus,
   applyProjectChat,
+  assignOwner,
   applyProjectAgentTurn,
   clearProjectConversation,
   extractReadableExcerpt,
@@ -186,6 +187,7 @@ import {
   bulkEvidenceStatusBodySchema,
   patchEvidenceBodySchema,
   patchProjectBodySchema,
+  assignBodySchema,
   patchStatusBodySchema,
   patchValuationBodySchema,
   projectChatBodySchema,
@@ -1861,6 +1863,45 @@ projectsRouter.get('/:projectId/evidence/:evidenceId/files/:fileId', async (req,
   res.setHeader('Content-Length', String(bytes.length));
   res.setHeader('Cache-Control', 'private, max-age=900, must-revalidate');
   res.end(bytes);
+});
+
+/**
+ * Hand one record to a person.
+ *
+ * One route across every register rather than an `owner` on each register's
+ * own patch, because assignment is one act. Splitting it is how five of them
+ * come to exist and two do not — which is what this found: the model has
+ * carried an `owner` on a finding, a risk and an evidence row from the start
+ * and the API could only ever write the one on an action.
+ *
+ * The target arrives in the body, so the mounted write gate already refuses a
+ * record outside a collaborator's grant with no check written here.
+ */
+projectsRouter.put('/:projectId/assign', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = assignBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const assigned = assignOwner(project, parsed.data.targetId, parsed.data.owner, actorOf(req));
+    await persistPaneWrite(
+      req,
+      project,
+      assigned.owner
+        ? `Assigned “${assigned.title}” to ${assigned.owner}.`
+        : `Cleared the owner on “${assigned.title}”.`,
+      { citedNodeIds: [assigned.id] },
+    );
+    res.json({ assigned, project });
+  } catch (err) {
+    fail(res, err);
+  }
 });
 
 projectsRouter.post('/:projectId/findings', async (req, res) => {

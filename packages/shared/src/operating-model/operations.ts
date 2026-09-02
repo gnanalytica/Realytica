@@ -1395,6 +1395,79 @@ export function patchRecordStatus<T extends { id: string; status: string; update
   return record;
 }
 
+/**
+ * Hand one record to a person.
+ *
+ * One operation across seven registers rather than an `owner` bolted onto each
+ * register's own patch route, because assignment is one act and splitting it
+ * seven ways is how five of them come to exist and two do not — which is
+ * exactly the state this found: the model has carried an `owner` on a finding,
+ * a risk and an evidence row since the beginning, and the API could only ever
+ * write the one on an action. A field nothing can set is a field that is
+ * always empty, and a "my work" list built over it would have shown actions
+ * and nothing else while looking complete.
+ *
+ * Free text, still. The person doing the work is not always somebody with an
+ * account — a site helper who has never signed in is still the person fixing
+ * the wall — and a picker that refused them is a picker people route around by
+ * typing the name into the description, where nothing can read it.
+ */
+export interface Assignment {
+  kind: 'check' | 'evidence' | 'finding' | 'risk' | 'action' | 'scope' | 'assessment';
+  id: string;
+  title: string;
+  owner: string;
+  previousOwner?: string;
+}
+
+export function assignOwner(
+  project: DdProject,
+  targetId: string,
+  owner: string,
+  actor = DEFAULT_ACTOR,
+): Assignment {
+  const next = owner.trim();
+  const at = nowIso();
+
+  const apply = (
+    kind: Assignment['kind'],
+    record: { id: string; owner?: string; updatedAt?: string },
+    title: string,
+  ): Assignment => {
+    const previousOwner = record.owner;
+    record.owner = next;
+    if ('updatedAt' in record) record.updatedAt = at;
+    touch(project, at);
+    audit(project, {
+      actor,
+      action: 'assign',
+      entityType: kind,
+      entityId: record.id,
+      oldValue: previousOwner ?? '',
+      newValue: next,
+      at,
+    });
+    refreshProjectDerived(project);
+    return { kind, id: record.id, title, owner: next, previousOwner };
+  };
+
+  for (const assessment of project.assessments) {
+    if (assessment.id === targetId) return apply('assessment', assessment, assessment.name);
+    for (const scope of assessment.scopes) {
+      if (scope.id === targetId) return apply('scope', scope, SCOPE_LABEL[scope.scopeKey] ?? scope.scopeKey);
+      for (const check of scope.checks) {
+        if (check.id === targetId) return apply('check', check, check.title);
+      }
+    }
+  }
+  for (const row of project.evidence) if (row.id === targetId) return apply('evidence', row, row.title);
+  for (const row of project.findings) if (row.id === targetId) return apply('finding', row, row.title);
+  for (const row of project.risks) if (row.id === targetId) return apply('risk', row, row.title);
+  for (const row of project.actions) if (row.id === targetId) return apply('action', row, row.title);
+
+  throw new Error('Record not found on this project');
+}
+
 export function linkFindingAcross(
   project: DdProject,
   findingId: string,

@@ -490,6 +490,13 @@ export const setValuerBodySchema = z.object({
   actor: actorSchema,
 });
 
+export const assignBodySchema = z.object({
+  targetId: z.string().trim().min(1),
+  /** Empty clears the assignment, which is a real act and not a mistake. */
+  owner: z.string().trim().max(120),
+  actor: actorSchema,
+});
+
 export const patchStatusBodySchema = z.object({
   status: z.string().min(1),
   actor: actorSchema,

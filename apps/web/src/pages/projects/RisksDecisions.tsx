@@ -23,6 +23,7 @@ import {
   type RiskImpactType,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
+import { OwnerInput } from '../../components/OwnerInput';
 import { RemedialCostChart } from '../../components/charts';
 import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -205,7 +206,7 @@ export function RisksActions() {
       <Modal open={actionOpen} onClose={() => setActionOpen(false)} title="Add action" footer={<><Button variant="ghost" onClick={() => setActionOpen(false)}>Cancel</Button><Button onClick={() => void addAction()} disabled={busy || !actionTitle.trim() || !actionOwner.trim()}>Add</Button></>}>
         <div className="space-y-3">
           <Field label="Title"><Input value={actionTitle} onChange={(e) => setActionTitle(e.target.value)} /></Field>
-          <Field label="Owner"><Input value={actionOwner} onChange={(e) => setActionOwner(e.target.value)} /></Field>
+          <Field label="Owner"><OwnerInput value={actionOwner} onChange={setActionOwner} project={project} /></Field>
           <Field label="Kind">
             <Select value={actionKind} onChange={(e) => setActionKind(e.target.value as ActionKind)}>
               {Object.entries(ACTION_KIND_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}

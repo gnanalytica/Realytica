@@ -340,6 +340,89 @@ describe('the chat, which is the surface that leaks', () => {
   });
 });
 
+describe('the work list, which spans every file', () => {
+  /*
+   * Built from the projection rather than from the file, so it needs no access
+   * rule of its own — which is the point, because a second rule is a second
+   * thing to get wrong. A row a collaborator owns outside their grant simply
+   * is not in the copy the selector reads.
+   */
+  before(async () => {
+    const { store } = await import('../apps/api/src/store');
+    const live = store.data.projects!;
+    const mine = live.find((p) => p.id === theirs.id)!;
+    const other = live.find((p) => p.id === elsewhere.id)!;
+
+    // One action inside the grant, one on a hidden assessment, one on a
+    // project they are not on at all. All three say sam@site.in.
+    const inReach = mine.assessments[0]!.scopes[0]!.checks[0]!;
+    mine.actions.push({
+      id: 'act-in-reach',
+      title: 'Fix the boundary wall',
+      kind: 'remediation',
+      owner: 'sam@site.in',
+      priority: 'high',
+      status: 'in_progress',
+      findingIds: [],
+      riskIds: [],
+      checkIds: [inReach.id],
+      evidenceIds: [],
+      closureEvidenceIds: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    mine.findings.push({
+      ...mine.findings[0]!,
+      id: 'fnd-out-of-reach',
+      title: 'Something legal',
+      owner: 'sam@site.in',
+      status: 'open',
+      sourceScopeId: hidden.scopeId,
+      sourceCheckId: hidden.checkId,
+      sourceAssessmentId: hidden.assessmentId,
+      assessmentIds: [hidden.assessmentId],
+      scopeInstanceIds: [hidden.scopeId],
+      evidenceIds: [],
+      riskIds: [],
+      actionIds: [],
+    });
+    other.actions.push({
+      ...mine.actions[mine.actions.length - 1]!,
+      id: 'act-other-project',
+      title: 'On a site they are not on',
+    });
+    await store.save();
+  });
+
+  async function work(token: string): Promise<Array<{ id: string; projectId: string }>> {
+    const res = await call('GET', '/api/work', { token });
+    assert.equal(res.status, 200);
+    return (res.body as { items: Array<{ id: string; projectId: string }> }).items;
+  }
+
+  it('shows a collaborator what is theirs inside the grant', async () => {
+    const ids = (await work(sam())).map((i) => i.id);
+    assert.ok(ids.includes('act-in-reach'));
+  });
+
+  it('does not show them their own work on a part they cannot open', async () => {
+    // Their name is on it. It is still not something they can be handed,
+    // because handing it over would disclose the assessment it sits in.
+    const ids = (await work(sam())).map((i) => i.id);
+    assert.ok(!ids.includes('fnd-out-of-reach'));
+  });
+
+  it('does not show them work on a project they are not on', async () => {
+    const projects = new Set((await work(sam())).map((i) => i.projectId));
+    assert.deepEqual([...projects], [theirs.id]);
+  });
+
+  it('shows the developer nothing that is not theirs', async () => {
+    // Every row above says sam@site.in, and none of it is the developer's.
+    assert.deepEqual(await work(dev()), []);
+  });
+});
+
 describe('a reviewer, who was put on the project to read it', () => {
   before(async () => {
     const { store } = await import('../apps/api/src/store');
