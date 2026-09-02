@@ -1,13 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
-import type { DdProject, ProjectCockpitPane } from '@realytica/shared';
+import {
+  SEARCH_KIND_LABEL,
+  paneForTalk,
+  searchProject,
+  type CockpitPathExtra,
+  type DdProject,
+  type ProjectCockpitPane,
+  type SearchKind,
+} from '@realytica/shared';
 import { api } from '../../../lib/api';
 import { useToast } from '../../../components/ui/kit';
 
 type Command =
   | { kind: 'go'; id: string; label: string; hint: string; pane: ProjectCockpitPane }
+  /** A record on this project, opened where it lives. */
+  | { kind: 'open'; id: string; label: string; hint: string; pane: ProjectCockpitPane; extra: CockpitPathExtra }
   | { kind: 'do'; id: string; label: string; hint: string; run: () => Promise<void> }
   | { kind: 'ask'; id: string; label: string; hint: string };
+
+/** Decisions have no deep link yet, so they open their register. */
+function paneForHit(kind: SearchKind): ProjectCockpitPane {
+  if (kind === 'decision') return 'decisions';
+  if (kind === 'assessment') return 'dd';
+  return paneForTalk(kind);
+}
 
 const GO: Array<{ pane: ProjectCockpitPane; label: string; hint: string }> = [
   { pane: 'overview', label: 'Open overview', hint: 'Go' },
@@ -36,7 +53,7 @@ export function ProjectCommandBar({
   open: boolean;
   project: DdProject;
   onClose: () => void;
-  onGo: (pane: ProjectCockpitPane) => void;
+  onGo: (pane: ProjectCockpitPane, extra?: CockpitPathExtra) => void;
   onAsk: (text: string) => void;
   onChanged: () => void | Promise<void>;
 }) {
@@ -125,14 +142,29 @@ export function ProjectCommandBar({
     return out;
   }, [project]);
 
+  const records: Command[] = useMemo(() => {
+    const q = query.trim();
+    if (q.length < 2) return [];
+    return searchProject(project, q, 6).map((hit) => ({
+      kind: 'open' as const,
+      id: `open:${hit.id}`,
+      label: hit.label,
+      hint: `${SEARCH_KIND_LABEL[hit.kind]} · ${hit.detail}`,
+      pane: paneForHit(hit.kind),
+      extra: hit.extra,
+    }));
+  }, [project, query]);
+
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const found = (q.length === 0 ? commands.slice(0, 8) : commands.filter((c) => c.label.toLowerCase().includes(q))).slice(0, 8);
-    if (q.length > 0) {
-      found.push({ kind: 'ask', id: 'ask', label: `Ask: “${query.trim()}”`, hint: 'Ask' });
-    }
-    return found;
-  }, [commands, query]);
+    if (q.length === 0) return commands.slice(0, 8);
+    // Records first: somebody who typed a title wants that record, not a pane
+    // whose name happens to share a word with it.
+    const verbs = commands.filter((c) => c.label.toLowerCase().includes(q)).slice(0, 4);
+    const found: Command[] = [...records, ...verbs];
+    found.push({ kind: 'ask', id: 'ask', label: `Ask: “${query.trim()}”`, hint: 'Ask' });
+    return found.slice(0, 10);
+  }, [commands, query, records]);
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, matches.length - 1)));
@@ -146,6 +178,9 @@ export function ProjectCommandBar({
     try {
       if (command.kind === 'go') {
         onGo(command.pane);
+        onClose();
+      } else if (command.kind === 'open') {
+        onGo(command.pane, command.extra);
         onClose();
       } else if (command.kind === 'ask') {
         onAsk(query.trim());
@@ -195,7 +230,7 @@ export function ProjectCommandBar({
                 void run(matches[active]);
               }
             }}
-            placeholder="Run a command, or ask…"
+            placeholder="Find a check, a document, a finding — or run a command"
             aria-label="Run a command"
             className="w-full bg-transparent text-[13.5px] text-ink outline-none placeholder:text-ink-muted"
           />
@@ -210,19 +245,25 @@ export function ProjectCommandBar({
                   type="button"
                   onMouseEnter={() => setActive(i)}
                   onClick={() => void run(c)}
-                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left coarse:min-h-11 ${
+                  className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left coarse:min-h-11 ${
                     i === active ? 'bg-brand-soft' : ''
                   }`}
                 >
                   <span
-                    className={`text-[10px] font-semibold uppercase tracking-[0.05em] ${
+                    className={`mt-0.5 w-7 shrink-0 text-[10px] font-semibold uppercase tracking-[0.05em] ${
                       c.kind === 'do' ? 'text-brand' : 'text-ink-muted'
                     }`}
                   >
-                    {c.kind === 'go' ? 'Go' : c.kind === 'ask' ? 'Ask' : 'Do'}
+                    {c.kind === 'go' || c.kind === 'open' ? 'Go' : c.kind === 'ask' ? 'Ask' : 'Do'}
                   </span>
-                  <span className="min-w-0 flex-grow truncate text-[12.5px] text-ink">{c.label}</span>
-                  <span className="shrink-0 text-[10.5px] text-ink-muted">{c.hint}</span>
+                  <span className="min-w-0 flex-grow">
+                    <span className="block truncate text-[12.5px] text-ink">{c.label}</span>
+                    {/* A record's provenance is where it lives; a verb's is just
+                        its own kind, which the badge already said. */}
+                    {c.kind === 'open' ? (
+                      <span className="block truncate text-[11px] text-ink-muted">{c.hint}</span>
+                    ) : null}
+                  </span>
                 </button>
               </li>
             ))
