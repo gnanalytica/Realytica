@@ -1272,6 +1272,15 @@ export interface ProjectScreenSnapshot {
 
 export interface DdProject {
   id: string;
+  /**
+   * The workspace this project belongs to.
+   *
+   * Optional on the type so a store written before tenancy still loads;
+   * `ensureProjectShape` adopts an untenanted project into the bootstrap
+   * workspace on first read, and the API refuses to serve one that has no
+   * tenant to a caller from another.
+   */
+  tenantId?: string;
   reference: string;
   name: string;
   type: ProjectArchetype;

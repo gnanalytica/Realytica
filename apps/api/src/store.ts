@@ -1,4 +1,12 @@
-import type { IntakeSession, LlmCallRecord, MemoryFact, PropertyCase, DdProject } from '@realytica/shared';
+import type {
+  IntakeSession,
+  LlmCallRecord,
+  MemoryFact,
+  Membership,
+  PropertyCase,
+  DdProject,
+  Tenant,
+} from '@realytica/shared';
 import type { PromptStoreData } from '@realytica/agents';
 import { storageAdapter } from './storage';
 
@@ -83,6 +91,19 @@ export interface StoreData {
    * them out.
    */
   projectIds?: string[];
+  /**
+   * Workspaces, and who is in them.
+   *
+   * In the core document rather than sharded: the whole set is read on every
+   * authenticated request to resolve a principal, so it must be in memory
+   * anyway, and it is two small arrays. They live here for the same reason
+   * everything else does — one document, one durability path.
+   *
+   * Optional so a store written before tenancy still loads. A store with no
+   * tenants is a fresh install, and the first person to sign in claims it.
+   */
+  tenants?: Tenant[];
+  memberships?: Membership[];
 }
 
 // Re-exported for the routes that still build upload paths directly against
@@ -95,7 +116,7 @@ export interface StoreData {
 export { DATA_DIR, UPLOADS_DIR, caseUploadDir } from './storage/filesystem';
 
 function emptyStore(): StoreData {
-  return { cases: [], nextReferenceSeq: 1, projects: [], nextProjectSeq: 1 };
+  return { cases: [], nextReferenceSeq: 1, projects: [], nextProjectSeq: 1, tenants: [], memberships: [] };
 }
 
 /**
@@ -140,6 +161,18 @@ function normalizeStoreData(loaded: StoreData | null): StoreData {
         : undefined,
     intakeSessions: Array.isArray(loaded.intakeSessions) ? loaded.intakeSessions : undefined,
     projectIds: Array.isArray(loaded.projectIds) ? loaded.projectIds.filter((id): id is string => typeof id === 'string') : undefined,
+    // Authorisation data, so the shape check is stricter than elsewhere: a row
+    // missing a tenant or a role is a row that cannot be reasoned about, and
+    // dropping it is safer than defaulting it to something permissive.
+    tenants: Array.isArray(loaded.tenants)
+      ? loaded.tenants.filter((t): t is Tenant => Boolean(t && typeof t.id === 'string' && typeof t.name === 'string'))
+      : undefined,
+    memberships: Array.isArray(loaded.memberships)
+      ? loaded.memberships.filter(
+          (m): m is Membership =>
+            Boolean(m && typeof m.tenantId === 'string' && typeof m.email === 'string' && typeof m.role === 'string'),
+        )
+      : undefined,
   };
 }
 

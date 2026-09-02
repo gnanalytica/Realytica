@@ -18,6 +18,8 @@ import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
 import { promptsRouter } from './routes/prompts';
 import { graphAdapter } from './graph';
+import { authenticate, authSettings, initAuth, needs } from './auth/middleware';
+import { membersRouter } from './routes/members';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { readEnv } from '@realytica/agents';
@@ -46,6 +48,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+/**
+ * Health is the one route outside the gate.
+ *
+ * A load balancer has no token, and a client needs to know the upload limits
+ * before it can sign in. It reports the auth mode so the web app knows which
+ * provider to offer — and nothing else about the deployment.
+ */
 app.get('/api/health', (_req, res) => {
   // `upload` describes what this deployment can accept, which differs between
   // a server and a serverless platform with its own request-body cap. The
@@ -57,17 +66,34 @@ app.get('/api/health', (_req, res) => {
     projects: store.data.projects?.length ?? 0,
     graph: graphAdapter.kind,
     upload: UPLOAD_LIMITS,
+    auth: { mode: authSettings().mode },
   });
 });
 
-app.use('/api/reference', referenceRouter);
-app.use('/api/libraries', librariesRouter);
+/*
+ * Everything below is authenticated.
+ *
+ * Mounted once, above the routers, rather than per route: a route added later
+ * inherits the gate instead of being born unguarded, which is exactly how an
+ * endpoint ends up public by accident.
+ */
+app.use('/api', authenticate);
+
+/*
+ * Reference data and the libraries are read-only and the same for everybody;
+ * the project routes carry their own method gate. Telemetry is model spend and
+ * prompts are what the agents are told to do — both are the workspace's
+ * business rather than any member's, so both sit behind `admin`.
+ */
+app.use('/api/reference', needs('read'), referenceRouter);
+app.use('/api/libraries', needs('read'), librariesRouter);
 app.use('/api/projects', projectsRouter);
-app.use('/api/agents', agentsCapabilityRouter);
-app.use('/api/sources', sourcesRouter);
-app.use('/api/telemetry', telemetryRouter);
-app.use('/api/prompts', promptsRouter);
+app.use('/api/agents', needs('read'), agentsCapabilityRouter);
+app.use('/api/sources', needs('read'), sourcesRouter);
+app.use('/api/telemetry', needs('admin'), telemetryRouter);
+app.use('/api/prompts', needs('admin'), promptsRouter);
 app.use('/api/demo', demoRouter);
+app.use('/api/members', membersRouter);
 
 // 404 for any unmatched /api/* route.
 app.use('/api', (_req, res) => {
@@ -135,6 +161,21 @@ app.use(errorHandler);
  * caching the promise so a burst of concurrent requests doesn't re-run it.
  */
 export async function initApp(): Promise<void> {
+  /*
+   * First, before anything is loaded or served.
+   *
+   * A misconfiguration has to be a startup failure. The alternative — coming
+   * up and deciding per request — is a deployment that boots green and serves
+   * every project to anybody who finds the URL, which is precisely what this
+   * codebase did until today.
+   */
+  const auth = initAuth();
+  console.log(
+    auth.mode === 'off'
+      ? '[auth] OFF — every request is the local operator. Never run this on a shared URL.'
+      : `[auth] ${auth.mode}: tokens must be issued for ${auth.verifier?.audience} by ${auth.verifier?.issuers.join(' or ')}`,
+  );
+
   await initStore();
   // Before the first request, on a server and on a cold serverless invocation
   // alike: until this runs the agent layer resolves every prompt to its

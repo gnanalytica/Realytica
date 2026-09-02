@@ -1,4 +1,6 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
+import { needs, principalOf } from '../auth/middleware';
+import { actorOf as principalActor } from '@realytica/shared';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
 import {
@@ -175,12 +177,33 @@ function projects(): DdProject[] {
   return store.data.projects;
 }
 
+/**
+ * Everything this workspace can see.
+ *
+ * A project written before tenancy has no `tenantId`; it belongs to whichever
+ * workspace was bootstrapped first, which on an existing install is the only
+ * one there is. Adoption happens on first read rather than in a migration
+ * script so a store restored from a backup is repaired the same way.
+ */
+function visible(tenantId: string): DdProject[] {
+  const bootstrap = store.data.tenants?.[0]?.id;
+  return projects().filter((p) => (p.tenantId ?? bootstrap) === tenantId);
+}
+
 export function findProject(id: string): DdProject | undefined {
   return projects().find((p) => p.id === id);
 }
 
-function actorOf(body: { actor?: string } | undefined): string {
-  return body?.actor?.trim() || 'operator';
+/**
+ * Who is doing this, for the audit trail.
+ *
+ * Reads the verified principal, never the request body. The old version took
+ * `body.actor` on trust, which meant the trail recorded whatever the client
+ * typed — so it could be anybody, and on a shared deployment it would have
+ * been. There is no way to pass an actor in any more, and that is the point.
+ */
+function actorOf(req: Request): string {
+  return principalActor(principalOf(req));
 }
 
 function fail(res: { status: (n: number) => { json: (b: unknown) => void } }, err: unknown, fallback = 'Request failed') {
@@ -234,11 +257,58 @@ librariesRouter.post('/references/ingest', async (req, res) => {
 });
 
 export const projectsRouter = Router();
+
+/**
+ * Reading is any member's business; changing something is not.
+ *
+ * Gated by method on the router rather than per handler, because the
+ * alternative is fifty-eight separate decisions and the one somebody forgets
+ * is a route that silently lets a viewer write.
+ */
+projectsRouter.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+    next();
+    return;
+  }
+  needs('write')(req, res, next);
+});
+
+/**
+ * The tenancy gate.
+ *
+ * Express runs this for every route on this router that names `:projectId`,
+ * before the handler — so a route added later is scoped by construction
+ * rather than by whoever writes it remembering to check. That is the whole
+ * reason it is here and not repeated in forty handlers.
+ *
+ * A project in another workspace is a 404, not a 403. A 403 would confirm the
+ * project exists, which is exactly the fact a stranger is probing for.
+ */
+projectsRouter.param('projectId', (req, res, next, projectId: string) => {
+  const me = principalOf(req);
+  const project = findProject(projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const bootstrap = store.data.tenants?.[0]?.id;
+  const owner = project.tenantId ?? bootstrap;
+  if (owner !== me.tenantId) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  // Adopt a project written before tenancy into the workspace now reading it.
+  if (!project.tenantId && bootstrap) project.tenantId = bootstrap;
+  next();
+});
 projectsRouter.use('/:projectId/site-context', projectSiteContextRouter);
 projectsRouter.use('/:projectId/gis-overlay', projectGisOverlayRouter);
 
-projectsRouter.get('/', (_req, res) => {
-  const summaries = projects().map(toProjectSummary).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+projectsRouter.get('/', (req, res) => {
+  const me = principalOf(req);
+  const summaries = visible(me.tenantId)
+    .map(toProjectSummary)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   res.json(summaries);
 });
 
@@ -248,7 +318,9 @@ projectsRouter.post('/', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const project = createProject(parsed.data, store.nextProjectReference(), actorOf(parsed.data));
+  const me = principalOf(req);
+  const project = createProject(parsed.data, store.nextProjectReference(), actorOf(req));
+  project.tenantId = me.tenantId;
   projects().push(project);
   await rememberProject(project);
   await store.save();
@@ -276,7 +348,7 @@ projectsRouter.patch('/:projectId', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  patchProject(project, parsed.data, actorOf(parsed.data));
+  patchProject(project, parsed.data, actorOf(req));
   await persistPaneWrite(project, 'Updated project details.', { citedNodeIds: [project.id] });
   res.json(project);
 });
@@ -532,7 +604,7 @@ projectsRouter.post('/:projectId/screen', async (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  const actor = actorOf(req.body as { actor?: string } | undefined);
+  const actor = actorOf(req);
   const now = new Date().toISOString();
 
   /*
@@ -572,7 +644,7 @@ projectsRouter.post('/:projectId/valuation', async (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  const actor = actorOf(req.body as { actor?: string } | undefined);
+  const actor = actorOf(req);
   const run = createValuationRun(project, actor);
   await persistPaneWrite(project, 'Created a valuation run.');
   res.status(201).json(run);
@@ -590,7 +662,7 @@ projectsRouter.patch('/:projectId/valuation/:runId', async (req, res) => {
     return;
   }
   try {
-    const run = setValuationSignOff(project, req.params.runId, parsed.data.signOff, actorOf(parsed.data));
+    const run = setValuationSignOff(project, req.params.runId, parsed.data.signOff, actorOf(req));
     await persistPaneWrite(project, `Updated valuation sign-off to ${parsed.data.signOff}.`);
     res.json(run);
   } catch (err) {
@@ -610,7 +682,7 @@ projectsRouter.patch('/:projectId/valuation/:runId/valuer', async (req, res) => 
     return;
   }
   try {
-    const run = setValuationValuer(project, req.params.runId, parsed.data, actorOf(parsed.data));
+    const run = setValuationValuer(project, req.params.runId, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Recorded the valuer on this valuation.`, { citedNodeIds: [run.id] });
     res.json({ run, rule8: valuationRule8(run) });
   } catch (err) {
@@ -639,7 +711,7 @@ projectsRouter.post('/:projectId/capabilities', async (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  const runs = snapshotCapabilities(project, actorOf(req.body as { actor?: string } | undefined));
+  const runs = snapshotCapabilities(project, actorOf(req));
   await persistPaneWrite(project, 'Snapshot capabilities.');
   res.json(runs);
 });
@@ -656,7 +728,7 @@ projectsRouter.post('/:projectId/ai/drafts', async (req, res) => {
     return;
   }
   const capability = agentCapability();
-  const drafts = proposeAiDrafts(project, actorOf(parsed.data), 'rule');
+  const drafts = proposeAiDrafts(project, actorOf(req), 'rule');
   await persistPaneWrite(project, `Proposed ${drafts.length} AI draft(s).`);
   res.status(201).json({ drafts, agent: { available: capability.available, reason: capability.reason } });
 });
@@ -673,7 +745,7 @@ projectsRouter.patch('/:projectId/ai/drafts/:draftId', async (req, res) => {
     return;
   }
   try {
-    const draft = reviewAiDraft(project, req.params.draftId, parsed.data.status, parsed.data.reviewNote, actorOf(parsed.data));
+    const draft = reviewAiDraft(project, req.params.draftId, parsed.data.status, parsed.data.reviewNote, actorOf(req));
     await persistPaneWrite(project, `Reviewed draft “${draft.title}” (${parsed.data.status}).`);
     res.json(draft);
   } catch (err) {
@@ -770,7 +842,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   }
   refreshProjectDerived(project);
   const question = parsed.data.question;
-  const actor = actorOf(parsed.data);
+  const actor = actorOf(req);
   const sitting = parsed.data.sitting;
   const capability = agentCapability();
   const deterministic = wantsDeterministicProjectChat(project, question, { sitting });
@@ -964,7 +1036,7 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
   const question = typeof req.body?.question === 'string' ? req.body.question : '';
   const viewContext = typeof req.body?.viewContext === 'string' ? req.body.viewContext : undefined;
   const result = applyProjectChat(project, question, {
-    actor: actorOf(req.body as { actor?: string } | undefined),
+    actor: actorOf(req),
     viewContext,
     ingest: enriched,
     sitting,
@@ -995,7 +1067,7 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req,
     const now = new Date().toISOString();
     await ensureIdentitySiteContext(project, projectToIdentity(project), now);
   }
-  const result = applyProjectChat(project, `Approve "${item.title}"`, { actor: actorOf(parsed.data) });
+  const result = applyProjectChat(project, `Approve "${item.title}"`, { actor: actorOf(req) });
   await rememberProject(project);
   await store.save();
   res.json({ ...result, project });
@@ -1018,7 +1090,7 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/reject', async (req,
     return;
   }
   refreshProjectDerived(project);
-  const result = applyProjectChat(project, `Skip "${item.title}"`, { actor: actorOf(parsed.data) });
+  const result = applyProjectChat(project, `Skip "${item.title}"`, { actor: actorOf(req) });
   await store.save();
   res.json({ ...result, project });
 });
@@ -1045,7 +1117,7 @@ projectsRouter.post('/:projectId/orchestrate', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const actor = actorOf(parsed.data);
+  const actor = actorOf(req);
 
   /*
    * Background mode. The model pass is the slow half — a planner call with
@@ -1081,13 +1153,13 @@ projectsRouter.post('/:projectId/orchestrate', async (req, res) => {
     return;
   }
 
-  const journal = await beginRun(project.id, 'orchestrate', { actor: actorOf(parsed.data) });
-  const run = runProjectOrchestrator(project, actorOf(parsed.data));
+  const journal = await beginRun(project.id, 'orchestrate', { actor: actorOf(req) });
+  const run = runProjectOrchestrator(project, actorOf(req));
   await journal.step('rule_pass', `Rule pass proposed ${run.draftIds.length} draft(s).`);
   const capability = agentCapability();
   if (capability.available) {
     try {
-      const extra = await runProjectOrchestratorAgent(project, actorOf(parsed.data), run);
+      const extra = await runProjectOrchestratorAgent(project, actorOf(req), run);
       if (extra.usedModel) {
         run.source = 'model';
         run.summary = extra.summary;
@@ -1117,7 +1189,7 @@ projectsRouter.post('/:projectId/ai/drafts/:draftId/commit', async (req, res) =>
     return;
   }
   try {
-    const result = commitAiDraft(project, req.params.draftId, actorOf(req.body as { actor?: string } | undefined));
+    const result = commitAiDraft(project, req.params.draftId, actorOf(req));
     await persistPaneWrite(project, `Committed draft “${result.draft.title}”.`);
     res.json(result);
   } catch (err) {
@@ -1125,7 +1197,7 @@ projectsRouter.post('/:projectId/ai/drafts/:draftId/commit', async (req, res) =>
   }
 });
 
-projectsRouter.delete('/:projectId', async (req, res) => {
+projectsRouter.delete('/:projectId', needs('admin'), async (req, res) => {
   const idx = projects().findIndex((p) => p.id === req.params.projectId);
   if (idx < 0) {
     res.status(404).json({ error: 'Project not found' });
@@ -1158,7 +1230,7 @@ projectsRouter.post('/:projectId/assets', async (req, res) => {
     return;
   }
   try {
-    const asset = addAsset(project, parsed.data, actorOf(parsed.data));
+    const asset = addAsset(project, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Added asset “${asset.name}”.`, { citedNodeIds: [asset.id] });
     res.status(201).json(asset);
   } catch (err) {
@@ -1178,7 +1250,7 @@ projectsRouter.post('/:projectId/stage', async (req, res) => {
     return;
   }
   try {
-    const record = changeStage(project, parsed.data, actorOf(parsed.data));
+    const record = changeStage(project, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Changed stage to ${parsed.data.stage}.`);
     res.json(record);
   } catch (err) {
@@ -1198,7 +1270,7 @@ projectsRouter.post('/:projectId/assessments', async (req, res) => {
     return;
   }
   try {
-    const assessment = createAssessment(project, parsed.data, actorOf(parsed.data));
+    const assessment = createAssessment(project, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Started “${assessment.name}”.`, { citedNodeIds: [assessment.id] });
     res.status(201).json(assessment);
   } catch (err) {
@@ -1218,7 +1290,7 @@ projectsRouter.patch('/:projectId/assessments/:ddId', async (req, res) => {
     return;
   }
   try {
-    const assessment = setAssessmentStatus(project, req.params.ddId, parsed.data.status as never, actorOf(parsed.data));
+    const assessment = setAssessmentStatus(project, req.params.ddId, parsed.data.status as never, actorOf(req));
     await persistPaneWrite(project, `Updated “${assessment.name}” to ${parsed.data.status}.`, { citedNodeIds: [assessment.id] });
     res.json(assessment);
   } catch (err) {
@@ -1247,7 +1319,7 @@ projectsRouter.post('/:projectId/checks/:checkId', async (req, res) => {
     return;
   }
   try {
-    const check = recordCheckResult(project, req.params.checkId, parsed.data, actorOf(parsed.data));
+    const check = recordCheckResult(project, req.params.checkId, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Recorded “${check.title}” as ${CHECK_RESULT_LABEL[check.result]}.`, {
       citedNodeIds: [check.id],
     });
@@ -1296,7 +1368,7 @@ projectsRouter.put('/:projectId/checks/:checkId/fields', async (req, res) => {
       project,
       req.params.checkId,
       parsed.data.values,
-      actorOf(parsed.data),
+      actorOf(req),
       parsed.data.sourceEvidenceId,
     );
     if (outcome.rejected.length) {
@@ -1323,7 +1395,7 @@ projectsRouter.post('/:projectId/evidence', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const record = addEvidence(project, parsed.data, actorOf(parsed.data));
+  const record = addEvidence(project, parsed.data, actorOf(req));
   await persistPaneWrite(project, `Added evidence “${record.title}”.`, { citedEvidenceIds: [record.id] });
   res.status(201).json(record);
 });
@@ -1349,7 +1421,7 @@ projectsRouter.patch('/:projectId/evidence/:evidenceId', async (req, res) => {
         considered: parsed.data.considered,
         used: parsed.data.used,
       },
-      actorOf(parsed.data),
+      actorOf(req),
     );
     await persistPaneWrite(project, `Updated evidence “${record.title}” to ${record.status}.`, {
       citedEvidenceIds: [record.id],
@@ -1387,7 +1459,7 @@ projectsRouter.post('/:projectId/evidence/status', async (req, res) => {
     return;
   }
   try {
-    const actor = actorOf(parsed.data);
+    const actor = actorOf(req);
     for (const id of ids) {
       updateEvidenceStatus(project, id, parsed.data.status, {}, actor);
     }
@@ -1483,7 +1555,7 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
             storageKey,
             capture,
           },
-          actorOf(req.body as { actor?: string } | undefined),
+          actorOf(req),
         ),
       );
     }
@@ -1564,7 +1636,7 @@ projectsRouter.post('/:projectId/evidence/files', evidenceUpload.array('files', 
             storageKey,
             capture,
           },
-          actorOf(req.body as { actor?: string } | undefined),
+          actorOf(req),
         ),
       );
     }
@@ -1635,9 +1707,9 @@ projectsRouter.post('/:projectId/findings', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const record = addFinding(project, parsed.data, actorOf(parsed.data));
+  const record = addFinding(project, parsed.data, actorOf(req));
   if (parsed.data.linkAssessmentIds?.length) {
-    linkFindingAcross(project, record.id, { assessmentIds: parsed.data.linkAssessmentIds }, actorOf(parsed.data));
+    linkFindingAcross(project, record.id, { assessmentIds: parsed.data.linkAssessmentIds }, actorOf(req));
   }
   await persistPaneWrite(project, `Logged finding “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
@@ -1655,7 +1727,7 @@ projectsRouter.post('/:projectId/findings/:findingId/links', async (req, res) =>
     return;
   }
   try {
-    const record = linkFindingAcross(project, req.params.findingId, parsed.data, actorOf(parsed.data));
+    const record = linkFindingAcross(project, req.params.findingId, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Linked finding “${record.title}” across DDs.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
@@ -1675,7 +1747,7 @@ projectsRouter.patch('/:projectId/findings/:findingId', async (req, res) => {
     return;
   }
   try {
-    const record = patchRecordStatus(project, project.findings, req.params.findingId, parsed.data.status as never, 'finding', actorOf(parsed.data));
+    const record = patchRecordStatus(project, project.findings, req.params.findingId, parsed.data.status as never, 'finding', actorOf(req));
     await persistPaneWrite(project, `Updated finding “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
@@ -1695,7 +1767,7 @@ projectsRouter.patch('/:projectId/findings/:findingId/classification', async (re
     return;
   }
   try {
-    const record = classifyFinding(project, req.params.findingId, parsed.data, actorOf(parsed.data));
+    const record = classifyFinding(project, req.params.findingId, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Classified finding “${record.title}”.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
@@ -1714,7 +1786,7 @@ projectsRouter.post('/:projectId/risks', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const record = addRisk(project, parsed.data, actorOf(parsed.data));
+  const record = addRisk(project, parsed.data, actorOf(req));
   await persistPaneWrite(project, `Logged risk “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
 });
@@ -1731,7 +1803,7 @@ projectsRouter.patch('/:projectId/risks/:riskId', async (req, res) => {
     return;
   }
   try {
-    const record = patchRecordStatus(project, project.risks, req.params.riskId, parsed.data.status as never, 'risk', actorOf(parsed.data));
+    const record = patchRecordStatus(project, project.risks, req.params.riskId, parsed.data.status as never, 'risk', actorOf(req));
     await persistPaneWrite(project, `Updated risk “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
@@ -1750,7 +1822,7 @@ projectsRouter.post('/:projectId/actions', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const record = addAction(project, parsed.data, actorOf(parsed.data));
+  const record = addAction(project, parsed.data, actorOf(req));
   await persistPaneWrite(project, `Logged action “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
 });
@@ -1767,7 +1839,7 @@ projectsRouter.patch('/:projectId/actions/:actionId', async (req, res) => {
     return;
   }
   try {
-    const record = patchRecordStatus(project, project.actions, req.params.actionId, parsed.data.status as never, 'action', actorOf(parsed.data));
+    const record = patchRecordStatus(project, project.actions, req.params.actionId, parsed.data.status as never, 'action', actorOf(req));
     await persistPaneWrite(project, `Updated action “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
@@ -1787,7 +1859,7 @@ projectsRouter.patch('/:projectId/actions/:actionId/cost', async (req, res) => {
     return;
   }
   try {
-    const record = setActionCost(project, req.params.actionId, parsed.data, actorOf(parsed.data));
+    const record = setActionCost(project, req.params.actionId, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Priced action “${record.title}”.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
@@ -1806,7 +1878,7 @@ projectsRouter.post('/:projectId/decisions', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const record = addDecision(project, parsed.data, actorOf(parsed.data));
+  const record = addDecision(project, parsed.data, actorOf(req));
   await persistPaneWrite(project, `Logged decision “${record.title}”.`, { citedNodeIds: [record.id] });
   res.status(201).json(record);
 });
@@ -1823,7 +1895,7 @@ projectsRouter.patch('/:projectId/decisions/:decisionId', async (req, res) => {
     return;
   }
   try {
-    const record = patchRecordStatus(project, project.decisions, req.params.decisionId, parsed.data.status as never, 'decision', actorOf(parsed.data));
+    const record = patchRecordStatus(project, project.decisions, req.params.decisionId, parsed.data.status as never, 'decision', actorOf(req));
     await persistPaneWrite(project, `Updated decision “${record.title}” to ${parsed.data.status}.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
@@ -1847,7 +1919,7 @@ projectsRouter.post('/:projectId/visits', async (req, res) => {
     return;
   }
   try {
-    const record = addSiteVisit(project, parsed.data, actorOf(parsed.data));
+    const record = addSiteVisit(project, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Recorded site visit “${record.title}”.`, { citedNodeIds: [record.id] });
     res.status(201).json(record);
   } catch (err) {
@@ -1867,7 +1939,7 @@ projectsRouter.patch('/:projectId/visits/:visitId', async (req, res) => {
     return;
   }
   try {
-    const record = patchSiteVisit(project, req.params.visitId, parsed.data, actorOf(parsed.data));
+    const record = patchSiteVisit(project, req.params.visitId, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Updated site visit “${record.title}”.`, { citedNodeIds: [record.id] });
     res.json(record);
   } catch (err) {
@@ -1896,7 +1968,7 @@ projectsRouter.patch('/:projectId/evidence/:evidenceId/files/:fileId/capture', a
     return;
   }
   try {
-    const attachment = setAttachmentCapture(project, req.params.evidenceId, req.params.fileId, parsed.data, actorOf(parsed.data));
+    const attachment = setAttachmentCapture(project, req.params.evidenceId, req.params.fileId, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Described capture of “${attachment.fileName}”.`, { citedEvidenceIds: [req.params.evidenceId] });
     res.json(attachment);
   } catch (err) {
@@ -1923,8 +1995,8 @@ projectsRouter.post('/:projectId/photographs/read', async (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  const body = (req.body ?? {}) as { fileId?: string; evidenceId?: string; limit?: number; actor?: string };
-  const actor = actorOf(body);
+  const body = (req.body ?? {}) as { fileId?: string; evidenceId?: string; limit?: number };
+  const actor = actorOf(req);
 
   const targets = body.fileId && body.evidenceId
     ? project.evidence
@@ -2023,7 +2095,7 @@ projectsRouter.post('/:projectId/sheets', async (req, res) => {
     return;
   }
   try {
-    const record = addSheet(project, parsed.data, actorOf(parsed.data));
+    const record = addSheet(project, parsed.data, actorOf(req));
     await persistPaneWrite(project, `Added sheet “${record.title}”.`, { citedEvidenceIds: [record.evidenceId] });
     res.status(201).json(record);
   } catch (err) {
@@ -2043,7 +2115,7 @@ projectsRouter.put('/:projectId/sheets/:sheetId/control-points', async (req, res
     return;
   }
   try {
-    const sheet = setSheetControlPoints(project, req.params.sheetId, parsed.data.points, actorOf(parsed.data));
+    const sheet = setSheetControlPoints(project, req.params.sheetId, parsed.data.points, actorOf(req));
     const reading = readSheetFit(sheet.controlPoints);
     await persistPaneWrite(project, `Placed sheet “${sheet.title}” — ${reading.say}`, { citedNodeIds: [sheet.id] });
     res.json({ sheet, reading });
@@ -2059,7 +2131,7 @@ projectsRouter.delete('/:projectId/sheets/:sheetId', async (req, res) => {
     return;
   }
   try {
-    removeSheet(project, req.params.sheetId, actorOf(req.body as { actor?: string } | undefined));
+    removeSheet(project, req.params.sheetId, actorOf(req));
     await store.save();
     res.status(204).end();
   } catch (err) {
@@ -2080,8 +2152,8 @@ projectsRouter.post('/:projectId/reports', async (req, res) => {
   }
   const report = generateReport(
     project,
-    { kind: parsed.data.kind, assessmentIds: parsed.data.assessmentIds, generatedBy: parsed.data.generatedBy ?? actorOf(parsed.data) },
-    actorOf(parsed.data),
+    { kind: parsed.data.kind, assessmentIds: parsed.data.assessmentIds, generatedBy: parsed.data.generatedBy ?? actorOf(req) },
+    actorOf(req),
   );
   await persistPaneWrite(project, `Generated “${report.title}”.`, { citedNodeIds: [report.id] });
   res.status(201).json(report);
@@ -2110,7 +2182,7 @@ async function reportEdit(
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  const actor = actorOf((req.body ?? {}) as { actor?: string });
+  const actor = actorOf(req);
   let outcome: { note: string; cited?: string[]; body?: unknown };
   try {
     outcome = work(project, actor);
