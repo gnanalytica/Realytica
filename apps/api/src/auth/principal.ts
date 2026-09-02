@@ -143,7 +143,7 @@ export function resolvePrincipal(
   }
 
   // A workspace that has opted into a domain takes colleagues without an
-  // invite each — as members, never as admins: joining is not the same as
+  // invite each — as staff, never as managers: joining is not the same as
   // being trusted to run the place.
   const domain = token.email.split('@')[1]?.toLowerCase();
   const open = domain
@@ -155,7 +155,7 @@ export function resolvePrincipal(
       subject: token.subject,
       email: token.email,
       name: token.name,
-      role: 'member',
+      role: 'staff',
       createdAt: nowIso(),
       lastSeenAt: nowIso(),
     };
@@ -169,7 +169,7 @@ export function resolvePrincipal(
         email: token.email,
         name: token.name,
         tenantId: open.id,
-        role: 'member',
+        role: 'staff',
       },
     };
   }

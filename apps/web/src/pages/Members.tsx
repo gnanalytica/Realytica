@@ -31,7 +31,7 @@ export default function Members() {
   const { data, error, loading, refresh } = useAsync(() => api.members(), []);
   const toast = useToast();
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<WorkspaceRole>('member');
+  const [role, setRole] = useState<WorkspaceRole>('staff');
   const [busy, setBusy] = useState(false);
 
   const me = data?.me;

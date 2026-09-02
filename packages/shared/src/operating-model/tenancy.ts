@@ -24,29 +24,61 @@ export interface Tenant {
 }
 
 /**
- * What a member may do.
+ * How much of the business somebody is trusted with.
  *
- * Four rather than two because a diligence firm has genuinely different
- * standing for a partner, a manager, a reviewer and a client who has been
- * given read access to their own file.
+ * Shaped around a developer and the people around them rather than around a
+ * professional firm: staff are inside and see every site, everybody else is a
+ * collaborator who reaches nothing until they are put on one.
+ *
+ * `collaborator` is the row that matters. A contractor invited to one site
+ * must not be able to read the acquisition file for a site still under
+ * negotiation, and a role that grants "read" across the workspace cannot
+ * express that however carefully it is named.
  */
-export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
+export type WorkspaceRole = 'owner' | 'manager' | 'staff' | 'viewer' | 'collaborator';
 
-export const WORKSPACE_ROLES: WorkspaceRole[] = ['owner', 'admin', 'member', 'viewer'];
+export const WORKSPACE_ROLES: WorkspaceRole[] = ['owner', 'manager', 'staff', 'viewer', 'collaborator'];
 
 export const WORKSPACE_ROLE_LABEL: Record<WorkspaceRole, string> = {
   owner: 'Owner',
-  admin: 'Admin',
-  member: 'Member',
+  manager: 'Manager',
+  staff: 'Staff',
   viewer: 'Viewer',
+  collaborator: 'Collaborator',
 };
 
 export const WORKSPACE_ROLE_HINT: Record<WorkspaceRole, string> = {
-  owner: 'Everything an admin can do, and can hand the workspace to somebody else.',
-  admin: 'Records and reports, plus who is in the workspace and what they may do.',
-  member: 'Records checks, files evidence, writes findings and issues reports.',
-  viewer: 'Reads the file. Cannot change anything on it.',
+  owner: 'Everything, including handing the workspace to somebody else.',
+  manager: 'Every project, and who is in the workspace.',
+  staff: 'Every project. Cannot add people or delete a project.',
+  viewer: 'Reads every project. Changes nothing.',
+  collaborator: 'Only the projects you put them on, and only the parts you tick.',
 };
+
+/**
+ * Whether this role reaches every project without being named on one.
+ *
+ * The single question the projection and the project list both turn on, so it
+ * is asked once here rather than spelled out as a role comparison in two
+ * places that could drift apart.
+ */
+export function reachesEveryProject(role: WorkspaceRole): boolean {
+  return role !== 'collaborator';
+}
+
+/**
+ * Names a store written before this reshape used.
+ *
+ * A membership row is authorisation data, so an unrecognised role must not
+ * fall through to something permissive — anything not named here becomes a
+ * collaborator, which reaches nothing.
+ */
+export function migrateWorkspaceRole(raw: string): WorkspaceRole {
+  if ((WORKSPACE_ROLES as string[]).includes(raw)) return raw as WorkspaceRole;
+  if (raw === 'admin') return 'manager';
+  if (raw === 'member') return 'staff';
+  return 'collaborator';
+}
 
 /**
  * What a request is trying to do, coarsely.
@@ -68,9 +100,14 @@ export type Capability =
 
 const GRANTS: Record<WorkspaceRole, Capability[]> = {
   owner: ['read', 'write', 'admin', 'owner'],
-  admin: ['read', 'write', 'admin'],
-  member: ['read', 'write'],
+  manager: ['read', 'write', 'admin'],
+  staff: ['read', 'write'],
   viewer: ['read'],
+  // A collaborator's writing is decided per project, by their grant. At the
+  // workspace level they hold `write` so the method gate lets them through;
+  // whether this particular check is theirs to record is the grant's answer,
+  // and asking it here would be asking the wrong question.
+  collaborator: ['read', 'write'],
 };
 
 export function can(role: WorkspaceRole, capability: Capability): boolean {

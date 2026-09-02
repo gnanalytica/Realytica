@@ -29,7 +29,7 @@ const roleSchema = z.enum(WORKSPACE_ROLES as [WorkspaceRole, ...WorkspaceRole[]]
 
 const inviteSchema = z.object({
   email: z.string().trim().email(),
-  role: roleSchema.default('member'),
+  role: roleSchema.default('staff'),
 });
 
 const patchSchema = z.object({ role: roleSchema });

@@ -1074,6 +1074,15 @@ export interface ProjectChatTurn {
   text: string;
   at: string;
   /**
+   * Who this turn belongs to.
+   *
+   * One project has one thread, so without this a collaborator reading the
+   * conversation reads the developer's. Absent on a turn written before the
+   * field existed, and such a turn is treated as staff-only — an unattributed
+   * turn cannot be shown to be anybody's.
+   */
+  actor?: string;
+  /**
    * Options offered because the message did not resolve to one thing.
    * Present only on a turn that asked rather than acted.
    */

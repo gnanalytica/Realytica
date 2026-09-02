@@ -3,10 +3,12 @@ import type {
   LlmCallRecord,
   MemoryFact,
   Membership,
+  ProjectGrant,
   PropertyCase,
   DdProject,
   Tenant,
 } from '@realytica/shared';
+import { migrateWorkspaceRole } from '@realytica/shared';
 import type { PromptStoreData } from '@realytica/agents';
 import { storageAdapter } from './storage';
 
@@ -104,6 +106,13 @@ export interface StoreData {
    */
   tenants?: Tenant[];
   memberships?: Membership[];
+  /**
+   * Who is on which project, and how narrowly.
+   *
+   * Beside the memberships for the same reason: read on every request that
+   * touches a project, and small.
+   */
+  grants?: ProjectGrant[];
 }
 
 // Re-exported for the routes that still build upload paths directly against
@@ -116,7 +125,7 @@ export interface StoreData {
 export { DATA_DIR, UPLOADS_DIR, caseUploadDir } from './storage/filesystem';
 
 function emptyStore(): StoreData {
-  return { cases: [], nextReferenceSeq: 1, projects: [], nextProjectSeq: 1, tenants: [], memberships: [] };
+  return { cases: [], nextReferenceSeq: 1, projects: [], nextProjectSeq: 1, tenants: [], memberships: [], grants: [] };
 }
 
 /**
@@ -168,9 +177,21 @@ function normalizeStoreData(loaded: StoreData | null): StoreData {
       ? loaded.tenants.filter((t): t is Tenant => Boolean(t && typeof t.id === 'string' && typeof t.name === 'string'))
       : undefined,
     memberships: Array.isArray(loaded.memberships)
-      ? loaded.memberships.filter(
-          (m): m is Membership =>
-            Boolean(m && typeof m.tenantId === 'string' && typeof m.email === 'string' && typeof m.role === 'string'),
+      ? loaded.memberships
+          .filter(
+            (m): m is Membership =>
+              Boolean(m && typeof m.tenantId === 'string' && typeof m.email === 'string' && typeof m.role === 'string'),
+          )
+          // A role written before the reshape is renamed here rather than
+          // wherever it is read, so there is one place that knows the old
+          // names. An unrecognised one becomes a collaborator, which reaches
+          // nothing — authorisation data must not fall back to permissive.
+          .map((m) => ({ ...m, role: migrateWorkspaceRole(m.role as string) }))
+      : undefined,
+    grants: Array.isArray(loaded.grants)
+      ? loaded.grants.filter(
+          (g): g is ProjectGrant =>
+            Boolean(g && typeof g.tenantId === 'string' && typeof g.projectId === 'string' && typeof g.email === 'string'),
         )
       : undefined,
   };
