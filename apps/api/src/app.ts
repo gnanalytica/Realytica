@@ -9,7 +9,7 @@ import { ENGINE_VERSION } from '@realytica/shared';
 import { store, initStore } from './store';
 import { initPrompts } from './prompts';
 import { initTelemetry } from './telemetry';
-import { UPLOAD_LIMITS } from './routes/documents';
+import { UPLOAD_LIMITS } from './uploads';
 import { referenceRouter } from './routes/reference';
 import { demoRouter, seedDemoProjects } from './routes/demo';
 import { librariesRouter, projectsRouter } from './routes/projects';

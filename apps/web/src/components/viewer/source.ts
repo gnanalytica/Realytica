@@ -15,9 +15,9 @@ export type DocumentSourceState =
   | { status: 'absent' }
   | { status: 'error'; message: string };
 
-import { documentFileUrl, evidenceFileUrl } from '../../lib/api';
+import { evidenceFileUrl } from '../../lib/api';
 
-export { documentFileUrl, evidenceFileUrl };
+export { evidenceFileUrl };
 
 /**
  * The served content type, taken from the RESPONSE rather than from
@@ -34,31 +34,6 @@ export function servedType(res: Response): string {
   return (semi === -1 ? raw : raw.slice(0, semi)).trim().toLowerCase();
 }
 
-export async function fetchDocument(caseId: string, documentId: string): Promise<DocumentSourceState> {
-  let res: Response;
-  try {
-    res = await fetch(documentFileUrl(caseId, documentId));
-  } catch (e) {
-    return { status: 'error', message: e instanceof Error ? e.message : String(e) };
-  }
-
-  if (!res.ok) {
-    let code = '';
-    let message = `${res.status} ${res.statusText}`;
-    try {
-      const body = (await res.json()) as { error?: string; code?: string };
-      if (body?.code) code = body.code;
-      if (body?.error) message = body.error;
-    } catch {
-      /* a non-JSON error body tells us nothing more than the status did */
-    }
-    if (code === 'file_not_stored') return { status: 'absent' };
-    return { status: 'error', message };
-  }
-
-  const blob = await res.blob();
-  return { status: 'ready', blob, contentType: servedType(res), url: URL.createObjectURL(blob) };
-}
 
 export type RenderKind = 'pdf' | 'image' | 'text' | 'docx' | 'unsupported';
 

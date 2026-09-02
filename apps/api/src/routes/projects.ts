@@ -153,7 +153,7 @@ import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
-import { UPLOAD_LIMITS } from './documents';
+import { UPLOAD_LIMITS } from '../uploads';
 import { projectSiteContextRouter } from './site-context';
 import { projectPeopleRouter } from './project-people';
 import { projectGisOverlayRouter } from './gis-overlay';
