@@ -17,9 +17,10 @@
  *
  *  - It does not secure writing. The API mutates the real project, not this
  *    copy, so every write needs its own check that the target is inside the
- *    grant. Treating a projection as a write gate is a false sense of
- *    security, and `writableCheckIds` below exists so the caller has the
- *    answer without recomputing it.
+ *    grant — `gateWrites` on the API side, subtracting `projectRecordIds` of
+ *    this projection from the same on the real file. Treating a projection as
+ *    a write gate is a false sense of security, and `writableCheckIds` below
+ *    exists so a screen has the answer without recomputing it.
  *
  *  - It does not pretend the withheld parts are absent. `withheld` names what
  *    was taken out, so a direct question can be answered with "you do not have
@@ -237,3 +238,29 @@ export const WITHHELD_LABEL: Record<WithheldPart, string> = {
   site_record: 'the site visits and sheets on this project',
   conversation: 'other people’s conversations on this project',
 };
+
+/**
+ * Every record id anywhere on a project.
+ *
+ * Deliberately a walk rather than a list of the collections that exist today.
+ * The write gate subtracts this set on the projection from this set on the
+ * real file to learn which ids are out of somebody's reach, and a hand-written
+ * list would go stale the first time a collection is added — silently, and in
+ * the direction that lets a write through.
+ */
+export function projectRecordIds(project: DdProject): Set<string> {
+  const found = new Set<string>();
+  const walk = (value: unknown, depth: number): void => {
+    if (depth > 12 || !value || typeof value !== 'object') return;
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, depth + 1);
+      return;
+    }
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (key === 'id' && typeof child === 'string') found.add(child);
+      else walk(child, depth + 1);
+    }
+  };
+  walk(project, 0);
+  return found;
+}

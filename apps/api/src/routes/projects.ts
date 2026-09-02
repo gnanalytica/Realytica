@@ -1,6 +1,16 @@
 import { Router, type Request } from 'express';
 import { needs, principalOf } from '../auth/middleware';
-import { actorOf as principalActor } from '@realytica/shared';
+import { gateWrites, redactResponses, requireArea, workspaceOnly, workspaceWrites } from '../auth/project-guard';
+import {
+  WriteRefused,
+  accessTo,
+  assertMayWrite,
+  assertWorkspaceWork,
+  liveGrant,
+  projectFor,
+  viewFor,
+} from '../auth/access';
+import { actorOf as principalActor, reachesEveryProject } from '@realytica/shared';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
 import {
@@ -207,6 +217,10 @@ function actorOf(req: Request): string {
 }
 
 function fail(res: { status: (n: number) => { json: (b: unknown) => void } }, err: unknown, fallback = 'Request failed') {
+  if (err instanceof WriteRefused) {
+    res.status(err.status).json({ error: err.message });
+    return;
+  }
   const message = err instanceof Error ? err.message : fallback;
   const notFound = /not found/i.test(message);
   res.status(notFound ? 404 : 400).json({ error: message });
@@ -285,31 +299,73 @@ projectsRouter.use((req, res, next) => {
  * project exists, which is exactly the fact a stranger is probing for.
  */
 projectsRouter.param('projectId', (req, res, next, projectId: string) => {
-  const me = principalOf(req);
   const project = findProject(projectId);
   if (!project) {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
+  // Adopt a project written before tenancy into the workspace now reading it.
   const bootstrap = store.data.tenants?.[0]?.id;
-  const owner = project.tenantId ?? bootstrap;
-  if (owner !== me.tenantId) {
+  if (!project.tenantId && bootstrap) project.tenantId = bootstrap;
+
+  // Wrong workspace, or a collaborator who was never put on this project —
+  // both are 404. Either way there is nothing here for them, and saying which
+  // it is would answer the question they were asking.
+  if (!accessTo(req, project).ok) {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  // Adopt a project written before tenancy into the workspace now reading it.
-  if (!project.tenantId && bootstrap) project.tenantId = bootstrap;
   next();
 });
+/*
+ * What a collaborator may reach on a project they are on.
+ *
+ * Mounted by path rather than checked per handler, because a check per handler
+ * is a decision per handler and the one somebody forgets is a leak. Order
+ * matters: these run before the routes below them.
+ *
+ * `redactResponses` covers the common shape — a project, or a record beside
+ * one. The area gates below cover the routes that answer with an area
+ * directly, where there is no project in the body to redact.
+ */
+projectsRouter.use('/:projectId', redactResponses);
+projectsRouter.use('/:projectId', gateWrites);
+
+projectsRouter.use('/:projectId/valuation', requireArea('valuation'));
+projectsRouter.use('/:projectId/screen', requireArea('valuation'));
+projectsRouter.use('/:projectId/reports', requireArea('reports'));
+projectsRouter.use('/:projectId/decisions', requireArea('decisions'));
+projectsRouter.use('/:projectId/visits', requireArea('site_record'));
+projectsRouter.use('/:projectId/sheets', requireArea('site_record'));
+
+// The workspace thinking aloud about the whole file. No area ticks these on.
+projectsRouter.use('/:projectId/ai', workspaceOnly);
+projectsRouter.use('/:projectId/orchestrate', workspaceOnly);
+projectsRouter.use('/:projectId/capabilities', workspaceOnly);
+projectsRouter.use('/:projectId/runs', workspaceOnly);
+projectsRouter.use('/:projectId/graph/stored', workspaceOnly);
+
+// Readable by anybody on the project, changeable only by the workspace: the
+// shape of the file rather than the work inside it.
+projectsRouter.use('/:projectId/assets', workspaceWrites);
+projectsRouter.use('/:projectId/stage', workspaceWrites);
+projectsRouter.use('/:projectId/assessments', workspaceWrites);
+projectsRouter.use('/:projectId/graph', workspaceWrites);
+
 projectsRouter.use('/:projectId/site-context', projectSiteContextRouter);
 projectsRouter.use('/:projectId/gis-overlay', projectGisOverlayRouter);
 
 projectsRouter.get('/', (req, res) => {
   const me = principalOf(req);
-  const summaries = visible(me.tenantId)
-    .map(toProjectSummary)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  res.json(summaries);
+  // A collaborator's list is the projects they hold a live grant on, and the
+  // summary is built from what they may see — otherwise a finding count would
+  // report work they cannot open.
+  const rows = reachesEveryProject(me.role)
+    ? visible(me.tenantId).map(toProjectSummary)
+    : visible(me.tenantId)
+        .filter((p) => liveGrant(me.tenantId, p.id, me.email))
+        .map((p) => toProjectSummary(projectFor(req, p)));
+  res.json(rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
 });
 
 projectsRouter.post('/', async (req, res) => {
@@ -346,6 +402,13 @@ projectsRouter.patch('/:projectId', async (req, res) => {
   const parsed = patchProjectBodySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    // The one write on a bare `/:projectId`, so it cannot be mounted by path.
+    assertWorkspaceWork(req, project, 'The details of the project');
+  } catch (err) {
+    fail(res, err);
     return;
   }
   patchProject(project, parsed.data, actorOf(req));
@@ -1101,6 +1164,14 @@ projectsRouter.delete('/:projectId/chat', async (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
+  try {
+    // Their own view of the thread is filtered; the thread itself is not
+    // theirs to empty.
+    assertWorkspaceWork(req, project, 'The conversation on this project');
+  } catch (err) {
+    fail(res, err);
+    return;
+  }
   clearProjectConversation(project);
   await store.save();
   res.status(204).end();
@@ -1607,6 +1678,14 @@ projectsRouter.post('/:projectId/evidence/files', evidenceUpload.array('files', 
   const unknown = ids.find((id) => !project.evidence.some((e) => e.id === id));
   if (unknown) {
     res.status(404).json({ error: `Evidence not found on this project: ${unknown}` });
+    return;
+  }
+  try {
+    // The targets arrive in a multipart body, parsed after the router gate
+    // ran, so this route asks for itself.
+    assertMayWrite(req, project, ids);
+  } catch (err) {
+    fail(res, err);
     return;
   }
 
