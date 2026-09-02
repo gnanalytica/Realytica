@@ -19,6 +19,7 @@ import {
 import { api } from '../../lib/api';
 import { CheckFields } from '../../components/CheckFields';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Field, Modal, Select, Textarea, cn, useToast } from '../../components/ui/kit';
+import { AssignCell } from '../../components/AssignCell';
 import type { ProjectOutlet } from './ProjectLayout';
 import { checkTone } from './shared';
 import { useLiveHighlight } from './LiveRow';
@@ -317,6 +318,16 @@ export default function ScopeWorkspace() {
           <div className="space-y-3">
             <p className="text-[13px] text-ink-secondary">{check.purpose}</p>
             <p className="text-[12px] text-ink-muted">Acceptance: {check.acceptanceCriteria}</p>
+            {/* Here rather than on the row: the list is a keyboard surface
+                whose rows are themselves buttons, and an editor inside one
+                would be a control nobody can reach with the arrow keys. */}
+            <AssignCell
+              className="-ml-1.5"
+              project={project}
+              targetId={check.id}
+              owner={check.owner}
+              onAssigned={setProject}
+            />
             <CheckFields
               defs={reading.defs}
               values={reading.values}
@@ -423,7 +434,7 @@ function CheckRow({
   onTick,
   onCross,
 }: {
-  check: { id: string; title: string; section: string; expectedEvidence: string[]; result: CheckResult };
+  check: { id: string; title: string; section: string; expectedEvidence: string[]; result: CheckResult; owner?: string };
   sitting: boolean;
   highlightIds?: string[];
   pending: boolean;
@@ -445,7 +456,10 @@ function CheckRow({
     >
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onOpen}>
         <p className="text-[13px] font-medium text-ink">{check.title}</p>
-        <p className="mt-0.5 text-[12px] text-ink-muted">{check.section} · {check.expectedEvidence.join(', ')}</p>
+        <p className="mt-0.5 text-[12px] text-ink-muted">
+          {check.section} · {check.expectedEvidence.join(', ')}
+          {check.owner ? ` · ${check.owner}` : ''}
+        </p>
       </button>
       <div className="flex items-center gap-2">
         {pending && sitting ? <TickCrossButtons lean={lean} busy={busy} onTick={onTick} onCross={onCross} /> : null}

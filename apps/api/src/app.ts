@@ -20,6 +20,7 @@ import { workRouter } from './routes/work';
 import { promptsRouter } from './routes/prompts';
 import { graphAdapter } from './graph';
 import { authenticate, authSettings, initAuth, needs } from './auth/middleware';
+import { reportOperators } from './auth/operator';
 import { membersRouter } from './routes/members';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -186,6 +187,7 @@ export async function initApp(): Promise<void> {
   await initPrompts();
   // Must run before the first model call, or that call goes unrecorded.
   initTelemetry();
+  reportOperators(store.data.tenants?.length ?? 0);
   if (!store.data.projects?.length) {
     const created = await seedDemoProjects();
     console.log(`[boot] no projects — auto-seeded ${created} demo project(s)`);

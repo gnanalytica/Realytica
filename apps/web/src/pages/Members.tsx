@@ -166,6 +166,14 @@ export default function Members() {
         </Card>
       ) : null}
 
+      {mayOwn && me && !me.operator ? (
+        <Callout tone="info" title="The AI instructions are not yours to change">
+          One prompt registry serves every workspace on this deployment, so an edit here would rewrite the
+          instructions the others’ agents run under. Whoever runs the deployment sets{' '}
+          <code className="font-mono text-[12px]">REALYTICA_OPERATORS</code> to the addresses that may.
+        </Callout>
+      ) : null}
+
       {mayOwn && data?.tenant ? (
         <Card>
           <CardHeader

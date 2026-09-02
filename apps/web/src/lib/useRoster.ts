@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { WorkPerson } from '@realytica/shared';
 import { api } from './api';
+import { onAuthChange } from './auth';
 
 /**
  * Everybody in this workspace, for the screens that need to offer a person.
@@ -31,6 +32,9 @@ async function load(): Promise<WorkPerson[]> {
 export function forgetRoster(): void {
   cached = null;
 }
+
+// A different person signing in must not inherit the last one's colleagues.
+onAuthChange(() => forgetRoster());
 
 export function useRoster(): WorkPerson[] {
   const [roster, setRoster] = useState<WorkPerson[]>(cached ?? []);

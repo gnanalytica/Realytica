@@ -93,7 +93,6 @@ export function AreaUnitProvider({
  */
 export function useAreaUnit(): AreaUnitContextValue {
   const ctx = useContext(AreaUnitContext);
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   const fallback = useStandaloneAreaUnit();
   return ctx ?? fallback;
 }

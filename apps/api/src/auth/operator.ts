@@ -61,3 +61,29 @@ export function needsOperator(req: Request, res: { status: (n: number) => { json
   }
   res.status(403).json({ error: whyNotOperator() });
 }
+
+/**
+ * Say at boot who may change the prompts.
+ *
+ * The one rule here that reads as surprising — a deployment with two
+ * workspaces has no operator until somebody names one — is also the one that
+ * only announces itself when an owner tries to save an edit and is refused.
+ * That is a bad moment to learn it. So it is stated at every start, with the
+ * remedy in the line.
+ */
+export function reportOperators(tenantCount: number): void {
+  const named = operatorEmails();
+  if (named.length > 0) {
+    console.log(`[prompts] editable by ${named.join(', ')} (REALYTICA_OPERATORS)`);
+    return;
+  }
+  if (tenantCount > 1) {
+    console.warn(
+      `[prompts] ${tenantCount} workspaces share one prompt registry and REALYTICA_OPERATORS is unset, `
+        + 'so nobody may edit the prompts — one workspace rewriting the instructions another\'s agents run '
+        + 'under is the thing being prevented. Set REALYTICA_OPERATORS to the addresses that run this deployment.',
+    );
+    return;
+  }
+  console.log('[prompts] editable by the owner of the only workspace here; set REALYTICA_OPERATORS before adding a second.');
+}

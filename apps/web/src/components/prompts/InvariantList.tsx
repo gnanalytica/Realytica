@@ -505,13 +505,18 @@ export function GuardrailWaiver({
   const [acked, setAcked] = useState<Record<string, boolean>>({});
   const [typed, setTyped] = useState('');
 
+  // The identity of *which* guardrails are being waived, not the array, which
+  // is rebuilt on every render and would reset the consent under the reader's
+  // hands mid-sentence.
+  const droppedKey = dropped.map((d) => d.id).join('|');
+
   // Reopening must not inherit a previous session's consent.
   useEffect(() => {
     if (open) {
       setAcked({});
       setTyped('');
     }
-  }, [open, dropped.map((d) => d.id).join('|')]);
+  }, [open, droppedKey]);
 
   const phrase = guardrailWaiverPhrase(dropped.map((d) => d.id));
   const allAcked = dropped.every((d) => acked[d.id]);

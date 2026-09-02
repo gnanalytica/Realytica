@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   BookOpen,
@@ -249,6 +249,19 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
   const [dirty, setDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
 
+  /*
+   * The deep link as it stood when the load started, held in a ref.
+   *
+   * The effect fetches every prompt in the build and must run once per port,
+   * not once per URL: putting `linkedKey` in the dependency array would refetch
+   * the registry every time somebody clicks a prompt in the list, because
+   * selecting one writes `?key=` back. Reading it through a ref keeps that and
+   * keeps the rule honest — the effect genuinely does not depend on the value
+   * changing, only on what it was when the answer arrived.
+   */
+  const linkedKeyRef = useRef(linkedKey);
+  linkedKeyRef.current = linkedKey;
+
   useEffect(() => {
     const load = port.list;
     if (!load) {
@@ -264,8 +277,9 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
         // A `?key=` naming a prompt this build does not have falls through to
         // the first one rather than leaving the page blank — a stale link
         // should land somewhere usable, not on nothing.
-        const linkedExists = linkedKey !== null && next.some((p) => p.key === linkedKey);
-        setSelectedKey((current) => current ?? (linkedExists ? linkedKey : null) ?? next[0]?.key ?? null);
+        const linked = linkedKeyRef.current;
+        const linkedExists = linked !== null && next.some((p) => p.key === linked);
+        setSelectedKey((current) => current ?? (linkedExists ? linked : null) ?? next[0]?.key ?? null);
         setLoadError(null);
       })
       .catch((error: unknown) => {
@@ -517,7 +531,9 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
       {persists && me && !mayEdit ? (
         <Callout tone="info" title="These prompts are read-only for you">
           One registry serves every workspace on this deployment, so a change here would rewrite the instructions
-          every other workspace’s agents run under. Whoever runs the deployment makes that change.
+          every other workspace’s agents run under. Whoever runs the deployment makes that change — they are named
+          in <code className="font-mono text-[12px]">REALYTICA_OPERATORS</code>, and until that is set nobody may
+          edit these once a second workspace exists.
         </Callout>
       ) : null}
 

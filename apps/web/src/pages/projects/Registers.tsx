@@ -39,8 +39,8 @@ import { LiveRow } from './LiveRow';
 import { EvidenceProof } from './EvidenceProof';
 import { EvidenceDropButton, EvidenceDropZone } from '../../components/EvidenceDropZone';
 import { useStickyState } from '../../lib/useStickyState';
-import { useMe } from '../../lib/useMe';
 import { AssignCell } from '../../components/AssignCell';
+import { MineToggle, useMine } from '../../components/MineToggle';
 
 const EVIDENCE_STATUSES = Object.keys(EVIDENCE_STATUS_LABEL) as EvidenceStatus[];
 const FINDING_STATUSES = Object.keys(FINDING_STATUS_LABEL) as FindingStatus[];
@@ -67,12 +67,14 @@ export function EvidenceRegister() {
   // on the way past, and finding the register silently narrowed to it a week
   // later reads as documents having gone missing.
   const [mineOnly, setMineOnly] = useState(false);
-  const me = useMe();
   const [proofId, setProofId] = useState<string | null>(focusId ?? null);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const scoped = assessmentId ? project.evidence.filter((e) => e.assessmentIds.includes(assessmentId)) : project.evidence;
   const liveIds = [...(highlightIds ?? []), ...(focusId ? [focusId] : [])];
+  // Ahead of the filter below, which reads `me`: `.filter` runs its callback
+  // immediately, so a `const` declared after it is still in its dead zone.
+  const { me, count: mineCount } = useMine(scoped, mineOnly);
   const rows = scoped.filter((e) => {
     if (focusId && e.id === focusId) return true;
     if (statusFilter === 'gaps' && !GAP_STATUSES.includes(e.status)) return false;
@@ -81,7 +83,6 @@ export function EvidenceRegister() {
     if (mineOnly && !(me && ownedBy(e.owner, me))) return false;
     return true;
   });
-  const mineCount = me ? scoped.filter((e) => ownedBy(e.owner, me)).length : 0;
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [kind, setKind] = useState<EvidenceKind>('document');
@@ -196,19 +197,7 @@ export function EvidenceRegister() {
           ))}
         </Select>
         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by title" className="w-full max-w-xs" />
-        {mineCount > 0 ? (
-          <button
-            type="button"
-            onClick={() => setMineOnly((v) => !v)}
-            aria-pressed={mineOnly}
-            className={cn(
-              'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] coarse:min-h-11',
-              mineOnly ? 'bg-brand-soft font-semibold text-brand' : 'bg-sunken text-ink-secondary hover:text-ink',
-            )}
-          >
-            Mine <span className="text-ink-muted">{mineCount}</span>
-          </button>
-        ) : null}
+        <MineToggle count={mineCount} on={mineOnly} onChange={setMineOnly} />
         <div className="flex-grow" />
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={() => setOpen(true)}>Record an item</Button>
@@ -463,6 +452,8 @@ export function FindingRegister() {
   const [severity, setSeverity] = useState<FindingSeverity>('medium');
   const [discipline, setDiscipline] = useState<ScopeKey>('technical');
   const [busy, setBusy] = useState(false);
+  const [mineOnly, setMineOnly] = useState(false);
+  const { count: mineCount, rows } = useMine(project.findings, mineOnly);
 
   async function add() {
     setBusy(true);
@@ -500,7 +491,9 @@ export function FindingRegister() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <MineToggle count={mineCount} on={mineOnly} onChange={setMineOnly} />
+        <div className="flex-grow" />
         <Button onClick={() => setOpen(true)}>Add finding</Button>
       </div>
       {project.findings.length === 0 ? (
@@ -508,7 +501,7 @@ export function FindingRegister() {
       ) : (
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
-            {project.findings.map((f) => (
+            {rows.map((f) => (
               <LiveRow key={f.id} id={f.id} highlightIds={liveIds} variant="flush" className="space-y-2 px-4 py-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>

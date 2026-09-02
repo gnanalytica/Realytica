@@ -24,6 +24,8 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { OwnerInput } from '../../components/OwnerInput';
+import { AssignCell } from '../../components/AssignCell';
+import { MineToggle, useMine } from '../../components/MineToggle';
 import { RemedialCostChart } from '../../components/charts';
 import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -109,20 +111,28 @@ export function RisksActions() {
 
   const costSummary = useMemo(() => remedialCostSummary(project), [project]);
 
+  // One toggle for the section rather than two, because "what is mine here" is
+  // one question and the risks and the actions under them are one answer.
+  const [mineOnly, setMineOnly] = useState(false);
+  const risks = useMine(project.risks, mineOnly);
+  const actions = useMine(project.actions, mineOnly);
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap justify-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <MineToggle count={risks.count + actions.count} on={mineOnly} onChange={setMineOnly} />
+        <div className="flex-grow" />
         <Button variant="ghost" onClick={() => setActionOpen(true)}>Add action</Button>
         <Button onClick={() => setRiskOpen(true)}>Add risk</Button>
       </div>
       <section className="space-y-2">
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Risks</h2>
-        {project.risks.length === 0 ? (
+        {risks.rows.length === 0 ? (
           <EmptyState title="No risks" description="Convert findings into scored risks on the project register." />
         ) : (
           <Card>
             <CardBody className="divide-y divide-hairline p-0">
-              {project.risks.map((r) => (
+              {risks.rows.map((r) => (
                 <LiveRow key={r.id} id={r.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-start justify-between gap-2 px-4 py-3">
                   <div>
                     <p className="text-[13px] font-medium text-ink">{r.title}</p>
@@ -130,6 +140,7 @@ export function RisksActions() {
                     <p className="mt-1 text-[11px] text-ink-muted">
                       {IMPACT_TYPE_LABEL[r.category]} · P {r.probability} · impact {r.impactScore} · {r.findingIds.length} finding(s)
                     </p>
+                    <AssignCell className="mt-0.5 -ml-1.5" project={project} targetId={r.id} owner={r.owner} onAssigned={setProject} />
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge tone={severityTone(r.materiality)}>{SEVERITY_LABEL[r.materiality]}</Badge>
@@ -147,7 +158,7 @@ export function RisksActions() {
       </section>
       <section className="space-y-2">
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Actions</h2>
-        {project.actions.length === 0 ? (
+        {actions.rows.length === 0 ? (
           <EmptyState title="No actions" description="Actions turn findings and risks into owned work." />
         ) : (
           <>
@@ -159,12 +170,15 @@ export function RisksActions() {
             </Card>
             <Card>
               <CardBody className="divide-y divide-hairline p-0">
-                {project.actions.map((a) => (
+                {actions.rows.map((a) => (
                   <LiveRow key={a.id} id={a.id} highlightIds={liveIds} variant="flush" className="space-y-2 px-4 py-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <p className="text-[13px] font-medium text-ink">{a.title}</p>
-                        <p className="text-[12px] text-ink-muted">{a.owner}{a.dueDate ? ` · due ${a.dueDate}` : ''} · {ACTION_KIND_LABEL[a.kind]}</p>
+                        <p className="text-[12px] text-ink-muted">
+                          {ACTION_KIND_LABEL[a.kind]}{a.dueDate ? ` · due ${a.dueDate}` : ''}
+                        </p>
+                        <AssignCell className="-ml-1.5" project={project} targetId={a.id} owner={a.owner} onAssigned={setProject} />
                       </div>
                       <Select value={a.status} onChange={(e) => void api.patchAction(project.id, a.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}>
                         {(Object.keys(ACTION_STATUS_LABEL) as ActionStatus[]).map((s) => (
