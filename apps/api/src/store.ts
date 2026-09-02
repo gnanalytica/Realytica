@@ -1,10 +1,8 @@
 import type {
-  IntakeSession,
   LlmCallRecord,
   MemoryFact,
   Membership,
   ProjectGrant,
-  PropertyCase,
   DdProject,
   Tenant,
 } from '@realytica/shared';
@@ -17,7 +15,7 @@ import { storageAdapter } from './storage';
  * active (see `./storage/index.ts`) — the filesystem locally, Vercel Blob in
  * a deployment with a Blob store attached.
  *
- * The whole dataset is small (a handful of property cases), so it is kept
+ * The whole dataset is small (a handful of projects), so it is kept
  * entirely in memory and mirrored to the adapter on every mutation. There is
  * no more debouncing: on serverless the instance can be frozen the moment a
  * response is sent, so a write that hasn't fired yet by then is a write that
@@ -25,24 +23,18 @@ import { storageAdapter } from './storage';
  */
 
 export interface StoreData {
-  cases: PropertyCase[];
-  /** Monotonic counter used to mint human references like "VPS-0001". */
-  nextReferenceSeq: number;
-  /**
-   * Due-diligence projects — the BRD operating model. Kept in the same
-   * document as cases so there is still one durability path.
-   */
+  /** Due-diligence projects — the operating model this product runs on. */
   projects?: DdProject[];
   nextProjectSeq?: number;
   /**
    * Cross-case agent memory (see `@realytica/agents`'s `memory/`).
    *
-   * Kept in the same document as the cases rather than in its own, because
+   * Kept in the same document as the projects rather than in its own, because
    * one document means one durability path — and durability is the property
    * that matters on serverless, where a write that has only been scheduled is
    * a write that never happens. The cost is that a case mutation rewrites the
    * memory set with it; facts are small and this dataset is small, so that is
-   * the cheaper side of the trade. If memory ever outgrows the cases it
+   * the cheaper side of the trade. If memory ever outgrows the projects it
    * should move to its own blob, and this comment is the note to do so.
    *
    * Optional so a store written before memory existed still loads.
@@ -70,17 +62,6 @@ export interface StoreData {
    * Optional so a store written before the prompt registry existed still loads.
    */
   prompts?: PromptStoreData;
-  /**
-   * In-flight intake conversations (see `@realytica/agents`'s `intake/`).
-   *
-   * Kept here rather than in their own document for the same reason memory is:
-   * one document means one durability path. A session is small — a handful of
-   * turns and a flat field list — and is pruned once it has produced a case,
-   * so this does not grow without bound.
-   *
-   * Optional so a store written before the intake existed still loads.
-   */
-  intakeSessions?: IntakeSession[];
   /**
    * The ids of the projects held in their own documents.
    *
@@ -125,7 +106,7 @@ export interface StoreData {
 export { DATA_DIR, UPLOADS_DIR, caseUploadDir } from './storage/filesystem';
 
 function emptyStore(): StoreData {
-  return { cases: [], nextReferenceSeq: 1, projects: [], nextProjectSeq: 1, tenants: [], memberships: [], grants: [] };
+  return { projects: [], nextProjectSeq: 1, tenants: [], memberships: [], grants: [] };
 }
 
 /**
@@ -148,11 +129,6 @@ function emptyStore(): StoreData {
 function normalizeStoreData(loaded: StoreData | null): StoreData {
   if (!loaded) return emptyStore();
   return {
-    cases: Array.isArray(loaded.cases) ? loaded.cases : [],
-    nextReferenceSeq:
-      typeof loaded.nextReferenceSeq === 'number' && Number.isFinite(loaded.nextReferenceSeq)
-        ? loaded.nextReferenceSeq
-        : 1,
     projects: Array.isArray(loaded.projects) ? loaded.projects : [],
     nextProjectSeq:
       typeof loaded.nextProjectSeq === 'number' && Number.isFinite(loaded.nextProjectSeq)
@@ -168,7 +144,6 @@ function normalizeStoreData(loaded: StoreData | null): StoreData {
       loaded.prompts && typeof loaded.prompts === 'object' && !Array.isArray(loaded.prompts)
         ? loaded.prompts
         : undefined,
-    intakeSessions: Array.isArray(loaded.intakeSessions) ? loaded.intakeSessions : undefined,
     projectIds: Array.isArray(loaded.projectIds) ? loaded.projectIds.filter((id): id is string => typeof id === 'string') : undefined,
     // Authorisation data, so the shape check is stricter than elsewhere: a row
     // missing a tenant or a role is a row that cannot be reasoned about, and
@@ -237,7 +212,7 @@ class Store {
      *
      * A shard that will not load is skipped with a warning rather than
      * failing the boot: one unreadable project must not take the other
-     * projects, the cases and the prompt store down with it. It is loud
+     * projects and the prompt store down with it. It is loud
      * because a project silently missing from the list looks exactly like a
      * project somebody deleted.
      */
@@ -272,13 +247,6 @@ class Store {
       console.warn(`[store] could not read project ${id}: ${(err as Error).message}`);
       return null;
     }
-  }
-
-  /** Mint the next human-readable case reference, e.g. "VPS-0001". */
-  nextReference(): string {
-    const seq = this.data.nextReferenceSeq;
-    this.data.nextReferenceSeq += 1;
-    return `VPS-${String(seq).padStart(4, '0')}`;
   }
 
   /** Mint the next project reference, e.g. "RYT-0001". */

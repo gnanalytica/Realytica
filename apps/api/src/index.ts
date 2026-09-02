@@ -15,7 +15,7 @@ async function main(): Promise<void> {
   await initApp();
 
   const server = app.listen(PORT, () => {
-    console.log(`[realytica-api] listening on port ${PORT} (${store.data.cases.length} case(s) loaded)`);
+    console.log(`[realytica-api] listening on port ${PORT} (${store.data.projects?.length ?? 0} project(s) loaded)`);
   });
 
   function shutdown(signal: string): void {
