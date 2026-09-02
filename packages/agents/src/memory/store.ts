@@ -235,6 +235,16 @@ export class MemoryLedger {
     this.byId = new Map();
   }
 
+  /** See `MemoryStore.forget`: erasure, which is not supersession. */
+  forget(caseIds: readonly string[]): number {
+    const drop = new Set(caseIds);
+    if (drop.size === 0) return 0;
+    const before = this.facts.length;
+    this.facts = this.facts.filter((f) => !drop.has(f.sourceCaseId));
+    this.byId = new Map(this.facts.map((f) => [f.id, f]));
+    return before - this.facts.length;
+  }
+
   /**
    * Give a fact an id that is stable for its content and unique in this ledger.
    *
@@ -447,6 +457,10 @@ export class InMemoryMemoryStore implements MemoryStore {
     return this.ledger.all();
   }
 
+  async forget(caseIds: readonly string[]): Promise<number> {
+    return this.ledger.forget(caseIds);
+  }
+
   async clear(): Promise<void> {
     this.ledger.clear();
   }
@@ -552,6 +566,15 @@ export class PersistedMemoryStore implements MemoryStore {
   async snapshot(): Promise<MemoryFact[]> {
     await this.ready();
     return this.ledger.all();
+  }
+
+  async forget(caseIds: readonly string[]): Promise<number> {
+    await this.ready();
+    const gone = this.ledger.forget(caseIds);
+    // Persisted even when nothing matched, so a caller cannot be left believing
+    // an erasure is durable when the write never happened.
+    await this.persist();
+    return gone;
   }
 
   async clear(): Promise<void> {

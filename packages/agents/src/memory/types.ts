@@ -285,6 +285,19 @@ export interface MemoryStore {
   /** Every fact, superseded and expired ones included. For export and inspection. */
   snapshot(): Promise<MemoryFact[]>;
 
+  /**
+   * Forget what these cases taught, and answer how many facts went.
+   *
+   * The one deletion in a store built on the principle that nothing is
+   * deleted, and the distinction is worth being exact about: supersession is
+   * how memory handles being *wrong*, and the old belief is kept because "we
+   * used to think this" is itself a fact. This is not that. It is erasure —
+   * the case is gone, and a fact naming its owner, its reference and its
+   * locality has no subject any more. Keeping it would make "delete the
+   * project" a lie in the one direction that matters.
+   */
+  forget(caseIds: readonly string[]): Promise<number>;
+
   /** Forget everything. Used by the demo reset, not by ordinary operation. */
   clear(): Promise<void>;
 }

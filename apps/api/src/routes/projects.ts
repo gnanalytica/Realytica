@@ -144,7 +144,7 @@ import { readExifCapture } from '../exif';
  * decision they take with the first bill in front of them.
  */
 const PHOTO_READ_CAP = 12;
-import { memoryReadableBy, memoryStore } from '../memory';
+import { forgetProjects, memoryReadableBy, memoryStore } from '../memory';
 import { gatherChatSides } from '../project-chat-sides';
 import { ensureIdentitySiteContext } from '../site-context';
 import { beginRun, listRuns } from '../runs/journal';
@@ -1363,17 +1363,24 @@ projectsRouter.delete('/:projectId', needs('admin'), async (req, res) => {
     return;
   }
   const [removed] = projects().splice(idx, 1);
-  await store.save();
   // The project's own documents — its shard, its run journal, its evidence
-  // files — go with it. "Deleted" has to mean deleted: these hold owner
+  // files — go with it, and so do the grants written against it and what it
+  // taught memory. "Deleted" has to mean deleted: all of these hold owner
   // names, document titles and uploaded bytes.
   if (removed) {
+    await forgetProjects([removed.id]);
+    try {
+      await graphAdapter.purgeProject(removed.id);
+    } catch (err) {
+      console.warn(`[projects] could not purge the graph for ${removed.id}: ${(err as Error).message}`);
+    }
     try {
       await storageAdapter.deleteCaseDocuments(removed.id);
     } catch (err) {
       console.warn(`[projects] could not remove documents for ${removed.id}: ${(err as Error).message}`);
     }
   }
+  await store.save();
   res.status(204).end();
 });
 

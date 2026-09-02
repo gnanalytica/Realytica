@@ -444,3 +444,101 @@ describe('what the agents are told to do', () => {
     assert.equal((res.body as { me: { operator: boolean } }).me.operator, false);
   });
 });
+
+describe('starting a workspace over', () => {
+  /*
+   * `/api/demo/reset` was owner-only and wiped every project in the store, on
+   * the argument that owner-only made it safe. It does not: an owner of one
+   * workspace is not entitled to another's data, and this is the same defect
+   * as an admin who can rewrite every firm's prompts — authority larger than
+   * the role that granted it. The difference is that this one is destructive.
+   */
+  let outsider = '';
+  let theirProject = '';
+
+  before(async () => {
+    outsider = tokenFor('sub-other', 'meera@firm-three.in', 'Meera');
+    const { store } = await import('../apps/api/src/store');
+
+    // A project in the other workspace, and a grant and a memory fact hanging
+    // off one of Asha's — the litter a reset used to leave behind.
+    const mine = store.data.projects!.find((p) => p.tenantId === store.data.tenants![0]!.id)!;
+    theirProject = `${mine.id}-theirs`;
+    store.data.projects!.push({ ...mine, id: theirProject, tenantId: 'tnt_other', name: 'Firm Three site' });
+
+    store.data.grants = [
+      ...(store.data.grants ?? []),
+      {
+        id: 'grant-reset',
+        tenantId: store.data.tenants![0]!.id,
+        projectId: mine.id,
+        email: 'sam@site.in',
+        role: 'reviewer',
+        allAssessments: true,
+        assessmentIds: [],
+        allScopes: true,
+        scopeKeys: [],
+        areas: [],
+        createdAt: new Date().toISOString(),
+        createdBy: 'asha@firm-one.in',
+      },
+    ];
+
+    const { memoryStore } = await import('../apps/api/src/memory');
+    await memoryStore.assert({
+      scope: 'locality',
+      subject: 'locality:whitefield',
+      subjectLabel: 'Whitefield',
+      predicate: 'seen_as_project',
+      object: 'residential',
+      validFrom: new Date().toISOString(),
+      assertedAt: new Date().toISOString(),
+      sourceCaseId: mine.id,
+      confidence: 0.7,
+    });
+    await store.save();
+  });
+
+  it('leaves the other workspace’s projects exactly where they were', async () => {
+    const res = await call('POST', '/api/demo/reset', { token: asha() });
+    assert.equal(res.status, 200);
+
+    const { store } = await import('../apps/api/src/store');
+    assert.ok(
+      store.data.projects!.some((p) => p.id === theirProject),
+      'another firm’s project was destroyed by this firm’s reset',
+    );
+  });
+
+  it('takes the grants and the memory of what it did remove', async () => {
+    const { store } = await import('../apps/api/src/store');
+    assert.ok(
+      !(store.data.grants ?? []).some((g) => g.id === 'grant-reset'),
+      'a grant survived the project it was written against',
+    );
+    const { memoryStore } = await import('../apps/api/src/memory');
+    const live = new Set(store.data.projects!.map((p) => p.id));
+    for (const fact of await memoryStore.snapshot()) {
+      assert.ok(live.has(fact.sourceCaseId), `a fact outlived its project: ${fact.subjectLabel}`);
+    }
+  });
+
+  it('gives the workspace its demo files back, rather than none', async () => {
+    // The seed asks "already seeded?" of this workspace, not the deployment.
+    // Asked globally, a firm that resets gets nothing back because another
+    // firm still holds RYT-0001.
+    const res = await call('GET', '/api/projects', { token: asha() });
+    assert.ok((res.body as unknown[]).length > 0, 'the reset left this workspace empty');
+  });
+
+  it('is still not something a manager can fire', async () => {
+    assert.equal((await call('POST', '/api/demo/reset', { token: rivals() })).status, 403);
+  });
+
+  it('does not reach out of the other workspace either', async () => {
+    const before = (await call('GET', '/api/projects', { token: asha() })).body as unknown[];
+    assert.equal((await call('POST', '/api/demo/reset', { token: outsider })).status, 200);
+    const after = (await call('GET', '/api/projects', { token: asha() })).body as unknown[];
+    assert.equal(after.length, before.length, 'the other firm’s reset changed this firm’s files');
+  });
+});

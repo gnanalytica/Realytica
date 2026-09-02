@@ -51,3 +51,32 @@ export function memoryReadableBy(tenantId: string | undefined): (string | null)[
   if (!tenantId) return [null];
   return tenantId === bootstrap ? [tenantId, null] : [tenantId];
 }
+
+/**
+ * Everything a project leaves behind, removed with it.
+ *
+ * Deleting a project used to remove the project and its documents and stop
+ * there, which left two kinds of litter that matter for different reasons.
+ * A grant is an access record: leaving one behind means "taken off the
+ * project" never fully happened. A memory fact names the owner, the reference
+ * and the locality: leaving one behind means "deleted" was not true, and it is
+ * true in the one direction — personal data — where it has to be.
+ *
+ * Returns what went, so a caller can log it rather than guess.
+ */
+export async function forgetProjects(projectIds: readonly string[]): Promise<{ grants: number; facts: number }> {
+  const drop = new Set(projectIds);
+  if (drop.size === 0) return { grants: 0, facts: 0 };
+
+  const before = store.data.grants?.length ?? 0;
+  if (store.data.grants) store.data.grants = store.data.grants.filter((g) => !drop.has(g.projectId));
+  const grants = before - (store.data.grants?.length ?? 0);
+
+  let facts = 0;
+  try {
+    facts = await memoryStore.forget([...drop]);
+  } catch {
+    /* memory is context, never evidence: losing this erasure must not fail the delete */
+  }
+  return { grants, facts };
+}
