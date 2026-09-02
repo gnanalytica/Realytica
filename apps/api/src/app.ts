@@ -17,6 +17,7 @@ import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
 import { workRouter } from './routes/work';
+import { flowsRouter } from './routes/flows';
 import { promptsRouter } from './routes/prompts';
 import { graphAdapter } from './graph';
 import { authenticate, authSettings, initAuth, needs } from './auth/middleware';
@@ -96,6 +97,10 @@ app.use('/api/telemetry', needs('admin'), telemetryRouter);
 app.use('/api/prompts', needs('admin'), promptsRouter);
 app.use('/api/demo', demoRouter);
 app.use('/api/work', workRouter);
+// A flow decides what the agents do and what they cost, so reading one is any
+// member's business and changing one is the workspace's — the router carries
+// that split per route rather than being gated wholesale here.
+app.use('/api/flows', flowsRouter);
 app.use('/api/members', membersRouter);
 
 // 404 for any unmatched /api/* route.

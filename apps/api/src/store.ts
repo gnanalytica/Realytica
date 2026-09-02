@@ -1,4 +1,6 @@
 import type {
+  Flow,
+  StoredCredential,
   LlmCallRecord,
   MemoryFact,
   Membership,
@@ -62,6 +64,23 @@ export interface StoreData {
    * Optional so a store written before the prompt registry existed still loads.
    */
   prompts?: PromptStoreData;
+  /**
+   * Flows: the agentic pipeline as an operator drew it.
+   *
+   * Data rather than code by design — see `packages/shared/src/flow`. Kept in
+   * the core document because a flow is small and a run has to be able to read
+   * one without a second fetch.
+   */
+  flows?: Flow[];
+  /**
+   * Secrets flow nodes authenticate with.
+   *
+   * Write-only from every route: stored here, never returned. Holding them at
+   * all is a deliberate widening of this deployment's blast radius — a backup
+   * of this document now carries credentials — taken so an operator can wire a
+   * connector without a deploy.
+   */
+  credentials?: StoredCredential[];
   /**
    * The ids of the projects held in their own documents.
    *
@@ -144,6 +163,8 @@ function normalizeStoreData(loaded: StoreData | null): StoreData {
       loaded.prompts && typeof loaded.prompts === 'object' && !Array.isArray(loaded.prompts)
         ? loaded.prompts
         : undefined,
+    flows: Array.isArray(loaded.flows) ? loaded.flows : undefined,
+    credentials: Array.isArray(loaded.credentials) ? loaded.credentials : undefined,
     projectIds: Array.isArray(loaded.projectIds) ? loaded.projectIds.filter((id): id is string => typeof id === 'string') : undefined,
     // Authorisation data, so the shape check is stricter than elsewhere: a row
     // missing a tenant or a role is a row that cannot be reasoned about, and
