@@ -25,6 +25,7 @@ import {
   updateCredential,
 } from '../flows/credentials';
 import { CredentialKeyMissing } from '../flows/secret-box';
+import { CredentialTestImpossible, testCredential } from '../flows/credential-test';
 import { forgetRuns, latestRunPerFlow, recordRun, runFor, runsFor } from '../flows/runs';
 import { tickSchedules } from '../flows/triggers';
 
@@ -378,6 +379,37 @@ flowsRouter.post('/credentials', needs('admin'), async (req, res) => {
     // here would read as "the product is broken" rather than "set this".
     if (err instanceof CredentialKeyMissing) {
       res.status(503).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+});
+
+/**
+ * Try a stored credential against something, and record what happened.
+ *
+ * Rate-limited with the expensive tier upstream, because it reaches outside
+ * and an operator holding the button down should not become a way to make this
+ * server hammer a third party.
+ */
+flowsRouter.post('/credentials/:credentialId/test', needs('admin'), async (req, res) => {
+  const url = (req.body as { url?: unknown } | undefined)?.url;
+  if (url !== undefined && (typeof url !== 'string' || url.length > 2000)) {
+    res.status(400).json({ error: 'url must be a string.' });
+    return;
+  }
+  try {
+    const result = await testCredential(principalOf(req).tenantId, req.params.credentialId, url);
+    if (!result) {
+      res.status(404).json({ error: 'Credential not found' });
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    // "This cannot be tested" is a 400 rather than a failure: nothing is
+    // broken, the request just did not carry what a test needs.
+    if (err instanceof CredentialTestImpossible) {
+      res.status(400).json({ error: err.message });
       return;
     }
     throw err;

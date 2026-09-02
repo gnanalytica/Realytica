@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, PlugZap } from 'lucide-react';
 import { CREDENTIAL_KINDS, type CredentialKind } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
-import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Select, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Modal, Select, useToast } from '../../components/ui/kit';
 import { formatWhen } from '../projects/shared';
 
 /**
@@ -44,6 +44,41 @@ export function CredentialsCard() {
   const [username, setUsername] = useState('');
   const [target, setTarget] = useState('');
   const [busy, setBusy] = useState(false);
+  /**
+   * Two separate pieces of state, because they answer different questions.
+   *
+   * `runningId` is which row is spinning — an MCP credential is tested with no
+   * dialog at all, so tying the spinner to the dialog's state would leave the
+   * one case that needs no dialog with no feedback.
+   */
+  const [runningId, setRunningId] = useState<string | null>(null);
+  const [askUrlFor, setAskUrlFor] = useState<{ id: string; label: string } | null>(null);
+  const [testUrl, setTestUrl] = useState('');
+
+  /**
+   * Run the test and let the row speak for itself afterwards.
+   *
+   * The outcome is written on the credential server-side, so refreshing is
+   * what updates the badge — there is no second copy of the truth here to keep
+   * in step. The toast carries the sentence, because "refused" alone does not
+   * tell an operator whether to rotate the key or fix the URL.
+   */
+  async function runTest(id: string, url?: string) {
+    setRunningId(id);
+    try {
+      const result = await api.testCredential(id, url);
+      await refresh();
+      toast(result.detail, result.outcome === 'ok' ? 'good' : result.outcome === 'refused' ? 'critical' : 'warning');
+      setAskUrlFor(null);
+      setTestUrl('');
+    } catch (e) {
+      // The dialog stays open on a failure: the URL is probably what needs
+      // fixing, and closing it would make them type it again.
+      toast(e instanceof Error ? e.message : 'Could not test it', 'critical');
+    } finally {
+      setRunningId(null);
+    }
+  }
 
   async function save() {
     setBusy(true);
@@ -125,6 +160,28 @@ export function CredentialsCard() {
                   <Button
                     size="sm"
                     variant="ghost"
+                    icon={<PlugZap size={13} />}
+                    loading={runningId === cred.id}
+                    title="Send it somewhere and see what comes back"
+                    onClick={() => {
+                      // An MCP credential carries its own server, so it can be
+                      // tested straight away. Every other kind is a header
+                      // applied to whatever a node calls, so it needs a URL —
+                      // asking is honest; guessing an endpoint and blaming the
+                      // key for its answer would not be.
+                      if (cred.kind === 'mcp_server') {
+                        void runTest(cred.id);
+                        return;
+                      }
+                      setAskUrlFor({ id: cred.id, label: cred.label });
+                      setTestUrl('');
+                    }}
+                  >
+                    Test
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() => {
                       if (!confirm(`Delete “${cred.label}”? Any node using it will stop working.`)) return;
                       void api
@@ -142,6 +199,33 @@ export function CredentialsCard() {
           </div>
         )}
       </CardBody>
+
+      <Modal open={askUrlFor !== null} onClose={() => setAskUrlFor(null)} title={`Test “${askUrlFor?.label ?? ''}”`}>
+        <div className="space-y-3">
+          <p className="text-[12.5px] text-ink-secondary">
+            This kind of credential is a header sent to whatever a node calls, so there is nothing to try it against
+            on its own. Give an endpoint and it will be sent there once, and the answer reported. A 401 or 403 means
+            the credential was rejected; anything else means it was accepted.
+          </p>
+          <Field label="URL to try it on">
+            <Input
+              value={testUrl}
+              placeholder="https://api.example.com/v1/me"
+              onChange={(e) => setTestUrl(e.target.value)}
+            />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setAskUrlFor(null)}>Cancel</Button>
+            <Button
+              loading={runningId !== null}
+              disabled={!testUrl.trim()}
+              onClick={() => askUrlFor && void runTest(askUrlFor.id, testUrl.trim())}
+            >
+              Send it
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </Card>
   );
 }

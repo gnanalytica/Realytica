@@ -11,6 +11,7 @@ import { agentCapability, allDescriptors, resolveRoute } from '@realytica/agents
 import { graphAdapter } from '../graph';
 import { memoryReadableBy, memoryStore } from '../memory';
 import { noteCredentialUse, secretFor } from './credentials';
+import { OutboundRefused, assertReachable } from './outbound';
 
 /**
  * What each node kind actually does, once the engine has decided it should.
@@ -131,6 +132,17 @@ async function runHttp(input: NodeHandlerInput, ctx: HandlerContext): Promise<Pa
   const url = fillTemplate(c.url, input.payload);
   if (input.dryRun) return { status: 0, body: null, dryRun: true, url };
 
+  // Before anything is sent, and after the template has been filled — a URL
+  // assembled from the payload is exactly the one worth checking. See
+  // `./outbound.ts` for why a text field plus a stored credential is an SSRF
+  // primitive rather than merely a feature.
+  try {
+    await assertReachable(url);
+  } catch (err) {
+    if (err instanceof OutboundRefused) throw new NodeFailed(err.message);
+    throw err;
+  }
+
   const headers: Record<string, string> = { accept: 'application/json' };
   for (const [k, v] of Object.entries(c.headers ?? {})) headers[k] = fillTemplate(v, input.payload);
   Object.assign(headers, authHeaders(ctx.tenantId, c.credentialId));
@@ -167,6 +179,13 @@ async function runMcp(input: NodeHandlerInput, ctx: HandlerContext): Promise<Pay
   const url = c.url?.trim() || cred?.target;
   if (!url) throw new NodeFailed('This node has no MCP server to talk to.');
   if (input.dryRun) return { tool: c.tool, server: url, result: null, dryRun: true };
+
+  try {
+    await assertReachable(url);
+  } catch (err) {
+    if (err instanceof OutboundRefused) throw new NodeFailed(err.message);
+    throw err;
+  }
 
   const args: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(c.arguments ?? {})) args[k] = fillTemplate(v, input.payload);

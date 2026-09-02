@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { History, Maximize2, Play, Redo2, Save, Undo2 } from 'lucide-react';
 import {
   FLOW_NODE_GROUP_LABEL,
   FLOW_NODE_KINDS,
   FLOW_NODE_TYPES,
+  type Flow,
   type FlowNodeKind,
   type FlowRunRecord,
   type FlowRunSummary,
@@ -16,6 +17,7 @@ import { nextSpot } from './geometry';
 import { FlowCanvas } from './FlowCanvas';
 import { NodeInspector } from './NodeInspector';
 import { useFlowEditor } from './useFlowEditor';
+import { useFlowKeys } from './useFlowKeys';
 
 /**
  * The studio: palette, canvas, inspector, and what happened when it ran.
@@ -29,6 +31,14 @@ import { useFlowEditor } from './useFlowEditor';
  * toggle rather than a second button, because two adjacent buttons where one
  * costs money and the other does not is the arrangement people mis-click.
  */
+/**
+ * How long after the last change autosave fires.
+ *
+ * Long enough that a drag or a typed name is one save rather than forty, short
+ * enough that closing the tab a moment after a change does not lose it.
+ */
+const AUTOSAVE_DELAY_MS = 1200;
+
 export default function FlowStudio() {
   const { flowId } = useParams<{ flowId: string }>();
   const navigate = useNavigate();
@@ -56,11 +66,22 @@ export default function FlowStudio() {
   );
   const { replace } = editor;
 
+  /*
+   * The editor, readable from a stable callback.
+   *
+   * `save` must not be rebuilt on every node move, or the autosave effect
+   * would re-arm its timer on every frame of a drag and never fire. Reading
+   * the editor through a ref keeps the callback stable while still saving what
+   * is on screen rather than what was on screen when the callback was made.
+   */
+  const editorRef = useRef(editor);
+  editorRef.current = editor;
+
   useEffect(() => {
     if (loaded.data?.flow) replace(loaded.data.flow);
   }, [loaded.data?.flow, replace]);
 
-  const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [running, setRunning] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [projectId, setProjectId] = useState('');
@@ -105,24 +126,95 @@ export default function FlowStudio() {
   const errors = editor.problems.filter((p) => p.severity === 'error');
   const selectedNode = editor.flow.nodes.find((n) => n.id === editor.selected) ?? null;
 
-  async function save() {
-    setSaving(true);
-    try {
-      const next = await api.saveFlow(editor.flow.id, {
-        name: editor.flow.name,
-        description: editor.flow.description,
-        nodes: editor.flow.nodes,
-        edges: editor.flow.edges,
-        enabled: editor.flow.enabled,
-      });
-      editor.markSaved(next.flow);
-      toast('Saved', 'good');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not save', 'critical');
-    } finally {
-      setSaving(false);
-    }
-  }
+  /*
+   * Editing something that is already running on its own.
+   *
+   * Worth saying out loud now that changes are kept automatically: an operator
+   * who used to have to press Save had a moment to decide, and autosave takes
+   * that moment away. A half-drawn flow cannot fire — every trigger is gated
+   * on the flow being valid — but a *valid intermediate* one can, and being
+   * told beats finding out from the run history.
+   */
+  const triggerNode = editor.flow.nodes.find((n) => n.kind === 'trigger');
+  const startsItself =
+    editor.flow.enabled && triggerNode?.config.kind === 'trigger' && triggerNode.config.on !== 'manual';
+
+  /*
+   * One save path for both the button and the debounce.
+   *
+   * `inFlight` rather than the `saveState` used for rendering: state updates
+   * are async, so two changes a frame apart would both see 'idle' and fire two
+   * PUTs at the same flow. A ref is read synchronously, which is the property
+   * the guard needs.
+   */
+  const inFlight = useRef(false);
+  /** The exact flow a save last failed on. See the retry rule in the effect. */
+  const lastFailed = useRef<Flow | null>(null);
+  const save = useCallback(
+    async (mode: 'manual' | 'auto' = 'manual') => {
+      if (inFlight.current) return;
+      const snapshot = editorRef.current.flow;
+      inFlight.current = true;
+      setSaveState('saving');
+      try {
+        const next = await api.saveFlow(snapshot.id, {
+          name: snapshot.name,
+          description: snapshot.description,
+          nodes: snapshot.nodes,
+          edges: snapshot.edges,
+          enabled: snapshot.enabled,
+        });
+        editorRef.current.markSaved(next.flow);
+        setSaveState('saved');
+        // The button is a deliberate act and deserves an answer. Autosave is
+        // not: a toast every few seconds while somebody drags nodes around is
+        // an interruption, and the "Saved" badge already says it.
+        if (mode === 'manual') toast('Saved', 'good');
+      } catch (e) {
+        setSaveState('error');
+        // Remember exactly what failed, so the retry rule below can tell "the
+        // server is down" from "they changed something, try again".
+        lastFailed.current = snapshot;
+        // Reported once wherever it came from. An autosave that failed silently
+        // would be worse than no autosave — the operator would believe their
+        // work was kept.
+        toast(e instanceof Error ? e.message : 'Could not save', 'critical');
+      } finally {
+        inFlight.current = false;
+      }
+    },
+    [toast],
+  );
+
+  /*
+   * Autosave.
+   *
+   * The editor computed `dirty` and badged "Unsaved", and then navigating away
+   * discarded the work without a word. A guard dialog would have been the
+   * smaller change and the worse one: it asks the operator to do the
+   * remembering, every time, for something the app can simply do.
+   *
+   * Debounced rather than per keystroke, so dragging a node writes one flow
+   * rather than forty. It deliberately does *not* wait for the flow to be
+   * valid: a half-drawn flow is exactly the state worth keeping, and a broken
+   * one cannot be fired by anything — `flowCanRun` gates every trigger.
+   */
+  useEffect(() => {
+    if (!editor.dirty || saveState === 'saving') return;
+    /*
+     * Never retry the same failure on a timer.
+     *
+     * Without this the loop is: save fails, state becomes 'error', the effect
+     * re-runs because the state changed, and a server that is down gets a PUT
+     * every 1.2 seconds until the tab is closed. The next *change* is a new
+     * fact and deserves a new attempt; the same bytes failing again do not.
+     * Reference equality is exact here because every edit produces a new flow
+     * object.
+     */
+    if (lastFailed.current === editor.flow) return;
+    const timer = setTimeout(() => void save('auto'), AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [editor.dirty, editor.flow, saveState, save]);
 
   async function run() {
     if (!projectId) {
@@ -144,6 +236,26 @@ export default function FlowStudio() {
       setRunning(false);
     }
   }
+
+  const isProtected = useCallback(
+    // A flow cannot exist without its trigger, so Delete on it is a no-op
+    // rather than a refusal the person has to read.
+    (nodeId: string) => editorRef.current.flow.nodes.find((n) => n.id === nodeId)?.kind === 'trigger',
+    [],
+  );
+
+  useFlowKeys({
+    undo: editor.undo,
+    redo: editor.redo,
+    canUndo: editor.canUndo,
+    canRedo: editor.canRedo,
+    selected: editor.selected,
+    onDelete: editor.removeNode,
+    onDuplicate: editor.duplicateNode,
+    onDeselect: () => editor.select(null),
+    onSave: () => void save('manual'),
+    isProtected,
+  });
 
   /** Open a past run in the trace panel — the same view a fresh run lands in. */
   async function openRun(runId: string) {
@@ -172,7 +284,7 @@ export default function FlowStudio() {
           onChange={(e) => editor.rename(e.target.value)}
         />
         <Toggle checked={editor.flow.enabled} onChange={editor.setEnabled} label="Enabled" />
-        {editor.dirty ? <Badge tone="warning">Unsaved</Badge> : null}
+        <SaveStatus dirty={editor.dirty} state={saveState} />
         {errors.length > 0 ? <Badge tone="critical">{errors.length} to fix</Badge> : null}
 
         <div className="flex-grow" />
@@ -198,8 +310,24 @@ export default function FlowStudio() {
         >
           {dryRun ? 'Rehearse' : 'Run for real'}
         </Button>
-        <Button size="sm" icon={<Save size={13} />} loading={saving} disabled={!editor.dirty} onClick={() => void save()}>Save</Button>
+        <Button
+          size="sm"
+          icon={<Save size={13} />}
+          loading={saveState === 'saving'}
+          disabled={!editor.dirty}
+          title="Saves now. Changes are kept automatically a moment after you stop."
+          onClick={() => void save('manual')}
+        >
+          Save
+        </Button>
       </div>
+
+      {startsItself ? (
+        <Callout tone="warning" title="This flow is live" collapsible>
+          It is switched on and starts itself, and your changes are kept automatically — so the next time it fires,
+          it fires as it stands here. Turn “Enabled” off while you rework it if that is not what you want.
+        </Callout>
+      ) : null}
 
       <div className="flex min-h-0 flex-1 gap-2">
         <Palette onAdd={(kind) => editor.addNode(kind, nextSpot(editor.flow, editor.selected))} />
@@ -269,6 +397,21 @@ export default function FlowStudio() {
       </div>
     </div>
   );
+}
+
+/**
+ * Where the work stands, in one badge.
+ *
+ * Four states rather than a spinner, because the question a person has while
+ * editing is not "is a request in flight" but "can I close this tab". Only
+ * `error` is loud: it is the one case where the answer is no.
+ */
+function SaveStatus({ dirty, state }: { dirty: boolean; state: 'idle' | 'saving' | 'saved' | 'error' }) {
+  if (state === 'error') return <Badge tone="critical">Not saved</Badge>;
+  if (state === 'saving') return <Badge tone="neutral">Saving…</Badge>;
+  if (dirty) return <Badge tone="neutral">Unsaved</Badge>;
+  if (state === 'saved') return <Badge tone="good">Saved</Badge>;
+  return null;
 }
 
 function Palette({ onAdd }: { onAdd: (kind: FlowNodeKind) => void }) {

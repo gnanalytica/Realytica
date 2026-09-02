@@ -533,6 +533,12 @@ export const api = {
 
   deleteCredential: (id: string) => request<void>(`/flows/credentials/${id}`, { method: 'DELETE' }),
 
+  testCredential: (id: string, url?: string) =>
+    request<{ outcome: 'ok' | 'refused' | 'unreachable'; detail: string; status?: number }>(
+      `/flows/credentials/${id}/test`,
+      { method: 'POST', body: JSON.stringify({ url }) },
+    ),
+
   assign: (projectId: string, targetId: string, owner: string) =>
     request<{ assigned: { id: string; owner: string; title: string }; project: DdProject }>(
       `/projects/${projectId}/assign`,
