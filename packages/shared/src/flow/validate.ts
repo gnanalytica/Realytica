@@ -80,40 +80,63 @@ export function findCycle(flow: Flow): string[] | null {
   return null;
 }
 
+/**
+ * Read a field that the type says is there and the data may not have.
+ *
+ * The API stores node configs as a loose record — the shape varies by kind and
+ * a schema per kind would be twelve schemas that drift from the twelve types —
+ * so a hand-written or out-of-date request can put a config here missing a
+ * field TypeScript promised. Reaching straight for `c.set.length` then throws,
+ * and because `flowCanRun` is called on every flow in the list route, one such
+ * flow would 500 the whole screen for everybody, permanently, with no way to
+ * open the flow to fix it.
+ *
+ * So validation refuses to trust its own input. Anything absent is reported as
+ * a problem, which is exactly what validation is for.
+ */
+function list<T>(value: readonly T[] | undefined): readonly T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function text(value: string | undefined): string {
+  return typeof value === 'string' ? value : '';
+}
+
 function configProblems(node: FlowNode): FlowProblem[] {
   const at = (severity: FlowProblem['severity'], message: string): FlowProblem => ({ severity, nodeId: node.id, message });
   const c = node.config;
+  if (!c || typeof c !== 'object') return [at('error', 'This node has no configuration at all. Delete it and add it again.')];
 
   switch (c.kind) {
     case 'agent':
       if (c.retries !== undefined && c.retries > 5) return [at('warning', 'More than five retries on a model call is a bill, not a recovery.')];
       return [];
     case 'retrieve':
-      return c.query.trim() ? [] : [at('error', 'This has nothing to look up.')];
+      return text(c.query).trim() ? [] : [at('error', 'This has nothing to look up.')];
     case 'connector':
-      return c.sourceId.trim() ? [] : [at('error', 'No source chosen.')];
+      return text(c.sourceId).trim() ? [] : [at('error', 'No source chosen.')];
     case 'mcp':
-      if (!c.tool.trim()) return [at('error', 'No tool named.')];
-      if (!c.url?.trim() && !c.credentialId) return [at('error', 'No server: give it a URL or a stored MCP credential.')];
+      if (!text(c.tool).trim()) return [at('error', 'No tool named.')];
+      if (!text(c.url).trim() && !c.credentialId) return [at('error', 'No server: give it a URL or a stored MCP credential.')];
       return [];
     case 'http':
-      if (!c.url.trim()) return [at('error', 'No URL.')];
+      if (!text(c.url).trim()) return [at('error', 'No URL.')];
       return /^https:\/\//i.test(c.url) || c.url.includes('{{')
         ? []
         : [at('warning', 'Not https. Anything sent here, including a credential, travels in the clear.')];
     case 'filter':
-      return c.where.conditions.length > 0 ? [] : [at('error', 'A filter with no test lets everything through.')];
+      return list(c.where?.conditions).length > 0 ? [] : [at('error', 'A filter with no test lets everything through.')];
     case 'branch':
-      if (c.cases.length === 0) return [at('error', 'A branch with no cases only ever takes the default way out.')];
-      return c.cases.some((k) => k.where.conditions.length === 0)
+      if (list(c.cases).length === 0) return [at('error', 'A branch with no cases only ever takes the default way out.')];
+      return list(c.cases).some((k) => list(k.where?.conditions).length === 0)
         ? [at('warning', 'A case with no test always matches, so nothing after it can be reached.')]
         : [];
     case 'loop':
-      return c.over.trim() ? [] : [at('error', 'No collection to loop over.')];
+      return text(c.over).trim() ? [] : [at('error', 'No collection to loop over.')];
     case 'transform':
-      return c.set.length > 0 || (c.drop?.length ?? 0) > 0 ? [] : [at('warning', 'This changes nothing.')];
+      return list(c.set).length > 0 || list(c.drop).length > 0 ? [] : [at('warning', 'This changes nothing.')];
     case 'output':
-      return c.title.trim() ? [] : [at('error', 'A draft with no title is a card nobody can triage.')];
+      return text(c.title).trim() ? [] : [at('error', 'A draft with no title is a card nobody can triage.')];
     default:
       return [];
   }
@@ -128,6 +151,33 @@ export function validateFlow(flow: Flow): FlowProblem[] {
   if (triggers.length > 1) {
     for (const extra of triggers.slice(1)) {
       problems.push({ severity: 'error', nodeId: extra.id, message: 'A flow starts in one place. Remove the other trigger.' });
+    }
+  }
+
+  /*
+   * A schedule that cannot fire.
+   *
+   * Errors rather than warnings: an operator who has drawn a timer, switched
+   * the flow on and gone home is entitled to assume it runs. A half-configured
+   * schedule that sat silently would be the exact failure this whole trigger
+   * runner was built to end.
+   */
+  const scheduled = triggers[0];
+  if (scheduled?.config.kind === 'trigger' && scheduled.config.on === 'schedule') {
+    const { everyMinutes, scope, projectId } = scheduled.config;
+    if (!everyMinutes || everyMinutes <= 0) {
+      problems.push({
+        severity: 'error',
+        nodeId: scheduled.id,
+        message: 'A timer with no interval never fires. Say how many minutes between runs.',
+      });
+    }
+    if (scope === 'named' && !projectId) {
+      problems.push({
+        severity: 'error',
+        nodeId: scheduled.id,
+        message: 'This timer runs against one named project, and none is named.',
+      });
     }
   }
 

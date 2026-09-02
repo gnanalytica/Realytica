@@ -1,5 +1,6 @@
 import { app, initApp } from './app';
 import { store } from './store';
+import { startScheduler, stopScheduler } from './flows/triggers';
 
 /**
  * Local-server entry point: awaits app initialisation, then listens on a
@@ -14,12 +15,25 @@ const PORT = Number(process.env.PORT) || 5174;
 async function main(): Promise<void> {
   await initApp();
 
+  /*
+   * The schedule clock, started here and only here.
+   *
+   * A `setInterval` inside a serverless function that is frozen between
+   * requests does not fire, so the Vercel entry deliberately does not start
+   * one — a schedule that ran only when somebody happened to be using the app
+   * would be worse than no schedule, because it would look like it worked.
+   * That deployment drives `POST /api/flows/tick` from a platform cron
+   * instead, which runs exactly this code.
+   */
+  startScheduler();
+
   const server = app.listen(PORT, () => {
     console.log(`[realytica-api] listening on port ${PORT} (${store.data.projects?.length ?? 0} project(s) loaded)`);
   });
 
   function shutdown(signal: string): void {
     console.log(`[realytica-api] received ${signal}, flushing store and shutting down`);
+    stopScheduler();
     store
       .flush()
       .catch((err: unknown) => {

@@ -228,6 +228,7 @@ export default function FlowStudio() {
               node={selectedNode}
               catalogue={catalogue}
               problems={editor.problems}
+              projects={projects.data ?? []}
               onChange={(patch) => editor.updateNode(selectedNode.id, patch)}
               onDelete={() => editor.removeNode(selectedNode.id)}
               onDuplicate={() => editor.duplicateNode(selectedNode.id)}

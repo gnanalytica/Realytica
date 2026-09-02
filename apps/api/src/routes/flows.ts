@@ -26,6 +26,7 @@ import {
 } from '../flows/credentials';
 import { CredentialKeyMissing } from '../flows/secret-box';
 import { forgetRuns, latestRunPerFlow, recordRun, runFor, runsFor } from '../flows/runs';
+import { tickSchedules } from '../flows/triggers';
 
 /**
  * The agentic framework as an editable thing.
@@ -296,6 +297,23 @@ flowsRouter.post('/:flowId/run', needs('write'), async (req, res) => {
     trigger: 'manual',
   });
   res.json(record);
+});
+
+/**
+ * One pass of the schedule clock, on demand.
+ *
+ * Exists for the deployment that has no long-running process to hold an
+ * interval — a platform cron hits this once a minute and the schedules behave
+ * exactly as they do on a server, because it is the same function. It is also
+ * how an operator answers "is the clock working" without waiting for it.
+ *
+ * Behind `admin` and scoped to nothing: a tick considers every workspace,
+ * because the clock is not anybody's. It cannot start a flow that is off, is
+ * broken, or is not due — so the worst a caller can do by hammering it is
+ * nothing at all.
+ */
+flowsRouter.post('/tick', needs('admin'), async (_req, res) => {
+  res.json(await tickSchedules());
 });
 
 /* ==================================================================== */

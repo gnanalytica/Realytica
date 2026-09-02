@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
 import { needs, principalOf } from '../auth/middleware';
+import { fireAndForget } from '../flows/triggers';
 import {
   gateWrites,
   redactResponses,
@@ -400,6 +401,10 @@ projectsRouter.post('/', async (req, res) => {
   projects().push(project);
   await rememberProject(project);
   await store.save();
+  // After the save, so a flow that reads the project finds it on the file.
+  // Fired and forgotten: a drawn automation must never be able to fail the
+  // creation of a real project.
+  fireAndForget('project_created', { tenantId: me.tenantId, project, actor: actorOf(req) });
   res.status(201).json(project);
 });
 
@@ -1438,6 +1443,12 @@ projectsRouter.post('/:projectId/assessments', async (req, res) => {
   try {
     const assessment = createAssessment(project, parsed.data, actorOf(req));
     await persistPaneWrite(req, project, `Started “${assessment.name}”.`, { citedNodeIds: [assessment.id] });
+    fireAndForget('assessment_started', {
+      tenantId: principalOf(req).tenantId,
+      project,
+      actor: actorOf(req),
+      detail: { assessmentId: assessment.id, assessmentName: assessment.name },
+    });
     res.status(201).json(assessment);
   } catch (err) {
     fail(res, err);
@@ -1729,6 +1740,12 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
     await persistPaneWrite(req, project, `Attached ${attached.length} file(s) to evidence.`, {
       citedEvidenceIds: [req.params.evidenceId],
     });
+    fireAndForget('evidence_uploaded', {
+      tenantId: principalOf(req).tenantId,
+      project,
+      actor: actorOf(req),
+      detail: { evidenceIds: [req.params.evidenceId], fileCount: attached.length },
+    });
     res.status(201).json(attached);
   } catch (err) {
     fail(res, err);
@@ -1822,6 +1839,12 @@ projectsRouter.post('/:projectId/evidence/files', evidenceUpload.array('files', 
       `Filed ${attached.length} document(s) against ${rows} evidence row(s).`,
       { citedEvidenceIds: [...new Set(ids)] },
     );
+    fireAndForget('evidence_uploaded', {
+      tenantId: principalOf(req).tenantId,
+      project,
+      actor: actorOf(req),
+      detail: { evidenceIds: [...new Set(ids)], fileCount: attached.length },
+    });
     res.status(201).json(attached);
   } catch (err) {
     fail(res, err);

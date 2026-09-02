@@ -4,8 +4,10 @@ import {
   type FlowNode,
   type FlowNodeConfig,
   type FlowProblem,
+  type ProjectSummary,
 } from '@realytica/shared';
 import { Badge, Button, Callout, Field, Input, Select, Textarea, Toggle } from '../../components/ui/kit';
+
 import type { FlowCatalogue } from '../../lib/api';
 import { ConditionEditor } from './Conditions';
 
@@ -25,6 +27,7 @@ export function NodeInspector({
   node,
   catalogue,
   problems,
+  projects,
   onChange,
   onDelete,
   onDuplicate,
@@ -32,6 +35,8 @@ export function NodeInspector({
   node: FlowNode;
   catalogue: FlowCatalogue | null;
   problems: FlowProblem[];
+  /** For a schedule pointed at one named project. Nothing else needs them. */
+  projects: ProjectSummary[];
   onChange: (patch: Partial<FlowNode>) => void;
   onDelete: () => void;
   onDuplicate: () => void;
@@ -72,7 +77,7 @@ export function NodeInspector({
         </div>
       )}
 
-      <Body node={node} catalogue={catalogue} setConfig={setConfig} />
+      <Body node={node} catalogue={catalogue} projects={projects} setConfig={setConfig} />
 
       <Field label="Note" hint="For whoever reads this next.">
         <Textarea rows={2} value={node.note ?? ''} onChange={(e) => onChange({ note: e.target.value })} />
@@ -84,24 +89,72 @@ export function NodeInspector({
 function Body({
   node,
   catalogue,
+  projects,
   setConfig,
 }: {
   node: FlowNode;
   catalogue: FlowCatalogue | null;
+  projects: ProjectSummary[];
   setConfig: (patch: Record<string, unknown>) => void;
 }) {
   const c = node.config;
 
   if (c.kind === 'trigger') {
     return (
-      <Field label="Starts when">
-        <Select value={c.on} onChange={(e) => setConfig({ on: e.target.value })}>
-          <option value="manual">Somebody runs it</option>
-          <option value="project_created">A project is created</option>
-          <option value="evidence_uploaded">A document is uploaded</option>
-          <option value="assessment_started">An assessment is started</option>
-        </Select>
-      </Field>
+      <>
+        <Field label="Starts when">
+          <Select value={c.on} onChange={(e) => setConfig({ on: e.target.value })}>
+            <option value="manual">Somebody runs it</option>
+            <option value="project_created">A project is created</option>
+            <option value="evidence_uploaded">A document is uploaded</option>
+            <option value="assessment_started">An assessment is started</option>
+            <option value="schedule">On a timer</option>
+          </Select>
+        </Field>
+
+        {c.on === 'manual' ? null : (
+          <Callout tone="warning" title="This will run on its own">
+            Anything but “somebody runs it” fires for real — models are called and connectors are reached. It still
+            only ever proposes: a person accepts a draft before it reaches a register. Switch the flow on with the
+            toggle at the top for any of this to happen.
+          </Callout>
+        )}
+
+        {c.on === 'schedule' ? (
+          <>
+            <Field label="Every" hint="Minutes between runs. The clock is checked once a minute, so anything under that runs every minute.">
+              <Input
+                type="number"
+                min={1}
+                value={c.everyMinutes ?? ''}
+                placeholder="e.g. 1440 for daily"
+                onChange={(e) => setConfig({ everyMinutes: e.target.value ? Number(e.target.value) : undefined })}
+              />
+            </Field>
+            <Field label="Against" hint="A clock knows nothing about projects, so a timer has to be told which.">
+              <Select
+                value={c.scope ?? 'open'}
+                onChange={(e) => setConfig({ scope: e.target.value, ...(e.target.value === 'open' ? { projectId: undefined } : {}) })}
+              >
+                <option value="open">Every project that is not closed</option>
+                <option value="named">One project</option>
+              </Select>
+            </Field>
+            {c.scope === 'named' ? (
+              <Field label="Project">
+                <Select value={c.projectId ?? ''} onChange={(e) => setConfig({ projectId: e.target.value || undefined })}>
+                  <option value="">Choose a project…</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.reference} · {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+          </>
+        ) : null}
+      </>
     );
   }
 

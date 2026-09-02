@@ -270,7 +270,32 @@ export interface TriggerNodeConfig {
   on: TriggerOn;
   /** For `schedule`: a plain interval in minutes rather than cron, because cron is a second language. */
   everyMinutes?: number;
+  /**
+   * For `schedule` only: which projects a tick covers.
+   *
+   * Every other trigger arrives *because of* a project — something happened to
+   * one — so the run has an obvious subject. A schedule does not: the clock
+   * knows nothing about projects, and a flow whose handlers all take a project
+   * has to be told which. `open` is the default because a due-diligence flow
+   * on a timer almost always means "the ones we are working on", and running
+   * against a closed project would be spending money re-deciding something
+   * that was signed off.
+   */
+  scope?: 'open' | 'named';
+  /** For `scope: 'named'`: the one project this schedule is about. */
+  projectId?: string;
 }
+
+/**
+ * The most projects one scheduled tick will fan out to.
+ *
+ * A workspace with four hundred open projects and a five-minute schedule
+ * would otherwise be a bill nobody agreed to. Hitting this is reported on the
+ * run rather than silently truncated — a schedule that quietly covers a third
+ * of what an operator believes it covers is worse than one that says it is
+ * over its limit.
+ */
+export const MAX_SCHEDULED_PROJECTS = 25;
 
 export type FlowNodeConfig =
   | ({ kind: 'trigger' } & TriggerNodeConfig)
