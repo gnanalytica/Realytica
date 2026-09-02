@@ -173,19 +173,18 @@ export function FlowCanvas({
     setTransform((t) => zoomAbout(t, pointOf(e), e.deltaY < 0 ? 1.08 : 1 / 1.08));
   };
 
-  /** Delete and backspace remove the selected node, the way every canvas does. */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const editing = document.activeElement;
-      if (editing && ['INPUT', 'TEXTAREA', 'SELECT'].includes(editing.tagName)) return;
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
-        e.preventDefault();
-        onDelete(selected);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selected, onDelete]);
+  /*
+   * The keyboard lives in `useFlowKeys`, not here.
+   *
+   * This component used to carry its own Delete/Backspace listener. When the
+   * studio gained a full set of shortcuts there were briefly two listeners on
+   * `window`, and the older one won the trigger: it had no notion of a node
+   * that must not be deleted, so Delete on the trigger removed the one node a
+   * flow cannot exist without — and the studio's own guard never got a say.
+   *
+   * One owner. `onDelete` stays a prop because the canvas still deletes from
+   * the node's own control, which is a click rather than a key.
+   */
 
   const wireTip =
     dragging.kind === 'wire'

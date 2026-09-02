@@ -167,6 +167,15 @@ export default function MyWork() {
                     {WORK_KIND_LABEL[item.kind]}
                     {item.dueDate ? ` · due ${dueOn(item.dueDate)}` : ''}
                   </p>
+                  {/* The row's own sentence — an action's description, or how
+                      much of a container is left. Carried on every work item
+                      since this screen was built and never once drawn, which
+                      made "7 scopes still open" a fact computed and thrown
+                      away. One line, clamped: enough to triage without
+                      opening it, never enough to push the next row off. */}
+                  {item.detail ? (
+                    <p className="mt-0.5 line-clamp-1 text-[12px] text-ink-secondary">{item.detail}</p>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {item.overdue ? <Badge tone="critical">Late</Badge> : null}
