@@ -351,6 +351,10 @@ export class MemoryLedger {
       // purpose: a fact this very case taught us is not an *omission* the reader
       // needs to see, it is simply out of scope for cross-case recall.
       if (excludedCases && excludedCases.has(f.sourceCaseId)) continue;
+      // Another workspace's knowledge is out of scope for the same reason and
+      // in the same place: it is not an omission this reader needs counted,
+      // it is not theirs to be told about at all.
+      if (q.tenants && !q.tenants.includes(f.tenantId ?? null)) continue;
       // Knowledge time: not yet asserted at `asOf` means it does not exist yet.
       if (timeOf(f.assertedAt, 0) > asOfMs) continue;
       if (f.confidence < minConfidence) continue;

@@ -153,6 +153,18 @@ export interface MemoryQuery {
   predicates?: string[];
   /** Facts from these cases are skipped entirely — see `recallForCase`. */
   excludeCaseIds?: string[];
+  /**
+   * Which workspaces' facts may be recalled.
+   *
+   * `null` in the list means facts with no workspace on them — everything
+   * learned before the field existed. A value rather than a flag, because who
+   * those belong to is the caller's call and there is no answer this layer
+   * could pick that is right on both a single-firm install and a shared one.
+   *
+   * Absent means no constraint. That is what a migration or a test wants, and
+   * what no recall on behalf of a signed-in person should ever be.
+   */
+  tenants?: readonly (string | null)[];
   /** Knowledge time. Defaults to `now`. */
   asOf?: string;
   /** World time. Defaults to `asOf`, which defaults to `now`. */

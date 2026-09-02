@@ -36,3 +36,18 @@ const persistence: MemoryPersistence = {
  * other's facts.
  */
 export const memoryStore = new PersistedMemoryStore(persistence);
+
+/**
+ * Which workspaces' facts a project's recall may reach.
+ *
+ * Its own, and — when its workspace is the first on the deployment — the facts
+ * that carry none, which is everything learned before the field existed. The
+ * same rule `accessTo` applies to a project written before tenancy: on a
+ * single-workspace install those facts are plainly theirs, and on a shared one
+ * they are plainly not everyone's.
+ */
+export function memoryReadableBy(tenantId: string | undefined): (string | null)[] {
+  const bootstrap = store.data.tenants?.[0]?.id;
+  if (!tenantId) return [null];
+  return tenantId === bootstrap ? [tenantId, null] : [tenantId];
+}

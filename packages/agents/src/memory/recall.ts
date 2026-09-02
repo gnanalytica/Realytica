@@ -153,6 +153,15 @@ export interface RecallOptions {
    * itself looks like corroboration and is not.
    */
   includeOwnCase?: boolean;
+  /**
+   * Which workspaces' facts this recall may reach.
+   *
+   * Defaults to the one that owns the project, which is the safe answer and
+   * the one a caller who has not thought about it should get. An app that
+   * knows more — that a fact with no workspace on it predates tenancy and
+   * belongs to the first workspace, say — passes the list itself.
+   */
+  tenants?: readonly (string | null)[];
   /** Extra subject keys to consult — a locality the user asked about, say. */
   extraSubjects?: string[];
   maxSubjectsPerKind?: number;

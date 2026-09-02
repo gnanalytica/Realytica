@@ -3326,6 +3326,19 @@ export interface MemoryFact {
   validTo?: string;
   /** Knowledge time. */
   assertedAt: string;
+  /**
+   * The workspace that learned this.
+   *
+   * Memory is cross-project on purpose — that is the whole feature — and
+   * cross-*workspace* by accident, which is a different thing entirely: a rate
+   * one firm observed on its own site, recalled into another firm's prompt.
+   * `sourceCaseId` names the project but not who owns it, so it cannot answer
+   * this.
+   *
+   * Absent on a fact learned before this existed. Those are treated as the
+   * first workspace's, the same rule a project written before tenancy gets.
+   */
+  tenantId?: string;
   sourceCaseId: string;
   sourceRef?: string;
   confidence: number;

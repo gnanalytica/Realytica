@@ -136,7 +136,7 @@ import { readExifCapture } from '../exif';
  * decision they take with the first bill in front of them.
  */
 const PHOTO_READ_CAP = 12;
-import { memoryStore } from '../memory';
+import { memoryReadableBy, memoryStore } from '../memory';
 import { gatherChatSides } from '../project-chat-sides';
 import { ensureIdentitySiteContext } from '../site-context';
 import { beginRun, listRuns } from '../runs/journal';
@@ -976,7 +976,10 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     try {
       let memoryText = '';
       try {
-        const recall = await recallForProject(memoryStore, canvas, { now: new Date().toISOString() });
+        const recall = await recallForProject(memoryStore, canvas, {
+          now: new Date().toISOString(),
+          tenants: memoryReadableBy(project.tenantId),
+        });
         memoryText = renderMemoryForPrompt(recall);
       } catch {
         memoryText = '';

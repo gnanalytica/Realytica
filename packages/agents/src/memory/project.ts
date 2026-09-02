@@ -42,6 +42,11 @@ export async function recallForProject(
   }
   const result = await store.query({
     subjects: consultedSubjects,
+    // Deny by default rather than "everything unless told otherwise": an
+    // omitted `tenants` on this path would be the whole leak back again, and
+    // the failure would be invisible — a prompt with one extra locality
+    // observation in it looks exactly like a prompt without one.
+    tenants: opts.tenants ?? [project.tenantId ?? null],
     now: opts.now,
     asOf: opts.asOf,
     validAt: opts.validAt,
@@ -177,9 +182,14 @@ export function extractFactsFromProject(project: DdProject, opts: { now: string 
     confidence: 0.4,
   });
 
+  // The workspace is stamped here rather than on each draft: one place, so a
+  // draft added later cannot be the one that goes out unattributed and ends up
+  // recalled into somebody else's prompt. It is not part of the identity tuple
+  // — `sourceCaseId` already separates two workspaces' facts, because a project
+  // belongs to exactly one of them.
   const facts: MemoryFact[] = drafts.map((d) => {
     const confidence = round2(clamp01(d.confidence));
-    const base = { ...d, confidence };
+    const base = { ...d, confidence, ...(project.tenantId ? { tenantId: project.tenantId } : {}) };
     return { ...base, id: memoryFactId({ ...base, scope: d.scope }) };
   });
   const seen = new Set<string>();
