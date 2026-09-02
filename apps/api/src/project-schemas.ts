@@ -158,6 +158,13 @@ export const createEvidenceBodySchema = z.object({
   actor: actorSchema,
 });
 
+/** One status onto many rows, so a batch is one event rather than twenty. */
+export const bulkEvidenceStatusBodySchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(200),
+  status: evidenceStatusSchema,
+  actor: z.string().optional(),
+});
+
 export const patchEvidenceBodySchema = z.object({
   status: evidenceStatusSchema,
   rejectionReason: z.string().max(2000).optional(),

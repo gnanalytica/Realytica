@@ -47,6 +47,7 @@ import type {
   Asset,
   DdAssessment,
   CheckInstance,
+  EvidenceStatus,
   EvidenceRecord,
   CaptureConcern,
   CaptureFactsInput,
@@ -995,6 +996,12 @@ export const api = {
     request<{ run: OrchestratorRun; drafts: AiDraft[]; project: DdProject }>(`/projects/${projectId}/orchestrate`, {
       method: 'POST',
       body: JSON.stringify({ actor }),
+    }),
+  /** One status onto many rows, in one request and one line in the thread. */
+  setEvidenceStatusBulk: (projectId: string, ids: string[], status: EvidenceStatus) =>
+    request<{ updated: number; project: DdProject }>(`/projects/${projectId}/evidence/status`, {
+      method: 'POST',
+      body: JSON.stringify({ ids, status }),
     }),
   uploadEvidenceFiles: (projectId: string, evidenceId: string, files: File[]) => {
     const form = new FormData();

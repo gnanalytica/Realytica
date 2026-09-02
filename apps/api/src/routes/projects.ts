@@ -157,6 +157,7 @@ import {
   moveReportBlockBodySchema,
   retuneReportBlockBodySchema,
   linkFindingBodySchema,
+  bulkEvidenceStatusBodySchema,
   patchEvidenceBodySchema,
   patchProjectBodySchema,
   patchStatusBodySchema,
@@ -1354,6 +1355,48 @@ projectsRouter.patch('/:projectId/evidence/:evidenceId', async (req, res) => {
       citedEvidenceIds: [record.id],
     });
     res.json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * The same status onto a set of rows.
+ *
+ * The single-row route writes a thread turn each time, which is right for one
+ * row and wrong for twenty: marking a batch received used to leave twenty
+ * near-identical lines in the conversation and bury whatever was said before
+ * it. Every id is checked before anything is written, so a stale id in the
+ * middle of a set cannot leave the first half applied.
+ */
+projectsRouter.post('/:projectId/evidence/status', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = bulkEvidenceStatusBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const ids = [...new Set(parsed.data.ids)];
+  const unknown = ids.find((id) => !project.evidence.some((e) => e.id === id));
+  if (unknown) {
+    res.status(404).json({ error: `Evidence not found on this project: ${unknown}` });
+    return;
+  }
+  try {
+    const actor = actorOf(parsed.data);
+    for (const id of ids) {
+      updateEvidenceStatus(project, id, parsed.data.status, {}, actor);
+    }
+    await persistPaneWrite(
+      project,
+      `Set ${ids.length} evidence row(s) to ${parsed.data.status}.`,
+      { citedEvidenceIds: ids },
+    );
+    res.json({ updated: ids.length, project });
   } catch (err) {
     fail(res, err);
   }

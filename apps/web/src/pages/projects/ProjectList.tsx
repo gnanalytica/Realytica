@@ -8,15 +8,19 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
-import { Badge, Button, Callout, Card, CardBody, EmptyState, Skeleton, StatTile, useToast } from '../../components/ui/kit';
+import { Badge, Button, Callout, Card, CardBody, EmptyState, Input, Skeleton, StatTile, useToast } from '../../components/ui/kit';
 import { healthTone } from './shared';
 import { useState } from 'react';
+
+/** Below this many projects the eye is faster than a search box. */
+const SEARCH_FROM = 6;
 
 export default function ProjectList() {
   const navigate = useNavigate();
   const toast = useToast();
   const { data, error, loading, refresh } = useAsync(() => api.listProjects(), []);
   const [seeding, setSeeding] = useState(false);
+  const [query, setQuery] = useState('');
 
   async function seed() {
     setSeeding(true);
@@ -31,10 +35,24 @@ export default function ProjectList() {
     }
   }
 
-  const list = data ?? [];
-  const active = list.filter((p) => p.status === 'active').length;
-  const red = list.filter((p) => p.health === 'red').length;
-  const overdue = list.reduce((n, p) => n + p.overdueActions, 0);
+  // Fine at two projects; a firm with forty needs to type a name. Reference
+  // and city are in the haystack because "RYT-0021" and "Whitefield" are both
+  // things people say out loud about a file.
+  const all = data ?? [];
+  const needle = query.trim().toLowerCase();
+  const list = needle
+    ? all.filter((p) =>
+        [p.name, p.reference, p.city, p.location, p.portfolio ?? '']
+          .join(' ')
+          .toLowerCase()
+          .includes(needle),
+      )
+    : all;
+  // Tiles count the portfolio, not the filtered view — a search should not
+  // make the number of at-risk projects appear to fall.
+  const active = all.filter((p) => p.status === 'active').length;
+  const red = all.filter((p) => p.health === 'red').length;
+  const overdue = all.reduce((n, p) => n + p.overdueActions, 0);
   const grouped = new Map<string, typeof list>();
   for (const p of list) {
     const key = p.portfolio?.trim() || 'Ungrouped';
@@ -50,8 +68,17 @@ export default function ProjectList() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight text-ink">Projects</h1>
+          {all.length >= SEARCH_FROM ? (
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Find a project"
+              aria-label="Find a project"
+              className="w-56"
+            />
+          ) : null}
         </div>
         <div className="flex gap-2">
           <Button variant="ghost" icon={<RotateCw size={14} />} onClick={() => void refresh()} disabled={loading}>
@@ -64,7 +91,7 @@ export default function ProjectList() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatTile label="Projects" value={String(list.length)} hint={`${active} active`} />
+        <StatTile label="Projects" value={String(all.length)} hint={`${active} active`} />
         <StatTile label="At risk" value={String(red)} hint="Health red" />
         <StatTile label="Overdue actions" value={String(overdue)} />
       </div>

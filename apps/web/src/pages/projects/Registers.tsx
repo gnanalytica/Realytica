@@ -44,6 +44,8 @@ const FINDING_STATUSES = Object.keys(FINDING_STATUS_LABEL) as FindingStatus[];
 
 const GAP_STATUSES: EvidenceStatus[] = ['expected', 'requested', 'missing'];
 
+const BULK_STATUSES = ['requested', 'received', 'validated', 'missing'] satisfies EvidenceStatus[];
+
 export function EvidenceRegister() {
   const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -59,6 +61,8 @@ export function EvidenceRegister() {
   );
   const [query, setQuery] = useState('');
   const [proofId, setProofId] = useState<string | null>(focusId ?? null);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const scoped = assessmentId ? project.evidence.filter((e) => e.assessmentIds.includes(assessmentId)) : project.evidence;
   const liveIds = [...(highlightIds ?? []), ...(focusId ? [focusId] : [])];
   const rows = scoped.filter((e) => {
@@ -115,6 +119,28 @@ export function EvidenceRegister() {
     }
   }
 
+  /**
+   * Marking twenty rows "considered" one select at a time is twenty round
+   * trips and twenty chances to lose your place. Selection is deliberately
+   * cleared afterwards: a set that survives its own action invites a second
+   * one nobody meant.
+   */
+  async function setStatusOfChosen(status: EvidenceStatus) {
+    const ids = [...chosen];
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const { project: next } = await api.setEvidenceStatusBulk(project.id, ids, status);
+      setProject(next);
+      setChosen(new Set());
+      toast(`${ids.length} row${ids.length === 1 ? '' : 's'} set to ${EVIDENCE_STATUS_LABEL[status].toLowerCase()}`, 'good');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not update those rows', 'critical');
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   async function readPhoto(evidenceId: string, fileId: string) {
     setReading(fileId);
     try {
@@ -166,6 +192,29 @@ export function EvidenceRegister() {
           <EvidenceDropButton onPick={pick} />
         </div>
       </div>
+      {chosen.size > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-brand-soft px-3 py-2 ring-1 ring-inset ring-brand/25">
+          <span className="text-[12.5px] font-medium text-brand">{chosen.size} selected</span>
+          <div className="flex-grow" />
+          {/* The transitions somebody actually makes to a batch: chase them,
+              book them in, validate them, or record that they will not come.
+              Declared without a cast so a status that does not exist is a
+              compile error rather than a button with no label on it. */}
+          {BULK_STATUSES.map((st) => (
+            <Button
+              key={st}
+              size="sm"
+              variant="secondary"
+              disabled={bulkBusy}
+              onClick={() => void setStatusOfChosen(st)}
+            >
+              {EVIDENCE_STATUS_LABEL[st]}
+            </Button>
+          ))}
+          <Button size="sm" variant="ghost" onClick={() => setChosen(new Set())}>Clear</Button>
+        </div>
+      ) : null}
+
       {rows.length === 0 ? (
         <EmptyState
         title="No evidence yet"
@@ -174,8 +223,39 @@ export function EvidenceRegister() {
       ) : (
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
+            <div className="flex items-center gap-2.5 px-4 py-2">
+              <input
+                type="checkbox"
+                aria-label={chosen.size === rows.length ? 'Clear selection' : 'Select every row shown'}
+                checked={chosen.size > 0 && chosen.size === rows.length}
+                // Some-but-not-all is its own state; a plain tick there would
+                // claim the rows below the fold are selected too.
+                ref={(el) => {
+                  if (el) el.indeterminate = chosen.size > 0 && chosen.size < rows.length;
+                }}
+                onChange={(ev) => setChosen(ev.target.checked ? new Set(rows.map((r) => r.id)) : new Set())}
+              />
+              <span className="text-[11.5px] text-ink-muted">
+                {chosen.size > 0 ? `${chosen.size} of ${rows.length}` : `${rows.length} shown`}
+              </span>
+            </div>
             {rows.map((e) => (
               <LiveRow key={e.id} id={e.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${e.title}`}
+                    className="mt-1 shrink-0"
+                    checked={chosen.has(e.id)}
+                    onChange={(ev) =>
+                      setChosen((prev) => {
+                        const next = new Set(prev);
+                        if (ev.target.checked) next.add(e.id);
+                        else next.delete(e.id);
+                        return next;
+                      })
+                    }
+                  />
                 <div>
                   <p className="text-[13px] font-medium text-ink">{e.title}</p>
                   <p className="text-[12px] text-ink-muted">
@@ -219,6 +299,7 @@ export function EvidenceRegister() {
                       ))}
                     </ul>
                   ) : null}
+                </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {(e.attachments ?? []).length ? (
