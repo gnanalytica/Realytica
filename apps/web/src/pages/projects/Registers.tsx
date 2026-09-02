@@ -36,6 +36,7 @@ import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
 import { EvidenceProof } from './EvidenceProof';
+import { EvidenceDropButton, EvidenceDropZone } from '../../components/EvidenceDropZone';
 
 const EVIDENCE_STATUSES = Object.keys(EVIDENCE_STATUS_LABEL) as EvidenceStatus[];
 const FINDING_STATUSES = Object.keys(FINDING_STATUS_LABEL) as FindingStatus[];
@@ -135,6 +136,12 @@ export function EvidenceRegister() {
   }
 
   return (
+    <EvidenceDropZone
+      projectId={project.id}
+      rows={rows}
+      onFiled={async () => setProject(await api.getProject(project.id))}
+    >
+      {(pick) => (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} className="w-full max-w-xs sm:w-48">
@@ -148,10 +155,16 @@ export function EvidenceRegister() {
         </Select>
         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter by title" className="w-full max-w-xs" />
         <div className="flex-grow" />
-        <Button onClick={() => setOpen(true)}>Add evidence</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={() => setOpen(true)}>Record an item</Button>
+          <EvidenceDropButton onPick={pick} />
+        </div>
       </div>
       {rows.length === 0 ? (
-        <EmptyState title="No evidence yet" description="Expected items are created when a DD starts. Upload or record what arrives." />
+        <EmptyState
+        title="No evidence yet"
+        description="Expected items are created when a DD starts. Drop a folder of documents here once they arrive."
+      />
       ) : (
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
@@ -316,6 +329,8 @@ export function EvidenceRegister() {
         </div>
       </Modal>
     </div>
+      )}
+    </EvidenceDropZone>
   );
 }
 

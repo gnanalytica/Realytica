@@ -17,6 +17,7 @@ export * from './project-screen';
 export * from './seed';
 export * from './project-graph';
 export * from './project-search';
+export * from './file-match';
 export * from './report-blocks';
 export * from './report-command';
 export * from './check-fields';

@@ -1002,6 +1002,19 @@ export const api = {
     return request<EvidenceAttachment[]>(`/projects/${projectId}/evidence/${evidenceId}/files`, { method: 'POST', body: form });
   },
   /**
+   * A whole pack in one request, with its own row per file.
+   *
+   * One call rather than one per row, so filing a folder is a single event in
+   * the thread instead of thirty, and a bad mapping fails before anything is
+   * stored rather than halfway through.
+   */
+  fileEvidenceBatch: (projectId: string, entries: Array<{ file: File; evidenceId: string }>) => {
+    const form = new FormData();
+    entries.forEach((e) => form.append('files', e.file));
+    form.append('targets', JSON.stringify(entries.map((e) => e.evidenceId)));
+    return request<EvidenceAttachment[]>(`/projects/${projectId}/evidence/files`, { method: 'POST', body: form });
+  },
+  /**
    * The durable run ledger: what ran, and whether it finished. `state` is
    * derived server-side — an `interrupted` row is a run whose process died
    * mid-flight, which used to vanish without a trace.

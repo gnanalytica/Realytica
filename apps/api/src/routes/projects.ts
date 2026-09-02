@@ -1453,6 +1453,90 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
   }
 });
 
+/**
+ * A whole pack in one request.
+ *
+ * The per-row endpoint above writes a thread turn each time it runs, which is
+ * right for one document and wrong for thirty: filing a folder used to bury the
+ * conversation under sixty near-identical lines. `targets` is a JSON array of
+ * evidence ids, one per file in order, so the client sends the mapping it has
+ * already shown the person rather than the server guessing it again.
+ */
+projectsRouter.post('/:projectId/evidence/files', evidenceUpload.array('files', 40), async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (files.length === 0) {
+    res.status(400).json({ error: 'No files uploaded' });
+    return;
+  }
+
+  const rawTargets = (req.body as { targets?: unknown } | undefined)?.targets;
+  let targets: unknown;
+  try {
+    targets = typeof rawTargets === 'string' ? JSON.parse(rawTargets) : rawTargets;
+  } catch {
+    res.status(400).json({ error: 'targets is not valid JSON' });
+    return;
+  }
+  if (!Array.isArray(targets) || targets.length !== files.length || targets.some((t) => typeof t !== 'string' || !t)) {
+    res.status(400).json({ error: 'targets must be one evidence id per uploaded file' });
+    return;
+  }
+  const ids = targets as string[];
+  // Every target is checked before a single byte is stored, so a typo in the
+  // last mapping cannot leave the first twenty documents half-filed.
+  const unknown = ids.find((id) => !project.evidence.some((e) => e.id === id));
+  if (unknown) {
+    res.status(404).json({ error: `Evidence not found on this project: ${unknown}` });
+    return;
+  }
+
+  try {
+    const attached = [];
+    for (const [i, file] of files.entries()) {
+      const storageKey = documentKey({ id: randomUUID(), fileName: file.originalname });
+      const isImage = file.mimetype.startsWith('image/');
+      const exif = isImage ? readExifCapture(file.buffer) : {};
+      const capture: CaptureFacts = isImage
+        ? {
+            ...(exif.takenAt ? { takenAt: exif.takenAt, takenAtSource: 'exif' as const } : {}),
+            ...(exif.lat !== undefined && exif.lng !== undefined
+              ? { lat: exif.lat, lng: exif.lng, latLngSource: 'exif' as const }
+              : {}),
+          }
+        : {};
+      await storageAdapter.putDocument(project.id, storageKey, file.buffer, file.mimetype);
+      attached.push(
+        attachEvidenceFile(
+          project,
+          ids[i] as string,
+          {
+            fileName: file.originalname,
+            mimeType: file.mimetype,
+            sizeBytes: file.size,
+            storageKey,
+            capture,
+          },
+          actorOf(req.body as { actor?: string } | undefined),
+        ),
+      );
+    }
+    const rows = new Set(ids).size;
+    await persistPaneWrite(
+      project,
+      `Filed ${attached.length} document(s) against ${rows} evidence row(s).`,
+      { citedEvidenceIds: [...new Set(ids)] },
+    );
+    res.status(201).json(attached);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 projectsRouter.get('/:projectId/evidence/:evidenceId/files/:fileId', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
