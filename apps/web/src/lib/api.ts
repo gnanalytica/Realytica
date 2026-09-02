@@ -13,12 +13,9 @@ import type {
   DataSourceDescriptor,
   DocumentKind,
   IngestionReport,
-  IntakeReadout,
-  IntakeSession,
   MemoryRecall,
   PromptDescriptor,
   PromptInvariantCheck,
-  PropertyCase,
   ReferenceData,
   RiskStatus,
   RunGraph,
@@ -469,13 +466,6 @@ export interface PromptDraft {
   invariants: PromptInvariantCheck[];
 }
 
-/** What every intake route returns: the stored half, and everything derived from it. */
-export interface IntakeEnvelope {
-  session: IntakeSession;
-  readout: IntakeReadout;
-}
-
-
 export function evidenceFileUrl(
   projectId: string,
   evidenceId: string,
@@ -697,72 +687,6 @@ export const api = {
    * like the run graph.
    */
   caseTitleGraph: (id: string) => request<TitleGraph>(`/cases/${id}/title-graph`),
-
-  /* --- Conversational intake --------------------------------------- */
-
-  /**
-   * A session is a draft and a transcript, not a case.
-   *
-   * Every one of these returns both the session and its readout, computed
-   * server-side on read. The page never derives what to ask next or whether
-   * the draft is ready — one place decides that, so the chat and the API
-   * cannot disagree about the same draft.
-   */
-  startIntake: () => request<IntakeEnvelope>('/intake', { method: 'POST' }),
-
-  getIntake: (id: string) => request<IntakeEnvelope>(`/intake/${id}`),
-
-  /** Send a message. Works with no model configured; the reply is then deterministic and says so. */
-  intakeTurn: (id: string, message: string) =>
-    request<IntakeEnvelope & { rejected: { path: string; reason: string }[] }>(`/intake/${id}/turns`, {
-      method: 'POST',
-      body: JSON.stringify({ message }),
-    }),
-
-  /**
-   * Answer one particular directly.
-   *
-   * What the option buttons use, and the only way to answer anything when no
-   * model is configured. Recorded as `stated`, because pressing a labelled
-   * button states a thing as plainly as typing it.
-   */
-  setIntakeField: (id: string, path: string, value: string | number | boolean | null, saidAs?: string) =>
-    request<IntakeEnvelope>(`/intake/${id}/fields`, {
-      method: 'POST',
-      body: JSON.stringify({ path, value, saidAs }),
-    }),
-
-  /** Accept an inference. The only thing that turns one into an answer. */
-  confirmIntakeField: (id: string, path: string) =>
-    request<IntakeEnvelope>(`/intake/${id}/fields/${encodeURIComponent(path)}/confirm`, { method: 'POST' }),
-
-  clearIntakeField: (id: string, path: string) =>
-    request<IntakeEnvelope>(`/intake/${id}/fields/${encodeURIComponent(path)}`, { method: 'DELETE' }),
-
-  uploadIntakeDocuments: (id: string, files: File[]) => {
-    const form = new FormData();
-    files.forEach((f) => form.append('files', f));
-    return request<IntakeEnvelope>(`/intake/${id}/documents`, { method: 'POST', body: form });
-  },
-
-  /**
-   * Build the case.
-   *
-   * The only call here that creates anything, and it is always an explicit
-   * press — never something a turn can trigger. Returns the screened case, so
-   * the figures the conversation showed are the figures that land.
-   */
-  commitIntake: (id: string, body: { ownerName?: string } = {}) =>
-    request<IntakeEnvelope & { case: PropertyCase; unconfirmed: IntakeSession['fields'] }>(`/intake/${id}/commit`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  exploreCase: (id: string, body: { objective?: string; maxIterations?: number; maxCostUsd?: number }) =>
-    request<PropertyCase>(`/cases/${id}/agents/explore`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
 
   libraries: () =>
     request<{
@@ -1153,103 +1077,3 @@ export async function uploadLimits(): Promise<UploadLimits> {
   return uploadLimitsPromise;
 }
 
-export interface AgentStreamHandlers {
-  onStep?: (step: AgentStep) => void;
-  onRun?: (run: AgentRun) => void;
-  onDone?: (updated: PropertyCase) => void;
-  onError?: (message: string) => void;
-  /**
-   * The connection opened but nothing came through — the stream is being
-   * buffered by something in between. The run itself is still going server
-   * side, so the caller should poll for the result rather than retry.
-   */
-  onStreamUnavailable?: () => void;
-}
-
-/**
- * Live agent-run progress over Server-Sent Events, so the UI can show what
- * each agent is doing instead of a bare spinner. Returns an unsubscribe
- * function — call it on unmount or before starting a new run.
- */
-/**
- * How long to wait for the server's immediate "connected" event before deciding
- * the stream is being buffered somewhere in between.
- *
- * The server sends that event before it does any work, so its absence means the
- * connection is open but nothing is getting through — the failure mode on
- * proxies and serverless edges that buffer `text/event-stream`. It is
- * deliberately not a timeout on the *run*, which can legitimately take minutes.
- */
-const STREAM_OPEN_TIMEOUT_MS = 20_000;
-
-export function streamAgentRun(id: string, agents: AgentKind[] | undefined, handlers: AgentStreamHandlers): () => void {
-  const query = agents && agents.length > 0 ? `?agents=${agents.map(encodeURIComponent).join(',')}` : '';
-  const source = new EventSource(`${BASE}/cases/${id}/agents/stream${query}`);
-
-  let sawAnyEvent = false;
-  const bufferedCheck = setTimeout(() => {
-    if (sawAnyEvent) return;
-    // The run is already under way server-side — the GET started it — so this
-    // must never retry it. Hand back to the caller to poll for the result
-    // instead; starting a second orchestration would double the bill.
-    handlers.onStreamUnavailable?.();
-    source.close();
-  }, STREAM_OPEN_TIMEOUT_MS);
-
-  const markAlive = (): void => {
-    sawAnyEvent = true;
-    clearTimeout(bufferedCheck);
-  };
-
-  source.addEventListener('step', (event) => {
-    markAlive();
-    try {
-      handlers.onStep?.(JSON.parse((event as MessageEvent<string>).data) as AgentStep);
-    } catch {
-      /* malformed event — drop it rather than crash the stream */
-    }
-  });
-
-  source.addEventListener('run', (event) => {
-    markAlive();
-    try {
-      handlers.onRun?.(JSON.parse((event as MessageEvent<string>).data) as AgentRun);
-    } catch {
-      /* ignore */
-    }
-  });
-
-  source.addEventListener('done', (event) => {
-    markAlive();
-    try {
-      handlers.onDone?.(JSON.parse((event as MessageEvent<string>).data) as PropertyCase);
-    } catch {
-      /* ignore */
-    } finally {
-      source.close();
-    }
-  });
-
-  // A server-sent `event: error` and the browser's native connection-error
-  // event both land in the 'error' listener; only the former carries `.data`.
-  source.addEventListener('error', (event) => {
-    markAlive();
-    const raw = (event as MessageEvent<string>).data;
-    if (raw) {
-      try {
-        const payload = JSON.parse(raw) as { error?: string };
-        handlers.onError?.(payload.error ?? 'The agent run failed.');
-      } catch {
-        handlers.onError?.('The agent run failed.');
-      }
-    } else {
-      handlers.onError?.('Lost connection to the agent run.');
-    }
-    source.close();
-  });
-
-  return () => {
-    clearTimeout(bufferedCheck);
-    source.close();
-  };
-}

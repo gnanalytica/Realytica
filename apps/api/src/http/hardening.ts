@@ -140,6 +140,15 @@ export interface RateLimitOptions {
   windowMs: number;
   /** Named in the 429 body so a caller knows which limit they met. */
   name: string;
+  /**
+   * The clock, injectable.
+   *
+   * Not a testing hook bolted on: a limiter whose only clock is the wall
+   * makes "does the window reopen" untestable without sleeping, and a test
+   * that sleeps for a window short enough to be quick is a test that fails
+   * whenever the machine is busy. Which is exactly what happened.
+   */
+  now?: () => number;
 }
 
 interface Bucket {
@@ -171,10 +180,11 @@ interface Bucket {
  */
 export function rateLimit(options: RateLimitOptions): RequestHandler {
   const buckets = new Map<string, Bucket>();
+  const clock = options.now ?? Date.now;
   let lastSweep = 0;
 
   return (req: Request, res: Response, next: NextFunction) => {
-    const now = Date.now();
+    const now = clock();
 
     // Expired buckets are dropped on a sweep rather than on a timer, so this
     // holds no handle that would keep a serverless instance alive.
@@ -187,7 +197,7 @@ export function rateLimit(options: RateLimitOptions): RequestHandler {
     const bucket = buckets.get(key);
     if (!bucket || bucket.resetAt <= now) {
       buckets.set(key, { count: 1, resetAt: now + options.windowMs });
-      setLimitHeaders(res, options.limit, options.limit - 1, now + options.windowMs);
+      setLimitHeaders(res, options.limit, options.limit - 1, now + options.windowMs, now);
       next();
       return;
     }
@@ -195,7 +205,7 @@ export function rateLimit(options: RateLimitOptions): RequestHandler {
     bucket.count += 1;
     if (bucket.count > options.limit) {
       const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
-      setLimitHeaders(res, options.limit, 0, bucket.resetAt);
+      setLimitHeaders(res, options.limit, 0, bucket.resetAt, now);
       res.setHeader('Retry-After', String(retryAfter));
       res.status(429).json({
         error: `Too many requests. This deployment allows ${options.limit} ${options.name} requests per ${Math.round(options.windowMs / 1000)}s — try again in ${retryAfter}s.`,
@@ -203,15 +213,15 @@ export function rateLimit(options: RateLimitOptions): RequestHandler {
       return;
     }
 
-    setLimitHeaders(res, options.limit, options.limit - bucket.count, bucket.resetAt);
+    setLimitHeaders(res, options.limit, options.limit - bucket.count, bucket.resetAt, now);
     next();
   };
 }
 
-function setLimitHeaders(res: Response, limit: number, remaining: number, resetAt: number): void {
+function setLimitHeaders(res: Response, limit: number, remaining: number, resetAt: number, now: number): void {
   res.setHeader('RateLimit-Limit', String(limit));
   res.setHeader('RateLimit-Remaining', String(Math.max(0, remaining)));
-  res.setHeader('RateLimit-Reset', String(Math.max(0, Math.ceil((resetAt - Date.now()) / 1000))));
+  res.setHeader('RateLimit-Reset', String(Math.max(0, Math.ceil((resetAt - now) / 1000))));
 }
 
 /**

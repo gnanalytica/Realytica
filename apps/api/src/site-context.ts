@@ -7,7 +7,7 @@
  * refresh explicitly.
  */
 
-import type { PropertyCase, PropertyIdentity, SiteContext } from '@realytica/shared';
+import type { PropertyIdentity, SiteContext } from '@realytica/shared';
 import { siteContextQuery } from '@realytica/shared';
 import { buildSiteContext, placeProviderConfigured, placeProviderFor } from '@realytica/agents';
 
@@ -56,13 +56,4 @@ export async function ensureIdentitySiteContext(
     console.error(`[site-context] build failed for ${holder.id}:`, err);
     return holder.siteContext;
   }
-}
-
-/** @deprecated Case product path — kept so unmounted case routers still typecheck. */
-export async function ensureSiteContext(
-  caseData: PropertyCase,
-  now: string,
-  options: EnsureSiteContextOptions = {},
-): Promise<SiteContext | undefined> {
-  return ensureIdentitySiteContext(caseData, caseData.identity, now, options);
 }

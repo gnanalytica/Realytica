@@ -198,16 +198,43 @@ describe('the throttle', () => {
   });
 
   it('reopens the budget once the window has passed', () => {
-    const handler = rateLimit({ name: 'test', limit: 1, windowMs: 1 });
+    /*
+     * The clock is driven, not waited on.
+     *
+     * The first version of this test used a 1ms window and a busy-wait, and
+     * it failed intermittently under a loaded test run — two adjacent calls
+     * can straddle a 1ms window, so the request that was supposed to be
+     * refused found an expired bucket and sailed through. A test that fails
+     * when the machine is busy is not a test.
+     */
+    let clock = 1_000_000;
+    const handler = rateLimit({ name: 'test', limit: 1, windowMs: 60_000, now: () => clock });
     const req = requestDouble({ ip: '203.0.113.77' });
+
     assert.equal(drive(handler, req).passed, true);
     assert.equal(drive(handler, req).passed, false);
-    // Busy-wait past a 1ms window rather than sleeping: no timer, no flake.
-    const until = Date.now() + 3;
-    while (Date.now() < until) {
-      /* spin */
+
+    clock += 59_999;
+    assert.equal(drive(handler, req).passed, false, 'still inside the window');
+
+    clock += 1;
+    assert.equal(drive(handler, req).passed, true, 'the window has passed');
+  });
+
+  it('forgets an expired bucket rather than holding it forever', () => {
+    // The sweep. Without it the map grows for the life of the instance, one
+    // entry per address ever seen — which on a public URL is unbounded.
+    let clock = 1_000_000;
+    const handler = rateLimit({ name: 'test', limit: 1, windowMs: 1_000, now: () => clock });
+
+    for (let i = 0; i < 50; i += 1) {
+      drive(handler, requestDouble({ ip: `203.0.113.${i}` }));
     }
-    assert.equal(drive(handler, req).passed, true);
+    clock += 5_000;
+    // A fresh caller after the sweep gets a fresh budget, and so does an old
+    // one — the point is that neither is refused by a stale count.
+    assert.equal(drive(handler, requestDouble({ ip: '203.0.113.7' })).passed, true);
+    assert.equal(drive(handler, requestDouble({ ip: '198.51.100.1' })).passed, true);
   });
 
   it('keeps separate budgets per limiter, so a chat turn does not spend the read allowance', () => {
