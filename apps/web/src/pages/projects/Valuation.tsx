@@ -13,6 +13,8 @@ import {
 import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Select, useToast } from '../../components/ui/kit';
 import { ScreenResultPanel } from '../../components/ScreenResultPanel';
+import { ScheduleOfProperty } from '../../components/ScheduleOfProperty';
+import { countryForCurrency } from '../../lib/units';
 import { ValuationWorkingPanel } from '../../components/ValuationWorkingPanel';
 import { TitleChainDiagram } from '../../components/charts';
 import { formatWhen } from './shared';
@@ -193,16 +195,24 @@ export default function Valuation() {
               {formatWhen(project.lastScreenResult.generatedAt)} · engine {project.lastScreenResult.engineVersion}
             </span>
           </h2>
-          <ScreenResultPanel result={project.lastScreenResult} askingPrice={project.budget} />
+          <ScreenResultPanel
+            result={project.lastScreenResult}
+            askingPrice={project.budget}
+            country={countryForCurrency(project.currency)}
+            locality={project.city}
+          />
           {titleGraph.nodes.length > 0 ? (
-            <Card>
-              <CardHeader
-                title="Title structure"
-              />
-              <CardBody>
-                <TitleChainDiagram graph={titleGraph} summary={project.lastScreenResult.titleGraph} />
-              </CardBody>
-            </Card>
+            <>
+              <Card>
+                <CardHeader title="Title structure" />
+                <CardBody>
+                  <TitleChainDiagram graph={titleGraph} summary={project.lastScreenResult.titleGraph} />
+                </CardBody>
+              </Card>
+              {/* What the deeds say the land is bounded by — the schedule a
+                  valuer reads before believing any extent on the file. */}
+              <ScheduleOfProperty graph={titleGraph} />
+            </>
           ) : null}
         </section>
       ) : null}

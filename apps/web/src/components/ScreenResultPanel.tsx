@@ -1,7 +1,12 @@
-import type { ComplianceCheck, ComplianceVerdict, ScreenResult } from '@realytica/shared';
+import type { ComplianceCheck, ComplianceVerdict, CountryCode, ScreenResult } from '@realytica/shared';
 import { Badge, Callout, Card, CardBody, CardHeader, KeyValue, SectionTitle } from './ui/kit';
 import type { Tone } from './ui/kit';
 import { StatutoryProvenance } from './StatutoryProvenance';
+import { JdSplitCard } from './JdSplitCard';
+import { PlaybookPanel } from './PlaybookPanel';
+import { PriceTrajectoryCard } from './PriceTrajectoryCard';
+import { SchematicYieldCard } from './SchematicYieldCard';
+import { WaterExposureCard } from './WaterExposureCard';
 import {
   AnchorWeightChart,
   CostWaterfallChart,
@@ -9,10 +14,14 @@ import {
   CompletenessRing,
   ConfidenceGauge,
   DriverImpactChart,
+  MarketTrendChart,
+  ProvenanceBar,
+  ResidualWaterfallChart,
   RiskProfileChart,
   ValueRangeChart,
 } from './charts';
 import { money, pct } from '../lib/format';
+import { formatArea, formatRate, useAreaUnitFor } from '../lib/units';
 
 /**
  * The working behind a screen verdict.
@@ -72,10 +81,32 @@ function ComplianceRow({ check }: { check: ComplianceCheck }) {
   );
 }
 
-export function ScreenResultPanel({ result, askingPrice }: { result: ScreenResult; askingPrice?: number }) {
+/**
+ * Everything the screen worked out, in one place.
+ *
+ * The engine has always computed the water exposure, the schematic yield, the
+ * JD split, the parcel's own price record and the eight-quarter market trend —
+ * and the cards that render them were written and then never given a home, so
+ * a valuer paid for the computation and never saw it. Each is conditional on
+ * its own data, which is why a screen that could not work one out simply does
+ * not show it rather than showing an empty frame.
+ */
+export function ScreenResultPanel({
+  result,
+  askingPrice,
+  country = 'IN',
+  locality,
+}: {
+  result: ScreenResult;
+  askingPrice?: number;
+  country?: CountryCode;
+  locality?: string;
+}) {
   const currency = result.indicativeValue.currency;
   const compliance = result.stateCompliance;
   const costs = result.transactionCosts;
+  const unit = useAreaUnitFor(country);
+  const residual = result.anchors.find((a) => a.residual)?.residual;
 
   const orderedChecks = compliance
     ? [...compliance.checks].sort(
@@ -130,6 +161,19 @@ export function ScreenResultPanel({ result, askingPrice }: { result: ScreenResul
               </li>
             ))}
           </ul>
+          {/* The residual is the one anchor that is arithmetic rather than a
+              rate times an area, and it is the one a reader most often wants
+              to argue with. Showing the steps is the whole point of it. */}
+          {residual ? (
+            <div>
+              <SectionTitle hint="Gross realisation down to the land">Residual, step by step</SectionTitle>
+              <ResidualWaterfallChart
+                residual={residual}
+                formatArea={(sqm) => formatArea(sqm, unit)}
+                formatRate={(rate) => formatRate(rate, unit, currency)}
+              />
+            </div>
+          ) : null}
         </CardBody>
       </Card>
 
@@ -264,6 +308,30 @@ export function ScreenResultPanel({ result, askingPrice }: { result: ScreenResul
         </Card>
       ) : null}
 
+      {result.marketContext.trend.length > 1 ? (
+        <Card>
+          <CardHeader
+            title="Locality trend"
+            info={`Median price per m² over the last ${result.marketContext.trend.length} quarters. Source: ${result.marketContext.source}.`}
+          />
+          <CardBody>
+            <MarketTrendChart trend={result.marketContext.trend} currency={currency} />
+          </CardBody>
+        </Card>
+      ) : null}
+
+      {result.priceTrajectory ? <PriceTrajectoryCard trajectory={result.priceTrajectory} /> : null}
+
+      {result.waterExposure ? (
+        <WaterExposureCard water={result.waterExposure} locality={locality ?? result.marketContext.source} />
+      ) : null}
+
+      {result.yield ? <SchematicYieldCard yieldResult={result.yield} country={country} /> : null}
+
+      {result.jdSplit ? <JdSplitCard split={result.jdSplit} evidence={result.evidence} /> : null}
+
+      {result.playbooks?.length ? <PlaybookPanel runs={result.playbooks} /> : null}
+
       <Card>
         <CardHeader
           title="Document completeness"
@@ -289,10 +357,7 @@ export function ScreenResultPanel({ result, askingPrice }: { result: ScreenResul
           subtitle={`${result.evidence.length} entries — every figure above traces to one.`}
         />
         <CardBody>
-          <p className="text-xs leading-relaxed text-ink-secondary">
-            Each entry carries its source type: a document, an external dataset, a comparable, your own
-            input, or an explicitly-labelled model inference. Nothing in this screen is asserted without one.
-          </p>
+          <ProvenanceBar evidence={result.evidence} />
         </CardBody>
       </Card>
     </div>
