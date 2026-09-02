@@ -193,3 +193,97 @@ describe('what to offer when somebody types an owner', () => {
     assert.deepEqual(ownerSuggestions(undefined, [{ email: 'asha@firm.in' }]), ['asha@firm.in']);
   });
 });
+
+describe('the containers, which used to be missing', () => {
+  /*
+   * An assessment and a scope both carry an owner, the API will happily assign
+   * one, and the register shows it — and this list left them out. That is the
+   * worst shape of gap: the assignment looks like it worked, and the screen
+   * whose whole promise is "this is yours" quietly disagrees.
+   */
+  it('shows an assessment assigned to you', () => {
+    const project = withWork((p) => {
+      p.assessments[0]!.owner = 'asha@firm.in';
+      p.assessments[0]!.status = 'active';
+    });
+    const mine = myWorkOn(project, ASHA, NOW);
+    const row = mine.find((i) => i.kind === 'assessment');
+    assert.ok(row, 'the assessment should be on the list');
+    assert.equal(row.id, project.assessments[0]!.id);
+    // The link needs the assessment id to land anywhere useful.
+    assert.equal(row.ddId, project.assessments[0]!.id);
+  });
+
+  it('shows a scope assigned to you, named so it is tellable apart', () => {
+    const project = withWork((p) => {
+      p.assessments[0]!.scopes[0]!.owner = 'Asha Rao';
+      p.assessments[0]!.scopes[0]!.status = 'in_progress';
+    });
+    const row = myWorkOn(project, ASHA, NOW).find((i) => i.kind === 'scope');
+    assert.ok(row);
+    // A scope called "Title" on three assessments is three identical rows
+    // unless the assessment is in the title.
+    assert.match(row.title, /·/);
+    assert.equal(row.scopeId, project.assessments[0]!.scopes[0]!.id);
+    assert.equal(row.ddId, project.assessments[0]!.id);
+  });
+
+  it('leaves out an assessment that is finished or shelved', () => {
+    for (const status of ['completed', 'archived'] as const) {
+      const project = withWork((p) => {
+        p.assessments[0]!.owner = 'asha@firm.in';
+        p.assessments[0]!.status = status;
+      });
+      assert.equal(
+        myWorkOn(project, ASHA, NOW).some((i) => i.kind === 'assessment'),
+        false,
+        `${status} should not be outstanding work`,
+      );
+    }
+  });
+
+  it('keeps an assessment that is in review — it is sitting on somebody', () => {
+    const project = withWork((p) => {
+      p.assessments[0]!.owner = 'asha@firm.in';
+      p.assessments[0]!.status = 'in_review';
+    });
+    assert.ok(myWorkOn(project, ASHA, NOW).some((i) => i.kind === 'assessment'));
+  });
+
+  it('leaves out a scope that is complete or excluded', () => {
+    for (const status of ['complete', 'excluded'] as const) {
+      const project = withWork((p) => {
+        p.assessments[0]!.scopes[0]!.owner = 'asha@firm.in';
+        p.assessments[0]!.scopes[0]!.status = status;
+      });
+      assert.equal(
+        myWorkOn(project, ASHA, NOW).some((i) => i.kind === 'scope'),
+        false,
+        `${status} should not be outstanding work`,
+      );
+    }
+  });
+
+  it('does not claim a container owned by somebody else', () => {
+    const project = withWork((p) => {
+      p.assessments[0]!.owner = 'someone.else@firm.in';
+      p.assessments[0]!.status = 'active';
+      // A near miss on the recorded name. ("Asha" alone would *match*, via the
+      // local part of asha@firm.in — that is the rule working, not a bug.)
+      p.assessments[0]!.scopes[0]!.owner = 'Asha R';
+      p.assessments[0]!.scopes[0]!.status = 'in_progress';
+    });
+    const mine = myWorkOn(project, ASHA, NOW);
+    assert.equal(mine.some((i) => i.kind === 'assessment'), false);
+    assert.equal(mine.some((i) => i.kind === 'scope'), false);
+  });
+
+  it('says how much of a container is left rather than restating its objective', () => {
+    const project = withWork((p) => {
+      p.assessments[0]!.owner = 'asha@firm.in';
+      p.assessments[0]!.status = 'active';
+    });
+    const row = myWorkOn(project, ASHA, NOW).find((i) => i.kind === 'assessment');
+    assert.match(row!.detail ?? '', /scope/);
+  });
+});

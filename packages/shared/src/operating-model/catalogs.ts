@@ -15,6 +15,7 @@ import type {
   ProjectHealth,
   ProjectStatus,
   ReportKind,
+  ScopeStatus,
   RiskImpactType,
   ValuationApproach,
   ValuationBasis,
@@ -122,6 +123,23 @@ export const ASSESSMENT_STATUS_LABEL: Record<AssessmentStatus, string> = {
   in_review: 'In review',
   completed: 'Completed',
   archived: 'Archived',
+};
+
+/**
+ * A scope's status, in words.
+ *
+ * Absent until now, because every screen that showed a scope showed it as a
+ * card with its own visual state rather than as a word — so the first place
+ * that genuinely needed the noun was a work list, where a scope sits in one
+ * column beside an action and a finding and has to say where it stands in the
+ * same voice they do.
+ */
+export const SCOPE_STATUS_LABEL: Record<ScopeStatus, string> = {
+  not_started: 'Not started',
+  in_progress: 'In progress',
+  in_review: 'In review',
+  complete: 'Complete',
+  excluded: 'Excluded',
 };
 
 /** Every check result, as data — so a validator cannot drift from the type. */

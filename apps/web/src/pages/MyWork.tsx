@@ -3,16 +3,20 @@ import { Link } from 'react-router-dom';
 import { CircleCheck } from 'lucide-react';
 import {
   ACTION_STATUS_LABEL,
+  ASSESSMENT_STATUS_LABEL,
   CHECK_RESULT_LABEL,
   EVIDENCE_STATUS_LABEL,
   FINDING_STATUS_LABEL,
+  SCOPE_STATUS_LABEL,
   SEVERITY_LABEL,
   WORK_KIND_LABEL,
   cockpitPath,
   type ActionStatus,
+  type AssessmentStatus,
   type CheckResult,
   type EvidenceStatus,
   type FindingStatus,
+  type ScopeStatus,
   type WorkItem,
   type WorkKind,
 } from '@realytica/shared';
@@ -42,6 +46,8 @@ function statusLabel(item: WorkItem): string {
   if (item.kind === 'finding') return FINDING_STATUS_LABEL[item.status as FindingStatus] ?? item.status;
   if (item.kind === 'evidence') return EVIDENCE_STATUS_LABEL[item.status as EvidenceStatus] ?? item.status;
   if (item.kind === 'check') return CHECK_RESULT_LABEL[item.status as CheckResult] ?? item.status;
+  if (item.kind === 'assessment') return ASSESSMENT_STATUS_LABEL[item.status as AssessmentStatus] ?? item.status;
+  if (item.kind === 'scope') return SCOPE_STATUS_LABEL[item.status as ScopeStatus] ?? item.status;
   return SEVERITY_LABEL[item.severity ?? 'low'] ?? item.status;
 }
 
@@ -61,13 +67,20 @@ function dueOn(iso: string): string {
 /** Where the row lives. The pane is the record's register; the check is its scope. */
 function linkFor(item: WorkItem): string {
   if (item.kind === 'check') return cockpitPath(item.projectId, 'scope', { ddId: item.ddId, scopeId: item.scopeId, checkId: item.id });
+  if (item.kind === 'scope') return cockpitPath(item.projectId, 'scope', { ddId: item.ddId, scopeId: item.scopeId });
+  if (item.kind === 'assessment') return cockpitPath(item.projectId, 'dd', { ddId: item.ddId });
   if (item.kind === 'action') return cockpitPath(item.projectId, 'actions', { actionId: item.id });
   if (item.kind === 'risk') return cockpitPath(item.projectId, 'risks', { riskId: item.id });
   if (item.kind === 'finding') return cockpitPath(item.projectId, 'findings', { findingId: item.id });
   return cockpitPath(item.projectId, 'evidence', { evidenceId: item.id });
 }
 
-const KINDS: WorkKind[] = ['action', 'check', 'evidence', 'finding', 'risk'];
+/*
+ * The filter chips, in the order they read rather than alphabetically by
+ * accident. Assessment and scope go last because they are the containers —
+ * somebody scanning this wants the individual things they owe first.
+ */
+const KINDS: WorkKind[] = ['action', 'check', 'evidence', 'finding', 'risk', 'scope', 'assessment'];
 
 export default function MyWork() {
   const me = useMe();

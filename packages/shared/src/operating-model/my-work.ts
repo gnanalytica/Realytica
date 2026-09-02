@@ -30,6 +30,7 @@
 import type {
   ActionRecord,
   ActionStatus,
+  AssessmentStatus,
   DdProject,
   EvidenceRecord,
   EvidenceStatus,
@@ -37,7 +38,9 @@ import type {
   FindingSeverity,
   FindingStatus,
   RiskRecord,
+  ScopeStatus,
 } from './types';
+import { SCOPE_LABEL } from './catalogs';
 
 /** Somebody a piece of work can belong to. */
 export interface WorkPerson {
@@ -73,7 +76,7 @@ export function ownedBy(owner: string | undefined, person: WorkPerson): boolean 
 /* One row of work                                                      */
 /* ==================================================================== */
 
-export type WorkKind = 'action' | 'finding' | 'risk' | 'evidence' | 'check';
+export type WorkKind = 'action' | 'finding' | 'risk' | 'evidence' | 'check' | 'assessment' | 'scope';
 
 export const WORK_KIND_LABEL: Record<WorkKind, string> = {
   action: 'Action',
@@ -81,6 +84,8 @@ export const WORK_KIND_LABEL: Record<WorkKind, string> = {
   risk: 'Risk',
   evidence: 'Document',
   check: 'Check',
+  assessment: 'Assessment',
+  scope: 'Scope',
 };
 
 /**
@@ -121,6 +126,18 @@ const DONE_FINDING: ReadonlySet<FindingStatus> = new Set([
   'accepted',
 ]);
 const DONE_EVIDENCE: ReadonlySet<EvidenceStatus> = new Set(['validated', 'used', 'superseded']);
+/*
+ * An assessment and a scope are containers, and both were missing from this
+ * list even though the API would happily assign one. That is the worst kind of
+ * gap: the owner is set, the register shows it, and the screen whose whole
+ * promise is "this is yours" quietly leaves it out.
+ *
+ * `archived` and `excluded` are finished in the sense that matters here —
+ * somebody decided they were not going to be done, which is a decision rather
+ * than outstanding work. `in_review` is not: it is sitting on somebody.
+ */
+const DONE_ASSESSMENT: ReadonlySet<AssessmentStatus> = new Set(['completed', 'archived']);
+const DONE_SCOPE: ReadonlySet<ScopeStatus> = new Set(['complete', 'excluded']);
 
 function isOverdue(dueDate: string | undefined, now: string): boolean {
   if (!dueDate) return false;
@@ -201,7 +218,40 @@ export function myWorkOn(project: DdProject, person: WorkPerson, now: string): W
   }
 
   for (const assessment of project.assessments) {
+    if (ownedBy(assessment.owner, person) && !DONE_ASSESSMENT.has(assessment.status)) {
+      const open = assessment.scopes.filter((s) => !DONE_SCOPE.has(s.status)).length;
+      items.push({
+        ...base,
+        id: assessment.id,
+        kind: 'assessment',
+        title: assessment.name,
+        owner: assessment.owner,
+        status: assessment.status,
+        dueDate: assessment.periodEnd,
+        overdue: isOverdue(assessment.periodEnd, now),
+        // The count rather than the objective: what an owner wants from this
+        // row is how much of it is left, and the objective is on the file.
+        detail: open === 0 ? 'Every scope is settled.' : `${open} scope${open === 1 ? '' : 's'} still open.`,
+        ddId: assessment.id,
+      });
+    }
+
     for (const scope of assessment.scopes) {
+      if (ownedBy(scope.owner, person) && !DONE_SCOPE.has(scope.status)) {
+        const pending = scope.checks.filter((c) => c.result === 'pending').length;
+        items.push({
+          ...base,
+          id: scope.id,
+          kind: 'scope',
+          title: `${SCOPE_LABEL[scope.scopeKey]} · ${assessment.name}`,
+          owner: scope.owner!,
+          status: scope.status,
+          detail: pending === 0 ? 'No checks left pending.' : `${pending} check${pending === 1 ? '' : 's'} pending.`,
+          ddId: assessment.id,
+          scopeId: scope.id,
+        });
+      }
+
       for (const check of scope.checks) {
         if (!ownedBy(check.owner, person) || check.result !== 'pending') continue;
         items.push({
