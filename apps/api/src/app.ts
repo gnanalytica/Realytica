@@ -23,6 +23,7 @@ import { graphAdapter } from './graph';
 import { authenticate, authSettings, initAuth, needs } from './auth/middleware';
 import { corsPolicy, rateLimits, securityHeaders } from './http/hardening';
 import { reportOperators } from './auth/operator';
+import { initCredentialSealing } from './flows/credentials';
 import { membersRouter } from './routes/members';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -227,6 +228,9 @@ export async function initApp(): Promise<void> {
   await initPrompts();
   // Must run before the first model call, or that call goes unrecorded.
   initTelemetry();
+  // After the store, before the first flow run: what is on disk gets sealed,
+  // and a deployment holding plaintext with no key is told so.
+  await initCredentialSealing();
   reportOperators(store.data.tenants?.length ?? 0);
   if (!store.data.projects?.length) {
     const created = await seedDemoProjects();

@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { CredentialKind, CredentialRecord, StoredCredential } from '@realytica/shared';
 import { store } from '../store';
+import { envName } from '@realytica/agents';
+import { isSealed, open, seal, sealingAvailable } from './secret-box';
 
 /**
  * Secrets a flow node authenticates with.
@@ -15,11 +17,18 @@ import { store } from '../store';
  *
  * ## What storing these costs
  *
- * The store is one JSON document, so a backup of it now carries credentials,
- * and on a deployment using blob storage they are in the blob. That is a real
- * change to this deployment's blast radius and it is written here rather than
- * left for somebody to discover: it was chosen deliberately over environment
- * variables so an operator can wire a connector without a deploy.
+ * The store is one JSON document, and on a deployment using blob storage it is
+ * in the blob — so what lands in it is **sealed**, not the secret itself (see
+ * `./secret-box.ts`). The key lives in the environment, which a backup does
+ * not carry, so losing a copy of the store no longer means losing the keys.
+ *
+ * The limit of that claim, stated plainly: anything that can read this
+ * process's environment can read the credentials, because the process has to
+ * use them. What is bought is the separation of the data from the key.
+ *
+ * Storing them here at all was chosen over environment variables so an
+ * operator can wire a connector without a deploy. That trade still holds; it
+ * is now paid for.
  *
  * `hint` — the last four characters — exists so two keys are tellable apart
  * without either being shown.
@@ -53,8 +62,28 @@ export function listCredentials(tenantId: string): CredentialRecord[] {
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
-/** Never returned by a route. For the engine, at the moment of use. */
+/**
+ * Never returned by a route. For the engine, at the moment of use.
+ *
+ * Hands back the *opened* secret, so nothing downstream can accidentally
+ * authenticate with a ciphertext — a mistake that would present as a provider
+ * rejecting a key that looks fine in the UI. The sealed form is reachable only
+ * through `sealedFor`, which exists for re-sealing and nothing else.
+ *
+ * Throws `CredentialUnreadable` when the key cannot open it. That is the right
+ * shape: a caller cannot do anything useful with a half-read credential, and
+ * the alternative — returning undefined — is indistinguishable from "no such
+ * credential", which would send an operator looking for a record that is
+ * plainly on their screen.
+ */
 export function secretFor(tenantId: string, id: string): StoredCredential | undefined {
+  const stored = sealedFor(tenantId, id);
+  if (!stored) return undefined;
+  return { ...stored, secret: open(stored.secret) };
+}
+
+/** The record as stored, secret still sealed. For re-sealing and for tests. */
+export function sealedFor(tenantId: string, id: string): StoredCredential | undefined {
   return credentials().find((c) => c.tenantId === tenantId && c.id === id);
 }
 
@@ -86,7 +115,10 @@ export async function saveCredential(input: {
     ...(input.target?.trim() ? { target: input.target.trim() } : {}),
     createdAt: new Date().toISOString(),
     createdBy: input.createdBy,
-    secret: input.secret,
+    // Sealed before it is anywhere near `store.save()`. `seal` refuses when no
+    // key is configured rather than falling back to plaintext, which is what
+    // makes the guarantee checkable instead of aspirational.
+    secret: seal(input.secret),
     ...(input.username?.trim() ? { username: input.username.trim() } : {}),
   };
   credentials().push(stored);
@@ -106,13 +138,13 @@ export async function updateCredential(
   id: string,
   input: { label?: string; target?: string; secret?: string; username?: string },
 ): Promise<CredentialRecord | undefined> {
-  const stored = secretFor(tenantId, id);
+  const stored = sealedFor(tenantId, id);
   if (!stored) return undefined;
   if (input.label !== undefined) stored.label = input.label.trim();
   if (input.target !== undefined) stored.target = input.target.trim() || undefined;
   if (input.username !== undefined) stored.username = input.username.trim() || undefined;
   if (input.secret) {
-    stored.secret = input.secret;
+    stored.secret = seal(input.secret);
     stored.hint = hintOf(input.secret);
     // A rotated key has no history: last week's success says nothing about the
     // value that is in there now.
@@ -137,9 +169,70 @@ export async function noteCredentialUse(
   id: string,
   result: NonNullable<CredentialRecord['lastResult']>,
 ): Promise<void> {
-  const stored = secretFor(tenantId, id);
+  // Deliberately the sealed record: noting that a key was used must not
+  // depend on being able to read it, or a wrong-key deployment would lose the
+  // very trail that explains what is wrong.
+  const stored = sealedFor(tenantId, id);
   if (!stored) return;
   stored.lastUsedAt = new Date().toISOString();
   stored.lastResult = result;
   await store.save();
+}
+
+/* ==================================================================== */
+/* Boot                                                                  */
+/* ==================================================================== */
+
+/**
+ * Seal anything still lying in the store as plaintext, and say where this
+ * deployment stands.
+ *
+ * ## Why this is not a startup failure when the key is absent
+ *
+ * Refusing to boot without `REALYTICA_CREDENTIAL_KEY` would take down every
+ * deployment that has never opened the flow editor, over a feature it does not
+ * use. The refusal belongs at the moment a secret would be written — which is
+ * where `seal` puts it — so an operator meets it while they are looking at the
+ * screen that caused it, with the command to generate a key in the message.
+ *
+ * What boot owes them is the truth about what is already on disk. A deployment
+ * carrying plaintext credentials and no key gets told so, in the same voice
+ * `[auth] OFF` uses, because that is a fact about their blast radius they
+ * cannot discover any other way.
+ *
+ * ## Why re-sealing is a migration rather than lazy
+ *
+ * Sealing on next use would leave a credential nobody has run in six months as
+ * plaintext forever — precisely the forgotten key that a leaked backup costs
+ * the most. One pass at boot, once, and the document is clean.
+ */
+export async function initCredentialSealing(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ sealed: number; plaintext: number; keyed: boolean }> {
+  const all = credentials();
+  const keyed = sealingAvailable(env);
+  const legacy = all.filter((c) => !isSealed(c.secret));
+
+  if (!keyed) {
+    if (legacy.length > 0) {
+      console.warn(
+        `[credentials] ${legacy.length} credential(s) are stored as plaintext and ${envName('CREDENTIAL_KEY')} is not set. ` +
+          'A backup of the store carries them. Generate a key with `openssl rand -base64 32`, set it, and restart — they will be sealed on the next boot.',
+      );
+    }
+    if (all.length === 0) {
+      console.log(`[credentials] none stored. Set ${envName('CREDENTIAL_KEY')} before saving one.`);
+    }
+    return { sealed: 0, plaintext: legacy.length, keyed: false };
+  }
+
+  if (legacy.length === 0) {
+    console.log(`[credentials] ${all.length} stored, all sealed.`);
+    return { sealed: 0, plaintext: 0, keyed: true };
+  }
+
+  for (const credential of legacy) credential.secret = seal(credential.secret, env);
+  await store.save();
+  console.log(`[credentials] sealed ${legacy.length} credential(s) that were stored as plaintext.`);
+  return { sealed: legacy.length, plaintext: 0, keyed: true };
 }

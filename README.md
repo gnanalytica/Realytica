@@ -186,6 +186,7 @@ none of them:
 | `REALYTICA_RECORDS_BASE_URL` / `_API_KEY` / `_KINDS` | Connects a statutory-records vendor. All three are required — `_KINDS` is a comma-separated coverage list and is deliberately not defaulted, because a provider that claims a record kind it cannot deliver manufactures a failed fetch where an honest one would name the manual route. Optional alongside: `_LABEL`, `_REGIONS`, `_AUTH_HEADER`, `_TIMEOUT_MS`, `_MONITOR=1`. |
 | `REALYTICA_RATE_LIMIT_API` / `_MODEL` / `_UPLOAD` | Requests per minute per person, defaulting to 600 / 30 / 60. The tiers differ because the costs do: a register read is a memory lookup, a chat turn spends money at a provider. Counted per instance, so this is a brake on one runaway client rather than a defence against a distributed one — that wants the platform's own limiter. |
 | `REALYTICA_CSP` | A Content-Security-Policy passed through verbatim. Deliberately not defaulted: a policy has to admit your identity provider, your tile server and the PDF worker, and one that is subtly wrong breaks sign-in rather than degrading. |
+| `REALYTICA_CREDENTIAL_KEY` | 32 bytes, base64 or hex (`openssl rand -base64 32`). Seals flow credentials before they are written to the store, so a backup of the store is no longer a copy of your API keys. Without it, saving a credential is refused rather than falling back to plaintext — and any plaintext already on disk is sealed on the next boot once the key is set. |
 
 ### Other commands
 

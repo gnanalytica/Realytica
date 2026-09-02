@@ -24,6 +24,7 @@ import {
   saveCredential,
   updateCredential,
 } from '../flows/credentials';
+import { CredentialKeyMissing } from '../flows/secret-box';
 
 /**
  * The agentic framework as an editable thing.
@@ -295,7 +296,18 @@ flowsRouter.post('/credentials', needs('admin'), async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  res.status(201).json(await saveCredential({ tenantId: me.tenantId, createdBy: me.email, ...parsed.data }));
+  try {
+    res.status(201).json(await saveCredential({ tenantId: me.tenantId, createdBy: me.email, ...parsed.data }));
+  } catch (err) {
+    // A deployment with no sealing key refuses the write rather than storing
+    // plaintext, and the operator needs to be told which knob that is — a 500
+    // here would read as "the product is broken" rather than "set this".
+    if (err instanceof CredentialKeyMissing) {
+      res.status(503).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
 });
 
 flowsRouter.patch('/credentials/:credentialId', needs('admin'), async (req, res) => {
@@ -305,7 +317,16 @@ flowsRouter.patch('/credentials/:credentialId', needs('admin'), async (req, res)
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  const updated = await updateCredential(me.tenantId, req.params.credentialId, parsed.data);
+  let updated;
+  try {
+    updated = await updateCredential(me.tenantId, req.params.credentialId, parsed.data);
+  } catch (err) {
+    if (err instanceof CredentialKeyMissing) {
+      res.status(503).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
   if (!updated) {
     res.status(404).json({ error: 'Credential not found' });
     return;
