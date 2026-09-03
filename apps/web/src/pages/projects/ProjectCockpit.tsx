@@ -162,6 +162,28 @@ function extrasForNavigation(
 
 type MobileSurface = 'chat' | 'work';
 
+/*
+ * The work surface deliberately paints no background of its own.
+ *
+ * It carried `bg-surface-1` for a long time, which is not a class: the token
+ * is `surface`, so Tailwind emitted nothing and the section has been
+ * transparent all along, showing the page through it. The obvious repair is
+ * to spell it `bg-surface` — and that is a regression, measured rather than
+ * guessed.
+ *
+ * `Card` is itself `bg-surface`. In dark mode the pane is #0d0d0d today and
+ * every card on it is #1a1a19, so the cards visibly sit on something. Paint
+ * the pane `bg-surface` and both become #1a1a19: identical, and a card is
+ * reduced to a one-pixel ring and a shadow on a field of its own colour.
+ * Light mode does the same thing three shades apart, where nobody would
+ * notice either way.
+ *
+ * So the accident was doing something worth keeping — cards need a darker
+ * field to lift off — and the dead class is removed rather than fixed, with
+ * the reasoning here so the next person to notice it does not "correct" it.
+ */
+const MOBILE_WORK_SURFACE = 'min-h-0 min-w-0 flex-col overflow-hidden';
+
 /** While one of the two lazily-loaded project tabs arrives. */
 function PaneWaiting() {
   return (
@@ -675,7 +697,12 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           ) : null}
 
           {spec.rightPane ? (
-            <section aria-label="Work surface" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface-1">
+            /*
+              No background here on purpose, and `bg-surface-1` — which named
+              no token and painted nothing — is gone rather than repaired.
+              See the note above `MOBILE_WORK_SURFACE`.
+            */
+            <section aria-label="Work surface" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               <CockpitPaneStrip
                 pane={pane}
                 project={project}
@@ -703,7 +730,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             aria-label="Work surface"
             hidden={mobileSurface !== 'work'}
             className={cn(
-              'min-h-0 min-w-0 flex-col overflow-hidden bg-surface-1',
+              MOBILE_WORK_SURFACE,
               mobileSurface === 'work' ? 'flex flex-1' : 'hidden',
             )}
           >
