@@ -170,6 +170,11 @@ you want more providers later.
 | `VITE_GOOGLE_CLIENT_ID` | Build-time, for the web app's sign-in button. The same client id; it is public by design. |
 | `REALYTICA_ALLOWED_ORIGINS` | Comma-separated exact origins the web app is served from. Unset means "reflect whatever asks", which is refused when `NODE_ENV=production` for the same reason `AUTH_MODE=off` is. |
 
+Serving the app from your own hostname changes two of these and no code at all —
+the web app calls `/api` relatively and nothing in the tree knows its own domain.
+[docs/runbooks/custom-domain.md](docs/runbooks/custom-domain.md) is the cutover,
+including why a Cloudflare proxy in front of Vercel is the part that bites.
+
 **The rest are optional** — the screening engine is deterministic and needs
 none of them:
 

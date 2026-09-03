@@ -140,6 +140,36 @@ needs it.
 **Production and Preview**. Locally, the same names in your shell or a
 `.env.local` you never commit.
 
+### Two that are not optional
+
+Everything above is a capability you can decline. These two are not, and the
+app enforces both by refusing to boot rather than by degrading — a deployment
+serving every project to anybody who finds the URL is the failure this prevents,
+and it is not one you notice from the outside.
+
+```bash
+# Who may sign in. See docs/auth.md — five minutes for an OAuth client.
+REALYTICA_AUTH_MODE=google
+REALYTICA_AUTH_CLIENT_ID=1234-abc.apps.googleusercontent.com
+VITE_GOOGLE_CLIENT_ID=1234-abc.apps.googleusercontent.com   # build-time, same id
+REALYTICA_AUTH_BOOTSTRAP_EMAILS=you@yourfirm.in             # set BEFORE the first deploy
+
+# Exact origins the web app is served from. Scheme and host, comma-separated,
+# no path and no trailing slash.
+REALYTICA_ALLOWED_ORIGINS=https://your-app.example.com
+```
+
+Unset, each one throws at startup with a message naming itself, and every
+`/api/*` route answers `500 FUNCTION_INVOCATION_FAILED`. The static SPA keeps
+serving perfectly throughout, which is what makes this worth stating twice: the
+site looks up. Check `/api/health`, not `/`.
+
+Adding a custom domain later means revisiting both — a new origin for the
+allowlist and a new authorised origin at the identity provider.
+[custom-domain.md](custom-domain.md) is the whole cutover.
+
+### The rest
+
 ```bash
 # 3. OpenRouter — the only variable the agent layer actually needs
 REALYTICA_BASE_URL=https://openrouter.ai/api

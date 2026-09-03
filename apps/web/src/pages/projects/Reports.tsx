@@ -46,7 +46,15 @@ export default function Reports() {
       {project.reports.length === 0 ? (
         <EmptyState title="No reports" description="Generate an executive, red-flag, evidence, or changes-since-previous view from the current records." />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
+        /*
+          Two columns only once the *pane* is wide enough to hold both, not
+          once the window is. `lg:` measured the window, so on a 1024px screen
+          the 16rem list took two thirds of a 388px pane and the report wrapped
+          one word per line. 44rem is 16rem of list, the gap, and about 40
+          characters of report left over; below it the list sits on top, where
+          a handful of report names cost one line each.
+        */
+        <div className="grid gap-4 [@container(min-width:44rem)]:grid-cols-[16rem_minmax(0,1fr)]">
           <Card>
             <CardBody className="space-y-1 p-2">
               {project.reports.map((r) => (

@@ -54,10 +54,14 @@ function NavGroup({
           key={item.to}
           to={item.to}
           end={item.end}
-          title={collapsed ? item.label : undefined}
+          /*
+           * `aria-label` rather than the visible text, because the text is
+           * `display:none` at this width and a hidden span names nothing.
+           */
+          aria-label={collapsed ? item.label : undefined}
           className={({ isActive }) =>
             cn(
-              'relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium',
+              'group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium',
               'transition-[background-color,color] duration-quick ease-state',
               isActive
                 ? 'bg-brand-soft text-brand before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-r before:bg-brand'
@@ -68,6 +72,28 @@ function NavGroup({
         >
           <item.icon size={16} className="shrink-0" />
           <span className={cn(collapsed && 'lg:hidden')}>{item.label}</span>
+          {/*
+            An eight-icon rail with no words is a memory test, and the browser's
+            own `title` is the wrong answer to it: it waits about a second, which
+            is longer than it takes to give up and click the icon to find out.
+            This one appears on hover and on keyboard focus, immediately.
+
+            `aria-hidden` because the link is already named above — a screen
+            reader that read both would say every item twice.
+          */}
+          {collapsed ? (
+            <span
+              aria-hidden="true"
+              className={cn(
+                'pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 whitespace-nowrap',
+                'rounded-md bg-ink px-2 py-1 text-[12px] font-medium text-ink-inverse opacity-0 shadow-pop',
+                'transition-opacity duration-quick ease-state',
+                'lg:block group-hover:opacity-100 group-focus-visible:opacity-100',
+              )}
+            >
+              {item.label}
+            </span>
+          ) : null}
         </NavLink>
       ))}
     </>
@@ -137,7 +163,14 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
           </button>
         </div>
 
-        <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
+        {/*
+          `overflow-y-auto` clips on both axes, which would cut every tooltip
+          off at the rail's edge. Collapsed, the rail is eight items and a
+          heading — roughly 330px, shorter than any window this layout runs in
+          — so it has nothing to scroll and can let them out. Expanded, the
+          labels are already visible and scrolling matters more.
+        */}
+        <nav className={cn('flex-1 space-y-0.5 px-2 py-3', collapsed ? 'overflow-y-auto lg:overflow-visible' : 'overflow-y-auto')}>
           <NavGroup items={PROJECT_ITEMS} collapsed={collapsed} />
           <NavGroup items={MORE_ITEMS} collapsed={collapsed} heading="More" />
         </nav>
@@ -147,9 +180,20 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
             type="button"
             onClick={onToggleCollapsed}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="mb-3 hidden w-full items-center justify-center rounded-lg py-1.5 text-ink-muted transition-colors hover:bg-sunken hover:text-ink lg:flex"
+            className="group relative mb-3 hidden w-full items-center justify-center rounded-lg py-1.5 text-ink-muted transition-colors hover:bg-sunken hover:text-ink lg:flex"
           >
             {collapsed ? <ChevronsRight size={15} /> : <ChevronsLeft size={15} />}
+            {/*
+              The way back out of the icon rail was an unlabelled chevron, which
+              is a poor thing to have to find when the labels are what you are
+              looking for.
+            */}
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-[12px] font-medium text-ink-inverse opacity-0 shadow-pop transition-opacity duration-quick ease-state lg:block group-hover:opacity-100 group-focus-visible:opacity-100"
+            >
+              {collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            </span>
           </button>
           <div className={cn('text-mini leading-snug text-ink-muted', collapsed && 'lg:hidden')}>
             <p className="font-medium text-ink-secondary">Due diligence OS</p>
