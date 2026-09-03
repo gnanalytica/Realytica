@@ -8,6 +8,11 @@ editing a source file to make a domain work, something else is wrong.
 
 Two things are true of this deployment and shape every step below.
 
+> **This cutover is done.** `realytica.gnanalytica.com` is live and is the
+> only hostname the deployment answers on; `/api/health` reports `status: ok`
+> with the Neo4j graph and Google auth attached. What follows is the procedure
+> that got it there, kept because the next domain will want it.
+
 **`gnanalytica.com` is served by Cloudflare, not by Vercel's edge.** The
 nameservers are `yew.ns.cloudflare.com` and `dorthy.ns.cloudflare.com`, and the
 apex answers from a Cloudflare address with `server: cloudflare` *and*
@@ -86,7 +91,7 @@ and issue a certificate.
 **Production** and **Preview**:
 
 ```
-REALYTICA_ALLOWED_ORIGINS=https://realytica.gnanalytica.com,https://realytica.vercel.app
+REALYTICA_ALLOWED_ORIGINS=https://realytica.gnanalytica.com
 ```
 
 Exact origins: scheme and host, no path, no trailing slash, no port. The
@@ -94,8 +99,18 @@ comparison is whole-value and case-insensitive, so `https://realytica.gnanalytic
 does not admit `http://` or a port or a suffixed lookalike — which is the point
 of it, and the reason a wildcard is not offered.
 
-Keeping the `vercel.app` origin alongside the custom one means the old URL stays
-usable during the cutover. Drop it once nobody is pointed at it.
+**One origin, and specifically not the `vercel.app` one.** Listing both is
+right for the hour of a cutover and wrong afterwards, for a reason that is
+easy to miss: a `vercel.app` hostname is only yours while the project holds
+it. Release it — which is what happens when a custom domain replaces the alias
+— and the name goes back into a pool anybody can claim by creating a project
+of that name. An origin on this list is a page the browser will let script
+this API; leaving one there that somebody else can take is the exact thing the
+allowlist exists to prevent.
+
+The bearer token still stands in the way (it lives in `localStorage`, so it is
+not sent cross-origin the way a cookie would be), so this is a second line
+rather than the only one. It is still not a line to leave open.
 
 Preview deployments get a fresh hostname per deploy and are therefore not in
 this list. That is fine and not an oversight: the SPA calls its own origin, so
@@ -147,9 +162,14 @@ it is the only one no `curl` will tell you about.
 
 ## Rolling back
 
-Remove the CNAME in Cloudflare. `realytica.vercel.app` keeps serving throughout
-— it is a separate alias on the same deployment and is unaffected by anything
-here — so a rollback is one record deletion and a DNS TTL, with no redeploy.
+Removing the CNAME in Cloudflare is one record deletion and a DNS TTL.
 
-Leave `REALYTICA_ALLOWED_ORIGINS` set. Rolling *that* back is what takes
-production down.
+It is no longer a rollback on its own. While the `vercel.app` alias still
+existed there was somewhere for traffic to land; the deployment now answers on
+`realytica.gnanalytica.com` and nothing else, so deleting the record takes the
+app off the internet rather than reverting it. A real rollback means putting an
+alias back on the project first, and adding it to `REALYTICA_ALLOWED_ORIGINS`
+before anybody is sent to it.
+
+Leave `REALYTICA_ALLOWED_ORIGINS` set either way. Emptying *that* is what
+refuses the boot.
