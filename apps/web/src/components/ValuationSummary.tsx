@@ -22,9 +22,10 @@
  * contradict the page it summarises, which is worse than not having one.
  */
 
-import type { ScreenResult, ValuationRun } from '@realytica/shared';
+import { VALUATION_METHOD_LABEL, approachIsUsable, type ScreenResult, type ValuationRun } from '@realytica/shared';
 import { Card, CardBody, Badge, cn } from './ui/kit';
 import type { Tone } from './ui/kit';
+import { FormulaTip, type Derivation } from './FormulaTip';
 import { pct } from '../lib/format';
 
 function money(n: number, currency: string): string {
@@ -73,6 +74,98 @@ export function ValuationSummary({
    */
   const bandIsWide = spreadPct !== null && spreadPct >= 25;
 
+  /*
+   * How the headline was arrived at, on the headline.
+   *
+   * This is the one number on the page a reader will act on, and it was the
+   * only number with no way at all to ask where it came from — the working
+   * that produced it is real, stored and rendered further down, but a figure
+   * set in 26px at the top of a tab is where somebody stops reading. So the
+   * blend is on it: every approach that ran, what each contributed, what the
+   * site's surroundings took off afterwards, and the sentence stating why the
+   * weights are what they are.
+   *
+   * Built only from what the run stored. A run written before the working
+   * model existed carries no approaches, and gets no dotted underline rather
+   * than a reconstructed one.
+   */
+  const working = run.working;
+  const usable = (working?.runs ?? []).filter(approachIsUsable);
+  const weightTotal = usable.reduce((sum, r) => sum + r.weight, 0);
+  const externalityPct = working ? working.externalities.factorPct * 100 : 0;
+
+  const externalityApplies = Math.abs(externalityPct) >= 0.05;
+
+  /*
+   * A blend of one is not a blend.
+   *
+   * With a single usable approach the weighted-sum formula is arithmetically
+   * correct and reads as nonsense: "₹50,23,20,000 × 30% = ₹50,23,20,000",
+   * divided by a total weight of 0.30. Every term is true and the whole thing
+   * invites the reader to conclude the page cannot multiply. What actually
+   * happened is that one approach ran and carries the entire figure — which is
+   * both simpler to state and the more important fact, because a valuation
+   * resting on one method has no cross-check at all.
+   */
+  const soleApproach = usable.length === 1 ? usable[0] : undefined;
+
+  const derivation: Derivation | undefined =
+    hasFigure && usable.length > 0
+      ? {
+          formula: soleApproach
+            ? 'one approach ran — it carries the whole figure' +
+              (externalityApplies ? ', less what the site is next to' : '')
+            : 'Σ(approach × weight) ÷ Σ weight' +
+              (externalityApplies ? ', then what the site is next to' : ''),
+          substituted: soleApproach
+            ? soleApproach.formula
+            : usable
+                .map((r) => `${money(r.amount ?? 0, run.currency)} × ${(r.weight * 100).toFixed(0)}%`)
+                .join('  +  '),
+          result: money(run.indicatedValue, run.currency),
+          steps: [
+            ...usable.map((r) => ({
+              label: VALUATION_METHOD_LABEL[r.method],
+              expression: r.formula,
+              value: money(r.amount ?? 0, run.currency),
+            })),
+            ...(externalityApplies
+              ? [
+                  {
+                    label: 'What the site is next to',
+                    expression: working!.externalities.applied.map((a) => a.label).join(', '),
+                    value: `${externalityPct > 0 ? '+' : ''}${externalityPct.toFixed(1)}%`,
+                  },
+                ]
+              : []),
+          ],
+          note: (
+            <>
+              {soleApproach ? (
+                <>
+                  Only <span className="font-medium">{VALUATION_METHOD_LABEL[soleApproach.method]}</span> had all of
+                  its inputs, so its weight of {(soleApproach.weight * 100).toFixed(0)}% is normalised to the whole —
+                  nothing is being averaged against it.{' '}
+                </>
+              ) : (
+                <>Divided by {weightTotal.toFixed(2)}, the weights of the approaches that ran. </>
+              )}
+              {working?.reconciliation.spreadBasis}
+              {working && working.reconciliation.skippedMethods.length > 0 ? (
+                <>
+                  {' '}
+                  Not run:{' '}
+                  {working.reconciliation.skippedMethods
+                    .map((m) => `${VALUATION_METHOD_LABEL[m.method]} (${m.because})`)
+                    .join('; ')}
+                  .
+                </>
+              ) : null}
+            </>
+          ),
+        }
+      : undefined;
+
   const drivers = (screen?.drivers ?? [])
     .filter((d) => !d.reconciling)
     .slice()
@@ -88,11 +181,35 @@ export function ValuationSummary({
             {hasFigure ? (
               <>
                 <p className="font-mono text-[26px] font-semibold leading-none tracking-tight tabular-nums text-ink">
-                  {money(run.indicatedValue, run.currency)}
+                  {derivation ? (
+                    <FormulaTip label="How this figure was reached" derivation={derivation}>
+                      {money(run.indicatedValue, run.currency)}
+                    </FormulaTip>
+                  ) : (
+                    money(run.indicatedValue, run.currency)
+                  )}
                 </p>
                 <p className="mt-1.5 font-mono text-[12.5px] tabular-nums text-ink-secondary">
                   {money(run.low, run.currency)} – {money(run.high, run.currency)}
-                  {spreadPct !== null ? <span className="text-ink-muted"> · ±{spreadPct}%</span> : null}
+                  {spreadPct !== null ? (
+                    <span className="text-ink-muted">
+                      {' · '}
+                      <FormulaTip
+                        label="Band width"
+                        derivation={{
+                          formula: '(high − low) ÷ 2 ÷ mid',
+                          substituted: `(${money(run.high, run.currency)} − ${money(run.low, run.currency)}) ÷ 2 ÷ ${money(run.indicatedValue, run.currency)}`,
+                          result: `±${spreadPct}%`,
+                          note:
+                            usable.length > 1
+                              ? 'The low and high are the least and greatest of the approaches that ran, not a statistical interval — the band is how much the methods disagree.'
+                              : 'Only one approach ran, so this band is that approach’s own range rather than a comparison between methods.',
+                        }}
+                      >
+                        ±{spreadPct}%
+                      </FormulaTip>
+                    </span>
+                  ) : null}
                 </p>
               </>
             ) : (

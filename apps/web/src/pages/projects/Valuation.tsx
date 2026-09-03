@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   rule8Summary,
   titleGraphFromProject,
@@ -11,7 +11,8 @@ import {
   type ValuationSignOff,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Select, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Select, Tabs, useToast } from '../../components/ui/kit';
+import type { TabDef } from '../../components/ui/kit';
 import { ScreenResultPanel } from '../../components/ScreenResultPanel';
 import { ScheduleOfProperty } from '../../components/ScheduleOfProperty';
 import { countryForCurrency } from '../../lib/units';
@@ -44,10 +45,23 @@ function runMethod(run: { ibbi: { instruction: string }; working?: unknown }): s
   return 'Indicative valuation';
 }
 
+/**
+ * Which slice of the working the reader is standing in.
+ *
+ * Deliberately a URL parameter rather than component state: a valuer who has
+ * scrolled to a compliance blocker and wants a colleague to look at it sends a
+ * link, and a link that reopens on the summary has not sent them anything. It
+ * is also what makes the browser's back button behave — a tab strip that
+ * swallows navigation is the single most common way an in-page tab set
+ * frustrates somebody.
+ */
+type ValueView = 'working' | 'market' | 'compliance' | 'costs' | 'evidence';
+
 export default function Valuation() {
   const { project, setProject } = useOutletContext<ProjectOutlet>();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [params, setParams] = useSearchParams();
   const runs = [...(project.valuationRuns ?? [])].slice().reverse();
   // Read from the project graph, which holds the title entities the screen
   // works out — rather than from the full TitleGraph, which runScreen builds
@@ -90,6 +104,72 @@ export default function Valuation() {
     }
   }
 
+  const screenResult = project.lastScreenResult;
+
+  /*
+   * Only offer a tab that has something behind it.
+   *
+   * A file with no property screen has a working and nothing else, and five
+   * tabs where four open onto an empty pane is a worse page than no tabs at
+   * all — it implies the analysis exists and failed to load.
+   */
+  const views: (TabDef & { key: ValueView })[] = [
+    { key: 'working', label: 'Working' },
+    ...(screenResult && (screenResult.comparables.length > 0 || screenResult.drivers.length > 0)
+      ? [{ key: 'market' as const, label: 'Market' }]
+      : []),
+    ...(screenResult
+      ? [
+          {
+            key: 'compliance' as const,
+            label: 'Compliance',
+            // The one count worth carrying on the tab itself: a blocker is a
+            // stop-spending finding and should not need a click to discover.
+            badge: blockerCount(screenResult) ? (
+              <Badge tone="critical">{blockerCount(screenResult)}</Badge>
+            ) : undefined,
+          },
+        ]
+      : []),
+    ...(screenResult?.transactionCosts ? [{ key: 'costs' as const, label: 'Costs' }] : []),
+    ...(screenResult ? [{ key: 'evidence' as const, label: 'Evidence' }] : []),
+  ];
+
+  const requested = params.get('view') as ValueView | null;
+  // A stale link to a tab this file no longer has falls back rather than
+  // rendering nothing at all.
+  const view: ValueView = views.some((v) => v.key === requested) ? requested! : 'working';
+  const setView = (key: string) => {
+    const next = new URLSearchParams(params);
+    // 'working' is the default, so it stays out of the URL — otherwise every
+    // link anybody copies from this page carries a redundant parameter.
+    if (key === 'working') next.delete('view');
+    else next.set('view', key);
+    setParams(next, { replace: true });
+  };
+
+  /*
+   * The figure pinned at the top, handed down so the screen's own range card
+   * can reconcile itself against it instead of quietly printing a second one.
+   */
+  const headlineFigure =
+    latest && (!latest.working || latest.working.reconciliation.outcome === 'indicated')
+      ? { value: latest.indicatedValue, label: runMethod(latest) }
+      : undefined;
+
+  const screenPanel = (only: Parameters<typeof ScreenResultPanel>[0]['only']) =>
+    screenResult ? (
+      <ScreenResultPanel
+        result={screenResult}
+        only={only}
+        headline={headlineFigure}
+        askingPrice={project.budget}
+        subjectAreaSqm={project.builtUpAreaSqm ?? project.landAreaSqm}
+        country={countryForCurrency(project.currency)}
+        locality={project.city}
+      />
+    ) : null;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -109,9 +189,25 @@ export default function Valuation() {
         />
       ) : (
         <>
-        {/* The answer first. Everything below this card is the working, and it
-            runs to roughly eighteen screens. */}
-        <ValuationSummary run={latest} screen={project.lastScreenResult} method={runMethod(latest)} />
+        {/*
+          The answer, and it stays put.
+
+          Everything below the tab strip is the working — measured, about
+          eighteen screens of it in an eight-hundred-pixel pane. Splitting that
+          into five views is what makes each one readable; pinning the figure
+          above the strip is what stops the split from hiding the answer. A
+          reader who tabs to Compliance is still looking at the number the
+          compliance finding is about.
+        */}
+        <ValuationSummary run={latest} screen={screenResult} method={runMethod(latest)} />
+
+        {/* A blocker outranks whichever tab you happen to be on. */}
+        {screenPanel(['blockers'])}
+
+        {views.length > 1 ? <Tabs tabs={views} active={view} onChange={setView} /> : null}
+
+        {view === 'working' ? (
+        <>
         <Card>
           {/*
             `indicatedValue` is 0 when there is no figure, and a headline of ₹0
@@ -215,10 +311,17 @@ export default function Valuation() {
             </p>
           </CardBody>
         </Card>
+
+        {/* The screen's own blend of anchors — the second opinion on the same
+            question, and the card that reconciles itself against the figure
+            pinned at the top when the two methods disagree. */}
+        {screenPanel(['range'])}
+        </>
+        ) : null}
         </>
       )}
 
-      {runs.length > 1 ? (
+      {view === 'working' && runs.length > 1 ? (
         <Card>
           {/*
             "Prior runs" said these had been superseded. Two of the buttons on
@@ -254,37 +357,51 @@ export default function Valuation() {
         the transaction costs on every run; until this was rendered, all of it
         was discarded and the reader got a verdict with nothing behind it.
       */}
-      {project.lastScreenResult ? (
-        <section className="space-y-4 pt-2">
-          <h2 className="text-[13px] font-semibold tracking-tight text-ink">
-            Property screen
-            <span className="ml-2 font-normal text-ink-muted">
-              {formatWhen(project.lastScreenResult.generatedAt)} · engine {project.lastScreenResult.engineVersion}
-            </span>
-          </h2>
-          <ScreenResultPanel
-            result={project.lastScreenResult}
-            askingPrice={project.budget}
-            country={countryForCurrency(project.currency)}
-            locality={project.city}
-          />
-          {titleGraph.nodes.length > 0 ? (
+      {screenResult && view !== 'working' ? (
+        <section className="space-y-4">
+          {/* Which screen this is, on every view that renders one — a reader
+              who tabbed straight to Compliance never saw the timestamp. */}
+          <p className="text-[11px] text-ink-muted">
+            Property screen · {formatWhen(screenResult.generatedAt)} · engine {screenResult.engineVersion}
+          </p>
+
+          {view === 'market' ? screenPanel(['market']) : null}
+          {view === 'costs' ? screenPanel(['costs']) : null}
+          {view === 'evidence' ? screenPanel(['evidence']) : null}
+
+          {view === 'compliance' ? (
             <>
-              <Card>
-                <CardHeader title="Title structure" />
-                <CardBody>
-                  <TitleChainDiagram graph={titleGraph} summary={project.lastScreenResult.titleGraph} />
-                </CardBody>
-              </Card>
-              {/* What the deeds say the land is bounded by — the schedule a
-                  valuer reads before believing any extent on the file. */}
-              <ScheduleOfProperty graph={titleGraph} />
+              {screenPanel(['compliance'])}
+              {/* The title chain and the schedule of property belong with the
+                  statutory checks, not below the market evidence: they are the
+                  same question — is the title what the file says it is. */}
+              {titleGraph.nodes.length > 0 ? (
+                <>
+                  <Card>
+                    <CardHeader
+                      title="Title structure"
+                      subtitle="Every conveyance on file, and what it left unresolved."
+                    />
+                    <CardBody>
+                      <TitleChainDiagram graph={titleGraph} summary={screenResult.titleGraph} />
+                    </CardBody>
+                  </Card>
+                  {/* What the deeds say the land is bounded by — the schedule a
+                      valuer reads before believing any extent on the file. */}
+                  <ScheduleOfProperty graph={titleGraph} />
+                </>
+              ) : null}
             </>
           ) : null}
         </section>
       ) : null}
     </div>
   );
+}
+
+/** Blockers on a screen, for the count that rides on the Compliance tab. */
+function blockerCount(result: { stateCompliance?: { checks: { verdict: string }[] } }): number {
+  return (result.stateCompliance?.checks ?? []).filter((c) => c.verdict === 'blocker').length;
 }
 
 function FieldSignOff({ value, onChange }: { value: ValuationSignOff; onChange: (v: ValuationSignOff) => void }) {
