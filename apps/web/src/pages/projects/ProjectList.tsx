@@ -134,7 +134,13 @@ export default function ProjectList() {
                         <p className="mt-0.5 text-[15px] font-semibold text-ink">{p.name}</p>
                         <p className="mt-1 text-[13px] text-ink-secondary">
                           {PROJECT_ARCHETYPE_LABEL[p.type]} · {p.city} · {LIFECYCLE_STAGE_LABEL[p.currentStage]}
-                          {p.portfolio ? ` · ${p.portfolio}` : ''}
+                          {/* The portfolio is the heading these cards sit
+                              under whenever grouping is on, and repeating it
+                              on every card put "Bengaluru" twice in one line:
+                              once as the city, once inside "Bengaluru
+                              residential". Only shown when nothing above
+                              already says it. */}
+                          {p.portfolio && !showGroups ? ` · ${p.portfolio}` : ''}
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">

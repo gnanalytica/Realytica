@@ -4,7 +4,7 @@ import { Plus, Workflow } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { useMe } from '../../lib/useMe';
-import { Badge, Button, Callout, Card, CardBody, EmptyState, Field, Input, Skeleton, useToast } from '../../components/ui/kit';
+import { Badge, Button, Callout, Card, CardBody, EmptyState, Field, Input, Skeleton, Spinner, useToast } from '../../components/ui/kit';
 import { formatWhen } from '../projects/shared';
 import { CredentialsCard } from './Credentials';
 
@@ -57,7 +57,16 @@ export default function FlowList() {
               <Field label="Name" className="min-w-[16rem] flex-grow">
                 <Input value={name} placeholder="Evidence gap sweep" onChange={(e) => setName(e.target.value)} />
               </Field>
-              <Button icon={<Plus size={14} />} disabled={busy} onClick={() => void create()}>New flow</Button>
+              {/* The create takes a couple of seconds; without saying so the only
+                  feedback is a button that has stopped responding, which reads
+                  as a dead click rather than a busy one. */}
+              <Button
+                icon={busy ? <Spinner size={14} /> : <Plus size={14} />}
+                disabled={busy}
+                onClick={() => void create()}
+              >
+                {busy ? 'Creating…' : 'New flow'}
+              </Button>
             </div>
           </CardBody>
         </Card>

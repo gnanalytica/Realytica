@@ -133,14 +133,22 @@ export default function Valuation() {
                   <ValuationWorkingPanel working={latest.working} currency={latest.currency} />
                 </div>
               ) : (
-                <ul className="mt-2 space-y-2">
+                /*
+                  A run written before the working model existed has no
+                  per-input provenance to show, but it still has four figures
+                  somebody needs to compare — and comparing eleven-digit
+                  amounts with Indian grouping, floated right against ragged
+                  prose, is a character-by-character diff. Same aligned columns
+                  as the panel above, so the two paths read alike.
+                */
+                <ul className="mt-2 divide-y divide-hairline rounded-lg border border-hairline">
                   {latest.ibbi.approaches.map((a) => (
-                    <li key={a.approach} className="flex items-start justify-between gap-3 text-[13px]">
-                      <span>
+                    <li key={a.approach} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 px-3 py-2 text-[13px]">
+                      <span className="min-w-0">
                         <span className="font-medium text-ink">{VALUATION_APPROACH_LABEL[a.approach]}</span>
-                        <span className="block text-ink-secondary">{a.notes}</span>
+                        {a.notes ? <span className="block text-[12px] text-ink-secondary">{a.notes}</span> : null}
                       </span>
-                      <span className="shrink-0 font-mono text-ink">{money(a.amount, latest.currency)}</span>
+                      <span className="text-right font-mono tabular-nums text-ink">{money(a.amount, latest.currency)}</span>
                     </li>
                   ))}
                 </ul>
@@ -241,26 +249,35 @@ function FieldSignOff({ value, onChange }: { value: ValuationSignOff; onChange: 
  * The summary line is deliberately never congratulatory: twelve of twelve is a
  * complete STRUCTURE, and a structure is not a certificate.
  */
+/** Rule 8(3) completeness in the app's own status vocabulary. */
+const RULE8_LABEL = { stated: 'Stated', partial: 'Partial', missing: 'Missing' } as const;
+const RULE8_TONE = { stated: 'good', partial: 'warning', missing: 'critical' } as const;
+
 function Rule8Checklist({ sections }: { sections: Parameters<typeof rule8Summary>[0] }) {
   const summary = rule8Summary(sections, sections.rule8 ?? {});
   return (
     <section>
       <h3 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">IBBI Rule 8(3) report contents</h3>
       <p className="mt-1 text-[12px] text-ink-secondary">{summary.say}</p>
+      {/*
+        Each item wears its own status, in words.
+
+        The header counts "4 stated, 5 partial, 3 missing" and the only way to
+        tell which item was which was the colour of its clause number — so the
+        summary could not be matched to the list without knowing that green
+        meant stated, and a reader who cannot separate the hues had nothing at
+        all. Every other status in this product pairs a colour with a label;
+        the one place a valuer checks a statutory obligation against is not
+        where to make an exception.
+
+        Three aligned columns so the statuses read down the page as a column
+        rather than being hunted for in prose.
+      */}
       <ul className="mt-2 space-y-1">
         {summary.rows.map((row) => (
-          <li key={row.item} className="flex items-baseline gap-2 text-[12px]">
-            <span
-              className={
-                row.status === 'stated'
-                  ? 'w-14 shrink-0 font-mono text-[10.5px] text-status-good-text'
-                  : row.status === 'partial'
-                    ? 'w-14 shrink-0 font-mono text-[10.5px] text-status-warning'
-                    : 'w-14 shrink-0 font-mono text-[10.5px] text-status-critical'
-              }
-            >
-              {row.clause}
-            </span>
+          <li key={row.item} className="grid grid-cols-[3.25rem_5.5rem_minmax(0,1fr)] items-baseline gap-2 text-[12px]">
+            <span className="font-mono text-[10.5px] text-ink-muted">{row.clause}</span>
+            <Badge tone={RULE8_TONE[row.status]}>{RULE8_LABEL[row.status]}</Badge>
             <span className="min-w-0">
               <span className={row.status === 'missing' ? 'text-ink-muted' : 'text-ink'}>{row.says}</span>
               {row.note ? <span className="block text-[11px] text-ink-muted">{row.note}</span> : null}

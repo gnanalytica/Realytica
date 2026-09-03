@@ -133,8 +133,20 @@ export function RisksActions() {
           <Card>
             <CardBody className="divide-y divide-hairline p-0">
               {risks.rows.map((r) => (
-                <LiveRow key={r.id} id={r.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-start justify-between gap-2 px-4 py-3">
-                  <div>
+                /*
+                  `flex-wrap` around an unconstrained text column is why the
+                  same card rendered two ways in one list: a long title grew
+                  the left column until the badge and the status dropdown no
+                  longer fit beside it, and wrapped them onto a third row —
+                  while the shorter cards below kept them inline. Which layout
+                  you got depended on how much somebody had typed.
+
+                  The text column shrinks (`min-w-0 flex-1`) and the controls
+                  refuse to (`shrink-0`), so the row is the same shape at every
+                  description length.
+                */
+                <LiveRow key={r.id} id={r.id} highlightIds={liveIds} variant="flush" className="flex items-start justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-medium text-ink">{r.title}</p>
                     <p className="text-[12px] text-ink-secondary">{r.cause}</p>
                     <p className="mt-1 text-[11px] text-ink-muted">
@@ -142,7 +154,7 @@ export function RisksActions() {
                     </p>
                     <AssignCell className="mt-0.5 -ml-1.5" project={project} targetId={r.id} owner={r.owner} onAssigned={setProject} />
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-2">
                     <Badge tone={severityTone(r.materiality)}>{SEVERITY_LABEL[r.materiality]}</Badge>
                     <Select value={r.status} onChange={(e) => void api.patchRisk(project.id, r.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}>
                       {(Object.keys(RISK_STATUS_LABEL) as DdRiskStatus[]).map((s) => (
@@ -268,13 +280,15 @@ export function DecisionRegister() {
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
             {project.decisions.map((d) => (
-              <div key={d.id} className="flex flex-wrap items-start justify-between gap-2 px-4 py-3">
-                <div>
+              /* Same shape, same fix — a long rationale must not relocate the
+                 status dropdown. */
+              <div key={d.id} className="flex items-start justify-between gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium text-ink">{d.title}</p>
                   <p className="text-[12px] text-ink-secondary">{d.rationale}</p>
                   <p className="mt-1 text-[11px] text-ink-muted">{DECISION_TYPE_LABEL[d.decisionType]} · {d.decisionMaker}</p>
                 </div>
-                <Select value={d.status} onChange={(e) => void api.patchDecision(project.id, d.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}>
+                <Select className="shrink-0" value={d.status} onChange={(e) => void api.patchDecision(project.id, d.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}>
                   {(Object.keys(DECISION_STATUS_LABEL) as DecisionStatus[]).map((s) => (
                     <option key={s} value={s}>{DECISION_STATUS_LABEL[s]}</option>
                   ))}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Building2,
   Camera,
@@ -106,7 +106,7 @@ export const SECTIONS: CockpitSection[] = [
     tabs: [
       { pane: 'reports', label: 'Reports', icon: FileText },
       { pane: 'drafts', label: 'Drafts', icon: Sparkles },
-      { pane: 'orchestrate', label: 'Orchestrator', icon: Workflow },
+      { pane: 'orchestrate', label: 'Auto-run', icon: Workflow },
     ],
   },
 ];
@@ -163,6 +163,66 @@ function chipRow(wrap: boolean): string {
   return wrap ? 'flex flex-wrap gap-1.5' : CHIP_SCROLL;
 }
 
+/**
+ * Whether a scroller has more to show, on each side.
+ *
+ * The chip row hides its scrollbar on purpose — a visible one across a
+ * five-item tab strip is uglier than the problem it solves — but hiding it
+ * removed the only thing saying the row scrolled at all. On a phone that put
+ * Report off the right edge of Overview / Assess / Records / Value with
+ * nothing to suggest it was there, so the last tab in the product's own
+ * workflow order was invisible unless you happened to swipe.
+ *
+ * Measured rather than assumed: a fade painted unconditionally would sit at
+ * the edge of a row that fits, implying content that does not exist.
+ */
+function useEdges(): [React.RefObject<HTMLDivElement>, { start: boolean; end: boolean }] {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ start: false, end: false });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      // A couple of pixels of slack: sub-pixel widths otherwise leave a fade
+      // showing at a scroll position that is visually the end.
+      const maxScroll = el.scrollWidth - el.clientWidth;
+      setEdges({ start: el.scrollLeft > 2, end: el.scrollLeft < maxScroll - 2 });
+    };
+    measure();
+    el.addEventListener('scroll', measure, { passive: true });
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener('scroll', measure);
+      observer.disconnect();
+    };
+  }, []);
+
+  return [ref, edges];
+}
+
+/** The chip row, with a fade wherever it continues past the edge. */
+function ChipScroller({ wrap, children }: { wrap: boolean; children: ReactNode }) {
+  const [ref, edges] = useEdges();
+  if (wrap) return <div className={chipRow(true)}>{children}</div>;
+  return (
+    <div className="relative min-w-0">
+      <div ref={ref} className={chipRow(false)}>
+        {children}
+      </div>
+      {/* `from-surface` because that is what the strip is painted on — a fade
+          to transparent would show whatever is behind it instead. */}
+      {edges.start ? (
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-surface to-transparent" />
+      ) : null}
+      {edges.end ? (
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-surface to-transparent" />
+      ) : null}
+    </div>
+  );
+}
+
 function Count({ n }: { n: number }) {
   return <span className="tabular rounded-full bg-warning/25 px-1.5 text-[10px] text-ink">{n}</span>;
 }
@@ -197,7 +257,7 @@ export function CockpitPaneStrip({
 
   return (
     <div className={cn('shrink-0 space-y-1.5 border-b border-hairline bg-surface py-2', wrap ? 'px-4' : 'px-3')}>
-      <div className={chipRow(wrap)}>
+      <ChipScroller wrap={wrap}>
         {SECTIONS.map((section) => {
           const Icon = section.icon;
           const on = section.key === here.key;
@@ -219,12 +279,12 @@ export function CockpitPaneStrip({
             </button>
           );
         })}
-      </div>
+      </ChipScroller>
 
       {here.key === 'assess' ? (
         <AssessNav project={project} ddId={ddId} scopeId={scopeId} onGo={onGo} wrap={wrap} />
       ) : tabs.length > 1 ? (
-        <div className={chipRow(wrap)}>
+        <ChipScroller wrap={wrap}>
           {tabs.map((tab) => {
             const on = paneActive(pane, tab.pane);
             const count = badgeFor(tab.pane, badges);
@@ -244,7 +304,7 @@ export function CockpitPaneStrip({
               </button>
             );
           })}
-        </div>
+        </ChipScroller>
       ) : null}
     </div>
   );
@@ -277,7 +337,7 @@ function AssessNav({
 
   const picker =
     rows.length <= CHIPS_UNTIL ? (
-      <div className={chipRow(wrap)}>
+      <ChipScroller wrap={wrap}>
         <button
           type="button"
           onClick={() => onGo('dd')}
@@ -303,7 +363,7 @@ function AssessNav({
             {a.name}
           </button>
         ))}
-      </div>
+      </ChipScroller>
     ) : (
       <div className="relative flex items-center gap-1.5">
         <button
@@ -360,7 +420,7 @@ function AssessNav({
     <>
       {picker}
       {current && current.scopes.length > 0 ? (
-        <div className={chipRow(wrap)}>
+        <ChipScroller wrap={wrap}>
           {current.scopes.map((scope) => {
             const c = scopeCompleteness(scope);
             const on = scopeId === scope.id;
@@ -380,7 +440,7 @@ function AssessNav({
               </button>
             );
           })}
-        </div>
+        </ChipScroller>
       ) : null}
     </>
   );

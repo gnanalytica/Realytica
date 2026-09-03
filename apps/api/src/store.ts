@@ -216,6 +216,15 @@ function normalizeStoreData(loaded: StoreData | null): StoreData {
  */
 const PROJECT_KEY = 'project.json';
 
+/**
+ * How often a miss may pay for a re-read of the workspace document.
+ *
+ * Long enough that a wrong id in a URL cannot turn into a storage read per
+ * request; short enough that "create it, then open it" — which is one human
+ * click after another — always crosses it.
+ */
+const REFRESH_MIN_INTERVAL_MS = 2_000;
+
 class Store {
   data: StoreData = emptyStore();
 
@@ -267,6 +276,66 @@ class Store {
     // Everything loaded is by definition already persisted, so nothing is
     // rewritten until it actually changes.
     for (const project of this.data.projects ?? []) this.persistedAt.set(project.id, project.updatedAt);
+  }
+
+  /** When the core document was last re-read, for the throttle below. */
+  private lastRefresh = 0;
+
+  /**
+   * Re-read the workspace-level half of the store from the adapter.
+   *
+   * `init` runs once at boot and `data` is synchronous from then on, which is
+   * exactly right for one long-running process and wrong for a serverless
+   * deployment, where "the process" is several instances that each loaded
+   * their own snapshot at their own cold start. A flow created on instance A
+   * is durable the moment A returns 201, and still absent from instance B's
+   * memory — so the very next read, if it lands on B, answers "Flow not
+   * found" about something that demonstrably exists. Clicking again lands on
+   * A and it works, which is what makes it look intermittent rather than
+   * structural.
+   *
+   * So a handler that is about to 404 on something the caller has good reason
+   * to believe exists calls this first, and only then decides.
+   *
+   * Deliberately narrow. It re-reads the core document — flows, tenants,
+   * credentials, the workspace-level lists — and does NOT touch project
+   * shards, which are large, numerous, and already reloaded per project where
+   * that matters. It also leaves `persistedAt` alone: that map tracks what
+   * THIS instance has written, and forgetting it would make the next save
+   * rewrite every project.
+   *
+   * Throttled, because the miss path is reachable by anyone typing a URL and
+   * an unthrottled reload would turn a 404 into a storage read per request.
+   */
+  async refreshWorkspace(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastRefresh < REFRESH_MIN_INTERVAL_MS) return;
+    this.lastRefresh = now;
+    try {
+      const raw = await storageAdapter.readStore();
+      /*
+       * `readStore` answers null for a document that is absent OR unreadable —
+       * the adapter logs the parse failure and recovers to an empty store,
+       * which is the right call at boot and the wrong one here. Adopting it
+       * would blank this instance's flows, tenants and credentials because a
+       * document was briefly mid-write, turning a 404 on one flow into the
+       * disappearance of all of them. Learning nothing is the safe outcome.
+       */
+      if (!raw) {
+        console.warn('[store] the workspace document could not be read on refresh — keeping the snapshot in memory');
+        return;
+      }
+      const loaded = normalizeStoreData(raw);
+      // Projects are sharded and are not in this document; keeping ours
+      // avoids emptying the list on every refresh.
+      const projects = this.data.projects;
+      this.data = { ...loaded, projects };
+      this.data.projectIds = undefined;
+    } catch (err) {
+      // A refresh that fails must not turn a clean 404 into a 500 — the
+      // caller carries on with the snapshot it already had.
+      console.warn(`[store] could not refresh the workspace document: ${(err as Error).message}`);
+    }
   }
 
   /** One project shard, or null when it is absent or unreadable. */

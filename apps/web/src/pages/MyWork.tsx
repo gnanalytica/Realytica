@@ -143,7 +143,7 @@ export default function MyWork() {
               title="Nothing is waiting on you"
               description={
                 me
-                  ? `Work is yours when its owner reads ${me.email}${me.name ? ` or ${me.name}` : ''}. Typing a name a different way is why a row can be missing here and present on the project.`
+                  ? `Work is yours when its owner reads ${me.email}${me.name ? ` or ${me.name}` : ''}. If a name is spelled differently on the project, its work will not appear here — check the spelling matches.`
                   : 'Work is yours when its owner field names you.'
               }
             />

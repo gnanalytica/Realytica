@@ -103,7 +103,9 @@ export default function Assets() {
                       setStage(asset.currentStage);
                     }}
                   >
-                    Stage
+                    {/* A bare "Stage" beside a stage badge reads as a stray
+                        column header, not a control. Name the action. */}
+                    Change stage
                   </Button>
                 </div>
               </LiveRow>
