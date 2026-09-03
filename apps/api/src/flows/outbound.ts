@@ -132,6 +132,33 @@ export async function assertReachable(raw: string, env: NodeJS.ProcessEnv = proc
   return url;
 }
 
+/**
+ * Reach out, having checked where — and refuse to be redirected elsewhere.
+ *
+ * `assertReachable` runs once, before the request. `fetch` then followed
+ * redirects by default, so a host that passed the check could answer
+ * `302 Location: http://169.254.169.254/...` and the body of an address
+ * nothing had checked came back as the node's result. The pre-flight guard was
+ * never wrong; it was simply not the last word on where the request went.
+ *
+ * Both halves live in one function because they are one decision. A caller
+ * that did its own `fetch` after calling `assertReachable` would be reopening
+ * exactly this hole, and there is now no reason for one to.
+ */
+export async function fetchOutbound(raw: string, init: RequestInit = {}): Promise<Response> {
+  const url = await assertReachable(raw);
+  const res = await fetch(url, { ...init, redirect: 'manual' });
+  if (res.status >= 300 && res.status < 400) {
+    const to = res.headers.get('location');
+    throw new OutboundRefused(
+      `${raw} answered ${res.status} and redirected to ${to ?? 'an address it did not name'}. ` +
+        'Redirects are not followed: where a flow may reach is checked before the request is sent, and a redirect is a second address that check never saw. ' +
+        'Point this at the final URL.',
+    );
+  }
+  return res;
+}
+
 function refusal(host: string, address: string): string {
   return (
     `${host} resolves to ${address}, which is inside this deployment's own network. ` +

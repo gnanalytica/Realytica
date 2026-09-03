@@ -11,7 +11,7 @@ import { agentCapability, allDescriptors, resolveRoute } from '@realytica/agents
 import { graphAdapter } from '../graph';
 import { memoryReadableBy, memoryStore } from '../memory';
 import { noteCredentialUse, secretFor } from './credentials';
-import { OutboundRefused, assertReachable } from './outbound';
+import { OutboundRefused, assertReachable, fetchOutbound } from './outbound';
 
 /**
  * What each node kind actually does, once the engine has decided it should.
@@ -126,6 +126,17 @@ function authHeaders(tenantId: string, credentialId: string | undefined): Record
   }
 }
 
+/**
+ * How long an MCP server has to answer before the node gives up.
+ *
+ * The same ceiling `runHttp` applies to a plain request. An MCP call is not a
+ * cheaper thing than an HTTP one — it *is* an HTTP one — so there was never a
+ * reason for it to be able to wait forever: a scheduled tick awaits its flows
+ * one after another, so one server that accepts the connection and never
+ * answers stalled every later flow in every workspace behind it.
+ */
+const MCP_TIMEOUT_MS = 30_000;
+
 async function runHttp(input: NodeHandlerInput, ctx: HandlerContext): Promise<Payload> {
   if (input.node.config.kind !== 'http') return {};
   const c = input.node.config;
@@ -136,13 +147,6 @@ async function runHttp(input: NodeHandlerInput, ctx: HandlerContext): Promise<Pa
   // assembled from the payload is exactly the one worth checking. See
   // `./outbound.ts` for why a text field plus a stored credential is an SSRF
   // primitive rather than merely a feature.
-  try {
-    await assertReachable(url);
-  } catch (err) {
-    if (err instanceof OutboundRefused) throw new NodeFailed(err.message);
-    throw err;
-  }
-
   const headers: Record<string, string> = { accept: 'application/json' };
   for (const [k, v] of Object.entries(c.headers ?? {})) headers[k] = fillTemplate(v, input.payload);
   Object.assign(headers, authHeaders(ctx.tenantId, c.credentialId));
@@ -152,7 +156,7 @@ async function runHttp(input: NodeHandlerInput, ctx: HandlerContext): Promise<Pa
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.min(c.timeoutMs ?? 15_000, 60_000));
   try {
-    const res = await fetch(url, { method: c.method, headers, body, signal: controller.signal });
+    const res = await fetchOutbound(url, { method: c.method, headers, body, signal: controller.signal });
     const text = await res.text();
     let parsed: unknown = text;
     try {
@@ -165,6 +169,10 @@ async function runHttp(input: NodeHandlerInput, ctx: HandlerContext): Promise<Pa
     return { status: res.status, body: parsed };
   } catch (err) {
     if (err instanceof NodeFailed) throw err;
+    // A refusal already says exactly what was wrong and what to do about it.
+    // Wrapping it in "did not answer" would replace that with a lie: the
+    // address answered, and was declined.
+    if (err instanceof OutboundRefused) throw new NodeFailed(err.message);
     if (c.credentialId) await noteCredentialUse(ctx.tenantId, c.credentialId, 'unreachable');
     throw new NodeFailed(`${url} did not answer: ${err instanceof Error ? err.message : asText(err)}`);
   } finally {
@@ -180,24 +188,28 @@ async function runMcp(input: NodeHandlerInput, ctx: HandlerContext): Promise<Pay
   if (!url) throw new NodeFailed('This node has no MCP server to talk to.');
   if (input.dryRun) return { tool: c.tool, server: url, result: null, dryRun: true };
 
-  try {
-    await assertReachable(url);
-  } catch (err) {
-    if (err instanceof OutboundRefused) throw new NodeFailed(err.message);
-    throw err;
-  }
-
   const args: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(c.arguments ?? {})) args[k] = fillTemplate(v, input.payload);
 
   const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
   if (cred?.secret) headers.authorization = `Bearer ${cred.secret}`;
 
+  /*
+   * The same ceiling `runHttp` has always had, which this node did not.
+   *
+   * A scheduled tick awaits its flows one after another, so a single MCP
+   * server that accepts the connection and never answers stalled the whole
+   * pass — every later flow, in every workspace, behind one unresponsive
+   * endpoint — until the process was restarted.
+   */
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MCP_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
+    const res = await fetchOutbound(url, {
       method: 'POST',
       headers,
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: c.tool, arguments: args } }),
+      signal: controller.signal,
     });
     const text = await res.text();
     if (c.credentialId) await noteCredentialUse(ctx.tenantId, c.credentialId, res.ok ? 'ok' : 'refused');
@@ -213,8 +225,11 @@ async function runMcp(input: NodeHandlerInput, ctx: HandlerContext): Promise<Pay
     return { tool: c.tool, result: rpc?.result ?? parsed };
   } catch (err) {
     if (err instanceof NodeFailed) throw err;
+    if (err instanceof OutboundRefused) throw new NodeFailed(err.message);
     if (c.credentialId) await noteCredentialUse(ctx.tenantId, c.credentialId, 'unreachable');
     throw new NodeFailed(`The MCP server did not answer: ${err instanceof Error ? err.message : asText(err)}`);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
