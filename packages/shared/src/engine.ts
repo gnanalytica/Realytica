@@ -826,6 +826,46 @@ function selectComparableCandidates(
  * across every selected comp, because `Comparable` (see `types.ts`) carries
  * no per-comp road-width/facing/dimensions data to compare against.
  */
+/**
+ * How much a size difference is worth, as a signed percentage on the comparable.
+ *
+ * Continuous rather than a step, because a step priced a 3× difference and a
+ * 1.25× difference identically: both landed on the same flat ±3%, so a
+ * comparable four times the subject's size was treated as no more different
+ * than one a quarter larger. On a pool where areas routinely spread that far,
+ * the flat band was throwing away most of what the comparable could say.
+ *
+ * The relationship is the standard one — rate per sqm falls as size rises, and
+ * it falls proportionally rather than linearly, so it is elasticity on the log
+ * of the area ratio. An elasticity of 0.1 puts a doubling of size at about
+ * −7%, which is the order of magnitude the old ±3% was reaching for.
+ *
+ * Bounded at ±12%. Beyond that the comparable is a different product rather
+ * than a different size, and an adjustment large enough to carry the valuation
+ * on its own is one nobody should be able to make invisibly — the similarity
+ * score already down-ranks those, and `buildRisks` flags a thin pool.
+ *
+ * Dead-banded inside a fifth either way: a 5% area difference is noise in a
+ * pool assembled from registry records, and an adjustment that fires on it
+ * implies a precision the data does not have.
+ */
+const SIZE_ELASTICITY = 0.1;
+const SIZE_DEAD_BAND = 0.2;
+const SIZE_CAP_PCT = 12;
+
+function sizeAdjustmentPct(subjectArea: number, compArea: number): number {
+  if (subjectArea <= 0 || compArea <= 0) return 0;
+  const ratio = compArea / subjectArea;
+  if (ratio > 1 / (1 + SIZE_DEAD_BAND) && ratio < 1 + SIZE_DEAD_BAND) return 0;
+  /*
+   * Positive when the comparable is LARGER, i.e. when the subject is smaller
+   * and therefore commands a premium per sqm. The sign describes the subject,
+   * as every other adjustment here does.
+   */
+  const raw = SIZE_ELASTICITY * Math.log(ratio) * 100;
+  return round1(Math.max(-SIZE_CAP_PCT, Math.min(SIZE_CAP_PCT, raw)));
+}
+
 function adjustComparable(comp: Comparable, identity: PropertyIdentity, locality: LocalityReference, now: string, similarity: number): Comparable {
   const adjustments: ComparableAdjustment[] = [];
   const isLand = isLandPropertyType(identity.propertyType);
@@ -861,11 +901,7 @@ function adjustComparable(comp: Comparable, identity: PropertyIdentity, locality
    * the engine's own principle says a smaller unit commands a premium.
    */
   const subjectArea = subjectComparisonAreaSqm(identity);
-  const subjectIsSmaller = subjectArea < comp.areaSqm * (1 / 1.2);
-  const subjectIsLarger = subjectArea > comp.areaSqm * 1.2;
-  let sizePct = 0;
-  if (subjectIsSmaller) sizePct = 3;
-  else if (subjectIsLarger) sizePct = -3;
+  const sizePct = sizeAdjustmentPct(subjectArea, comp.areaSqm);
   if (sizePct !== 0) {
     adjustments.push({ key: 'size', label: isLand ? 'Plot size differential' : 'Unit size differential', pct: sizePct });
   }

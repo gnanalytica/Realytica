@@ -209,10 +209,25 @@ describe('a residual carries what a developer actually pays', () => {
     });
     const residual = approach(project, 'residual_land');
     // 10cr − 5cr − 50L fees − 40L finance − 30L marketing − 2cr profit = 1.8cr
+    //
+    // Unchanged by the drawdown, discount and acquisition steps: none of their
+    // inputs is recorded here, so finance stays flat and nothing is discounted
+    // or grossed up. That is the property worth pinning — the new mechanics
+    // must not move a figure whose inputs nobody supplied.
     assert.equal(Math.round(residual.amount!), 18_000_000);
     assert.deepEqual(
       residual.steps.map((s) => s.label),
-      ['Professional fees', 'Finance', 'Marketing and disposal', 'Developer’s profit', 'Residual to land'],
+      [
+        'Professional fees',
+        // Named for what it is: with no build period there is nothing to
+        // spread the drawdown across, so the charge is the flat one.
+        'Finance (flat — no build period recorded)',
+        'Marketing and disposal',
+        'Developer’s profit',
+        // "at completion", because that is when a residual falls out. It is
+        // only "to land" once it has been discounted back to today.
+        'Residual at completion',
+      ],
     );
   });
 

@@ -101,4 +101,29 @@ describe('comparable adjustment direction', () => {
       `adjusted rate ${comp.adjustedPricePerSqm} should be the compounded ${Math.round(expected)}`,
     );
   });
+
+  it('scales with how different the sizes are, rather than a flat band', () => {
+    // The step function priced a 3x difference and a 1.25x difference the
+    // same. The point of a curve is that it does not.
+    const near = screenSeed('3BHK', { identity: { builtUpAreaSqm: 90 } }).result;
+    const far = screenSeed('3BHK', { identity: { builtUpAreaSqm: 20 } }).result;
+    const nearPct = adjustmentPct(near, 'size');
+    const farPct = adjustmentPct(far, 'size');
+    assert.ok(nearPct !== undefined && farPct !== undefined, 'both subjects differ enough to be adjusted');
+    assert.ok(
+      farPct > nearPct,
+      `a subject 5x smaller must attract a larger premium than one slightly smaller — got ${farPct}% vs ${nearPct}%`,
+    );
+  });
+
+  it('never lets one size adjustment carry the valuation', () => {
+    // Beyond a point the comparable is a different product, not a different
+    // size, and an unbounded elasticity would let it swamp everything else.
+    const { result } = screenSeed('3BHK', { identity: { builtUpAreaSqm: 1 } });
+    for (const comp of result.comparables) {
+      const size = comp.adjustments?.find((a) => a.key === 'size');
+      if (!size) continue;
+      assert.ok(Math.abs(size.pct) <= 12, `size adjustment ${size.pct}% must stay inside the cap`);
+    }
+  });
 });
