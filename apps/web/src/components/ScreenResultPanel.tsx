@@ -1,5 +1,5 @@
 import type { ComplianceCheck, ComplianceVerdict, CountryCode, ScreenResult } from '@realytica/shared';
-import { Badge, Callout, Card, CardBody, CardHeader, KeyValue, SectionTitle } from './ui/kit';
+import { Badge, Callout, Card, CardBody, CardHeader, KeyValue, SectionTitle, cn } from './ui/kit';
 import type { Tone } from './ui/kit';
 import { StatutoryProvenance } from './StatutoryProvenance';
 import { JdSplitCard } from './JdSplitCard';
@@ -107,6 +107,19 @@ export function ScreenResultPanel({
   const costs = result.transactionCosts;
   const unit = useAreaUnitFor(country);
   const residual = result.anchors.find((a) => a.residual)?.residual;
+
+  /*
+   * The drivers somebody could name, and the remainder nobody could.
+   *
+   * Split rather than sorted together: the reconciling row is a measure of how
+   * much the itemised drivers fail to explain, and putting it in the same
+   * ranking made it the headline finding whenever the file was thin.
+   */
+  const itemisedDrivers = result.drivers.filter((d) => !d.reconciling);
+  const reconcilingDriver = result.drivers.find((d) => d.reconciling);
+  const explainedTotal = itemisedDrivers.reduce((sum, d) => sum + Math.abs(d.impactPct), 0);
+  const dominatesDrivers =
+    reconcilingDriver !== undefined && Math.abs(reconcilingDriver.impactPct) > explainedTotal;
 
   const orderedChecks = compliance
     ? [...compliance.checks].sort(
@@ -278,11 +291,21 @@ export function ScreenResultPanel({
 
       {result.drivers.length > 0 ? (
         <Card>
-          <CardHeader title="Value drivers" />
+          <CardHeader
+            title="Value drivers"
+            info="Each driver is a signed adjustment against the locality median. The remainder the screen could not itemise is stated separately below, not charted as a driver."
+          />
           <CardBody className="space-y-4">
-            <DriverImpactChart drivers={result.drivers} />
+            {/*
+              The chart shows what was actually modelled.
+              The reconciling remainder used to be sorted into it, where — being
+              routinely an order of magnitude larger than any real driver — it
+              became the tallest bar in a chart titled "Value drivers". It is a
+              statement about how much is NOT explained, so it is stated as one.
+            */}
+            <DriverImpactChart drivers={itemisedDrivers} />
             <ul className="space-y-2">
-              {result.drivers.map((driver) => (
+              {itemisedDrivers.map((driver) => (
                 <li key={driver.id} className="border-t border-hairline pt-2 text-xs leading-relaxed">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <span className="text-[13px] font-medium text-ink">{driver.label}</span>
@@ -292,6 +315,31 @@ export function ScreenResultPanel({
                 </li>
               ))}
             </ul>
+            {reconcilingDriver ? (
+              <div
+                className={cn(
+                  'rounded-lg p-3 text-xs leading-relaxed ring-1 ring-inset',
+                  // Loud only when it dwarfs the drivers it sits under: at that
+                  // point the itemised list is not really an explanation.
+                  dominatesDrivers
+                    ? 'bg-warning/10 ring-warning/40'
+                    : 'bg-sunken ring-[var(--ring)]',
+                )}
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-[13px] font-medium text-ink">{reconcilingDriver.label}</span>
+                  <span className="font-mono text-ink">{pct(reconcilingDriver.impactPct, 1, true)}</span>
+                </div>
+                <p className="mt-0.5 text-ink-secondary">{reconcilingDriver.explanation}</p>
+                {dominatesDrivers ? (
+                  <p className="mt-1.5 font-medium text-ink">
+                    This is larger than every driver above it put together, so the list above explains
+                    little of the difference from the locality median. Recording tenure, encumbrances and
+                    a comparable rate is what moves value out of this row.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </CardBody>
         </Card>
       ) : null}

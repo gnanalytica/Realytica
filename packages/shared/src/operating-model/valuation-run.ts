@@ -395,7 +395,7 @@ function incomeApproach(project: DdProject, checks: Map<string, CheckInstance>, 
 function residualApproach(project: DdProject, checks: Map<string, CheckInstance>): ValuationApproachRun {
   const b = new ApproachBuilder(
     'residual_land',
-    'GDV − construction − fees − finance − marketing − profit',
+    '(GDV − construction − fees − finance − marketing − profit) ÷ (1 + discount)^years ÷ (1 + acquisition costs)',
   );
   const gdvField = fromCheck(checks, 'indicative_valuation.residual_inputs', 'gdv');
   const gdv = b.need({
@@ -425,26 +425,104 @@ function residualApproach(project: DdProject, checks: Map<string, CheckInstance>
     source: { kind: 'check_field', checkId: '', checkTitle: 'Residual inputs', fieldKey: 'developer_profit_pct' },
   });
   const feesPct = b.optional({ key: 'fees', label: 'Professional fees', value: fromCheck(checks, 'indicative_valuation.residual_inputs', 'professional_fees_pct')?.value ?? null, unit: '% of cost', source: { kind: 'check_field', checkId: '', checkTitle: 'Residual inputs', fieldKey: 'professional_fees_pct' } }, 0);
-  const financePct = b.optional({ key: 'finance', label: 'Finance', value: fromCheck(checks, 'indicative_valuation.residual_inputs', 'finance_pct')?.value ?? null, unit: '% of cost', source: { kind: 'check_field', checkId: '', checkTitle: 'Residual inputs', fieldKey: 'finance_pct' } }, 0);
+  const financePct = b.optional({ key: 'finance', label: 'Finance rate', value: fromCheck(checks, 'indicative_valuation.residual_inputs', 'finance_pct')?.value ?? null, unit: '% per year', source: { kind: 'check_field', checkId: '', checkTitle: 'Residual inputs', fieldKey: 'finance_pct' }, note: 'Charged on the average outstanding balance across the build, not on the full cost for the full period.' }, 0);
   const marketingPct = b.optional({ key: 'marketing', label: 'Marketing and disposal', value: fromCheck(checks, 'indicative_valuation.residual_inputs', 'marketing_pct')?.value ?? null, unit: '% of GDV', source: { kind: 'check_field', checkId: '', checkTitle: 'Residual inputs', fieldKey: 'marketing_pct' } }, 0);
+  /*
+   * The build period, the discount rate and the acquisition costs.
+   *
+   * All three optional, and each one absent makes the residual read HIGH:
+   * without a period the finance charge is flat rather than on an average
+   * balance, without a discount rate the site is valued as though completion
+   * were today, and without acquisition costs the figure is what the land is
+   * worth rather than what somebody can pay for it. So each defaults to the
+   * neutral value and the rationale says which ones were missing — a residual
+   * that quietly assumed 0% finance over 0 months would be the same class of
+   * error as the undepreciated replacement cost this file already guards.
+   */
+  const buildMonths = b.optional({ key: 'build_months', label: 'Build period', value: fromCheck(checks, 'indicative_valuation.residual_inputs', 'build_months')?.value ?? null, unit: 'months', source: { kind: 'check_field', checkId: '', checkTitle: 'Residual inputs', fieldKey: 'build_months' } }, 0);
+  const discountPct = b.optional({ key: 'discount_rate', label: 'Discount rate', value: fromCheck(checks, 'indicative_valuation.residual_inputs', 'discount_rate_pct')?.value ?? null, unit: '% per year', source: { kind: 'check_field', checkId: '', checkTitle: 'Residual inputs', fieldKey: 'discount_rate_pct' } }, 0);
+  const acquisitionPct = b.optional({ key: 'land_acquisition', label: 'Land acquisition costs', value: fromCheck(checks, 'indicative_valuation.residual_inputs', 'land_acquisition_pct')?.value ?? null, unit: '% of land value', source: { kind: 'check_field', checkId: '', checkTitle: 'Residual inputs', fieldKey: 'land_acquisition_pct' } }, 0);
 
   if (gdv === null || construction === null || profitPct === null) return b.done(null, 0, '');
 
+  const years = buildMonths / 12;
   const fees = b.step('Professional fees', `${Math.round(construction).toLocaleString('en-IN')} × ${feesPct}%`, construction * (feesPct / 100), 'INR');
-  const finance = b.step('Finance', `${Math.round(construction).toLocaleString('en-IN')} × ${financePct}%`, construction * (financePct / 100), 'INR');
+
+  /*
+   * Finance on the average outstanding balance, not on the whole cost.
+   *
+   * A development draws its facility down over the build rather than borrowing
+   * the lot on day one, so the average balance across an even drawdown is half
+   * the total — the standard `cost × rate × period × 0.5`. Charging the full
+   * cost for the full period roughly doubles the finance line, and every rupee
+   * of that overstatement comes straight off the residual, which is the number
+   * somebody is about to bid with.
+   *
+   * With no build period recorded there is no period to spread across, so it
+   * falls back to the flat charge this used to apply always — and says so.
+   */
+  const finance = buildMonths > 0
+    ? b.step(
+        'Finance',
+        `${Math.round(construction).toLocaleString('en-IN')} × ${financePct}%/yr × ${buildMonths}mo ÷ 12 × ½ (average drawdown)`,
+        construction * (financePct / 100) * years * 0.5,
+        'INR',
+      )
+    : b.step('Finance (flat — no build period recorded)', `${Math.round(construction).toLocaleString('en-IN')} × ${financePct}%`, construction * (financePct / 100), 'INR');
+
   const marketing = b.step('Marketing and disposal', `${Math.round(gdv).toLocaleString('en-IN')} × ${marketingPct}%`, gdv * (marketingPct / 100), 'INR');
   const profit = b.step('Developer’s profit', `${Math.round(gdv).toLocaleString('en-IN')} × ${profitPct}%`, gdv * (profitPct / 100), 'INR');
-  const residual = b.step(
-    'Residual to land',
+  const gross = b.step(
+    'Residual at completion',
     `${Math.round(gdv).toLocaleString('en-IN')} − ${Math.round(construction).toLocaleString('en-IN')} − ${Math.round(fees + finance + marketing + profit).toLocaleString('en-IN')}`,
     gdv - construction - fees - finance - marketing - profit,
     'INR',
   );
 
+  /*
+   * Back to today, then net of what it costs to buy.
+   *
+   * The residual falls out of the appraisal at COMPLETION — it is what the
+   * land could have been worth to a developer who finishes the scheme. A site
+   * worth ₹10 Cr in three years is not worth ₹10 Cr now, and quoting the
+   * undiscounted figure as today's land value is the standard way a residual
+   * flatters a site.
+   *
+   * Acquisition costs come off last and are a gross-up, not a subtraction: if
+   * a buyer can afford ₹100 all-in and duty is 6.6%, the land itself is
+   * 100 ÷ 1.066, not 100 − 6.6. Getting that backwards understates the land by
+   * the square of the rate, which is small at 6% and not at 15%.
+   */
+  const discounted = discountPct > 0 && years > 0
+    ? b.step(
+        'Discounted to today',
+        `${Math.round(gross).toLocaleString('en-IN')} ÷ (1 + ${discountPct}%)^${years.toFixed(2)}`,
+        gross / Math.pow(1 + discountPct / 100, years),
+        'INR',
+      )
+    : gross;
+
+  const residual = acquisitionPct > 0
+    ? b.step(
+        'Net of acquisition costs',
+        `${Math.round(discounted).toLocaleString('en-IN')} ÷ (1 + ${acquisitionPct}%)`,
+        discounted / (1 + acquisitionPct / 100),
+        'INR',
+      )
+    : discounted;
+
+  /* Say which of the three were missing, because each absence reads high. */
+  const absent: string[] = [];
+  if (buildMonths <= 0) absent.push('no build period, so finance is charged flat rather than on an average drawdown');
+  if (discountPct <= 0 || years <= 0) absent.push('no discount rate, so the residual is stated at completion rather than today');
+  if (acquisitionPct <= 0) absent.push('no acquisition costs, so this is the land’s worth rather than what a buyer can pay for it');
+
   return b.done(
     residual,
     0.3,
-    'A residual land indication. It is the most assumption-heavy of the four and moves hardest on the profit and cost inputs.',
+    absent.length === 0
+      ? 'A residual land indication, financed on an average drawdown, discounted to today and net of acquisition costs. Still the most assumption-heavy of the four: it moves hardest on the profit and cost inputs.'
+      : `A residual land indication, and it reads high: ${absent.join('; ')}. It is the most assumption-heavy of the four and moves hardest on the profit and cost inputs.`,
   );
 }
 

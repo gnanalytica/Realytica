@@ -846,6 +846,22 @@ export interface ValueDriver {
   category: DriverCategory;
   explanation: string;
   evidenceIds: string[];
+  /**
+   * True for the one entry that is the unexplained remainder rather than a
+   * driver anybody identified.
+   *
+   * The screen itemises what it can price — tenure, liquidity, transit, FAR
+   * headroom — and then reconciles the total against the locality median. What
+   * is left over is carried as a row so the arithmetic adds up, and on a
+   * thinly-evidenced file it is easily the largest number in the set: 56%
+   * against real drivers of one to four. Sorted into the same chart it becomes
+   * the tallest bar, so the honest answer "most of this gap is unmodelled"
+   * reads as "locality positioning is what drives the value".
+   *
+   * Flagged rather than matched on its label, so a renaming cannot quietly
+   * turn it back into a driver.
+   */
+  reconciling?: boolean;
 }
 
 /* ------------------------------------------------------------------ */

@@ -826,6 +826,46 @@ function selectComparableCandidates(
  * across every selected comp, because `Comparable` (see `types.ts`) carries
  * no per-comp road-width/facing/dimensions data to compare against.
  */
+/**
+ * How much a size difference is worth, as a signed percentage on the comparable.
+ *
+ * Continuous rather than a step, because a step priced a 3× difference and a
+ * 1.25× difference identically: both landed on the same flat ±3%, so a
+ * comparable four times the subject's size was treated as no more different
+ * than one a quarter larger. On a pool where areas routinely spread that far,
+ * the flat band was throwing away most of what the comparable could say.
+ *
+ * The relationship is the standard one — rate per sqm falls as size rises, and
+ * it falls proportionally rather than linearly, so it is elasticity on the log
+ * of the area ratio. An elasticity of 0.1 puts a doubling of size at about
+ * −7%, which is the order of magnitude the old ±3% was reaching for.
+ *
+ * Bounded at ±12%. Beyond that the comparable is a different product rather
+ * than a different size, and an adjustment large enough to carry the valuation
+ * on its own is one nobody should be able to make invisibly — the similarity
+ * score already down-ranks those, and `buildRisks` flags a thin pool.
+ *
+ * Dead-banded inside a fifth either way: a 5% area difference is noise in a
+ * pool assembled from registry records, and an adjustment that fires on it
+ * implies a precision the data does not have.
+ */
+const SIZE_ELASTICITY = 0.1;
+const SIZE_DEAD_BAND = 0.2;
+const SIZE_CAP_PCT = 12;
+
+function sizeAdjustmentPct(subjectArea: number, compArea: number): number {
+  if (subjectArea <= 0 || compArea <= 0) return 0;
+  const ratio = compArea / subjectArea;
+  if (ratio > 1 / (1 + SIZE_DEAD_BAND) && ratio < 1 + SIZE_DEAD_BAND) return 0;
+  /*
+   * Positive when the comparable is LARGER, i.e. when the subject is smaller
+   * and therefore commands a premium per sqm. The sign describes the subject,
+   * as every other adjustment here does.
+   */
+  const raw = SIZE_ELASTICITY * Math.log(ratio) * 100;
+  return round1(Math.max(-SIZE_CAP_PCT, Math.min(SIZE_CAP_PCT, raw)));
+}
+
 function adjustComparable(comp: Comparable, identity: PropertyIdentity, locality: LocalityReference, now: string, similarity: number): Comparable {
   const adjustments: ComparableAdjustment[] = [];
   const isLand = isLandPropertyType(identity.propertyType);
@@ -838,16 +878,30 @@ function adjustComparable(comp: Comparable, identity: PropertyIdentity, locality
     adjustments.push({ key: 'time', label: 'Time adjustment to valuation date', pct: timePct });
   }
 
-  // 2. Size — larger units/sites typically transact at a discount per sqm,
-  // smaller at a premium. Basis is plot area for a land subject, built-up
-  // area otherwise — comparing a site's size fit against built-up area (or
-  // vice versa) would silently reintroduce the land/built mismatch this
-  // engine exists to prevent.
+  /*
+   * 2. Size — larger units/sites typically transact at a discount per sqm,
+   * smaller at a premium. Basis is plot area for a land subject, built-up
+   * area otherwise — comparing a site's size fit against built-up area (or
+   * vice versa) would silently reintroduce the land/built mismatch this
+   * engine exists to prevent.
+   *
+   * Stated from the SUBJECT's side, like every other adjustment here.
+   *
+   * That is not a stylistic preference: this one was written from the
+   * comparable's side and carried the wrong sign for it. An adjustment brings
+   * the comparable to what it would have fetched with the subject's
+   * characteristics, so the sign always describes the subject. Road width
+   * reads `subject < 20ft -> -6`; tenure reads `subject leasehold -> -8`;
+   * a corner-site subject reads `+5`. Size read "comparable bigger -> -3",
+   * which is the same shape of sentence with the opposite meaning — and it
+   * inverted the adjustment on every comparable whose area differed by more
+   * than a fifth, which is most of them.
+   *
+   * A 40sqm subject against 145sqm comparables was priced 3% BELOW them when
+   * the engine's own principle says a smaller unit commands a premium.
+   */
   const subjectArea = subjectComparisonAreaSqm(identity);
-  const areaDeltaPct = (comp.areaSqm - subjectArea) / Math.max(subjectArea, 1);
-  let sizePct = 0;
-  if (areaDeltaPct > 0.2) sizePct = -3;
-  else if (areaDeltaPct < -0.2) sizePct = 3;
+  const sizePct = sizeAdjustmentPct(subjectArea, comp.areaSqm);
   if (sizePct !== 0) {
     adjustments.push({ key: 'size', label: isLand ? 'Plot size differential' : 'Unit size differential', pct: sizePct });
   }
@@ -2147,13 +2201,23 @@ function buildDrivers(
   });
   explicit.push({
     id: nextId(),
-    label: 'Other locality-specific positioning',
+    label: 'Not accounted for by the drivers above',
     direction: directionOf(residualPct),
     impactPct: residualPct,
     category: 'market',
     explanation:
-      'Captures the remaining gap between the subject and the locality median not itemised by the drivers above (micro-location, finish quality, aspect, and other unmodelled factors).',
+      'The gap between the subject and the locality median that the itemised drivers do not explain — micro-location, finish quality, aspect and other factors this screen does not model. A large figure here means the drivers above account for little of the difference, not that positioning is what drives the value.',
     evidenceIds: [gapEvId],
+    /*
+     * Marked, so a reader is never shown it as the biggest driver.
+     *
+     * It was called "Other locality-specific positioning", which reads as a
+     * finding somebody made. On a thinly-evidenced file it is routinely +56%
+     * against real drivers of one to four, so sorted by magnitude it became
+     * the tallest bar in a chart titled "Value drivers" — the honest answer
+     * "most of this is unmodelled" presented as "positioning is the driver".
+     */
+    reconciling: true,
   });
 
   return explicit;

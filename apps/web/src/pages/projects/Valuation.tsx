@@ -16,6 +16,7 @@ import { ScreenResultPanel } from '../../components/ScreenResultPanel';
 import { ScheduleOfProperty } from '../../components/ScheduleOfProperty';
 import { countryForCurrency } from '../../lib/units';
 import { ValuationWorkingPanel } from '../../components/ValuationWorkingPanel';
+import { ValuationSummary } from '../../components/ValuationSummary';
 import { TitleChainDiagram } from '../../components/charts';
 import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -23,6 +24,24 @@ import type { ProjectOutlet } from './ProjectLayout';
 function money(n: number, currency: string) {
   if (currency === 'INR') return `₹${Math.round(n).toLocaleString('en-IN')}`;
   return `${currency} ${Math.round(n).toLocaleString()}`;
+}
+
+/**
+ * Which of the two buttons produced a run.
+ *
+ * The page offers a property screen and an indicative valuation, and they
+ * answer different questions — one blends market anchors, the other runs the
+ * four IBBI approaches over recorded inputs. They land in the same list, so a
+ * row that does not say which it was leaves a reader comparing two numbers
+ * with no idea why they differ.
+ *
+ * Read off the instruction the run wrote for itself rather than a stored kind,
+ * so runs recorded before this distinction was drawn still describe themselves.
+ */
+function runMethod(run: { ibbi: { instruction: string }; working?: unknown }): string {
+  if (run.ibbi.instruction.startsWith('Property screen')) return 'Property screen — blended market anchors';
+  if (run.working) return 'Indicative valuation — IBBI approaches';
+  return 'Indicative valuation';
 }
 
 export default function Valuation() {
@@ -84,8 +103,15 @@ export default function Valuation() {
       </div>
 
       {!latest ? (
-        <EmptyState title="No valuation run yet" description="Uses land and built-up areas plus locality medians. Record areas on the project for a usable range." />
+        <EmptyState
+          title="No valuation run yet"
+          description="An indicative range needs the land and built-up areas on the project — record those and either button below will produce one. Without them every approach reports which input it is missing rather than guessing."
+        />
       ) : (
+        <>
+        {/* The answer first. Everything below this card is the working, and it
+            runs to roughly eighteen screens. */}
+        <ValuationSummary run={latest} screen={project.lastScreenResult} method={runMethod(latest)} />
         <Card>
           {/*
             `indicatedValue` is 0 when there is no figure, and a headline of ₹0
@@ -94,17 +120,18 @@ export default function Valuation() {
             which of the three situations this is, and the headline says it in
             words instead of printing a zero.
           */}
+          {/*
+            The figure moved to the summary above, so this card stops repeating
+            it. It used to be the headline — and printing the same eleven digits
+            twice, four hundred pixels apart, invites a reader to check whether
+            they match rather than read on. What this card is FOR is the
+            working, so that is what it announces.
+          */}
           <CardHeader
-            title={
-              !latest.working || latest.working.reconciliation.outcome === 'indicated'
-                ? money(latest.indicatedValue, latest.currency)
-                : latest.working.reconciliation.outcome === 'approaches_disagree'
-                  ? 'No figure — the approaches disagree'
-                  : 'No figure — nothing could be run'
-            }
+            title="How this figure was reached"
             subtitle={
               !latest.working || latest.working.reconciliation.outcome === 'indicated'
-                ? `${money(latest.low, latest.currency)} – ${money(latest.high, latest.currency)} · ${latest.localityLabel ?? 'no locality match'} · ${formatWhen(latest.createdAt)}`
+                ? `${latest.localityLabel ?? 'no locality match'} · ${formatWhen(latest.createdAt)}`
                 : `${latest.working.reconciliation.spreadBasis} · ${formatWhen(latest.createdAt)}`
             }
             action={<Badge tone={!latest.working || latest.working.reconciliation.outcome === 'indicated' ? 'neutral' : 'warning'}>{VALUATION_RUN_STATUS_LABEL[latest.status]}</Badge>}
@@ -142,10 +169,25 @@ export default function Valuation() {
                   as the panel above, so the two paths read alike.
                 */
                 <ul className="mt-2 divide-y divide-hairline rounded-lg border border-hairline">
-                  {latest.ibbi.approaches.map((a) => (
-                    <li key={a.approach} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 px-3 py-2 text-[13px]">
+                  {/* Keyed by name, not by family: a screen produces three
+                      market-family approaches, so `a.approach` was the same
+                      key three times over. */}
+                  {latest.ibbi.approaches.map((a, i) => (
+                    <li key={a.label ?? `${a.approach}-${i}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 px-3 py-2 text-[13px]">
                       <span className="min-w-0">
-                        <span className="font-medium text-ink">{VALUATION_APPROACH_LABEL[a.approach]}</span>
+                        {/*
+                          The anchor's own name when it has one. A screen makes
+                          three market-family approaches at once — comparable
+                          sales, a guidance-value reference, a locality index
+                          trend — and by family they were three rows all
+                          reading "Market / comparable" with a threefold spread
+                          between their figures. The family stays as the
+                          qualifier, since IBBI asks in those terms.
+                        */}
+                        <span className="font-medium text-ink">{a.label ?? VALUATION_APPROACH_LABEL[a.approach]}</span>
+                        {a.label ? (
+                          <span className="ml-1.5 text-[11.5px] text-ink-muted">{VALUATION_APPROACH_LABEL[a.approach]}</span>
+                        ) : null}
                         {a.notes ? <span className="block text-[12px] text-ink-secondary">{a.notes}</span> : null}
                       </span>
                       <span className="text-right font-mono tabular-nums text-ink">{money(a.amount, latest.currency)}</span>
@@ -173,16 +215,33 @@ export default function Valuation() {
             </p>
           </CardBody>
         </Card>
+        </>
       )}
 
       {runs.length > 1 ? (
         <Card>
-          <CardHeader title="Prior runs" />
+          {/*
+            "Prior runs" said these had been superseded. Two of the buttons on
+            this page run different methods — the property screen blends
+            anchors, the indicative valuation runs the four IBBI approaches —
+            so an earlier figure is often not an older attempt at the same
+            question but a different question's answer, demoted by nothing more
+            than having been pressed first.
+          */}
+          <CardHeader
+            title="Other runs on this file"
+            info="Each row is a separate run. A run from a different method is not a superseded version of this one — compare the methods, not the timestamps."
+          />
           <CardBody className="divide-y divide-hairline">
             {runs.slice(1).map((run) => (
-              <div key={run.id} className="flex items-center justify-between gap-2 py-2 text-[13px]">
-                <span>{money(run.indicatedValue, run.currency)} · {VALUATION_RUN_STATUS_LABEL[run.status]}</span>
-                <span className="font-mono text-[11px] text-ink-muted">{formatWhen(run.createdAt)}</span>
+              <div key={run.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2 text-[13px]">
+                <span className="min-w-0">
+                  <span className="font-mono tabular-nums text-ink">{money(run.indicatedValue, run.currency)}</span>
+                  <span className="ml-2 text-ink-secondary">{runMethod(run)}</span>
+                </span>
+                <span className="shrink-0 font-mono text-[11px] text-ink-muted">
+                  {VALUATION_RUN_STATUS_LABEL[run.status]} · {formatWhen(run.createdAt)}
+                </span>
               </div>
             ))}
           </CardBody>

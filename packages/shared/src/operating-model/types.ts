@@ -885,6 +885,19 @@ export interface AuditEvent {
 
 export interface ValuationApproachResult {
   approach: ValuationApproach;
+  /**
+   * What this particular approach is called, when it has a narrower name than
+   * its family.
+   *
+   * `approach` is the IBBI family — market, cost, income, residual — and a
+   * screen routinely produces three market-family approaches at once:
+   * comparable sales, a guidance-value reference, and a locality index trend.
+   * Rendered by family they were three rows all reading "Market / comparable"
+   * with a threefold spread between their figures, and the only thing telling
+   * them apart was the prose underneath. Optional because a run that has one
+   * approach per family needs nothing more than the family name.
+   */
+  label?: string;
   amount: number;
   notes: string;
   weight: number;
