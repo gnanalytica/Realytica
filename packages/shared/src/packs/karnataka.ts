@@ -161,14 +161,18 @@ export const BENGALURU_METRO_LINES: MetroLineInfo[] = [
 // re-checked on the Kaveri portal duty calculator before being quoted to a user.
 const STAMP_DUTY_SLABS: StatutoryRule<DutySlab[]> = {
   value: [
-    { upTo: 2_000_000, pct: 2 },
-    { upTo: 4_500_000, pct: 3 },
+    // The two lower bands are concessional, not general. `requires` is what
+    // stops them being handed to a resale flat or a bare plot: the engine
+    // withholds a band whose conditions the file does not establish, quotes
+    // the general rate, and says which condition would reduce it.
+    { upTo: 2_000_000, pct: 2, requires: ['residential_unit', 'first_registration'] },
+    { upTo: 4_500_000, pct: 3, requires: ['residential_unit', 'first_registration'] },
     { upTo: null, pct: 5 },
   ],
   asOf: '2023-01-01',
   source: 'Karnataka Stamp Act 1957, Article 20, as amended by the Karnataka Stamp (Amendment) Act 2022',
   verifyNote:
-    'Working from general knowledge of the post-2022 concessional slabs, not a live read of the current notification. Confirm the exact thresholds, and whether any eligibility conditions apply to this specific property, on the Kaveri Online Services duty calculator before relying on this for a transaction budget.',
+    'Working from general knowledge of the post-2022 concessional slabs, not a live read of the current notification. The two lower bands are modelled as CONCESSIONAL and are withheld unless the file establishes their conditions, so a figure here is an over-estimate rather than an under-estimate where the conditions are simply unrecorded. Confirm the exact thresholds, and the precise eligibility conditions, on the Kaveri Online Services duty calculator before relying on this for a transaction budget.',
 };
 
 // Cess and surcharge are each a percentage OF the stamp duty itself (not of the
@@ -614,6 +618,8 @@ export const KARNATAKA_PACK: StatePack = {
       description:
         'Whether the property is fully compliant (A-khata) or provisionally recorded (B-khata). B-khata restricts bank lending, blocks BBMP building-plan sanction, and depresses resale liquidity.',
       statute: 'Karnataka Municipal Corporations Act 1976, s.108; BBMP khata bifurcation guidelines',
+      reviewNote:
+        'The playbook raises B-khata as a blocker with no route out. Karnataka has legislated routes by which B-khata properties enter the compliant record; where one applies, a permanent blocker is a worse answer than the file supports. Confirm the current regularisation route and record it as the next step rather than softening the severity.',
     },
     {
       key: 'e_khata_issuance',
@@ -621,6 +627,8 @@ export const KARNATAKA_PACK: StatePack = {
       description:
         'Whether the digitised e-khata has been issued. A growing number of lenders and the Sub-Registrar\'s own systems treat its absence as a registration or lending blocker even where the underlying (paper) khata is otherwise in order.',
       statute: 'BBMP e-Khata initiative, administered under the Karnataka Municipal Corporations Act 1976',
+      reviewNote:
+        'This check is written as a lender and systems preference — "a growing number of lenders … treat its absence as a blocker". Karnataka has been moving e-Khata toward a precondition for registration of BBMP properties, which would make this a hard gate rather than a trend, and would change both this wording and the severity the playbook assigns. Confirm the current position on the BBMP e-Khata portal and the Kaveri registration requirements before relying on the softer reading. The statute reference here names an initiative rather than a notification, and should carry the notification once confirmed.',
     },
     {
       key: 'dc_conversion',
@@ -663,6 +671,8 @@ export const KARNATAKA_PACK: StatePack = {
       description:
         'Whether the parcel or structure falls inside the no-construction buffer of a storm-water drain or lake — grounds for demolition that override an otherwise clean title.',
       statute: 'Karnataka Town and Country Planning Act 1961; NGT orders on Bengaluru lake and drain buffers',
+      reviewNote:
+        'The distance that applies depends on how BBMP/BDA classify the specific drain, which this pack cannot know — so the output is a caveat rather than an answer. Obtaining the drain map and lake FTL boundaries as geodata would convert this check from something to go and verify into something the screen decides.',
     },
     {
       key: 'occupancy_certificate_compliance',

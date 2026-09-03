@@ -41,6 +41,7 @@ import type {
   DocumentKind,
   DriverCategory,
   DutySlab,
+  DutyConcessionCondition,
   EvidenceItem,
   EvidenceSourceType,
   ExtractedField,
@@ -3620,16 +3621,63 @@ export function buildStateCompliance(
 /* Transaction costs (stamp duty, cess, surcharge, registration)         */
 /* ==================================================================== */
 
+/** Whether the file establishes each concession condition. Absent is not "no", it is "not established". */
+function concessionsMet(identity: PropertyIdentity): Record<DutyConcessionCondition, boolean> {
+  return {
+    // A plot is land, not a residential unit — the concession is for the unit.
+    residential_unit:
+      identity.propertyType === 'residential_apartment' || identity.propertyType === 'residential_villa',
+    first_registration: identity.firstRegistration === true,
+  };
+}
+
+const CONCESSION_CONDITION_LABEL: Record<DutyConcessionCondition, string> = {
+  residential_unit: 'the property is a residential unit',
+  first_registration: 'this is its first registration since construction',
+};
+
 /**
  * Karnataka charges stamp duty as a single flat rate on the whole dutiable
  * value based on which band it falls into (not a marginal/progressive
  * calculation like income tax) — this picks the smallest `upTo` that still
  * covers `value`, falling back to the open-ended ("and above") slab.
+ *
+ * The concessional bands are not general rates for inexpensive property; they
+ * attach to conditions. This used to receive a value and a table and check
+ * none of them, so a resale flat and a bare plot were both quoted the
+ * first-time-buyer rate — a ₹40,00,000 transaction billed at 3% against a
+ * general 5%, understating the duty by ₹80,000 on the one line a buyer
+ * budgets from.
+ *
+ * A condition that cannot be established from the file does not satisfy it.
+ * The band is skipped, the general rate applies, and the caller is told which
+ * condition was unmet so the interface can say what would reduce the figure
+ * rather than leaving a reader to wonder why it is high.
  */
-function computeSlabDuty(value: number, slabs: DutySlab[]): number {
+function computeSlabDuty(
+  value: number,
+  slabs: DutySlab[],
+  identity: PropertyIdentity,
+): { amount: number; pct: number; withheld?: { pct: number; unmet: DutyConcessionCondition[] } } {
+  const met = concessionsMet(identity);
   const sorted = [...slabs].sort((a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity));
-  const slab = sorted.find(s => s.upTo === null || value <= s.upTo) ?? sorted[sorted.length - 1];
-  return value * (slab.pct / 100);
+  const covering = sorted.filter(s => s.upTo === null || value <= s.upTo);
+  const band = covering[0] ?? sorted[sorted.length - 1];
+
+  const unmetOf = (slab: DutySlab): DutyConcessionCondition[] => (slab.requires ?? []).filter(c => !met[c]);
+
+  // The band the value falls in, if its conditions hold.
+  if (unmetOf(band).length === 0) return { amount: value * (band.pct / 100), pct: band.pct };
+
+  // Otherwise the cheapest band this transaction actually qualifies for —
+  // which for an unconditional table is the same band, so nothing changes for
+  // a state that does not attach conditions at all.
+  const qualifying = covering.find(s => unmetOf(s).length === 0) ?? sorted[sorted.length - 1];
+  return {
+    amount: value * (qualifying.pct / 100),
+    pct: qualifying.pct,
+    withheld: { pct: band.pct, unmet: unmetOf(band) },
+  };
 }
 
 /**
@@ -3649,7 +3697,8 @@ export function computeTransactionCosts(identity: PropertyIdentity, statePack: S
   const dutiableValue = Math.max(consideration, guidanceValue);
   const dutiableBasis: TransactionCostBreakdown['dutiableBasis'] = consideration > guidanceValue ? 'consideration' : 'statutory_guidance_value';
 
-  const dutyAmt = Math.round(computeSlabDuty(dutiableValue, statePack.stampDutySlabs.value));
+  const duty = computeSlabDuty(dutiableValue, statePack.stampDutySlabs.value, identity);
+  const dutyAmt = Math.round(duty.amount);
   const cessPct = statePack.stampDutyCessPct.value;
   const surchargePct = statePack.stampDutySurchargePct.value;
   const registrationFeePct = statePack.registrationFeePct.value;
@@ -3663,7 +3712,13 @@ export function computeTransactionCosts(identity: PropertyIdentity, statePack: S
       label: 'Stamp duty',
       pct: null,
       amount: dutyAmt,
-      note: `Banded stamp duty on the dutiable value of ${identity.currency} ${dutiableValue.toLocaleString()} (the higher of ${identity.currency} ${consideration.toLocaleString()} consideration and the ${identity.currency} ${guidanceValue.toLocaleString()} ${statePack.statutoryRateLabel.toLowerCase()}), per ${statePack.stampDutySlabs.source}.`,
+      note:
+        `Banded stamp duty at ${duty.pct}% on the dutiable value of ${identity.currency} ${dutiableValue.toLocaleString()} (the higher of ${identity.currency} ${consideration.toLocaleString()} consideration and the ${identity.currency} ${guidanceValue.toLocaleString()} ${statePack.statutoryRateLabel.toLowerCase()}), per ${statePack.stampDutySlabs.source}.` +
+        (duty.withheld
+          ? ` A ${duty.withheld.pct}% concessional rate exists for this value band and is not applied, because the file does not establish that ` +
+            `${duty.withheld.unmet.map(c => CONCESSION_CONDITION_LABEL[c]).join(' and ')}. ` +
+            `Recording that would reduce this line to ${identity.currency} ${Math.round(dutiableValue * (duty.withheld.pct / 100)).toLocaleString()}.`
+          : ''),
     },
     {
       key: 'cess',
