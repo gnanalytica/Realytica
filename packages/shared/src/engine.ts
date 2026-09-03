@@ -838,16 +838,34 @@ function adjustComparable(comp: Comparable, identity: PropertyIdentity, locality
     adjustments.push({ key: 'time', label: 'Time adjustment to valuation date', pct: timePct });
   }
 
-  // 2. Size — larger units/sites typically transact at a discount per sqm,
-  // smaller at a premium. Basis is plot area for a land subject, built-up
-  // area otherwise — comparing a site's size fit against built-up area (or
-  // vice versa) would silently reintroduce the land/built mismatch this
-  // engine exists to prevent.
+  /*
+   * 2. Size — larger units/sites typically transact at a discount per sqm,
+   * smaller at a premium. Basis is plot area for a land subject, built-up
+   * area otherwise — comparing a site's size fit against built-up area (or
+   * vice versa) would silently reintroduce the land/built mismatch this
+   * engine exists to prevent.
+   *
+   * Stated from the SUBJECT's side, like every other adjustment here.
+   *
+   * That is not a stylistic preference: this one was written from the
+   * comparable's side and carried the wrong sign for it. An adjustment brings
+   * the comparable to what it would have fetched with the subject's
+   * characteristics, so the sign always describes the subject. Road width
+   * reads `subject < 20ft -> -6`; tenure reads `subject leasehold -> -8`;
+   * a corner-site subject reads `+5`. Size read "comparable bigger -> -3",
+   * which is the same shape of sentence with the opposite meaning — and it
+   * inverted the adjustment on every comparable whose area differed by more
+   * than a fifth, which is most of them.
+   *
+   * A 40sqm subject against 145sqm comparables was priced 3% BELOW them when
+   * the engine's own principle says a smaller unit commands a premium.
+   */
   const subjectArea = subjectComparisonAreaSqm(identity);
-  const areaDeltaPct = (comp.areaSqm - subjectArea) / Math.max(subjectArea, 1);
+  const subjectIsSmaller = subjectArea < comp.areaSqm * (1 / 1.2);
+  const subjectIsLarger = subjectArea > comp.areaSqm * 1.2;
   let sizePct = 0;
-  if (areaDeltaPct > 0.2) sizePct = -3;
-  else if (areaDeltaPct < -0.2) sizePct = 3;
+  if (subjectIsSmaller) sizePct = 3;
+  else if (subjectIsLarger) sizePct = -3;
   if (sizePct !== 0) {
     adjustments.push({ key: 'size', label: isLand ? 'Plot size differential' : 'Unit size differential', pct: sizePct });
   }
