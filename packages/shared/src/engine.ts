@@ -2147,13 +2147,23 @@ function buildDrivers(
   });
   explicit.push({
     id: nextId(),
-    label: 'Other locality-specific positioning',
+    label: 'Not accounted for by the drivers above',
     direction: directionOf(residualPct),
     impactPct: residualPct,
     category: 'market',
     explanation:
-      'Captures the remaining gap between the subject and the locality median not itemised by the drivers above (micro-location, finish quality, aspect, and other unmodelled factors).',
+      'The gap between the subject and the locality median that the itemised drivers do not explain — micro-location, finish quality, aspect and other factors this screen does not model. A large figure here means the drivers above account for little of the difference, not that positioning is what drives the value.',
     evidenceIds: [gapEvId],
+    /*
+     * Marked, so a reader is never shown it as the biggest driver.
+     *
+     * It was called "Other locality-specific positioning", which reads as a
+     * finding somebody made. On a thinly-evidenced file it is routinely +56%
+     * against real drivers of one to four, so sorted by magnitude it became
+     * the tallest bar in a chart titled "Value drivers" — the honest answer
+     * "most of this is unmodelled" presented as "positioning is the driver".
+     */
+    reconciling: true,
   });
 
   return explicit;

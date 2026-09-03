@@ -179,14 +179,27 @@ export default function NewProject() {
           <Field label="Portfolio (optional)" hint="Optional grouping across projects.">
             <Input value={portfolio} onChange={(e) => setPortfolio(e.target.value)} placeholder="Bengaluru residential" />
           </Field>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="Land area, sqm (optional)" hint="Plot extent.">
+          {/*
+            Optional to the form, and the only thing standing between a new
+            project and a number.
+            Every valuation approach measures a rate against an area, so a
+            project created without these answers "no approach had all of its
+            inputs" on the Value tab — four rows each naming what it lacks. That
+            is honest and it is not what somebody expected from a field marked
+            optional with no further comment. Say what they unlock.
+          */}
+          <p className="text-[12px] text-ink-secondary">
+            Optional, but these three are what the Value tab needs: an area and a locality median are the whole of
+            an indicative range. Without an area every approach reports a missing input instead of a figure.
+          </p>
+          <div className="grid gap-3 [@container(min-width:30rem)]:grid-cols-3">
+            <Field label="Land area, sqm (optional)" hint="Plot extent — unlocks the land and residual approaches.">
               <Input inputMode="decimal" value={landArea} onChange={(e) => setLandArea(e.target.value)} placeholder="0" />
             </Field>
-            <Field label="Built-up, sqm (optional)" hint="Constructed area.">
+            <Field label="Built-up, sqm (optional)" hint="Constructed area — unlocks the comparable-rate approach.">
               <Input inputMode="decimal" value={builtUp} onChange={(e) => setBuiltUp(e.target.value)} placeholder="0" />
             </Field>
-            <Field label="Budget, INR (optional)" hint="Asking price or sanctioned cost.">
+            <Field label="Budget, INR (optional)" hint="Asking price — compared against the indicated range.">
               <Input inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="0" />
             </Field>
           </div>

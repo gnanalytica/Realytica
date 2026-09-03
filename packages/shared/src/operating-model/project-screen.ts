@@ -309,8 +309,12 @@ function writeValuationFromScreen(project: DdProject, result: ScreenResult, acto
             : ('market' as const);
     return {
       approach,
+      // The anchor's own name, because three market-family anchors otherwise
+      // arrive as three rows called "Market / comparable". The rationale is
+      // the note; the name is no longer glued to the front of it.
+      label: anchor.label,
       amount: anchor.mid,
-      notes: `${anchor.label}: ${anchor.rationale}`,
+      notes: anchor.rationale,
       weight: anchor.weight || 0.25,
     };
   });
