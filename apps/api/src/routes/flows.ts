@@ -93,6 +93,22 @@ function mine(tenantId: string): Flow[] {
   return flows().filter((f) => f.tenantId === tenantId);
 }
 
+/**
+ * One flow, re-reading the workspace document before giving up on it.
+ *
+ * On a serverless deployment the instance answering this read may not be the
+ * instance that handled the create, and it holds whatever snapshot it loaded
+ * at its own cold start. That made "open the flow you just made" fail once
+ * and succeed on the retry — the flow was durable throughout; this instance
+ * simply had not heard of it. So a miss re-reads before it becomes a 404.
+ */
+async function findFlow(tenantId: string, flowId: string): Promise<Flow | undefined> {
+  const hit = mine(tenantId).find((f) => f.id === flowId);
+  if (hit) return hit;
+  await store.refreshWorkspace();
+  return mine(tenantId).find((f) => f.id === flowId);
+}
+
 const positionSchema = z.object({ x: z.number(), y: z.number() });
 const nodeSchema = z.object({
   id: z.string().min(1),
@@ -155,9 +171,9 @@ flowsRouter.get('/', needs('read'), (req, res) => {
   );
 });
 
-flowsRouter.get('/:flowId', needs('read'), (req, res) => {
+flowsRouter.get('/:flowId', needs('read'), async (req, res) => {
   const me = principalOf(req);
-  const flow = mine(me.tenantId).find((f) => f.id === req.params.flowId);
+  const flow = await findFlow(me.tenantId, req.params.flowId);
   if (!flow) {
     res.status(404).json({ error: 'Flow not found' });
     return;
@@ -198,7 +214,7 @@ flowsRouter.post('/', needs('admin'), async (req, res) => {
 
 flowsRouter.put('/:flowId', needs('admin'), async (req, res) => {
   const me = principalOf(req);
-  const flow = mine(me.tenantId).find((f) => f.id === req.params.flowId);
+  const flow = await findFlow(me.tenantId, req.params.flowId);
   if (!flow) {
     res.status(404).json({ error: 'Flow not found' });
     return;
@@ -224,6 +240,9 @@ flowsRouter.put('/:flowId', needs('admin'), async (req, res) => {
 
 flowsRouter.delete('/:flowId', needs('admin'), async (req, res) => {
   const me = principalOf(req);
+  // Re-read first: deleting a flow this instance has not heard of yet must
+  // not report that it never existed.
+  await findFlow(me.tenantId, req.params.flowId);
   const before = flows().length;
   store.data.flows = flows().filter((f) => !(f.id === req.params.flowId && f.tenantId === me.tenantId));
   if (store.data.flows.length === before) {
@@ -250,7 +269,7 @@ const runBodySchema = z.object({
 
 flowsRouter.post('/:flowId/run', needs('write'), async (req, res) => {
   const me = principalOf(req);
-  const flow = mine(me.tenantId).find((f) => f.id === req.params.flowId);
+  const flow = await findFlow(me.tenantId, req.params.flowId);
   if (!flow) {
     res.status(404).json({ error: 'Flow not found' });
     return;
@@ -326,12 +345,12 @@ flowsRouter.post('/tick', needs('admin'), async (_req, res) => {
  * workspace's money and touches its projects, so who ran what is not
  * an administrator's private business.
  */
-flowsRouter.get('/:flowId/runs', needs('read'), (req, res) => {
+flowsRouter.get('/:flowId/runs', needs('read'), async (req, res) => {
   const me = principalOf(req);
-  // Through `mine` rather than straight to the runs, so a flow in another
+  // Through `findFlow` rather than straight to the runs, so a flow in another
   // workspace is a 404 rather than an empty list — an empty list would confirm
   // the id exists, which is the leak the projection rule exists to close.
-  if (!mine(me.tenantId).some((f) => f.id === req.params.flowId)) {
+  if (!(await findFlow(me.tenantId, req.params.flowId))) {
     res.status(404).json({ error: 'Flow not found' });
     return;
   }
