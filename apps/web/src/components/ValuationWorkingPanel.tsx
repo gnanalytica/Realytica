@@ -75,6 +75,8 @@ export function ValuationWorkingPanel({
 }) {
   return (
     <div className="space-y-4">
+      <ApproachComparison working={working} currency={currency} />
+
       {working.runs.map((run) => (
         <ApproachCard key={run.method} run={run} currency={currency} onOpenCheck={onOpenCheck} />
       ))}
@@ -114,6 +116,111 @@ export function ValuationWorkingPanel({
         <p className="text-[11.5px] text-ink-muted">{working.externalities.say}</p>
       )}
     </div>
+  );
+}
+
+/**
+ * The four approaches on one set of aligned figures, above their working.
+ *
+ * The cards below answer "how was this one arrived at". They cannot answer
+ * "which of these disagree and by how much", because that question is about
+ * four numbers at once and the cards put a screen and a half of provenance
+ * between each pair of them. A reader comparing approaches was scrolling and
+ * remembering — which is exactly the comparison the reconciliation turns on.
+ *
+ * A bar rather than only figures because the figures are eleven digits with
+ * Indian grouping, and "₹3,56,12,00,000 against ₹2,91,40,00,000" is a
+ * character-by-character diff. Length is read at a glance. It is scaled to the
+ * largest approach, not to zero-based currency — every bar here shares one
+ * subject, so the useful comparison is between them.
+ *
+ * An approach that could not run keeps its row and states what was missing.
+ * Dropping it would make the blend look like it considered three things when
+ * it considered four and rejected one.
+ */
+function ApproachComparison({ working, currency }: { working: ValuationWorking; currency: string }) {
+  const runs = working.runs;
+  const amounts = runs.map((r) => (approachIsUsable(r) ? (r.amount ?? 0) : 0));
+  const peak = Math.max(...amounts, 0);
+  const blended = working.reconciliation.indicated;
+
+  return (
+    <section className="rounded-lg border border-hairline bg-surface">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 border-b border-hairline px-3 py-2 [@container(min-width:34rem)]:grid-cols-[minmax(0,1fr)_5rem_4rem_auto]">
+        <span className="text-[10.5px] uppercase tracking-wider text-ink-muted">Approach</span>
+        <span className="hidden text-right text-[10.5px] uppercase tracking-wider text-ink-muted [@container(min-width:34rem)]:block">
+          Weight
+        </span>
+        <span className="hidden [@container(min-width:34rem)]:block" aria-hidden="true" />
+        <span className="text-right text-[10.5px] uppercase tracking-wider text-ink-muted">Amount</span>
+      </div>
+
+      <ul className="divide-y divide-hairline">
+        {runs.map((run) => {
+          const usable = approachIsUsable(run);
+          const amount = run.amount ?? 0;
+          /* Never zero-width for a real figure — a bar you cannot see reads as
+             a missing value, which is the one thing it is not. */
+          const frac = usable && peak > 0 ? Math.max(0.02, amount / peak) : 0;
+          return (
+            <li
+              key={run.method}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 px-3 py-2 [@container(min-width:34rem)]:grid-cols-[minmax(0,1fr)_5rem_4rem_auto]"
+            >
+              <span className="min-w-0 text-[12.5px] text-ink">
+                {VALUATION_METHOD_LABEL[run.method]}
+                {usable ? null : (
+                  <span className="block text-[11px] text-ink-muted">
+                    Not run — {run.missing.join(', ')}
+                  </span>
+                )}
+              </span>
+
+              <span className="hidden text-right font-mono text-[11.5px] tabular-nums text-ink-secondary [@container(min-width:34rem)]:block">
+                {usable ? `${(run.weight * 100).toFixed(0)}%` : '—'}
+              </span>
+
+              {/* One subject, one series, so one hue and no legend. */}
+              <span className="hidden h-1.5 items-center [@container(min-width:34rem)]:flex" aria-hidden="true">
+                <span className="h-1.5 w-full overflow-hidden rounded-full bg-sunken">
+                  <span
+                    className="block h-full rounded-full"
+                    style={{ width: `${frac * 100}%`, background: 'var(--series-1)' }}
+                  />
+                </span>
+              </span>
+
+              <span
+                className={cn(
+                  'text-right font-mono text-[12.5px] tabular-nums',
+                  usable ? 'text-ink' : 'text-ink-muted',
+                )}
+              >
+                {usable ? money(amount, currency) : 'no figure'}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+
+      {blended !== null ? (
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 border-t border-hairline bg-sunken/40 px-3 py-2 [@container(min-width:34rem)]:grid-cols-[minmax(0,1fr)_5rem_4rem_auto]">
+          {/* The basis is a sentence, not a label — it belongs under the word
+              it qualifies rather than wrapped around the figure beside it. */}
+          <span className="min-w-0 text-[12.5px] font-medium text-ink">
+            Blended
+            <span className="mt-0.5 block font-normal leading-snug text-[11px] text-ink-muted">
+              {working.reconciliation.spreadBasis}
+            </span>
+          </span>
+          <span className="hidden [@container(min-width:34rem)]:block" aria-hidden="true" />
+          <span className="hidden [@container(min-width:34rem)]:block" aria-hidden="true" />
+          <span className="text-right font-mono text-[12.5px] font-semibold tabular-nums text-ink">
+            {money(blended, currency)}
+          </span>
+        </div>
+      ) : null}
+    </section>
   );
 }
 

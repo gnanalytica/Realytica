@@ -482,8 +482,22 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           {highlightIds.length ? <span className="sr-only">{highlightIds.join(', ')}</span> : null}
         </div>
       ) : null}
+      {/*
+        `[container-type:inline-size]` is what lets a pane lay itself out
+        against the space it actually has.
+
+        Every `sm:` and `lg:` inside these panes is a *viewport* query, and the
+        pane is not the viewport — it is whatever the chat pane leaves behind,
+        which on a 1024px screen is under 400px. Reports asked for a 16rem
+        sidebar plus content the moment the window passed 1024px and got 116px
+        of content column to put the report in, one word per line. The tabs
+        that merely looked cramped were the same bug, quieter.
+
+        Naming no container means the panes match this, the nearest one, so a
+        pane dropped somewhere else still measures its own parent.
+      */}
       {fillRight ? (
-        <div className="min-h-0 min-w-0 flex-1">
+        <div className="min-h-0 min-w-0 flex-1 [container-type:inline-size]">
           {/* One broken pane must not take the project tabs with it, and the
               two lazily-loaded tabs need somewhere to wait. */}
           <RouteErrorBoundary>
@@ -493,7 +507,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           </RouteErrorBoundary>
         </div>
       ) : (
-        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4">
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 [container-type:inline-size] sm:p-4">
           {/* One broken pane must not take the project tabs with it, and the
               two lazily-loaded tabs need somewhere to wait. */}
           <RouteErrorBoundary>

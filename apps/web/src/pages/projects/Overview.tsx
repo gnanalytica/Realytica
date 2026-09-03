@@ -81,12 +81,27 @@ export default function Overview() {
         </CardBody>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/*
+        Container widths, not window widths — these tiles sit in the cockpit's
+        right pane, which is a few hundred pixels while the window is a
+        thousand. Keyed to `lg:` they went to four columns the moment the
+        *window* passed 1024px and gave each tile about ninety pixels, with
+        "Priority pack" broken across two lines and the hint clipped.
+      */}
+      <div className="grid gap-3 [@container(min-width:30rem)]:grid-cols-2 [@container(min-width:56rem)]:grid-cols-4">
+        {/*
+          Red means "somebody has to do something about this", and it stopped
+          meaning that when a completeness percentage wore it too. A pack at 7%
+          and three material findings were the same colour, so the tile that
+          reports a real problem had to compete with the one reporting
+          progress. Amber carries "thin, keep going"; red is kept for the
+          counts that are actually bad.
+        */}
         <StatTile
           label="Priority pack"
           value={`${pack.percent}%`}
           hint={`${pack.received}/${pack.total} core items`}
-          tone={pack.percent < 40 ? 'critical' : 'neutral'}
+          tone={pack.percent >= 80 ? 'good' : pack.percent < 40 ? 'warning' : 'neutral'}
         />
         <StatTile
           label="Material findings"
@@ -126,7 +141,7 @@ export default function Overview() {
         <p className="text-[12px] text-ink-muted">Portfolio: {project.portfolio}</p>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 [@container(min-width:48rem)]:grid-cols-2">
         <Card>
           <CardHeader title="Material findings" action={<Link to="findings" className="text-[12px] text-brand">Register</Link>} />
           <CardBody>
@@ -173,7 +188,7 @@ export default function Overview() {
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 [@container(min-width:48rem)]:grid-cols-2">
         <Card>
           <CardHeader title="DD progress" action={<Link to="dd" className="text-[12px] text-brand">All DDs</Link>} />
           <CardBody className="space-y-3">
@@ -221,7 +236,7 @@ export default function Overview() {
 
       <Card>
         <CardHeader title="Capabilities" action={<Link to="valuation" className="text-[12px] text-brand">Valuation</Link>} />
-        <CardBody className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <CardBody className="grid gap-3 [@container(min-width:30rem)]:grid-cols-2 [@container(min-width:52rem)]:grid-cols-3">
           {dash.capabilities.map((cap) => (
             <div key={cap.kind} className="rounded-lg border border-hairline p-3">
               <p className="text-[12px] font-medium text-ink">{CAPABILITY_KIND_LABEL[cap.kind]}</p>
