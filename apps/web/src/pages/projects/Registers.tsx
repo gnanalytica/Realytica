@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
+import { ChevronRight } from 'lucide-react';
 import {
   ownedBy,
   EVIDENCE_KIND_LABEL,
@@ -83,6 +84,72 @@ export function EvidenceRegister() {
     if (mineOnly && !(me && ownedBy(e.owner, me))) return false;
     return true;
   });
+  /*
+   * Two hundred and seventy-eight rows is not a list, it is a filing cabinet
+   * with the drawers taken out.
+   *
+   * This is the screen a reviewer lives in, and it was the least organised one
+   * in the product: every expected document for every scope of every
+   * assessment in one flat run, narrowed only by a status filter and a title
+   * search. "Which of the Legal items are still missing" was a question you
+   * answered by scrolling.
+   *
+   * Grouped by scope, because that is the unit the work is actually divided
+   * into — Technical & Design is one person's morning, Legal is another's —
+   * and it is the same vocabulary the assessment pages already use. Items on
+   * no scope keep a group of their own rather than being dropped: an
+   * unfiled document is exactly the one somebody needs to notice.
+   */
+  const groups = useMemo(() => {
+    const scopeName = new Map<string, string>();
+    for (const assessment of project.assessments) {
+      for (const scope of assessment.scopes) {
+        scopeName.set(
+          scope.id,
+          project.assessments.length > 1
+            ? `${SCOPE_LABEL[scope.scopeKey]} · ${assessment.name}`
+            : SCOPE_LABEL[scope.scopeKey],
+        );
+      }
+    }
+    const UNFILED = 'Not tied to a scope';
+    const byName = new Map<string, typeof rows>();
+    for (const row of rows) {
+      // A document can serve several scopes; it is filed under the first so
+      // the counts across the groups still add up to the number shown.
+      const name = row.scopeInstanceIds.map((id) => scopeName.get(id)).find(Boolean) ?? UNFILED;
+      const bucket = byName.get(name);
+      if (bucket) bucket.push(row);
+      else byName.set(name, [row]);
+    }
+    return [...byName.entries()]
+      .map(([name, items]) => ({
+        name,
+        items,
+        gaps: items.filter((e) => GAP_STATUSES.includes(e.status)).length,
+      }))
+      // Unfiled last; everything else alphabetical, which is stable as the
+      // register grows rather than reordering itself on every upload.
+      .sort((a, b) => (a.name === UNFILED ? 1 : b.name === UNFILED ? -1 : a.name.localeCompare(b.name)));
+  }, [rows, project.assessments]);
+
+  /*
+   * Open when the answer fits on a screen, shut when it does not.
+   *
+   * Collapsing six groups a reviewer can already see is obstruction; leaving
+   * two hundred rows open is the problem this exists to solve.
+   */
+  const [toggled, setToggled] = useState<Set<string>>(new Set());
+  const openByDefault = rows.length <= 40;
+  const isOpen = (name: string) => (toggled.has(name) ? !openByDefault : openByDefault);
+  const toggle = (name: string) =>
+    setToggled((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [kind, setKind] = useState<EvidenceKind>('document');
@@ -251,7 +318,36 @@ export function EvidenceRegister() {
                 {chosen.size > 0 ? `${chosen.size} of ${rows.length}` : `${rows.length} shown`}
               </span>
             </div>
-            {rows.map((e) => (
+            {groups.map((group) => (
+              <section key={group.name}>
+                <h3>
+                  <button
+                    type="button"
+                    onClick={() => toggle(group.name)}
+                    aria-expanded={isOpen(group.name)}
+                    className="flex w-full items-center gap-2 border-y border-hairline bg-sunken/60 px-4 py-1.5 text-left hover:bg-sunken"
+                  >
+                    <ChevronRight
+                      size={13}
+                      className={cn('shrink-0 text-ink-muted transition-transform duration-quick ease-state', isOpen(group.name) && 'rotate-90')}
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-ink">{group.name}</span>
+                    {/*
+                      The gap count is the reason to open a section, so it sits
+                      on the header rather than being found by opening it — but
+                      only when it says something the total does not. Under the
+                      Gaps filter every row in view is already a gap, and "9
+                      open 9" is the same number twice.
+                    */}
+                    {group.gaps > 0 && group.gaps !== group.items.length ? (
+                      <span className="shrink-0 rounded-full bg-warning/25 px-1.5 text-[10px] tabular-nums text-ink">{group.gaps} open</span>
+                    ) : null}
+                    <span className="shrink-0 text-[11px] tabular-nums text-ink-muted">{group.items.length}</span>
+                  </button>
+                </h3>
+                {isOpen(group.name)
+                  ? group.items.map((e) => (
               <LiveRow key={e.id} id={e.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
                 <div className="flex min-w-0 items-start gap-2.5">
                   <input
@@ -356,6 +452,9 @@ export function EvidenceRegister() {
                   </label>
                 </div>
               </LiveRow>
+                    ))
+                  : null}
+              </section>
             ))}
           </CardBody>
         </Card>
