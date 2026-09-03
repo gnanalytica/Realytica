@@ -16,11 +16,13 @@ export const LAYOUTS: Record<CockpitLayout, LayoutSpec> = {
   focus: { chat: null, rightPane: false },
 };
 
-export const LAYOUT_LABEL: Record<CockpitLayout, string> = {
-  cockpit: 'Cockpit',
-  study: 'Study',
-  focus: 'Focus',
-};
+/*
+ * These three had a `LAYOUT_LABEL` map, whose only reader was the focus
+ * toggle in the header — which was labelling itself with the layout it was
+ * in rather than what pressing it does. With that fixed the names have no
+ * reader, and the presets are an implementation detail of how much room the
+ * conversation gets, not a mode anybody picks by name.
+ */
 
 /**
  * What the conversation gets before it has anything in it.

@@ -27,7 +27,7 @@ import { api } from '../../lib/api';
 import { CopilotPanel } from '../../components/CopilotPanel';
 import { Badge, Button, Spinner, cn, useToast } from '../../components/ui/kit';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
-import { EMPTY_CHAT_WIDTH, LAYOUTS, LAYOUT_LABEL, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
+import { EMPTY_CHAT_WIDTH, LAYOUTS, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
 import type { CockpitLayout } from './cockpit/layout';
 import { healthTone } from './shared';
 import { RouteErrorBoundary } from '../../components/layout/ErrorBoundary';
@@ -185,6 +185,12 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const layout: CockpitLayout = focusMode ? 'focus' : pane === 'graph' ? 'study' : 'cockpit';
   const [chatWidth, setChatWidth] = useState<number>(() => readChatWidth() ?? LAYOUTS.cockpit.chat ?? 520);
   const draggingRef = useRef(false);
+  /*
+   * The ref decides whether a preset may overwrite the width mid-drag; this
+   * decides whether the width is allowed to animate. A ref cannot do the
+   * second job — nothing re-renders when it changes.
+   */
+  const [dragging, setDragging] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [asking, setAsking] = useState(false);
   const [chatSteps, setChatSteps] = useState<AgentStep[]>([]);
@@ -550,7 +556,18 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             )}
           >
             {focusMode ? <PanelRight size={13} /> : <Maximize2 size={13} />}
-            {LAYOUT_LABEL[layout]}
+            {/*
+              This button toggles focus mode. It used to be labelled with the
+              layout you were already in — "Cockpit" on most tabs, "Study" on
+              the graph, because opening the graph narrows the conversation and
+              that preset has a different name.
+
+              So the label changed for a reason that had nothing to do with the
+              button, and named a state it does not set: pressing it while it
+              read "Study" gave you Focus. A toggle is labelled with what it
+              will do, and `aria-pressed` already carries the state.
+            */}
+            {focusMode ? 'Leave focus' : 'Focus'}
           </button>
         </div>
       ) : (
@@ -574,7 +591,20 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         <div className="flex min-h-0 flex-1">
           <section
             aria-label="Conversation"
-            className="flex min-h-0 min-w-0 flex-col border-r border-hairline"
+            /*
+             * Opening the graph narrows the conversation from 520 to 372 to
+             * give the canvas the room — deliberate, and it read as a glitch
+             * because it happened in one frame with nothing to follow. Two
+             * hundred milliseconds is the difference between a panel that
+             * moved and a layout that flinched.
+             *
+             * Never while dragging: a transition on a width the pointer is
+             * already driving lags behind the cursor.
+             */
+            className={cn(
+              'flex min-h-0 min-w-0 flex-col border-r border-hairline',
+              !dragging && 'transition-[width] duration-base ease-state motion-reduce:transition-none',
+            )}
             style={spec.chat === null ? { flexGrow: 1 } : { width: chatWidth, flexShrink: 0 }}
           >
             <div className="flex min-h-0 flex-1 flex-col p-4">{chat}</div>
@@ -588,12 +618,28 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               tabIndex={0}
               onPointerDown={(e) => {
                 draggingRef.current = true;
+                setDragging(true);
                 const startX = e.clientX;
                 const startW = chatWidth;
-                const move = (ev: PointerEvent) => setChatWidth(clampChatWidth(startW + (ev.clientX - startX)));
+                /*
+                 * The width has to be carried out of the drag in a variable,
+                 * not read back off `chatWidth`.
+                 *
+                 * `up` closes over the `chatWidth` of the render that started
+                 * the drag, and `move` only ever calls the setter — so the
+                 * width written to storage was the one from BEFORE the drag.
+                 * Dragging the conversation wider and reloading put it
+                 * straight back where it was.
+                 */
+                let latest = startW;
+                const move = (ev: PointerEvent) => {
+                  latest = clampChatWidth(startW + (ev.clientX - startX));
+                  setChatWidth(latest);
+                };
                 const up = () => {
                   draggingRef.current = false;
-                  writeChatWidth(chatWidth);
+                  setDragging(false);
+                  writeChatWidth(latest);
                   window.removeEventListener('pointermove', move);
                   window.removeEventListener('pointerup', up);
                 };
