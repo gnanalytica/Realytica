@@ -654,8 +654,24 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
                   writeChatWidth(next);
                 }
               }}
-              className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-brand-soft"
-            />
+              /*
+               * A one-pixel transparent strip is discoverable only by trial:
+               * nothing says the boundary can be moved until you happen to
+               * put the cursor on exactly the right column. The group gets a
+               * wider hit area than the line it draws, and a grip that shows
+               * on hover and on keyboard focus.
+               */
+              className="group relative flex w-2 shrink-0 cursor-col-resize items-center justify-center bg-transparent focus-visible:outline-none"
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'h-8 w-[3px] rounded-full bg-[var(--ring)] opacity-0 transition-opacity duration-quick ease-state',
+                  'group-hover:opacity-100 group-focus-visible:bg-brand group-focus-visible:opacity-100',
+                  dragging && 'bg-brand opacity-100',
+                )}
+              />
+            </div>
           ) : null}
 
           {spec.rightPane ? (

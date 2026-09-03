@@ -20,7 +20,20 @@
 
   --text-primary: #0b0b0b;
   --text-secondary: #52514e;
-  --text-muted: #898781;
+  /*
+   * Darkened from #898781, which measured 3.41:1 against the page and failed
+   * WCAG AA's 4.5:1 for body text.
+   *
+   * This is not a decorative tint. It carries timestamps, "Unassigned" owner
+   * labels, the optional-field captions on every form, the ISO 19650 name
+   * under each evidence row — the metadata layer of the whole product, in the
+   * places somebody is squinting at a register for an hour. Same hue and
+   * saturation, taken down in lightness until it clears 4.5 on all three
+   * light surfaces: 4.90 on the page, 5.03 on a card, 4.57 on a sunken row.
+   *
+   * The dark theme's own value already measured 5.41:1 and is left alone.
+   */
+  --text-muted: #6f6d68;
   --text-inverse: #ffffff;
 
   /*

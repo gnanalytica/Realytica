@@ -68,9 +68,14 @@ export default function SiteRecord() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <Button onClick={() => setOpen(true)}>Record a visit</Button>
-      </div>
+      {/* The empty state carries its own call to action, so showing this one
+          beside it offered the same thing twice. It appears once there is a
+          list to add to. */}
+      {visits.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <Button onClick={() => setOpen(true)}>Record a visit</Button>
+        </div>
+      ) : null}
 
       {concerns.length ? (
         <Card>
