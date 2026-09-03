@@ -838,7 +838,7 @@ export function Callout({
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2.5 p-3 text-left" aria-expanded={open}>
         <Icon size={14} className="shrink-0" />
         <span className="min-w-0 flex-1 font-semibold">{title}</span>
-        <ChevronDown size={13} className={cn('shrink-0 text-ink-faint transition-transform', open && 'rotate-180')} />
+        <ChevronDown size={13} className={cn('shrink-0 text-ink-muted transition-transform', open && 'rotate-180')} />
       </button>
       {open && <div className="px-3 pb-3 pl-[34px] text-ink-secondary">{children}</div>}
     </div>

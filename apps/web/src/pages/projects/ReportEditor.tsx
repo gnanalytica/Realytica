@@ -137,7 +137,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
                 {row.wasCount} → {row.nowCount}
               </span>
               {row.added.map((line) => (
-                <div key={line} className="pl-3 text-status-good-text">+ {line}</div>
+                <div key={line} className="pl-3 text-[var(--status-good-text)]">+ {line}</div>
               ))}
               {row.removed.map((line) => (
                 <div key={line} className="pl-3 text-ink-muted line-through">− {line}</div>

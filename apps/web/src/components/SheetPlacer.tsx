@@ -123,10 +123,10 @@ export function SheetPlacer({
 
   const tone =
     live.verdict === 'good'
-      ? 'text-status-good-text'
+      ? 'text-[var(--status-good-text)]'
       : live.verdict === 'rotated' || live.verdict === 'unusable'
-        ? 'text-status-critical'
-        : 'text-status-warning';
+        ? 'text-critical'
+        : 'text-[var(--status-warning-text)]';
 
   return (
     <Modal

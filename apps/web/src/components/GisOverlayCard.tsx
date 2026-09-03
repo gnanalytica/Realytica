@@ -483,7 +483,7 @@ export function GisOverlayCard({
           <p
             className={cn(
               'text-[11.5px]',
-              placedSheet.reading.verdict === 'good' ? 'text-ink-muted' : 'text-status-warning',
+              placedSheet.reading.verdict === 'good' ? 'text-ink-muted' : 'text-[var(--status-warning-text)]',
             )}
           >
             {placedSheet.sheet.title}: {placedSheet.reading.say}

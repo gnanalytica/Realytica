@@ -201,7 +201,7 @@ export function PdfView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-hairline bg-surface-2 px-3 py-1.5">
+      <div className="flex items-center gap-2 border-b border-hairline bg-raised px-3 py-1.5">
         <button
           type="button"
           onClick={() => { const n = Math.max(1, current - 1); setCurrent(n); scrollToPage(n); }}
@@ -254,7 +254,7 @@ export function PdfView({
         </button>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-auto bg-surface-3 px-3 py-3">
+      <div ref={scrollRef} className="flex-1 overflow-auto bg-sunken px-3 py-3">
         <div className="mx-auto flex w-fit flex-col gap-3">
           {pages.map((n) => (
             <PdfPage

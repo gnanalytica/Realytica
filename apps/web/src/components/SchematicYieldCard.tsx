@@ -129,7 +129,7 @@ export function SchematicYieldCard({ yieldResult, country }: { yieldResult: Sche
         )}
 
         {y.gaps.length > 0 && (
-          <div className="rounded-lg bg-surface-2 p-3 ring-1 ring-[var(--ring)]">
+          <div className="rounded-lg bg-raised p-3 ring-1 ring-[var(--ring)]">
             <p className="m-0 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-wide text-ink-muted">
               <AlertTriangle size={12} /> What this assumed, and what would replace it
             </p>

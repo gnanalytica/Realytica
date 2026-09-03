@@ -373,7 +373,7 @@ function ActionCost({
           }}
         />
       </span>
-      {action.costBand && action.costEstimate === undefined ? <span className="text-status-warning">banded, not yet priced</span> : null}
+      {action.costBand && action.costEstimate === undefined ? <span className="text-[var(--status-warning-text)]">banded, not yet priced</span> : null}
     </div>
   );
 }

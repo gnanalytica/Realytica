@@ -57,11 +57,11 @@ function sourceLine(input: ValuationInput): string {
 
 /* A borrowed rate and an evidenced area must not look alike. */
 const SOURCE_TONE: Record<ValuationInput['source']['kind'], string> = {
-  check_field: 'text-status-good-text',
+  check_field: 'text-[var(--status-good-text)]',
   project: 'text-ink-muted',
-  locality: 'text-status-warning',
+  locality: 'text-[var(--status-warning-text)]',
   derived: 'text-ink-muted',
-  assumption: 'text-status-warning',
+  assumption: 'text-[var(--status-warning-text)]',
 };
 
 export function ValuationWorkingPanel({
@@ -82,7 +82,7 @@ export function ValuationWorkingPanel({
       ))}
 
       {working.externalities.applied.length ? (
-        <section className="rounded-lg border border-status-warning/40 bg-status-warning/5 p-3">
+        <section className="rounded-lg border border-warning/40 bg-warning/5 p-3">
           <h4 className="text-[12px] font-semibold text-ink">What the site is next to</h4>
           <p className="mt-0.5 text-[11.5px] text-ink-muted">
             Applied after the blend, so the unadjusted indication stays visible and this can be argued with on its own terms.
@@ -94,7 +94,7 @@ export function ValuationWorkingPanel({
                   <span className="font-medium text-ink">
                     {a.label} <span className="text-ink-muted">at {a.metres} m</span>
                   </span>
-                  <span className="shrink-0 font-mono text-status-warning">{(a.pct * 100).toFixed(0)}%</span>
+                  <span className="shrink-0 font-mono text-[var(--status-warning-text)]">{(a.pct * 100).toFixed(0)}%</span>
                 </div>
                 <p className="text-ink-secondary">{a.say}</p>
                 <p className="mt-0.5 text-[11px] text-ink-muted">
@@ -103,7 +103,7 @@ export function ValuationWorkingPanel({
               </li>
             ))}
           </ul>
-          <p className={cn('mt-2 text-[11.5px]', working.externalities.capped ? 'text-status-critical' : 'text-ink-muted')}>
+          <p className={cn('mt-2 text-[11.5px]', working.externalities.capped ? 'text-critical' : 'text-ink-muted')}>
             {working.externalities.say}
           </p>
           {working.unadjusted.indicated !== null ? (
@@ -248,7 +248,7 @@ function ApproachCard({
       <p className="mt-0.5 font-mono text-[11.5px] text-ink-muted">{run.formula}</p>
 
       {!usable ? (
-        <p className="mt-2 text-[12px] text-status-warning">
+        <p className="mt-2 text-[12px] text-[var(--status-warning-text)]">
           Missing {run.missing.join(', ')}. Record {run.missing.length === 1 ? 'it' : 'them'} on the Indicative valuation scope and run again.
         </p>
       ) : null}
@@ -261,7 +261,7 @@ function ApproachCard({
               <li key={input.key} className="text-[12px]">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="text-ink-secondary">{input.label}</span>
-                  <span className={cn('shrink-0 font-mono', input.value === null ? 'text-status-warning' : 'text-ink')}>
+                  <span className={cn('shrink-0 font-mono', input.value === null ? 'text-[var(--status-warning-text)]' : 'text-ink')}>
                     {input.value === null ? 'not recorded' : `${input.value.toLocaleString('en-IN')}${input.unit ? ` ${input.unit}` : ''}`}
                   </span>
                 </div>
