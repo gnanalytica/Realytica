@@ -150,6 +150,41 @@ function layoutGraph(nodes: ProjectGraphNode[]): { placed: Placed[]; lanes: { ki
   };
 }
 
+/**
+ * The scale below which a node card stops being a label and becomes a smudge.
+ *
+ * The card carries an 11.5px name over a 10px kind; at 0.7 those are 8 and 7
+ * physical pixels, which is the point where you are looking at the shape of
+ * text rather than reading it.
+ */
+const LEGIBLE_ZOOM = 0.7;
+
+/**
+ * Fit the graph, but never smaller than it can be read at.
+ *
+ * `computeFit` alone will shrink whatever it is given until it fits, which is
+ * right for a canvas somebody is about to zoom into and wrong for the view
+ * that greets them: eight lanes across a narrow pane fit at about 0.4, and
+ * that was the "dense grid of tiny text cards" — the graph was drawn
+ * correctly and then scaled below the point of being readable.
+ *
+ * Past the floor it stops scaling and starts panning. Anchored left, because
+ * the lanes run left to right from the project and the left edge is where the
+ * subject is; centring an over-wide layout hides both ends instead.
+ */
+function fitLegible(bounds: { x: number; y: number; width: number; height: number }, w: number, h: number): Transform {
+  const fitted = computeFit(bounds, w, h);
+  if (fitted.k >= LEGIBLE_ZOOM) return fitted;
+  const k = LEGIBLE_ZOOM;
+  const scaledW = bounds.width * k;
+  const scaledH = bounds.height * k;
+  return {
+    k,
+    x: scaledW <= w ? (w - scaledW) / 2 - bounds.x * k : PADDING * k - bounds.x * k,
+    y: scaledH <= h ? (h - scaledH) / 2 - bounds.y * k : PADDING * k - bounds.y * k,
+  };
+}
+
 function edgePath(from: Placed, to: Placed): string {
   const forward = to.x >= from.x + NODE_W;
   const backward = to.x + NODE_W <= from.x;
@@ -177,31 +212,111 @@ export function ProjectGraphCanvas({
 }) {
   const graph = useMemo(() => buildProjectGraph(project), [project]);
   const [query, setQuery] = useState('');
-  const layout = useMemo(() => layoutGraph(graph.nodes), [graph.nodes]);
-  const placedById = useMemo(() => new Map(layout.placed.map((p) => [p.node.id, p])), [layout.placed]);
   const [selectedId, setSelectedId] = useState<string | null>(focusId ?? null);
 
+  /*
+   * What has been walked into, rather than everything there is.
+   *
+   * This canvas used to lay out all of it — 471 nodes on this file — and rely
+   * on dimming to say which mattered. At the zoom that fits 471 cards on a
+   * pane, a card is a few pixels of grey and the links between them are
+   * thinner than that, so the answer to "what is connected to what" was a
+   * texture. Opacity cannot rescue a view whose problem is that everything is
+   * too small to read.
+   *
+   * So the file opens at the project and one hop out, and every node that has
+   * been opened contributes its own neighbours. The graph grows in the
+   * direction somebody is actually asking about, and the parts nobody asked
+   * about are absent rather than faint.
+   *
+   * `extractProjectSubgraph` is the same function the copilot retrieves
+   * through, which matters more than the reuse: it refuses to drop an alarming
+   * node adjacent to anything kept. A finding cannot hide behind a collapsed
+   * branch, because the one thing a pruned view of a diligence file must never
+   * do is prune the problems.
+   */
+  const [expanded, setExpanded] = useState<string[]>(() => [focusId ?? project.id]);
+
+  /*
+   * Opening a node writes `?node=<id>`, which arrives straight back here as
+   * `focusId`. So this must ADD to what is open, never replace it: replacing
+   * meant every click threw away the path that led to it, and the graph got
+   * SMALLER as you walked into it — twenty-four nodes down to nine, which is
+   * the opposite of expanding.
+   *
+   * Only a different project starts over.
+   */
   useEffect(() => {
-    if (focusId) setSelectedId(focusId);
+    setExpanded([project.id]);
+    setSelectedId(null);
+  }, [project.id]);
+
+  useEffect(() => {
+    if (!focusId) return;
+    setExpanded((prev) => (prev.includes(focusId) ? prev : [...prev, focusId]));
+    setSelectedId(focusId);
   }, [focusId]);
 
-  const connected = useMemo(() => {
-    const seed = selectedId || focusId;
-    const fromQuery = query.trim() ? findProjectNodes(graph, query).map((n) => n.id) : [];
-    const seeds = [...(seed ? [seed] : []), ...fromQuery];
-    if (seeds.length === 0) return null;
-    return new Set(extractProjectSubgraph(graph, seeds, 2).nodes.map((n) => n.id));
-  }, [graph, selectedId, focusId, query]);
+  const matches = useMemo(
+    () => (query.trim() ? findProjectNodes(graph, query).map((n) => n.id) : []),
+    [graph, query],
+  );
+
+  /* A search reaches past what has been opened — otherwise it can only find
+     what is already on screen, which is not a search. */
+  const visible = useMemo(
+    () => extractProjectSubgraph(graph, [...expanded, ...matches], 1),
+    [graph, expanded, matches],
+  );
+
+  const layout = useMemo(() => layoutGraph(visible.nodes), [visible.nodes]);
+  const placedById = useMemo(() => new Map(layout.placed.map((p) => [p.node.id, p])), [layout.placed]);
+
+  /* How many neighbours a node still has out of view, so a card can say that
+     there is more behind it rather than looking like a leaf. */
+  const hiddenNeighbours = useMemo(() => {
+    const shown = new Set(visible.nodes.map((n) => n.id));
+    const counts = new Map<string, number>();
+    for (const edge of graph.edges) {
+      if (shown.has(edge.from) && !shown.has(edge.to)) counts.set(edge.from, (counts.get(edge.from) ?? 0) + 1);
+      if (shown.has(edge.to) && !shown.has(edge.from)) counts.set(edge.to, (counts.get(edge.to) ?? 0) + 1);
+    }
+    return counts;
+  }, [graph.edges, visible.nodes]);
 
   const [boxRef, size] = useMeasure<HTMLDivElement>();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<Transform>({ x: 0, y: 0, k: 1 });
   const adjustedRef = useRef(false);
 
+  /*
+   * A pan or a zoom is a decision to look somewhere, and resizing the pane is
+   * not a reason to overrule it — hence `adjustedRef`.
+   *
+   * Opening a node is different. The lanes are laid out from whatever is
+   * visible, so revealing neighbours re-centres every column; keeping the old
+   * transform would leave somebody looking at the space where their node used
+   * to be. Expanding is a request to see more, so it re-fits.
+   */
+  /* The pane changed size. Re-fit only if nobody has taken the view somewhere
+     themselves — a pan or a zoom is a decision, and a resize does not overrule it. */
   useEffect(() => {
     if (size.width <= 0 || adjustedRef.current) return;
-    setView(computeFit(layout.bounds, size.width, size.height));
-  }, [layout, size.width, size.height]);
+    setView(fitLegible(layout.bounds, size.width, size.height));
+    // `layout` is read but deliberately not a trigger — the effect below owns that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size.width, size.height]);
+
+  /* The visible set changed. Lanes are laid out from whatever is visible, so
+     revealing neighbours re-centres every column and the old transform would
+     leave somebody looking at the space their node used to occupy. Opening a
+     node is a request to see more, so this one overrules the pan. */
+  useEffect(() => {
+    if (size.width <= 0) return;
+    adjustedRef.current = false;
+    setView(fitLegible(layout.bounds, size.width, size.height));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout]);
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -223,7 +338,7 @@ export function ProjectGraphCanvas({
 
   const fit = useCallback(() => {
     adjustedRef.current = false;
-    if (size.width > 0) setView(computeFit(layout.bounds, size.width, size.height));
+    if (size.width > 0) setView(fitLegible(layout.bounds, size.width, size.height));
   }, [layout, size.width, size.height]);
 
   const zoomByCentre = useCallback(
@@ -234,9 +349,22 @@ export function ProjectGraphCanvas({
     [size.width, size.height],
   );
 
+  /*
+   * Selecting a node is also how it is opened. Two gestures — one to look at
+   * a thing, another to see what it touches — is a distinction nobody asked
+   * for on a canvas whose entire purpose is what touches what.
+   */
   function select(id: string | null) {
     setSelectedId(id);
+    if (id) setExpanded((prev) => (prev.includes(id) ? prev : [...prev, id]));
     onSelect?.(id);
+  }
+
+  function resetToProject() {
+    setExpanded([project.id]);
+    setSelectedId(null);
+    setQuery('');
+    onSelect?.(null);
   }
 
   const selected = graph.nodes.find((n) => n.id === selectedId) ?? null;
@@ -248,8 +376,18 @@ export function ProjectGraphCanvas({
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <p className="font-mono text-[11px] text-ink-muted">
-          {graph.nodes.length} nodes · {graph.edges.length} links · neighbourhood is two hops on this file
+          {visible.nodes.length} of {graph.nodes.length} nodes · {visible.edges.length} of {graph.edges.length} links ·
+          {' '}click a node to open what it touches
         </p>
+        {visible.nodes.length < graph.nodes.length || expanded.length > 1 ? (
+          <button
+            type="button"
+            onClick={resetToProject}
+            className="rounded-md px-2 py-1 text-[11.5px] text-ink-secondary ring-1 ring-[var(--ring)] hover:bg-sunken hover:text-ink"
+          >
+            Back to the project
+          </button>
+        ) : null}
         <input
           type="search"
           value={query}
@@ -259,7 +397,14 @@ export function ProjectGraphCanvas({
           className="ml-auto h-8 min-w-[10rem] rounded-md bg-sunken px-2 text-[12px] text-ink ring-1 ring-[var(--ring)]"
         />
       </div>
-      <div className={cn('grid min-h-0 min-w-0 flex-1 gap-3', selected ? 'lg:grid-cols-[minmax(0,1fr),min(260px,32%)]' : 'grid-cols-1')}>
+      {/* The inspector splits off the canvas once the PANE is wide enough for
+          both — `lg:` measured the window, which is not what it is dividing. */}
+      <div
+        className={cn(
+          'grid min-h-0 min-w-0 flex-1 gap-3',
+          selected ? '[@container(min-width:44rem)]:grid-cols-[minmax(0,1fr),min(260px,32%)]' : 'grid-cols-1',
+        )}
+      >
         <div ref={boxRef} className="relative min-h-[12rem] min-w-0 flex-1">
           <div
             ref={viewportRef}
@@ -334,37 +479,38 @@ export function ProjectGraphCanvas({
                   width={layout.bounds.width}
                   height={layout.bounds.height}
                 >
-                  {graph.edges.map((edge) => {
+                  {/* Every edge drawn here has both ends on screen, so none of
+                      them needs to be faded to say so. */}
+                  {visible.edges.map((edge) => {
                     const from = placedById.get(edge.from);
                     const to = placedById.get(edge.to);
                     if (!from || !to) return null;
-                    const lit = !connected || (connected.has(edge.from) && connected.has(edge.to));
+                    const touchesSelection = selectedId === edge.from || selectedId === edge.to;
                     return (
                       <path
                         key={edge.id}
                         d={edgePath(from, to)}
                         fill="none"
-                        stroke="var(--axis)"
-                        strokeWidth={1.1}
-                        opacity={lit ? 0.55 : 0.08}
+                        stroke={touchesSelection ? 'var(--brand)' : 'var(--axis)'}
+                        strokeWidth={touchesSelection ? 1.8 : 1.1}
+                        opacity={touchesSelection ? 0.9 : 0.5}
                       />
                     );
                   })}
                 </svg>
                 {layout.placed.map(({ node, x, y }) => {
                   const isSelected = node.id === selectedId;
-                  const lit = !connected || connected.has(node.id);
+                  const more = hiddenNeighbours.get(node.id) ?? 0;
                   return (
                     <button
                       key={node.id}
                       type="button"
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => select(node.id)}
-                      title={node.label}
+                      title={more ? `${node.label} — ${more} more connected` : node.label}
                       className={cn(
                         'absolute flex items-center gap-1.5 rounded-lg bg-surface px-2 text-left shadow-sm ring-1 ring-[var(--ring)]',
                         isSelected && 'ring-2 ring-brand',
-                        lit ? 'opacity-100' : 'opacity-25',
                       )}
                       style={{
                         left: x,
@@ -381,6 +527,17 @@ export function ProjectGraphCanvas({
                           {node.detail ? ` · ${node.detail}` : ''}
                         </span>
                       </span>
+                      {/*
+                        Where the graph continues. Without it a node with forty
+                        neighbours out of view is indistinguishable from a leaf,
+                        and the reader has to click everything to find out which
+                        is which — the bombardment again, one card at a time.
+                      */}
+                      {more ? (
+                        <span className="shrink-0 rounded-full bg-sunken px-1.5 py-0.5 font-mono text-[9.5px] tabular-nums text-ink-muted">
+                          +{more}
+                        </span>
+                      ) : null}
                     </button>
                   );
                 })}
