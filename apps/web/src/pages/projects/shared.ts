@@ -27,5 +27,8 @@ export function checkTone(result: CheckResult): Tone {
 export function formatWhen(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
+  // Epoch zero stands in for "no timestamp was recorded" — see `lib/format.ts`.
+  // Rendering it as a date announces 1970 as though it meant something.
+  if (d.getTime() === 0) return 'Shipped with the build';
   return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }

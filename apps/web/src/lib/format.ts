@@ -89,10 +89,30 @@ export function area(sqm: number | null | undefined): string {
   return `${Math.round(sqm).toLocaleString('en-US')} m²`;
 }
 
+/**
+ * Epoch zero is not a date, it is the absence of one.
+ *
+ * A built-in prompt version is stamped `1970-01-01T00:00:00.000Z` on purpose:
+ * its identity is its content, and a `createdAt` that moved with every deploy
+ * would make the version list look like it had changed when nothing had. That
+ * reasoning is sound and stays. What was wrong is that the formatters believed
+ * it, so the shipped version of every prompt announced "01 Jan 1970" — a date
+ * that reads as a bug in the product rather than as "this came with the build".
+ *
+ * Caught here rather than at each call site so a formatter can never be the
+ * thing that surfaces it.
+ */
+const EPOCH_ZERO = 0;
+
+function isAbsentTimestamp(ms: number): boolean {
+  return ms === EPOCH_ZERO;
+}
+
 export function date(iso: string | null | undefined, style: 'short' | 'long' = 'short'): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
+  if (isAbsentTimestamp(d.getTime())) return 'Shipped with the build';
   return d.toLocaleDateString('en-GB', style === 'short'
     ? { day: '2-digit', month: 'short', year: 'numeric' }
     : { day: 'numeric', month: 'long', year: 'numeric' });
@@ -102,6 +122,8 @@ export function relativeTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return '—';
+  // "56 years ago" is the same untruth as "01 Jan 1970", told differently.
+  if (isAbsentTimestamp(then)) return 'Built in';
   const diff = Date.now() - then;
   const mins = Math.round(diff / 60000);
   if (mins < 1) return 'just now';
