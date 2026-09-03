@@ -60,6 +60,16 @@
   --status-serious: rgb(var(--status-serious-rgb));
   --status-critical: rgb(var(--status-critical-rgb));
   --status-good-text: #006300;
+  /*
+   * Amber is 1.74:1 against the page — it works as a fill and is unreadable
+   * as text, which is why `TONE_TEXT` sends warning badges to `text-ink`
+   * rather than to the tone. Several places wanted warning-coloured text
+   * anyway and reached for a class that did not exist, so the style simply
+   * never applied. This is the readable counterpart, the same darkening
+   * `--status-good-text` already is: same hue and saturation, taken down
+   * until it clears AA on the page (4.85) and on a sunken row (4.53).
+   */
+  --status-warning-text: #936503;
 
   --series-1: #2a78d6;
   --series-2: #eb6834;
@@ -165,6 +175,8 @@
     --brand-ink: #ffffff;
 
     --status-good-text: #0ca30c;
+    /* Light-on-dark: the base amber already measures 10.59:1 here. */
+    --status-warning-text: rgb(var(--status-warning-rgb));
 
     --series-1: #3987e5;
     --series-2: #d95926;
@@ -211,6 +223,8 @@
   --brand-ink: #ffffff;
 
   --status-good-text: #0ca30c;
+  /* Light-on-dark: the base amber already measures 10.59:1 here. */
+  --status-warning-text: rgb(var(--status-warning-rgb));
 
   --series-1: #3987e5;
   --series-2: #d95926;

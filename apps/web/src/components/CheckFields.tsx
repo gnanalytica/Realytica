@@ -428,18 +428,18 @@ function EvidenceField({
                 key={id}
                 className={cn(
                   'flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px]',
-                  gap ? 'border-status-warning/40 bg-status-warning/10 text-ink' : 'border-hairline bg-surface-2 text-ink',
+                  gap ? 'border-warning/40 bg-warning/10 text-ink' : 'border-hairline bg-raised text-ink',
                 )}
               >
                 <span>{row ? row.title : id}</span>
                 {row ? (
-                  <span className={cn('text-[10.5px]', gap ? 'text-status-warning' : 'text-ink-muted')}>
+                  <span className={cn('text-[10.5px]', gap ? 'text-[var(--status-warning-text)]' : 'text-ink-muted')}>
                     {gap ? `${EVIDENCE_STATUS_LABEL[row.status]} — not on the file yet` : EVIDENCE_STATUS_LABEL[row.status]}
                   </span>
                 ) : (
                   // Only reachable if a row was deleted after being cited; the
                   // API refuses to record one that never existed.
-                  <span className="text-[10.5px] text-status-critical">no longer on the register</span>
+                  <span className="text-[10.5px] text-critical">no longer on the register</span>
                 )}
                 {!disabled ? (
                   <button type="button" className="text-ink-muted hover:text-ink" onClick={() => onChange(selected.filter((x) => x !== id))}>
@@ -590,7 +590,7 @@ function TableField({
                       disabled={disabled}
                       aria-label={`Remove row ${index + 1}`}
                       onClick={() => onChange(rows.filter((_, i) => i !== index))}
-                      className="px-1 text-ink-muted hover:text-status-critical disabled:opacity-40"
+                      className="px-1 text-ink-muted hover:text-critical disabled:opacity-40"
                     >
                       ×
                     </button>

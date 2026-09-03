@@ -17,14 +17,15 @@
     "start": "pnpm -F @realytica/api start",
     "typecheck": "tsc -p packages/shared && tsc -p packages/agents && tsc -p apps/api && tsc -p apps/web && tsc -p tsconfig.test.json",
     "test": "tsx --test \"test/**/*.test.ts\"",
-    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "check": "pnpm typecheck && pnpm lint && pnpm lint:classes && pnpm test",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/web/dist",
     "deploy:build": "pnpm install --frozen-lockfile && pnpm build",
     "probe:model": "mkdir -p node_modules/.cache && esbuild scripts/probe-model.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/probe-model.mjs --log-level=error && node node_modules/.cache/probe-model.mjs",
     "eval": "mkdir -p node_modules/.cache && esbuild scripts/run-eval.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/run-eval.mjs --log-level=error && node node_modules/.cache/run-eval.mjs",
     "eval:multilingual": "mkdir -p node_modules/.cache && esbuild scripts/eval-multilingual.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/eval-multilingual.mjs --log-level=error && node node_modules/.cache/eval-multilingual.mjs",
     "lint": "eslint apps/web",
-    "eval:calibration": "mkdir -p node_modules/.cache && esbuild scripts/eval-calibration.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/eval-calibration.mjs --log-level=error && node node_modules/.cache/eval-calibration.mjs"
+    "eval:calibration": "mkdir -p node_modules/.cache && esbuild scripts/eval-calibration.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/eval-calibration.mjs --log-level=error && node node_modules/.cache/eval-calibration.mjs",
+    "lint:classes": "node scripts/check-dead-classes.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

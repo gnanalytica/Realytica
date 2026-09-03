@@ -126,7 +126,7 @@ function CapabilityDots({ descriptor }: { descriptor: ProviderDescriptor }) {
           title={`${key}: ${on ? 'supported' : 'not supported'}`}
           className={cn(
             'rounded px-1.5 py-0.5 text-micro font-medium',
-            on ? 'bg-good-soft text-good' : 'bg-sunken text-ink-muted line-through',
+            on ? 'bg-good/10 text-good' : 'bg-sunken text-ink-muted line-through',
           )}
         >
           {key.replace(/([A-Z])/g, ' $1').toLowerCase()}
@@ -451,7 +451,7 @@ export default function Observability() {
       </div>
 
       {groundingDegraded > 0 && (
-        <div className="flex items-start gap-2.5 rounded-lg bg-critical-soft p-3 ring-1 ring-critical">
+        <div className="flex items-start gap-2.5 rounded-lg bg-critical/10 p-3 ring-1 ring-critical">
           <TriangleAlert size={15} className="mt-0.5 shrink-0 text-critical" />
           <p className="text-xs leading-relaxed text-ink">
             <span className="font-semibold">{groundingDegraded} call(s) ran without verified grounding.</span> These
@@ -463,7 +463,7 @@ export default function Observability() {
       )}
 
       {summary?.pricing && summary.pricing.confidence !== 'exact' && (
-        <div className="flex items-start gap-2.5 rounded-lg bg-warning-soft p-3 ring-1 ring-warning">
+        <div className="flex items-start gap-2.5 rounded-lg bg-warning/15 p-3 ring-1 ring-warning">
           <AlertTriangle size={15} className="mt-0.5 shrink-0 text-warning" />
           <div className="min-w-0">
             <p className="text-xs leading-relaxed text-ink">{summary.pricing.note}</p>

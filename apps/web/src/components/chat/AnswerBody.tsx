@@ -82,7 +82,7 @@ export function AnswerBody({
           <span
             key={key}
             title={`This answer referenced ${span.id}, which is not on this case.`}
-            className="mx-0.5 inline-flex max-w-[12rem] translate-y-[1px] items-center gap-1 rounded px-1 py-px align-baseline text-[0.85em] text-ink-muted line-through decoration-ink-faint ring-1 ring-inset ring-[var(--ring)]"
+            className="mx-0.5 inline-flex max-w-[12rem] translate-y-[1px] items-center gap-1 rounded px-1 py-px align-baseline text-[0.85em] text-ink-muted line-through decoration-ink-muted ring-1 ring-inset ring-[var(--ring)]"
           >
             <Unlink size={10} className="shrink-0 no-underline" />
             <span className="truncate">broken reference</span>

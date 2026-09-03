@@ -724,7 +724,7 @@ function FindingClassification({
           {finding.escalation?.notifiedTo ? (
             <span>notified{finding.escalation.notifiedAt ? ` on ${finding.escalation.notifiedAt}` : ''}</span>
           ) : (
-            <span className="text-status-warning">nobody recorded as notified</span>
+            <span className="text-[var(--status-warning-text)]">nobody recorded as notified</span>
           )}
         </span>
       ) : null}
@@ -877,7 +877,7 @@ function ObservationStrip({
       ) : null}
       {observation.limits ? <p className="text-[11px] text-ink-muted">Not shown by this photograph: {observation.limits}</p> : null}
       {observation.suggestedFindings.length ? (
-        <p className="text-[11px] text-status-warning">
+        <p className="text-[11px] text-[var(--status-warning-text)]">
           {observation.suggestedFindings.length} finding(s) proposed — waiting for review on the AI drafts pane.
         </p>
       ) : null}

@@ -48,11 +48,11 @@ export function DocxView({ blob, highlightTerm }: { blob: Blob; highlightTerm?: 
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-hairline bg-surface-2 px-4 py-1.5 text-mini text-ink-muted">
+      <div className="border-b border-hairline bg-raised px-4 py-1.5 text-mini text-ink-muted">
         Converted from Word. Page numbers do not exist in a .docx — the layout is produced when it is printed
         {warnings > 0 ? `, and ${warnings} formatting detail${warnings === 1 ? '' : 's'} did not survive the conversion` : ''}.
       </div>
-      <div className="flex-1 overflow-auto bg-surface-3 px-4 py-4">
+      <div className="flex-1 overflow-auto bg-sunken px-4 py-4">
         <article
           className="docx-render mx-auto max-w-[820px] bg-white px-10 py-10 shadow"
           // Sanitised above: an allowlist of tags and attributes, parsed in an

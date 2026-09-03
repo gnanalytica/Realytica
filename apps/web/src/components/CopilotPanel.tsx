@@ -203,7 +203,7 @@ function TurnBubble({
                   <span className="flex items-center gap-2">
                     <span className="min-w-0 flex-1 text-[12.5px] text-ink group-hover:text-brand">{choice.label}</span>
                     {choice.kind ? (
-                      <span className="shrink-0 text-mini uppercase tracking-wide text-ink-faint">{choice.kind}</span>
+                      <span className="shrink-0 text-mini uppercase tracking-wide text-ink-muted">{choice.kind}</span>
                     ) : null}
                   </span>
                   {choice.detail ? (
@@ -297,7 +297,7 @@ function TypingIndicator({ steps }: { steps: AgentStep[] }) {
           ) : null}
         </div>
         {done > 0 ? (
-          <span className="text-mini text-ink-faint">
+          <span className="text-mini text-ink-muted">
             {done} source{done === 1 ? '' : 's'} read
           </span>
         ) : null}
@@ -554,7 +554,7 @@ export function CopilotPanel({
                   >
                     <MessageCircle size={13} className="shrink-0 text-ink-muted group-hover:text-brand" />
                     <span className="min-w-0 flex-1">{s}</span>
-                    <ArrowUp size={12} className="shrink-0 rotate-45 text-ink-faint group-hover:text-brand" />
+                    <ArrowUp size={12} className="shrink-0 rotate-45 text-ink-muted group-hover:text-brand" />
                   </button>
                 ))}
               </div>

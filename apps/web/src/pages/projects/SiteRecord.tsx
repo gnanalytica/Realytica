@@ -132,7 +132,7 @@ export default function SiteRecord() {
                     {visit.limitations.length ? (
                       <ul className="space-y-0.5">
                         {visit.limitations.map((l, i) => (
-                          <li key={i} className="text-[11.5px] text-status-warning">
+                          <li key={i} className="text-[11.5px] text-[var(--status-warning-text)]">
                             {VISIT_LIMITATION_LABEL[l.kind]} — {l.what}
                           </li>
                         ))}
@@ -144,7 +144,7 @@ export default function SiteRecord() {
                          empty list is a claim of full access; a visit nobody
                          wrote up is silence, and a report must not read the
                          second as the first. */
-                      <p className="text-[11.5px] text-status-warning">
+                      <p className="text-[11.5px] text-[var(--status-warning-text)]">
                         Nothing recorded about what could or could not be inspected — this visit has not been written up.
                       </p>
                     )}
@@ -183,8 +183,8 @@ export default function SiteRecord() {
                         reading.verdict === 'good'
                           ? 'mt-0.5 text-[11px] text-ink-muted'
                           : reading.verdict === 'rotated' || reading.verdict === 'unusable'
-                            ? 'mt-0.5 text-[11px] text-status-critical'
-                            : 'mt-0.5 text-[11px] text-status-warning'
+                            ? 'mt-0.5 text-[11px] text-critical'
+                            : 'mt-0.5 text-[11px] text-[var(--status-warning-text)]'
                       }
                     >
                       {reading.say}

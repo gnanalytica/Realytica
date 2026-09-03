@@ -96,7 +96,7 @@ export function EvidenceProof({
             ))}
           </div>
         ) : null}
-        <div className="min-h-[18rem] flex-1 overflow-hidden bg-surface-3">
+        <div className="min-h-[18rem] flex-1 overflow-hidden bg-sunken">
           <ProofBody state={state} fileName={file?.fileName ?? evidence.title} citedPage={page} highlightTerm={term} />
         </div>
       </div>

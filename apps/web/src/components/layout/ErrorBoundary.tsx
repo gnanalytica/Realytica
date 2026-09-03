@@ -94,7 +94,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 </Button>
               }
             />
-            <details className="mt-2 rounded-lg bg-surface-sunken p-3">
+            <details className="mt-2 rounded-lg bg-sunken p-3">
               <summary className="cursor-pointer text-xs font-semibold text-ink-secondary">
                 What went wrong
               </summary>
