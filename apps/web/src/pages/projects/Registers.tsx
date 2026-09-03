@@ -630,12 +630,21 @@ function FindingClassification({
         </span>
       ) : null}
       <span className="flex items-center gap-1.5">
+        {/*
+          The unset value used to read "Not an environmental finding" — a full
+          negative sentence where a placeholder belongs, which made an unset
+          classification look like an assertion somebody had made about the
+          finding. The label says what the control is; the option says it is
+          not set yet.
+        */}
         <Select
+          aria-label="Environmental classification"
+          title="Environmental classification"
           className="h-6 text-[11px]"
           value={finding.environmentalCondition ?? ''}
           onChange={(e) => onChange({ environmentalCondition: (e.target.value || null) as EnvironmentalCondition | null })}
         >
-          <option value="">Not an environmental finding</option>
+          <option value="">Environmental: none set</option>
           {(Object.keys(ENVIRONMENTAL_CONDITION_LABEL) as EnvironmentalCondition[]).map((c) => (
             <option key={c} value={c}>{ENVIRONMENTAL_CONDITION_LABEL[c].split(' — ')[0]}</option>
           ))}

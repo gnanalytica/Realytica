@@ -216,6 +216,19 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
   );
 }
 
+/**
+ * Run states in the product's own words rather than the engine's.
+ *
+ * `finished` is what the run loop calls it; "Completed" is what somebody
+ * reading a diligence file expects to see next to a piece of work.
+ */
+const RUN_STATE_LABEL: Record<string, string> = {
+  finished: 'Completed',
+  running: 'Running',
+  interrupted: 'Interrupted',
+  failed: 'Failed',
+};
+
 export function GraphPane({
   project,
   focusId,
@@ -305,10 +318,10 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
     await refreshLedger();
     toast(
       state === 'finished'
-        ? 'Orchestrator finished — drafts are on the review queue'
+        ? 'Finished — drafts are on the review queue'
         : state === 'interrupted'
-          ? 'The orchestrator run was interrupted; nothing was lost, re-run it'
-          : 'The orchestrator run failed — see recent runs',
+          ? 'The run was interrupted; nothing was lost, re-run it'
+          : 'The run failed — see what it has done',
       state === 'finished' ? 'good' : 'warning',
     );
   });
@@ -322,14 +335,25 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
       await onChanged();
       toast(`${result.drafts.length} draft(s) proposed — review before commit`, 'good');
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Orchestrator failed', 'critical');
+      toast(e instanceof Error ? e.message : 'The run failed', 'critical');
     }
   }
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-[15px] font-semibold text-ink">Orchestrator</h2>
+          {/*
+            One pane in this product was named by the people who built it
+            rather than the person using it: "Orchestrator", "Capabilities",
+            a "finished" badge. Everywhere else the vocabulary is the one a
+            valuer actually uses — findings, evidence, scopes — and a reader
+            who has been fluent all the way through the file should not have
+            to change register here.
+          */}
+          <h2 className="text-[15px] font-semibold text-ink">Auto-run plan</h2>
+          <p className="mt-0.5 text-[12.5px] text-ink-secondary">
+            Works through what this file still needs and proposes drafts. Nothing is written until you accept it.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => void run()} disabled={background.busy}>
@@ -369,12 +393,14 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
       )}
       {runLedger?.runs.length ? (
         <div>
-          <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Recent runs</h3>
+          <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">What it has done</h3>
           <ul className="mt-2 space-y-1.5">
             {runLedger.runs.slice(0, 8).map((row) => (
               <li key={row.id} className="flex items-start gap-2 text-[12.5px] leading-snug">
+                {/* The raw state name was rendered straight through, so the
+                    list read "finished" in lower case beside sentences. */}
                 <Badge tone={row.state === 'interrupted' ? 'warning' : row.state === 'failed' ? 'critical' : row.state === 'running' ? 'brand' : 'neutral'}>
-                  {row.state}
+                  {RUN_STATE_LABEL[row.state] ?? row.state}
                 </Badge>
                 <span className="min-w-0 text-ink-secondary">{row.line}</span>
               </li>
@@ -384,7 +410,7 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
       ) : null}
       {project.capabilityRuns.length ? (
         <div>
-          <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Capabilities</h3>
+          <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">What it can check</h3>
           <ul className="mt-2 space-y-2">
             {project.capabilityRuns.map((run) => (
               <li key={run.kind} className="rounded-lg border border-hairline p-2.5">

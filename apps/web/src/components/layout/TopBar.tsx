@@ -80,17 +80,28 @@ export default function TopBar({ onOpenMobile }: TopBarProps) {
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-2.5">
-        <Tooltip label={healthLabel}>
-          <span
-            className="flex items-center gap-1.5 rounded-full bg-sunken px-2 py-1 text-mini font-medium text-ink-secondary ring-1 ring-inset ring-[var(--ring)]"
-            aria-live="polite"
-          >
-            <Dot tone={apiStatus === 'offline' ? 'critical' : apiStatus === 'checking' ? 'neutral' : 'good'} />
-            <span className="hidden sm:inline">
-              {apiStatus === 'offline' ? 'API offline' : apiStatus === 'checking' ? 'Checking API' : 'API online'}
+        {/*
+          Silent while healthy.
+
+          A permanent green "API online" pill on every page, for every user, is
+          an ops dashboard leaking into a product: it tells a valuer something
+          they cannot act on and have no reason to think about, and it spends
+          the one piece of always-visible chrome saying "nothing is wrong". The
+          state worth interrupting somebody for is the other one, and that is
+          the only one that now appears — with `aria-live` so it is announced
+          when it does, rather than sitting in the tab order announcing health.
+        */}
+        {apiStatus === 'offline' ? (
+          <Tooltip label={healthLabel}>
+            <span
+              className="flex items-center gap-1.5 rounded-full bg-critical/10 px-2 py-1 text-mini font-medium text-critical ring-1 ring-inset ring-critical/40"
+              aria-live="polite"
+            >
+              <Dot tone="critical" />
+              <span className="hidden sm:inline">API offline</span>
             </span>
-          </span>
-        </Tooltip>
+          </Tooltip>
+        ) : null}
         <button
           type="button"
           onClick={cycleTheme}
