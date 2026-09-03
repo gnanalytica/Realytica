@@ -17,6 +17,21 @@ import type { FlowCondition, FlowConditionGroup } from './types';
 export type Payload = Record<string, unknown>;
 
 /**
+ * Segments that name the language rather than the data.
+ *
+ * `writePath(out, '__proto__.x', v)` used to walk *into* `Object.prototype` —
+ * it is an object, so the "make one if it is missing" branch left it alone —
+ * and write `x` onto every plain object in the process. A transform's target
+ * is a text field an operator types, the validator never looked at it, and
+ * this API is long-running and shared between workspaces, so one drawn flow
+ * could change what everybody else's code reads off `{}`.
+ *
+ * Refused by name rather than sanitised: none of these is a payload key
+ * somebody meant to write, so there is nothing to preserve by rewriting it.
+ */
+const UNWRITABLE = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
  * Follow a dotted path. `findings.0.title` and `findings.length` both work,
  * the second because "did anything come back" is the commonest test there is
  * and making somebody write a filter for it would be silly.
@@ -35,19 +50,38 @@ export function readPath(payload: Payload, path: string): unknown {
       continue;
     }
     if (typeof cursor !== 'object') return undefined;
+    // Same names as `writePath` refuses, for the same reason: `{{__proto__}}`
+    // in a template is not a payload lookup, and `constructor` hands a model
+    // or an HTTP body a function rather than a fact.
+    if (UNWRITABLE.has(part)) return undefined;
     cursor = (cursor as Record<string, unknown>)[part];
   }
   return cursor;
 }
 
-/** Set a dotted path, creating the objects on the way. */
+/**
+ * Set a dotted path, creating the objects on the way.
+ *
+ * Copy-on-write down the path, which is the second half of the same bug. The
+ * engine builds a transform's output as `{ ...into }` — a shallow copy, so
+ * every nested object is still the *same* object the input holds. Writing
+ * `site.khata` therefore reached through the copy and changed the input: a
+ * transform inside a loop rewrote the payload the next iteration was about to
+ * read, and a transform on one branch was visible from the other. Copying each
+ * object on the way down costs one spread per level and makes the output a
+ * genuinely separate value, which is what the caller already believed it was.
+ */
 export function writePath(payload: Payload, path: string, value: unknown): void {
   const parts = path.split('.').map((p) => p.trim()).filter(Boolean);
   if (parts.length === 0) return;
+  if (parts.some((p) => UNWRITABLE.has(p))) return;
   let cursor: Record<string, unknown> = payload;
   for (const part of parts.slice(0, -1)) {
     const next = cursor[part];
-    if (!next || typeof next !== 'object' || Array.isArray(next)) cursor[part] = {};
+    cursor[part] =
+      !next || typeof next !== 'object' || Array.isArray(next)
+        ? {}
+        : { ...(next as Record<string, unknown>) };
     cursor = cursor[part] as Record<string, unknown>;
   }
   cursor[parts[parts.length - 1]!] = value;

@@ -1,6 +1,22 @@
-import { ChevronDown, Info } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Info } from 'lucide-react';
+import { statutoryAge } from '@realytica/shared';
 import { date as fmtDate } from '../lib/format';
-import { Tooltip } from './ui/kit';
+import { Tooltip, cn } from './ui/kit';
+
+/**
+ * How old this figure is, said in the units a reader thinks in.
+ *
+ * "As of 1 January 2023" is the same sentence on the day it is written and
+ * four years later, and a reader cannot do that subtraction while scanning a
+ * cost breakdown. The staleness engine has always known the answer — it just
+ * had no way to reach the line beside the number.
+ */
+function agePhrase(days: number): string {
+  if (days < 45) return `${days} days old`;
+  if (days < 365) return `${Math.round(days / 30)} months old`;
+  const years = days / 365;
+  return years < 2 ? 'over a year old' : `over ${Math.floor(years)} years old`;
+}
 
 /**
  * The trust primitive for every statutory figure surfaced by a State Pack.
@@ -24,18 +40,29 @@ export function StatutoryProvenance({
   verifyNote: string;
   compact?: boolean;
 }) {
+  const { ageDays, severity } = statutoryAge(asOf);
+  const stale = severity !== null;
+  const age = agePhrase(ageDays);
+
   if (compact) {
     // The source goes in the tooltip too — the line truncates it, and a
     // source you cannot read is not provenance.
     return (
-      <Tooltip label={`${source} — ${verifyNote}`}>
+      <Tooltip label={`${age}. ${source} — ${verifyNote}`}>
         <span
           tabIndex={0}
-          className="inline-flex min-w-0 cursor-help items-center gap-1 text-mini text-ink-muted"
+          className={cn(
+            'inline-flex min-w-0 cursor-help items-center gap-1 text-mini',
+            stale ? 'text-[var(--status-warning-text)]' : 'text-ink-muted',
+          )}
         >
-          <Info size={11} className="shrink-0" aria-hidden="true" />
+          {stale ? (
+            <AlertTriangle size={11} className="shrink-0" aria-hidden="true" />
+          ) : (
+            <Info size={11} className="shrink-0" aria-hidden="true" />
+          )}
           <span className="truncate">
-            As of {fmtDate(asOf)} · {source}
+            As of {fmtDate(asOf)} · {age}
           </span>
         </span>
       </Tooltip>
@@ -59,8 +86,17 @@ export function StatutoryProvenance({
    */
   return (
     <details className="print-open group">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-mini text-ink-muted">
-        <Info size={12} className="shrink-0" aria-hidden="true" />
+      <summary
+        className={cn(
+          'flex cursor-pointer list-none items-center gap-1.5 text-mini',
+          stale ? 'text-[var(--status-warning-text)]' : 'text-ink-muted',
+        )}
+      >
+        {stale ? (
+          <AlertTriangle size={12} className="shrink-0" aria-hidden="true" />
+        ) : (
+          <Info size={12} className="shrink-0" aria-hidden="true" />
+        )}
         {/*
           * Truncated closed, whole open. The source is often longer than the
           * line — "Revised Master Plan 2015 … ground coverage, setbacks and
@@ -68,11 +104,23 @@ export function StatutoryProvenance({
           * so the citation itself was unreadable in either state.
           */}
         <span className="truncate group-open:overflow-visible group-open:whitespace-normal">
-          As of {fmtDate(asOf)} · {source}
+          As of {fmtDate(asOf)} · <span className="font-medium">{age}</span> · {source}
         </span>
         <ChevronDown size={11} className="no-print shrink-0 self-start transition-transform duration-base group-open:rotate-180" />
       </summary>
       <p className="mt-1.5 border-l-2 border-[var(--ring)] pl-2.5 text-mini leading-relaxed text-ink-muted">
+        {/*
+          Stated before the caveat, not after it. The standing verify note is
+          the same words on every figure and readers learn to skip it; the one
+          sentence that differs between a current figure and a superseded one
+          is how long it has been since anybody checked.
+        */}
+        {stale ? (
+          <span className="mb-1 block font-medium text-[var(--status-warning-text)]">
+            This figure is {age} and past the point where it should be reconfirmed
+            {severity === 'serious' ? ' — treat it as indicative only until it is' : ''}.
+          </span>
+        ) : null}
         {verifyNote}
       </p>
     </details>

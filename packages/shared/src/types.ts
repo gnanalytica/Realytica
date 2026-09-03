@@ -224,6 +224,15 @@ export interface PropertyIdentity {
    * core engine and other geographies are unaffected.
    */
   karnataka?: KarnatakaAttributes;
+  /**
+   * Whether this is the property's first registration since construction.
+   *
+   * Optional, and its absence is meaningful: a concessional duty rate that
+   * turns on it is withheld rather than assumed, and the cost breakdown says
+   * so. Nothing else on the file implies it — a resale flat and a first sale
+   * are identical in every other field — so it has to be recorded.
+   */
+  firstRegistration?: boolean;
 }
 
 /**
@@ -2131,9 +2140,32 @@ export interface StatutoryRule<T> {
 }
 
 /** A stamp-duty band: `upTo` null means "and above". */
+/**
+ * A condition a concessional duty rate depends on.
+ *
+ * Karnataka's reduced rates are not general rates for inexpensive property —
+ * they attach to what is being registered and to whether it is being
+ * registered for the first time. Modelled as named conditions rather than a
+ * boolean so the interface can say *which* one is unmet, which is the
+ * difference between a figure somebody can act on and one they can only
+ * distrust.
+ */
+export type DutyConcessionCondition = 'residential_unit' | 'first_registration';
+
 export interface DutySlab {
   upTo: number | null;
   pct: number;
+  /**
+   * What must be established for this rate to apply. Absent means the rate is
+   * general — it applies to whatever falls in the band.
+   *
+   * A condition that cannot be established from the file is NOT satisfied. The
+   * engine falls back to the general rate and names what would reduce it,
+   * because quoting a concession the buyer turns out not to qualify for is an
+   * error discovered at the sub-registrar with money attached, while quoting
+   * the general rate is an over-estimate they can correct on the spot.
+   */
+  requires?: DutyConcessionCondition[];
 }
 
 /**
@@ -2192,9 +2224,37 @@ export interface StatePack {
    */
   developmentControl?: StatutoryRule<DevelopmentControl>;
   /** Named state-specific title checks surfaced in the compliance view. */
-  titleChecks: { key: string; label: string; description: string; statute: string }[];
+  titleChecks: StateTitleCheck[];
   datasets: string[];
   notes: string;
+}
+
+/**
+ * One named title check a state pack asserts.
+ *
+ * `reviewedAt` and `reviewNote` carry the same discipline the pack's numbers
+ * have always had, and for a sharper reason. A duty rate drifts by a
+ * percentage; a check drifts by changing what it *means* — e-Khata went from
+ * a lender preference to a registration precondition without any number in
+ * this file moving. The staleness engine could see every rate and none of the
+ * checks, so the part of the pack most likely to change qualitatively was the
+ * part nothing watched.
+ *
+ * Both are optional, and their absence is the honest state for a check nobody
+ * has reviewed since it was written. It is reported as unreviewed rather than
+ * defaulted to the file's authoring date, because a date invented to fill a
+ * field is worse than an empty one: it reads as evidence of a review that did
+ * not happen.
+ */
+export interface StateTitleCheck {
+  key: string;
+  label: string;
+  description: string;
+  statute: string;
+  /** When a person last confirmed this check against its source, ISO. */
+  reviewedAt?: string;
+  /** What specifically to re-confirm, where the check is known to be moving. */
+  reviewNote?: string;
 }
 
 export interface ReferenceData {

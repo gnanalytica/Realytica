@@ -148,6 +148,53 @@ function packRules(pack: StatePack): { label: string; asOf: string; source: stri
   ];
 }
 
+/**
+ * How old one statutory figure is, and whether that is worth saying.
+ *
+ * Exported because the report is not the only place this question is asked.
+ * The report answers "what on this case has aged"; a reader looking at a
+ * stamp-duty line asks the narrower "how old is *this* number", and until
+ * this existed the interface could only answer with the date it was carried
+ * from — which is the same answer on the day the figure was written as on the
+ * day it is four years out.
+ *
+ * Same thresholds and same arithmetic as the report, from the same constants,
+ * so a figure the report calls serious cannot read as current beside it.
+ */
+export function statutoryAge(asOf: string, now: string = new Date().toISOString()): {
+  ageDays: number;
+  severity: RiskSeverity | null;
+} {
+  const ageDays = daysBetween(asOf, now);
+  return { ageDays, severity: severityFor(ageDays, THRESHOLDS.referenceWarn, THRESHOLDS.referenceSerious) };
+}
+
+/**
+ * Every statutory figure in a pack, with its age — the report's own pack
+ * section, minus the case.
+ *
+ * The report needs a `PropertyCase` because most of what ages is on the case:
+ * a register search, a khata extract, a RERA registration. The pack's figures
+ * are the exception. They age for everybody, identically, and depend on no
+ * case at all — which is why a project (which is not a `PropertyCase`) could
+ * never ask the question, and why the whole mechanism went unrendered on the
+ * surface people actually use.
+ */
+export function packStaleness(
+  pack: StatePack,
+  now: string = new Date().toISOString(),
+): {
+  label: string;
+  asOf: string;
+  source: string;
+  ageDays: number;
+  severity: RiskSeverity | null;
+}[] {
+  return packRules(pack)
+    .map((rule) => ({ ...rule, ...statutoryAge(rule.asOf, now) }))
+    .sort((a, b) => b.ageDays - a.ageDays);
+}
+
 export function buildStaleness(caseData: PropertyCase, refData: ReferenceData, now: string): StalenessReport {
   const items: StaleItem[] = [];
   const asOfDates: string[] = [];
@@ -228,10 +275,10 @@ export function buildStaleness(caseData: PropertyCase, refData: ReferenceData, n
   // in force.
   const statePack = resolveStatePack(caseData.identity, refData.statePacks);
   if (statePack) {
-    const aged = packRules(statePack)
-      .map(rule => ({ ...rule, ageDays: daysBetween(rule.asOf, now) }))
-      .filter(rule => severityFor(rule.ageDays, THRESHOLDS.referenceWarn, THRESHOLDS.referenceSerious) !== null)
-      .sort((a, b) => b.ageDays - a.ageDays);
+    // Through `packStaleness` rather than repeating the filter: two copies of
+    // "which figures count as aged" is how the report and the line beside the
+    // number come to disagree about the same date.
+    const aged = packStaleness(statePack, now).filter((rule) => rule.severity !== null);
 
     if (aged.length > 0) {
       const oldest = aged[0];
