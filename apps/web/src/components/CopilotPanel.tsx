@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
-import { ArrowUp, CheckCircle2, Info, MessageCircle, Paperclip, SearchX, Sparkles, Trash2, X } from 'lucide-react';
+import { AlertCircle, ArrowUp, CheckCircle2, Info, MessageCircle, Paperclip, SearchX, Sparkles, Trash2, X } from 'lucide-react';
 import { groupActivity, splitThread } from '@realytica/shared';
 import type { AgentStep, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
@@ -121,6 +121,25 @@ function TurnBubble({
         <Sparkles size={12} />
       </span>
       <div className="min-w-0 flex-1 rounded-xl rounded-tl-sm bg-sunken px-3 py-2.5 ring-1 ring-inset ring-[var(--ring)]">
+        {turn.unanswered ? (
+          /*
+           * The question was not answered, and what follows is the standing
+           * briefing rather than a reply.
+           *
+           * Without this the two are indistinguishable: a rate-limited copilot
+           * fell through to "today on this project…", which rendered in the
+           * same voice and the same place as a real answer. Somebody asking
+           * what a buyer would pay read an unrelated open finding and had no
+           * way to know their question had never been reached. Said before the
+           * text, not after, because it changes how the text should be read.
+           */
+          <p className="mb-2 flex items-start gap-1.5 border-b border-[var(--ring)] pb-2 text-mini leading-snug text-ink-secondary">
+            <AlertCircle size={12} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+            <span>
+              {turn.unanswered} Below is where the file stands, not a reply to what you asked.
+            </span>
+          </p>
+        ) : null}
         <AnswerBody
           text={turn.text}
           evidence={evidence}
@@ -166,6 +185,30 @@ function TurnBubble({
             result={screenResult}
             askingPrice={askingPrice}
           />
+        ) : null}
+        {turn.metrics && turn.metrics.length > 0 ? (
+          /*
+           * What the turn changed, as figures.
+           *
+           * The one thing a receipt cannot say in a sentence without becoming
+           * the paragraph this panel is trying to stop being. Three rows, no
+           * prose column: how much evidence there is, how much of it is
+           * attached to something, and whether the pack moved. The last two
+           * are the pair that matters — documents on the register with nothing
+           * to attach them to leave the pack where it was, and only these
+           * numbers say so.
+           */
+          <dl className="mt-2 flex flex-col gap-0.5 rounded-lg bg-sunken px-2.5 py-1.5">
+            {turn.metrics.map((m) => (
+              <div key={m.label} className="flex items-baseline justify-between gap-3">
+                <dt className="text-mini text-ink-secondary">{m.label}</dt>
+                <dd className="flex items-baseline gap-1.5 tabular-nums">
+                  <span className="text-[12px] font-medium text-ink">{m.value}</span>
+                  {m.delta ? <span className="text-mini text-ink-muted">{m.delta}</span> : null}
+                </dd>
+              </div>
+            ))}
+          </dl>
         ) : null}
         {turn.unsupportedClaims && turn.unsupportedClaims.length > 0 ? (
           /*

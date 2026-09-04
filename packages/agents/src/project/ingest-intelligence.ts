@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AgentStep, CaseDocument, ChatIngestFile, DdProject } from '@realytica/shared';
-import { projectToIdentity } from '@realytica/shared';
+import { failureCause, projectToIdentity } from '@realytica/shared';
 import { runDocumentIntelligence } from '../agents/document-intelligence';
 
 export interface EnrichIngestParams {
@@ -36,6 +36,38 @@ function stubDocument(projectId: string, file: ChatIngestFile, now: string): Cas
 function clipQuote(label: string, value: string, max = 140): string {
   const raw = `${label}: ${value}`.replace(/\s+/g, ' ').trim();
   return raw.length > max ? `${raw.slice(0, max - 1)}…` : raw;
+}
+
+/**
+ * Why a file could not be read, in words a person can act on.
+ *
+ * The provider's own message is the wrong thing to show. It is a transport
+ * failure written for whoever is on call — an HTTP status, a JSON body, a
+ * `request_id`, sometimes a Zod dump naming `fields[6].unit` — and it arrived
+ * in chat where the summary of a title deed belongs. Worse, it arrived in the
+ * same typeface and the same position as the real summaries, so a batch of six
+ * uploads looked like six classifications when only two of them were.
+ *
+ * So the raw text is reduced to a cause and a next step. It is not discarded:
+ * the run itself carries the full error for anyone debugging one.
+ */
+function readFailureReason(raw: string): string {
+  switch (failureCause(raw)) {
+    case 'rate_limited':
+      return 'The document reader was rate limited. The file is attached; upload it again to read it.';
+    case 'unreadable':
+      return 'The document reader could not open this PDF — it may be a scan or protected.';
+    case 'malformed':
+      return 'The reader returned an answer this app could not use. The file is attached; upload it again to read it.';
+    case 'unsupported':
+      return 'This file type cannot be read — PDFs and images only.';
+    case 'unconfigured':
+      return 'Document reading is not configured on this deployment.';
+    case 'timeout':
+      return 'The document reader did not answer in time.';
+    default:
+      return 'The document reader could not read this file.';
+  }
 }
 
 /**
@@ -70,9 +102,14 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
         onStep: params.onStep,
       });
       if (result.run.status !== 'succeeded' || result.fields.length === 0) {
+        /*
+         * Nothing was read, so nothing may be said about the contents. The
+         * reason goes in `readFailure`, never in `extractionNotes` — see the
+         * note on that field for what happened when they shared one.
+         */
         out.push(
           result.notes
-            ? { ...file, extractionNotes: result.notes.slice(0, 400) }
+            ? { ...file, readFailure: readFailureReason(result.notes) }
             : file,
         );
         continue;

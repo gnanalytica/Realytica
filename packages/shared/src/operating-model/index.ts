@@ -11,6 +11,7 @@ export * from './sitting';
 export * from './clarify';
 export * from './check-command';
 export * from './attribution';
+export * from './provider-failure';
 export * from './run-ledger';
 export * from './chat-sides';
 export * from './project-screen';

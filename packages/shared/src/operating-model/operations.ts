@@ -1,5 +1,6 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
 import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
+import { looksLikeProviderError } from './provider-failure';
 import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
 import type { EnvironmentalCondition, RemedialBand, RicsEscalation } from './standards';
@@ -130,7 +131,19 @@ export function ensureProjectShape(project: DdProject): void {
     liftScreenMark(r, 'residualNote');
   }
   for (const a of project.actions ?? []) liftScreenMark(a, 'description');
-  for (const e of project.evidence ?? []) liftScreenMark(e, 'description');
+  for (const e of project.evidence ?? []) {
+    liftScreenMark(e, 'description');
+    /*
+     * Extraction notes that are really transport errors.
+     *
+     * `extractionNotes` and a failed read used to share one field, so a
+     * rate-limited parse filed its HTTP body against a real document and the
+     * row has carried it ever since. Uploads cannot write one any more — the
+     * failure travels in its own field — but the rows already on disk still
+     * assert an error where they should assert nothing.
+     */
+    if (looksLikeProviderError(e.extractionNotes)) delete e.extractionNotes;
+  }
   for (const d of project.decisions ?? []) liftScreenMark(d, 'rationale');
 
   if (!project.valuationRuns) project.valuationRuns = [];
@@ -1638,8 +1651,13 @@ const PACK_EVIDENCE_KEYS = [
 ];
 
 export function isPackEvidenceTitle(title: string): boolean {
+  return packKeyFor(title) !== undefined;
+}
+
+/** Which core-pack item a title answers, if any. Names the key, not just "yes". */
+function packKeyFor(title: string): string | undefined {
   const t = title.toLowerCase();
-  return PACK_EVIDENCE_KEYS.some((k) => t.includes(k));
+  return PACK_EVIDENCE_KEYS.find((k) => t.includes(k));
 }
 
 function packGapStatus(e: EvidenceRecord): boolean {
@@ -1666,18 +1684,35 @@ export function packCompleteness(project: DdProject): {
   total: number;
   missingTitles: string[];
 } {
-  const { pack } = packEvidence(project);
-  const missingRows = pack.filter(packGapStatus);
-  const received = pack.filter(packReceivedStatus).length;
-  const total = pack.length || PACK_EVIDENCE_KEYS.length;
-  const missing = pack.length ? missingRows.length : PACK_EVIDENCE_KEYS.length;
-  const percent = pack.length === 0 ? 0 : Math.round((received / pack.length) * 100);
+  /*
+   * The denominator is the pack, not the paperwork you happen to hold.
+   *
+   * It used to be `pack.length` — the number of evidence rows whose title
+   * matched a core item — so it grew with the numerator. File one encumbrance
+   * certificate on an empty project and completeness read 1/1, 100%: a
+   * measure of the sixteen core items that could never report a gap once
+   * anything at all had arrived, and that went from 0/16 to 100% on a single
+   * upload. Sixteen items are expected of a Karnataka file whether or not any
+   * of them are on it, so sixteen is the denominator.
+   *
+   * Counted by KEY, not by row: three encumbrance certificates for three
+   * survey numbers are one core item answered, not three.
+   */
+  const held = new Set<string>();
+  for (const row of project.evidence) {
+    if (!packReceivedStatus(row)) continue;
+    const key = packKeyFor(row.title);
+    if (key) held.add(key);
+  }
+  const total = PACK_EVIDENCE_KEYS.length;
+  const received = held.size;
+  const missingKeys = PACK_EVIDENCE_KEYS.filter((k) => !held.has(k));
   return {
-    percent,
+    percent: Math.round((received / total) * 100),
     received,
-    missing,
+    missing: missingKeys.length,
     total,
-    missingTitles: (pack.length ? missingRows.map((e) => e.title) : ['Title chain', 'Survey plan', 'Fire NOC']).slice(0, 6),
+    missingTitles: missingKeys.slice(0, 6),
   };
 }
 

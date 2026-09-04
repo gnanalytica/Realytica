@@ -9,6 +9,7 @@
 
 import type {
   ChatChoice,
+  ChatMetric,
   KarnatakaAttributes,
   ParcelBoundary,
   PlotAttributes,
@@ -17,7 +18,7 @@ import type {
   Tenure,
 } from '../types';
 
-export type { ChatChoice } from '../types';
+export type { ChatChoice, ChatMetric } from '../types';
 
 import type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } from './project-ontology';
 
@@ -1190,6 +1191,35 @@ export interface ProjectChatTurn {
   heldQuestions?: string[];
   /** Prose was dropped to fit the turn budget, so the UI can offer “say more”. */
   trimmed?: boolean;
+  /**
+   * What the turn changed on the file, as figures rather than sentences.
+   *
+   * A receipt that lists what you just approved tells you nothing you did not
+   * already know — you approved it. The question a person actually has after
+   * filing six documents is whether the diligence moved, and the honest answer
+   * is often no: six documents landed on the register and the priority pack
+   * stayed at 0/16 because there was no assessment to attach them to. That is
+   * one line of numbers and it is the most useful line in the exchange.
+   *
+   * Numbers only. Anything that needs a sentence belongs in the next step.
+   */
+  metrics?: ChatMetric[];
+  /**
+   * Why this turn does not answer what was asked.
+   *
+   * The copilot is reached only when the deterministic router declines the
+   * question. When that call cannot be made — no endpoint configured, a rate
+   * limit, a timeout — the request already falls through to the day's standing
+   * briefing so that chat keeps working, which is right. What was wrong is
+   * that it fell through SILENTLY: "what would a buyer pay for this?" came
+   * back as an unrelated open finding, in the same voice and the same position
+   * as a real answer, with nothing to say the question had not been read.
+   *
+   * The failure is recorded in the run ledger either way. This is the half the
+   * person can see. Set only when a question went unanswered; a briefing
+   * somebody actually asked for carries nothing here.
+   */
+  unanswered?: string;
   citedEvidenceIds: string[];
   citedNodeIds?: string[];
   toolCalls?: { name: string; summary: string }[];
@@ -1309,6 +1339,18 @@ export interface ChatIngestFile {
   excerpt?: string;
   /** Verbatim notes from document intelligence — never a substitute for approve. */
   extractionNotes?: string;
+  /**
+   * Why the file's text could not be read, in one short human sentence.
+   *
+   * Set only when extraction did not succeed, and never set together with
+   * `extractionNotes`: the two say opposite things. A note is something the
+   * model observed about the document; this is the admission that it observed
+   * nothing. They were previously the same field, so a rate-limited parse
+   * arrived in chat wearing the clothes of a classification — an HTTP 400 body
+   * rendered where a summary of the deed should be. A person skimming six
+   * upload cards cannot be expected to notice which two of them are real.
+   */
+  readFailure?: string;
   quotes?: Array<{ text: string; page?: number }>;
   pages?: number;
   kindHint?: string;

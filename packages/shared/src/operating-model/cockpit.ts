@@ -29,6 +29,7 @@ import type {
   ChatChoice,
   ActionRecord,
   ChatIngestFile,
+  ChatMetric,
   ChatProposal,
   ChatProposalKind,
   ChatSideBundle,
@@ -231,6 +232,8 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     unsupportedClaims: extra.unsupportedClaims,
     heldQuestions: extra.heldQuestions,
     trimmed: extra.trimmed,
+    metrics: extra.metrics,
+    unanswered: extra.unanswered,
     refusedForLackOfEvidence: extra.refusedForLackOfEvidence,
     proposalIds: extra.proposalIds,
   };
@@ -525,6 +528,61 @@ function briefingAnswer(project: DdProject, viewContext?: string): Pick<ProjectC
   };
 }
 
+/** Where the file stands, in the three numbers a receipt can move. */
+interface FileStanding {
+  evidence: number;
+  /** Evidence attached to a scope or a check — the rest is on the register only. */
+  linked: number;
+  packReceived: number;
+  packTotal: number;
+}
+
+function fileStanding(project: DdProject): FileStanding {
+  const pack = packCompleteness(project);
+  return {
+    evidence: project.evidence.length,
+    linked: project.evidence.filter((e) => e.scopeInstanceIds.length > 0 || e.checkIds.length > 0).length,
+    packReceived: pack.received,
+    packTotal: pack.total,
+  };
+}
+
+/**
+ * The receipt's figures.
+ *
+ * Only rows that moved, plus the one that did not move when it should have.
+ * "Linked to a scope: 0" is the row that explains an unchanged pack, so it is
+ * kept even at zero when documents were filed — a silent zero there is how six
+ * approved documents can feel like progress and be none.
+ */
+function standingDelta(before: FileStanding, after: FileStanding): ChatMetric[] | undefined {
+  const rows: ChatMetric[] = [];
+  const filed = after.evidence - before.evidence;
+  if (filed > 0) {
+    rows.push({ label: 'Evidence', value: String(after.evidence), delta: `+${filed}` });
+    const linked = after.linked - before.linked;
+    rows.push({
+      label: 'Linked to a scope',
+      value: String(after.linked),
+      delta: linked > 0 ? `+${linked}` : 'none of the new ones',
+    });
+  }
+  const packMoved = after.packReceived - before.packReceived;
+  if (filed > 0 || packMoved !== 0) {
+    rows.push({
+      label: 'Priority pack',
+      value: `${after.packReceived}/${after.packTotal}`,
+      delta: packMoved > 0 ? `+${packMoved}` : 'unchanged',
+    });
+  }
+  return rows.length ? rows : undefined;
+}
+
+/** "1 file", "3 files" — chat counts things constantly and reads badly with "(s)". */
+function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
 export function applyProjectChat(
   project: DdProject,
   question: string,
@@ -538,6 +596,7 @@ export function applyProjectChat(
   const commands: string[] = [];
   const navigations: ProjectChatResult['navigations'] = [];
   let offered: ChatProposal[] = [];
+  let metrics: ChatMetric[] | undefined;
   const highlightIds: string[] = [];
 
   const navigate = (
@@ -617,15 +676,35 @@ export function applyProjectChat(
   if (ingest.length) {
     const prefer = options.sitting;
     const rows = offer(proposalsFromIngest(project, ingest, actor, prefer));
-    assistantText = [
-      `Read ${ingest.length} file(s). Nothing is filed until you approve a card.`,
-      rows.map((p) => `• ${p.title}\n  ${p.rationale}`).join('\n'),
-      'Approve a card, or say “approve all”.',
-    ].join('\n');
+    /*
+     * One line, and the cards carry the rest.
+     *
+     * This used to reprint every card's title and full rationale immediately
+     * above the cards themselves, so a six-file upload rendered the same six
+     * paragraphs twice and then a third time on approval. The cards are the
+     * canonical rendering — they are what you act on — so the message says
+     * only what the cards cannot: how many there are, and how many of them
+     * are worth reading.
+     */
+    const failures = ingest.map((f) => f.readFailure).filter((r): r is string => Boolean(r));
+    const unread = failures.length;
+    /*
+     * When every file failed for the same reason, that reason is a fact about
+     * the deployment, not about six documents. Saying it once beats stamping
+     * it on six cards — which is the same mistake, one level up, as the prose
+     * this branch used to duplicate.
+     */
+    const oneCause = unread > 1 && new Set(failures).size === 1 ? failures[0]! : null;
+    assistantText =
+      unread === 0
+        ? `Read ${plural(ingest.length, 'file')}. Nothing is filed until you approve.`
+        : unread === ingest.length
+          ? `${oneCause ?? failures[0]!} Approving still files ${ingest.length === 1 ? 'it' : `all ${ingest.length}`} on the register, unread.`
+          : `Read ${plural(ingest.length - unread, 'file')}; ${unread} could not be read. Nothing is filed until you approve.`;
     citedEvidenceIds = rows.flatMap((p) => p.citedEvidenceIds ?? []);
     citedNodeIds = rows.flatMap((p) => p.citedNodeIds ?? []);
     highlightIds.push(...citedEvidenceIds);
-    toolCalls = [{ name: 'ingest', summary: `Classified ${ingest.length} file(s)` }];
+    toolCalls = [{ name: 'ingest', summary: `Classified ${plural(ingest.length, 'file')}` }];
     const sitting = sittingCheckOf(project, prefer) ?? sittingCheckOf(project, extrasFromPayload(rows[0]?.payload as Record<string, unknown>));
     if (sitting) {
       navigate('scope', 'Opened check', { ddId: sitting.assessment.id, scopeId: sitting.scope.id, checkId: sitting.check.id });
@@ -671,6 +750,7 @@ export function applyProjectChat(
         assistantText = 'Nothing to approve. Ask “guide me” for the next cards, or attach a document.';
       }
     } else {
+      const before = fileStanding(project);
       const done: string[] = [];
       for (const item of targets) {
         const result = commitChatProposal(project, item.id, actor);
@@ -678,11 +758,34 @@ export function applyProjectChat(
         if (result.recordId) highlightIds.push(result.recordId);
       }
       commands.push(`Approved ${done.length} proposal(s)`);
-      assistantText = `Approved:\n${done.map((d) => `• ${d}`).join('\n')}\n\nThe right-hand pane shows the live record.`;
+      /*
+       * A receipt, not a re-listing. The cards above have just flipped to
+       * their committed state in place, so repeating their titles — and the
+       * raw `ev_1a06…` ids, which name nothing a person recognises — said the
+       * same thing a third time in the least readable form available.
+       *
+       * What the sentence cannot say, the figures can: whether the diligence
+       * actually moved. Filing six documents against a project with no
+       * assessment leaves the pack at 0/16, and that is the fact worth putting
+       * in front of somebody who has just spent a minute approving cards.
+       */
+      assistantText = `Filed ${plural(done.length, 'card')}.`;
+      metrics = standingDelta(before, fileStanding(project));
       toolCalls = [{ name: 'approve', summary: `${done.length} committed` }];
       const extra = extrasFromPayload(targets[0]!.payload as Record<string, unknown>);
       const pane = extra?.checkId ? 'scope' : paneForProposalKind(targets[0]!.kind);
       navigate(pane, `Opened ${pane}`, extra);
+      /*
+       * One suggestion, and only one.
+       *
+       * `projectNextStep` already decides what this file needs next and the
+       * Overview pane already renders it; chat simply never asked. Offering it
+       * as a card rather than a sentence means it is actionable where it is
+       * read, and it inherits the collapsed card treatment rather than adding
+       * another paragraph. Idle means the file needs nothing — then say nothing.
+       */
+      const next = projectNextStep(project, actor);
+      if (next.kind !== 'idle' && next.proposals.length) offer([next.proposals[0]!]);
     }
   } else if (wantsReject(ql)) {
     const hit = matchProposal(project, q) ?? project.chatProposals.find((p) => p.status === 'proposed');
@@ -1140,6 +1243,7 @@ export function applyProjectChat(
     citedEvidenceIds: [...new Set(citedEvidenceIds)],
     citedNodeIds: citedNodeIds ? [...new Set(citedNodeIds)] : undefined,
     toolCalls,
+    metrics,
     proposalIds: offered.map((p) => p.id),
   });
   appendTurns(project, userTurn, assistantTurn);

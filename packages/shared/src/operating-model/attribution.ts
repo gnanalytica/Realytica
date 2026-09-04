@@ -117,10 +117,20 @@ const CLAIM_PATTERNS: Array<{ kind: AttributionFact['kind']; re: RegExp; scale: 
     scale: (n) => n,
   },
   {
-    // Large bare numbers only. Small integers are counts and ordinals, and
-    // flagging "3 scopes" would bury the one flag that matters.
+    /*
+     * Large bare numbers only. Small integers are counts and ordinals, and
+     * flagging "3 scopes" would bury the one flag that matters.
+     *
+     * The boundaries exclude digits sitting inside an identifier. Record ids
+     * here look like `prp_1a06d6cf46b-7a5e5f8fcf1098-7134d3e8468978`, and the
+     * old lookbehind — digits, punctuation and currency only — let the tail of
+     * one through as the claim "8468978". A person then read "Not on the file:
+     * 8468978 · 060786. Treat them as unverified", which is a warning about
+     * nothing, attached to an answer that had invented no figure at all. A
+     * grounding flag that cries wolf is worse than no flag.
+     */
     kind: 'number',
-    re: new RegExp(String.raw`(?<![\d.,%₹])(\d[\d,]{4,}(?:\.\d+)?)`, 'g'),
+    re: new RegExp(String.raw`(?<![\w.,%₹-])(\d[\d,]{4,}(?:\.\d+)?)(?![\w-])`, 'g'),
     scale: (n) => n,
   },
 ];

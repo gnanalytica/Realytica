@@ -17,6 +17,7 @@ import { api } from '../../../lib/api';
 import { Badge, Button, cn, useToast } from '../../../components/ui/kit';
 import { checkTone } from '../shared';
 import { FieldAdvise } from './FieldAdvise';
+import { ProposalCard } from './ProposalCard';
 
 export function SittingChip({
   talk,
@@ -159,7 +160,7 @@ function CheckPeek({
           <div className="space-y-1.5">
             <p className="text-[11px] font-medium text-ink-muted">Cards for this field</p>
             {pinned.slice(0, 3).map((item) => (
-              <ThrowawayCard key={item.id} item={item} busy={Boolean(busy)} onApprove={onApprove} onSkip={onSkip} />
+              <ProposalCard key={item.id} item={item} busy={Boolean(busy)} onApprove={onApprove} onSkip={onSkip} />
             ))}
           </div>
         ) : null}
@@ -185,7 +186,7 @@ function CheckPeek({
         <div className="space-y-1.5">
           <p className="text-[11px] font-medium text-ink-muted">Cards for this field</p>
           {pinned.slice(0, 3).map((item) => (
-            <ThrowawayCard key={item.id} item={item} busy={Boolean(busy)} onApprove={onApprove} onSkip={onSkip} />
+            <ProposalCard key={item.id} item={item} busy={Boolean(busy)} onApprove={onApprove} onSkip={onSkip} />
           ))}
         </div>
       ) : null}
@@ -233,40 +234,6 @@ function ScopePeek({
       >
         Open the scope
       </button>
-    </div>
-  );
-}
-
-function ThrowawayCard({
-  item,
-  busy,
-  onApprove,
-  onSkip,
-}: {
-  item: ChatProposal;
-  busy: boolean;
-  onApprove: (id: string) => void;
-  onSkip: (id: string) => void;
-}) {
-  const open = item.status === 'proposed';
-  return (
-    <div className="rounded-lg bg-sunken px-2.5 py-2">
-      <p className="text-[12.5px] font-medium text-ink">{item.title}</p>
-      <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-secondary">{item.rationale}</p>
-      {open ? (
-        <div className="mt-1.5 flex gap-1.5">
-          <Button size="sm" variant="primary" disabled={busy} onClick={() => onApprove(item.id)}>
-            Approve
-          </Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onSkip(item.id)}>
-            Skip
-          </Button>
-        </div>
-      ) : (
-        <p className="mt-1 text-[11px] font-medium text-ink-muted">
-          {item.status === 'committed' ? 'Written to the project' : item.status}
-        </p>
-      )}
     </div>
   );
 }

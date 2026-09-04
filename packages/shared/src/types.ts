@@ -2626,6 +2626,14 @@ export interface AgentInsight {
  * Approving a proposal changes the project; picking a choice only sends the
  * message the person would have typed, so nothing here can write by itself.
  */
+/** One figure on a turn's receipt: a label, where it stands, and whether it moved. */
+export interface ChatMetric {
+  label: string;
+  value: string;
+  /** Rendered beside the value when the turn changed it, e.g. "+6" or "unchanged". */
+  delta?: string;
+}
+
 export interface ChatChoice {
   id: string;
   /** What the person reads. */
@@ -2676,6 +2684,10 @@ export interface CopilotTurn {
   choices?: ChatChoice[];
   /** Figures in a model answer that nothing on the file supports. See `ProjectChatTurn`. */
   unsupportedClaims?: string[];
+  /** What this turn changed on the file, as figures. See `ProjectChatTurn`. */
+  metrics?: ChatMetric[];
+  /** Why the question was not answered, when the text below is a fallback. See `ProjectChatTurn`. */
+  unanswered?: string;
 }
 
 /* ------------------------------------------------------------------ */

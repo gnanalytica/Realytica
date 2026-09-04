@@ -366,19 +366,46 @@ export function classifyIngestFile(
   };
 }
 
-function ingestRationale(file: ChatIngestFile, target: string, scopeNames: string[]): string {
+/**
+ * Cut to a length, at a word boundary, and say that it was cut.
+ *
+ * A hard `slice` ends a sentence mid-word — real cards read "…so only the" and
+ * "…every survey number in the parcel (50/2, 50/4, 51/2C1, 53/1," — which
+ * looks less like an abridgement than like the app losing its place.
+ */
+function clip(text: string, max: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  const cut = trimmed.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[\s,;:.—-]+$/, '')}…`;
+}
+
+/**
+ * What the card says when you open it.
+ *
+ * Only what this particular file produced. The two sentences that used to lead
+ * every one of these — what approving a card does, and that no scope matched
+ * yet — were identical on every card in every batch, which is the definition
+ * of something that belongs in the interface once rather than in the copy N
+ * times. Unmatched scopes are now simply absent rather than announced.
+ */
+function ingestRationale(file: ChatIngestFile, scopeNames: string[]): string {
+  if (file.readFailure) return file.readFailure;
   const quotes = (file.quotes ?? [])
     .slice(0, 3)
     .map((q) => (q.page ? `“${q.text}” (p.${q.page})` : `“${q.text}”`))
     .join('; ');
   const notes = file.extractionNotes?.trim();
-  return [
-    `${target} Matched scopes: ${scopeNames.join(', ') || 'none yet — will still land on the project register'}.`,
-    quotes ? `From the file: ${quotes}.` : null,
-    notes ? notes.slice(0, 400) : null,
-  ]
-    .filter(Boolean)
-    .join(' ');
+  return (
+    [
+      notes ? clip(notes, 400) : null,
+      quotes ? `From the file: ${quotes}.` : null,
+      scopeNames.length ? `Links to ${scopeNames.join(', ')}.` : null,
+    ]
+      .filter(Boolean)
+      .join(' ') || 'Classified from the filename. Nothing was read out of the document itself.'
+  );
 }
 
 export function proposalsFromIngest(
@@ -391,22 +418,31 @@ export function proposalsFromIngest(
   const out: ChatProposal[] = [];
   for (const file of files) {
     const classified = classifyIngestFile(project, file, prefer);
-    const target = classified.evidence
-      ? `File against existing expected item “${classified.evidence.title}” (${classified.evidence.status}).`
-      : `Create a new evidence row (${classified.hint.kind}) and link it to matching DD scopes.`;
     const scopeNames = [...new Set(
       project.assessments.flatMap((a) =>
         a.scopes.filter((s) => classified.scopeInstanceIds.includes(s.id)).map((s) => SCOPE_LABEL[s.scopeKey]),
       ),
     )];
+    /*
+     * The title is the whole card when it is collapsed, so it carries the one
+     * thing worth knowing at a glance: what this file was taken to be.
+     *
+     * A file whose text never loaded is given no claimed kind — attaching one
+     * would assert a classification made from the filename alone while looking
+     * identical to a real extraction. It gets its bare name, and the card's
+     * "Unread" badge says the rest. Saying it in the title AS WELL would put
+     * the same fact in three places on one card, which is the habit this whole
+     * change is about.
+     */
+    const kind = classified.evidence?.title ?? classified.hint.titles[0] ?? 'new evidence';
     out.push(
       proposal(
         'file_evidence',
-        `File “${file.fileName}” → ${classified.evidence?.title ?? classified.hint.titles[0] ?? 'new evidence'}`,
-        ingestRationale(file, target, scopeNames),
+        file.readFailure ? file.fileName : `${file.fileName} → ${kind}`,
+        ingestRationale(file, scopeNames),
         classified.evidence
-          ? 'Marks the expected item received, attaches the file, links checks that named this evidence, and the graph edge appears.'
-          : 'Creates evidence, links to matching assessments/scopes, and expected-evidence completeness updates.',
+          ? 'Marks the expected item received and attaches the file.'
+          : 'Files the document on the evidence register.',
         {
           fileName: file.fileName,
           mimeType: file.mimeType,
@@ -422,6 +458,7 @@ export function proposalsFromIngest(
           checkId: classified.checkIds[0],
           quotes: file.quotes,
           extractionNotes: file.extractionNotes,
+          readFailure: file.readFailure,
         },
         actor,
         {
