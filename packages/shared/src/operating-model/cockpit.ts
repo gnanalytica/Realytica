@@ -525,6 +525,11 @@ function briefingAnswer(project: DdProject, viewContext?: string): Pick<ProjectC
   };
 }
 
+/** "1 file", "3 files" — chat counts things constantly and reads badly with "(s)". */
+function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
 export function applyProjectChat(
   project: DdProject,
   question: string,
@@ -617,15 +622,35 @@ export function applyProjectChat(
   if (ingest.length) {
     const prefer = options.sitting;
     const rows = offer(proposalsFromIngest(project, ingest, actor, prefer));
-    assistantText = [
-      `Read ${ingest.length} file(s). Nothing is filed until you approve a card.`,
-      rows.map((p) => `• ${p.title}\n  ${p.rationale}`).join('\n'),
-      'Approve a card, or say “approve all”.',
-    ].join('\n');
+    /*
+     * One line, and the cards carry the rest.
+     *
+     * This used to reprint every card's title and full rationale immediately
+     * above the cards themselves, so a six-file upload rendered the same six
+     * paragraphs twice and then a third time on approval. The cards are the
+     * canonical rendering — they are what you act on — so the message says
+     * only what the cards cannot: how many there are, and how many of them
+     * are worth reading.
+     */
+    const failures = ingest.map((f) => f.readFailure).filter((r): r is string => Boolean(r));
+    const unread = failures.length;
+    /*
+     * When every file failed for the same reason, that reason is a fact about
+     * the deployment, not about six documents. Saying it once beats stamping
+     * it on six cards — which is the same mistake, one level up, as the prose
+     * this branch used to duplicate.
+     */
+    const oneCause = unread > 1 && new Set(failures).size === 1 ? failures[0]! : null;
+    assistantText =
+      unread === 0
+        ? `Read ${plural(ingest.length, 'file')}. Nothing is filed until you approve.`
+        : unread === ingest.length
+          ? `${oneCause ?? failures[0]!} Approving still files ${ingest.length === 1 ? 'it' : `all ${ingest.length}`} on the register, unread.`
+          : `Read ${plural(ingest.length - unread, 'file')}; ${unread} could not be read. Nothing is filed until you approve.`;
     citedEvidenceIds = rows.flatMap((p) => p.citedEvidenceIds ?? []);
     citedNodeIds = rows.flatMap((p) => p.citedNodeIds ?? []);
     highlightIds.push(...citedEvidenceIds);
-    toolCalls = [{ name: 'ingest', summary: `Classified ${ingest.length} file(s)` }];
+    toolCalls = [{ name: 'ingest', summary: `Classified ${plural(ingest.length, 'file')}` }];
     const sitting = sittingCheckOf(project, prefer) ?? sittingCheckOf(project, extrasFromPayload(rows[0]?.payload as Record<string, unknown>));
     if (sitting) {
       navigate('scope', 'Opened check', { ddId: sitting.assessment.id, scopeId: sitting.scope.id, checkId: sitting.check.id });
@@ -678,7 +703,13 @@ export function applyProjectChat(
         if (result.recordId) highlightIds.push(result.recordId);
       }
       commands.push(`Approved ${done.length} proposal(s)`);
-      assistantText = `Approved:\n${done.map((d) => `• ${d}`).join('\n')}\n\nThe right-hand pane shows the live record.`;
+      /*
+       * A receipt, not a re-listing. The cards above have just flipped to
+       * their committed state in place, so repeating their titles — and the
+       * raw `ev_1a06…` ids, which name nothing a person recognises — said the
+       * same thing a third time in the least readable form available.
+       */
+      assistantText = `Filed ${plural(done.length, 'card')}. The pane on the right shows the record.`;
       toolCalls = [{ name: 'approve', summary: `${done.length} committed` }];
       const extra = extrasFromPayload(targets[0]!.payload as Record<string, unknown>);
       const pane = extra?.checkId ? 'scope' : paneForProposalKind(targets[0]!.kind);

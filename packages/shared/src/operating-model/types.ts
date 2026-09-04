@@ -1309,6 +1309,18 @@ export interface ChatIngestFile {
   excerpt?: string;
   /** Verbatim notes from document intelligence — never a substitute for approve. */
   extractionNotes?: string;
+  /**
+   * Why the file's text could not be read, in one short human sentence.
+   *
+   * Set only when extraction did not succeed, and never set together with
+   * `extractionNotes`: the two say opposite things. A note is something the
+   * model observed about the document; this is the admission that it observed
+   * nothing. They were previously the same field, so a rate-limited parse
+   * arrived in chat wearing the clothes of a classification — an HTTP 400 body
+   * rendered where a summary of the deed should be. A person skimming six
+   * upload cards cannot be expected to notice which two of them are real.
+   */
+  readFailure?: string;
   quotes?: Array<{ text: string; page?: number }>;
   pages?: number;
   kindHint?: string;

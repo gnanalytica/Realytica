@@ -39,6 +39,42 @@ function clipQuote(label: string, value: string, max = 140): string {
 }
 
 /**
+ * Why a file could not be read, in words a person can act on.
+ *
+ * The provider's own message is the wrong thing to show. It is a transport
+ * failure written for whoever is on call — an HTTP status, a JSON body, a
+ * `request_id`, sometimes a Zod dump naming `fields[6].unit` — and it arrived
+ * in chat where the summary of a title deed belongs. Worse, it arrived in the
+ * same typeface and the same position as the real summaries, so a batch of six
+ * uploads looked like six classifications when only two of them were.
+ *
+ * So the raw text is reduced to a cause and a next step. It is not discarded:
+ * the run itself carries the full error for anyone debugging one.
+ */
+function readFailureReason(raw: string): string {
+  const text = raw.toLowerCase();
+  if (/rate limit|429|too many requests/.test(text)) {
+    return 'The document reader was rate limited. The file is attached; upload it again to read it.';
+  }
+  if (/failed to parse|could not parse|parsing engine/.test(text)) {
+    return 'The document reader could not open this PDF — it may be a scan or protected.';
+  }
+  if (/schema validation|invalid_type|expected/.test(text)) {
+    return 'The reader returned an answer this app could not use. The file is attached; upload it again to read it.';
+  }
+  if (/only reads pdfs|not supported|unsupported/.test(text)) {
+    return 'This file type cannot be read — PDFs and images only.';
+  }
+  if (/no model endpoint|not configured|credential|api[_ ]key|unauthor|401|403/.test(text)) {
+    return 'Document reading is not configured on this deployment.';
+  }
+  if (/timeout|timed out|econnreset|network/.test(text)) {
+    return 'The document reader did not answer in time.';
+  }
+  return 'The document reader could not read this file.';
+}
+
+/**
  * Run document intelligence per uploaded file. On skip or failure the original
  * ingest row is returned unchanged so filename classify still works.
  */
@@ -70,9 +106,14 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
         onStep: params.onStep,
       });
       if (result.run.status !== 'succeeded' || result.fields.length === 0) {
+        /*
+         * Nothing was read, so nothing may be said about the contents. The
+         * reason goes in `readFailure`, never in `extractionNotes` — see the
+         * note on that field for what happened when they shared one.
+         */
         out.push(
           result.notes
-            ? { ...file, extractionNotes: result.notes.slice(0, 400) }
+            ? { ...file, readFailure: readFailureReason(result.notes) }
             : file,
         );
         continue;

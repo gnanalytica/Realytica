@@ -36,6 +36,7 @@ import type { ProjectOutlet } from './ProjectLayout';
 import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
 import { CockpitPaneStrip, paneLabel } from './cockpit/rail';
 import { SittingChip, SittingDock } from './cockpit/SittingPeek';
+import { ProposalCard } from './cockpit/ProposalCard';
 
 function sameSitting(a: TalkSitting, b: TalkSitting): boolean {
   return (
@@ -69,41 +70,10 @@ function ProposalCards({
     });
   if (!rows.length) return null;
   return (
-    <div className="mt-2.5 flex flex-col gap-2">
-      {rows.map((item) => {
-        const open = item.status === 'proposed';
-        return (
-          <div key={item.id} className="rounded-lg bg-surface px-3 py-2 ring-1 ring-inset ring-[var(--ring)]">
-            <p className="text-[12.5px] font-medium text-ink">{item.title}</p>
-            <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-secondary">{item.rationale}</p>
-            <p className="mt-1 text-[11px] text-ink-muted">{item.impact}</p>
-            {typeof item.payload.url === 'string' && item.payload.url ? (
-              <a
-                href={item.payload.url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-1 inline-block text-[11.5px] text-brand underline-offset-2 hover:underline"
-              >
-                Open portal
-              </a>
-            ) : null}
-            {open ? (
-              <div className="mt-2 flex gap-1.5">
-                <Button size="sm" variant="primary" disabled={busy} onClick={() => onApprove(item.id)}>
-                  Approve
-                </Button>
-                <Button size="sm" variant="ghost" disabled={busy} onClick={() => onSkip(item.id)}>
-                  Skip
-                </Button>
-              </div>
-            ) : (
-              <p className="mt-1.5 text-[11px] font-medium text-ink-muted">
-                {item.status === 'committed' ? 'Written to the project' : item.status}
-              </p>
-            )}
-          </div>
-        );
-      })}
+    <div className="mt-2.5 flex flex-col gap-1">
+      {rows.map((item) => (
+        <ProposalCard key={item.id} item={item} busy={busy} onApprove={onApprove} onSkip={onSkip} />
+      ))}
     </div>
   );
 }
