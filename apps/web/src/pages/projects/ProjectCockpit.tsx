@@ -6,6 +6,7 @@ import {
   cockpitPath,
   graphNodeLabels,
   isProjectCockpitPane,
+  hasSpokenConversation,
   paneFromProjectPath,
   projectNextStep,
   paneForTalk,
@@ -225,7 +226,14 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     paneFromProjectPath(typeof window === 'undefined' ? '' : window.location.pathname) === 'overview' ? 'chat' : 'work',
   );
 
-  const threadEmpty = (project.conversation ?? []).length === 0;
+  /*
+   * "Nobody has talked here yet" — not "the array is empty".
+   *
+   * Every work-pane edit logs a synthetic turn and a one-word reply, so a file
+   * nobody has ever asked a question on still reports a conversation, and the
+   * thread got the full 520px to display its own bookkeeping.
+   */
+  const threadEmpty = !hasSpokenConversation(project);
 
   useEffect(() => {
     const preset = LAYOUTS[layout].chat;
@@ -552,12 +560,17 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col overflow-hidden">
       {isDesktop ? (
         <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-hairline px-5 py-2.5">
+          {/*
+            The reference and the name are NOT repeated here.
+            The top bar's project switcher carries both, permanently, forty
+            pixels above this row — so the cockpit was printing "RYT-0003" and
+            the project name twice, stacked, before a reader reached anything
+            about the project. What this row is for is the way back and the
+            health of the file; the switcher says which file it is.
+          */}
           <Link to="/projects" className="text-[11.5px] text-ink-secondary hover:text-ink">
             Projects
           </Link>
-          <span className="text-ink-muted">·</span>
-          <span className="font-mono text-[11px] text-ink-muted">{project.reference}</span>
-          <span className="truncate text-[13.5px] font-semibold text-ink">{project.name}</span>
           <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
           <div className="flex-grow" />
           <button

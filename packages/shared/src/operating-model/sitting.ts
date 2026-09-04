@@ -404,6 +404,31 @@ export function noteProjectEdit(
   project.updatedAt = assistant.at;
 }
 
+/**
+ * Whether a person has actually said anything here.
+ *
+ * Not the same question as "is the thread empty", and the difference is worth
+ * three hundred pixels on every pane. `noteProjectEdit` writes a synthetic
+ * user turn and a one-word reply for every work-pane edit, so a file where
+ * nobody has ever opened the copilot still has a conversation in it — on the
+ * seeded project, two turns reading "Ran the project screen." and "Recorded."
+ *
+ * The cockpit gives an empty thread less room, correctly, and then gave the
+ * full width to a thread containing nothing but its own bookkeeping. The
+ * `pane_write` tool call on the reply is what marks a pair as an echo rather
+ * than an exchange.
+ */
+export function hasSpokenConversation(project: DdProject): boolean {
+  const turns = project.conversation ?? [];
+  return turns.some((turn, i) => {
+    if (turn.role !== 'user') return false;
+    const reply = turns[i + 1];
+    const isEcho =
+      reply?.role === 'assistant' && (reply.toolCalls ?? []).some((call) => call.name === 'pane_write');
+    return !isEcho;
+  });
+}
+
 function fold(s: string): string {
   return s.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }

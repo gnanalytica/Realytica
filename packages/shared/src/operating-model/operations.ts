@@ -87,7 +87,52 @@ export function deriveHealth(project: DdProject): ProjectHealth {
   return 'green';
 }
 
+/**
+ * The screen's marker, as it was written before it had a field.
+ *
+ * Matched with the trailing blank line it was joined on, so lifting it out
+ * leaves the prose as though it had never been appended.
+ */
+const LEGACY_SCREEN_MARK = /\n*\[screen:([a-z0-9_-]+)\]\s*$/i;
+
+/**
+ * Move an inline `[screen:...]` marker into `screenCode`.
+ *
+ * Every record the screen filed before the field existed carries its code in
+ * its own prose, which is how twenty internal keys came to be rendered to
+ * readers — four of them inside a client-facing report. New records never get
+ * one; this retires the ones already on disk, on load, once.
+ *
+ * Returns whether anything moved, so the caller can tell a migrated file from
+ * an untouched one.
+ */
+function liftScreenMark(record: { screenCode?: string }, field: 'description' | 'cause' | 'residualNote' | 'rationale'): boolean {
+  const bag = record as Record<string, unknown>;
+  const text = bag[field];
+  if (typeof text !== 'string') return false;
+  const hit = LEGACY_SCREEN_MARK.exec(text);
+  if (!hit) return false;
+  bag[field] = text.replace(LEGACY_SCREEN_MARK, '').trimEnd();
+  if (!record.screenCode) record.screenCode = hit[1];
+  return true;
+}
+
 export function ensureProjectShape(project: DdProject): void {
+  /*
+   * Records filed by an earlier screen carry their code inline. Lifted here
+   * rather than stripped at render, because a render-time strip has to be
+   * repeated on every surface that shows a description — and the leak happened
+   * precisely because there are more such surfaces than anybody tracks.
+   */
+  for (const f of project.findings ?? []) liftScreenMark(f, 'description');
+  for (const r of project.risks ?? []) {
+    liftScreenMark(r, 'cause');
+    liftScreenMark(r, 'residualNote');
+  }
+  for (const a of project.actions ?? []) liftScreenMark(a, 'description');
+  for (const e of project.evidence ?? []) liftScreenMark(e, 'description');
+  for (const d of project.decisions ?? []) liftScreenMark(d, 'rationale');
+
   if (!project.valuationRuns) project.valuationRuns = [];
   if (!project.capabilityRuns) project.capabilityRuns = [];
   if (!project.aiDrafts) project.aiDrafts = [];
@@ -720,6 +765,7 @@ export function recordCheckResult(project: DdProject, checkId: string, input: Re
 export function addEvidence(project: DdProject, input: CreateEvidenceInput, actor = DEFAULT_ACTOR): EvidenceRecord {
   const at = nowIso();
   const record: EvidenceRecord = {
+    screenCode: input.screenCode,
     id: id('ev'),
     title: input.title.trim(),
     kind: input.kind,
@@ -784,6 +830,7 @@ export function updateEvidenceStatus(
 export function addFinding(project: DdProject, input: CreateFindingInput, actor = DEFAULT_ACTOR): FindingRecord {
   const at = nowIso();
   const record: FindingRecord = {
+    screenCode: input.screenCode,
     id: id('fnd'),
     title: input.title.trim(),
     description: input.description.trim(),
@@ -817,6 +864,7 @@ export function addFinding(project: DdProject, input: CreateFindingInput, actor 
 export function addRisk(project: DdProject, input: CreateRiskInput, actor = DEFAULT_ACTOR): RiskRecord {
   const at = nowIso();
   const record: RiskRecord = {
+    screenCode: input.screenCode,
     id: id('rsk'),
     title: input.title.trim(),
     category: input.category,
@@ -851,6 +899,7 @@ export function addRisk(project: DdProject, input: CreateRiskInput, actor = DEFA
 export function addAction(project: DdProject, input: CreateActionInput, actor = DEFAULT_ACTOR): ActionRecord {
   const at = nowIso();
   const record: ActionRecord = {
+    screenCode: input.screenCode,
     id: id('act'),
     title: input.title.trim(),
     kind: input.kind,
@@ -1323,6 +1372,7 @@ export function sheetPlacements(project: DdProject): SheetPlacement[] {
 export function addDecision(project: DdProject, input: CreateDecisionInput, actor = DEFAULT_ACTOR): DecisionRecord {
   const at = nowIso();
   const record: DecisionRecord = {
+    screenCode: input.screenCode,
     id: id('dec'),
     title: input.title.trim(),
     decisionType: input.decisionType,
