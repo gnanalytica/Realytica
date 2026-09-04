@@ -1,5 +1,6 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
 import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
+import { looksLikeProviderError } from './provider-failure';
 import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
 import type { EnvironmentalCondition, RemedialBand, RicsEscalation } from './standards';
@@ -130,7 +131,19 @@ export function ensureProjectShape(project: DdProject): void {
     liftScreenMark(r, 'residualNote');
   }
   for (const a of project.actions ?? []) liftScreenMark(a, 'description');
-  for (const e of project.evidence ?? []) liftScreenMark(e, 'description');
+  for (const e of project.evidence ?? []) {
+    liftScreenMark(e, 'description');
+    /*
+     * Extraction notes that are really transport errors.
+     *
+     * `extractionNotes` and a failed read used to share one field, so a
+     * rate-limited parse filed its HTTP body against a real document and the
+     * row has carried it ever since. Uploads cannot write one any more — the
+     * failure travels in its own field — but the rows already on disk still
+     * assert an error where they should assert nothing.
+     */
+    if (looksLikeProviderError(e.extractionNotes)) delete e.extractionNotes;
+  }
   for (const d of project.decisions ?? []) liftScreenMark(d, 'rationale');
 
   if (!project.valuationRuns) project.valuationRuns = [];
