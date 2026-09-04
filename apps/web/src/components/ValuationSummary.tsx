@@ -23,7 +23,7 @@
  */
 
 import { VALUATION_METHOD_LABEL, approachIsUsable, type ScreenResult, type ValuationRun } from '@realytica/shared';
-import { Card, CardBody, Badge, cn } from './ui/kit';
+import { Card, CardBody, Badge, Why, cn } from './ui/kit';
 import type { Tone } from './ui/kit';
 import { FormulaTip, type Derivation } from './FormulaTip';
 import { pct } from '../lib/format';
@@ -243,16 +243,12 @@ export function ValuationSummary({
               'rounded-lg bg-warning/10 px-3 py-2 text-[12.5px] leading-relaxed text-ink ring-1 ring-inset ring-warning/40',
             )}
           >
-            <span className="font-medium">This band is too wide to act on.</span> The low and high here differ by
-            a factor of {(run.high / Math.max(run.low, 1)).toFixed(1)}, so the mid is a midpoint rather than an
-            estimate.
-            {screen?.confidence.biggestLever ? ` ${screen.confidence.biggestLever}` : ''}
+            <span className="font-medium">Band too wide to act on</span>
+            <span className="text-ink-secondary"> — high is {(run.high / Math.max(run.low, 1)).toFixed(1)}× the low.</span>
+            {screen?.confidence.biggestLever ? <Why label="What narrows it">{screen.confidence.biggestLever}</Why> : null}
           </p>
         ) : screen?.confidence.biggestLever ? (
-          <p className="text-[12.5px] leading-relaxed text-ink-secondary">
-            <span className="text-ink-muted">What would most improve this — </span>
-            {screen.confidence.biggestLever}
-          </p>
+          <Why label="What would most improve this">{screen.confidence.biggestLever}</Why>
         ) : null}
 
         {drivers.length > 0 ? (
@@ -281,9 +277,8 @@ export function ValuationSummary({
               explanation when most of the gap is unaccounted for.
             */}
             {unexplained && Math.abs(unexplained.impactPct) > 10 ? (
-              <p className="mt-2 text-[11.5px] leading-relaxed text-ink-muted">
-                A further {pct(unexplained.impactPct, 1, true)} is not accounted for by any recorded driver — the
-                three above explain only part of the difference from the locality median.
+              <p className="mt-2 text-[11.5px] text-ink-muted">
+                {pct(unexplained.impactPct, 1, true)} unexplained
               </p>
             ) : null}
           </div>

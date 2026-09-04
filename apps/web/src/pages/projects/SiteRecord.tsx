@@ -101,7 +101,7 @@ export default function SiteRecord() {
         {visits.length === 0 ? (
           <EmptyState
             title="No visit recorded"
-            description="A visit is what photographs are taken on — and it exists even when nobody could get in."
+            description="Photographs and observations attach to a visit."
             action={<Button onClick={() => setOpen(true)}>Record the first visit</Button>}
           />
         ) : (
@@ -145,7 +145,7 @@ export default function SiteRecord() {
                          wrote up is silence, and a report must not read the
                          second as the first. */
                       <p className="text-[11.5px] text-[var(--status-warning-text)]">
-                        Nothing recorded about what could or could not be inspected — this visit has not been written up.
+                        Not written up.
                       </p>
                     )}
                   </div>
@@ -164,7 +164,7 @@ export default function SiteRecord() {
         {placements.length === 0 ? (
           <EmptyState
             title="No sheet placed"
-            description="File a master plan, zoning or layout sheet on the evidence register, then place it here to see it under the pin."
+            description="File a sheet on the evidence register, then place it here."
           />
         ) : (
           <Card>

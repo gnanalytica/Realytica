@@ -57,21 +57,28 @@ function id(prefix: string): string {
   return `${prefix}_${uuid}`;
 }
 
-function hasMark(haystack: string | undefined, code: string): boolean {
+/**
+ * Whether a record already carries this screen's code.
+ *
+ * Reads the field first and the old inline mark second. The fallback is not
+ * decoration: every project screened before `screenCode` existed has the mark
+ * baked into its prose, and dropping the text check would make the screen
+ * re-file every finding it had ever filed on those files. `ensureProjectShape`
+ * migrates them on load; this keeps the run correct for one that has not been
+ * loaded yet.
+ */
+function hasMark(record: { screenCode?: string }, haystack: string | undefined, code: string): boolean {
+  if (record.screenCode) return record.screenCode === code;
   return Boolean(haystack?.includes(SCREEN_MARK(code)));
-}
-
-function tagged(code: string, body: string): string {
-  return `${body.trim()}\n\n${SCREEN_MARK(code)}`;
 }
 
 function already(project: DdProject, code: string): boolean {
   return (
-    project.findings.some((f) => hasMark(f.description, code))
-    || project.risks.some((r) => hasMark(r.cause, code) || hasMark(r.residualNote, code))
-    || project.actions.some((a) => hasMark(a.description, code))
-    || project.evidence.some((e) => hasMark(e.description, code))
-    || project.decisions.some((d) => hasMark(d.rationale, code))
+    project.findings.some((f) => hasMark(f, f.description, code))
+    || project.risks.some((r) => hasMark(r, r.cause, code) || hasMark(r, r.residualNote, code))
+    || project.actions.some((a) => hasMark(a, a.description, code))
+    || project.evidence.some((e) => hasMark(e, e.description, code))
+    || project.decisions.some((d) => hasMark(d, d.rationale, code))
   );
 }
 
@@ -394,7 +401,8 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
       project,
       {
         title: flag.title,
-        description: tagged(flag.code, `${flag.description}\n\nImpact: ${flag.impact}`),
+        description: `${flag.description}\n\nImpact: ${flag.impact}`,
+        screenCode: flag.code,
         severity: severityOf(flag.severity),
         discipline: disciplineOf(flag.category),
         status: 'open',
@@ -408,7 +416,8 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
       {
         title: flag.title,
         category: impactOf(flag.category),
-        cause: tagged(flag.code, flag.description),
+        cause: flag.description,
+        screenCode: flag.code,
         impactType: impactOf(flag.category),
         probability: probabilityOf(flag),
         impactScore: flag.severity === 'critical' ? 5 : flag.severity === 'serious' ? 4 : 3,
@@ -432,7 +441,8 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
         kind: actionKindOf(action),
         owner: action.owner,
         priority: actionPriority(action),
-        description: tagged(action.id, `${action.description}\nUnblocks: ${action.unblocks.join('; ') || '—'}`),
+        description: `${action.description}\nUnblocks: ${action.unblocks.join('; ') || '—'}`,
+        screenCode: action.id,
       },
       actor,
     );
@@ -450,7 +460,8 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
         kind: 'document',
         source: 'property_screen',
         status: 'expected',
-        description: tagged(code, item.note || `Required for a complete screen. Satisfied by: ${item.satisfiedBy.join(', ')}.`),
+        description: item.note || `Required for a complete screen. Satisfied by: ${item.satisfiedBy.join(', ')}.`,
+        screenCode: code,
       },
       actor,
     );
@@ -464,10 +475,8 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
         project,
         {
           title: result.titleGraph.headline || 'Title graph',
-          description: tagged(
-            code,
-            `Integrity ${result.titleGraph.integrityScore}/100. ${result.titleGraph.contradictions.map((c) => c.statement).join(' ') || 'No contradictions named.'}`,
-          ),
+          description: `Integrity ${result.titleGraph.integrityScore}/100. ${result.titleGraph.contradictions.map((c) => c.statement).join(' ') || 'No contradictions named.'}`,
+          screenCode: code,
           severity: result.titleGraph.contradictions.some((c) => c.severity === 'critical' || c.severity === 'serious') ? 'high' : 'medium',
           discipline: 'legal',
           status: 'open',
@@ -500,7 +509,8 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
         decisionType: decisionTypeOf(result.recommendation.verdict),
         decisionMaker: actor,
         status: 'proposed',
-        rationale: tagged(verdictCode, `${result.recommendation.headline}\n\n${result.recommendation.reasoning.join('\n')}`),
+        rationale: `${result.recommendation.headline}\n\n${result.recommendation.reasoning.join('\n')}`,
+        screenCode: verdictCode,
         findingIds,
         riskIds,
       },

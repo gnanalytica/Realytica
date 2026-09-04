@@ -133,7 +133,7 @@ export default function Diligence() {
       {project.assessments.length === 0 ? (
         <EmptyState
           title="No due diligence assessments"
-          description="Scopes and checks instantiate from the library; expected evidence is added to the register."
+          description="Scopes and checks instantiate from the library."
           action={<Button onClick={() => setOpen(true)}>Start the first DD</Button>}
         />
       ) : rows.length === 0 ? (

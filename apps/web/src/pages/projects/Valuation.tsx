@@ -11,7 +11,7 @@ import {
   type ValuationSignOff,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Select, Tabs, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Select, Tabs, Why, useToast } from '../../components/ui/kit';
 import type { TabDef } from '../../components/ui/kit';
 import { ScreenResultPanel } from '../../components/ScreenResultPanel';
 import { ScheduleOfProperty } from '../../components/ScheduleOfProperty';
@@ -173,9 +173,11 @@ export default function Valuation() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="text-[13px] text-ink-secondary">
-          Indicative. Not a certified value unless a registered valuer signs a professional report.
-        </p>
+        {/* The caveat is a standing condition, not news. It reads as a chip
+            beside the figure rather than a sentence above the controls. */}
+        <Badge tone="neutral" title="Not a certified value unless a registered valuer signs a professional report.">
+          Indicative
+        </Badge>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => void screen()} disabled={busy}>Run property screen</Button>
           <Button onClick={() => void run()} disabled={busy}>Run indicative valuation</Button>
@@ -185,7 +187,7 @@ export default function Valuation() {
       {!latest ? (
         <EmptyState
           title="No valuation run yet"
-          description="An indicative range needs the land and built-up areas on the project — record those and either button below will produce one. Without them every approach reports which input it is missing rather than guessing."
+          description="Record the land and built-up areas, then run a screen or a valuation."
         />
       ) : (
         <>
@@ -234,18 +236,31 @@ export default function Valuation() {
           />
           <CardBody className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
-              <p className="text-[13px] text-ink-secondary">Premise: {VALUATION_PREMISE_LABEL[latest.ibbi.premise]}</p>
-              <p className="text-[13px] text-ink-secondary">Basis: {VALUATION_BASIS_LABEL[latest.ibbi.basis]}</p>
+              {/*
+                Stacked, not spread. `KeyValue` pushes its label and value to
+                opposite edges, which is right in a full-width list and wrong
+                in a third-width column — "Premise" ended up eighty pixels from
+                "Residual / development" and the two read as separate items.
+              */}
+              <div>
+                <p className="text-mini uppercase tracking-wider text-ink-muted">Premise</p>
+                <p className="text-[13px] text-ink">{VALUATION_PREMISE_LABEL[latest.ibbi.premise]}</p>
+              </div>
+              <div>
+                <p className="text-mini uppercase tracking-wider text-ink-muted">Basis</p>
+                <p className="text-[13px] text-ink">{VALUATION_BASIS_LABEL[latest.ibbi.basis]}</p>
+              </div>
               <FieldSignOff value={latest.signOff} onChange={(v) => void signOff(latest.id, v)} />
             </div>
-            <section>
-              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Instruction</h3>
-              <p className="mt-1 text-[13px] leading-relaxed text-ink">{latest.ibbi.instruction}</p>
-            </section>
-            <section>
-              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Subject</h3>
-              <p className="mt-1 text-[13px] leading-relaxed text-ink">{latest.ibbi.subject}</p>
-            </section>
+            {/*
+              Instruction and Subject are Rule 8(3) narrative: required in the
+              signed report, and three hundred characters of standing preamble
+              on a screen somebody opened to read a figure. They print in full.
+            */}
+            <Why label="Instruction and subject">
+              <p>{latest.ibbi.instruction}</p>
+              <p>{latest.ibbi.subject}</p>
+            </Why>
             <section>
               <h3 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Approaches</h3>
               {/* The working when the run carries it. Runs written before the
@@ -284,7 +299,7 @@ export default function Valuation() {
                         {a.label ? (
                           <span className="ml-1.5 text-[11.5px] text-ink-muted">{VALUATION_APPROACH_LABEL[a.approach]}</span>
                         ) : null}
-                        {a.notes ? <span className="block text-[12px] text-ink-secondary">{a.notes}</span> : null}
+                        {a.notes ? <Why>{a.notes}</Why> : null}
                       </span>
                       <span className="text-right font-mono tabular-nums text-ink">{money(a.amount, latest.currency)}</span>
                     </li>
@@ -292,18 +307,14 @@ export default function Valuation() {
                 </ul>
               )}
             </section>
-            <section>
-              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Reconciliation</h3>
-              <p className="mt-1 text-[13px] leading-relaxed text-ink">{latest.ibbi.reconciliation}</p>
-            </section>
-            <section>
-              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Caveats</h3>
-              <ul className="mt-1 list-disc space-y-1 pl-5 text-[13px] text-ink-secondary">
+            <Why label="Reconciliation">{latest.ibbi.reconciliation}</Why>
+            <Why label={`Caveats · ${latest.ibbi.caveats.length}`}>
+              <ul className="list-disc space-y-1 pl-4">
                 {latest.ibbi.caveats.map((c) => (
                   <li key={c}>{c}</li>
                 ))}
               </ul>
-            </section>
+            </Why>
             <Rule8Checklist sections={latest.ibbi} />
 
             <p className="font-mono text-[11px] text-ink-muted">

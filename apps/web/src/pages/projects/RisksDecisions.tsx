@@ -27,7 +27,7 @@ import { OwnerInput } from '../../components/OwnerInput';
 import { AssignCell } from '../../components/AssignCell';
 import { MineToggle, useMine } from '../../components/MineToggle';
 import { RemedialCostChart } from '../../components/charts';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast , Why } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
@@ -148,11 +148,20 @@ export function RisksActions() {
                 <LiveRow key={r.id} id={r.id} highlightIds={liveIds} variant="flush" className="flex items-start justify-between gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-medium text-ink">{r.title}</p>
-                    <p className="text-[12px] text-ink-secondary">{r.cause}</p>
-                    <p className="mt-1 text-[11px] text-ink-muted">
-                      {IMPACT_TYPE_LABEL[r.category]} · P {r.probability} · impact {r.impactScore} · {r.findingIds.length} finding(s)
-                    </p>
-                    <AssignCell className="mt-0.5 -ml-1.5" project={project} targetId={r.id} owner={r.owner} onAssigned={setProject} />
+                    <Why>{r.cause}</Why>
+                    {/*
+                      One meta line, not two. The owner had a line of its own
+                      with an icon, which on a register where every row shares
+                      an owner is the same address repeated down the page — a
+                      whole line per risk spent on a constant.
+                    */}
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-ink-muted">
+                      <span>
+                        {IMPACT_TYPE_LABEL[r.category]} · P {r.probability} · impact {r.impactScore} ·{' '}
+                        {r.findingIds.length} {r.findingIds.length === 1 ? 'finding' : 'findings'}
+                      </span>
+                      <AssignCell className="-ml-1.5" project={project} targetId={r.id} owner={r.owner} onAssigned={setProject} />
+                    </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <Badge tone={severityTone(r.materiality)}>{SEVERITY_LABEL[r.materiality]}</Badge>
@@ -275,7 +284,7 @@ export function DecisionRegister() {
         <Button onClick={() => setOpen(true)}>Record decision</Button>
       </div>
       {project.decisions.length === 0 ? (
-        <EmptyState title="No decisions" description="Proceed, hold payment, conditions — recorded against the evidence and findings that supported them." />
+        <EmptyState title="No decisions" description="Recorded against the findings that supported them." />
       ) : (
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
@@ -285,7 +294,7 @@ export function DecisionRegister() {
               <div key={d.id} className="flex items-start justify-between gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium text-ink">{d.title}</p>
-                  <p className="text-[12px] text-ink-secondary">{d.rationale}</p>
+                  <Why>{d.rationale}</Why>
                   <p className="mt-1 text-[11px] text-ink-muted">{DECISION_TYPE_LABEL[d.decisionType]} · {d.decisionMaker}</p>
                 </div>
                 <Select className="shrink-0" value={d.status} onChange={(e) => void api.patchDecision(project.id, d.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}>

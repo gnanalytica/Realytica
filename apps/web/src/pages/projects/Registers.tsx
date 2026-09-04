@@ -33,7 +33,7 @@ import {
   type ScopeKey,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, cn, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, cn, useToast , Why } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
@@ -226,7 +226,7 @@ export function EvidenceRegister() {
       setProject(await api.getProject(project.id));
       const first = out.results?.[0];
       if (first?.error) toast(first.error, 'warning');
-      else if (out.drafts) toast(`Read — ${out.drafts} finding(s) proposed for review`, 'good');
+      else if (out.drafts) toast(`Read — ${out.drafts} finding${out.drafts === 1 ? '' : 's'} proposed`, 'good');
       else if (out.documents) toast('That is a photographed document — read through extraction instead', 'good');
       else toast('Read', 'good');
     } catch (e) {
@@ -297,7 +297,7 @@ export function EvidenceRegister() {
       {rows.length === 0 ? (
         <EmptyState
         title="No evidence yet"
-        description="Expected items are created when a DD starts. Drop a folder of documents here once they arrive."
+        description="Drop a folder of documents here."
       />
       ) : (
         <Card>
@@ -596,7 +596,7 @@ export function FindingRegister() {
         <Button onClick={() => setOpen(true)}>Add finding</Button>
       </div>
       {project.findings.length === 0 ? (
-        <EmptyState title="No findings" description="Findings are created from material check results, or recorded here directly." />
+        <EmptyState title="No findings" description="Raised from check results, or added here." />
       ) : (
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
@@ -605,7 +605,7 @@ export function FindingRegister() {
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="text-[13px] font-medium text-ink">{f.title}</p>
-                    <p className="mt-1 text-[12px] text-ink-secondary">{f.description}</p>
+                    <Why>{f.description}</Why>
                     <p className="mt-1 text-[11px] text-ink-muted">
                       {SCOPE_LABEL[f.discipline]} · {f.assessmentIds.length} DD link(s) · {f.evidenceIds.length} evidence · {f.riskIds.length} risks · {f.actionIds.length} actions
                     </p>
@@ -878,7 +878,7 @@ function ObservationStrip({
       {observation.limits ? <p className="text-[11px] text-ink-muted">Not shown by this photograph: {observation.limits}</p> : null}
       {observation.suggestedFindings.length ? (
         <p className="text-[11px] text-[var(--status-warning-text)]">
-          {observation.suggestedFindings.length} finding(s) proposed — waiting for review on the AI drafts pane.
+          {observation.suggestedFindings.length} proposed — review on AI drafts
         </p>
       ) : null}
     </div>

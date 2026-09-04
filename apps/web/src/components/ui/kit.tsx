@@ -132,6 +132,87 @@ export function InfoTip({ label, className }: { label: ReactNode; className?: st
   );
 }
 
+/**
+ * The sentence behind a row, out of the way until it is wanted.
+ *
+ * The engine writes real prose — why a risk matters, what a compliance finding
+ * means, what to do next — and every register printed all of it inline. On the
+ * Risks pane that was four paragraphs a row; on Compliance, four per check
+ * across thirteen checks. A list where each entry is a paragraph is a list
+ * nobody scans, and scanning is what a register is for.
+ *
+ * So the row carries the facts and this carries the sentence. Two rules make
+ * that safe rather than merely tidier:
+ *
+ *  - `print-open` is the same class `StatutoryProvenance` uses, and the report
+ *    stylesheet forces it open. Nothing is lost from the document that leaves
+ *    the building — the prose simply stops competing with the figures on the
+ *    screen somebody works in.
+ *  - It is a `<details>`, so it is keyboard-reachable and findable by the
+ *    browser's own find-in-page. A tooltip would have hidden the text from
+ *    both, which is the wrong trade for content this substantive.
+ */
+export function Why({
+  label = 'Why',
+  children,
+  className,
+}: {
+  /** What the reveal is called. Name the content, not the act of opening it. */
+  label?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  if (!children) return null;
+  return (
+    <details className={cn('print-open group mt-1', className)}>
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-mini text-ink-muted hover:text-ink-secondary">
+        <ChevronDown size={11} className="no-print transition-transform duration-base group-open:rotate-180" />
+        {label}
+      </summary>
+      <div className="mt-1 space-y-1 border-l-2 border-[var(--ring)] pl-2.5 text-xs leading-relaxed text-ink-secondary">
+        {children}
+      </div>
+    </details>
+  );
+}
+
+/**
+ * A 0..1 number as a length, beside the number.
+ *
+ * For the values a sentence was carrying: an anchor's weight and its
+ * confidence are both fractions, both computed on every run, and only one of
+ * them was ever drawn — so a locality median and seven inspected comparables
+ * looked identical in the list, and the difference lived in a paragraph.
+ *
+ * The figure stays: a bar answers "more or less than its neighbour" at a
+ * glance and "how much" never, and this is a document people quote from.
+ */
+export function Meter({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  /** 0..1. Clamped, because a confidence over one is a bug in the caller, not a wider bar. */
+  value: number;
+  className?: string;
+}) {
+  const fraction = Math.max(0, Math.min(1, value));
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-mini text-ink-muted', className)}>
+      {label}
+      <span
+        className="h-1 w-10 overflow-hidden rounded-full bg-sunken ring-1 ring-inset ring-[var(--ring)]"
+        role="img"
+        aria-label={`${label} ${Math.round(fraction * 100)} percent`}
+      >
+        <span className="block h-full rounded-full bg-brand" style={{ width: `${fraction * 100}%` }} />
+      </span>
+      <span className="font-mono tabular-nums text-ink-secondary">{Math.round(fraction * 100)}%</span>
+    </span>
+  );
+}
+
 export function CardBody({ className, children }: { className?: string; children: ReactNode }) {
   return <div className={cn('p-4', className)}>{children}</div>;
 }

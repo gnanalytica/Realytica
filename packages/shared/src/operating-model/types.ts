@@ -608,6 +608,18 @@ export interface EvidenceRecord {
   extractionNotes?: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The screen flag that raised this record, when the screen raised it.
+   *
+   * `runProjectScreen` has to know whether it has already filed a given
+   * finding, or a second run files the missing-khata finding twice. It used to
+   * answer that by appending `[screen:<code>]` to the record's own prose and
+   * reading it back — which worked, and put twenty internal keys in front of
+   * readers, four of them inside the red flag report that goes to a client.
+   *
+   * The same fact, in a field, where a reader never meets it.
+   */
+  screenCode?: string;
 }
 
 export interface EvidenceAttachment {
@@ -680,6 +692,18 @@ export interface FindingRecord {
   environmentalCondition?: EnvironmentalCondition;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The screen flag that raised this record, when the screen raised it.
+   *
+   * `runProjectScreen` has to know whether it has already filed a given
+   * finding, or a second run files the missing-khata finding twice. It used to
+   * answer that by appending `[screen:<code>]` to the record's own prose and
+   * reading it back — which worked, and put twenty internal keys in front of
+   * readers, four of them inside the red flag report that goes to a client.
+   *
+   * The same fact, in a field, where a reader never meets it.
+   */
+  screenCode?: string;
 }
 
 export interface RiskRecord {
@@ -704,6 +728,18 @@ export interface RiskRecord {
   evidenceIds: string[];
   createdAt: string;
   updatedAt: string;
+  /**
+   * The screen flag that raised this record, when the screen raised it.
+   *
+   * `runProjectScreen` has to know whether it has already filed a given
+   * finding, or a second run files the missing-khata finding twice. It used to
+   * answer that by appending `[screen:<code>]` to the record's own prose and
+   * reading it back — which worked, and put twenty internal keys in front of
+   * readers, four of them inside the red flag report that goes to a client.
+   *
+   * The same fact, in a field, where a reader never meets it.
+   */
+  screenCode?: string;
 }
 
 export interface ActionRecord {
@@ -735,6 +771,18 @@ export interface ActionRecord {
   closedAt?: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The screen flag that raised this record, when the screen raised it.
+   *
+   * `runProjectScreen` has to know whether it has already filed a given
+   * finding, or a second run files the missing-khata finding twice. It used to
+   * answer that by appending `[screen:<code>]` to the record's own prose and
+   * reading it back — which worked, and put twenty internal keys in front of
+   * readers, four of them inside the red flag report that goes to a client.
+   *
+   * The same fact, in a field, where a reader never meets it.
+   */
+  screenCode?: string;
 }
 
 export interface DecisionRecord {
@@ -754,6 +802,18 @@ export interface DecisionRecord {
   decidedAt?: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The screen flag that raised this record, when the screen raised it.
+   *
+   * `runProjectScreen` has to know whether it has already filed a given
+   * finding, or a second run files the missing-khata finding twice. It used to
+   * answer that by appending `[screen:<code>]` to the record's own prose and
+   * reading it back — which worked, and put twenty internal keys in front of
+   * readers, four of them inside the red flag report that goes to a client.
+   *
+   * The same fact, in a field, where a reader never meets it.
+   */
+  screenCode?: string;
 }
 
 export interface GeneratedReport {
@@ -1557,6 +1617,8 @@ export interface CreateEvidenceInput {
   iso19650?: Iso19650Ref;
   quotes?: Array<{ text: string; page?: number }>;
   extractionNotes?: string;
+  /** Set when the property screen raised this, so a re-run does not file it twice. */
+  screenCode?: string;
 }
 
 export interface CreateFindingInput {
@@ -1574,6 +1636,8 @@ export interface CreateFindingInput {
   evidenceIds?: string[];
   escalation?: RicsEscalation;
   environmentalCondition?: EnvironmentalCondition;
+  /** Set when the property screen raised this, so a re-run does not file it twice. */
+  screenCode?: string;
 }
 
 export interface CreateRiskInput {
@@ -1589,6 +1653,8 @@ export interface CreateRiskInput {
   findingIds?: string[];
   assetIds?: string[];
   assessmentIds?: string[];
+  /** Set when the property screen raised this, so a re-run does not file it twice. */
+  screenCode?: string;
 }
 
 export interface CreateActionInput {
@@ -1604,6 +1670,8 @@ export interface CreateActionInput {
   riskIds?: string[];
   evidenceIds?: string[];
   checkIds?: string[];
+  /** Set when the property screen raised this, so a re-run does not file it twice. */
+  screenCode?: string;
 }
 
 export interface CreateDecisionInput {
@@ -1619,6 +1687,8 @@ export interface CreateDecisionInput {
   actionIds?: string[];
   evidenceIds?: string[];
   assessmentIds?: string[];
+  /** Set when the property screen raised this, so a re-run does not file it twice. */
+  screenCode?: string;
 }
 
 export interface GenerateReportInput {

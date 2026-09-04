@@ -59,7 +59,7 @@ import {
 } from '../components/ui/kit';
 
 /**
- * Where every model call went, what it cost, and what it could not do.
+ * Where every model call went.
  *
  * This page exists because the agent layer is no longer "always Anthropic" —
  * a proxy in the base-URL seat can send any call to any vendor.
@@ -420,7 +420,7 @@ export default function Observability() {
       <div>
         <h1 className="text-lg font-semibold text-ink">AI activity</h1>
         <p className="mt-0.5 text-sm text-ink-secondary">
-          Where every model call went, what it cost, and what it could not do.
+          Where every model call went.
         </p>
       </div>
 

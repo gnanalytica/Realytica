@@ -510,7 +510,7 @@ function RunHistory({
       <EmptyState
         icon={<History size={20} />}
         title="This flow has not run yet"
-        description="Rehearse it against a project and the run will be kept here — what fired it, what each node decided, and what it proposed."
+        description="Rehearse it against a project and the run is kept here."
       />
     );
   }

@@ -31,7 +31,7 @@ import {
   type ValuationInput,
   type ValuationWorking,
 } from '@realytica/shared';
-import { Badge, cn } from './ui/kit';
+import { Badge, cn , Why } from './ui/kit';
 
 function money(n: number, currency: string) {
   if (currency === 'INR') return `₹${Math.round(n).toLocaleString('en-IN')}`;
@@ -205,13 +205,11 @@ function ApproachComparison({ working, currency }: { working: ValuationWorking; 
 
       {blended !== null ? (
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 border-t border-hairline bg-sunken/40 px-3 py-2 [@container(min-width:34rem)]:grid-cols-[minmax(0,1fr)_5rem_4rem_auto]">
-          {/* The basis is a sentence, not a label — it belongs under the word
-              it qualifies rather than wrapped around the figure beside it. */}
+          {/* The basis is a sentence and this is a figures row. It reads on
+              request; the report prints it. */}
           <span className="min-w-0 text-[12.5px] font-medium text-ink">
             Blended
-            <span className="mt-0.5 block font-normal leading-snug text-[11px] text-ink-muted">
-              {working.reconciliation.spreadBasis}
-            </span>
+            <Why label="Basis">{working.reconciliation.spreadBasis}</Why>
           </span>
           <span className="hidden [@container(min-width:34rem)]:block" aria-hidden="true" />
           <span className="hidden [@container(min-width:34rem)]:block" aria-hidden="true" />
@@ -300,7 +298,8 @@ function ApproachCard({
 
       {usable ? (
         <p className="mt-2 text-[11.5px] text-ink-muted">
-          Weight {(run.weight * 100).toFixed(0)}% — {run.weightBasis}
+          Weight {(run.weight * 100).toFixed(0)}%
+          <Why label="Why this weight">{run.weightBasis}</Why>
         </p>
       ) : null}
     </section>
