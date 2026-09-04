@@ -35,17 +35,19 @@
  */
 
 import { useMemo, useRef, useState } from 'react';
-import { Check, Minus } from 'lucide-react';
+import { Check, Minus, Sparkles } from 'lucide-react';
 import {
   CHECK_FIELDS,
   evaluateFormula,
   type CheckFieldDef,
   type CheckFieldValue,
   type CheckFieldWrite,
+  suggestionsFor,
   type CheckInstance,
   type DdProject,
+  type FieldSuggestion,
 } from '@realytica/shared';
-import { Badge, Card, CardBody, CardHeader, Meter, Select, cn } from './ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Meter, Select, Tooltip, cn } from './ui/kit';
 import { money } from '../lib/format';
 
 /** The four approaches, in the order IBBI asks for them. */
@@ -92,10 +94,19 @@ function display(n: number, unit: string | undefined): string {
 
 export function ValuationInputSheet({
   project,
+  suggestions = [],
   onCommit,
   disabled,
 }: {
   project: DdProject;
+  /**
+   * Values the file could start from, each carrying the basis it came from.
+   *
+   * Shown in the cell and marked as proposed. They are NOT recorded until
+   * somebody accepts them: a proposal that counted toward completeness would
+   * let the screen score itself on its own guesses.
+   */
+  suggestions?: readonly FieldSuggestion[];
   /** Called with one check's changed fields. The page owns the save. */
   onCommit: (
     checkId: string,
@@ -130,6 +141,47 @@ export function ValuationInputSheet({
   const focused = useRef<string | null>(null);
   const evidence = project.evidence ?? [];
 
+  /**
+   * Record one field, from a blur or from accepting a proposal.
+   *
+   * One path rather than two: `Use` and typing must behave identically, and a
+   * second copy of "did this change, does it cite anything, what if it is
+   * refused" is a second place for those answers to diverge.
+   */
+  async function commit(
+    key: string,
+    def: CheckFieldDef,
+    checkId: string,
+    raw: string,
+    before: CheckFieldValue['value'],
+  ): Promise<void> {
+    const text = raw.trim();
+    const n = Number(text.replace(/[,\s]/g, ''));
+    const next: CheckFieldWrite = text === '' ? null : Number.isFinite(n) && def.kind !== 'text' ? n : text;
+    // Nothing changed — do not spend a write.
+    if (String(before ?? '') === String(next ?? '')) {
+      setDraft(({ [key]: _drop, ...rest }) => rest);
+      return;
+    }
+    setSaving(key);
+    const error = await onCommit(checkId, { [def.key]: next }, cite[key]);
+    setSaving(null);
+    /*
+     * The draft survives a refusal.
+     *
+     * It used to be dropped unconditionally, so a value the API declined —
+     * every proof-required field, until it cites something — vanished out of
+     * the cell behind a toast. Typing that will not save beats typing that
+     * disappears.
+     */
+    if (error) {
+      setRejected((r) => ({ ...r, [key]: error }));
+      return;
+    }
+    setRejected(({ [key]: _gone, ...rest }) => rest);
+    setDraft(({ [key]: _drop, ...rest }) => rest);
+  }
+
   return (
     <div className="space-y-4">
       {APPROACHES.map((approach) => {
@@ -138,6 +190,7 @@ export function ValuationInputSheet({
         if (defs.length === 0) return null;
 
         const stored = check?.fields ?? {};
+        const proposed = suggestionsFor(suggestions, approach.definitionId);
 
         // Saved values, overlaid with anything typed. Computed fields resolve
         // in declaration order so a later one can read an earlier one.
@@ -160,9 +213,22 @@ export function ValuationInputSheet({
         }
 
         const answerable = defs.filter((d) => d.kind !== 'computed');
-        const filled = answerable.filter((d) => !isBlank(values[d.key])).length;
+        /*
+         * Recorded, not proposed.
+         *
+         * A suggestion sitting in a cell must not move this meter or turn the
+         * badge green — the whole reason a proposal is distinguishable is that
+         * nobody has stood behind it yet.
+         */
+        const filled = answerable.filter((d) => !isBlank(stored[d.key])).length;
         const required = answerable.filter((d) => d.required !== false);
-        const runnable = required.every((d) => !isBlank(values[d.key]));
+        const runnable = required.every((d) => !isBlank(stored[d.key]));
+        // Only where there is a check to record into. A card with no check
+        // cannot accept anything, and a badge offering three proposals above
+        // a "not instantiated" message is an offer the sheet cannot keep.
+        const proposedPending = check
+          ? answerable.filter((d) => isBlank(stored[d.key]) && proposed.has(d.key)).length
+          : 0;
 
         return (
           <Card key={approach.definitionId}>
@@ -171,16 +237,43 @@ export function ValuationInputSheet({
               subtitle={approach.note}
               action={
                 <div className="flex items-center gap-2">
-                  <Meter label="filled" value={answerable.length ? filled / answerable.length : 0} />
+                  <Meter label="recorded" value={answerable.length ? filled / answerable.length : 0} />
+                  {proposedPending > 0 ? (
+                    <Badge tone="info" icon={<Sparkles size={10} />}>
+                      {proposedPending} proposed
+                    </Badge>
+                  ) : null}
                   <Badge tone={runnable ? 'good' : 'warning'}>{runnable ? 'Can run' : 'Short'}</Badge>
                 </div>
               }
             />
             <CardBody className="p-0">
               {!check ? (
-                <p className="px-4 py-3 text-xs text-ink-secondary">
-                  Not instantiated — start an indicative valuation assessment to record these.
-                </p>
+                <div className="space-y-2 px-4 py-3">
+                  <p className="text-xs text-ink-secondary">
+                    Start an indicative valuation assessment to record these.
+                  </p>
+                  {/*
+                    The proposals still show.
+                    A project with no assessment is the coldest possible start
+                    and the moment this is worth most: it is the difference
+                    between an empty tab and "here is the locality rate we
+                    already hold, and here is what it would need beside it".
+                    Read-only, because there is nowhere to record them yet.
+                  */}
+                  {[...suggestionsFor(suggestions, approach.definitionId).values()].map((sug) => (
+                    <div key={sug.key} className="flex items-baseline justify-between gap-3 text-mini">
+                      <span className="min-w-0 text-ink-secondary">
+                        {defs.find((d) => d.key === sug.key)?.label ?? sug.key}
+                      </span>
+                      <Tooltip label={sug.basis}>
+                        <span className="shrink-0 cursor-help font-mono tabular-nums text-brand">
+                          {sug.value.toLocaleString('en-IN')}
+                        </span>
+                      </Tooltip>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <table className="w-full text-[12.5px]">
                   <thead>
@@ -198,6 +291,19 @@ export function ValuationInputSheet({
                       const value = values[def.key];
                       const blank = isBlank(value);
                       const computed = def.kind === 'computed';
+                      const suggestion = proposed.get(def.key);
+                      // A proposal only shows where nothing is recorded and
+                      // nothing has been typed — it must never sit on top of
+                      // somebody's own value.
+                      const showing =
+                        !computed && isBlank(stored[def.key]) && !(key in draft) && suggestion !== undefined;
+                      const state: 'Recorded' | 'Proposed' | 'Optional' | 'Missing' = !isBlank(stored[def.key])
+                        ? 'Recorded'
+                        : showing
+                          ? 'Proposed'
+                          : def.required === false
+                            ? 'Optional'
+                            : 'Missing';
 
                       return (
                         <tr
@@ -211,19 +317,34 @@ export function ValuationInputSheet({
                         >
                           <td className="px-4 py-1.5">
                             <span className="flex items-center gap-1.5">
+                              {/*
+                                Three states, not two. A proposed value is
+                                neither recorded nor missing, and drawing it as
+                                either would be the lie: as recorded it claims
+                                somebody stood behind it, as missing it hides
+                                that the answer is sitting right there.
+                              */}
                               <span
-                                title={blank ? (def.required === false ? 'Optional' : 'Missing') : 'Recorded'}
-                                aria-label={blank ? (def.required === false ? 'Optional' : 'Missing') : 'Recorded'}
+                                title={state}
+                                aria-label={state}
                                 className={cn(
                                   'shrink-0',
-                                  blank
-                                    ? def.required === false
-                                      ? 'text-ink-muted'
-                                      : 'text-[var(--status-warning-text)]'
-                                    : 'text-[var(--status-good-text)]',
+                                  state === 'Recorded'
+                                    ? 'text-[var(--status-good-text)]'
+                                    : state === 'Proposed'
+                                      ? 'text-brand'
+                                      : def.required === false
+                                        ? 'text-ink-muted'
+                                        : 'text-[var(--status-warning-text)]',
                                 )}
                               >
-                                {blank ? <Minus size={11} /> : <Check size={11} />}
+                                {state === 'Recorded' ? (
+                                  <Check size={11} />
+                                ) : state === 'Proposed' ? (
+                                  <Sparkles size={11} />
+                                ) : (
+                                  <Minus size={11} />
+                                )}
                               </span>
                               <span className={cn(computed ? 'text-ink-secondary' : 'text-ink')}>{def.label}</span>
                               {def.proof === 'required' ? (
@@ -247,9 +368,21 @@ export function ValuationInputSheet({
                                 className={cn(
                                   'w-full rounded border border-transparent bg-transparent px-1.5 py-0.5 text-right font-mono tabular-nums text-ink',
                                   'hover:border-[var(--ring)] focus:border-brand focus:outline-none',
+                                  showing && 'placeholder:text-brand',
                                   saving === key && 'opacity-60',
                                 )}
-                                placeholder="—"
+                                /*
+                                  The proposal shows as a placeholder rather
+                                  than as the value.
+                                  A placeholder is already the browser's own
+                                  convention for "not yours yet": it does not
+                                  submit, it does not survive a save, and it
+                                  cannot be mistaken for something typed. A
+                                  proposal written into `value` would be
+                                  indistinguishable from a recorded figure the
+                                  moment the highlight was missed.
+                                */
+                                placeholder={showing ? String(suggestion.value) : '—'}
                                 value={
                                   key in draft
                                     ? draft[key]
@@ -264,35 +397,7 @@ export function ValuationInputSheet({
                                 onBlur={async () => {
                                   focused.current = null;
                                   if (!(key in draft)) return;
-                                  const raw = draft[key]!.trim();
-                                  const before = stored[def.key]?.value ?? null;
-                                  const n = Number(raw.replace(/[,\s]/g, ''));
-                                  const next: CheckFieldWrite =
-                                    raw === '' ? null : Number.isFinite(n) && def.kind !== 'text' ? n : raw;
-                                  // Nothing changed — do not spend a write.
-                                  if (String(before ?? '') === String(next ?? '')) {
-                                    setDraft(({ [key]: _drop, ...rest }) => rest);
-                                    return;
-                                  }
-                                  setSaving(key);
-                                  const error = await onCommit(check.id, { [def.key]: next }, cite[key]);
-                                  setSaving(null);
-                                  /*
-                                   * The draft survives a refusal.
-                                   *
-                                   * It used to be dropped unconditionally, so
-                                   * a value the API declined — every
-                                   * proof-required field, until it cites
-                                   * something — vanished out of the cell
-                                   * behind a toast. Typing that disappears is
-                                   * worse than typing that will not save.
-                                   */
-                                  if (error) {
-                                    setRejected((r) => ({ ...r, [key]: error }));
-                                    return;
-                                  }
-                                  setRejected(({ [key]: _gone, ...rest }) => rest);
-                                  setDraft(({ [key]: _drop, ...rest }) => rest);
+                                  await commit(key, def, check.id, draft[key]!, stored[def.key]?.value ?? null);
                                 }}
                               />
                               {/*
@@ -304,6 +409,46 @@ export function ValuationInputSheet({
                               */}
                               {def.unit ? (
                                 <span className="shrink-0 text-mini text-ink-muted">{def.unit}</span>
+                              ) : null}
+                              {showing ? (
+                                <Tooltip
+                                  label={
+                                    def.proof === 'required' && !cite[key]
+                                      ? `${suggestion.basis} — cite a source to record it.`
+                                      : suggestion.basis
+                                  }
+                                >
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={disabled}
+                                    aria-label={`Use proposed ${def.label}`}
+                                    onClick={() => {
+                                      /*
+                                        A proof-required field cannot record
+                                        until it cites something, so pressing
+                                        Use on one used to buy a guaranteed
+                                        refusal — the API declines, the reason
+                                        appears, and nothing has moved.
+
+                                        It stages the value instead. The number
+                                        is in the cell, the source picker is
+                                        beside it, and the save happens on blur
+                                        once the citation is chosen. Where no
+                                        proof is required it records straight
+                                        away, which is what Use should mean.
+                                      */
+                                      const needsProof = def.proof === 'required' && !cite[key];
+                                      if (needsProof) {
+                                        setDraft((d) => ({ ...d, [key]: String(suggestion.value) }));
+                                        return;
+                                      }
+                                      void commit(key, def, check.id, String(suggestion.value), null);
+                                    }}
+                                  >
+                                    Use
+                                  </Button>
+                                </Tooltip>
                               ) : null}
                               </span>
                             )}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   rule8Summary,
@@ -10,6 +10,10 @@ import {
   VALUATION_SIGN_OFF_LABEL,
   type ValuationSignOff,
   type CheckFieldWrite,
+  matchProjectLocality,
+  suggestValuationInputs,
+  resolveStatePack,
+  REFERENCE_DATA,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Select, Tabs, Why, useToast } from '../../components/ui/kit';
@@ -107,6 +111,23 @@ export default function Valuation() {
   }
 
   const screenResult = project.lastScreenResult;
+
+  /*
+   * Values the file could start from — the locality's own rates, the built-up
+   * area already on the project, the acquisition percentage the state pack's
+   * duty figures imply. Derived on read rather than stored: a suggestion is a
+   * statement about what is currently known, and one frozen into the project
+   * would outlive the data behind it.
+   */
+  const suggestions = useMemo(
+    () =>
+      suggestValuationInputs(
+        project,
+        matchProjectLocality(project),
+        resolveStatePack({ country: countryForCurrency(project.currency), state: project.jurisdiction ?? '' }, REFERENCE_DATA.statePacks),
+      ),
+    [project],
+  );
 
   /*
    * Only offer a tab that has something behind it.
@@ -240,7 +261,12 @@ export default function Valuation() {
         {views.length > 1 ? <Tabs tabs={views} active={view} onChange={setView} /> : null}
 
         {view === 'inputs' ? (
-          <ValuationInputSheet project={project} onCommit={commitField} disabled={busy} />
+          <ValuationInputSheet
+            project={project}
+            suggestions={suggestions}
+            onCommit={commitField}
+            disabled={busy}
+          />
         ) : null}
 
         {view === 'working' ? (
