@@ -1,5 +1,6 @@
+import { AlertTriangle, Check, Minus } from 'lucide-react';
 import type { ComplianceCheck, ComplianceVerdict, CountryCode, ScreenResult } from '@realytica/shared';
-import { Badge, Callout, Card, CardBody, CardHeader, KeyValue, SectionTitle, Why, cn } from './ui/kit';
+import { Badge, Callout, Card, CardBody, CardHeader, KeyValue, Meter, SectionTitle, Why, cn } from './ui/kit';
 import type { Tone } from './ui/kit';
 import { StatutoryProvenance } from './StatutoryProvenance';
 import { ComparablesSchedule } from './ComparablesSchedule';
@@ -201,6 +202,27 @@ export function ScreenResultPanel({
     : [];
   const blockers = orderedChecks.filter((c) => c.verdict === 'blocker');
 
+  /*
+   * What each cost line is actually charged on.
+   *
+   * Stamp duty and the registration fee are a percentage of the dutiable
+   * value; cess and surcharge are a percentage OF THE DUTY. The line notes
+   * have always said so — "10% of the stamp duty itself, not of the price" —
+   * and the formula shown beside the figure said `dutiable value × rate` for
+   * every line, substituting a base twenty times too large. Every figure was
+   * right and the working under it was wrong, which is the worse way round:
+   * a reader checking the arithmetic finds it does not reconcile and has no
+   * way to tell which half to believe.
+   *
+   * Read off the stamp-duty line rather than recomputed, so the substitution
+   * cannot drift from the figure above it.
+   */
+  const dutyAmount = costs?.lines.find((l) => l.key === 'stamp_duty')?.amount ?? 0;
+  const chargedOn = (key: string): { amount: number; label: string } =>
+    key === 'cess' || key === 'surcharge'
+      ? { amount: dutyAmount, label: 'stamp duty' }
+      : { amount: costs?.dutiableValue ?? 0, label: 'dutiable value' };
+
   const show = (s: ScreenSection) => !only || only.includes(s);
 
   /*
@@ -305,15 +327,32 @@ export function ScreenResultPanel({
                               : '—'}{' '}
                             to the blended mid — its own mid times{' '}
                             {anchorWeightTotal > 0 ? pct((anchor.weight / anchorWeightTotal) * 100, 0) : '—'} of the
-                            total weight. Confidence in this anchor: {pct(anchor.confidence * 100, 0)}.
+                            total weight.
                           </>
                         ),
                       }}
                     >
                       {money(anchor.low, currency, { compact: true })} – {money(anchor.high, currency, { compact: true })}
                     </FormulaTip>
-                    <span className="ml-2 text-ink-muted">weight {pct(anchor.weight * 100, 0)}</span>
                   </span>
+                </div>
+                {/*
+                  Weight and confidence are two different fractions, and both
+                  were words: the weight a figure at the end of the price line,
+                  the confidence a sentence inside a popover — "Confidence in
+                  this anchor: 63%". Neither could be compared with the anchor
+                  above it without reading. As lengths they sort themselves,
+                  and the difference between a locality median and seven
+                  inspected comparables is visible without opening anything.
+                */}
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <Meter label="weight" value={anchor.weight} />
+                  <Meter label="confidence" value={anchor.confidence} />
+                  {anchor.evidenceIds.length > 0 ? (
+                    <span className="text-mini text-ink-muted">
+                      {anchor.evidenceIds.length} source{anchor.evidenceIds.length === 1 ? '' : 's'}
+                    </span>
+                  ) : null}
                 </div>
                 <Why>{anchor.rationale}</Why>
               </li>
@@ -499,15 +538,14 @@ export function ScreenResultPanel({
                   <span className="min-w-0">
                     <span className="text-[13px] text-ink">{line.label}</span>
                     {line.pct !== null ? <span className="ml-1.5 text-ink-muted">{pct(line.pct, 2)}</span> : null}
-                    <Why>{line.note}</Why>
                   </span>
                   <span className="shrink-0 font-mono text-ink">
                     {line.pct !== null ? (
                       <FormulaTip
                         label={line.label}
                         derivation={{
-                          formula: 'dutiable value × rate',
-                          substituted: `${money(costs.dutiableValue, costs.currency)} × ${pct(line.pct, 2)}`,
+                          formula: `${chargedOn(line.key).label} × rate`,
+                          substituted: `${money(chargedOn(line.key).amount, costs.currency)} × ${pct(line.pct, 2)}`,
                           result: money(line.amount, costs.currency),
                           note: line.note,
                         }}
@@ -673,14 +711,37 @@ export function ScreenResultPanel({
         />
         <CardBody>
           <ul className="grid gap-1.5 sm:grid-cols-2">
-            {result.completeness.items.map((item) => (
-              <li key={item.key} className="flex items-start gap-2 text-xs">
-                <Badge tone={item.present ? 'good' : item.required ? 'warning' : 'neutral'}>
-                  {item.present ? 'On file' : item.required ? 'Missing' : 'Optional'}
-                </Badge>
-                <span className="min-w-0 text-ink-secondary">{item.label}</span>
-              </li>
-            ))}
+            {/*
+              A mark, not a word, twelve times over.
+              Every row carried a full-text badge — "On file", "Missing",
+              "Optional" — so the column read as three sentences repeated down
+              the card, and the count that actually matters was in the header.
+              An icon carries the same three states and lets the document name
+              be the thing you read. Icon rather than a coloured dot, because a
+              dot alone puts the whole meaning in hue.
+            */}
+            {result.completeness.items.map((item) => {
+              const state = item.present ? 'On file' : item.required ? 'Missing' : 'Optional';
+              return (
+                <li key={item.key} className="flex items-start gap-2 text-xs">
+                  <span
+                    title={state}
+                    aria-label={state}
+                    className={cn(
+                      'mt-0.5 shrink-0',
+                      item.present
+                        ? 'text-[var(--status-good-text)]'
+                        : item.required
+                          ? 'text-[var(--status-warning-text)]'
+                          : 'text-ink-muted',
+                    )}
+                  >
+                    {item.present ? <Check size={12} /> : item.required ? <AlertTriangle size={12} /> : <Minus size={12} />}
+                  </span>
+                  <span className={cn('min-w-0', item.present ? 'text-ink-secondary' : 'text-ink')}>{item.label}</span>
+                </li>
+              );
+            })}
           </ul>
         </CardBody>
       </Card>

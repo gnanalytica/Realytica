@@ -11,7 +11,7 @@ import {
   type ValuationSignOff,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, KeyValue, Select, Tabs, Why, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Select, Tabs, Why, useToast } from '../../components/ui/kit';
 import type { TabDef } from '../../components/ui/kit';
 import { ScreenResultPanel } from '../../components/ScreenResultPanel';
 import { ScheduleOfProperty } from '../../components/ScheduleOfProperty';
@@ -236,8 +236,20 @@ export default function Valuation() {
           />
           <CardBody className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
-              <KeyValue label="Premise" value={VALUATION_PREMISE_LABEL[latest.ibbi.premise]} />
-              <KeyValue label="Basis" value={VALUATION_BASIS_LABEL[latest.ibbi.basis]} />
+              {/*
+                Stacked, not spread. `KeyValue` pushes its label and value to
+                opposite edges, which is right in a full-width list and wrong
+                in a third-width column — "Premise" ended up eighty pixels from
+                "Residual / development" and the two read as separate items.
+              */}
+              <div>
+                <p className="text-mini uppercase tracking-wider text-ink-muted">Premise</p>
+                <p className="text-[13px] text-ink">{VALUATION_PREMISE_LABEL[latest.ibbi.premise]}</p>
+              </div>
+              <div>
+                <p className="text-mini uppercase tracking-wider text-ink-muted">Basis</p>
+                <p className="text-[13px] text-ink">{VALUATION_BASIS_LABEL[latest.ibbi.basis]}</p>
+              </div>
               <FieldSignOff value={latest.signOff} onChange={(v) => void signOff(latest.id, v)} />
             </div>
             {/*

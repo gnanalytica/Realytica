@@ -176,6 +176,43 @@ export function Why({
   );
 }
 
+/**
+ * A 0..1 number as a length, beside the number.
+ *
+ * For the values a sentence was carrying: an anchor's weight and its
+ * confidence are both fractions, both computed on every run, and only one of
+ * them was ever drawn — so a locality median and seven inspected comparables
+ * looked identical in the list, and the difference lived in a paragraph.
+ *
+ * The figure stays: a bar answers "more or less than its neighbour" at a
+ * glance and "how much" never, and this is a document people quote from.
+ */
+export function Meter({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  /** 0..1. Clamped, because a confidence over one is a bug in the caller, not a wider bar. */
+  value: number;
+  className?: string;
+}) {
+  const fraction = Math.max(0, Math.min(1, value));
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-mini text-ink-muted', className)}>
+      {label}
+      <span
+        className="h-1 w-10 overflow-hidden rounded-full bg-sunken ring-1 ring-inset ring-[var(--ring)]"
+        role="img"
+        aria-label={`${label} ${Math.round(fraction * 100)} percent`}
+      >
+        <span className="block h-full rounded-full bg-brand" style={{ width: `${fraction * 100}%` }} />
+      </span>
+      <span className="font-mono tabular-nums text-ink-secondary">{Math.round(fraction * 100)}%</span>
+    </span>
+  );
+}
+
 export function CardBody({ className, children }: { className?: string; children: ReactNode }) {
   return <div className={cn('p-4', className)}>{children}</div>;
 }
