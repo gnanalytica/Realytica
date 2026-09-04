@@ -223,6 +223,19 @@ export function evaluateFormula(formula: CheckFormula, values: Record<string, Ch
       if (formula.op === 'multiply') return left * right;
       return right === 0 ? null : left / right;
     }
+    case 'power': {
+      const base = evaluateFormula(formula.left, values);
+      const exponent = evaluateFormula(formula.right, values);
+      if (base === null || exponent === null) return null;
+      const raised = base ** exponent;
+      /*
+       * A negative base to a fractional exponent is NaN, and a large exponent
+       * overflows to Infinity. Both are "no answer" rather than a number, and
+       * this function's whole contract is that a missing answer is null — a
+       * NaN escaping here would render as a figure somewhere downstream.
+       */
+      return Number.isFinite(raised) ? raised : null;
+    }
     case 'variance_pct': {
       const left = evaluateFormula(formula.left, values);
       const right = evaluateFormula(formula.right, values);

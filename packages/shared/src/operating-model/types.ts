@@ -339,7 +339,17 @@ export type CheckFormula =
   /** How many rows a table field holds. */
   | { op: 'count'; table: string }
   /** Whole days between two date fields, left minus right. */
-  | { op: 'days_between'; left: string; right: string };
+  | { op: 'days_between'; left: string; right: string }
+  /**
+   * `left` raised to `right`.
+   *
+   * Added for the one shape the other operators cannot express: a present
+   * value, `amount ÷ (1 + rate) ^ years`. Without it the residual's discount
+   * back from completion had to live in TypeScript, which is why the residual
+   * could take nine inputs on the check sheet and show no arithmetic at all
+   * until somebody ran a valuation.
+   */
+  | { op: 'power'; left: CheckFormula; right: CheckFormula };
 
 /**
  * A fact this check is actually about, declared so it can be recorded as a

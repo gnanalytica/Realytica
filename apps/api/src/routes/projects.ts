@@ -1552,7 +1552,8 @@ projectsRouter.put('/:projectId/checks/:checkId/fields', async (req, res) => {
       res.status(400).json({ error: outcome.rejected.map((r) => r.error).join(' '), rejected: outcome.rejected });
       return;
     }
-    await persistPaneWrite(req, project, `Recorded ${Object.keys(parsed.data.values).length} value(s) on “${outcome.check.title}”.`, {
+    const written = Object.keys(parsed.data.values).length;
+    await persistPaneWrite(req, project, `Recorded ${written} value${written === 1 ? '' : 's'} on “${outcome.check.title}”.`, {
       citedNodeIds: [outcome.check.id],
     });
     res.json({ checkId: outcome.check.id, ...outcome.reading, project });
