@@ -146,3 +146,57 @@ describe('grounding flags do not fire on record ids', () => {
     assert.equal(claims[0]!.value, 520000000);
   });
 });
+
+/**
+ * The receipt answers the question the cards cannot.
+ *
+ * Six documents were filed on a project with no assessment. Every card said
+ * "committed", the reply said "filed", and the priority pack sat at 0/16 the
+ * whole time because there was nothing for the documents to attach to. The
+ * exchange looked like progress and was none, and nothing in it said so.
+ */
+describe('the receipt says whether the file actually moved', () => {
+  it('reports evidence, linkage and the pack', () => {
+    const p = project();
+    applyProjectChat(p, '', { ingest: [file('RERA.pdf'), file('EC.pdf')] });
+    const approved = applyProjectChat(p, 'approve all');
+    const metrics = approved.assistantTurn.metrics ?? [];
+
+    const by = (label: string) => metrics.find((m) => m.label === label);
+    assert.equal(by('Evidence')?.value, '2');
+    assert.equal(by('Evidence')?.delta, '+2');
+    assert.equal(
+      by('Linked to a scope')?.delta,
+      'none of the new ones',
+      'with no assessment on the file there is nothing for a document to attach to',
+    );
+    assert.match(by('Priority pack')!.value, /^\d+\/\d+$/);
+  });
+
+  it('says "unchanged" out loud when the pack did not move', () => {
+    const p = project();
+    // Nothing here answers a core pack item, which is exactly when a person
+    // most needs telling — six filed documents can leave the pack where it was.
+    applyProjectChat(p, '', { ingest: [file('BSNL_height_NOC.pdf'), file('BESCOM_supply_NOC.pdf')] });
+    const approved = applyProjectChat(p, 'approve all');
+    const pack = (approved.assistantTurn.metrics ?? []).find((m) => m.label === 'Priority pack');
+    assert.equal(pack?.delta, 'unchanged');
+  });
+
+  it('carries no metrics on a turn that changed nothing', () => {
+    const p = project();
+    const asked = applyProjectChat(p, 'what is the budget?');
+    assert.equal(asked.assistantTurn.metrics, undefined);
+  });
+
+  it('offers exactly one next step, as a card rather than a paragraph', () => {
+    const p = project();
+    applyProjectChat(p, '', { ingest: [file('RERA.pdf'), file('EC.pdf')] });
+    const approved = applyProjectChat(p, 'approve all');
+
+    const fresh = (approved.proposals ?? []).filter((c) => c.status === 'proposed');
+    assert.equal(fresh.length, 1, `one suggestion, not a menu — got ${fresh.map((c) => c.title).join(', ')}`);
+    assert.ok(!/\n/.test(approved.assistantTurn.text), 'the receipt stays one line');
+    assert.ok(approved.assistantTurn.text.length < 40, approved.assistantTurn.text);
+  });
+});

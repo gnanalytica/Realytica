@@ -29,6 +29,7 @@ import type {
   ChatChoice,
   ActionRecord,
   ChatIngestFile,
+  ChatMetric,
   ChatProposal,
   ChatProposalKind,
   ChatSideBundle,
@@ -231,6 +232,7 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     unsupportedClaims: extra.unsupportedClaims,
     heldQuestions: extra.heldQuestions,
     trimmed: extra.trimmed,
+    metrics: extra.metrics,
     refusedForLackOfEvidence: extra.refusedForLackOfEvidence,
     proposalIds: extra.proposalIds,
   };
@@ -525,6 +527,56 @@ function briefingAnswer(project: DdProject, viewContext?: string): Pick<ProjectC
   };
 }
 
+/** Where the file stands, in the three numbers a receipt can move. */
+interface FileStanding {
+  evidence: number;
+  /** Evidence attached to a scope or a check — the rest is on the register only. */
+  linked: number;
+  packReceived: number;
+  packTotal: number;
+}
+
+function fileStanding(project: DdProject): FileStanding {
+  const pack = packCompleteness(project);
+  return {
+    evidence: project.evidence.length,
+    linked: project.evidence.filter((e) => e.scopeInstanceIds.length > 0 || e.checkIds.length > 0).length,
+    packReceived: pack.received,
+    packTotal: pack.total,
+  };
+}
+
+/**
+ * The receipt's figures.
+ *
+ * Only rows that moved, plus the one that did not move when it should have.
+ * "Linked to a scope: 0" is the row that explains an unchanged pack, so it is
+ * kept even at zero when documents were filed — a silent zero there is how six
+ * approved documents can feel like progress and be none.
+ */
+function standingDelta(before: FileStanding, after: FileStanding): ChatMetric[] | undefined {
+  const rows: ChatMetric[] = [];
+  const filed = after.evidence - before.evidence;
+  if (filed > 0) {
+    rows.push({ label: 'Evidence', value: String(after.evidence), delta: `+${filed}` });
+    const linked = after.linked - before.linked;
+    rows.push({
+      label: 'Linked to a scope',
+      value: String(after.linked),
+      delta: linked > 0 ? `+${linked}` : 'none of the new ones',
+    });
+  }
+  const packMoved = after.packReceived - before.packReceived;
+  if (filed > 0 || packMoved !== 0) {
+    rows.push({
+      label: 'Priority pack',
+      value: `${after.packReceived}/${after.packTotal}`,
+      delta: packMoved > 0 ? `+${packMoved}` : 'unchanged',
+    });
+  }
+  return rows.length ? rows : undefined;
+}
+
 /** "1 file", "3 files" — chat counts things constantly and reads badly with "(s)". */
 function plural(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? '' : 's'}`;
@@ -543,6 +595,7 @@ export function applyProjectChat(
   const commands: string[] = [];
   const navigations: ProjectChatResult['navigations'] = [];
   let offered: ChatProposal[] = [];
+  let metrics: ChatMetric[] | undefined;
   const highlightIds: string[] = [];
 
   const navigate = (
@@ -696,6 +749,7 @@ export function applyProjectChat(
         assistantText = 'Nothing to approve. Ask “guide me” for the next cards, or attach a document.';
       }
     } else {
+      const before = fileStanding(project);
       const done: string[] = [];
       for (const item of targets) {
         const result = commitChatProposal(project, item.id, actor);
@@ -708,12 +762,29 @@ export function applyProjectChat(
        * their committed state in place, so repeating their titles — and the
        * raw `ev_1a06…` ids, which name nothing a person recognises — said the
        * same thing a third time in the least readable form available.
+       *
+       * What the sentence cannot say, the figures can: whether the diligence
+       * actually moved. Filing six documents against a project with no
+       * assessment leaves the pack at 0/16, and that is the fact worth putting
+       * in front of somebody who has just spent a minute approving cards.
        */
-      assistantText = `Filed ${plural(done.length, 'card')}. The pane on the right shows the record.`;
+      assistantText = `Filed ${plural(done.length, 'card')}.`;
+      metrics = standingDelta(before, fileStanding(project));
       toolCalls = [{ name: 'approve', summary: `${done.length} committed` }];
       const extra = extrasFromPayload(targets[0]!.payload as Record<string, unknown>);
       const pane = extra?.checkId ? 'scope' : paneForProposalKind(targets[0]!.kind);
       navigate(pane, `Opened ${pane}`, extra);
+      /*
+       * One suggestion, and only one.
+       *
+       * `projectNextStep` already decides what this file needs next and the
+       * Overview pane already renders it; chat simply never asked. Offering it
+       * as a card rather than a sentence means it is actionable where it is
+       * read, and it inherits the collapsed card treatment rather than adding
+       * another paragraph. Idle means the file needs nothing — then say nothing.
+       */
+      const next = projectNextStep(project, actor);
+      if (next.kind !== 'idle' && next.proposals.length) offer([next.proposals[0]!]);
     }
   } else if (wantsReject(ql)) {
     const hit = matchProposal(project, q) ?? project.chatProposals.find((p) => p.status === 'proposed');
@@ -1171,6 +1242,7 @@ export function applyProjectChat(
     citedEvidenceIds: [...new Set(citedEvidenceIds)],
     citedNodeIds: citedNodeIds ? [...new Set(citedNodeIds)] : undefined,
     toolCalls,
+    metrics,
     proposalIds: offered.map((p) => p.id),
   });
   appendTurns(project, userTurn, assistantTurn);

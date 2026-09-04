@@ -167,6 +167,30 @@ function TurnBubble({
             askingPrice={askingPrice}
           />
         ) : null}
+        {turn.metrics && turn.metrics.length > 0 ? (
+          /*
+           * What the turn changed, as figures.
+           *
+           * The one thing a receipt cannot say in a sentence without becoming
+           * the paragraph this panel is trying to stop being. Three rows, no
+           * prose column: how much evidence there is, how much of it is
+           * attached to something, and whether the pack moved. The last two
+           * are the pair that matters — documents on the register with nothing
+           * to attach them to leave the pack where it was, and only these
+           * numbers say so.
+           */
+          <dl className="mt-2 flex flex-col gap-0.5 rounded-lg bg-sunken px-2.5 py-1.5">
+            {turn.metrics.map((m) => (
+              <div key={m.label} className="flex items-baseline justify-between gap-3">
+                <dt className="text-mini text-ink-secondary">{m.label}</dt>
+                <dd className="flex items-baseline gap-1.5 tabular-nums">
+                  <span className="text-[12px] font-medium text-ink">{m.value}</span>
+                  {m.delta ? <span className="text-mini text-ink-muted">{m.delta}</span> : null}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
         {turn.unsupportedClaims && turn.unsupportedClaims.length > 0 ? (
           /*
            * Figures the file does not support, named beside the answer that

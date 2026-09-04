@@ -9,6 +9,7 @@
 
 import type {
   ChatChoice,
+  ChatMetric,
   KarnatakaAttributes,
   ParcelBoundary,
   PlotAttributes,
@@ -17,7 +18,7 @@ import type {
   Tenure,
 } from '../types';
 
-export type { ChatChoice } from '../types';
+export type { ChatChoice, ChatMetric } from '../types';
 
 import type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } from './project-ontology';
 
@@ -1190,6 +1191,19 @@ export interface ProjectChatTurn {
   heldQuestions?: string[];
   /** Prose was dropped to fit the turn budget, so the UI can offer “say more”. */
   trimmed?: boolean;
+  /**
+   * What the turn changed on the file, as figures rather than sentences.
+   *
+   * A receipt that lists what you just approved tells you nothing you did not
+   * already know — you approved it. The question a person actually has after
+   * filing six documents is whether the diligence moved, and the honest answer
+   * is often no: six documents landed on the register and the priority pack
+   * stayed at 0/16 because there was no assessment to attach them to. That is
+   * one line of numbers and it is the most useful line in the exchange.
+   *
+   * Numbers only. Anything that needs a sentence belongs in the next step.
+   */
+  metrics?: ChatMetric[];
   citedEvidenceIds: string[];
   citedNodeIds?: string[];
   toolCalls?: { name: string; summary: string }[];
