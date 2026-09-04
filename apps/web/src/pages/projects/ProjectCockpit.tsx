@@ -459,7 +459,14 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       onOpenCommands={() => setCommandOpen(true)}
       emptyTitle={next.title}
       emptyHint={next.why}
-      placeholder={isDesktop ? 'What should we do next? · Set owner to … · Guide me' : 'Ask this project…'}
+      /*
+        The pane is already in the request and was nowhere on the screen.
+        Every question carries `viewContext: pane`, so the copilot has always
+        known which surface you were looking at — and the composer offered
+        three generic examples instead of saying so. Naming it costs a word
+        and turns an invisible capability into a visible one.
+      */
+      placeholder={isDesktop ? `Ask about ${paneLabel(pane)} · Set owner to … · Guide me` : `Ask about ${paneLabel(pane)}…`}
       dock={
         dockTalk && !dockIsEcho && (dockTalk.kind === 'check' || dockTalk.kind === 'scope') ? (
           <SittingDock
