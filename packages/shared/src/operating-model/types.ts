@@ -1204,6 +1204,22 @@ export interface ProjectChatTurn {
    * Numbers only. Anything that needs a sentence belongs in the next step.
    */
   metrics?: ChatMetric[];
+  /**
+   * Why this turn does not answer what was asked.
+   *
+   * The copilot is reached only when the deterministic router declines the
+   * question. When that call cannot be made — no endpoint configured, a rate
+   * limit, a timeout — the request already falls through to the day's standing
+   * briefing so that chat keeps working, which is right. What was wrong is
+   * that it fell through SILENTLY: "what would a buyer pay for this?" came
+   * back as an unrelated open finding, in the same voice and the same position
+   * as a real answer, with nothing to say the question had not been read.
+   *
+   * The failure is recorded in the run ledger either way. This is the half the
+   * person can see. Set only when a question went unanswered; a briefing
+   * somebody actually asked for carries nothing here.
+   */
+  unanswered?: string;
   citedEvidenceIds: string[];
   citedNodeIds?: string[];
   toolCalls?: { name: string; summary: string }[];

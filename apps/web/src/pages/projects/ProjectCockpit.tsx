@@ -436,7 +436,15 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         three generic examples instead of saying so. Naming it costs a word
         and turns an invisible capability into a visible one.
       */
-      placeholder={isDesktop ? `Ask about ${paneLabel(pane)} · Set owner to … · Guide me` : `Ask about ${paneLabel(pane)}…`}
+      /*
+       * The placeholder names the pane and stops.
+       *
+       * It used to carry two example commands as well — "Set owner to … ·
+       * Guide me" — while the chip row directly above offered "Guide me" and
+       * "Set owner to Priya Shah" as buttons you can actually press. The same
+       * two suggestions, twice, one of them unclickable.
+       */
+      placeholder={`Ask about ${paneLabel(pane)}…`}
       dock={
         dockTalk && !dockIsEcho && (dockTalk.kind === 'check' || dockTalk.kind === 'scope') ? (
           <SittingDock

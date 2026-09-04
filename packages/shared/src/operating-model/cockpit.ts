@@ -233,6 +233,7 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     heldQuestions: extra.heldQuestions,
     trimmed: extra.trimmed,
     metrics: extra.metrics,
+    unanswered: extra.unanswered,
     refusedForLackOfEvidence: extra.refusedForLackOfEvidence,
     proposalIds: extra.proposalIds,
   };

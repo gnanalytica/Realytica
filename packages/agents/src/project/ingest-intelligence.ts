@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AgentStep, CaseDocument, ChatIngestFile, DdProject } from '@realytica/shared';
-import { projectToIdentity } from '@realytica/shared';
+import { failureCause, projectToIdentity } from '@realytica/shared';
 import { runDocumentIntelligence } from '../agents/document-intelligence';
 
 export interface EnrichIngestParams {
@@ -52,26 +52,22 @@ function clipQuote(label: string, value: string, max = 140): string {
  * the run itself carries the full error for anyone debugging one.
  */
 function readFailureReason(raw: string): string {
-  const text = raw.toLowerCase();
-  if (/rate limit|429|too many requests/.test(text)) {
-    return 'The document reader was rate limited. The file is attached; upload it again to read it.';
+  switch (failureCause(raw)) {
+    case 'rate_limited':
+      return 'The document reader was rate limited. The file is attached; upload it again to read it.';
+    case 'unreadable':
+      return 'The document reader could not open this PDF — it may be a scan or protected.';
+    case 'malformed':
+      return 'The reader returned an answer this app could not use. The file is attached; upload it again to read it.';
+    case 'unsupported':
+      return 'This file type cannot be read — PDFs and images only.';
+    case 'unconfigured':
+      return 'Document reading is not configured on this deployment.';
+    case 'timeout':
+      return 'The document reader did not answer in time.';
+    default:
+      return 'The document reader could not read this file.';
   }
-  if (/failed to parse|could not parse|parsing engine/.test(text)) {
-    return 'The document reader could not open this PDF — it may be a scan or protected.';
-  }
-  if (/schema validation|invalid_type|expected/.test(text)) {
-    return 'The reader returned an answer this app could not use. The file is attached; upload it again to read it.';
-  }
-  if (/only reads pdfs|not supported|unsupported/.test(text)) {
-    return 'This file type cannot be read — PDFs and images only.';
-  }
-  if (/no model endpoint|not configured|credential|api[_ ]key|unauthor|401|403/.test(text)) {
-    return 'Document reading is not configured on this deployment.';
-  }
-  if (/timeout|timed out|econnreset|network/.test(text)) {
-    return 'The document reader did not answer in time.';
-  }
-  return 'The document reader could not read this file.';
 }
 
 /**

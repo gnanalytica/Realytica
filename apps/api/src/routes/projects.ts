@@ -102,6 +102,8 @@ import {
   renderProjectGuide,
   screenProject,
   wantsDeterministicProjectChat,
+  unansweredReason,
+  failureCause,
   noteProjectEdit,
   CHECK_RESULT_LABEL,
   clampGraphHops,
@@ -992,6 +994,24 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const stream = beginNdjson(res);
   const { line, clientGone } = stream;
 
+  /*
+   * Why the question below went unanswered, when it did.
+   *
+   * Falling through to the standing briefing keeps chat working when the model
+   * cannot be reached, and that is right. Doing it in silence is not: the
+   * briefing renders in the same voice and the same place as an answer, so a
+   * person who asked what a buyer would pay reads an unrelated open finding
+   * and concludes the product ignored them. The run ledger already records the
+   * failure; this is the half they can see.
+   *
+   * Only a question that WANTED the copilot can be unanswered — a command the
+   * router handled itself was answered, by design.
+   */
+  let unanswered: string | undefined;
+  if (!deterministic && !capability.available) {
+    unanswered = unansweredReason(failureCause(capability.reason));
+  }
+
   if (!deterministic && capability.available) {
     /*
      * The durable ledger. Everything below lives inside this one request:
@@ -1062,11 +1082,14 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         res.end();
         return;
       }
+      unanswered = unansweredReason('malformed');
       journalTail = journalTail.then(() => journal.fail('The copilot returned nothing usable; the wizard answered instead.'));
       await journalTail;
     } catch (e) {
-      line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'error', label: describeError(e) } });
-      journalTail = journalTail.then(() => journal.fail(describeError(e)));
+      const described = describeError(e);
+      unanswered = unansweredReason(failureCause(described));
+      line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'error', label: described } });
+      journalTail = journalTail.then(() => journal.fail(described));
       await journalTail;
       /* fall through to the wizard — a model failure must not block chat */
     }
@@ -1126,6 +1149,11 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     return;
   }
   sayWhatIsMissing(seen, question, result);
+  if (unanswered) {
+    result.assistantTurn.unanswered = unanswered;
+    const last = canvas.conversation[canvas.conversation.length - 1];
+    if (last?.id === result.assistantTurn.id) last.unanswered = unanswered;
+  }
   mergeConversation(project, canvas, actor, turnsBefore);
   if (result.commands.some((c) => /approved/i.test(c))) await rememberProject(project);
   await store.save();
