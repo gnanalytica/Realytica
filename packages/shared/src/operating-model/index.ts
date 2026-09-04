@@ -26,6 +26,7 @@ export * from './report-blocks';
 export * from './report-command';
 export * from './check-fields';
 export * from './check-schemas';
+export * from './input-suggestions';
 export * from './brevity';
 export * from './graphrag';
 export * from './reference-shelf';

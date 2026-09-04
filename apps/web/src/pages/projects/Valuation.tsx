@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   rule8Summary,
@@ -9,6 +9,11 @@ import {
   VALUATION_RUN_STATUS_LABEL,
   VALUATION_SIGN_OFF_LABEL,
   type ValuationSignOff,
+  type CheckFieldWrite,
+  matchProjectLocality,
+  suggestValuationInputs,
+  resolveStatePack,
+  REFERENCE_DATA,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Select, Tabs, Why, useToast } from '../../components/ui/kit';
@@ -17,6 +22,7 @@ import { ScreenResultPanel } from '../../components/ScreenResultPanel';
 import { ScheduleOfProperty } from '../../components/ScheduleOfProperty';
 import { countryForCurrency } from '../../lib/units';
 import { ValuationWorkingPanel } from '../../components/ValuationWorkingPanel';
+import { ValuationInputSheet } from '../../components/ValuationInputSheet';
 import { ValuationSummary } from '../../components/ValuationSummary';
 import { TitleChainDiagram } from '../../components/charts';
 import { formatWhen } from './shared';
@@ -55,7 +61,7 @@ function runMethod(run: { ibbi: { instruction: string }; working?: unknown }): s
  * swallows navigation is the single most common way an in-page tab set
  * frustrates somebody.
  */
-type ValueView = 'working' | 'market' | 'compliance' | 'costs' | 'evidence';
+type ValueView = 'inputs' | 'working' | 'market' | 'compliance' | 'costs' | 'evidence';
 
 export default function Valuation() {
   const { project, setProject } = useOutletContext<ProjectOutlet>();
@@ -107,6 +113,23 @@ export default function Valuation() {
   const screenResult = project.lastScreenResult;
 
   /*
+   * Values the file could start from — the locality's own rates, the built-up
+   * area already on the project, the acquisition percentage the state pack's
+   * duty figures imply. Derived on read rather than stored: a suggestion is a
+   * statement about what is currently known, and one frozen into the project
+   * would outlive the data behind it.
+   */
+  const suggestions = useMemo(
+    () =>
+      suggestValuationInputs(
+        project,
+        matchProjectLocality(project),
+        resolveStatePack({ country: countryForCurrency(project.currency), state: project.jurisdiction ?? '' }, REFERENCE_DATA.statePacks),
+      ),
+    [project],
+  );
+
+  /*
    * Only offer a tab that has something behind it.
    *
    * A file with no property screen has a working and nothing else, and five
@@ -114,6 +137,13 @@ export default function Valuation() {
    * all — it implies the analysis exists and failed to load.
    */
   const views: (TabDef & { key: ValueView })[] = [
+    /*
+      Inputs first, because it is the tab a file needs before any of the
+      others say anything. A new project reports "no approach had all of its
+      inputs" four times over, and this is the only view that shows which
+      cells are the reason.
+    */
+    { key: 'inputs', label: 'Inputs' },
     { key: 'working', label: 'Working' },
     ...(screenResult && (screenResult.comparables.length > 0 || screenResult.drivers.length > 0)
       ? [{ key: 'market' as const, label: 'Market' }]
@@ -139,6 +169,28 @@ export default function Valuation() {
   // A stale link to a tab this file no longer has falls back rather than
   // rendering nothing at all.
   const view: ValueView = views.some((v) => v.key === requested) ? requested! : 'working';
+
+  /**
+   * One field written back to its check.
+   *
+   * Returns the refusal rather than only toasting it: the sheet keeps a
+   * rejected value in its cell and shows the reason beside it, because a
+   * proof-required field declines until it cites a document and a value that
+   * vanished on blur would be worse than one that will not save.
+   */
+  async function commitField(
+    checkId: string,
+    values: Record<string, CheckFieldWrite>,
+    sourceEvidenceId?: string,
+  ): Promise<string | null> {
+    try {
+      const out = await api.recordCheckFields(project.id, checkId, values, sourceEvidenceId);
+      setProject(out.project);
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Could not save';
+    }
+  }
   const setView = (key: string) => {
     const next = new URLSearchParams(params);
     // 'working' is the default, so it stays out of the URL — otherwise every
@@ -207,6 +259,15 @@ export default function Valuation() {
         {screenPanel(['blockers'])}
 
         {views.length > 1 ? <Tabs tabs={views} active={view} onChange={setView} /> : null}
+
+        {view === 'inputs' ? (
+          <ValuationInputSheet
+            project={project}
+            suggestions={suggestions}
+            onCommit={commitField}
+            disabled={busy}
+          />
+        ) : null}
 
         {view === 'working' ? (
         <>
