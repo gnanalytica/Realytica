@@ -419,14 +419,94 @@ export function noteProjectEdit(
  * than an exchange.
  */
 export function hasSpokenConversation(project: DdProject): boolean {
-  const turns = project.conversation ?? [];
-  return turns.some((turn, i) => {
-    if (turn.role !== 'user') return false;
+  // Through `splitThread`, so "has anybody spoken" and "what goes in the chat
+  // tab" cannot answer the same question differently.
+  return splitThread(project.conversation ?? []).conversation.length > 0;
+}
+
+/**
+ * One turn's place: something a person said, or something the file did.
+ *
+ * `noteProjectEdit` writes a synthetic user turn and a one-word reply for
+ * every work-pane edit, so the thread is two logs wearing one shape. Measured
+ * on the seeded file: twenty-four turns, twenty-four of them echoes, nothing
+ * anybody typed — a conversation panel holding a quarter of the screen to
+ * replay your own clicks back at you.
+ *
+ * The split is what canvas-style tools get right and this did not: editing the
+ * document does not post a message. The document keeps a history; the
+ * conversation keeps what was asked and answered. Two logs, two lifetimes, two
+ * places to look.
+ *
+ * Derived rather than stored, so nothing has to be migrated and a turn written
+ * before this existed lands in the right half on its own.
+ */
+export interface ThreadSplit {
+  /** What a person asked, and what came back. */
+  conversation: ProjectChatTurn[];
+  /** What the file recorded, newest last, one entry per edit. */
+  activity: { at: string; summary: string; turn: ProjectChatTurn }[];
+}
+
+/** Whether an assistant turn is the acknowledgement half of a pane write. */
+function isPaneWriteReply(turn: ProjectChatTurn | undefined): boolean {
+  return turn?.role === 'assistant' && (turn.toolCalls ?? []).some((call) => call.name === 'pane_write');
+}
+
+/**
+ * Consecutive entries that say the same thing, said once.
+ *
+ * Filling one card of the input sheet writes a turn per field, so the log
+ * showed "Recorded 1 value on “Residual land value carries profit, finance and
+ * fees”" eight times in a row — eight lines carrying one fact, which is the
+ * activity-log version of the problem the split was meant to solve.
+ *
+ * Only CONSECUTIVE runs collapse. Two edits to the same check either side of
+ * an edit to another one are two occasions, and merging them would misreport
+ * the order somebody worked in.
+ */
+export function groupActivity(entries: readonly ThreadSplit['activity'][number][]): {
+  at: string;
+  summary: string;
+  count: number;
+  turn: ProjectChatTurn;
+}[] {
+  const out: { at: string; summary: string; count: number; turn: ProjectChatTurn }[] = [];
+  for (const entry of entries) {
+    const last = out[out.length - 1];
+    if (last && last.summary === entry.summary) {
+      last.count += 1;
+      // The run is stamped with its most recent member: "what happened last"
+      // is the question a log is read for.
+      last.at = entry.at;
+      continue;
+    }
+    out.push({ at: entry.at, summary: entry.summary, count: 1, turn: entry.turn });
+  }
+  return out;
+}
+
+export function splitThread(turns: readonly ProjectChatTurn[]): ThreadSplit {
+  const conversation: ProjectChatTurn[] = [];
+  const activity: ThreadSplit['activity'] = [];
+
+  for (let i = 0; i < turns.length; i += 1) {
+    const turn = turns[i]!;
     const reply = turns[i + 1];
-    const isEcho =
-      reply?.role === 'assistant' && (reply.toolCalls ?? []).some((call) => call.name === 'pane_write');
-    return !isEcho;
-  });
+    if (turn.role === 'user' && isPaneWriteReply(reply)) {
+      /*
+       * The pair collapses to one line. The user half carries what changed —
+       * "Recorded 1 value on Replacement cost" — and the assistant half is the
+       * word "Recorded", which adds nothing a timestamp does not.
+       */
+      activity.push({ at: turn.at, summary: turn.text, turn: reply! });
+      i += 1;
+      continue;
+    }
+    conversation.push(turn);
+  }
+
+  return { conversation, activity };
 }
 
 function fold(s: string): string {

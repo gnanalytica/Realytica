@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { ArrowUp, CheckCircle2, Info, MessageCircle, Paperclip, SearchX, Sparkles, Trash2, X } from 'lucide-react';
-import type { AgentStep, CopilotTurn, EvidenceItem, ScreenResult, VerificationSummary } from '@realytica/shared';
+import { groupActivity, splitThread } from '@realytica/shared';
+import type { AgentStep, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
 import { Badge, Button, Textarea, cn } from './ui/kit';
@@ -492,7 +493,27 @@ export function CopilotPanel({
     void submit(text);
   }
 
-  const showEmptyState = conversation.length === 0 && !busy;
+  /*
+   * Two logs, shown as two tabs.
+   *
+   * The thread arrives holding both what somebody asked and what the file
+   * recorded — every work-pane edit writes a synthetic turn and a one-word
+   * reply. Measured on the seeded project that was twenty-four turns, all of
+   * them echoes: a conversation panel replaying your own clicks.
+   *
+   * Split on the way in rather than at the source, so nothing has to be
+   * migrated and a turn written before this lands in the right half by itself.
+   */
+  const { conversation: spoken, activity } = useMemo(
+    () => splitThread(conversation as unknown as ProjectChatTurn[]),
+    [conversation],
+  );
+  const [tab, setTab] = useState<'chat' | 'activity'>('chat');
+  // Chat opens by default even when empty: it is what the composer below is
+  // for, and landing on a log nobody asked for is how this started.
+  const shown = (tab === 'chat' ? spoken : []) as unknown as CopilotTurn[];
+
+  const showEmptyState = shown.length === 0 && tab === 'chat' && !busy;
 
   return (
     <div className={cn('flex flex-col', compact ? 'gap-2' : 'gap-3', fill && 'h-full min-h-0')}>
@@ -505,6 +526,31 @@ export function CopilotPanel({
         beside the box you would type in — which is where you find out, and
         the only place the answer changes what you do next.
       */}
+
+      {/*
+        The strip only appears once the file has a history to separate. On a
+        fresh project there is one log and a tab bar over it would be chrome
+        naming a distinction that does not exist yet.
+      */}
+      {activity.length > 0 ? (
+        <div className="flex shrink-0 items-center gap-1 border-b border-hairline px-1 pb-1.5">
+          {(['chat', 'activity'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              aria-pressed={tab === key}
+              className={cn(
+                'rounded-md px-2 py-1 text-[12px] capitalize transition-colors duration-quick',
+                tab === key ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
+              )}
+            >
+              {key}
+              {key === 'activity' ? <span className="ml-1 tabular-nums opacity-70">{activity.length}</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div
         ref={scrollRef}
@@ -560,9 +606,33 @@ export function CopilotPanel({
               </div>
             ) : null}
           </div>
+        ) : tab === 'activity' ? (
+          /*
+            One line an event, not two bubbles.
+            Each of these was a blue user bubble, a grey "Recorded." reply, a
+            citation chip and an "Agent-generated" tag — four elements to say a
+            field was saved. What a reader wants from a log is when and what,
+            newest first, and the ability to stop reading.
+          */
+          <ol className="space-y-0.5">
+            {[...groupActivity(activity)].reverse().map((entry) => (
+              <li
+                key={entry.turn.id}
+                className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-2 py-1 text-[12px]"
+              >
+                <span className="font-mono text-mini tabular-nums text-ink-muted">{relativeTime(entry.at)}</span>
+                <span className="min-w-0 text-ink-secondary">
+                  {entry.summary}
+                  {entry.count > 1 ? (
+                    <span className="ml-1 font-mono text-mini text-ink-muted">×{entry.count}</span>
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ol>
         ) : (
           <>
-            {conversation.map((turn) => (
+            {shown.map((turn) => (
               /*
                 `animate-rise-in` on each turn, which the design system
                 already defines and reduced-motion already neutralises. A
