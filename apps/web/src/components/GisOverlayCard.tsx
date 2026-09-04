@@ -503,7 +503,7 @@ export function GisOverlayCard({
           <div className="min-h-[120px] rounded-lg bg-sunken ring-1 ring-inset ring-[var(--ring)]" />
         ) : (
           <p className="rounded-lg bg-sunken px-3 py-2.5 text-[12.5px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
-            No pin and no survey sketch yet — geocode the site address, or upload a surveyor&apos;s GeoJSON/KML.
+            Geocode the address, or upload a GeoJSON/KML.
           </p>
         )}
 

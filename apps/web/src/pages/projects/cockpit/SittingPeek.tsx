@@ -212,7 +212,7 @@ function ScopePeek({
     <div className="mt-1.5 space-y-1.5">
       <p className="text-[12px] text-ink-muted">{assessment.name}</p>
       <p className="text-[13.5px] font-semibold text-ink">{SCOPE_LABEL[scope.scopeKey]}</p>
-      <p className="text-[12px] text-ink-secondary">{pending.length} check(s) still pending.</p>
+      <p className="text-[12px] text-ink-secondary">{pending.length} pending</p>
       <div className="divide-y divide-hairline rounded-lg ring-1 ring-inset ring-[var(--ring)]">
         {scope.checks.slice(0, 4).map((c) => (
           <button

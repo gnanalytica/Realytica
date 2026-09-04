@@ -108,7 +108,7 @@ export default function ProjectList() {
         <EmptyState
           icon={<FolderTree size={22} />}
           title="No projects yet"
-          description="Create a project and asset tree, then start a due diligence assessment from the library. AI is not required."
+          description="Create a project, then start an assessment from the library."
           action={
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => navigate('/projects/new')}>Create project</Button>

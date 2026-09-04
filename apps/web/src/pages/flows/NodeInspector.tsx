@@ -300,7 +300,7 @@ function Body({
   if (c.kind === 'branch') {
     return (
       <div className="space-y-3">
-        <p className="text-[12px] text-ink-muted">The first case that matches wins. Anything else takes the default way out.</p>
+        <p className="text-[12px] text-ink-muted">First match wins; the rest take the default.</p>
         {c.cases.map((k, i) => (
           <div key={k.id} className="rounded-lg border border-hairline p-2.5">
             <div className="flex items-center gap-2">
@@ -382,7 +382,7 @@ function Body({
     return (
       <>
         <Callout tone="info" title="This proposes, it does not write">
-          A person accepts the card. A flow never writes a finding itself.
+          A person accepts the card.
         </Callout>
         <Field label="Propose a">
           <Select value={c.draft} onChange={(e) => setConfig({ draft: e.target.value })}>

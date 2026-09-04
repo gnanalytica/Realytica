@@ -208,7 +208,7 @@ export function VerificationPanel({ verification }: { verification: Verification
           <EmptyState
             icon={<ShieldQuestion size={24} />}
             title="No verification run yet"
-            description="Run the agents to have the critic check every claim, route and figure against this case's evidence before you rely on it."
+            description="Run the agents to have the critic check every claim's evidence before you rely on it."
           />
         ) : (
           <>

@@ -72,7 +72,7 @@ export default function Assets() {
       {tree.length === 0 ? (
         <EmptyState
           title="No assets yet"
-          description="Build the component tree — towers, podiums, utilities — each with its own stage history."
+          description="Towers, podiums, utilities — each with its own stage history."
           action={<Button onClick={() => setOpen(true)}>Add the first asset</Button>}
         />
       ) : (

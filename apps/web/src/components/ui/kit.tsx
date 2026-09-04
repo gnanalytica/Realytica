@@ -132,6 +132,50 @@ export function InfoTip({ label, className }: { label: ReactNode; className?: st
   );
 }
 
+/**
+ * The sentence behind a row, out of the way until it is wanted.
+ *
+ * The engine writes real prose — why a risk matters, what a compliance finding
+ * means, what to do next — and every register printed all of it inline. On the
+ * Risks pane that was four paragraphs a row; on Compliance, four per check
+ * across thirteen checks. A list where each entry is a paragraph is a list
+ * nobody scans, and scanning is what a register is for.
+ *
+ * So the row carries the facts and this carries the sentence. Two rules make
+ * that safe rather than merely tidier:
+ *
+ *  - `print-open` is the same class `StatutoryProvenance` uses, and the report
+ *    stylesheet forces it open. Nothing is lost from the document that leaves
+ *    the building — the prose simply stops competing with the figures on the
+ *    screen somebody works in.
+ *  - It is a `<details>`, so it is keyboard-reachable and findable by the
+ *    browser's own find-in-page. A tooltip would have hidden the text from
+ *    both, which is the wrong trade for content this substantive.
+ */
+export function Why({
+  label = 'Why',
+  children,
+  className,
+}: {
+  /** What the reveal is called. Name the content, not the act of opening it. */
+  label?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  if (!children) return null;
+  return (
+    <details className={cn('print-open group mt-1', className)}>
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-mini text-ink-muted hover:text-ink-secondary">
+        <ChevronDown size={11} className="no-print transition-transform duration-base group-open:rotate-180" />
+        {label}
+      </summary>
+      <div className="mt-1 space-y-1 border-l-2 border-[var(--ring)] pl-2.5 text-xs leading-relaxed text-ink-secondary">
+        {children}
+      </div>
+    </details>
+  );
+}
+
 export function CardBody({ className, children }: { className?: string; children: ReactNode }) {
   return <div className={cn('p-4', className)}>{children}</div>;
 }

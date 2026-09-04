@@ -1,5 +1,5 @@
 import type { ComplianceCheck, ComplianceVerdict, CountryCode, ScreenResult } from '@realytica/shared';
-import { Badge, Callout, Card, CardBody, CardHeader, KeyValue, SectionTitle, cn } from './ui/kit';
+import { Badge, Callout, Card, CardBody, CardHeader, KeyValue, SectionTitle, Why, cn } from './ui/kit';
 import type { Tone } from './ui/kit';
 import { StatutoryProvenance } from './StatutoryProvenance';
 import { ComparablesSchedule } from './ComparablesSchedule';
@@ -61,24 +61,40 @@ const COMPLIANCE_WORD: Record<ComplianceVerdict, string> = {
 /** Blockers first, then attention, then unresolved, then clear. */
 const COMPLIANCE_ORDER: ComplianceVerdict[] = ['blocker', 'attention', 'unknown', 'clear'];
 
+/**
+ * A check, as a row rather than as an essay.
+ *
+ * Four paragraphs were printed for every check — the finding, why it matters,
+ * the next step, and the statute — thirteen times over. That is the whole of
+ * the Compliance view and none of it could be scanned: the verdict a reader
+ * came for sat at the top right of a wall of text, and the one blocker in the
+ * list looked exactly like the twelve clear ones.
+ *
+ * The row is now the answer: what was checked, the verdict, and the headline
+ * the engine already writes in eight words. Everything else is a sentence, and
+ * sentences live behind `Why` — still in the DOM, still searchable, still
+ * printed in full on the report.
+ */
 function ComplianceRow({ check }: { check: ComplianceCheck }) {
   return (
-    <li className="border-t border-hairline py-3 first:border-t-0 first:pt-0">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="text-[13px] font-medium text-ink">{check.label}</span>
+    <li className="border-t border-hairline py-2.5 first:border-t-0 first:pt-0">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="min-w-0 text-[13px] font-medium text-ink">{check.label}</span>
         <Badge tone={COMPLIANCE_TONE[check.verdict]}>{COMPLIANCE_WORD[check.verdict]}</Badge>
       </div>
-      <p className="mt-1 text-[13px] text-ink">{check.headline}</p>
-      <p className="mt-1 text-xs leading-relaxed text-ink-secondary">{check.finding}</p>
-      <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
-        <span className="text-ink-muted">Why it matters — </span>
-        {check.consequence}
-      </p>
-      <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
-        <span className="text-ink-muted">Next step — </span>
-        {check.nextStep}
-      </p>
-      {check.statute ? <p className="mt-1 font-mono text-mini text-ink-muted">{check.statute}</p> : null}
+      <p className="mt-0.5 text-[12.5px] leading-snug text-ink-secondary">{check.headline}</p>
+      <Why>
+        <p>{check.finding}</p>
+        <p>
+          <span className="text-ink-muted">Why it matters — </span>
+          {check.consequence}
+        </p>
+        <p>
+          <span className="text-ink-muted">Next step — </span>
+          {check.nextStep}
+        </p>
+        {check.statute ? <p className="font-mono text-mini text-ink-muted">{check.statute}</p> : null}
+      </Why>
     </li>
   );
 }
@@ -214,8 +230,7 @@ export function ScreenResultPanel({
     <div className="space-y-4">
       {show('blockers') && blockers.length > 0 ? (
         <Callout tone="critical" title={`${blockers.length} blocker${blockers.length > 1 ? 's' : ''} on this site`}>
-          {blockers.map((c) => c.label).join(' · ')}. These are the findings that should stop spending before
-          they are resolved — read them under Compliance.
+          {blockers.map((c) => c.label).join(' · ')}
         </Callout>
       ) : null}
 
@@ -300,7 +315,7 @@ export function ScreenResultPanel({
                     <span className="ml-2 text-ink-muted">weight {pct(anchor.weight * 100, 0)}</span>
                   </span>
                 </div>
-                <p className="mt-0.5 text-ink-secondary">{anchor.rationale}</p>
+                <Why>{anchor.rationale}</Why>
               </li>
             ))}
           </ul>
@@ -364,7 +379,7 @@ export function ScreenResultPanel({
       <div className="grid gap-4 lg:grid-cols-2">
         {show('evidence') ? (
         <Card>
-          <CardHeader title="Confidence" subtitle="What the score is made of, factor by factor." />
+          <CardHeader title="Confidence" info="What the score is made of, factor by factor." />
           <CardBody className="space-y-4">
             <div className="flex flex-wrap items-center gap-6">
               <ConfidenceGauge score={result.confidence.score} band={result.confidence.band} />
@@ -411,7 +426,7 @@ export function ScreenResultPanel({
 
         {show('compliance') ? (
         <Card>
-          <CardHeader title="Risk profile" subtitle="Every flag the screen raised, by severity." />
+          <CardHeader title="Risk profile" info="Every flag the screen raised, by severity." />
           <CardBody>
             <RiskProfileChart risks={result.risks} />
           </CardBody>
@@ -425,7 +440,7 @@ export function ScreenResultPanel({
         <Card>
           <CardHeader
             title={`${compliance.state} compliance`}
-            subtitle={`${compliance.checks.length} state checks · ${compliance.score}/100 clear`}
+            subtitle={`${compliance.checks.length} checks · ${compliance.score}/100`}
             action={<Badge tone={blockers.length ? 'critical' : 'neutral'}>{compliance.statePackId}</Badge>}
           />
           <CardBody className="space-y-3">
@@ -440,10 +455,7 @@ export function ScreenResultPanel({
               ))}
             </ul>
             {compliance.datasets?.length ? (
-              <p className="text-xs leading-relaxed text-ink-secondary">
-                <span className="text-ink-muted">Written against — </span>
-                {compliance.datasets.join(' · ')}. Anything not listed was not consulted.
-              </p>
+              <Why label="Sources">{compliance.datasets.join(' · ')}. Anything not listed was not consulted.</Why>
             ) : null}
           </CardBody>
         </Card>
@@ -459,7 +471,7 @@ export function ScreenResultPanel({
         <Card>
           <CardHeader
             title="Indicative transaction costs"
-            subtitle={`Charged on the ${costs.dutiableBasis === 'consideration' ? 'consideration' : 'statutory guidance value'} — the higher of the two.`}
+            info={`Charged on the ${costs.dutiableBasis === 'consideration' ? 'consideration' : 'statutory guidance value'} — the higher of the two.`}
           />
           <CardBody className="space-y-3">
             {/*
@@ -487,7 +499,7 @@ export function ScreenResultPanel({
                   <span className="min-w-0">
                     <span className="text-[13px] text-ink">{line.label}</span>
                     {line.pct !== null ? <span className="ml-1.5 text-ink-muted">{pct(line.pct, 2)}</span> : null}
-                    <span className="block text-ink-secondary">{line.note}</span>
+                    <Why>{line.note}</Why>
                   </span>
                   <span className="shrink-0 font-mono text-ink">
                     {line.pct !== null ? (
@@ -570,7 +582,7 @@ export function ScreenResultPanel({
                       </FormulaTip>
                     </span>
                   </div>
-                  <p className="mt-0.5 text-ink-secondary">{driver.explanation}</p>
+                  <Why>{driver.explanation}</Why>
                 </li>
               ))}
             </ul>
@@ -589,7 +601,7 @@ export function ScreenResultPanel({
                   <span className="text-[13px] font-medium text-ink">{reconcilingDriver.label}</span>
                   <span className="font-mono text-ink">{pct(reconcilingDriver.impactPct, 1, true)}</span>
                 </div>
-                <p className="mt-0.5 text-ink-secondary">{reconcilingDriver.explanation}</p>
+                <Why>{reconcilingDriver.explanation}</Why>
                 {dominatesDrivers ? (
                   <p className="mt-1.5 font-medium text-ink">
                     This is larger than every driver above it put together, so the list above explains
@@ -657,7 +669,7 @@ export function ScreenResultPanel({
       <Card>
         <CardHeader
           title="Document completeness"
-          subtitle={`${result.completeness.items.filter((i) => i.present).length} of ${result.completeness.items.length} expected documents on file.`}
+          subtitle={`${result.completeness.items.filter((i) => i.present).length} / ${result.completeness.items.length} on file`}
         />
         <CardBody>
           <ul className="grid gap-1.5 sm:grid-cols-2">
@@ -678,7 +690,8 @@ export function ScreenResultPanel({
       <Card>
         <CardHeader
           title="Evidence ledger"
-          subtitle={`${result.evidence.length} entries — every figure above traces to one.`}
+          subtitle={`${result.evidence.length} entries`}
+          info="Every figure above traces to one of these."
         />
         <CardBody>
           <ProvenanceBar evidence={result.evidence} />

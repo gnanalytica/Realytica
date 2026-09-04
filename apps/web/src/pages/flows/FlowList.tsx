@@ -78,7 +78,7 @@ export default function FlowList() {
             <EmptyState
               icon={<Workflow size={18} />}
               title="No flows yet"
-              description="A flow reads the project, decides something, and puts a card in front of somebody. Start with one that finds the documents still outstanding."
+              description="Start with one that finds outstanding documents."
             />
           </CardBody>
         </Card>

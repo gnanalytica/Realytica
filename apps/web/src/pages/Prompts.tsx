@@ -563,7 +563,7 @@ export default function Prompts({ api, initialPrompts }: PromptsPageProps = {}) 
               <EmptyState
                 icon={<BookOpen size={22} />}
                 title="Select a prompt"
-                description="Every prompt the agent layer uses is on the left, grouped by the agent that runs it."
+                description="Grouped by the agent that runs them."
               />
             </CardBody>
           </Card>

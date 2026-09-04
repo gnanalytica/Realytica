@@ -44,7 +44,7 @@ export default function Reports() {
         <Button onClick={() => setOpen(true)}>Generate report</Button>
       </div>
       {project.reports.length === 0 ? (
-        <EmptyState title="No reports" description="Generate an executive, red-flag, evidence, or changes-since-previous view from the current records." />
+        <EmptyState title="No reports" description="Generate one from the current records." />
       ) : (
         /*
           Two columns only once the *pane* is wide enough to hold both, not

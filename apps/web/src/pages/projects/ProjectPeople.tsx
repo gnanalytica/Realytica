@@ -279,7 +279,7 @@ export default function ProjectPeople() {
               <div className="p-4">
                 <EmptyState
                   title="Nobody is named on this project"
-                  description="Your own staff already reach it. Add a contractor or consultant to give them a part of it."
+                  description="Add a contractor or consultant to give them part of this project."
                 />
               </div>
             ) : null}
