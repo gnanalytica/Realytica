@@ -61,6 +61,9 @@ function caveatFor(precision: string | undefined, resolved: string): string {
   if (precision === 'interpolated') {
     return `Located by interpolating along the street from "${resolved}", so the pin may sit some way from the actual gate.`;
   }
+  if (precision === 'premise_centre') {
+    return `The geocoder matched the named premise "${resolved}" and returned its centre — this property, but on a layout that centre can sit a few hundred metres from the unit.`;
+  }
   if (precision === 'locality_centre') {
     return `The query resolved to the centre of "${resolved}", not this property. Distances describe the neighbourhood, not the site.`;
   }

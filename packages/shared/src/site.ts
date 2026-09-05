@@ -50,6 +50,13 @@ export function bearingDegrees(from: GeoPoint, to: GeoPoint): number {
  * measurement dressed as a site measurement would trade a figure that admits
  * what it is for one that does not.
  *
+ * `premise_centre` does not pass, and that is the harder call. Google matched
+ * the property's own name, so it is not a neighbourhood pin — but the premise
+ * behind the name may be one plot or an eighty-acre layout, and the response
+ * does not say which. Priced as a site measurement it would silently claim the
+ * unit sits where the layout's centroid does. Its caveat says what it is; this
+ * gate stays shut until something places the unit itself.
+ *
  * `stated` passes for the same reason and in the opposite direction. A
  * coordinate printed on this parcel's own site plan and approved onto the
  * record is about this parcel; calling it neighbourhood-level would understate

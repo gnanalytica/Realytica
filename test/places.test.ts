@@ -85,6 +85,10 @@ describe('geometry', () => {
     assert.ok(Math.abs(bearingDegrees(SITE, { lat: SITE.lat, lng: SITE.lng + 1 }) - 90) < 1, 'due east');
   });
 
+  test('a premise centroid is shown for what it is, and does not pass the pricing gate', () => {
+    assert.equal(isSiteAccurate('premise_centre'), false, 'a layout centroid is not the unit being priced');
+  });
+
   test('only a rooftop, interpolated or stated point describes the property', () => {
     assert.equal(isSiteAccurate('rooftop'), true);
     assert.equal(isSiteAccurate('interpolated'), true);
@@ -106,6 +110,12 @@ describe('building a site context', () => {
     const context = await build();
     assert.equal(context.location!.precision, 'rooftop');
     assert.match(context.location!.caveat, /not a surveyed parcel boundary/);
+  });
+
+  test('a premise-centre pin says which premise was matched, not that none was', async () => {
+    const context = await build({ precision: 'premise_centre' });
+    assert.match(context.location!.caveat, /matched the named premise/);
+    assert.doesNotMatch(context.location!.caveat, /did not resolve/, 'Google resolved one; the case must not say otherwise');
   });
 
   test('a locality-centre pin says so, and flags every distance measured from it', async () => {

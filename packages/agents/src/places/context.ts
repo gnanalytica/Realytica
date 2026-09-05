@@ -87,6 +87,8 @@ function caveatFor(precision: SiteLocation['precision'], resolvedAddress: string
       return `Located from the address on file, which matched "${resolvedAddress}". The pin marks that address — it is not a surveyed parcel boundary, and it does not show where the property's limits run.`;
     case 'interpolated':
       return `Located by interpolating along the street from the address on file ("${resolvedAddress}"), so the pin may sit some way from the actual gate. It is not a surveyed parcel boundary.`;
+    case 'premise_centre':
+      return `The geocoder matched the named premise "${resolvedAddress}" and returned the centre of it. That is this property rather than the neighbourhood — but on a layout or a township the centre can be a few hundred metres from the individual unit, so distances measured from it are treated as approximate until a surveyed coordinate or a street address places it exactly.`;
     case 'locality_centre':
       return `The address on file did not resolve to a specific building — the pin is the centre of "${resolvedAddress}", not this property. Everything measured from it describes the neighbourhood, not the site. Add a street address or project name to place it properly.`;
     case 'approximate':
