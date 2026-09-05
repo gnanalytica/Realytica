@@ -40,6 +40,7 @@ import type {
   ValuationPremise,
   ValuationRun,
 } from './types';
+import { plural } from './text';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -601,7 +602,7 @@ export function recordPhotoObservation(
     action: 'read_photograph',
     entityType: 'attachment',
     entityId: attachment.id,
-    newValue: `${observation.subject} · ${observation.notes.length} note(s) · ${drafts.length} card(s)`,
+    newValue: `${observation.subject} · ${plural(observation.notes.length, 'note')} · ${plural(drafts.length, 'card')}`,
   });
   return { attachment, drafts };
 }

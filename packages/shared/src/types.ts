@@ -2686,6 +2686,8 @@ export interface CopilotTurn {
   unsupportedClaims?: string[];
   /** What this turn changed on the file, as figures. See `ProjectChatTurn`. */
   metrics?: ChatMetric[];
+  /** Which sitting this turn belongs to. See `ProjectChatTurn`. */
+  sessionId?: string;
   /** Why the question was not answered, when the text below is a fallback. See `ProjectChatTurn`. */
   unanswered?: string;
 }

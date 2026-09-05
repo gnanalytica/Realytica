@@ -63,6 +63,7 @@ import { detectChatSideIntents, handleChatSides } from './chat-sides';
 import { clarifyRecordCommand, clarifySubject, looksLikeCommand, resolveSubject, sittingTitle } from './clarify';
 import { verifyAttribution } from './attribution';
 import { trimTurn } from './brevity';
+import { plural } from './text';
 import {
   checkResultChoices,
   describeRecorded,
@@ -469,7 +470,7 @@ export function projectRegisterBriefing(project: DdProject, viewContext?: string
           .map((f) => `${f.title} [${f.severity}]${f.evidenceIds.length === 0 ? ' — unevidenced' : ''}`)
           .join('; ')}.`
       : 'No high or critical open findings.',
-    unproven.length ? `${unproven.length} material finding(s) have no evidence id.` : null,
+    unproven.length ? `${plural(unproven.length, 'material finding')} with no evidence id.` : null,
     openRisks.length
       ? `Open risks (${openRisks.length}): ${openRisks
           .slice(0, 4)
@@ -576,11 +577,6 @@ function standingDelta(before: FileStanding, after: FileStanding): ChatMetric[] 
     });
   }
   return rows.length ? rows : undefined;
-}
-
-/** "1 file", "3 files" — chat counts things constantly and reads badly with "(s)". */
-function plural(n: number, noun: string): string {
-  return `${n} ${noun}${n === 1 ? '' : 's'}`;
 }
 
 export function applyProjectChat(
@@ -757,7 +753,7 @@ export function applyProjectChat(
         done.push(`${item.title}${result.recordId ? ` → ${result.recordId}` : ''}`);
         if (result.recordId) highlightIds.push(result.recordId);
       }
-      commands.push(`Approved ${done.length} proposal(s)`);
+      commands.push(`Approved ${plural(done.length, 'proposal')}`);
       /*
        * A receipt, not a re-listing. The cards above have just flipped to
        * their committed state in place, so repeating their titles — and the
@@ -801,7 +797,7 @@ export function applyProjectChat(
     const cards = offer(critic.proposals);
     assistantText = critic.text;
     citedNodeIds = critic.citedNodeIds;
-    toolCalls = [{ name: 'critic', summary: cards.length ? `${cards.length} unevidenced finding(s)` : 'No unevidenced material findings' }];
+    toolCalls = [{ name: 'critic', summary: cards.length ? plural(cards.length, 'unevidenced finding') : 'No unevidenced material findings' }];
     navigate(critic.pane, 'Opened findings');
   } else if (runOrchestrate) {
     const run = runProjectOrchestrator(project, actor);
@@ -1180,13 +1176,26 @@ export function applyProjectChat(
         wantsScopes(ql) ? `Ask Guide me for the next check on a running DD. Scope cards are not bulk-added.` : null,
         wantsReport(ql) ? `Report cards (${cards.filter((p) => p.kind === 'generate_report').length}): generated from live registers.` : null,
         proofBlock ? `Proofs\n${proofBlock}` : null,
-        cards.length ? `Cards in this turn:\n${cards.map((p) => `• ${p.title}\n  ${p.rationale}`).join('\n')}` : next.text,
+        /*
+         * The cards, counted — not reprinted.
+         *
+         * This pasted every card's title and full rationale directly above the
+         * cards themselves, so three suggestions rendered as three paragraphs
+         * and then again as three collapsed rows with buttons. The same
+         * duplication the upload path carried, in the branch next door.
+         */
+        cards.length ? `${plural(cards.length, 'card')} below. Nothing is written until you approve.` : next.text,
       ]
         .filter(Boolean)
         .join('\n\n');
       citedEvidenceIds = next.citedEvidenceIds;
       citedNodeIds = [...next.citedNodeIds, ...cards.flatMap((p) => p.citedNodeIds ?? [])];
-      toolCalls = [{ name: 'wizard', summary: `${cards.length} proposal(s)` }];
+      /*
+       * A chip for nothing is worse than no chip. Cards already raised on this
+       * project are deduped away, so a second ask legitimately offers none —
+       * and "0 proposal(s)" reported that as though it were a result.
+       */
+      toolCalls = cards.length ? [{ name: 'wizard', summary: plural(cards.length, 'card') }] : undefined;
       if (wantsReport(ql)) navigate('reports', 'Opened reports');
       else if (wantsAssets(ql)) navigate('assets', '');
       else if (wantsDdTypes(ql)) navigate('dd', '');

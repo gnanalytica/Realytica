@@ -914,6 +914,8 @@ export const api = {
       question: string;
       viewContext?: string;
       actor?: string;
+      /** The sitting these turns belong to, so history can be cut into chats. */
+      sessionId?: string;
       sitting?: { ddId?: string; scopeId?: string; checkId?: string };
     },
     opts?: { onStep?: (step: AgentStep) => void; signal?: AbortSignal },
@@ -942,6 +944,7 @@ export const api = {
       question?: string;
       viewContext?: string;
       actor?: string;
+      sessionId?: string;
       sitting?: { ddId?: string; scopeId?: string; checkId?: string };
     },
     opts?: { onStep?: (step: AgentStep) => void; signal?: AbortSignal },
@@ -951,6 +954,7 @@ export const api = {
     if (body.question) form.append('question', body.question);
     if (body.viewContext) form.append('viewContext', body.viewContext);
     if (body.actor) form.append('actor', body.actor);
+    if (body.sessionId) form.append('sessionId', body.sessionId);
     if (body.sitting?.ddId) form.append('ddId', body.sitting.ddId);
     if (body.sitting?.scopeId) form.append('scopeId', body.sitting.scopeId);
     if (body.sitting?.checkId) form.append('checkId', body.sitting.checkId);

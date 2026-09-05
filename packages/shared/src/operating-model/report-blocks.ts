@@ -52,6 +52,7 @@ import type {
   ReportBoundSourceKind,
   ResolvedReportBlock,
 } from './types';
+import { plural } from './text';
 
 /* ==================================================================== */
 /* The closed set of things a block may be bound to                      */
@@ -359,7 +360,7 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
           const prior = project.assessments.find((p) => p.id === a.priorAssessmentId);
           const opened = project.findings.filter((f) => f.assessmentIds.includes(a.id)).length;
           const before = prior ? project.findings.filter((f) => f.assessmentIds.includes(prior.id)).length : 0;
-          return `${a.name}: ${opened} finding(s), against ${before} on ${prior?.name ?? 'the previous assessment'}.`;
+          return `${a.name}: ${plural(opened, 'finding')}, against ${before} on ${prior?.name ?? 'the previous assessment'}.`;
         }),
         recordIds: rows.map((a) => a.id),
       };
@@ -517,5 +518,5 @@ export function reportSummaryLine(project: DdProject): string {
   const material = open.filter((f) => MATERIAL.has(f.severity));
   const gaps = project.evidence.filter((e) => ['expected', 'requested', 'missing'].includes(e.status));
   const risks = project.risks.filter((r) => r.status !== 'closed');
-  return `${open.length} open finding(s), ${material.length} material · ${risks.length} open risk(s) · ${gaps.length} evidence gap(s).`;
+  return `${plural(open.length, 'open finding')}, ${material.length} material · ${plural(risks.length, 'open risk')} · ${plural(gaps.length, 'evidence gap')}.`;
 }

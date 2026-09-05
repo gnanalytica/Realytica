@@ -1220,6 +1220,20 @@ export interface ProjectChatTurn {
    * somebody actually asked for carries nothing here.
    */
   unanswered?: string;
+  /**
+   * Which conversation this turn belongs to.
+   *
+   * A project's thread ran forever. Opening a file you had worked on for a
+   * week dropped you at the bottom of every exchange anybody had ever had
+   * about it, which is not history so much as an unbounded scrollback — and
+   * the useful part, "what was I doing", was the least visible part of it.
+   *
+   * A session is one sitting. Opening the project starts a new one, so the
+   * panel is empty and the past is somewhere you go rather than something you
+   * scroll past. Turns written before this field existed carry none, and
+   * `chatSessions` groups those by the gaps between them instead.
+   */
+  sessionId?: string;
   citedEvidenceIds: string[];
   citedNodeIds?: string[];
   toolCalls?: { name: string; summary: string }[];

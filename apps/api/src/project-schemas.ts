@@ -505,6 +505,8 @@ export const patchStatusBodySchema = z.object({
 export const projectChatBodySchema = z.object({
   question: z.string().trim().min(1).max(4000),
   viewContext: z.string().max(400).optional(),
+  /** Which sitting this belongs to. Absent means a client that predates sessions. */
+  sessionId: z.string().max(120).optional(),
   actor: actorSchema,
   sitting: z
     .object({

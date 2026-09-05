@@ -290,6 +290,21 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     [setProject, navigate, toast],
   );
 
+  /*
+   * One sitting per opening of this project.
+   *
+   * The thread used to run forever: opening a file worked on for a week put
+   * you at the bottom of every exchange anybody had ever had about it. Minting
+   * an id here means the panel opens empty on what you are doing now, and the
+   * past becomes somewhere you go rather than something you scroll past.
+   *
+   * Keyed to the project so switching files starts a new sitting rather than
+   * continuing the last one under a different heading.
+   */
+  const sessionId = useMemo(
+    () => `ses_${project.id.slice(-6)}_${Date.now().toString(36)}`,
+    [project.id],
+  );
   const handleAsk = useCallback(
     async (
       question: string,
@@ -318,8 +333,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       const onStep = (step: AgentStep) => setChatSteps((prev) => [...prev, step]);
       try {
         const response = files?.length
-          ? await api.projectChatFiles(project.id, { question, viewContext: pane, files, sitting }, { onStep, signal: ac.signal })
-          : await api.projectChat(project.id, { question, viewContext: pane, sitting }, { onStep, signal: ac.signal });
+          ? await api.projectChatFiles(project.id, { question, viewContext: pane, files, sitting, sessionId }, { onStep, signal: ac.signal })
+          : await api.projectChat(project.id, { question, viewContext: pane, sitting, sessionId }, { onStep, signal: ac.signal });
         applyResult(response);
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') return;
@@ -333,7 +348,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         }
       }
     },
-    [project.id, pane, params.ddId, params.scopeId, searchParams, applyResult],
+    [project.id, pane, params.ddId, params.scopeId, searchParams, applyResult, sessionId],
   );
 
   const handleProposal = useCallback(
@@ -411,6 +426,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
 
   const chat = (
     <CopilotPanel
+      sessionId={sessionId}
       fill
       compact={!isDesktop}
       conversation={conversation}

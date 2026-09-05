@@ -907,3 +907,76 @@ export function withTalkNavigation(
   if (extraHasFocus(last) && last.target !== 'overview') return navigations;
   return [...navigations.slice(0, -1), { ...last, ...opened, target: pane }];
 }
+
+/* ==================================================================== */
+/* Sittings                                                              */
+/* ==================================================================== */
+
+/**
+ * How long a silence has to be before it reads as a new sitting.
+ *
+ * Only used for turns written before `sessionId` existed. Four hours is a
+ * lunch and a site visit: long enough that two exchanges either side of it
+ * were separate pieces of work, short enough not to weld a morning and an
+ * afternoon on the same file into one blob.
+ */
+const SITTING_GAP_MS = 4 * 60 * 60 * 1000;
+
+export interface ChatSession {
+  /** The stored `sessionId`, or one derived from the first turn's timestamp. */
+  id: string;
+  /** Newest first within the session, as stored. */
+  turns: ProjectChatTurn[];
+  startedAt: string;
+  lastAt: string;
+  /** What the person opened with, trimmed — the only honest name for a sitting. */
+  title: string;
+}
+
+/** The first thing a person actually said, which is what they will recognise. */
+function sessionTitle(turns: readonly ProjectChatTurn[]): string {
+  const asked = turns.find((t) => t.role === 'user' && t.text.trim().length > 0);
+  const text = asked?.text.trim() ?? '';
+  if (!text) return 'Untitled';
+  const oneLine = text.replace(/\s+/g, ' ');
+  return oneLine.length > 60 ? `${oneLine.slice(0, 59).trimEnd()}…` : oneLine;
+}
+
+/**
+ * A project's conversation, cut into sittings, newest first.
+ *
+ * Echoes are excluded before grouping — a session whose every turn is the
+ * work pane recording its own edits is not a conversation anybody had, and
+ * listing it in a history picker would bury the ones they did.
+ *
+ * Turns carrying a `sessionId` group by it. Turns written before that field
+ * existed group by the silences between them, so a project that predates this
+ * still shows a usable history rather than one unbounded scrollback.
+ */
+export function chatSessions(turns: readonly ProjectChatTurn[]): ChatSession[] {
+  const { conversation } = splitThread(turns);
+  const groups: ChatSession[] = [];
+  for (const turn of conversation) {
+    const last = groups[groups.length - 1];
+    const sameSession = last
+      && (turn.sessionId
+        ? turn.sessionId === last.id
+        : !last.id.startsWith('ses:')
+          ? false
+          : Date.parse(turn.at) - Date.parse(last.lastAt) < SITTING_GAP_MS);
+    if (last && sameSession) {
+      last.turns.push(turn);
+      last.lastAt = turn.at;
+      continue;
+    }
+    groups.push({
+      id: turn.sessionId ?? `ses:${turn.at}`,
+      turns: [turn],
+      startedAt: turn.at,
+      lastAt: turn.at,
+      title: '',
+    });
+  }
+  for (const group of groups) group.title = sessionTitle(group.turns);
+  return groups.reverse();
+}

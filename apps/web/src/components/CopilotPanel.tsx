@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { AlertCircle, ArrowUp, CheckCircle2, Info, MessageCircle, Paperclip, SearchX, Sparkles, Trash2, X } from 'lucide-react';
-import { groupActivity, splitThread } from '@realytica/shared';
+import { chatSessions, groupActivity, splitThread } from '@realytica/shared';
 import type { AgentStep, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
@@ -10,12 +10,17 @@ import { AnswerBody } from './chat/AnswerBody';
 import { TurnVisual } from './chat/TurnVisual';
 import { relativeTime } from '../lib/format';
 
-function AgentTag({ at }: { at: string }) {
-  return (
-    <div className="mt-1.5 flex items-center gap-1 text-micro text-ink-muted">
-      <Sparkles size={9} /> Agent-generated · {relativeTime(at)}
-    </div>
-  );
+/**
+ * When the turn happened, and nothing else.
+ *
+ * This was "✧ Agent-generated · 2h ago" under every assistant turn. In a panel
+ * where every reply is machine-written, saying so on each one is a label that
+ * never varies, and it sat under a strip of chips that repeated the answer's
+ * own citations. The time is the part that differs between turns and the part
+ * somebody scrolling back is looking for.
+ */
+function TurnTime({ at }: { at: string }) {
+  return <div className="mt-1.5 text-micro text-ink-muted">{relativeTime(at)}</div>;
 }
 
 function TurnBubble({
@@ -47,11 +52,15 @@ function TurnBubble({
   onOpenDocument?: (documentId: string) => void;
   extras?: ReactNode;
 }) {
-  // What the answer placed in the flow of a sentence, so the strips below can
-  // show only what it did not.
+  /*
+   * A citation the answer made mid-sentence renders there, on the claim it
+   * supports. What is left is either already inline as a link, or is an id
+   * this project does not hold — and only the second kind needs saying,
+   * because it is the one a reader would otherwise take on trust.
+   */
   const inlineEvidence = new Set(Array.from(turn.text.matchAll(/\[ev:([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/g), m => m[1]));
-  const uncited = turn.citedEvidenceIds.filter(id => !inlineEvidence.has(id));
-  const uncitedNodes = Array.from(new Set((turn.citedNodeIds ?? []).filter(id => !turn.text.includes(`[${id}]`))));
+  const known = new Set((evidence ?? []).map(e => e.id));
+  const uncitedMissing = turn.citedEvidenceIds.filter(id => !inlineEvidence.has(id) && !known.has(id));
   const consulted = Array.from(new Set((turn.toolCalls ?? []).map(t => t.summary.trim()).filter(Boolean)));
   const nodeLabel = (id: string): string => {
     const found = (nodes ?? []).find(n => n.id === id);
@@ -97,7 +106,7 @@ function TurnBubble({
           <p className="mt-1 text-mini text-ink-secondary">
             That&rsquo;s a legitimate outcome, not an error — nothing on file backs a confident answer yet.
           </p>
-          <AgentTag at={turn.at} />
+          <TurnTime at={turn.at} />
         </div>
       </div>
     );
@@ -273,31 +282,27 @@ function TurnBubble({
           </div>
         ) : null}
         {/*
-          Only what the answer did NOT place inline. A citation the model made
-          mid-sentence is already rendered there, attached to its claim, and
-          repeating it in a summary strip underneath offers the same source
-          twice while implying they are different.
+          No trailing chip strip.
+
+          It listed the records and sources an answer touched — a `scope` chip,
+          then "Legal", then "Approval / Compliance DD" — under every turn.
+          Once ids in the prose became links, those chips were the same records
+          a second time, further from the claim they belonged to and stacked
+          three rows deep beneath a two-line answer. A citation reads best
+          exactly where it was made.
+
+          Dangling references are the one thing that still has to surface here:
+          an id the answer cited that this project does not hold never becomes
+          an inline link, so without this line it would vanish and leave a
+          claim looking sourced.
         */}
-            {uncited.length > 0 ? (
-          <div className="mt-1.5">
-            <EvidenceLink ids={uncited} evidence={evidence} onOpen={(ids) => ids[0] && onOpenEvidence?.(ids[0])} onOpenDocument={onOpenDocument} />
-          </div>
+        {uncitedMissing.length > 0 ? (
+          <p className="mt-1.5 text-mini text-ink-muted">
+            Referenced {uncitedMissing.length === 1 ? 'a source' : `${uncitedMissing.length} sources`} not on this
+            project.
+          </p>
         ) : null}
-        {onOpenNode && uncitedNodes.length > 0 ? (
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {uncitedNodes.map((nodeId) => (
-              <button
-                key={nodeId}
-                onClick={() => onOpenNode(nodeId)}
-                className="rounded-full bg-surface px-2 py-0.5 text-micro text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:text-ink"
-                title="Open this record"
-              >
-                {nodeLabel(nodeId)}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        <AgentTag at={turn.at} />
+        <TurnTime at={turn.at} />
         {extras}
       </div>
     </div>
@@ -387,6 +392,7 @@ export function CopilotPanel({
   onOpenDocument,
   onOpenEvidence,
   fallback,
+  sessionId,
   fill,
   nodes,
   appliedByTurn,
@@ -429,6 +435,12 @@ export function CopilotPanel({
    * would have asked the copilot for first.
    */
   fallback?: ReactNode;
+  /**
+   * The sitting opened with this project, so chat starts on it rather than on
+   * everything the file has ever carried. Absent shows the whole thread, which
+   * is what a caller that does not mint one gets.
+   */
+  sessionId?: string;
   /** Take the height of the container rather than capping at 26rem. */
   fill?: boolean;
   /** The case's graph, so a cited node id can render as its label. */
@@ -552,11 +564,32 @@ export function CopilotPanel({
     [conversation],
   );
   const [tab, setTab] = useState<'chat' | 'activity'>('chat');
+
+  /*
+   * The thread, cut into sittings.
+   *
+   * Chat shows THIS sitting — the one minted when the project was opened — so
+   * it starts empty on what you are doing now instead of at the bottom of
+   * every exchange the file has ever carried. `viewing` holds an earlier
+   * sitting when somebody goes looking for one; null means the live one.
+   */
+  const sessions = useMemo(
+    () => chatSessions(conversation as unknown as ProjectChatTurn[]),
+    [conversation],
+  );
+  const [viewing, setViewing] = useState<string | null>(null);
+  const past = useMemo(() => sessions.filter((s) => s.id !== sessionId), [sessions, sessionId]);
+  const live = useMemo(
+    () => (sessionId ? spoken.filter((t) => t.sessionId === sessionId) : spoken),
+    [spoken, sessionId],
+  );
+  const viewed = viewing ? (sessions.find((s) => s.id === viewing)?.turns ?? []) : live;
+
   // Chat opens by default even when empty: it is what the composer below is
   // for, and landing on a log nobody asked for is how this started.
-  const shown = (tab === 'chat' ? spoken : []) as unknown as CopilotTurn[];
+  const shown = (tab === 'chat' ? viewed : []) as unknown as CopilotTurn[];
 
-  const showEmptyState = shown.length === 0 && tab === 'chat' && !busy;
+  const showEmptyState = shown.length === 0 && tab === 'chat' && !busy && !viewing;
 
   return (
     <div className={cn('flex flex-col', compact ? 'gap-2' : 'gap-3', fill && 'h-full min-h-0')}>
@@ -575,9 +608,9 @@ export function CopilotPanel({
         fresh project there is one log and a tab bar over it would be chrome
         naming a distinction that does not exist yet.
       */}
-      {activity.length > 0 ? (
+      {activity.length > 0 || past.length > 0 ? (
         <div className="flex shrink-0 items-center gap-1 border-b border-hairline px-1 pb-1.5">
-          {(['chat', 'activity'] as const).map((key) => (
+          {(activity.length > 0 ? (['chat', 'activity'] as const) : (['chat'] as const)).map((key) => (
             <button
               key={key}
               type="button"
@@ -592,6 +625,51 @@ export function CopilotPanel({
               {key === 'activity' ? <span className="ml-1 tabular-nums opacity-70">{activity.length}</span> : null}
             </button>
           ))}
+          {/*
+            Earlier chats, as a place to go rather than a scrollback.
+
+            Only once there is one. A picker on a file with a single sitting
+            names a distinction that does not exist yet — the same reason the
+            Chat/Activity strip waits for something to separate.
+          */}
+          {past.length > 0 ? (
+            <select
+              aria-label="Earlier chats"
+              value={viewing ?? ''}
+              onChange={(e) => {
+                setViewing(e.target.value || null);
+                setTab('chat');
+              }}
+              className="ml-auto max-w-[11rem] rounded-md bg-transparent px-1.5 py-1 text-[12px] text-ink-muted hover:text-ink focus:outline-none focus-visible:ring-1 focus-visible:ring-brand"
+            >
+              <option value="">This chat</option>
+              {past.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {relativeTime(s.lastAt)} · {s.title}
+                </option>
+              ))}
+            </select>
+          ) : null}
+        </div>
+      ) : null}
+      {viewing ? (
+        /*
+          An earlier sitting is read-only in the sense that matters: what you
+          type still goes to the current one, so a question asked while
+          reading history does not silently graft itself onto a conversation
+          that finished days ago.
+        */
+        <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg bg-sunken px-2.5 py-1.5">
+          <span className="min-w-0 truncate text-mini text-ink-secondary">
+            An earlier chat · {relativeTime(sessions.find((x) => x.id === viewing)?.lastAt ?? '')}
+          </span>
+          <button
+            type="button"
+            onClick={() => setViewing(null)}
+            className="shrink-0 text-mini font-medium text-brand hover:underline"
+          >
+            Back to this chat
+          </button>
         </div>
       ) : null}
 

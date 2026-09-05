@@ -102,6 +102,8 @@ import {
   renderProjectGuide,
   screenProject,
   wantsDeterministicProjectChat,
+  plural,
+  linkRecordIds,
   unansweredReason,
   failureCause,
   noteProjectEdit,
@@ -946,6 +948,21 @@ function sayWhatIsMissing(seen: ProjectView, question: string, result: { assista
   result.assistantTurn.text = text ? `${note}\n\n${text}` : note;
 }
 
+/**
+ * Mark the turns this request wrote as belonging to one sitting.
+ *
+ * `applyProjectChat` returns the very objects it pushed onto the thread, so
+ * stamping the result stamps what is stored. A client that does not send a
+ * session id leaves them unstamped, and `chatSessions` groups those by the
+ * silences between them instead — nothing breaks, the grouping is just
+ * coarser.
+ */
+function stampSession(result: { userTurn: ProjectChatTurn; assistantTurn: ProjectChatTurn }, sessionId?: string): void {
+  if (!sessionId) return;
+  result.userTurn.sessionId = sessionId;
+  result.assistantTurn.sessionId = sessionId;
+}
+
 function sittingFromBody(value: unknown): SittingRef | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const row = value as Record<string, unknown>;
@@ -1066,8 +1083,19 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         return;
       }
       if (agent.text && !agent.text.startsWith('The project copilot is unavailable') && !agent.text.startsWith('No model endpoint')) {
+        /*
+         * Ids out of the prose before anything else sees the answer.
+         *
+         * The prompt asks for titles rather than ids and a prompt is a
+         * request, so answers arrive carrying forty-six characters of primary
+         * key mid-sentence. Rewritten here rather than at render because the
+         * transcript is stored, quoted and exported, and a fix applied at one
+         * of those surfaces is a fix missing from the others.
+         */
+        agent.text = linkRecordIds(canvas, agent.text);
         const result = applyProjectAgentTurn(canvas, question, agent);
         sayWhatIsMissing(seen, question, result);
+        stampSession(result, parsed.data.sessionId);
         mergeConversation(project, canvas, actor, turnsBefore);
         await store.save();
         journalTail = journalTail.then(() =>
@@ -1129,7 +1157,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
           { role: 'user', content: question },
         ],
       });
-      const text = textOf(llm).trim();
+      const text = linkRecordIds(canvas, textOf(llm).trim());
       if (text) {
         result.assistantTurn.text = text;
         result.assistantTurn.toolCalls = [{ name: 'analyst_copilot', summary: 'Answered from project registers' }];
@@ -1149,6 +1177,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     return;
   }
   sayWhatIsMissing(seen, question, result);
+  stampSession(result, parsed.data.sessionId);
   if (unanswered) {
     result.assistantTurn.unanswered = unanswered;
     const last = canvas.conversation[canvas.conversation.length - 1];
@@ -1224,6 +1253,7 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
     sitting,
   });
   sayWhatIsMissing(seen, question, result);
+  stampSession(result, typeof req.body?.sessionId === 'string' ? req.body.sessionId : undefined);
   mergeConversation(project, canvas, actorOf(req), turnsBefore);
   await store.save();
   line({ type: 'result', ...result, project: canvas });
@@ -1766,7 +1796,7 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
         ),
       );
     }
-    await persistPaneWrite(req, project, `Attached ${attached.length} file(s) to evidence.`, {
+    await persistPaneWrite(req, project, `Attached ${plural(attached.length, 'file')} to evidence.`, {
       citedEvidenceIds: [req.params.evidenceId],
     });
     fireAndForget('evidence_uploaded', {
@@ -2333,7 +2363,7 @@ projectsRouter.post('/:projectId/photographs/read', async (req, res) => {
     });
   }
 
-  await persistPaneWrite(req, project, `Read ${targets.length} photograph(s) — ${drafts} proposed finding(s).`, {
+  await persistPaneWrite(req, project, `Read ${plural(targets.length, 'photograph')} — ${plural(drafts, 'proposed finding')}.`, {
     citedEvidenceIds: [...new Set(targets.map((t) => t.evidenceId))],
   });
   res.json({ read: targets.length, drafts, documents, results });

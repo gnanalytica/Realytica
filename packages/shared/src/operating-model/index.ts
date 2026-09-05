@@ -12,6 +12,8 @@ export * from './clarify';
 export * from './check-command';
 export * from './attribution';
 export * from './provider-failure';
+export * from './link-ids';
+export * from './text';
 export * from './run-ledger';
 export * from './chat-sides';
 export * from './project-screen';
