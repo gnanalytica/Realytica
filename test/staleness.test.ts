@@ -82,7 +82,7 @@ describe('staleness', () => {
     withSite.siteContext!.location!.queried = 'Some Other Address, Whitefield, Bengaluru, Karnataka, 560066';
     const item = report(withSite).items.find(i => i.kind === 'site_context');
     assert.ok(item, 'a context built from a superseded address must be flagged');
-    assert.match(item.what, /measured from the old address/);
+    assert.match(item.what, /measured from the old one/);
   });
 
   test('a map lookup built from the address on file is not', () => {

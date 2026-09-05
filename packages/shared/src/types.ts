@@ -233,6 +233,21 @@ export interface PropertyIdentity {
    * are identical in every other field — so it has to be recorded.
    */
   firstRegistration?: boolean;
+  /**
+   * A coordinate the case's own documents state, once somebody has approved it
+   * onto the record.
+   *
+   * Distinct from a geocode in both direction and authority. A geocoder is
+   * given a text string and guesses a point; this is a point a site plan,
+   * a khata sketch or a RERA filing printed about *this* parcel. Where it
+   * exists it is what the site context is built from, and the geocode is not
+   * called at all — asking Google to place "Balagere Village" when the file
+   * already says `12.9352, 77.6994` would replace a fact with a guess.
+   *
+   * Never inferred, never derived from a boundary, and it is still only a
+   * pin: `SiteContext` documents at length why a point is not an extent.
+   */
+  statedPoint?: GeoPoint;
 }
 
 /**
@@ -1735,16 +1750,23 @@ export interface StalenessReport {
  * unless you read the precision back out. So the precision is carried on the
  * location itself and every consumer is expected to branch on it:
  *
+ *   stated           no geocode happened: the case's own documents state this
+ *                    coordinate and a person approved it onto the record
  *   rooftop          the provider matched a specific address/premise
  *   interpolated     interpolated along a road segment from a house-number range
  *   locality_centre  the provider fell back to the locality, ward or town
  *   approximate      matched something, but not a class this code recognises
  *
- * Only the first two are treated as describing *this property*. The other two
- * describe the neighbourhood, and are shown as such — never used to price a
- * driver, never captioned as the site.
+ * Only the first three are treated as describing *this property*. The other
+ * two describe the neighbourhood, and are shown as such — never used to price
+ * a driver, never captioned as the site.
+ *
+ * `stated` is not a precision class a geocoder can return, and that is the
+ * point: it records that this pin did not come from one. It is site-level by
+ * construction — a plan's centroid is about this parcel and nothing else —
+ * and it is unverified, which its caveat says in as many words.
  */
-export type GeocodePrecision = 'rooftop' | 'interpolated' | 'locality_centre' | 'approximate';
+export type GeocodePrecision = 'stated' | 'rooftop' | 'interpolated' | 'locality_centre' | 'approximate';
 
 /** WGS84 decimal degrees. */
 export interface GeoPoint {
@@ -1755,9 +1777,19 @@ export interface GeoPoint {
 export interface SiteLocation {
   point: GeoPoint;
   precision: GeocodePrecision;
-  /** The address string actually sent to the geocoder, verbatim. */
+  /**
+   * What this pin was built from, verbatim: the address string sent to the
+   * geocoder, or — for a `stated` pin — the coordinate the case records.
+   *
+   * Compared against the case's current input to decide whether the pin still
+   * describes the property the file now holds, so it has to name the input and
+   * not the output.
+   */
   queried: string;
-  /** The provider's own formatted address for what it matched. */
+  /**
+   * The provider's own formatted address for what it matched. Empty for a
+   * `stated` pin, where no provider matched anything.
+   */
   resolvedAddress: string;
   /** Provider id, e.g. "google". */
   provider: string;

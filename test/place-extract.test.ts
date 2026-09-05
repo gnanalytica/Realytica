@@ -113,13 +113,35 @@ describe('placeProposalsFromIngest', () => {
     assert.equal(cards.filter((c) => 'parcelId' in c.payload).length, 1, 'two cards for one field is a choice nobody asked for');
   });
 
-  it('mentions a coordinate as a placement, not a boundary', () => {
+  it('offers a coordinate as its own card, as a placement and not a boundary', () => {
     const cards = placeProposalsFromIngest(
       project(),
       [file(`${EC_SUBJECT} Centroid 12.9352, 77.6245.`)],
       'operator',
     );
-    assert.match(cards[0]!.rationale, /without bounding it/i);
+    const pin = cards.find((c) => 'siteCoordinate' in c.payload);
+    assert.ok(pin, 'a coordinate the file states is a card of its own — it writes its own field');
+    assert.deepEqual(pin.payload.siteCoordinate, { lat: 12.9352, lng: 77.6245 });
+    assert.match(pin.rationale, /does not bound it/i);
+    assert.match(pin.title, /12\.9352, 77\.6245/);
+  });
+
+  it('says the coordinate replaces the geocoder rather than joining it', () => {
+    const cards = placeProposalsFromIngest(project(), [file(`${EC_SUBJECT} Centroid 12.9352, 77.6245.`)], 'operator');
+    const pin = cards.find((c) => 'siteCoordinate' in c.payload)!;
+    assert.match(pin.impact, /in place of geocoding/i);
+  });
+
+  it('never overwrites a pin already on the record', () => {
+    const p = project({ siteCoordinate: { lat: 12.1, lng: 77.1 } });
+    const cards = placeProposalsFromIngest(p, [file(`${EC_SUBJECT} Centroid 12.9352, 77.6245.`)], 'operator');
+    assert.equal(cards.filter((c) => 'siteCoordinate' in c.payload).length, 0);
+  });
+
+  it('does not mention the coordinate on the parcel card, which does not write it', () => {
+    const cards = placeProposalsFromIngest(project(), [file(`${EC_SUBJECT} Centroid 12.9352, 77.6245.`)], 'operator');
+    const parcel = cards.find((c) => 'parcelId' in c.payload)!;
+    assert.doesNotMatch(parcel.rationale, /12\.9352/, 'one card, one field, one sentence about it');
   });
 
   it('stays silent on a document that names no parcel', () => {
@@ -184,8 +206,11 @@ describe('placeProposalsFromIngest, on the address', () => {
     assert.equal((cards[0].payload as { siteAddress: string }).siteAddress, 'Balagere Village, Varthur Hobli');
   });
 
-  it('states the coordinate once, not on both cards', () => {
+  it('offers one card per field, and the file names all three', () => {
     const cards = placeProposalsFromIngest(project(), [file(`${EC_SUBJECT} GPS 12.9352, 77.6994.`)]);
-    assert.equal(cards.filter((c) => /12\.9352/.test(c.rationale)).length, 1);
+    assert.deepEqual(
+      cards.map((c) => Object.keys(c.payload)[0]),
+      ['parcelId', 'siteAddress', 'siteCoordinate'],
+    );
   });
 });

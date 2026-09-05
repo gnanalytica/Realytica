@@ -18,7 +18,7 @@ import type {
   StreetViewImage,
   GeoPoint,
 } from '@realytica/shared';
-import { bearingDegrees, haversineMetres, isSiteAccurate, siteContextQuery } from '@realytica/shared';
+import { bearingDegrees, haversineMetres, isSiteAccurate, siteContextInput, siteContextQuery } from '@realytica/shared';
 import type { PlaceProvider } from './types';
 
 /**
@@ -81,6 +81,8 @@ export interface BuildSiteContextInput {
 
 function caveatFor(precision: SiteLocation['precision'], resolvedAddress: string): string {
   switch (precision) {
+    case 'stated':
+      return 'This pin is the coordinate the case\'s own documents state, not a geocode. It was read off a document and approved onto the record — it has not been verified against the register or a survey, and it places the site without bounding it.';
     case 'rooftop':
       return `Located from the address on file, which matched "${resolvedAddress}". The pin marks that address — it is not a surveyed parcel boundary, and it does not show where the property's limits run.`;
     case 'interpolated':
@@ -100,11 +102,31 @@ export async function buildSiteContext(input: BuildSiteContextInput): Promise<Si
     ((panoramaId: string, heading: number): string =>
       `/api/cases/${encodeURIComponent(caseId)}/site-context/street-view?pano=${encodeURIComponent(panoramaId)}&heading=${Math.round(heading)}`);
 
+  /*
+   * Gaps, each said once.
+   *
+   * Five nearby kinds are searched, and a provider that cannot do any of them
+   * — no key, a denied project — answers all five with the same sentence. The
+   * reader needs to be told once what is not known and why; told five times it
+   * reads as five separate faults. Deduplicated on the sentence rather than on
+   * the code, because the code is `no_provider_key` for the routing and
+   * street-view failures too and those say genuinely different things.
+   */
   const gaps: SiteContextGap[] = [];
+  const said = new Set<string>();
+  const noteGap = (gap: SiteContextGap): void => {
+    if (said.has(gap.consequence)) return;
+    said.add(gap.consequence);
+    gaps.push(gap);
+  };
   const query = siteContextQuery(identity);
 
-  if (query.length === 0) {
-    gaps.push({
+  // Both address gaps below are about what a *geocoder* can do with what the
+  // case holds. A case that states its own coordinate is not asking one
+  // anything, so neither applies: an addressless file with a point on its site
+  // plan is placed, not unplaced.
+  if (query.length === 0 && !identity.statedPoint) {
+    noteGap({
       code: 'no_address_on_file',
       attempted: 'Assembling an address to locate the property.',
       consequence: 'The case records no address, locality or city, so there is nothing to place on a map. Nothing about the surroundings of this site is known.',
@@ -112,8 +134,8 @@ export async function buildSiteContext(input: BuildSiteContextInput): Promise<Si
     return { caseId, location: null, amenities: [], streetView: null, gaps, provider: provider.id, builtAt: now };
   }
 
-  if (!identity.addressLine.trim()) {
-    gaps.push({
+  if (!identity.statedPoint && !identity.addressLine.trim()) {
+    noteGap({
       code: 'address_line_missing',
       attempted: `Locating the property from "${query}".`,
       consequence:
@@ -122,26 +144,50 @@ export async function buildSiteContext(input: BuildSiteContextInput): Promise<Si
     });
   }
 
-  const geocoded = await provider.geocode({
-    query,
-    biasTo: CITY_BIAS[identity.city.trim().toLowerCase()],
-    regionCode: REGION_CODE[identity.country],
-  });
+  /*
+   * A coordinate the file states beats a geocode of the text around it, and
+   * the geocoder is not called at all when there is one. This is not a
+   * preference between two estimates: the case is saying where this parcel is,
+   * and Google would be guessing where "Balagere Village, Varthur Hobli" is.
+   *
+   * It also means a deployment with no mapping key still has a pin. Everything
+   * below — what is nearby, how far it is by road, what the approach looks
+   * like — still needs a provider, and each of those comes back as a named gap
+   * rather than an empty list.
+   */
+  let location: SiteLocation;
+  if (identity.statedPoint) {
+    location = {
+      point: identity.statedPoint,
+      precision: 'stated',
+      queried: siteContextInput(identity),
+      resolvedAddress: '',
+      provider: 'case_documents',
+      resolvedAt: now,
+      caveat: caveatFor('stated', ''),
+    };
+  } else {
+    const geocoded = await provider.geocode({
+      query,
+      biasTo: CITY_BIAS[identity.city.trim().toLowerCase()],
+      regionCode: REGION_CODE[identity.country],
+    });
 
-  if (!geocoded.ok) {
-    gaps.push(geocoded.gap);
-    return { caseId, location: null, amenities: [], streetView: null, gaps, provider: provider.id, builtAt: now };
+    if (!geocoded.ok) {
+      noteGap(geocoded.gap);
+      return { caseId, location: null, amenities: [], streetView: null, gaps, provider: provider.id, builtAt: now };
+    }
+
+    location = {
+      point: geocoded.value.point,
+      precision: geocoded.value.precision,
+      queried: query,
+      resolvedAddress: geocoded.value.resolvedAddress,
+      provider: provider.id,
+      resolvedAt: now,
+      caveat: caveatFor(geocoded.value.precision, geocoded.value.resolvedAddress),
+    };
   }
-
-  const location: SiteLocation = {
-    point: geocoded.value.point,
-    precision: geocoded.value.precision,
-    queried: query,
-    resolvedAddress: geocoded.value.resolvedAddress,
-    provider: provider.id,
-    resolvedAt: now,
-    caveat: caveatFor(geocoded.value.precision, geocoded.value.resolvedAddress),
-  };
 
   const approximate = !isSiteAccurate(location.precision);
 
@@ -154,7 +200,7 @@ export async function buildSiteContext(input: BuildSiteContextInput): Promise<Si
       // A kind with no supported place category is a design decision, not a
       // failure, and saying so on every case would be noise. Everything else
       // — a denied key, a quota wall — is a real gap the reader needs.
-      if (!found.gap.code.startsWith('nearby_kind_unsupported')) gaps.push(found.gap);
+      if (!found.gap.code.startsWith('nearby_kind_unsupported')) noteGap(found.gap);
       continue;
     }
     for (const place of found.value) {
@@ -183,7 +229,7 @@ export async function buildSiteContext(input: BuildSiteContextInput): Promise<Si
         amenity.drivingSeconds = leg.seconds;
       }
     } else {
-      gaps.push(routed.gap);
+      noteGap(routed.gap);
     }
   }
 
@@ -192,9 +238,9 @@ export async function buildSiteContext(input: BuildSiteContextInput): Promise<Si
   let streetView: StreetViewImage | null = null;
   const pano = await provider.findStreetView({ near: location.point, radiusMetres: STREETVIEW_RADIUS_METRES });
   if (!pano.ok) {
-    gaps.push(pano.gap);
+    noteGap(pano.gap);
   } else if (pano.value === null) {
-    gaps.push({
+    noteGap({
       code: 'streetview_no_coverage',
       attempted: `Looking for street-level imagery within ${STREETVIEW_RADIUS_METRES} m of the site.`,
       consequence:

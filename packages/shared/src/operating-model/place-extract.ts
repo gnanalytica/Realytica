@@ -24,7 +24,9 @@
  *
  * **A coordinate is a pin, not a boundary.** Same constraint the site-context
  * model enforces everywhere else: reading `12.9352, 77.6245` off a site plan
- * places the property, it does not bound it.
+ * places the property, it does not bound it. Approved, it becomes the pin and
+ * the geocoder is not called — the file knows where this parcel is better than
+ * a lookup on the name of its village does.
  */
 
 import type { ChatIngestFile, ChatProposal, DdProject, PatchProjectInput } from './types';
@@ -196,27 +198,15 @@ export function placeProposalsFromIngest(
   actor = 'operator',
 ): ChatProposal[] {
   const out: ChatProposal[] = [];
-  const wantParcel = !project.parcelId;
-  const wantAddress = !project.siteAddress;
-  if (!wantParcel && !wantAddress) return out;
-
-  let parcelDone = !wantParcel;
-  let addressDone = !wantAddress;
+  let parcelDone = Boolean(project.parcelId);
+  let addressDone = Boolean(project.siteAddress);
+  let pointDone = Boolean(project.siteCoordinate);
+  if (parcelDone && addressDone && pointDone) return out;
 
   for (const file of files) {
-    if (parcelDone && addressDone) break;
+    if (parcelDone && addressDone && pointDone) break;
     const text = readable(file);
     if (!text) continue;
-
-    const coordinate = extractCoordinate(text);
-    // The coordinate rides on whichever card this document produces, and on
-    // only one of them. It is stated, not verified, and it places the site
-    // without bounding it — the same thing the site-context model says about
-    // every pin it draws.
-    const stated = coordinate
-      ? ` It also states ${coordinate.lat}, ${coordinate.lng}, which places the site without bounding it.`
-      : '';
-    let spoken = false;
 
     if (!parcelDone) {
       const numbers = extractSurveyNumbers(text);
@@ -227,14 +217,13 @@ export function placeProposalsFromIngest(
           createChatProposal(
             'patch_project',
             `Record the parcel as ${numbers.length === 1 ? numbers[0] : `${numbers.length} survey numbers`}`,
-            `${file.fileName} names ${parcelId}. Reading it off the document, not verifying it — the RTC and the encumbrance certificate settle what the parcel is.${stated}`,
+            `${file.fileName} names ${parcelId}. Reading it off the document, not verifying it — the RTC and the encumbrance certificate settle what the parcel is.`,
             'Sets the parcel on the project record, which is what the register searches and the map lookup key off.',
             patch as unknown as Record<string, unknown>,
             actor,
           ),
         );
         parcelDone = true;
-        spoken = true;
       }
     }
 
@@ -246,13 +235,31 @@ export function placeProposalsFromIngest(
           createChatProposal(
             'patch_project',
             `Record the address as ${siteAddress}`,
-            `${file.fileName} places the parcel in ${siteAddress}. That is the revenue division, not a street address: it will find the neighbourhood on a map and it will never find the plot.${spoken ? '' : stated}`,
+            `${file.fileName} places the parcel in ${siteAddress}. That is the revenue division, not a street address: it will find the neighbourhood on a map and it will never find the plot.`,
             'Fills the site address, which is what the geocoder is given — approving it moves the pin, the distances and Street View to this place.',
             patch as unknown as Record<string, unknown>,
             actor,
           ),
         );
         addressDone = true;
+      }
+    }
+
+    if (!pointDone) {
+      const siteCoordinate = extractCoordinate(text);
+      if (siteCoordinate) {
+        const patch: PatchProjectInput = { siteCoordinate };
+        out.push(
+          createChatProposal(
+            'patch_project',
+            `Pin the site at ${siteCoordinate.lat}, ${siteCoordinate.lng}`,
+            `${file.fileName} states this coordinate. It places the site; it does not bound it — a point cannot say where the parcel's limits run, and this one has not been checked against a survey.`,
+            'Becomes the pin the map, the distances and Street View are all built from, in place of geocoding the address: the file says where this parcel is, so nothing is asked to guess.',
+            patch as unknown as Record<string, unknown>,
+            actor,
+          ),
+        );
+        pointDone = true;
       }
     }
   }

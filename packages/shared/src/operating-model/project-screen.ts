@@ -164,6 +164,10 @@ export function projectToIdentity(project: DdProject): PropertyIdentity {
     // The recorded parcel id wins; the notes scrape stays as the fallback for
     // projects created before there was a field to record it in.
     parcelId: project.parcelId || project.assets[0]?.notes?.match(/Sy\.?\s*[\d/]+/i)?.[0] || '',
+    // A coordinate the file itself states. Where it exists the geocoder is
+    // never called: it would be guessing at a village name about a property
+    // whose own plan already gives the point.
+    statedPoint: project.siteCoordinate,
     propertyType: propertyTypeOf(project),
     // Absent means unknown. Asserting freehold on every project put a fact
     // nobody entered into the valuation and hid the tenure risk behind it.

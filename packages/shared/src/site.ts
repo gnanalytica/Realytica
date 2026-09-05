@@ -49,9 +49,16 @@ export function bearingDegrees(from: GeoPoint, to: GeoPoint): number {
  * has a locality-level estimate for that; substituting a locality-level
  * measurement dressed as a site measurement would trade a figure that admits
  * what it is for one that does not.
+ *
+ * `stated` passes for the same reason and in the opposite direction. A
+ * coordinate printed on this parcel's own site plan and approved onto the
+ * record is about this parcel; calling it neighbourhood-level would understate
+ * a better pin than any geocode of a village name can produce. What it is not
+ * is *verified*, and that is carried by its caveat rather than by pretending
+ * the distances measured from it describe somewhere else.
  */
 export function isSiteAccurate(precision: GeocodePrecision): boolean {
-  return precision === 'rooftop' || precision === 'interpolated';
+  return precision === 'stated' || precision === 'rooftop' || precision === 'interpolated';
 }
 
 /** True when this context's pin is precise enough to price against. */
