@@ -46,14 +46,16 @@ describe('asking instead of guessing', () => {
     assert.deepEqual(out.tools, ['clarify']);
     assert.equal(out.choices.length, 1);
     assert.match(out.choices[0]!.label, /Physical boundaries/);
-    assert.match(out.text, /not certain enough/i);
+    // It asks rather than acting, and says nothing was written.
+    assert.match(out.text, /^Did you mean /);
+    assert.match(out.text, /nothing changed/i);
   });
 
   it('offers all of them when a name fits more than one record', () => {
     const out = ask(seedDemoProject(), 'set the encumbrance check as started');
     assert.deepEqual(out.tools, ['clarify']);
     assert.ok(out.choices.length >= 2, 'two DDs carry an encumbrance check');
-    assert.match(out.text, /have not changed anything/i);
+    assert.match(out.text, /nothing changed/i);
   });
 
   it('says nothing changed, in as many words', () => {
@@ -66,7 +68,7 @@ describe('asking instead of guessing', () => {
       const out = ask(seedDemoProject(), q);
       assert.match(
         out.text,
-        /not changed|nothing has changed|not certain enough/i,
+        /nothing changed|not changed|nothing has changed|not certain/i,
         `"${q}" must state that nothing was written`,
       );
     }

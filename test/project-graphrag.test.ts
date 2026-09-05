@@ -182,7 +182,7 @@ describe('portal sittings', () => {
     assert.ok(card);
     const payload = card.payload as { checkIds?: string[]; checkId?: string };
     assert.ok((payload.checkIds ?? []).includes(seated.check.id) || payload.checkId === seated.check.id);
-    assert.match(side.text, /do not scrape|does not log in or scrape/i);
+    assert.match(side.text, /can’t log in or scrape|do not scrape|does not log in/i);
     const shaped = connectorEvidenceInput(payload, 'tester');
     assert.ok(shaped.evidence.checkIds?.includes(seated.check.id));
     assert.ok(shaped.action.checkIds?.includes(seated.check.id));

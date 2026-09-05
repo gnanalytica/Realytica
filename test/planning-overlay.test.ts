@@ -80,7 +80,7 @@ describe('planning overlay', () => {
     assert.equal(project.findings.length, findingsBefore);
     assert.ok(side.proposals.some((p) => p.kind === 'open_connector' && /master plan/i.test(p.title)));
     assert.match(side.text, /not a geometric intersection/i);
-    assert.match(side.text, /do not scrape|does not log in or scrape/i);
+    assert.match(side.text, /can’t log in or scrape|do not scrape|does not log in/i);
   });
 
   it('shelf catalogues RMP as not-fetchable and KTCP as an open official PDF', () => {

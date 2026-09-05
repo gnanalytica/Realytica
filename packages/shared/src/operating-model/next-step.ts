@@ -29,6 +29,7 @@ import type {
   ScopeInstance,
 } from './types';
 import { isoDaysFromNow } from './sitting';
+import { plural } from './text';
 import {
   createChatProposal,
   recommendedDdTypesForProject,
@@ -136,13 +137,20 @@ export interface NextStep {
   citedNodeIds: string[];
 }
 
-function spoken(project: DdProject, title: string, why: string, how: string): string {
-  return [
-    `Today on ${project.name} (${project.reference}).`,
-    title,
-    why,
-    how,
-  ].join('\n');
+/**
+ * The next step, said rather than filed.
+ *
+ * Four stacked lines opened every answer with "Today on Harohalli Greenfield
+ * Township (RYT-0001)." — the project's own name and reference, read back to
+ * somebody who is looking at both in the header two inches above. A memo
+ * masthead on a remark.
+ *
+ * What is left is what a colleague leaning over would say: what is up, why it
+ * matters, and what to do — the first two joined because they are one thought,
+ * the action on its own line because it is the part you act on.
+ */
+function spoken(title: string, why: string, how: string): string {
+  return [[title, why].filter(Boolean).join(' '), how].filter(Boolean).join('\n');
 }
 
 function requestOne(
@@ -217,10 +225,9 @@ export function findingCriticSitting(
   if (!unproven.length) {
     return {
       text: spoken(
-        project,
-        'No unevidenced material findings.',
-        'High and critical open findings already have an evidence id.',
-        'Ask Guide me for the next check.',
+                'Every open high and critical finding has proof against it.',
+        '',
+        'Ask what’s next when you want the following check.',
       ),
       proposals: [],
       pane: 'findings',
@@ -263,12 +270,11 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
     return {
       kind: 'add_asset',
       title: `Add ${hint.name}`,
-      why: 'There is no asset tree yet. Diligence needs a target.',
+      why: 'Nothing on the file to diligence yet.',
       text: spoken(
-        project,
-        `Add ${hint.name} (${hint.assetType}).`,
-        'There is no asset tree yet.',
-        'Approve the card, or say “add Tower A”. Then we start one DD.',
+                `Start with the ${hint.name.toLowerCase()}.`,
+        'Nothing on the file to diligence yet.',
+        'Approve below, or name it yourself — “add Tower A”.',
       ),
       proposals: [card],
       pane: 'assets',
@@ -298,12 +304,11 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
       return {
         kind: 'start_dd',
         title: `Start ${rec.label}`,
-        why: `Stage is ${LIFECYCLE_STAGE_LABEL[project.currentStage]}. No assessment is running.`,
+        why: `You’re at ${LIFECYCLE_STAGE_LABEL[project.currentStage]} with nothing running.`,
         text: spoken(
-          project,
-          `Start ${rec.label}.`,
-          `Stage is ${LIFECYCLE_STAGE_LABEL[project.currentStage]}; nothing is instantiated yet.`,
-          'Approve the card. That is the only DD to start this sitting — not every template.',
+                    `Start the ${rec.label}.`,
+          `You’re at ${LIFECYCLE_STAGE_LABEL[project.currentStage]} with nothing running.`,
+          'Approve below. One at a time — the rest can wait.',
         ),
         proposals: [card],
         pane: 'dd',
@@ -324,10 +329,10 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
     const gap = packGapForCheck(project, pending.check);
     const finding = unproven.find((f) => f.discipline === pending.scope.scopeKey) ?? unproven[0];
     const why = finding
-      ? `Open ${finding.severity} finding “${finding.title}” has no proof.`
+      ? `“${finding.title}” is ${finding.severity} with nothing behind it.`
       : gap
-        ? `Pack item “${gap.title}” is still ${gap.status}.`
-        : `${assessmentProgress(pending.assessment).checkDone}/${assessmentProgress(pending.assessment).checkTotal} checks done on ${pending.assessment.name}.`;
+        ? `“${gap.title}” is still ${gap.status}.`
+        : `${assessmentProgress(pending.assessment).checkDone} of ${assessmentProgress(pending.assessment).checkTotal} done.`;
     const cards: ChatProposal[] = [];
     const owner = pending.assessment.owner || project.owner || actor;
     if (gap) {
@@ -352,15 +357,14 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
       );
     }
     const how = cards.length
-      ? 'The check is open on the right. Approve the card to put a collection action on the register, or record the result in the check.'
-      : 'Record the result in the check on the right. Attach a document in chat if the proof has arrived.';
+      ? 'It’s open on the right — tick or cross it, or approve below to chase the paper.'
+      : 'It’s open on the right. Tick or cross it, or drop the document in here.';
     return {
       kind: 'record_check',
       title: `${SCOPE_LABEL[pending.scope.scopeKey]} · ${pending.check.title}`,
       why,
       text: spoken(
-        project,
-        `${SCOPE_LABEL[pending.scope.scopeKey]} · ${pending.check.title} — pending.`,
+                `Next up: “${pending.check.title}”.`,
         why,
         how,
       ),
@@ -380,12 +384,11 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
     return {
       kind: 'prove_finding',
       title: `Prove “${f.title}”`,
-      why: 'A material finding without evidence is an unevidenced judgement.',
+      why: 'A material finding with nothing behind it is just an opinion.',
       text: spoken(
-        project,
-        `Attach proof to “${f.title}” [${f.severity}].`,
-        'It is open and has no evidence id.',
-        'Approve the card, or file a document in chat against this finding.',
+                `“${f.title}” is ${f.severity} and has nothing behind it.`,
+        '',
+        'Approve below, or drop the document in here.',
       ),
       proposals: [card],
       pane: 'findings',
@@ -399,13 +402,12 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
   if (overdue.length) {
     return {
       kind: 'overdue',
-      title: `${overdue.length} overdue action(s)`,
+      title: `${plural(overdue.length, 'action')} overdue`,
       why: overdue[0] ? `Oldest: ${overdue[0].title}.` : '',
       text: spoken(
-        project,
-        `${overdue.length} overdue action(s).`,
-        overdue[0] ? `Start with “${overdue[0].title}”.` : 'Chase owners, then close them.',
-        'Open risks & actions. Say “close action …” when it is done.',
+                `${plural(overdue.length, 'action')} overdue.`,
+        overdue[0] ? `Start with “${overdue[0].title}”.` : '',
+        'Say “close action …” once it’s done.',
       ),
       proposals: [],
       pane: 'risks',
@@ -429,8 +431,8 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
     return {
       kind: 'report',
       title: card.title,
-      why: 'The file has material findings and no live opinion yet.',
-      text: spoken(project, card.title, card.rationale, 'Approve the card. The report cites what is on the registers today.'),
+      why: 'There are material findings and no opinion on the file yet.',
+      text: spoken(card.title, card.rationale, 'Approve below. It cites the registers as they stand today.'),
       proposals: [card],
       pane: 'reports',
       citedEvidenceIds: [],
@@ -442,13 +444,12 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
   const draft = oneDraftReviewCard(project, actor);
   return {
     kind: 'idle',
-    title: draft ? draft.title : 'No pending check on an active DD',
-    why: pack.missing ? `Pack still missing: ${pack.missingTitles.slice(0, 3).join(', ')}.` : 'Pack items on the register are received.',
+    title: draft ? draft.title : 'Nothing pending',
+    why: pack.missing ? `Still missing ${pack.missingTitles.slice(0, 3).join(', ')}.` : 'Everything on the pack is in.',
     text: spoken(
-      project,
-      draft ? 'A draft is waiting for review.' : 'Nothing is pending on an active assessment.',
-      pack.missing ? `Priority pack still has gaps: ${pack.missingTitles.slice(0, 4).join(', ')}.` : 'Priority pack looks received.',
-      draft ? 'Approve the card to commit one draft. Others stay in the drafts register.' : 'Ask a question, attach a document, or open a completed DD to re-check.',
+            draft ? 'A draft is waiting on you.' : 'Nothing pending on a running assessment.',
+      pack.missing ? `Still missing ${pack.missingTitles.slice(0, 4).join(', ')}.` : '',
+      draft ? 'Approve below to commit it.' : 'Ask me something, or drop a document in.',
     ),
     proposals: draft ? [draft] : [],
     pane: draft ? 'drafts' : 'overview',

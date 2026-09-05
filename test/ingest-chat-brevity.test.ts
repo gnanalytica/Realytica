@@ -84,7 +84,7 @@ describe('an upload reply does not restate its own cards', () => {
         file('BESCOM_NOC.pdf', { readFailure: RATE_LIMITED }),
       ],
     });
-    assert.match(result.assistantTurn.text, /Read 1 file; 2 could not be read/);
+    assert.match(result.assistantTurn.text, /Read 1 file; 2 I couldn’t/);
   });
 
   it('receipts an approval without relisting titles or record ids', () => {
