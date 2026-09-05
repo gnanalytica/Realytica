@@ -345,11 +345,13 @@ function ApproachCard({
         ) : null}
       </div>
 
+      {/* A div rather than a p below — `Why` renders a <details>, and a
+          paragraph cannot hold one: the browser closes the <p> before it. */}
       {usable ? (
-        <p className="mt-2 text-[11.5px] text-ink-muted">
+        <div className="mt-2 text-[11.5px] text-ink-muted">
           Weight {(run.weight * 100).toFixed(0)}%
           <Why label="Why this weight">{run.weightBasis}</Why>
-        </p>
+        </div>
       ) : null}
     </section>
   );
