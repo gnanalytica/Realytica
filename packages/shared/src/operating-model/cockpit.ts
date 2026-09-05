@@ -693,10 +693,10 @@ export function applyProjectChat(
     const oneCause = unread > 1 && new Set(failures).size === 1 ? failures[0]! : null;
     assistantText =
       unread === 0
-        ? `Read ${plural(ingest.length, 'file')}. Nothing is filed until you approve.`
+        ? `Read ${plural(ingest.length, 'file')}. Approve to file.`
         : unread === ingest.length
           ? `${oneCause ?? failures[0]!} Approving still files ${ingest.length === 1 ? 'it' : `all ${ingest.length}`} on the register, unread.`
-          : `Read ${plural(ingest.length - unread, 'file')}; ${unread} could not be read. Nothing is filed until you approve.`;
+          : `Read ${plural(ingest.length - unread, 'file')}; ${unread} I couldn’t. Approve to file.`;
     citedEvidenceIds = rows.flatMap((p) => p.citedEvidenceIds ?? []);
     citedNodeIds = rows.flatMap((p) => p.citedNodeIds ?? []);
     highlightIds.push(...citedEvidenceIds);
@@ -738,12 +738,12 @@ export function applyProjectChat(
         const rows = kind === 'risk' ? openRisks() : kind === 'finding' ? openFindings() : openActions();
         const verb = kind === 'risk' ? (/\baccept/.test(ql) ? 'Accept' : 'Mitigate') : 'Close';
         const asked = clarifyRecordCommand(project, q, kind, rows, verb);
-        assistantText = `There is no card waiting for approval, so I have not written anything.\n${asked.text}`;
+        assistantText = `Nothing waiting to approve.\n${asked.text}`;
         choices = asked.choices;
         toolCalls = [{ name: 'clarify', summary: asked.summary }];
         navigate(kind === 'risk' ? 'risks' : kind === 'finding' ? 'findings' : 'actions', '');
       } else {
-        assistantText = 'Nothing to approve. Ask “guide me” for the next cards, or attach a document.';
+        assistantText = 'Nothing waiting. Ask what’s next, or drop a document in.';
       }
     } else {
       const before = fileStanding(project);
@@ -788,7 +788,7 @@ export function applyProjectChat(
     if (hit) {
       rejectChatProposal(project, hit.id);
       commands.push(`Rejected “${hit.title}”`);
-      assistantText = `Skipped “${hit.title}”. Ask “guide me” for other cards.`;
+      assistantText = `Skipped “${hit.title}”.`;
     } else {
       assistantText = 'No open proposal to skip.';
     }
@@ -1039,14 +1039,21 @@ export function applyProjectChat(
         citedEvidenceIds = side.citedEvidenceIds;
         citedNodeIds = side.citedNodeIds;
         navigate(side.pane, `Opened ${side.pane}`);
+        /*
+         * Everything it would have offered is already waiting.
+         *
+         * The side's own text ends "approve below" — which, once dedup has
+         * removed every card, points at nothing and then contradicts itself
+         * two lines later. Replace it rather than appending to it.
+         */
         if (!cards.length && side.proposals.length) {
-          assistantText = `${side.text}\n\nThose cards are already open — approve or skip them.`;
+          assistantText = `Already asked for. ${plural(side.proposals.length, 'card')} waiting further up — approve or skip.`;
         }
       } else if (proposeDrafts) {
     const drafts = proposeAiDrafts(project, actor, 'rule');
     navigate('drafts', 'Proposed drafts from registers');
-    assistantText = `${drafts.length} draft(s) proposed from live registers. Nothing writes a finding, risk or action until a person reviews and commits.`;
-    toolCalls = [{ name: 'propose_drafts', summary: `Proposed ${drafts.length} draft(s)` }];
+    assistantText = `${plural(drafts.length, 'draft')} from the registers. Nothing lands until you review each one.`;
+    toolCalls = [{ name: 'propose_drafts', summary: `Proposed ${plural(drafts.length, 'draft')}` }];
   } else if (wantsProjectScreen(q)) {
     const card = proposeProjectScreen(project, actor);
     const cards = offer([card]);
@@ -1171,10 +1178,10 @@ export function applyProjectChat(
             .join('\n')
         : '';
       assistantText = [
-        wantsAssets(ql) ? `Asset suggestions (${cards.filter((p) => p.kind === 'add_asset').length}): approve a card to create it.` : null,
-        wantsDdTypes(ql) ? `DD types to start (${cards.filter((p) => p.kind === 'start_dd').length}): each card instantiates scopes and expected evidence.` : null,
-        wantsScopes(ql) ? `Ask Guide me for the next check on a running DD. Scope cards are not bulk-added.` : null,
-        wantsReport(ql) ? `Report cards (${cards.filter((p) => p.kind === 'generate_report').length}): generated from live registers.` : null,
+        wantsAssets(ql) ? `${plural(cards.filter((p) => p.kind === 'add_asset').length, 'asset')} worth adding.` : null,
+        wantsDdTypes(ql) ? `${plural(cards.filter((p) => p.kind === 'start_dd').length, 'DD')} you could start. Each brings its scopes with it.` : null,
+        wantsScopes(ql) ? 'Scopes come with the DD. Ask what’s next for the following check.' : null,
+        wantsReport(ql) ? `${plural(cards.filter((p) => p.kind === 'generate_report').length, 'report')} you could run, off the live registers.` : null,
         proofBlock ? `Proofs\n${proofBlock}` : null,
         /*
          * The cards, counted — not reprinted.
@@ -1184,7 +1191,7 @@ export function applyProjectChat(
          * and then again as three collapsed rows with buttons. The same
          * duplication the upload path carried, in the branch next door.
          */
-        cards.length ? `${plural(cards.length, 'card')} below. Nothing is written until you approve.` : next.text,
+        cards.length ? `${plural(cards.length, 'card')} below — approve what you want.` : next.text,
       ]
         .filter(Boolean)
         .join('\n\n');

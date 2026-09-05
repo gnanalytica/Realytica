@@ -29,6 +29,7 @@ import type {
 } from './types';
 import { ensureProjectShape } from './operations';
 import { sittingCheckOf, type SittingRef } from './sitting';
+import { plural } from './text';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -279,10 +280,10 @@ function proposalsFromConnectors(
       proposal(
         'open_connector',
         `Obtain ${c.label}`,
-        `${c.authority} settles: ${c.settles} Manual route: ${c.route}${c.url ? ` Portal: ${c.url}` : ''}. This product does not log in or scrape the portal.`,
+        `${c.settles} From ${c.authority}: ${c.route}${c.url ? ` (${c.url})` : ''}`,
         seated
-          ? `Writes a requested evidence row pinned to “${seated.check.title}”. Attach the extract on that check when you have the file.`
-          : 'Writes a requested evidence row and an action to collect it. Attach the extract in this chat when you have the file.',
+          ? `Puts it on the register against “${seated.check.title}”.`
+          : 'Puts it on the register with an action to collect it.',
         {
           connectorKey: c.key,
           label: c.label,
@@ -308,16 +309,37 @@ function proposalsFromConnectors(
       ),
     );
   }
+  /*
+   * The cards say what they are; the reply says what to do.
+   *
+   * This reprinted every card's title and full rationale above the cards —
+   * the same duplication the upload and wizard branches carried — under the
+   * heading "Named authorities for this ask", which is not a phrase anybody
+   * has ever said out loud. And every card ended "This product does not log
+   * in or scrape the portal", a policy stated once per card, per turn,
+   * forever. It is true and it belongs where somebody would wonder: the
+   * preface, and only when a portal that blocks us was actually asked for.
+   */
+  /*
+   * Said once, not once per card.
+   *
+   * "This product does not log in or scrape the portal" closed every
+   * connector card — a standing disclosure repeated as many times as there
+   * were places to look. It has to survive, because a card that names a
+   * portal and does not say who fetches it is an implied promise. So it stays
+   * in the reply, in the first person, once: the person reads it, and the
+   * cards get on with naming the sources.
+   */
   const preface = scraped
-    ? 'We do not scrape CAPTCHA/OTP-gated government sites. The supported route is: open the portal, download the extract, attach it here.\n\n'
+    ? 'Those portals sit behind a CAPTCHA, so I can’t fetch them at all.\n\n'
     : '';
   return {
     cards,
     text:
       preface
       + (cards.length
-        ? `Named authorities for this ask:\n${cards.map((p) => `• ${p.title}\n  ${p.rationale}`).join('\n')}\n\nApprove a card to put a collection action on the register. Then attach the file in chat.`
-        : 'No matching connector in the Karnataka catalogue.'),
+        ? `${plural(cards.length, 'place')} to get this. I can’t log in or scrape them — approve below and I’ll put it on the register for you to collect.`
+        : 'Nothing in the Karnataka catalogue covers that.'),
   };
 }
 

@@ -408,12 +408,18 @@ export function clarifySubject(
     if (!choices.length) return null;
     const only = choices.length === 1;
     return {
-      text: [
-        only
-          ? `I think you mean ${choices[0]!.label}, but I am not certain enough to ${commanded ? 'act on it' : 'answer for it'}.`
-          : `That could be ${choices.length} things on this file, and I have not ${commanded ? 'changed anything' : 'assumed one'}.`,
-        options.send ? 'Pick the one you meant:' : 'Pick one and I will open it:',
-      ].join('\n'),
+      /*
+       * Ask the question, not for permission to ask it.
+       *
+       * "That could be 2 things on this file, and I have not assumed one. Pick
+       * one and I will open it:" spent two clauses explaining its own
+       * restraint to somebody who can see two buttons underneath. What matters
+       * is that nothing was changed — which is worth one word, and only when
+       * the sentence was an instruction.
+       */
+      text: only
+        ? `Did you mean “${choices[0]!.label}”?${commanded ? ' Nothing changed yet.' : ''}`
+        : `${choices.length} could match${commanded ? ' — nothing changed yet' : ''}. Which one?`,
       choices,
       summary: only ? 'One near match — asked' : `${choices.length} near matches — asked`,
     };

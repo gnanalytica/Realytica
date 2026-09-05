@@ -131,12 +131,13 @@ describe('a person recording a check through chat', () => {
     const project = seedDemoProject();
     const out = applyProjectChat(project, 'mark the boundary check as compliant');
     assert.deepEqual((out.assistantTurn.toolCalls ?? []).map((t) => t.name), ['clarify']);
+    assert.match(out.assistantTurn.text, /nothing changed/i, 'an instruction that did not land must say so');
     const touched = project.assessments
       .flatMap((a) => a.scopes)
       .flatMap((s) => s.checks)
       .filter((c) => c.result !== 'pending' && c.result !== 'partially_compliant' && c.result !== 'non_compliant');
     assert.ok(touched.every((c) => c.updatedAt <= project.updatedAt));
-    assert.match(out.assistantTurn.text, /not certain enough/i);
+    assert.match(out.assistantTurn.text, /^Did you mean /, 'it asks rather than acting');
   });
 
   it('carries the instruction onto the options, not just the check', () => {

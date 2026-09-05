@@ -461,7 +461,9 @@ describe('project chat wizard', () => {
       'RYT-WZ',
     );
     const result = applyProjectChat(project, 'Guide me');
-    assert.match(result.assistantTurn.text, /Today on Greenfield/i);
+    // No memo header: the reply says what to do, not which file you are in.
+    assert.doesNotMatch(result.assistantTurn.text, /Today on/i);
+    assert.match(result.assistantTurn.text, /land parcel/i);
     assert.doesNotMatch(result.assistantTurn.text, /Wizard for/i);
     assert.ok(result.proposals.some((p) => p.kind === 'add_asset'));
     assert.equal(result.proposals.filter((p) => p.kind === 'start_dd').length, 0);
@@ -478,14 +480,16 @@ describe('project chat wizard', () => {
     assert.ok(pack.total < project.evidence.length);
     assert.equal(typeof pack.percent, 'number');
     const result = applyProjectChat(project, 'Guide me');
-    assert.match(result.assistantTurn.text, /Today on/i);
+    assert.doesNotMatch(result.assistantTurn.text, /Today on/i);
     assert.doesNotMatch(result.assistantTurn.text, /Wizard for/i);
     assert.doesNotMatch(result.assistantTurn.text, /292/);
     assert.ok(result.proposals.length <= 3);
     const nav = result.navigations.at(-1);
     assert.equal(nav?.target, 'scope');
     assert.ok(nav?.ddId && nav?.scopeId && nav?.checkId);
-    assert.match(result.assistantTurn.text, /pending/i);
+    // It names ONE check and what to do with it, rather than listing the scope.
+    assert.match(result.assistantTurn.text, /^Next up: /);
+    assert.match(result.assistantTurn.text, /tick or cross/i);
   });
 
   it('recommends remaining construction DD types on Harohalli', () => {
@@ -639,7 +643,8 @@ describe('project chat wizard', () => {
     );
     const result = applyProjectChat(project, 'How do I get the EC from Kaveri?');
     assert.ok(result.proposals.some((p) => p.kind === 'open_connector'));
-    assert.match(result.assistantTurn.text, /does not log in|do not scrape/i);
+    // Said once per turn now, not once per card — but it must still be said.
+    assert.match(result.assistantTurn.text, /can’t log in or scrape|do not scrape|does not log in/i);
     applyProjectChat(project, 'Approve all');
     assert.ok(project.actions.some((a) => /Kaveri/i.test(a.title)));
     assert.ok(project.evidence.some((e) => e.status === 'requested' && /Kaveri/i.test(e.title)));

@@ -6,6 +6,7 @@
 import { CHECK_RESULT_LABEL, SCOPE_LABEL } from './catalogs';
 import { portalForCheck, portalObtainLine } from './portals';
 import type { ChatProposal, DdAssessment, DdProject, ProjectChatTurn, ScopeInstance } from './types';
+import { plural } from './text';
 
 const DUMP =
   /Wizard for |Evidence gaps \(\d{2,}\)|Request \d{2,} outstanding|292 outstanding|library completeness is a separate/i;
@@ -844,15 +845,33 @@ export function talkSittingFromText(project: DdProject, text: string): TalkSitti
   return rankTalkSittings(project, text, 8).find((row) => row.confident)?.sitting ?? null;
 }
 
+/** A check title is written as a spec; lower-cased it reads as speech. */
+function lowerFirst(text: string): string {
+  return text.length > 1 && text[1] === text[1]?.toLowerCase() ? text[0]!.toLowerCase() + text.slice(1) : text;
+}
+
 export function sittingBrief(project: DdProject, talk: TalkSitting): string {
   if (talk.kind === 'check') {
     const hit = sittingCheckOf(project, talk.extra);
     if (!hit) return `Opened ${talk.label}.`;
+    /*
+     * Said, not filed.
+     *
+     * This opened with a database breadcrumb — "Regulatory & Planning ·
+     * Approval conditions are tracked to evidence — Not started." — which is
+     * the path to a row read out loud, with the check's own spec sentence in
+     * the middle of it. Nobody speaks in middots. The scope is already on the
+     * right, so the reply names the check, says what it wants, and stops.
+     *
+     * "You close the check — the model does not" went with it. It is a true
+     * and important rule, and it belonged in the interface once rather than
+     * appended to every remark about every check.
+     */
     return [
-      `${SCOPE_LABEL[hit.scope.scopeKey]} · ${hit.check.title} — ${CHECK_RESULT_LABEL[hit.check.result]}.`,
+      `“${hit.check.title}” — ${lowerFirst(CHECK_RESULT_LABEL[hit.check.result])}.`,
       hit.check.purpose,
-      hit.check.expectedEvidence.length ? `Expected: ${hit.check.expectedEvidence.join(', ')}.` : null,
-      'Tick or cross on the right. You close the check — the model does not.',
+      hit.check.expectedEvidence.length ? `Wants ${hit.check.expectedEvidence.join(', ')}.` : null,
+      'Tick or cross it on the right.',
     ]
       .filter(Boolean)
       .join('\n');
@@ -862,26 +881,26 @@ export function sittingBrief(project: DdProject, talk: TalkSitting): string {
       const s = a.scopes.find((row) => row.id === talk.extra.scopeId);
       if (!s) continue;
       const pending = s.checks.filter((c) => c.result === 'pending').length;
-      return `${SCOPE_LABEL[s.scopeKey]} on ${a.name} is open on the right. ${pending} check(s) still pending.`;
+      return `${SCOPE_LABEL[s.scopeKey]} is open on the right — ${plural(pending, 'check')} still pending.`;
     }
   }
   if (talk.kind === 'dd') {
     const a = project.assessments.find((row) => row.id === talk.extra.ddId);
     if (a) {
-      return `${a.name} is open on the right. ${a.scopes.length} scope(s). Open a scope to record a check.`;
+      return `${a.name} is open on the right, with ${plural(a.scopes.length, 'scope')}. Pick one to record a check.`;
     }
   }
   if (talk.kind === 'evidence') {
     const e = project.evidence.find((row) => row.id === talk.extra.evidenceId);
     if (e) {
       const files = e.attachments.length;
-      return `Evidence “${e.title}” (${e.status}${files ? `, ${files} file(s)` : ', no file yet'}) is highlighted on the right.`;
+      return `“${e.title}” is on the right — ${e.status}${files ? `, ${plural(files, 'file')} attached` : ', no file yet'}.`;
     }
   }
   if (talk.kind === 'finding') {
     const f = project.findings.find((row) => row.id === talk.extra.findingId);
     if (f) {
-      return `Finding “${f.title}” [${f.severity}] is highlighted. ${f.evidenceIds.length ? `${f.evidenceIds.length} evidence linked.` : 'No evidence linked yet.'}`;
+      return `“${f.title}” is on the right — ${f.severity}, ${f.evidenceIds.length ? `${plural(f.evidenceIds.length, 'source')} linked` : 'nothing linked yet'}.`;
     }
   }
   return `${talk.label} is open on the right.`;
