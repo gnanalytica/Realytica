@@ -2626,6 +2626,26 @@ export interface AgentInsight {
  * Approving a proposal changes the project; picking a choice only sends the
  * message the person would have typed, so nothing here can write by itself.
  */
+/**
+ * What one model turn cost.
+ *
+ * Tracked per run since the telemetry module was written, and visible only on
+ * the Observability page — an admin surface nobody is looking at while
+ * deciding whether to ask a follow-up. It belongs on the turn, where the spend
+ * happened.
+ *
+ * `exact` is not decoration. The pricing module's own invariant is that
+ * nothing reports a cost without reporting how much of it could be priced:
+ * an unknown model prices at zero, and rendering "$0.00" for a call that cost
+ * real money is worse than rendering nothing. False means the figure is a
+ * ceiling or a blank, and the interface says so rather than quoting it.
+ */
+export interface TurnSpend {
+  usd: number;
+  /** True only when a published or operator-declared rate covered this route. */
+  exact: boolean;
+}
+
 /** One figure on a turn's receipt: a label, where it stands, and whether it moved. */
 export interface ChatMetric {
   label: string;
@@ -2688,6 +2708,8 @@ export interface CopilotTurn {
   metrics?: ChatMetric[];
   /** Which sitting this turn belongs to. See `ProjectChatTurn`. */
   sessionId?: string;
+  /** What this turn cost to produce. See `ProjectChatTurn`. */
+  spend?: TurnSpend;
   /** Why the question was not answered, when the text below is a fallback. See `ProjectChatTurn`. */
   unanswered?: string;
 }

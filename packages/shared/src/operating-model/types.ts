@@ -10,6 +10,7 @@
 import type {
   ChatChoice,
   ChatMetric,
+  TurnSpend,
   KarnatakaAttributes,
   ParcelBoundary,
   PlotAttributes,
@@ -18,7 +19,7 @@ import type {
   Tenure,
 } from '../types';
 
-export type { ChatChoice, ChatMetric } from '../types';
+export type { ChatChoice, ChatMetric, TurnSpend } from '../types';
 
 import type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } from './project-ontology';
 
@@ -1234,6 +1235,14 @@ export interface ProjectChatTurn {
    * `chatSessions` groups those by the gaps between them instead.
    */
   sessionId?: string;
+  /**
+   * What this turn cost to produce, when a model produced it.
+   *
+   * Absent on the deterministic paths, which is the honest answer — they cost
+   * nothing and a "$0.00" beside them would read as a priced zero rather than
+   * as no call at all.
+   */
+  spend?: TurnSpend;
   citedEvidenceIds: string[];
   citedNodeIds?: string[];
   toolCalls?: { name: string; summary: string }[];
