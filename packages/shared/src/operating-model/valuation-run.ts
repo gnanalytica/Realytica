@@ -131,7 +131,7 @@ function valuationArea(project: DdProject, checks: Map<string, CheckInstance>): 
     value: saleable,
     unit: 'sqm',
     source: { kind: 'project', field: 'saleableAreaSqm' },
-    note: 'No area recorded on Subject identification, so the project particular is used. It carries no proof requirement.',
+    note: 'Nothing recorded on Subject identification, so this stands in. It carries no proof requirement.',
   };
 }
 
@@ -222,7 +222,7 @@ function comparableApproach(
           source: locality
             ? { kind: 'locality', localityId: locality.id, localityLabel: `${locality.locality}, ${locality.city}`, field: 'medianPricePerSqm' }
             : { kind: 'assumption', statedBy: 'nobody' },
-          note: locality ? 'No rate recorded on the comparable-inputs check, so the locality median stands in. It was not inspected for this asset.' : undefined,
+          note: locality ? 'Nothing recorded on the comparable-inputs check, so this stands in.' : undefined,
         },
   );
 
