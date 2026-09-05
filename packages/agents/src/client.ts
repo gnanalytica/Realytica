@@ -523,12 +523,41 @@ export function agentCapability(): AgentCapability {
   };
 }
 
+/**
+ * The endpoint these messages should name.
+ *
+ * "Anthropic" is right only when nothing is in the base-URL seat. Behind a
+ * gateway it is wrong in a way that sends an operator to the wrong dashboard:
+ * a rate limit hit on OpenRouter's shared free pool for a Google model was
+ * being reported as "Rate limited by the Anthropic API", which names a service
+ * this deployment never called.
+ */
+export function endpointName(): string {
+  const proxy = baseUrl();
+  return proxy ? `the model endpoint at ${proxy}` : 'the Anthropic API';
+}
+
+/**
+ * What the endpoint itself said, when it said anything.
+ *
+ * Gateways carry the real reason and the real remedy in the body — "…is
+ * temporarily rate-limited upstream. Please retry shortly, or add your own
+ * key" — and dropping it in favour of our own generic sentence throws away the
+ * only part an operator can act on. Trimmed rather than omitted: the SDK's
+ * message can carry a whole JSON body.
+ */
+export function upstreamSaid(e: { message?: string }): string {
+  const said = (e.message ?? '').replace(/\s+/g, ' ').trim();
+  if (!said) return '';
+  return ` — ${said.length > 240 ? `${said.slice(0, 239)}…` : said}`;
+}
+
 /** Narrows an unknown throw into a message worth showing a user. */
 export function describeError(e: unknown): string {
-  if (e instanceof Anthropic.AuthenticationError) return 'Credentials rejected by the model endpoint — check REALYTICA_API_KEY.';
-  if (e instanceof Anthropic.RateLimitError) return 'Rate limited by the Anthropic API — try again shortly.';
+  if (e instanceof Anthropic.AuthenticationError) return `Credentials rejected by ${endpointName()} — check REALYTICA_API_KEY.`;
+  if (e instanceof Anthropic.RateLimitError) return `Rate limited by ${endpointName()}${upstreamSaid(e)}`;
   if (e instanceof Anthropic.BadRequestError) return `Request rejected: ${e.message}`;
-  if (e instanceof Anthropic.APIConnectionError) return 'Could not reach the Anthropic API — check network access.';
-  if (e instanceof Anthropic.APIError) return `Anthropic API error ${e.status}: ${e.message}`;
+  if (e instanceof Anthropic.APIConnectionError) return `Could not reach ${endpointName()} — check network access.`;
+  if (e instanceof Anthropic.APIError) return `Error ${e.status} from ${endpointName()}: ${e.message}`;
   return e instanceof Error ? e.message : String(e);
 }

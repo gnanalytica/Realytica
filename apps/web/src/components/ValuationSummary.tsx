@@ -238,7 +238,10 @@ export function ValuationSummary({
           this wide, the warning gets the weight instead.
         */}
         {hasFigure && bandIsWide ? (
-          <p
+          // A div, not a p: `Why` renders a <details>, which a browser cannot
+          // keep inside a paragraph — it closes the <p> early and the ring and
+          // background then end above the disclosure they were drawn around.
+          <div
             className={cn(
               'rounded-lg bg-warning/10 px-3 py-2 text-[12.5px] leading-relaxed text-ink ring-1 ring-inset ring-warning/40',
             )}
@@ -246,7 +249,7 @@ export function ValuationSummary({
             <span className="font-medium">Band too wide to act on</span>
             <span className="text-ink-secondary"> — high is {(run.high / Math.max(run.low, 1)).toFixed(1)}× the low.</span>
             {screen?.confidence.biggestLever ? <Why label="What narrows it">{screen.confidence.biggestLever}</Why> : null}
-          </p>
+          </div>
         ) : screen?.confidence.biggestLever ? (
           <Why label="What would most improve this">{screen.confidence.biggestLever}</Why>
         ) : null}

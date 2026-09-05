@@ -252,6 +252,44 @@ function toCitations(block: Anthropic.Beta.BetaTextBlock): LlmCitation[] | undef
  * real thing. They reach those through `LlmResult.native` /
  * `LlmIntermediateMessage.native` instead of through a lossy re-description.
  */
+
+/**
+ * A gateway that answers an error with HTTP 200.
+ *
+ * Measured against OpenRouter, which does exactly this:
+ *
+ *     http 200
+ *     {"type":"error","error":{"message":"Upstream error from Nvidia: Service
+ *      temporarily overloaded","error_type":"provider_unavailable"},...}
+ *
+ * The SDK sees a 2xx and parses the body as a `Message`, so nothing throws.
+ * `content` is then `undefined`, and the first thing that walks it fails with
+ * `content is not iterable` — a TypeError from three layers below, shown to
+ * somebody who asked a question about their property. The endpoint had
+ * already said what was wrong, in a sentence, and we threw it away.
+ *
+ * So the shape is checked before the content is read, and the upstream
+ * sentence becomes the error. `status: 502` because that is what this is: a
+ * bad answer from an upstream service, whatever the transport claimed.
+ */
+export function assertAnswered(message: unknown, model: string): Anthropic.Beta.BetaMessage {
+  const body = message as { type?: string; error?: { message?: string }; content?: unknown } | null;
+  if (body && body.type === 'error') {
+    const said = body.error?.message?.trim();
+    throw new ProviderCallError(
+      said ? `The model endpoint refused the call for "${model}": ${said}` : `The model endpoint returned an error for "${model}" with no reason given.`,
+      { status: 502 },
+    );
+  }
+  if (!body || !Array.isArray(body.content)) {
+    throw new ProviderCallError(
+      `The model endpoint returned no content for "${model}". The response did not have the shape a message has, so there is nothing to read.`,
+      { status: 502 },
+    );
+  }
+  return body as unknown as Anthropic.Beta.BetaMessage;
+}
+
 export function toContentBlocks(content: Anthropic.Beta.BetaContentBlock[]): LlmContentBlock[] {
   const out: LlmContentBlock[] = [];
   for (const block of content) {
@@ -362,7 +400,7 @@ class AnthropicProvider implements LlmProvider {
     stream.on('streamEvent', event => {
       if (firstTokenAt === undefined && event.type === 'content_block_delta') firstTokenAt = Date.now();
     });
-    const message = await stream.finalMessage();
+    const message = assertAnswered(await stream.finalMessage(), req.model);
     const content = toContentBlocks(message.content);
 
     return {
@@ -398,12 +436,12 @@ class AnthropicProvider implements LlmProvider {
         runner.pushMessages({ role: 'assistant', content: message.content });
       }
       req.onMessage?.({
-        content: toContentBlocks(message.content),
+        content: toContentBlocks(assertAnswered(message, req.model).content),
         stopReason: toStopReason(message.stop_reason),
         native: message,
       });
     }
-    const final = await runner.done();
+    const final = assertAnswered(await runner.done(), req.model);
 
     return {
       provider: 'anthropic',
