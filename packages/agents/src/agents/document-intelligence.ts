@@ -455,8 +455,53 @@ interface Disagreement {
 const UNVERIFIED_ROUTE_CONFIDENCE_FACTOR = 0.6;
 const UNVERIFIED_ROUTE_CONFIDENCE_CEILING = 0.45;
 
+/** A quote the citation engine read the document and could not place. */
+const UNPLACED_QUOTE_CONFIDENCE_CAP = 0.35;
+/** Below this a value is not worth calling "extracted". */
+const EXTRACTED_CONFIDENCE_FLOOR = 0.4;
+
 function discountUnverified(confidence: number): number {
   return Math.round(Math.min(confidence * UNVERIFIED_ROUTE_CONFIDENCE_FACTOR, UNVERIFIED_ROUTE_CONFIDENCE_CEILING) * 100) / 100;
+}
+
+
+/**
+ * What one extracted field is worth, and whether it is worth keeping.
+ *
+ * The rule, in one place, because it was three interleaved branches inside a
+ * loop and one of them was chosen on the wrong input:
+ *
+ * - **A verified route that placed the quote on a page** keeps the field and
+ *   the model's own confidence. This is the good case and the only one that
+ *   yields a `sourcePage`.
+ * - **A verified route that could not place the quote** drops the field. The
+ *   citation engine read this document and could not find these words in it,
+ *   which is a specific and damning thing to know about a value.
+ * - **A route with no citations at all** keeps every field at a discount.
+ *   Nothing checked these values, and saying so is different from pretending
+ *   the document was unreadable — which is exactly what dropping them said.
+ *
+ * That last distinction is the whole point. `citationsAvailable` must describe
+ * what the call *did*, not what the route promised: behind a gateway the
+ * descriptor says citations are supported while none arrive, and reading the
+ * promise put every field down the second branch instead of the third.
+ */
+export function fieldOutcome(input: {
+  pageVerificationAvailable: boolean;
+  citationsAvailable: boolean;
+  sourcePage: number | undefined;
+  confidence: number;
+}): { keep: boolean; confidence: number } {
+  const confidence = Math.max(0, Math.min(1, input.confidence));
+  if (input.pageVerificationAvailable) {
+    if (input.sourcePage !== undefined) return { keep: true, confidence };
+    // Capped first so the floor is a stated threshold rather than an implicit
+    // one — a future floor below 0.35 keeps the field, at 0.35, deliberately.
+    const capped = Math.min(confidence, UNPLACED_QUOTE_CONFIDENCE_CAP);
+    return { keep: capped >= EXTRACTED_CONFIDENCE_FLOOR, confidence: capped };
+  }
+  if (!input.citationsAvailable) return { keep: true, confidence: discountUnverified(confidence) };
+  return { keep: true, confidence };
 }
 
 /**
@@ -688,17 +733,6 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     return finishFailure('failed', reason);
   }
 
-  /**
-   * Whether a page reference from this run can be trusted at all.
-   *
-   * Two independent conditions, and both must hold. Citations are a
-   * document-only feature, so an image never produces one on any provider —
-   * that was already true before the port and is why the pre-port code read
-   * `isPdf ? matchPageForQuote(...) : undefined`. The provider condition is
-   * the new half: an OpenAI-compatible endpoint cannot verify a quotation
-   * against a file under any circumstances.
-   */
-  const pageVerificationAvailable = isPdf && descriptor.capabilities.documentCitations;
 
   let documentPart: LlmContentPart;
   if (isPdf) {
@@ -781,6 +815,32 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     emit({ kind: 'message', label: `Degraded on route ${route.provider}: ${gap}`, detail: describeGap(gap) });
   }
 
+  /*
+   * Whether a page reference from this run can be trusted at all — decided by
+   * what the call *did*, not by what the route said it could do.
+   *
+   * Three conditions now, and the third is the one this cost a real
+   * extraction to learn. Citations are a document-only feature, so an image
+   * never produces one on any provider. A provider that declares no citation
+   * support cannot verify a quotation against a file. And a provider that
+   * declares it can may still not have: behind an OpenAI-compatible gateway
+   * the request is Anthropic-shaped and the model behind it is not Claude, so
+   * the descriptor says `documentCitations: true` while nothing comes back.
+   *
+   * Reading only the declaration made every field's quote unlocatable, which
+   * capped every confidence at 0.35, which dropped every field under the 0.4
+   * floor — and the run then reported "could not read this file" about a
+   * document it had read correctly. Ten fields in, none out. The `else if`
+   * below exists precisely to discount rather than drop in this situation and
+   * was unreachable, because the branch above it was chosen on a promise.
+   *
+   * `result.capabilityGaps` is the same signal already being announced to the
+   * operator two lines up. It was being told to the human and not to the code.
+   */
+  const citationsAvailable =
+    descriptor.capabilities.documentCitations && !capabilityGaps.includes('citations_unavailable');
+  const pageVerificationAvailable = isPdf && citationsAvailable;
+
   if (result.stopReason === 'refusal') {
     const reason = 'Claude declined to process this document (safety filtering).';
     emit({ kind: 'error', label: 'Request refused', detail: reason });
@@ -818,11 +878,11 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   // fields came from, so it takes the same discount rather than standing
   // alone as the one confident number on a degraded run.
   //
-  // Gated on the *provider*, not on `pageVerificationAvailable`. An image has
+  // Gated on whether this call got citations back, not on `pageVerificationAvailable`. An image has
   // no page verification on any route, and discounting its classification here
   // would penalise a full-capability Anthropic run for a capability it never
   // lost — a behaviour change dressed up as honesty.
-  const kindConfidence = descriptor.capabilities.documentCitations
+  const kindConfidence = citationsAvailable
     ? parsed.data.kindConfidence
     : discountUnverified(parsed.data.kindConfidence);
 
@@ -848,29 +908,9 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     // heuristic. On a route without citations `citationSpans` is empty, so
     // this is undefined for every field, which is the required outcome.
     const sourcePage = pageVerificationAvailable ? matchPageForQuote(raw.quote, citationSpans) : undefined;
-    let confidence = Math.max(0, Math.min(1, raw.confidence));
-
-    if (pageVerificationAvailable) {
-      // Honesty rule, unchanged from before the port: a page only ever gets
-      // attached when the API's own citation engine actually located the
-      // quoted text in the source. When it didn't, the field survives at
-      // reduced confidence and with no page — never with a guessed one.
-      if (sourcePage === undefined) {
-        confidence = Math.min(confidence, 0.35);
-        if (confidence < 0.4) continue; // not worth surfacing as "extracted"
-      }
-    } else if (!descriptor.capabilities.documentCitations) {
-      // The route itself cannot verify anything. Every field is discounted
-      // rather than dropped: dropping them would leave the run looking like a
-      // document with no readable fields, which is a different and equally
-      // wrong story. Discounted-and-present says what actually happened —
-      // these values were read by a model that nothing checked.
-      //
-      // Note this branch is entered only for a citation-less *provider*. An
-      // image on a full-capability route falls through untouched, exactly as
-      // it did before the port: an image never had a page to lose.
-      confidence = discountUnverified(confidence);
-    }
+    const outcome = fieldOutcome({ pageVerificationAvailable, citationsAvailable, sourcePage, confidence: raw.confidence });
+    if (!outcome.keep) continue;
+    let confidence = outcome.confidence;
 
     const disagreement = checkDisagreement(raw, identity, kind);
     if (disagreement) {
