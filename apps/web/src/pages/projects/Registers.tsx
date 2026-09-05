@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import {
+  plural,
   ownedBy,
   EVIDENCE_KIND_LABEL,
   EVIDENCE_STATUS_LABEL,
@@ -369,7 +370,7 @@ export function EvidenceRegister() {
                   <p className="text-[12px] text-ink-muted">
                     {EVIDENCE_KIND_LABEL[e.kind]}
                     {e.used ? ' · used' : e.considered ? ' · considered' : ''}
-                    {(e.attachments ?? []).length ? ` · ${e.attachments.length} file(s)` : ''}
+                    {(e.attachments ?? []).length ? ` · ${plural(e.attachments.length, 'file')}` : ''}
                   </p>
                   <AssignCell
                     className="-ml-1.5"

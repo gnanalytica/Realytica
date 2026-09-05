@@ -200,3 +200,23 @@ describe('the receipt says whether the file actually moved', () => {
     assert.ok(approved.assistantTurn.text.length < 40, approved.assistantTurn.text);
   });
 });
+
+/**
+ * The wizard branch had the same habit as the upload branch.
+ *
+ * "Cards in this turn:" pasted every card's title and full rationale directly
+ * above the cards themselves, so three suggestions rendered as three
+ * paragraphs and then again as three rows with buttons.
+ */
+describe('a wizard turn does not reprint its own cards', () => {
+  it('counts them instead', () => {
+    const p = project();
+    const result = applyProjectChat(p, 'what assets should I add?');
+    const text = result.assistantTurn.text;
+    if ((result.proposals ?? []).length === 0) return; // nothing offered on this file
+    for (const card of result.proposals ?? []) {
+      assert.ok(!text.includes(card.rationale), `reply reprints a rationale: ${card.title}`);
+    }
+    assert.ok(!/Cards in this turn/.test(text), text);
+  });
+});
