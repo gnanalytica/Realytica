@@ -70,6 +70,8 @@ import {
   type ProjectGraphRagSource,
   type ScopeKey,
   type SittingRef,
+  webSignalCards,
+  type ChatWebPull,
 } from '@realytica/shared';
 
 const PROPOSE_KINDS = [
@@ -289,6 +291,15 @@ export function createProjectTools(
     sitting?: SittingRef;
     graphRag?: ProjectGraphRagPort;
     lookupShelf?: (query: string, extra?: { scopeKey?: ScopeKey; checkTitle?: string }) => Promise<string>;
+    /**
+     * Locality research, when the deployment allows it.
+     *
+     * A port rather than a direct call because the search itself lives in the
+     * API — it resolves a route, checks four separate capability gates and
+     * refuses in four distinguishable ways, none of which this package should
+     * duplicate.
+     */
+    searchWeb?: (question: string) => Promise<ChatWebPull>;
   },
 ) {
   const getSitting = betaTool({
@@ -876,6 +887,57 @@ export function createProjectTools(
     },
   });
 
+  /**
+   * Research, as cards rather than as quotable prose.
+   *
+   * The copilot had thirty-three tools and none of them looked anything up.
+   * Search existed — in the explorer agent, and behind a keyword intent on the
+   * deterministic path — so "what is the going rate in Balagere" reached it
+   * only if the sentence happened to trip a regex, and never as something the
+   * model could decide to do halfway through an answer.
+   *
+   * What comes back is deliberately awkward to quote. Hits are queued as
+   * findings a person approves, and the tool result says so: the web is not
+   * the file, a market rate off a listing site is a commercial signal rather
+   * than a statutory record, and a figure that reaches the answer without
+   * going through a card is a figure the attribution checker will rightly
+   * flag. The model gets titles and claims to reason WITH; the sources land
+   * where every other source on this product lands.
+   */
+  const searchWeb = betaTool({
+    name: 'search_web',
+    description:
+      'Search the public web for LOCALITY-level market context — rates, absorption, infrastructure, news about the area. Never for title, ownership, encumbrance or approvals: those are statutory records and the gated portals are blocked deliberately. Hits are queued as cards for a person to approve; do not quote figures from them as though they were on the file.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['question'],
+      properties: {
+        question: { type: 'string', description: 'What to find out about the locality. The project’s own location is added.' },
+      },
+    } as const,
+    run: async ({ question }) => {
+      if (!extra?.searchWeb) {
+        return JSON.stringify({ enabled: false, note: 'Web search is not wired into this deployment.' });
+      }
+      const pull = await extra.searchWeb(String(question ?? ''));
+      if (!pull.enabled || pull.hits.length === 0) {
+        bag.toolCalls.push({ name: 'web_search', summary: pull.enabled ? 'No hits' : 'Search unavailable' });
+        return JSON.stringify({ enabled: pull.enabled, query: pull.query, note: pull.note ?? 'No hits.' });
+      }
+      const cards = webSignalCards(project, pull, actor);
+      for (const card of cards) bag.proposals.push(card);
+      bag.toolCalls.push({ name: 'web_search', summary: `${cards.length} web signal(s)` });
+      return JSON.stringify({
+        enabled: true,
+        query: pull.query,
+        queuedAsCards: cards.length,
+        hits: pull.hits.slice(0, 6).map((hit) => ({ title: hit.title, claim: hit.claim, url: hit.url })),
+        note: 'Queued as cards for approval. These are commercial signals, not records on this file — do not state their figures as facts about the property.',
+      });
+    },
+  });
+
   const getPortalRoute = betaTool({
     name: 'get_portal_route',
     description:
@@ -1008,6 +1070,7 @@ export function createProjectTools(
     getSubgraph,
     traceConclusion,
     lookupReference,
+    searchWeb,
     getPortalRoute,
     comparePlanning,
     proposeUpdate,

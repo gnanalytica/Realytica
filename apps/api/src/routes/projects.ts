@@ -150,7 +150,7 @@ import { readExifCapture } from '../exif';
  */
 const PHOTO_READ_CAP = 12;
 import { forgetProjects, memoryReadableBy, memoryStore } from '../memory';
-import { gatherChatSides } from '../project-chat-sides';
+import { gatherChatSides, pullWebForProject } from '../project-chat-sides';
 import { ensureIdentitySiteContext } from '../site-context';
 import { beginRun, listRuns } from '../runs/journal';
 import { startBackgroundRun } from '../runs/background';
@@ -1068,6 +1068,16 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
           const found = await lookupShelf(query, extra);
           return found.text;
         },
+        /*
+         * Research, if this deployment allows it.
+         *
+         * `pullWebForProject` owns every gate — no endpoint, the search flag
+         * unset, a route that hosts no server search, no credentials — and
+         * refuses in four distinguishable ways. The copilot only asks; it does
+         * not get to decide whether searching is permitted, and it cannot
+         * reach the gated government portals, which are blocked by name.
+         */
+        searchWeb: (ask: string) => pullWebForProject(canvas, ask),
         onStep: (step: AgentStep) => {
           line({ type: 'step', step });
           journalTail = journalTail.then(() => journal.step(step.kind, step.label));

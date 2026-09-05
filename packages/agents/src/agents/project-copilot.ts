@@ -7,7 +7,7 @@
  * issued a deterministic command (handled by applyProjectChat, not here).
  */
 
-import type { AgentStep, ChatChoice, ChatProposal, CopilotTurn, DdProject, ProjectChatTurn, ScopeKey, SittingRef, TurnSpend } from '@realytica/shared';
+import type { AgentStep, ChatChoice, ChatProposal, CopilotTurn, DdProject, ProjectChatTurn, ScopeKey, SittingRef, TurnSpend, ChatWebPull } from '@realytica/shared';
 import { sittingChatHistory, talkSittingFromText } from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
 import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute, textOf } from '../providers';
@@ -53,6 +53,8 @@ export interface RunProjectCopilotParams {
   sitting?: SittingRef;
   graphRag?: import('../tools/project-tools').ProjectGraphRagPort;
   lookupShelf?: (query: string, extra?: { scopeKey?: ScopeKey; checkTitle?: string }) => Promise<string>;
+  /** Locality research. The API owns the capability gates; this only asks. */
+  searchWeb?: (question: string) => Promise<ChatWebPull>;
   onStep?: (step: AgentStep) => void;
 }
 
@@ -127,6 +129,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
     sitting: params.sitting,
     graphRag: params.graphRag,
     lookupShelf: params.lookupShelf,
+    searchWeb: params.searchWeb,
   }).map(clientToolFromRunnable);
 
   const emit = (step: Omit<AgentStep, 'id' | 'at'>): void => {

@@ -223,20 +223,16 @@ function proposalsFromPlaces(project: DdProject, pull: ChatPlacesPull | undefine
   return { cards: [card], text: `${body}\n\nApprove the card to file this as location evidence. It is not a survey.` };
 }
 
-function proposalsFromWeb(project: DdProject, pull: ChatWebPull | undefined, actor: string): { cards: ChatProposal[]; text: string } {
-  if (!pull) {
-    return {
-      cards: [],
-      text: 'Web search was not run on this turn. Enable REALYTICA_AGENT_WEB_SEARCH=1 for locality-only search (no address, owner or documents leave the system). Gated government portals stay blocked — we do not scrape them.',
-    };
-  }
-  if (!pull.enabled) {
-    return { cards: [], text: pull.note || 'Web search is disabled for this deployment.' };
-  }
-  if (!pull.hits.length) {
-    return { cards: [], text: pull.note || `Search for “${pull.query}” returned no structured hits to propose.` };
-  }
-  const cards = pull.hits.slice(0, 4).map((hit) =>
+/**
+ * Web hits as cards.
+ *
+ * Exported because two callers build them now — the keyword side-channel and
+ * the copilot's own `search_web` tool — and a market signal that arrives as a
+ * card on one path and as prose on the other is the same claim with two
+ * different standards of proof.
+ */
+export function webSignalCards(project: DdProject, pull: ChatWebPull, actor: string): ChatProposal[] {
+  return pull.hits.slice(0, 4).map((hit) =>
     proposal(
       'add_finding',
       `Web signal: ${hit.title}`.slice(0, 160),
@@ -252,6 +248,22 @@ function proposalsFromWeb(project: DdProject, pull: ChatWebPull | undefined, act
       actor,
     ),
   );
+}
+
+function proposalsFromWeb(project: DdProject, pull: ChatWebPull | undefined, actor: string): { cards: ChatProposal[]; text: string } {
+  if (!pull) {
+    return {
+      cards: [],
+      text: 'Web search was not run on this turn. Enable REALYTICA_AGENT_WEB_SEARCH=1 for locality-only search (no address, owner or documents leave the system). Gated government portals stay blocked — we do not scrape them.',
+    };
+  }
+  if (!pull.enabled) {
+    return { cards: [], text: pull.note || 'Web search is disabled for this deployment.' };
+  }
+  if (!pull.hits.length) {
+    return { cards: [], text: pull.note || `Search for “${pull.query}” returned no structured hits to propose.` };
+  }
+  const cards = webSignalCards(project, pull, actor);
   return {
     cards,
     text: [
