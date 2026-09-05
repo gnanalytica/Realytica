@@ -45,6 +45,22 @@ describe('projectSiteQuery, the guard on rebuilding a pin', () => {
     assert.equal(projectSiteQuery(p), before);
   });
 
+  it('changes when the stated coordinate changes, so a corrected pin is rebuilt', () => {
+    const p = project();
+    patchProject(p, { siteCoordinate: { lat: 12.9352, lng: 77.6994 } }, 'operator');
+    const before = projectSiteQuery(p);
+    patchProject(p, { siteCoordinate: { lat: 12.9353, lng: 77.6994 } }, 'operator');
+    assert.notEqual(projectSiteQuery(p), before);
+  });
+
+  it('ignores the address once a coordinate is stated, because the geocoder is no longer asked', () => {
+    const p = project();
+    patchProject(p, { siteCoordinate: { lat: 12.9352, lng: 77.6994 } }, 'operator');
+    const before = projectSiteQuery(p);
+    patchProject(p, { siteAddress: 'Balagere Village, Varthur Hobli' }, 'operator');
+    assert.equal(projectSiteQuery(p), before, 'the pin came from the file, not from the address');
+  });
+
   it('does not change when the parcel changes, because a survey number is not geocodable', () => {
     const p = project();
     const before = projectSiteQuery(p);

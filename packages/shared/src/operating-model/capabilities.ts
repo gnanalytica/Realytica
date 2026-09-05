@@ -73,6 +73,7 @@ export function patchProject(project: DdProject, input: PatchProjectInput, actor
   if (input.portfolio !== undefined) project.portfolio = input.portfolio.trim() || undefined;
   if (input.status !== undefined) project.status = input.status;
   if (input.parcelId !== undefined) project.parcelId = input.parcelId.trim() || undefined;
+  if (input.siteCoordinate !== undefined) project.siteCoordinate = input.siteCoordinate ?? undefined;
   if (input.tenure !== undefined) project.tenure = input.tenure;
   if (input.plot !== undefined) project.plot = input.plot;
   if (input.karnataka !== undefined) project.karnataka = input.karnataka;

@@ -67,7 +67,10 @@ projectSiteContextRouter.post<ProjectParams>('/refresh', async (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  if (!readGoogleMapsConfig()) {
+  // A project whose file states its own coordinate can be rebuilt without a
+  // key: the pin comes from the case, and what surrounds it comes back as the
+  // named gaps it already had.
+  if (!readGoogleMapsConfig() && !found.siteCoordinate) {
     res.status(503).json({ error: 'No mapping provider is configured for this deployment' });
     return;
   }

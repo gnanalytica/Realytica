@@ -52,6 +52,9 @@ function geocodeQuery(project: DdProject): string {
 }
 
 function caveatFor(precision: string | undefined, resolved: string): string {
+  if (precision === 'stated') {
+    return 'This pin is the coordinate the file itself states, not a geocode. It has not been checked against a survey, and it places the site without bounding it.';
+  }
   if (precision === 'rooftop') {
     return `Located from the address on file, which matched "${resolved}". The pin marks that address — it is not a surveyed parcel boundary.`;
   }
@@ -85,7 +88,12 @@ export async function pullPlacesForProject(project: DdProject, kinds?: string[])
     };
   }
 
-  if (!query) {
+  // The file's own coordinate is the pin here too. Geocoding the village name
+  // beside it would measure the chat's distances from a different point than
+  // the Location view uses, and one file would hold two pins.
+  const stated = project.siteCoordinate;
+
+  if (!query && !stated) {
     return {
       provider: provider.id,
       configured: true,
@@ -101,23 +109,31 @@ export async function pullPlacesForProject(project: DdProject, kinds?: string[])
   }
 
   const cityKey = project.city.trim().toLowerCase();
-  const geocoded = await provider.geocode({
-    query,
-    biasTo: CITY_BIAS[cityKey],
-    regionCode: REGION_FOR_CITY[cityKey],
-  });
-
-  if (!geocoded.ok) {
-    return {
-      provider: provider.id,
-      configured: true,
+  let point: GeoPoint;
+  let precision = 'stated';
+  let resolvedAddress = '';
+  if (stated) {
+    point = stated;
+  } else {
+    const geocoded = await provider.geocode({
       query,
-      amenities: [],
-      gaps: [{ code: geocoded.gap.code, consequence: geocoded.gap.consequence }],
-    };
-  }
+      biasTo: CITY_BIAS[cityKey],
+      regionCode: REGION_FOR_CITY[cityKey],
+    });
 
-  const point = geocoded.value.point;
+    if (!geocoded.ok) {
+      return {
+        provider: provider.id,
+        configured: true,
+        query,
+        amenities: [],
+        gaps: [{ code: geocoded.gap.code, consequence: geocoded.gap.consequence }],
+      };
+    }
+    point = geocoded.value.point;
+    precision = geocoded.value.precision;
+    resolvedAddress = geocoded.value.resolvedAddress;
+  }
   const amenities: ChatPlacesAmenity[] = [];
   const amenityPoints: GeoPoint[] = [];
   const gaps: ChatPlacesPull['gaps'] = [];
@@ -179,11 +195,11 @@ export async function pullPlacesForProject(project: DdProject, kinds?: string[])
   return {
     provider: provider.id,
     configured: true,
-    query,
-    resolvedAddress: geocoded.value.resolvedAddress,
-    precision: geocoded.value.precision,
-    caveat: caveatFor(geocoded.value.precision, geocoded.value.resolvedAddress),
-    point: point,
+    query: stated ? `${stated.lat}, ${stated.lng}` : query,
+    resolvedAddress,
+    precision,
+    caveat: caveatFor(precision, resolvedAddress),
+    point,
     amenities,
     streetView,
     gaps,
@@ -312,7 +328,12 @@ export async function pullPinForProject(project: DdProject): Promise<ChatPlacesP
       ],
     };
   }
-  if (!query) {
+  // The file's own coordinate is the pin here too. Geocoding the village name
+  // beside it would measure the chat's distances from a different point than
+  // the Location view uses, and one file would hold two pins.
+  const stated = project.siteCoordinate;
+
+  if (!query && !stated) {
     return {
       provider: provider.id,
       configured: true,

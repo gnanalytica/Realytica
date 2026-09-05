@@ -408,17 +408,17 @@ export function buildStaleness(caseData: PropertyCase, refData: ReferenceData, n
 
   const site = caseData.siteContext;
   if (site?.location) {
-    const current = siteContextQuery(caseData.identity);
+    const current = siteContextInput(caseData.identity);
     if (site.location.queried !== current) {
       push({
         key: 'site_context',
         kind: 'site_context',
         label: 'Location on the map',
-        what: `The pin and everything measured from it were built from "${site.location.queried}". The case now records "${current}". Every distance shown on the location view was measured from the old address.`,
+        what: `The pin and everything measured from it were built from "${site.location.queried}". The case now records "${current}". Every distance shown on the location view was measured from the old one.`,
         asOf: site.builtAt,
         ageDays: daysBetween(site.builtAt, now),
         severity: 'warning',
-        refresh: 'Rebuild the location from the Location view so the map and the distances describe the address the case actually holds.',
+        refresh: 'Rebuild the location from the Location view so the map and the distances describe the place the case actually holds.',
       });
     }
   }
@@ -472,6 +472,19 @@ export function buildStaleness(caseData: PropertyCase, refData: ReferenceData, n
  * between the two would show up as a location that rebuilds on every read or
  * never rebuilds at all.
  */
+/**
+ * What the site context would be built from right now.
+ *
+ * One step above {@link siteContextQuery}, and the string both the cache and
+ * the staleness check compare against — because a case that states its own
+ * coordinate is not geocoded at all, and comparing such a pin against an
+ * address it never used would report it stale on every read.
+ */
+export function siteContextInput(identity: PropertyCase['identity']): string {
+  const point = identity.statedPoint;
+  return point ? `${point.lat}, ${point.lng}` : siteContextQuery(identity);
+}
+
 export function siteContextQuery(identity: PropertyCase['identity']): string {
   return [identity.addressLine, identity.locality, identity.city, identity.state, identity.postalCode]
     .map(part => (part ?? '').trim())

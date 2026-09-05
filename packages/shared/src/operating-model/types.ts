@@ -11,6 +11,7 @@ import type {
   ChatChoice,
   ChatMetric,
   TurnSpend,
+  GeoPoint,
   KarnatakaAttributes,
   ParcelBoundary,
   PlotAttributes,
@@ -1494,6 +1495,16 @@ export interface DdProject {
    */
   parcelId?: string;
   /**
+   * A coordinate the project's own documents state.
+   *
+   * Recorded, like the parcel and the address, only after somebody approved a
+   * card that read it off a file. Where it exists it is the pin: no geocoder
+   * is asked to guess a point for a village name the case already has a
+   * coordinate for. It is a placement and never an extent — a point cannot
+   * bound a parcel, and `SiteContext` carries the full argument for why.
+   */
+  siteCoordinate?: GeoPoint;
+  /**
    * How the site is held.
    *
    * Optional, and absent means `unknown` rather than `freehold`. The screen
@@ -1597,6 +1608,7 @@ export interface CreateProjectInput {
   currency?: 'INR' | 'EUR';
   portfolio?: string;
   parcelId?: string;
+  siteCoordinate?: GeoPoint;
   tenure?: Tenure;
   plot?: PlotAttributes;
   karnataka?: KarnatakaAttributes;
@@ -1618,6 +1630,7 @@ export interface PatchProjectInput {
   portfolio?: string;
   status?: ProjectStatus;
   parcelId?: string;
+  siteCoordinate?: GeoPoint;
   tenure?: Tenure;
   plot?: PlotAttributes;
   /**

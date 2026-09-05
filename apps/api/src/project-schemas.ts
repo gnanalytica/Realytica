@@ -49,6 +49,19 @@ export const probabilitySchema = z.enum(['rare', 'unlikely', 'possible', 'likely
 
 export const actorSchema = z.string().trim().min(1).max(120).optional();
 
+/**
+ * A coordinate somebody is putting on the record.
+ *
+ * Bounded to the globe rather than to India: the extraction that reads these
+ * off documents applies the country bound, because a document that yields
+ * 52.37, 4.89 has produced Amsterdam — but a person typing a coordinate for a
+ * case outside India is entitled to be believed.
+ */
+const geoPointSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
+
 export const createProjectBodySchema = z.object({
   name: z.string().trim().min(1).max(200),
   type: projectArchetypeSchema,
@@ -66,6 +79,7 @@ export const createProjectBodySchema = z.object({
   budget: z.number().nonnegative().optional(),
   currency: z.enum(['INR', 'EUR']).optional(),
   portfolio: z.string().max(200).optional(),
+  siteCoordinate: geoPointSchema.optional(),
   actor: actorSchema,
 });
 
@@ -339,6 +353,7 @@ export const patchProjectBodySchema = z.object({
   budget: z.number().nonnegative().optional(),
   portfolio: z.string().max(200).optional(),
   status: projectStatusSchema.optional(),
+  siteCoordinate: geoPointSchema.optional(),
   actor: actorSchema,
 });
 

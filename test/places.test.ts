@@ -8,7 +8,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { bearingDegrees, haversineMetres, isSiteAccurate, siteContextQuery } from '@realytica/shared';
+import { bearingDegrees, haversineMetres, isSiteAccurate, siteContextInput, siteContextQuery } from '@realytica/shared';
 import type { GeocodePrecision } from '@realytica/shared';
 import { buildSiteContext, placeGap, placeOk, unconfiguredPlaceProvider } from '@realytica/agents';
 import type { NearbyPlace, PlaceProvider, RouteLeg, StreetViewPanorama } from '@realytica/agents';
@@ -85,9 +85,10 @@ describe('geometry', () => {
     assert.ok(Math.abs(bearingDegrees(SITE, { lat: SITE.lat, lng: SITE.lng + 1 }) - 90) < 1, 'due east');
   });
 
-  test('only a rooftop or interpolated match describes the property', () => {
+  test('only a rooftop, interpolated or stated point describes the property', () => {
     assert.equal(isSiteAccurate('rooftop'), true);
     assert.equal(isSiteAccurate('interpolated'), true);
+    assert.equal(isSiteAccurate('stated'), true, 'a coordinate off this parcel\'s own plan is about this parcel');
     assert.equal(isSiteAccurate('locality_centre'), false);
     assert.equal(isSiteAccurate('approximate'), false);
   });
@@ -191,5 +192,87 @@ describe('the unconfigured provider', () => {
     assert.equal(context.provider, 'unconfigured');
     const gap = context.gaps.find(g => g.code === 'no_provider_key')!;
     assert.match(gap.consequence, /REALYTICA_GOOGLE_MAPS_API_KEY/);
+  });
+});
+
+/**
+ * A coordinate the case states.
+ *
+ * The one pin in this product that no provider produced. It matters most on a
+ * Karnataka file, where the address is a village and a hobli and the geocoder
+ * can only ever answer with the centre of the village — while the site plan in
+ * the same upload prints the centroid of the parcel.
+ */
+describe('a pin the case states, rather than one a geocoder guessed', () => {
+  const STATED = { lat: 12.9352, lng: 77.6994 };
+
+  test('the coordinate is the pin, and the geocoder is not called at all', async () => {
+    let asked = 0;
+    const provider = stubProvider();
+    const counting: PlaceProvider = { ...provider, geocode: async (r) => { asked += 1; return provider.geocode(r); } };
+    const seed = seedFor('Devanahalli');
+    const context = await buildSiteContext({
+      caseId: 'test-case',
+      identity: { ...seed.identity, statedPoint: STATED },
+      provider: counting,
+      now: NOW,
+    });
+    assert.equal(asked, 0, 'a file that says where it is does not need to be guessed at');
+    assert.deepEqual(context.location!.point, STATED);
+    assert.equal(context.location!.precision, 'stated');
+  });
+
+  test('it says on its face that it was not geocoded and not verified', async () => {
+    const context = await build({}, { statedPoint: STATED });
+    assert.match(context.location!.caveat, /not a geocode/i);
+    assert.match(context.location!.caveat, /has not been verified/i);
+    assert.match(context.location!.caveat, /without bounding it/i);
+    assert.equal(context.location!.resolvedAddress, '', 'no provider matched an address, so none is claimed');
+  });
+
+  test('distances are measured from it, not flagged as neighbourhood distances', async () => {
+    const context = await build({ transit: [STATION] }, { statedPoint: STATED });
+    assert.equal(context.amenities[0].fromApproximatePin, false);
+    assert.equal(
+      context.amenities[0].straightLineMetres,
+      Math.round(haversineMetres(STATED, STATION.point)),
+      'measured from the stated point, not from wherever the geocoder would have landed',
+    );
+  });
+
+  test('a case with no address at all is still placed by it', async () => {
+    const context = await build({}, { statedPoint: STATED, addressLine: '', locality: '', city: '', state: '', postalCode: '' });
+    assert.ok(context.location, 'the file states where it is, so nothing about the address is missing');
+    assert.deepEqual(
+      context.gaps.map((g) => g.code).filter((c) => c.includes('address')),
+      [],
+      'both address gaps are about what a geocoder could do, and no geocoder was asked',
+    );
+  });
+
+  test('without a mapping provider the pin still stands, and the surroundings are named gaps', async () => {
+    const seed = seedFor('Devanahalli');
+    const context = await buildSiteContext({
+      caseId: 'test-case',
+      identity: { ...seed.identity, statedPoint: STATED },
+      provider: unconfiguredPlaceProvider,
+      now: NOW,
+    });
+    assert.deepEqual(context.location!.point, STATED);
+    assert.deepEqual(context.amenities, []);
+    assert.equal(context.streetView, null);
+    assert.ok(context.gaps.length > 0, 'an empty nearby list must never pass for a quiet neighbourhood');
+    for (const gap of context.gaps) assert.match(gap.consequence, /no mapping provider is configured/i);
+    assert.equal(
+      new Set(context.gaps.map((g) => g.consequence)).size,
+      context.gaps.length,
+      'five nearby kinds failing for one reason is one thing the reader needs told, not five',
+    );
+  });
+
+  test('what the pin was built from is the coordinate, so it does not read as stale on every load', () => {
+    const seed = seedFor('Devanahalli');
+    assert.equal(siteContextInput({ ...seed.identity, statedPoint: STATED }), '12.9352, 77.6994');
+    assert.equal(siteContextInput(seed.identity), siteContextQuery(seed.identity));
   });
 });

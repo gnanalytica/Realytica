@@ -43,6 +43,21 @@ function metres(m: number): string {
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
 }
 
+/**
+ * How a pin's precision reads on the badge.
+ *
+ * `stated` is spelled out rather than shown raw: nothing about the word tells
+ * a reader that no geocoder was involved, and that is the whole distinction it
+ * exists to draw.
+ */
+const PRECISION_LABEL: Record<string, string> = {
+  stated: 'stated on a document',
+  rooftop: 'rooftop',
+  interpolated: 'interpolated',
+  locality_centre: 'locality centre',
+  approximate: 'approximate',
+};
+
 export function SitePlaceCard({ project }: { project: DdProject }) {
   const [context, setContext] = useState<SiteContext | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,6 +101,7 @@ export function SitePlaceCard({ project }: { project: DdProject }) {
   }
 
   const location = context?.location ?? null;
+  const mapped = Boolean(context && context.provider !== 'unconfigured');
   const streetView = context?.streetView ?? null;
   const amenities = context?.amenities ?? [];
 
@@ -102,25 +118,13 @@ export function SitePlaceCard({ project }: { project: DdProject }) {
           </Button>
         </div>
 
-        {/*
-          Every gap the provider reported, in its own words. `SiteContextGap`
-          carries what was attempted and what is not known as a result —
-          deliberately never the word "unavailable" — so an unconfigured
-          deployment says what it cannot tell you rather than showing an empty
-          card that looks like an absence of features.
-        */}
-        {(context?.gaps ?? []).map((gap) => (
-          <p key={gap.code} className="rounded-lg bg-sunken px-2.5 py-1.5 text-mini leading-snug text-ink-secondary">
-            {gap.consequence}
-          </p>
-        ))}
-
         {location ? (
           <>
             <div className="space-y-1">
-              <p className="text-[12.5px] text-ink">{location.resolvedAddress}</p>
+              {/* Empty for a pin the file stated: no provider matched an address to print. */}
+              {location.resolvedAddress ? <p className="text-[12.5px] text-ink">{location.resolvedAddress}</p> : null}
               <div className="flex flex-wrap items-center gap-1.5">
-                <Badge tone="neutral">{location.precision.replace(/_/g, ' ')}</Badge>
+                <Badge tone="neutral">{PRECISION_LABEL[location.precision] ?? location.precision.replace(/_/g, ' ')}</Badge>
                 <span className="text-mini tabular-nums text-ink-muted">
                   {location.point.lat.toFixed(5)}, {location.point.lng.toFixed(5)}
                 </span>
@@ -129,14 +133,42 @@ export function SitePlaceCard({ project }: { project: DdProject }) {
               <p className="text-mini leading-snug text-ink-muted">{location.caveat}</p>
             </div>
 
-            <img
-              src={`/api/projects/${project.id}/site-context/map?zoom=16&w=640&h=300`}
-              alt={`Map of ${location.resolvedAddress}, with the site pin and any nearby places numbered`}
-              className="w-full rounded-lg ring-1 ring-inset ring-[var(--ring)]"
-              loading="lazy"
-            />
+            {/*
+              The pin can exist without a mapping provider — a coordinate the
+              file states needs nobody's key — but the tile cannot. Asking for
+              one anyway would put a broken image under a perfectly good
+              location, which reads as breakage rather than as the absence the
+              gap sentences above have already explained.
+            */}
+            {mapped ? (
+              <img
+                src={`/api/projects/${project.id}/site-context/map?zoom=16&w=640&h=300`}
+                alt={`Map of ${location.resolvedAddress || project.name}, with the site pin and any nearby places numbered`}
+                className="w-full rounded-lg ring-1 ring-inset ring-[var(--ring)]"
+                loading="lazy"
+              />
+            ) : null}
           </>
         ) : null}
+
+        {/*
+          Every gap the provider reported, in its own words. Under the pin
+          rather than over it: a card that opens with two paragraphs of what
+          is not known reads as a failure even when it is holding a perfectly
+          good location. `SiteContextGap`
+          carries what was attempted and what is not known as a result —
+          deliberately never the word "unavailable" — so an unconfigured
+          deployment says what it cannot tell you rather than showing an empty
+          card that looks like an absence of features.
+        */}
+        {(context?.gaps ?? []).map((gap) => (
+          // Keyed on the sentence, not the code: one deployment-wide cause
+          // (no key, a denied project) produces several gaps that all carry
+          // the code `no_provider_key` and say different things.
+          <p key={gap.consequence} className="rounded-lg bg-sunken px-2.5 py-1.5 text-mini leading-snug text-ink-secondary">
+            {gap.consequence}
+          </p>
+        ))}
 
         {streetView ? (
           <div className="space-y-1">

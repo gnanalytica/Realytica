@@ -224,6 +224,7 @@ export function createProject(input: CreateProjectInput, reference: string, acto
     currency: input.currency ?? 'INR',
     portfolio: input.portfolio,
     parcelId: input.parcelId,
+    siteCoordinate: input.siteCoordinate,
     tenure: input.tenure,
     plot: input.plot,
     karnataka: input.karnataka,

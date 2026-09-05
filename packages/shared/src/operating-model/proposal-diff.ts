@@ -50,8 +50,27 @@ function show(value: CheckFieldValue['value'] | undefined): string | undefined {
   return clip(String(value));
 }
 
+/**
+ * A coordinate, written the way it is read out.
+ *
+ * Its own formatter because the generic one stringifies an object, and a card
+ * whose whole job is to show a person the number before they approve it
+ * cannot show them `[object Object]`.
+ */
+function showPoint(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const point = value as { lat?: unknown; lng?: unknown };
+  if (typeof point.lat !== 'number' || typeof point.lng !== 'number') return undefined;
+  return `${point.lat}, ${point.lng}`;
+}
+
 /** Fields on a project a `patch_project` card may touch, with readable names. */
-const PROJECT_FIELDS: Array<{ key: keyof DdProject; label: string; unit?: string }> = [
+const PROJECT_FIELDS: Array<{
+  key: keyof DdProject;
+  label: string;
+  unit?: string;
+  format?: (value: unknown) => string | undefined;
+}> = [
   { key: 'name', label: 'Name' },
   { key: 'owner', label: 'Owner' },
   { key: 'developer', label: 'Developer' },
@@ -63,6 +82,7 @@ const PROJECT_FIELDS: Array<{ key: keyof DdProject; label: string; unit?: string
   // approving rather than after.
   { key: 'siteAddress', label: 'Site address' },
   { key: 'parcelId', label: 'Parcel' },
+  { key: 'siteCoordinate', label: 'Pin', format: showPoint },
   { key: 'portfolio', label: 'Portfolio' },
   { key: 'landAreaSqm', label: 'Land area', unit: 'sqm' },
   { key: 'builtUpAreaSqm', label: 'Built-up area', unit: 'sqm' },
@@ -124,9 +144,10 @@ export function proposalChanges(project: DdProject, proposal: ChatProposal): Pro
   if (proposal.kind === 'patch_project') {
     for (const field of PROJECT_FIELDS) {
       if (!(field.key in payload)) continue;
-      const to = show(payload[field.key] as CheckFieldValue['value']);
+      const as = field.format ?? ((v: unknown) => show(v as CheckFieldValue['value']));
+      const to = as(payload[field.key]);
       if (to === undefined) continue;
-      const from = show(project[field.key] as CheckFieldValue['value']);
+      const from = as(project[field.key]);
       if (from === to) continue;
       out.push({ label: field.label, from, to, unit: field.unit });
     }

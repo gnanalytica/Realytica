@@ -8,7 +8,7 @@
  */
 
 import type { DdProject, PropertyIdentity, SiteContext } from '@realytica/shared';
-import { projectToIdentity, siteContextQuery } from '@realytica/shared';
+import { projectToIdentity, siteContextInput } from '@realytica/shared';
 import { buildSiteContext, placeProviderConfigured, placeProviderFor } from '@realytica/agents';
 
 export interface SiteContextHolder {
@@ -24,7 +24,7 @@ function streetViewUrlFor(id: string): (panoramaId: string, heading: number) => 
 function isCurrent(context: SiteContext | undefined, identity: PropertyIdentity): boolean {
   if (!context) return false;
   if (!context.location) return context.provider !== 'unconfigured';
-  return context.location.queried === siteContextQuery(identity);
+  return context.location.queried === siteContextInput(identity);
 }
 
 export interface EnsureSiteContextOptions {
@@ -37,7 +37,12 @@ export async function ensureIdentitySiteContext(
   now: string,
   options: EnsureSiteContextOptions = {},
 ): Promise<SiteContext | undefined> {
-  if (!placeProviderConfigured()) {
+  /*
+   * A stated coordinate is built without a provider: the pin comes from the
+   * case's own documents, and everything around it comes back as a named gap.
+   * Without one there is nothing to build and no call worth making.
+   */
+  if (!placeProviderConfigured() && !identity.statedPoint) {
     return holder.siteContext;
   }
   if (!options.force && isCurrent(holder.siteContext, identity)) return holder.siteContext;
@@ -58,9 +63,12 @@ export async function ensureIdentitySiteContext(
   }
 }
 
-/** The address string this project would hand the geocoder right now. */
+/**
+ * What this project's pin would be built from right now — the address string
+ * the geocoder would be handed, or the coordinate the file states instead.
+ */
 export function projectSiteQuery(project: DdProject): string {
-  return siteContextQuery(projectToIdentity(project));
+  return siteContextInput(projectToIdentity(project));
 }
 
 /**
