@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { AlertCircle, ArrowUp, CheckCircle2, Info, MessageCircle, Paperclip, SearchX, Sparkles, Trash2, X } from 'lucide-react';
 import { chatSessions, groupActivity, splitThread } from '@realytica/shared';
-import type { AgentStep, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, VerificationSummary } from '@realytica/shared';
+import type { AgentStep, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
 import { Badge, Button, Textarea, cn } from './ui/kit';
@@ -19,8 +19,37 @@ import { relativeTime } from '../lib/format';
  * own citations. The time is the part that differs between turns and the part
  * somebody scrolling back is looking for.
  */
-function TurnTime({ at }: { at: string }) {
-  return <div className="mt-1.5 text-micro text-ink-muted">{relativeTime(at)}</div>;
+function TurnTime({ at, spend }: { at: string; spend?: TurnSpend }) {
+  return (
+    <div className="mt-1.5 flex items-center gap-1.5 text-micro text-ink-muted">
+      <span>{relativeTime(at)}</span>
+      {/*
+        What the turn cost, where the money was spent.
+        
+        Tracked per run since telemetry was written and visible only on the
+        Observability page — an admin surface nobody is reading while deciding
+        whether to ask a follow-up.
+        
+        Shown only when a published or operator rate actually covered the
+        route. The pricing module prices an unknown model at zero, and "$0.00"
+        beside a call that cost real money reads as free rather than as
+        unpriced — so an inexact figure says that instead of quoting itself.
+      */}
+      {spend ? (
+        <span title={spend.exact ? 'Priced at this route’s published rate' : 'No rate on file for this model'}>
+          · {spend.exact ? formatSpend(spend.usd) : 'cost not priced'}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** Turns are cents, not dollars. A "$0.02" column of zeros tells nobody anything. */
+function formatSpend(usd: number): string {
+  if (usd <= 0) return 'under a cent';
+  const cents = usd * 100;
+  if (cents < 1) return 'under a cent';
+  return cents < 100 ? `${cents.toFixed(cents < 10 ? 1 : 0)}¢` : `$${usd.toFixed(2)}`;
 }
 
 function TurnBubble({
@@ -106,7 +135,7 @@ function TurnBubble({
           <p className="mt-1 text-mini text-ink-secondary">
             That&rsquo;s a legitimate outcome, not an error — nothing on file backs a confident answer yet.
           </p>
-          <TurnTime at={turn.at} />
+          <TurnTime at={turn.at} spend={turn.spend} />
         </div>
       </div>
     );
@@ -302,7 +331,7 @@ function TurnBubble({
             project.
           </p>
         ) : null}
-        <TurnTime at={turn.at} />
+        <TurnTime at={turn.at} spend={turn.spend} />
         {extras}
       </div>
     </div>

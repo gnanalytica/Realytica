@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
-import type { ChatProposal } from '@realytica/shared';
+import { useMemo, useState } from 'react';
+import { ArrowRight, ChevronRight } from 'lucide-react';
+import { proposalChanges, type ChatProposal, type DdProject } from '@realytica/shared';
 import { Badge, Button, cn } from '../../../components/ui/kit';
 
 /**
@@ -18,11 +18,14 @@ import { Badge, Button, cn } from '../../../components/ui/kit';
  * was not already there; it is the same text behind a disclosure.
  */
 export function ProposalCard({
+  project,
   item,
   busy,
   onApprove,
   onSkip,
 }: {
+  /** Read for the "before" side of an edit — never for anything the card says. */
+  project: DdProject;
   item: ChatProposal;
   busy: boolean;
   onApprove: (id: string) => void;
@@ -37,6 +40,21 @@ export function ProposalCard({
    * on the register — but the row says so before anybody accepts it.
    */
   const unread = typeof item.payload.readFailure === 'string' && item.payload.readFailure.length > 0;
+  /*
+   * A card that CHANGES a value shows the change, unfolded.
+   *
+   * Everything else on this card is behind a disclosure, on the principle
+   * that reasoning should be one click away rather than in the way. The
+   * arithmetic of an edit is the exception, and it is not really an
+   * exception: it is not reasoning about the decision, it IS the decision.
+   * "Record the built-up area" does not say the file holds 9,290 sqm and this
+   * would make it 8,140, and no amount of rationale below the fold rescues
+   * somebody who has already pressed Approve.
+   *
+   * Creations return nothing here, which is right — a row that did not exist
+   * has no before, and a diff against nothing is the title again.
+   */
+  const changes = useMemo(() => proposalChanges(project, item), [project, item]);
   return (
     <div className="rounded-lg bg-surface px-3 py-2 ring-1 ring-inset ring-[var(--ring)]">
       <div className="flex items-start gap-2">
@@ -64,6 +82,25 @@ export function ProposalCard({
           </span>
         )}
       </div>
+      {changes.length > 0 ? (
+        <dl className="mt-1.5 flex flex-col gap-0.5 rounded-md bg-sunken px-2 py-1.5">
+          {changes.map((row) => (
+            <div key={row.label} className="flex items-baseline justify-between gap-3">
+              <dt className="min-w-0 truncate text-mini text-ink-secondary">{row.label}</dt>
+              <dd className="flex shrink-0 items-baseline gap-1 text-[11.5px] tabular-nums">
+                {row.from === undefined ? (
+                  <span className="text-ink-muted">not set</span>
+                ) : (
+                  <span className="text-ink-muted line-through">{row.from}</span>
+                )}
+                <ArrowRight size={10} className="shrink-0 text-ink-muted" aria-hidden />
+                <span className="font-medium text-ink">{row.to}</span>
+                {row.unit ? <span className="text-mini text-ink-muted">{row.unit}</span> : null}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
       {open ? (
         <div className="mt-1.5 border-t border-[var(--ring)] pt-1.5">
           <p className="text-[11.5px] leading-relaxed text-ink-secondary">{item.rationale}</p>

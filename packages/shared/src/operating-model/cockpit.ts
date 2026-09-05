@@ -31,6 +31,7 @@ import type {
   ChatIngestFile,
   ChatMetric,
   ChatProposal,
+  TurnSpend,
   ChatProposalKind,
   ChatSideBundle,
   DdProject,
@@ -234,6 +235,7 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     heldQuestions: extra.heldQuestions,
     trimmed: extra.trimmed,
     metrics: extra.metrics,
+    spend: extra.spend,
     unanswered: extra.unanswered,
     refusedForLackOfEvidence: extra.refusedForLackOfEvidence,
     proposalIds: extra.proposalIds,
@@ -352,6 +354,8 @@ export function applyProjectAgentTurn(
     toolCalls?: ProjectChatTurn['toolCalls'];
     citedEvidenceIds?: string[];
     citedNodeIds?: string[];
+    /** What the call cost. Rendered beside the turn, never summed in prose. */
+    spend?: TurnSpend;
   },
 ): ProjectChatResult {
   ensureProjectShape(project);
@@ -391,6 +395,7 @@ export function applyProjectAgentTurn(
     citedEvidenceIds: [...new Set(agent.citedEvidenceIds ?? [])],
     citedNodeIds: agent.citedNodeIds ? [...new Set(agent.citedNodeIds)] : undefined,
     toolCalls: agent.toolCalls,
+    spend: agent.spend,
     proposalIds: offered.map((p) => p.id),
   });
   appendTurns(project, userTurn, assistantTurn);

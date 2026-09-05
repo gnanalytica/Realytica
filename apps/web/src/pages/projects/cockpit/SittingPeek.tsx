@@ -160,7 +160,7 @@ function CheckPeek({
           <div className="space-y-1.5">
             <p className="text-[11px] font-medium text-ink-muted">Cards for this field</p>
             {pinned.slice(0, 3).map((item) => (
-              <ProposalCard key={item.id} item={item} busy={Boolean(busy)} onApprove={onApprove} onSkip={onSkip} />
+              <ProposalCard key={item.id} project={project} item={item} busy={Boolean(busy)} onApprove={onApprove} onSkip={onSkip} />
             ))}
           </div>
         ) : null}
@@ -186,7 +186,7 @@ function CheckPeek({
         <div className="space-y-1.5">
           <p className="text-[11px] font-medium text-ink-muted">Cards for this field</p>
           {pinned.slice(0, 3).map((item) => (
-            <ProposalCard key={item.id} item={item} busy={Boolean(busy)} onApprove={onApprove} onSkip={onSkip} />
+            <ProposalCard key={item.id} project={project} item={item} busy={Boolean(busy)} onApprove={onApprove} onSkip={onSkip} />
           ))}
         </div>
       ) : null}

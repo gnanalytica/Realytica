@@ -48,6 +48,7 @@ function sameSitting(a: TalkSitting, b: TalkSitting): boolean {
 }
 
 function ProposalCards({
+  project,
   turn,
   proposals,
   busy,
@@ -55,6 +56,7 @@ function ProposalCards({
   onApprove,
   onSkip,
 }: {
+  project: DdProject;
   turn: CopilotTurn;
   proposals: ChatProposal[];
   busy: boolean;
@@ -72,7 +74,7 @@ function ProposalCards({
   return (
     <div className="mt-2.5 flex flex-col gap-1">
       {rows.map((item) => (
-        <ProposalCard key={item.id} item={item} busy={busy} onApprove={onApprove} onSkip={onSkip} />
+        <ProposalCard key={item.id} project={project} item={item} busy={busy} onApprove={onApprove} onSkip={onSkip} />
       ))}
     </div>
   );
@@ -486,6 +488,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           <>
             {field && !docked ? <SittingChip talk={field} onOpen={() => setDockTalk(field)} /> : null}
             <ProposalCards
+              project={project}
               turn={turn}
               proposals={project.chatProposals ?? []}
               busy={asking}

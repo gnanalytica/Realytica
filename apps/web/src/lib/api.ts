@@ -619,6 +619,16 @@ export const api = {
    * like.
    */
   siteContext: (id: string) => request<SiteContext>(`/cases/${id}/site-context`),
+  /**
+   * Where a PROJECT sits, and what is around it.
+   *
+   * The route has existed since the mapping provider was written and nothing
+   * in the web app has ever called it — so Street View, the static map and the
+   * nearby list were served by an API nobody asked.
+   */
+  projectSiteContext: (projectId: string) => request<SiteContext>(`/projects/${projectId}/site-context`),
+  refreshProjectSiteContext: (projectId: string) =>
+    request<SiteContext>(`/projects/${projectId}/site-context/refresh`, { method: 'POST' }),
 
   /** Rebuild from the provider. The only way to retry an address that failed. */
   refreshSiteContext: (id: string) =>

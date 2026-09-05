@@ -7,13 +7,14 @@
  * issued a deterministic command (handled by applyProjectChat, not here).
  */
 
-import type { AgentStep, ChatChoice, ChatProposal, CopilotTurn, DdProject, ProjectChatTurn, ScopeKey, SittingRef } from '@realytica/shared';
+import type { AgentStep, ChatChoice, ChatProposal, CopilotTurn, DdProject, ProjectChatTurn, ScopeKey, SittingRef, TurnSpend, ChatWebPull } from '@realytica/shared';
 import { sittingChatHistory, talkSittingFromText } from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
 import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute, textOf } from '../providers';
 import type { LlmClientTool, LlmMessage } from '../providers';
 import { createProjectTools, type ProjectAgentCollectors } from '../tools/project-tools';
 import { randomUUID } from 'node:crypto';
+import { priceTokens } from '../telemetry/pricing';
 
 const MAX_TOOL_ITERATIONS = 8;
 
@@ -52,6 +53,8 @@ export interface RunProjectCopilotParams {
   sitting?: SittingRef;
   graphRag?: import('../tools/project-tools').ProjectGraphRagPort;
   lookupShelf?: (query: string, extra?: { scopeKey?: ScopeKey; checkTitle?: string }) => Promise<string>;
+  /** Locality research. The API owns the capability gates; this only asks. */
+  searchWeb?: (question: string) => Promise<ChatWebPull>;
   onStep?: (step: AgentStep) => void;
 }
 
@@ -64,6 +67,8 @@ export interface RunProjectCopilotResult {
   toolCalls: { name: string; summary: string }[];
   citedEvidenceIds: string[];
   citedNodeIds: string[];
+  /** What the call cost, when one was made. Absent on every failure path. */
+  spend?: TurnSpend;
 }
 
 function citeIds(text: string, project: DdProject): { citedEvidenceIds: string[]; citedNodeIds: string[] } {
@@ -124,6 +129,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
     sitting: params.sitting,
     graphRag: params.graphRag,
     lookupShelf: params.lookupShelf,
+    searchWeb: params.searchWeb,
   }).map(clientToolFromRunnable);
 
   const emit = (step: Omit<AgentStep, 'id' | 'at'>): void => {
@@ -178,6 +184,20 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
     });
     const text = textOf(result).trim() || 'I looked at the project. Approve any cards on this turn to write them.';
     const cites = citeIds(text, project);
+    /*
+     * What the turn cost, carried out with the answer.
+     *
+     * Priced here rather than left to the telemetry sink because the sink
+     * writes to an admin surface and this figure is for the person who just
+     * spent the money. `confidence` travels with it: the pricing module prices
+     * an unknown model at zero, and "$0.00" beside a call that cost real money
+     * is worse than showing nothing at all.
+     */
+    const price = priceTokens(route.provider, route.model, {
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      cacheReadTokens: result.usage.cacheReadTokens,
+    });
     return {
       text,
       proposals: bag.proposals,
@@ -186,6 +206,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
       toolCalls: bag.toolCalls.length ? bag.toolCalls : [{ name: 'project_copilot', summary: 'Thought with project tools' }],
       citedEvidenceIds: cites.citedEvidenceIds,
       citedNodeIds: cites.citedNodeIds,
+      spend: { usd: price.costUsd, exact: price.confidence === 'exact' },
     };
   } catch (e) {
     return { ...empty, text: `The project copilot hit an error: ${describeError(e)}` };
