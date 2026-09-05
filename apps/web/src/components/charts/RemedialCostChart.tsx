@@ -24,7 +24,7 @@
  * message: immediate first, because that is the money that changes the price.
  */
 
-import type { RemedialCostSummary } from '@realytica/shared';
+import { plural, type RemedialCostSummary } from '@realytica/shared';
 import { ChartContainer, ChartEmpty, ChartSvg, DirectedBar, STATUS_FILL, compactAxisNumber, scaleLinear, useMeasure, type StatusKey } from './primitives';
 
 export interface RemedialCostChartProps {
@@ -57,7 +57,7 @@ export default function RemedialCostChart({ summary, onSelect }: RemedialCostCha
       <ChartEmpty
         label={
           summary.unbanded
-            ? `${summary.unbanded} open action(s), none of them banded yet.`
+            ? `${plural(summary.unbanded, 'open action')}, none of them banded yet.`
             : 'No open action on this file carries a remedial cost band.'
         }
         height={120}
@@ -139,7 +139,7 @@ export default function RemedialCostChart({ summary, onSelect }: RemedialCostCha
         <text x={0} y={height - 8} className="fill-ink-muted" style={{ fontSize: 10 }}>
           {/* A total of zero is not a cheap file, it is an unpriced one. */}
           {summary.total > 0 ? `${money(summary.total)} priced` : 'Nothing priced yet'}
-          {summary.unbanded ? ` · ${summary.unbanded} open action(s) carry no band and are not in it` : ''}
+          {summary.unbanded ? ` · ${plural(summary.unbanded, 'open action')} with no band, not in it` : ''}
         </text>
       </ChartSvg>
     </ChartContainer>

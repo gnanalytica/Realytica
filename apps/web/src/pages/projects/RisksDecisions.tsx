@@ -347,6 +347,34 @@ function ActionCost({
   onChange: (body: { costEstimate?: number | null; costBand?: RemedialBand | null }) => void;
 }) {
   const [draft, setDraft] = useState(action.costEstimate === undefined ? '' : String(action.costEstimate));
+  /*
+   * Two controls per row, on a register nobody prices.
+   *
+   * Every action carried a five-option band select and a currency box inline,
+   * so a register of six actions rendered twelve controls — and the card's own
+   * summary read "6 open actions, none of them banded yet". Six rows asking a
+   * question, six times unanswered, above a chart of nothing.
+   *
+   * Costing an action is a deliberate act, not a field you tab through, so it
+   * asks once and gets out of the way. A row that HAS a band or a figure keeps
+   * its controls open: the work is in progress there, and hiding it behind a
+   * click would make correcting a number harder than entering one.
+   */
+  const priced = action.costBand !== undefined && action.costBand !== null;
+  const estimated = action.costEstimate !== undefined && action.costEstimate !== null;
+  const [open, setOpen] = useState(priced || estimated);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-[11px] text-ink-muted underline-offset-2 hover:text-brand hover:underline"
+      >
+        Add cost
+      </button>
+    );
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-ink-muted">

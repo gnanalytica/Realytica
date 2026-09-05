@@ -31,7 +31,7 @@ import {
   type ValuationInput,
   type ValuationWorking,
 } from '@realytica/shared';
-import { Badge, cn , Why } from './ui/kit';
+import { Badge, InfoTip, cn, Why } from './ui/kit';
 
 function money(n: number, currency: string) {
   if (currency === 'INR') return `₹${Math.round(n).toLocaleString('en-IN')}`;
@@ -64,6 +64,29 @@ const SOURCE_TONE: Record<ValuationInput['source']['kind'], string> = {
   assumption: 'text-[var(--status-warning-text)]',
 };
 
+/**
+ * Does the provenance line already carry what this note says?
+ *
+ * Compared on words rather than characters so punctuation and casing do not
+ * hide a repeat. Only a note whose every substantive word is already in the
+ * line above counts as said — a note that adds one real clause survives whole,
+ * because trimming it to the new clause would be this component rewriting a
+ * sentence the engine wrote.
+ */
+function sourceSays(input: ValuationInput, note: string): boolean {
+  const words = (text: string): Set<string> =>
+    new Set(
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length > 3),
+    );
+  const line = words(`${sourceLine(input)} ${INPUT_SOURCE_STRENGTH[input.source.kind]}`);
+  const said = [...words(note)];
+  return said.length > 0 && said.every((w) => line.has(w));
+}
+
 export function ValuationWorkingPanel({
   working,
   currency,
@@ -83,10 +106,15 @@ export function ValuationWorkingPanel({
 
       {working.externalities.applied.length ? (
         <section className="rounded-lg border border-warning/40 bg-warning/5 p-3">
-          <h4 className="text-[12px] font-semibold text-ink">What the site is next to</h4>
-          <p className="mt-0.5 text-[11.5px] text-ink-muted">
-            Applied after the blend, so the unadjusted indication stays visible and this can be argued with on its own terms.
-          </p>
+          {/*
+            Why these come after the blend is a method point, not a reading of
+            this site. It belongs where somebody wonders about it rather than
+            above the adjustments every time they are shown.
+          */}
+          <h4 className="flex items-center gap-1 text-[12px] font-semibold text-ink">
+            What the site is next to
+            <InfoTip label="Applied after the blend, so the unadjusted indication stays visible and this can be argued with on its own terms." />
+          </h4>
           <ul className="mt-2 space-y-2">
             {working.externalities.applied.map((a) => (
               <li key={a.key} className="text-[12px]">
@@ -245,9 +273,18 @@ function ApproachCard({
 
       <p className="mt-0.5 font-mono text-[11.5px] text-ink-muted">{run.formula}</p>
 
+      {/*
+        The missing inputs are named three times on this screen: the approaches
+        table above says "Not run — Effective age, Expected total life", this
+        sentence said it again, and the input list directly below marks each
+        one "not recorded" in place, with its source. Two of those are the
+        list; the third is where somebody actually looks for a value. What only
+        this sentence knows is where to go and what happens next, so that is
+        all it says now.
+      */}
       {!usable ? (
         <p className="mt-2 text-[12px] text-[var(--status-warning-text)]">
-          Missing {run.missing.join(', ')}. Record {run.missing.length === 1 ? 'it' : 'them'} on the Indicative valuation scope and run again.
+          Record the missing inputs on the Indicative valuation scope, then run again.
         </p>
       ) : null}
 
@@ -267,7 +304,19 @@ function ApproachCard({
                   {sourceLine(input)} — {INPUT_SOURCE_STRENGTH[input.source.kind]}
                   {input.evidenceId ? ' · evidenced' : ''}
                 </p>
-                {input.note ? <p className="text-[10.5px] text-ink-muted">{input.note}</p> : null}
+                {/*
+                  The note says WHY a fallback stood in. The line above says
+                  WHAT stood in, and where it came from. They drifted into
+                  saying both: "a locality median — a market observation, not
+                  inspected for this asset" was followed by a note ending "It
+                  was not inspected for this asset", the same clause twice,
+                  four lines apart, in a panel whose whole job is to be
+                  checkable. A note wholly contained in the line above it is
+                  dropped rather than trusted to stay distinct.
+                */}
+                {input.note && !sourceSays(input, input.note) ? (
+                  <p className="text-[10.5px] text-ink-muted">{input.note}</p>
+                ) : null}
                 {onOpenCheck && input.source.kind === 'check_field' && input.source.checkId ? (
                   <button type="button" className="text-[10.5px] text-brand underline" onClick={() => onOpenCheck(input.source.kind === 'check_field' ? input.source.checkId : '')}>
                     open the check

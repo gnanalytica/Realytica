@@ -101,12 +101,12 @@ export default function NewProject() {
 
   return (
     <form ref={formRef} noValidate onSubmit={(e) => void submit(e)} className="mx-auto max-w-2xl space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">New project</h1>
-        <p className="mt-1 text-[13px] text-ink-secondary">
-          Type and stage decide which DD templates are recommended. They can be changed later; stage history is kept.
-        </p>
-      </div>
+      {/*
+        The sentence under the heading was about two fields forty pixels
+        below it, so it moved onto them as hints — which is where somebody
+        choosing a type or a stage is actually looking.
+      */}
+      <h1 className="text-xl font-semibold tracking-tight text-ink">New project</h1>
       <Card>
         <CardHeader title="Identity" />
         <CardBody className="space-y-3">
@@ -124,7 +124,7 @@ export default function NewProject() {
             />
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Project type">
+            <Field label="Project type" hint="Decides which DD templates get recommended. Changeable later.">
               <Select value={type} onChange={(e) => setType(e.target.value as ProjectArchetype)}>
                 {PROJECT_ARCHETYPES.map((a) => (
                   <option key={a.key} value={a.key}>
@@ -133,7 +133,7 @@ export default function NewProject() {
                 ))}
               </Select>
             </Field>
-            <Field label="Lifecycle stage">
+            <Field label="Lifecycle stage" hint="Changeable later — the history is kept.">
               <Select value={stage} onChange={(e) => setStage(e.target.value as LifecycleStage)}>
                 {LIFECYCLE_STAGES.map((s) => (
                   <option key={s.key} value={s.key}>

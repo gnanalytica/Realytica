@@ -124,7 +124,7 @@ function ProofBody({
         <FileWarning size={20} className="text-ink-muted" />
         <p className="text-[12.5px] text-ink-secondary">This evidence row has no file behind it yet.</p>
         <p className="max-w-[420px] text-center text-[11.5px] text-ink-muted">
-          Attach a document in chat or on the register. Quotes extracted at ingest still show above when they exist — they are not a substitute for the file.
+          Attach it in chat or on the register. Any quotes above came from ingest and are not the file.
         </p>
       </Shell>
     );
@@ -163,7 +163,7 @@ function ProofBody({
     <Shell>
       <p className="text-[12.5px] text-ink-secondary">Nothing here can render a {state.contentType.replace(/^application\//, '')} file.</p>
       <p className="max-w-[420px] text-center text-[11.5px] text-ink-muted">
-        Download it unchanged rather than showing an approximation. If quotes were extracted at ingest, they still show above.
+        Download it rather than see an approximation. Any quotes above came from ingest.
       </p>
     </Shell>
   );
