@@ -60,6 +60,7 @@ import {
   proposeReportCard,
 } from './wizard';
 import { projectNextStep, materialOpenFindings, unevidencedFindings, findingCriticSitting } from './next-step';
+import { placeProposalsFromIngest } from './place-extract';
 import { detectChatSideIntents, handleChatSides } from './chat-sides';
 import { clarifyRecordCommand, clarifySubject, looksLikeCommand, resolveSubject, sittingTitle } from './clarify';
 import { verifyAttribution } from './attribution';
@@ -676,7 +677,19 @@ export function applyProjectChat(
 
   if (ingest.length) {
     const prefer = options.sitting;
-    const rows = offer(proposalsFromIngest(project, ingest, actor, prefer));
+    /*
+     * What the documents say about WHERE this is, alongside what they are.
+     *
+     * The pin, the map, Street View, the locality rate and every connector
+     * route key off `siteAddress` and `parcelId`. Both have existed since the
+     * screen was written and nothing filled them, so a file could carry an
+     * encumbrance certificate naming twelve survey numbers and still report
+     * "no geocoded pin on this project".
+     */
+    const rows = offer([
+      ...proposalsFromIngest(project, ingest, actor, prefer),
+      ...placeProposalsFromIngest(project, ingest, actor),
+    ]);
     /*
      * One line, and the cards carry the rest.
      *

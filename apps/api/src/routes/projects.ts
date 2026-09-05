@@ -151,7 +151,7 @@ import { readExifCapture } from '../exif';
 const PHOTO_READ_CAP = 12;
 import { forgetProjects, memoryReadableBy, memoryStore } from '../memory';
 import { gatherChatSides, pullWebForProject } from '../project-chat-sides';
-import { ensureIdentitySiteContext } from '../site-context';
+import { ensureIdentitySiteContext, projectSiteQuery, refreshSiteContextIfMoved } from '../site-context';
 import { beginRun, listRuns } from '../runs/journal';
 import { startBackgroundRun } from '../runs/background';
 import { documentDisposition, resolveServedType } from './document-file';
@@ -440,7 +440,9 @@ projectsRouter.patch('/:projectId', async (req, res) => {
     fail(res, err);
     return;
   }
+  const placeBefore = projectSiteQuery(project);
   patchProject(project, parsed.data, actorOf(req));
+  await refreshSiteContextIfMoved(project, placeBefore, new Date().toISOString());
   await persistPaneWrite(req, project, 'Updated project details.', { citedNodeIds: [project.id] });
   res.json(project);
 });
@@ -1291,7 +1293,10 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req,
     const now = new Date().toISOString();
     await ensureIdentitySiteContext(project, projectToIdentity(project), now);
   }
+  const placeBefore = projectSiteQuery(project);
   const result = applyProjectChat(project, `Approve "${item.title}"`, { actor: actorOf(req) });
+  // Approving "record the address as ..." is the moment the property moves.
+  await refreshSiteContextIfMoved(project, placeBefore, new Date().toISOString());
   await rememberProject(project);
   await store.save();
   res.json({ ...result, project });
