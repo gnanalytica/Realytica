@@ -54,6 +54,7 @@ const PRECISION_LABEL: Record<string, string> = {
   stated: 'stated on a document',
   rooftop: 'rooftop',
   interpolated: 'interpolated',
+  premise_centre: 'premise centre',
   locality_centre: 'locality centre',
   approximate: 'approximate',
 };

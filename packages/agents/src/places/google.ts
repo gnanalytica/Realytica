@@ -100,24 +100,39 @@ export function nearbyQueryFor(kind: NearbyRequest['kind']): { types: string[]; 
 /**
  * Google's `location_type`, mapped onto the port's precision classes.
  *
- * `GEOMETRIC_CENTER` is the interesting one: Google returns it for the centre
- * of a polyline (a road) or a polygon (a locality, a ward). Neither is the
- * property. It is grouped with `APPROXIMATE` under `locality_centre` because
- * for this product's purposes they mean the same thing — "somewhere in the
- * right area" — and splitting them would invite a call site to treat one of
- * them as a site match.
+ * `GEOMETRIC_CENTER` is the interesting one, and it is two different things
+ * wearing one name. Google returns it for the centre of a polyline (a road)
+ * or a polygon — and the polygon may be a ward, or it may be a named building.
+ * Asked about a Bengaluru township it answers:
+ *
+ *     location_type: GEOMETRIC_CENTER   types: ['premise', 'street_address']
+ *     Sobha Dream Acres, 1144, Balagere Main Rd, Panathur, Bengaluru 560087
+ *
+ * That is not the centre of a neighbourhood. Google has matched the named
+ * premise and returned its centroid. Reporting it as `locality_centre` made
+ * the case say "the address on file did not resolve to a specific building"
+ * about a result that resolved to exactly one, which is a statement the
+ * provider's own response contradicts.
+ *
+ * So a premise centroid gets its own class. It is deliberately *not*
+ * site-accurate: this product cannot know whether the premise is one plot or
+ * an eighty-acre layout, and a centroid of the second is a long way from the
+ * unit being priced. The class exists to let the caveat say what was actually
+ * matched instead of guessing in either direction.
  */
 function precisionOf(locationType: string | undefined, types: string[] | undefined): GeocodePrecision {
   // A result Google typed as a locality, ward or district is a region centre
   // no matter how precise the geometry claims to be.
   const regionish = /^(locality|sublocality|postal_code|administrative_area|neighborhood|political)/;
   if (types?.some(t => regionish.test(t))) return 'locality_centre';
+  const premiseish = new Set(['premise', 'subpremise', 'establishment', 'point_of_interest']);
   switch (locationType) {
     case 'ROOFTOP':
       return 'rooftop';
     case 'RANGE_INTERPOLATED':
       return 'interpolated';
     case 'GEOMETRIC_CENTER':
+      return types?.some(t => premiseish.has(t)) ? 'premise_centre' : 'locality_centre';
     case 'APPROXIMATE':
       return 'locality_centre';
     default:

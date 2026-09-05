@@ -1754,19 +1754,28 @@ export interface StalenessReport {
  *                    coordinate and a person approved it onto the record
  *   rooftop          the provider matched a specific address/premise
  *   interpolated     interpolated along a road segment from a house-number range
+ *   premise_centre   the provider matched a named building or layout and
+ *                    returned the centre of it, which is this property but not
+ *                    necessarily this unit
  *   locality_centre  the provider fell back to the locality, ward or town
  *   approximate      matched something, but not a class this code recognises
  *
- * Only the first three are treated as describing *this property*. The other
- * two describe the neighbourhood, and are shown as such — never used to price
- * a driver, never captioned as the site.
+ * `stated`, `rooftop` and `interpolated` are treated as describing *this
+ * property*. The last two describe the neighbourhood, and are shown as such —
+ * never used to price a driver, never captioned as the site.
+ *
+ * `premise_centre` sits between them and is counted with the second group. It
+ * is a real match on this property's own name, so calling it a neighbourhood
+ * pin misdescribes it — but the premise may be a single plot or an eighty-acre
+ * layout, and nothing in the response says which. It is shown for what it is
+ * and priced as though it were not the unit, because on the layout it is not.
  *
  * `stated` is not a precision class a geocoder can return, and that is the
  * point: it records that this pin did not come from one. It is site-level by
  * construction — a plan's centroid is about this parcel and nothing else —
  * and it is unverified, which its caveat says in as many words.
  */
-export type GeocodePrecision = 'stated' | 'rooftop' | 'interpolated' | 'locality_centre' | 'approximate';
+export type GeocodePrecision = 'stated' | 'rooftop' | 'interpolated' | 'premise_centre' | 'locality_centre' | 'approximate';
 
 /** WGS84 decimal degrees. */
 export interface GeoPoint {
