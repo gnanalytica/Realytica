@@ -14,6 +14,7 @@ export * from './attribution';
 export * from './provider-failure';
 export * from './link-ids';
 export * from './text';
+export * from './proposal-diff';
 export * from './run-ledger';
 export * from './chat-sides';
 export * from './project-screen';
