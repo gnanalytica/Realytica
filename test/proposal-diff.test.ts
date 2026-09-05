@@ -100,3 +100,27 @@ describe('proposalChanges', () => {
     assert.deepEqual(proposalChanges(p, card('record_check_fields', { checkId: 'chk_nope', values: { a: 1 } })), []);
   });
 });
+
+/**
+ * The parcel is the join key: every register search, the geocoder and the map
+ * key off it. A card that sets it is exactly the kind somebody should see
+ * before approving rather than discover after.
+ */
+describe('a parcel card shows what it would record', () => {
+  it('renders the survey numbers as the change', () => {
+    const p = project();
+    const rows = proposalChanges(p, card('patch_project', { parcelId: '50/2, 50/4, 51/2B1' }));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.label, 'Parcel');
+    assert.equal(rows[0]!.from, undefined, 'nothing was recorded before');
+    assert.equal(rows[0]!.to, '50/2, 50/4, 51/2B1');
+  });
+
+  it('shows a parcel being corrected, both sides', () => {
+    const p = project();
+    p.parcelId = '42/1';
+    const rows = proposalChanges(p, card('patch_project', { parcelId: '50/2' }));
+    assert.equal(rows[0]!.from, '42/1');
+    assert.equal(rows[0]!.to, '50/2');
+  });
+});

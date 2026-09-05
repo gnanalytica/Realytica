@@ -58,6 +58,11 @@ const PROJECT_FIELDS: Array<{ key: keyof DdProject; label: string; unit?: string
   { key: 'city', label: 'City' },
   { key: 'location', label: 'Location' },
   { key: 'jurisdiction', label: 'Jurisdiction' },
+  // Where the property is. Both feed the geocoder and every register search,
+  // so a card that sets one is exactly the kind a person should see before
+  // approving rather than after.
+  { key: 'siteAddress', label: 'Site address' },
+  { key: 'parcelId', label: 'Parcel' },
   { key: 'portfolio', label: 'Portfolio' },
   { key: 'landAreaSqm', label: 'Land area', unit: 'sqm' },
   { key: 'builtUpAreaSqm', label: 'Built-up area', unit: 'sqm' },
