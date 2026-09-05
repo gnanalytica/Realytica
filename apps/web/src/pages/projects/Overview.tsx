@@ -24,6 +24,9 @@ import { LiveRow } from './LiveRow';
  * project — every register, every chart — paints without waiting for a mapping
  * library.
  */
+const SitePlaceCard = lazy(() =>
+  import('../../components/SitePlaceCard').then((m) => ({ default: m.SitePlaceCard })),
+);
 const GisOverlayCard = lazy(() =>
   import('../../components/GisOverlayCard').then((m) => ({ default: m.GisOverlayCard })),
 );
@@ -135,6 +138,19 @@ export default function Overview() {
 
       <Suspense fallback={<Skeleton className="h-48 w-full rounded-xl" />}>
         <GisOverlayCard project={project} onChanged={async () => setProject(await api.getProject(project.id))} />
+      </Suspense>
+
+      {/*
+        Beneath the overlay rather than inside it, because they answer
+        different questions. The overlay is about the parcel — a survey sketch
+        against the civic layers, which is a boundary question. This is about
+        the place: where the geocoder put the address, what the road looks
+        like, and what stands within walking distance. Blending them would
+        invite the pin to be read as the extent, which is exactly what the
+        site-context model refuses to let happen.
+      */}
+      <Suspense fallback={<Skeleton className="h-48 w-full rounded-xl" />}>
+        <SitePlaceCard project={project} />
       </Suspense>
 
       {project.portfolio ? (

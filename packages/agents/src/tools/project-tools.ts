@@ -904,6 +904,39 @@ export function createProjectTools(
    * flag. The model gets titles and claims to reason WITH; the sources land
    * where every other source on this product lands.
    */
+  /**
+   * Where the site actually is, and what stands around it.
+   *
+   * The case copilot has had this since the mapping provider was written; the
+   * project copilot never did, so a project chat could report the encumbrance
+   * position and not know which road the plot fronts.
+   *
+   * The description carries the two constraints the site-context model exists
+   * to enforce, because a tool description is where a model learns them: a pin
+   * is not a parcel boundary, and away from rooftop precision the distances
+   * describe a neighbourhood rather than this property.
+   */
+  const getSiteContext = betaTool({
+    name: 'get_site_context',
+    description:
+      'Where this project was placed on a map, how precisely, what is nearby with measured distances, and the street-level imagery with its capture date. Also returns every gap — what could not be established and what that leaves unknown. Use for questions about location, commute, amenities or surroundings. Never present the pin as a parcel boundary; where precision is not rooftop or interpolated, say the distances describe the neighbourhood rather than this property. Straight-line and by-road distances are different measurements and must not be reported as one.',
+    inputSchema: { type: 'object', additionalProperties: false, required: [], properties: {} } as const,
+    run: async () => {
+      const context = project.siteContext;
+      if (!context) {
+        return JSON.stringify({
+          located: false,
+          note: 'This project has not been placed on a map. Either no mapping provider is configured for this deployment, or the address has not been resolved yet — say which is unknown rather than describing the surroundings.',
+        });
+      }
+      bag.toolCalls.push({
+        name: 'site_context',
+        summary: context.location ? `${context.location.precision} pin · ${context.amenities.length} nearby` : 'not located',
+      });
+      return JSON.stringify(context);
+    },
+  });
+
   const searchWeb = betaTool({
     name: 'search_web',
     description:
@@ -1070,6 +1103,7 @@ export function createProjectTools(
     getSubgraph,
     traceConclusion,
     lookupReference,
+    getSiteContext,
     searchWeb,
     getPortalRoute,
     comparePlanning,
