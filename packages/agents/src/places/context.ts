@@ -97,6 +97,51 @@ function caveatFor(precision: SiteLocation['precision'], resolvedAddress: string
   }
 }
 
+
+/**
+ * How far apart the file's two answers are about where this property is.
+ *
+ * A case can hold both a stated coordinate and an address, and the coordinate
+ * wins — deliberately, because it is a fact about this parcel and the address
+ * is a string somebody geocodes. But "wins" was silent, and a coordinate that
+ * disagrees with the address by a kilometre is not a preference between two
+ * readings; it is a finding. One of them is about a different property, or a
+ * digit was mistyped, and either way somebody has to look.
+ *
+ * So the geocode still runs when both exist — one call, only in that case —
+ * purely to disagree. It never becomes the pin.
+ *
+ * The geocoder's own precision decides what the distance means, which is why
+ * it is quoted rather than reduced to a verdict: a locality-centre match
+ * sitting 1.8 km from the plot is what a village name always does, while a
+ * rooftop match that far away means the two records are not the same place.
+ */
+const DISAGREEMENT_METRES = 2000;
+
+async function disagreementSentence(identity: PropertyIdentity, provider: PlaceProvider): Promise<string> {
+  const point = identity.statedPoint;
+  const query = siteContextQuery(identity);
+  if (!point || query.length === 0) return '';
+
+  const geocoded = await provider.geocode({
+    query,
+    biasTo: CITY_BIAS[identity.city.trim().toLowerCase()],
+    regionCode: REGION_CODE[identity.country],
+  });
+  // A cross-check that could not run is not a disagreement, and inventing a
+  // reassurance would be worse than saying nothing.
+  if (!geocoded.ok) return '';
+
+  const metres = Math.round(haversineMetres(point, geocoded.value.point));
+  if (metres < DISAGREEMENT_METRES) return '';
+
+  const away = metres >= 1000 ? `${(metres / 1000).toFixed(1)} km` : `${metres} m`;
+  return (
+    ` The address on file resolves ${away} away, to "${geocoded.value.resolvedAddress}" (${geocoded.value.precision.replace(/_/g, ' ')}).`
+    + ' The coordinate is what everything here is measured from; that the two disagree by this much is worth resolving before either is relied on.'
+  );
+}
+
 export async function buildSiteContext(input: BuildSiteContextInput): Promise<SiteContext> {
   const { caseId, identity, provider, now } = input;
   const streetViewUrl =
@@ -166,7 +211,7 @@ export async function buildSiteContext(input: BuildSiteContextInput): Promise<Si
       resolvedAddress: '',
       provider: 'case_documents',
       resolvedAt: now,
-      caveat: caveatFor('stated', ''),
+      caveat: caveatFor('stated', '') + (await disagreementSentence(identity, provider)),
     };
   } else {
     const geocoded = await provider.geocode({

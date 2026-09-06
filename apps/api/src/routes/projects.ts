@@ -1242,12 +1242,29 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
     checkId: req.body?.checkId,
   });
   let enriched = ingest;
+  /*
+   * What reading these documents cost, totalled across them.
+   *
+   * `exact` is false the moment any one read was unpriced, because a total
+   * that mixes a known rate with an unknown one is a lower bound, and showing
+   * it as exact would understate the turn by however much the unpriced call
+   * came to. Accumulated as each file finishes, so a run that throws part-way
+   * still reports what it spent before it did.
+   */
+  let readCostUsd = 0;
+  let readCostExact = true;
+  let readAnything = false;
   try {
     enriched = await enrichIngestWithDocumentIntelligence({
       project: canvas,
       files: ingest,
       buffers: files.map((f) => f.buffer),
       onStep: (step) => line({ type: 'step', step }),
+      onSpend: (spend) => {
+        readAnything = true;
+        readCostUsd += spend.usd;
+        readCostExact = readCostExact && spend.exact;
+      },
     });
   } catch {
     enriched = ingest;
@@ -1263,6 +1280,7 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
     viewContext,
     ingest: enriched,
     sitting,
+    spend: readAnything ? { usd: readCostUsd, exact: readCostExact } : undefined,
   });
   sayWhatIsMissing(seen, question, result);
   stampSession(result, typeof req.body?.sessionId === 'string' ? req.body.sessionId : undefined);
