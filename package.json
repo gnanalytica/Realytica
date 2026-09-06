@@ -16,7 +16,7 @@
     "preview": "pnpm -F @realytica/web preview",
     "start": "pnpm -F @realytica/api start",
     "typecheck": "tsc -p packages/shared && tsc -p packages/agents && tsc -p apps/api && tsc -p apps/web && tsc -p tsconfig.test.json",
-    "test": "tsx --test \"test/**/*.test.ts\"",
+    "test": "tsx --import ./test/no-ambient-credentials.ts --test \"test/**/*.test.ts\"",
     "check": "pnpm typecheck && pnpm lint && pnpm lint:classes && pnpm test",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/web/dist",
     "deploy:build": "pnpm install --frozen-lockfile && pnpm build",

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Layers, MapPinned, RefreshCw, Upload } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Check, Layers, MapPinned, RefreshCw, Upload } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { sheetIsPlaceable, type DdProject, type GisContextFeature, type GisOverlayHit, type GisOverlayRead, type SheetPlacement } from '@realytica/shared';
@@ -415,44 +416,32 @@ export function GisOverlayCard({
           </Callout>
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-secondary">
-          <Layers size={13} className="text-ink-muted" />
-          <button type="button" className={toggleClass(basemap === 'satellite')} onClick={() => setBasemap('satellite')}>
-            Satellite
-          </button>
-          <button type="button" className={toggleClass(basemap === 'streets')} onClick={() => setBasemap('streets')}>
-            Streets
-          </button>
-          <span className="text-ink-muted">·</span>
-          <button type="button" className={toggleClass(showWater)} onClick={() => setShowWater((v) => !v)}>
-            OSM water
-          </button>
-          <button type="button" className={toggleClass(showLanduse)} onClick={() => setShowLanduse((v) => !v)}>
-            OSM landuse
-          </button>
+        <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5 text-[12px] text-ink-secondary">
+          <Layers size={13} className="mr-1 text-ink-muted" />
+          <Basemaps value={basemap} onChange={setBasemap} />
+          <span className="mx-1 h-4 w-px bg-hairline" aria-hidden />
+          <LayerToggle on={showWater} onClick={() => setShowWater((v) => !v)}>OSM water
+          </LayerToggle>
+          <LayerToggle on={showLanduse} onClick={() => setShowLanduse((v) => !v)}>OSM landuse
+          </LayerToggle>
           {lakeCount > 0 ? (
-            <button type="button" className={toggleClass(showLakes)} onClick={() => setShowLakes((v) => !v)}>
-              OpenCity lakes {lakeCount}
-            </button>
+            <LayerToggle on={showLakes} onClick={() => setShowLakes((v) => !v)}>OpenCity lakes {lakeCount}
+            </LayerToggle>
           ) : null}
           {wardCount > 0 ? (
-            <button type="button" className={toggleClass(showWards)} onClick={() => setShowWards((v) => !v)}>
-              GBA wards {wardCount}
-            </button>
+            <LayerToggle on={showWards} onClick={() => setShowWards((v) => !v)}>GBA wards {wardCount}
+            </LayerToggle>
           ) : null}
-          <button type="button" className={toggleClass(showSurvey)} onClick={() => setShowSurvey((v) => !v)} disabled={!read?.survey}>
-            Survey sketch
-          </button>
+          <LayerToggle on={showSurvey} onClick={() => setShowSurvey((v) => !v)} disabled={!read?.survey}>Survey sketch
+          </LayerToggle>
           {liveBbmp ? (
-            <button type="button" className={toggleClass(showBbmp)} onClick={() => setShowBbmp((v) => !v)}>
-              BBMP WMS lakes/parks
-            </button>
+            <LayerToggle on={showBbmp} onClick={() => setShowBbmp((v) => !v)}>BBMP WMS lakes/parks
+            </LayerToggle>
           ) : null}
           {placedSheet ? (
             <>
-              <button type="button" className={toggleClass(showSheet)} onClick={() => setShowSheet((v) => !v)}>
-                {placedSheet.sheet.title}
-              </button>
+              <LayerToggle on={showSheet} onClick={() => setShowSheet((v) => !v)}>{placedSheet.sheet.title}
+              </LayerToggle>
               {showSheet ? (
                 <input
                   type="range"
@@ -613,9 +602,77 @@ export function GisOverlayCard({
   );
 }
 
-function toggleClass(on: boolean) {
-  return cn(
-    'rounded-md px-2 py-0.5 ring-1 ring-inset',
-    on ? 'bg-brand-soft text-brand ring-brand/30' : 'bg-sunken text-ink-muted ring-[var(--ring)]',
+/**
+ * A layer that is on or off.
+ *
+ * Two problems with the pill it replaces. Its state was carried by fill colour
+ * alone, so on and off were one perceptual step apart for a reader who does not
+ * separate blue from grey — and there was no `aria-pressed`, so a screen reader
+ * was told nothing at all. And it was the same shape as the basemap buttons
+ * beside it, which are a choice between two, not eight independent switches:
+ * one row of identical pills, two different behaviours, no way to tell which
+ * was which until you clicked one.
+ *
+ * The tick is the fix for the first and the shape is the fix for the second.
+ */
+function LayerToggle({
+  on,
+  onClick,
+  disabled,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition-colors duration-base',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
+        disabled ? 'cursor-not-allowed text-ink-muted opacity-50' : 'hover:bg-sunken',
+        on ? 'text-ink' : 'text-ink-muted',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'grid h-3 w-3 shrink-0 place-items-center rounded-[3px] ring-1 ring-inset',
+          on ? 'bg-brand text-white ring-brand' : 'bg-surface ring-[var(--ring)]',
+        )}
+      >
+        {on ? <Check size={9} strokeWidth={3} /> : null}
+      </span>
+      {children}
+    </button>
+  );
+}
+
+/** Basemap is a choice between two, so it is drawn as one control, not two pills. */
+function Basemaps({ value, onChange }: { value: Basemap; onChange: (next: Basemap) => void }) {
+  return (
+    <div role="radiogroup" aria-label="Basemap" className="inline-flex rounded-md bg-sunken p-0.5 ring-1 ring-inset ring-[var(--ring)]">
+      {(['satellite', 'streets'] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          role="radio"
+          aria-checked={value === option}
+          onClick={() => onChange(option)}
+          className={cn(
+            'rounded-[5px] px-2 py-0.5 text-[12px] capitalize transition-colors duration-base',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
+            value === option ? 'bg-surface text-ink shadow-card' : 'text-ink-muted hover:text-ink-secondary',
+          )}
+        >
+          {option}
+        </button>
+      ))}
+    </div>
   );
 }

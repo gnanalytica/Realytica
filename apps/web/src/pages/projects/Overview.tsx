@@ -14,7 +14,7 @@ import {
   type LifecycleStage,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, Field, Modal, Select, Skeleton, StatTile, Textarea, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Field, Modal, Select, Skeleton, StandingStrip, Textarea, useToast } from '../../components/ui/kit';
 import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 import { LiveRow } from './LiveRow';
@@ -68,6 +68,14 @@ export default function Overview() {
 
   return (
     <div className="space-y-4">
+      {/*
+        One card where there were two, and a line where there was a grid.
+
+        The next step and the four figures answer the same question — what is
+        the state of this file — and they were split across a card and a 2×2 of
+        tinted tiles, with the next step also printed verbatim in the chat panel
+        beside them. `StandingStrip` carries the argument for why the tiles went.
+      */}
       <Card>
         <CardHeader
           title="Today"
@@ -78,51 +86,38 @@ export default function Overview() {
             </Link>
           }
         />
-        <CardBody className="space-y-1">
-          <p className="text-[15px] font-medium text-ink">{step.title}</p>
-          <p className="text-[13px] text-ink-secondary">{step.why}</p>
+        <CardBody className="space-y-3">
+          <div>
+            <p className="text-[15px] font-medium text-ink">{step.title}</p>
+            <p className="text-[13px] text-ink-secondary">{step.why}</p>
+          </div>
+          <StandingStrip
+            items={[
+              {
+                label: 'Priority pack',
+                value: `${pack.percent}%`,
+                hint: `of ${pack.total}`,
+              },
+              {
+                label: 'Material findings',
+                value: material.length,
+                hint: material.length ? `${material.filter((f) => f.evidenceIds.length === 0).length} unevidenced` : undefined,
+                alert: material.length ? 'critical' : undefined,
+              },
+              {
+                label: 'Overdue actions',
+                value: dash.actionAging.overdue,
+                hint: dash.actionAging.dueSoon ? `${dash.actionAging.dueSoon} due in 14 days` : undefined,
+                alert: dash.actionAging.overdue ? 'critical' : undefined,
+              },
+              {
+                label: 'Active DDs',
+                value: dash.ddProgress.filter((d) => d.status === 'active' || d.status === 'in_review').length,
+              },
+            ]}
+          />
         </CardBody>
       </Card>
-
-      {/*
-        Container widths, not window widths — these tiles sit in the cockpit's
-        right pane, which is a few hundred pixels while the window is a
-        thousand. Keyed to `lg:` they went to four columns the moment the
-        *window* passed 1024px and gave each tile about ninety pixels, with
-        "Priority pack" broken across two lines and the hint clipped.
-      */}
-      <div className="grid gap-3 [@container(min-width:30rem)]:grid-cols-2 [@container(min-width:56rem)]:grid-cols-4">
-        {/*
-          Red means "somebody has to do something about this", and it stopped
-          meaning that when a completeness percentage wore it too. A pack at 7%
-          and three material findings were the same colour, so the tile that
-          reports a real problem had to compete with the one reporting
-          progress. Amber carries "thin, keep going"; red is kept for the
-          counts that are actually bad.
-        */}
-        <StatTile
-          label="Priority pack"
-          value={`${pack.percent}%`}
-          hint={`${pack.received}/${pack.total} core items`}
-          tone={pack.percent >= 80 ? 'good' : pack.percent < 40 ? 'warning' : 'neutral'}
-        />
-        <StatTile
-          label="Material findings"
-          value={String(material.length)}
-          hint={`${material.filter((f) => f.evidenceIds.length === 0).length} unevidenced`}
-          tone={material.length ? 'critical' : 'neutral'}
-        />
-        <StatTile
-          label="Overdue actions"
-          value={String(dash.actionAging.overdue)}
-          hint={`${dash.actionAging.dueSoon} due in 14 days`}
-          tone={dash.actionAging.overdue ? 'critical' : 'neutral'}
-        />
-        <StatTile
-          label="Active DDs"
-          value={String(dash.ddProgress.filter((d) => d.status === 'active' || d.status === 'in_review').length)}
-        />
-      </div>
 
       {tolerances.length > 0 ? (
         <Card>
