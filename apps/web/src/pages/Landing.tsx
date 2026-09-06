@@ -147,8 +147,9 @@ const REFUSALS = [
   },
 ];
 
+/* `coarse:py-3` clears 44px on a touch pointer; 2.5 measured 43. */
 const CTA_CLASSES =
-  'group inline-flex items-center gap-2 border border-ink bg-ink px-5 py-2.5 text-[14px] font-medium text-ink-inverse ' +
+  'group inline-flex items-center gap-2 border border-ink bg-ink px-5 py-2.5 coarse:py-3 text-[14px] font-medium text-ink-inverse ' +
   'transition-[background-color,color] duration-quick ease-state hover:bg-transparent hover:text-ink ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 focus-visible:ring-offset-page';
 
@@ -165,7 +166,11 @@ export default function Landing() {
           </span>
           <Link
             to="/projects"
-            className="group inline-flex items-baseline gap-2 border-b border-ink pb-0.5 text-[13px] font-medium text-ink transition-colors duration-quick hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+            /* `coarse:` is the app's own convention for a finger-sized target
+               and this page never applied it: both links here measured 23px,
+               against the 44px a thumb needs. Padding rather than a taller
+               line, so the underline stays on the text. */
+            className="group inline-flex items-baseline gap-2 border-b border-ink pb-0.5 text-[13px] font-medium text-ink transition-colors duration-quick hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 coarse:py-3"
           >
             Open workspace
             <ArrowRight size={13} className="translate-y-px transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
@@ -173,6 +178,15 @@ export default function Landing() {
         </div>
       </header>
 
+      {/*
+        The landmark this page did not have.
+
+        Header and footer were marked and everything between them was not, so
+        the one shortcut a screen-reader user reaches for first — jump to the
+        main content — had nothing to jump to, and the way past the masthead
+        was to read the masthead.
+      */}
+      <main>
       <section className="relative isolate mx-auto max-w-5xl px-4 pb-16 pt-12 sm:px-6 sm:pt-16">
         <span aria-hidden="true" className="pointer-events-none absolute inset-x-[-50vw] top-[-3.5rem] -z-10 h-[620px] bg-band" />
         <div className="mb-10 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 font-mono text-mini uppercase tracking-[0.12em] text-ink-muted">
@@ -213,7 +227,7 @@ export default function Landing() {
               Open the workspace
               <ArrowRight size={15} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
             </Link>
-            <a href="#templates" className="border-b border-hairline pb-0.5 text-[14px] text-ink-secondary transition-colors duration-quick hover:border-ink hover:text-ink">
+            <a href="#templates" className="border-b border-hairline pb-0.5 text-[14px] text-ink-secondary transition-colors duration-quick hover:border-ink hover:text-ink coarse:py-3">
               Read the DD templates
             </a>
           </div>
@@ -358,6 +372,8 @@ export default function Landing() {
         </Spread>
       </section>
       </SectionBand>
+
+      </main>
 
       <footer className="border-t border-ink/20">
         <div className="mx-auto flex max-w-5xl flex-col gap-1 px-4 py-8 font-mono text-mini uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between sm:px-6">
