@@ -78,7 +78,7 @@ export default function Overview() {
       */}
       <Card>
         <CardHeader
-          title="Today"
+          title="Where this file stands"
           subtitle={project.reference}
           action={
             <Link to={cockpitPath(project.id, step.pane, step.extra)} className="text-[12px] text-brand">
@@ -86,11 +86,16 @@ export default function Overview() {
             </Link>
           }
         />
-        <CardBody className="space-y-3">
-          <div>
-            <p className="text-[15px] font-medium text-ink">{step.title}</p>
-            <p className="text-[13px] text-ink-secondary">{step.why}</p>
-          </div>
+        {/*
+          The next step is not repeated here.
+
+          It was printed as inert text in this card and, three inches to the
+          left, as a live suggestion in the chat panel with the buttons that
+          act on it. Two copies of one sentence, and the copy a person can use
+          was the one they were not reading. The link in the header goes to the
+          same place; the sentence stays where it can be clicked.
+        */}
+        <CardBody>
           <StandingStrip
             items={[
               {

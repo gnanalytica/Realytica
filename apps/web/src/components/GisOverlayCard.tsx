@@ -456,13 +456,24 @@ export function GisOverlayCard({
               ) : null}
             </>
           ) : null}
-          {read?.osm.error ? <Badge tone="warning">OSM {read.osm.error}</Badge> : null}
-          {read ? (
-            <Badge tone="neutral">
-              {read.osm.featureCount} OSM · {lakeCount} lakes · {wardCount} wards · CONTEXT
-            </Badge>
-          ) : null}
         </div>
+
+        {/*
+          What the layers found, as a caption rather than as two more pills.
+
+          Both of these sat inside the control row, so a count and an error
+          wore the same shape as the eight things you can click — and the
+          Overpass error wore it a second time, since the sentence beneath the
+          map already says it did not load and what that leaves unknown. A row
+          of controls should contain controls.
+        */}
+        {read ? (
+          <p className="text-[11.5px] text-ink-muted">
+            <span className="tabular-nums">{read.osm.featureCount}</span> OSM ·{' '}
+            <span className="tabular-nums">{lakeCount}</span> lakes ·{' '}
+            <span className="tabular-nums">{wardCount}</span> wards · context only, never an extent
+          </p>
+        ) : null}
 
         {placedSheet && showSheet ? (
           /* A raster somebody will read a boundary off, so how well it is
