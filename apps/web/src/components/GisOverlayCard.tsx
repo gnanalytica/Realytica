@@ -468,7 +468,7 @@ export function GisOverlayCard({
           of controls should contain controls.
         */}
         {read ? (
-          <p className="text-[11.5px] text-ink-muted">
+          <p className="text-[12px] text-ink-muted">
             <span className="tabular-nums">{read.osm.featureCount}</span> OSM ·{' '}
             <span className="tabular-nums">{lakeCount}</span> lakes ·{' '}
             <span className="tabular-nums">{wardCount}</span> wards · context only, never an extent
@@ -482,7 +482,7 @@ export function GisOverlayCard({
              will read a perfect fit as a verified one. */
           <p
             className={cn(
-              'text-[11.5px]',
+              'text-[12px]',
               placedSheet.reading.verdict === 'good' ? 'text-ink-muted' : 'text-[var(--status-warning-text)]',
             )}
           >
@@ -502,12 +502,12 @@ export function GisOverlayCard({
         ) : loading ? (
           <div className="min-h-[120px] rounded-lg bg-sunken ring-1 ring-inset ring-[var(--ring)]" />
         ) : (
-          <p className="rounded-lg bg-sunken px-3 py-2.5 text-[12.5px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+          <p className="rounded-lg bg-sunken px-3 py-2.5 text-[13px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
             Geocode the address, or upload a GeoJSON/KML.
           </p>
         )}
 
-        {loading && !read ? <p className="text-[12.5px] text-ink-muted">Building the overlay…</p> : null}
+        {loading && !read ? <p className="text-[13px] text-ink-muted">Building the overlay…</p> : null}
 
         {flags.length ? (
           <ul className="space-y-1.5">
@@ -533,7 +533,7 @@ export function GisOverlayCard({
         ) : null}
 
         {read?.planning.inForce ? (
-          <p className="text-[11.5px] leading-relaxed text-ink-muted">
+          <p className="text-[12px] leading-relaxed text-ink-muted">
             Plan in force: {read.planning.inForce.title}. Master plan extract{' '}
             {read.planning.thisFile.hasMasterPlanExtract ? 'held' : 'not held'} on this file. Zoning certificate{' '}
             {read.planning.thisFile.hasZoningCertificate ? 'held' : 'not held'}.
@@ -559,12 +559,12 @@ export function GisOverlayCard({
         {read?.dpplansHint ? <p className="text-[12px] leading-relaxed text-ink-muted">{read.dpplansHint}</p> : null}
         {read?.maps.sittings.length ? (
           <div className="space-y-1.5">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+            <p className="text-[12px] font-medium text-ink-muted">
               Official maps for this file ({read.maps.realm})
             </p>
             <ul className="space-y-1.5">
               {read.maps.sittings.map((s) => (
-                <li key={s.key} className="text-[12.5px] leading-relaxed text-ink-secondary">
+                <li key={s.key} className="text-[13px] leading-relaxed text-ink-secondary">
                   <a href={s.url} target="_blank" rel="noreferrer" className="font-medium text-brand hover:underline">
                     {s.label}
                   </a>
@@ -577,12 +577,12 @@ export function GisOverlayCard({
 
         {read?.withdrawnSheets.length ? (
           <div className="space-y-1.5">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+            <p className="text-[12px] font-medium text-ink-muted">
               Withdrawn RMP-2031 sheets that mention this locality (not in force)
             </p>
             <ul className="space-y-1">
               {read.withdrawnSheets.map((s) => (
-                <li key={s.url} className="text-[12.5px] leading-relaxed text-ink-secondary">
+                <li key={s.url} className="text-[13px] leading-relaxed text-ink-secondary">
                   <a href={s.url} target="_blank" rel="noreferrer" className="text-ink hover:underline">
                     {s.name}
                   </a>

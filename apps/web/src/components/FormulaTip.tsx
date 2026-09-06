@@ -188,7 +188,7 @@ export function FormulaTip({
           ) : null}
 
           {derivation.substituted ? (
-            <span className="mt-1 block font-mono text-[11.5px] leading-snug tabular-nums">
+            <span className="mt-1 block font-mono text-[12px] leading-snug tabular-nums">
               {derivation.substituted}
               {derivation.result ? (
                 <>
@@ -198,7 +198,7 @@ export function FormulaTip({
               ) : null}
             </span>
           ) : derivation.result ? (
-            <span className="mt-1 block font-mono text-[11.5px] font-semibold tabular-nums">
+            <span className="mt-1 block font-mono text-[12px] font-semibold tabular-nums">
               {derivation.result}
             </span>
           ) : null}

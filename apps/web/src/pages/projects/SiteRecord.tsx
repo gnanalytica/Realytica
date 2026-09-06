@@ -80,7 +80,7 @@ export default function SiteRecord() {
       {concerns.length ? (
         <Card>
           <CardBody className="space-y-1.5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Capture warnings</p>
+            <p className="text-[12px] font-semibold text-ink-secondary">Capture warnings</p>
             {/* Computed from the files, never stored. Nothing here rejects a
                 photograph — a shot two kilometres away might be of the access
                 road — but a reader should be told before citing one. */}
@@ -97,7 +97,7 @@ export default function SiteRecord() {
       ) : null}
 
       <section className="space-y-2">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Site visits</h2>
+        <h2 className="text-[12px] font-semibold text-ink-secondary">Site visits</h2>
         {visits.length === 0 ? (
           <EmptyState
             title="No visit recorded"
@@ -132,19 +132,19 @@ export default function SiteRecord() {
                     {visit.limitations.length ? (
                       <ul className="space-y-0.5">
                         {visit.limitations.map((l, i) => (
-                          <li key={i} className="text-[11.5px] text-[var(--status-warning-text)]">
+                          <li key={i} className="text-[12px] text-[var(--status-warning-text)]">
                             {VISIT_LIMITATION_LABEL[l.kind]} — {l.what}
                           </li>
                         ))}
                       </ul>
                     ) : row?.limitationsStated ? (
-                      <p className="text-[11.5px] text-ink-muted">No limitation recorded — full access stated.</p>
+                      <p className="text-[12px] text-ink-muted">No limitation recorded — full access stated.</p>
                     ) : (
                       /* The distinction that makes the list mean anything. An
                          empty list is a claim of full access; a visit nobody
                          wrote up is silence, and a report must not read the
                          second as the first. */
-                      <p className="text-[11.5px] text-[var(--status-warning-text)]">
+                      <p className="text-[12px] text-[var(--status-warning-text)]">
                         Not written up.
                       </p>
                     )}
@@ -158,7 +158,7 @@ export default function SiteRecord() {
 
       <section className="space-y-2">
         <div className="flex items-center gap-1.5">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Sheets on the map</h2>
+          <h2 className="text-[12px] font-semibold text-ink-secondary">Sheets on the map</h2>
           <InfoTip label="A sheet is placed from its control points, and the placement is worked out fresh every time." />
         </div>
         {placements.length === 0 ? (

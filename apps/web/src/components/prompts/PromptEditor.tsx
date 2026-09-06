@@ -220,7 +220,7 @@ export function PromptEditor({
 
         <div className="flex min-w-0 flex-col gap-3">
           <div>
-            <h4 className="mb-1.5 text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">
+            <h4 className="mb-1.5 text-[12px] font-semibold text-ink-muted">
               Declared placeholders
             </h4>
             {prompt.variables.length === 0 ? (
@@ -263,7 +263,7 @@ export function PromptEditor({
           </div>
 
           <div>
-            <h4 className="mb-1.5 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">
+            <h4 className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-ink-muted">
               Guardrails
               <span className="font-normal normal-case tracking-normal text-ink-muted">(checked as you type)</span>
             </h4>

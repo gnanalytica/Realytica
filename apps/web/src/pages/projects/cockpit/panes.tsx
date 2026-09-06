@@ -53,9 +53,9 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
 
       {project.lastScreen ? (
         <LiveRow id={`${project.id}:screen`} highlightIds={highlightIds}>
-          <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Property screen</p>
+          <p className="text-[12px] font-semibold text-ink-muted">Property screen</p>
           <p className="mt-2 text-[13px] font-medium text-ink">{project.lastScreen.headline}</p>
-          <p className="mt-1 text-[12.5px] text-ink-secondary">
+          <p className="mt-1 text-[13px] text-ink-secondary">
             {project.lastScreen.verdict.replaceAll('_', ' ')}
             {project.lastScreen.indicatedMid != null
               ? ` · ${project.lastScreen.currency ?? project.currency} ${Math.round(project.lastScreen.indicatedMid).toLocaleString()}`
@@ -66,8 +66,8 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
       ) : null}
 
       <LiveRow id={project.id} highlightIds={highlightIds}>
-        <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Project</p>
-        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[12.5px]">
+        <p className="text-[12px] font-semibold text-ink-muted">Project</p>
+        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[13px]">
           <dt className="text-ink-muted">Owner</dt>
           <dd className="text-ink">{project.owner || '—'}</dd>
           <dt className="text-ink-muted">Developer</dt>
@@ -88,7 +88,7 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
       </LiveRow>
 
       <div>
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Assets</h3>
+        <h3 className="text-[12px] font-semibold text-ink-muted">Assets</h3>
         {assets.length === 0 ? (
           <p className="mt-2 text-[13px] text-ink-muted">No assets yet.</p>
         ) : (
@@ -143,7 +143,7 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
         </ul>
       )}
       <div>
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Material findings</h3>
+        <h3 className="text-[12px] font-semibold text-ink-muted">Material findings</h3>
         {material.length === 0 ? (
           <p className="mt-2 text-[13px] text-ink-muted">No high or critical open findings.</p>
         ) : (
@@ -161,7 +161,7 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
       </div>
       {project.findings.some((f) => highlightIds?.includes(f.id) && !material.some((m) => m.id === f.id)) ? (
         <div>
-          <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Updated findings</h3>
+          <h3 className="text-[12px] font-semibold text-ink-muted">Updated findings</h3>
           <ul className="mt-2 space-y-2">
             {project.findings
               .filter((f) => highlightIds?.includes(f.id) && !material.some((m) => m.id === f.id))
@@ -177,7 +177,7 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
         </div>
       ) : null}
       <div>
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Risks</h3>
+        <h3 className="text-[12px] font-semibold text-ink-muted">Risks</h3>
         {project.risks.filter((r) => r.status !== 'closed' && r.status !== 'accepted').length === 0 ? (
           <p className="mt-2 text-[13px] text-ink-muted">No open risks.</p>
         ) : (
@@ -196,7 +196,7 @@ export function WorkPane({ project, highlightIds }: { project: DdProject; highli
         )}
       </div>
       <div>
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Decisions</h3>
+        <h3 className="text-[12px] font-semibold text-ink-muted">Decisions</h3>
         {project.decisions.length === 0 ? (
           <p className="mt-2 text-[13px] text-ink-muted">No decisions yet. Say “add decision: …” in chat.</p>
         ) : (
@@ -351,7 +351,7 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
             to change register here.
           */}
           <h2 className="text-[15px] font-semibold text-ink">Auto-run plan</h2>
-          <p className="mt-0.5 text-[12.5px] text-ink-secondary">
+          <p className="mt-0.5 text-[13px] text-ink-secondary">
             Works through what this file still needs and proposes drafts. Nothing is written until you accept it.
           </p>
         </div>
@@ -393,10 +393,10 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
       )}
       {runLedger?.runs.length ? (
         <div>
-          <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">What it has done</h3>
+          <h3 className="text-[12px] font-semibold text-ink-muted">What it has done</h3>
           <ul className="mt-2 space-y-1.5">
             {runLedger.runs.slice(0, 8).map((row) => (
-              <li key={row.id} className="flex items-start gap-2 text-[12.5px] leading-snug">
+              <li key={row.id} className="flex items-start gap-2 text-[13px] leading-snug">
                 {/* The raw state name was rendered straight through, so the
                     list read "finished" in lower case beside sentences. */}
                 <Badge tone={row.state === 'interrupted' ? 'warning' : row.state === 'failed' ? 'critical' : row.state === 'running' ? 'brand' : 'neutral'}>
@@ -410,12 +410,12 @@ export function OrchestratePane({ project, onChanged }: { project: DdProject; on
       ) : null}
       {project.capabilityRuns.length ? (
         <div>
-          <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">What it can check</h3>
+          <h3 className="text-[12px] font-semibold text-ink-muted">What it can check</h3>
           <ul className="mt-2 space-y-2">
             {project.capabilityRuns.map((run) => (
               <li key={run.kind} className="rounded-lg border border-hairline p-2.5">
                 <p className="text-[13px] font-medium text-ink">{CAPABILITY_KIND_LABEL[run.kind]}</p>
-                <p className="mt-0.5 text-[12.5px] text-ink-secondary">{run.summary}</p>
+                <p className="mt-0.5 text-[13px] text-ink-secondary">{run.summary}</p>
               </li>
             ))}
           </ul>
@@ -462,7 +462,7 @@ export function DraftsPane({ project, onChanged }: { project: DdProject; onChang
               </div>
               <Badge tone={draftTone(d.status)}>{AI_DRAFT_STATUS_LABEL[d.status]}</Badge>
             </div>
-            <p className="mt-2 whitespace-pre-wrap text-[12.5px] text-ink-secondary">{d.body}</p>
+            <p className="mt-2 whitespace-pre-wrap text-[13px] text-ink-secondary">{d.body}</p>
             {d.status !== 'committed' && d.status !== 'rejected' ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 <Button size="sm" variant="ghost" onClick={() => void review(d.id, 'accepted')}>
@@ -551,7 +551,7 @@ export function ValuationPane({ project, onChanged }: { project: DdProject; onCh
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-[15px] font-semibold text-ink">Valuation</h2>
-          <p className="mt-1 text-[12.5px] text-ink-secondary">Indicative only. Not a certified IBBI certificate.</p>
+          <p className="mt-1 text-[13px] text-ink-secondary">Indicative only. Not a certified IBBI certificate.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => void screen()}>
@@ -570,7 +570,7 @@ export function ValuationPane({ project, onChanged }: { project: DdProject; onCh
           <p className="text-[18px] font-semibold tabular-nums text-ink">
             {project.currency} {Math.round(latest.indicatedValue).toLocaleString()}
           </p>
-          <p className="mt-1 text-[12.5px] text-ink-secondary">
+          <p className="mt-1 text-[13px] text-ink-secondary">
             {latest.ibbi.premise.replaceAll('_', ' ')} · {latest.signOff.replaceAll('_', ' ')} · {formatWhen(latest.createdAt)}
           </p>
         </div>

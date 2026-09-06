@@ -155,7 +155,7 @@ export function ComparablesSchedule({
           <div className="overflow-x-auto">
             <table className="w-full min-w-max border-collapse text-[12px]">
               <thead>
-                <tr className="border-b border-hairline text-[10.5px] uppercase tracking-wider text-ink-muted">
+                <tr className="border-b border-hairline text-[12px] font-medium text-ink-muted">
                   <th scope="col" className="sticky left-0 z-10 bg-surface py-1.5 pr-3 text-left font-medium">
                     Comparable
                   </th>
@@ -189,10 +189,10 @@ export function ComparablesSchedule({
                         transacted rate.
                       */}
                       <th scope="row" className="sticky left-0 z-10 max-w-[11rem] bg-surface py-2 pr-3 text-left font-normal">
-                        <span className="block truncate text-[12.5px] text-ink" title={comp.label}>
+                        <span className="block truncate text-[13px] text-ink" title={comp.label}>
                           {comp.label}
                         </span>
-                        <span className="block text-[10.5px] text-ink-muted">{comp.distanceKm.toFixed(1)} km away</span>
+                        <span className="block text-[11px] text-ink-muted">{comp.distanceKm.toFixed(1)} km away</span>
                       </th>
                       <td className="px-2 py-2 text-right font-mono tabular-nums text-ink-secondary">
                         {Math.round(comp.areaSqm).toLocaleString()}
@@ -279,7 +279,7 @@ export function ComparablesSchedule({
                 <tr className="border-t-2 border-hairline">
                   <th scope="row" className="sticky left-0 z-10 bg-surface py-2 pr-3 text-left text-[12px] font-medium text-ink">
                     Weighted mean
-                    <span className="block font-normal text-[10.5px] text-ink-muted">
+                    <span className="block font-normal text-[11px] text-ink-muted">
                       the rate the comparable approach uses
                     </span>
                   </th>
@@ -312,7 +312,7 @@ export function ComparablesSchedule({
                         ),
                       }}
                     >
-                      <span className="font-mono text-[12.5px] font-semibold tabular-nums text-ink">
+                      <span className="font-mono text-[13px] font-semibold tabular-nums text-ink">
                         {rate(weightedMean, currency)}
                       </span>
                     </FormulaTip>
@@ -335,16 +335,16 @@ export function ComparablesSchedule({
             return (
               <li key={comp.id} className="rounded-lg border border-hairline p-2.5">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <span className="min-w-0 text-[12.5px] font-medium text-ink">{comp.label}</span>
-                  <span className="shrink-0 font-mono text-[12.5px] tabular-nums text-ink">
+                  <span className="min-w-0 text-[13px] font-medium text-ink">{comp.label}</span>
+                  <span className="shrink-0 font-mono text-[13px] tabular-nums text-ink">
                     {rate(comp.adjustedPricePerSqm, currency)}
                   </span>
                 </div>
-                <p className="text-[10.5px] text-ink-muted">
+                <p className="text-[11px] text-ink-muted">
                   {Math.round(comp.areaSqm).toLocaleString()} m² · {comp.distanceKm.toFixed(1)} km ·{' '}
                   {age(comp.transactedAt)} · weight {((weights[i] / totalWeight) * 100).toFixed(0)}%
                 </p>
-                <dl className="mt-1.5 space-y-0.5 border-t border-hairline pt-1.5 text-[11.5px]">
+                <dl className="mt-1.5 space-y-0.5 border-t border-hairline pt-1.5 text-[12px]">
                   <div className="flex items-baseline justify-between gap-3">
                     <dt className="text-ink-secondary">Transacted</dt>
                     <dd className="font-mono tabular-nums text-ink-secondary">{rate(comp.pricePerSqm, currency)}</dd>
@@ -373,11 +373,11 @@ export function ComparablesSchedule({
           <li className="rounded-lg bg-sunken p-2.5">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3">
               <span className="text-[12px] font-medium text-ink">Weighted mean</span>
-              <span className="font-mono text-[12.5px] font-semibold tabular-nums text-ink">
+              <span className="font-mono text-[13px] font-semibold tabular-nums text-ink">
                 {rate(weightedMean, currency)}
               </span>
             </div>
-            <p className="mt-0.5 text-[10.5px] leading-relaxed text-ink-muted">
+            <p className="mt-0.5 text-[11px] leading-relaxed text-ink-muted">
               Σ(adjusted × similarity) ÷ {totalWeight.toFixed(2)}. Set spans {rate(low, currency)} – {rate(high, currency)}.
             </p>
           </li>

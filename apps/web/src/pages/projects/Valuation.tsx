@@ -304,11 +304,11 @@ export default function Valuation() {
                 "Residual / development" and the two read as separate items.
               */}
               <div>
-                <p className="text-mini uppercase tracking-wider text-ink-muted">Premise</p>
+                <p className="text-[11px] font-medium text-ink-muted">Premise</p>
                 <p className="text-[13px] text-ink">{VALUATION_PREMISE_LABEL[latest.ibbi.premise]}</p>
               </div>
               <div>
-                <p className="text-mini uppercase tracking-wider text-ink-muted">Basis</p>
+                <p className="text-[11px] font-medium text-ink-muted">Basis</p>
                 <p className="text-[13px] text-ink">{VALUATION_BASIS_LABEL[latest.ibbi.basis]}</p>
               </div>
               <FieldSignOff value={latest.signOff} onChange={(v) => void signOff(latest.id, v)} />
@@ -323,7 +323,7 @@ export default function Valuation() {
               <p>{latest.ibbi.subject}</p>
             </Why>
             <section>
-              <h3 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">Approaches</h3>
+              <h3 className="text-[12px] font-semibold text-ink-muted">Approaches</h3>
               {/* The working when the run carries it. Runs written before the
                   formula model exists fall back to the summary line, which is
                   all they ever had. */}
@@ -358,7 +358,7 @@ export default function Valuation() {
                         */}
                         <span className="font-medium text-ink">{a.label ?? VALUATION_APPROACH_LABEL[a.approach]}</span>
                         {a.label ? (
-                          <span className="ml-1.5 text-[11.5px] text-ink-muted">{VALUATION_APPROACH_LABEL[a.approach]}</span>
+                          <span className="ml-1.5 text-[12px] text-ink-muted">{VALUATION_APPROACH_LABEL[a.approach]}</span>
                         ) : null}
                         {a.notes ? <Why>{a.notes}</Why> : null}
                       </span>
@@ -505,7 +505,7 @@ function Rule8Checklist({ sections }: { sections: Parameters<typeof rule8Summary
   const summary = rule8Summary(sections, sections.rule8 ?? {});
   return (
     <section>
-      <h3 className="text-[12px] font-semibold uppercase tracking-wide text-ink-muted">IBBI Rule 8(3) report contents</h3>
+      <h3 className="text-[12px] font-semibold text-ink-muted">IBBI Rule 8(3) report contents</h3>
       <p className="mt-1 text-[12px] text-ink-secondary">{summary.say}</p>
       {/*
         Each item wears its own status, in words.
@@ -524,7 +524,7 @@ function Rule8Checklist({ sections }: { sections: Parameters<typeof rule8Summary
       <ul className="mt-2 space-y-1">
         {summary.rows.map((row) => (
           <li key={row.item} className="grid grid-cols-[3.25rem_5.5rem_minmax(0,1fr)] items-baseline gap-2 text-[12px]">
-            <span className="font-mono text-[10.5px] text-ink-muted">{row.clause}</span>
+            <span className="font-mono text-[11px] text-ink-muted">{row.clause}</span>
             <Badge tone={RULE8_TONE[row.status]}>{RULE8_LABEL[row.status]}</Badge>
             <span className="min-w-0">
               <span className={row.status === 'missing' ? 'text-ink-muted' : 'text-ink'}>{row.says}</span>

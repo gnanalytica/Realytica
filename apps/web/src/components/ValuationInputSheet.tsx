@@ -275,9 +275,9 @@ export function ValuationInputSheet({
                   ))}
                 </div>
               ) : (
-                <table className="w-full text-[12.5px]">
+                <table className="w-full text-[13px]">
                   <thead>
-                    <tr className="border-b border-hairline text-mini uppercase tracking-wider text-ink-muted">
+                    <tr className="border-b border-hairline text-[11px] font-medium text-ink-muted">
                       <th className="px-4 py-1.5 text-left font-normal">Input</th>
                       <th className="w-32 px-2 py-1.5 text-right font-normal">Value</th>
                       <th className="hidden w-40 px-2 py-1.5 text-left font-normal [@container(min-width:44rem)]:table-cell">

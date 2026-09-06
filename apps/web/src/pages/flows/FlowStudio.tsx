@@ -384,7 +384,7 @@ export default function FlowStudio() {
                 ) : result ? (
                   <RunTrace result={result} onClose={() => setResult(null)} />
                 ) : (
-                  <div className="p-4 text-[12.5px] text-ink-muted">
+                  <div className="p-4 text-[13px] text-ink-muted">
                     <p className="font-medium text-ink">Nothing selected.</p>
                     <p className="mt-1">Drag a node from the left onto the canvas, or click one to set it up.</p>
                     <p className="mt-3">A rehearsal reaches nothing and spends nothing. Turn “Rehearse” off only when you mean it.</p>
@@ -423,7 +423,7 @@ function Palette({ onAdd }: { onAdd: (kind: FlowNodeKind) => void }) {
         if (kinds.length === 0) return null;
         return (
           <div key={group} className="mb-2">
-            <p className="px-1 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted">
+            <p className="px-1 pb-1 pt-2 text-[12px] font-semibold text-ink-secondary">
               {FLOW_NODE_GROUP_LABEL[group]}
             </p>
             {kinds.map((kind) => {
@@ -441,7 +441,7 @@ function Palette({ onAdd }: { onAdd: (kind: FlowNodeKind) => void }) {
                     'active:cursor-grabbing',
                   )}
                 >
-                  <p className="text-[12.5px] font-medium text-ink">{type.label}</p>
+                  <p className="text-[13px] font-medium text-ink">{type.label}</p>
                   <p className="line-clamp-2 text-[11px] text-ink-muted">{type.summary}</p>
                 </button>
               );
@@ -529,7 +529,7 @@ function RunHistory({
           )}
         >
           <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-[12.5px] font-medium text-ink">{when(run.startedAt)}</p>
+            <p className="truncate text-[13px] font-medium text-ink">{when(run.startedAt)}</p>
             <div className="flex shrink-0 items-center gap-1">
               {run.dryRun ? <Badge tone="neutral">rehearsal</Badge> : null}
               <Badge tone={runTone(run.status)}>{run.status.replace('_', ' ')}</Badge>
@@ -552,7 +552,7 @@ function RunTrace({ result, onClose }: { result: FlowRunRecord; onClose: () => v
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-[13px] font-semibold text-ink">{result.dryRun ? 'Rehearsal' : 'Run'}</p>
-          <p className="text-[11.5px] text-ink-muted">
+          <p className="text-[12px] text-ink-muted">
             {when(result.startedAt)} · {TRIGGER_LABEL[result.trigger]} · {result.steps.length} step(s) ·{' '}
             {result.status.replace('_', ' ')}
           </p>
@@ -570,10 +570,10 @@ function RunTrace({ result, onClose }: { result: FlowRunRecord; onClose: () => v
         {result.steps.map((step, i) => (
           <div key={i} className="rounded-lg border border-hairline px-2.5 py-1.5">
             <div className="flex items-center justify-between gap-2">
-              <p className="truncate text-[12.5px] font-medium text-ink">{step.label}</p>
+              <p className="truncate text-[13px] font-medium text-ink">{step.label}</p>
               <Badge tone={step.status === 'failed' ? 'critical' : step.status === 'skipped' ? 'neutral' : 'good'}>{step.status}</Badge>
             </div>
-            {step.detail ? <p className="mt-0.5 text-[11.5px] text-ink-secondary">{step.detail}</p> : null}
+            {step.detail ? <p className="mt-0.5 text-[12px] text-ink-secondary">{step.detail}</p> : null}
           </div>
         ))}
       </div>
@@ -581,10 +581,10 @@ function RunTrace({ result, onClose }: { result: FlowRunRecord; onClose: () => v
       {result.proposals.length > 0 ? (
         <Card className="mt-3">
           <CardBody className="space-y-1.5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Proposed</p>
+            <p className="text-[12px] font-semibold text-ink-secondary">Proposed</p>
             {result.proposals.map((p, i) => (
               <div key={i}>
-                <p className="text-[12.5px] text-ink">{p.title}</p>
+                <p className="text-[13px] text-ink">{p.title}</p>
                 <p className="text-[11px] text-ink-muted">a {p.draft.replace(/_/g, ' ')} · nobody has accepted this</p>
               </div>
             ))}

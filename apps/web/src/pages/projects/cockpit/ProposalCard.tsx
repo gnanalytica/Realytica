@@ -62,7 +62,7 @@ export function ProposalCard({
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="min-w-0 flex-1 text-left text-[12.5px] font-medium text-ink hover:text-brand"
+          className="min-w-0 flex-1 text-left text-[13px] font-medium text-ink hover:text-brand"
         >
           <ChevronRight
             size={12}
@@ -87,7 +87,7 @@ export function ProposalCard({
           {changes.map((row) => (
             <div key={row.label} className="flex items-baseline justify-between gap-3">
               <dt className="min-w-0 truncate text-mini text-ink-secondary">{row.label}</dt>
-              <dd className="flex shrink-0 items-baseline gap-1 text-[11.5px] tabular-nums">
+              <dd className="flex shrink-0 items-baseline gap-1 text-[12px] tabular-nums">
                 {row.from === undefined ? (
                   <span className="text-ink-muted">not set</span>
                 ) : (
@@ -103,14 +103,14 @@ export function ProposalCard({
       ) : null}
       {open ? (
         <div className="mt-1.5 border-t border-[var(--ring)] pt-1.5">
-          <p className="text-[11.5px] leading-relaxed text-ink-secondary">{item.rationale}</p>
+          <p className="text-[12px] leading-relaxed text-ink-secondary">{item.rationale}</p>
           <p className="mt-1 text-[11px] text-ink-muted">{item.impact}</p>
           {url ? (
             <a
               href={url}
               target="_blank"
               rel="noreferrer"
-              className="mt-1 inline-block text-[11.5px] text-brand underline-offset-2 hover:underline"
+              className="mt-1 inline-block text-[12px] text-brand underline-offset-2 hover:underline"
             >
               Open portal
             </a>

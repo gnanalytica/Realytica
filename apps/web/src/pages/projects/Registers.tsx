@@ -34,7 +34,7 @@ import {
   type ScopeKey,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, cn, useToast , Why } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, RegisterRow, Select, Textarea, cn, useToast , Why } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
@@ -274,7 +274,7 @@ export function EvidenceRegister() {
       </div>
       {chosen.size > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg bg-brand-soft px-3 py-2 ring-1 ring-inset ring-brand/25">
-          <span className="text-[12.5px] font-medium text-brand">{chosen.size} selected</span>
+          <span className="text-[13px] font-medium text-brand">{chosen.size} selected</span>
           <div className="flex-grow" />
           {/* The transitions somebody actually makes to a batch: chase them,
               book them in, validate them, or record that they will not come.
@@ -315,7 +315,7 @@ export function EvidenceRegister() {
                 }}
                 onChange={(ev) => setChosen(ev.target.checked ? new Set(rows.map((r) => r.id)) : new Set())}
               />
-              <span className="text-[11.5px] text-ink-muted">
+              <span className="text-[12px] text-ink-muted">
                 {chosen.size > 0 ? `${chosen.size} of ${rows.length}` : `${rows.length} shown`}
               </span>
             </div>
@@ -602,35 +602,46 @@ export function FindingRegister() {
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
             {rows.map((f) => (
-              <LiveRow key={f.id} id={f.id} highlightIds={liveIds} variant="flush" className="space-y-2 px-4 py-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="text-[13px] font-medium text-ink">{f.title}</p>
-                    <Why>{f.description}</Why>
-                    <p className="mt-1 text-[11px] text-ink-muted">
-                      {SCOPE_LABEL[f.discipline]} · {f.assessmentIds.length} DD link(s) · {f.evidenceIds.length} evidence · {f.riskIds.length} risks · {f.actionIds.length} actions
-                    </p>
-                    <AssignCell
-                      className="mt-0.5 -ml-1.5"
-                      project={project}
-                      targetId={f.id}
-                      owner={f.owner}
-                      onAssigned={setProject}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {/* Derived from the severity beside it, never stored — see `ricsConditionRating`. */}
-                    <Badge tone={severityTone(f.severity)} title={`RICS condition rating ${ricsConditionRating(f.severity)}: ${RICS_RATING_LABEL[ricsConditionRating(f.severity)]}`}>
-                      {ricsConditionRating(f.severity)} · {SEVERITY_LABEL[f.severity]}
-                    </Badge>
-                    <Select value={f.status} onChange={(e) => void setStatus(f.id, e.target.value as FindingStatus)}>
-                      {FINDING_STATUSES.map((s) => (
-                        <option key={s} value={s}>{FINDING_STATUS_LABEL[s]}</option>
-                      ))}
-                    </Select>
-                  </div>
-                </div>
+              <LiveRow key={f.id} id={f.id} highlightIds={liveIds} variant="flush" className="pb-3">
+                <RegisterRow
+                  className="pb-0"
+                  title={f.title}
+                  why={f.description}
+                  meta={
+                    <>
+                      <span>
+                        {SCOPE_LABEL[f.discipline]} · {f.assessmentIds.length} DD link(s) · {f.evidenceIds.length} evidence ·{' '}
+                        {f.riskIds.length} risks · {f.actionIds.length} actions
+                      </span>
+                      {/*
+                        Inline, as on Risks. The owner had a line to itself here
+                        — the fix Risks carries a comment about was never
+                        applied to this register, so a column every row shares
+                        was costing a line per finding.
+                      */}
+                      <AssignCell className="-ml-1.5" project={project} targetId={f.id} owner={f.owner} onAssigned={setProject} />
+                    </>
+                  }
+                  trailing={
+                    <div className="flex items-center gap-2">
+                      {/* Derived from the severity beside it, never stored — see `ricsConditionRating`. */}
+                      <Badge
+                        tone={severityTone(f.severity)}
+                        title={`RICS condition rating ${ricsConditionRating(f.severity)}: ${RICS_RATING_LABEL[ricsConditionRating(f.severity)]}`}
+                      >
+                        {ricsConditionRating(f.severity)} · {SEVERITY_LABEL[f.severity]}
+                      </Badge>
+                      <Select value={f.status} onChange={(e) => void setStatus(f.id, e.target.value as FindingStatus)}>
+                        {FINDING_STATUSES.map((s) => (
+                          <option key={s} value={s}>{FINDING_STATUS_LABEL[s]}</option>
+                        ))}
+                      </Select>
+                    </div>
+                  }
+                />
+                <div className="px-4">
                 <FindingClassification finding={f} onChange={(body) => void classify(f.id, body)} />
+                </div>
               </LiveRow>
             ))}
           </CardBody>

@@ -68,7 +68,7 @@ export function SittingDock({
   return (
     <div className="rounded-xl bg-surface p-3 shadow-sm ring-1 ring-inset ring-[var(--ring)]">
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+        <p className="min-w-0 text-[12px] font-medium text-ink-muted">
           {talk.kind === 'check' ? (compact ? 'On the right' : 'This field') : talk.kind === 'scope' ? 'This scope' : 'On this file'}
         </p>
         <button type="button" aria-label="Dismiss field" onClick={onClose} className="rounded p-0.5 text-ink-muted hover:bg-sunken hover:text-ink">
@@ -92,7 +92,7 @@ export function SittingDock({
         <button
           type="button"
           onClick={() => onOpen(paneForTalk(talk.kind), talk.extra)}
-          className="mt-1.5 w-full rounded-lg px-2 py-1.5 text-left text-[12.5px] font-medium text-ink hover:bg-sunken"
+          className="mt-1.5 w-full rounded-lg px-2 py-1.5 text-left text-[13px] font-medium text-ink hover:bg-sunken"
         >
           {talk.label}
         </button>
@@ -154,7 +154,7 @@ function CheckPeek({
       <div className="mt-1.5 space-y-2">
         <button type="button" onClick={() => onOpen('scope', talk.extra)} className="w-full text-left">
           <p className="text-[12px] text-ink-muted">{SCOPE_LABEL[hit.scope.scopeKey]} · {hit.assessment.name}</p>
-          <p className="mt-0.5 text-[13.5px] font-semibold leading-snug text-ink">{check.title}</p>
+          <p className="mt-0.5 text-[14px] font-semibold leading-snug text-ink">{check.title}</p>
         </button>
         {pinned.length ? (
           <div className="space-y-1.5">
@@ -212,7 +212,7 @@ function ScopePeek({
   return (
     <div className="mt-1.5 space-y-1.5">
       <p className="text-[12px] text-ink-muted">{assessment.name}</p>
-      <p className="text-[13.5px] font-semibold text-ink">{SCOPE_LABEL[scope.scopeKey]}</p>
+      <p className="text-[14px] font-semibold text-ink">{SCOPE_LABEL[scope.scopeKey]}</p>
       <p className="text-[12px] text-ink-secondary">{pending.length} pending</p>
       <div className="divide-y divide-hairline rounded-lg ring-1 ring-inset ring-[var(--ring)]">
         {scope.checks.slice(0, 4).map((c) => (
@@ -230,7 +230,7 @@ function ScopePeek({
       <button
         type="button"
         onClick={() => onOpen('scope', talk.extra)}
-        className="text-[11.5px] text-brand hover:underline"
+        className="text-[12px] text-brand hover:underline"
       >
         Open the scope
       </button>

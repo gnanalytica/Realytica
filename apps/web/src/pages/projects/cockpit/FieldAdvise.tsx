@@ -41,13 +41,13 @@ export function FieldAdvise({
         <p className="text-[12px] text-ink-muted">
           {SCOPE_LABEL[scope.scopeKey]} · {assessmentName}
         </p>
-        <p className="mt-0.5 text-[13.5px] font-semibold leading-snug text-ink">{check.title}</p>
+        <p className="mt-0.5 text-[14px] font-semibold leading-snug text-ink">{check.title}</p>
         <div className="mt-1">
           <Badge tone={checkTone(check.result)}>{CHECK_RESULT_LABEL[check.result]}</Badge>
         </div>
         <p className="mt-1.5 text-[12px] leading-relaxed text-ink-secondary">{check.purpose}</p>
         {check.expectedEvidence.length ? (
-          <p className="mt-1 text-[11.5px] text-ink-muted">Expected: {check.expectedEvidence.join(', ')}</p>
+          <p className="mt-1 text-[12px] text-ink-muted">Expected: {check.expectedEvidence.join(', ')}</p>
         ) : null}
       </div>
       {(() => {
@@ -55,18 +55,18 @@ export function FieldAdvise({
         if (!portal) return null;
         return (
           <div className="rounded-md bg-sunken px-2.5 py-2 ring-1 ring-inset ring-[var(--ring)]">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">Obtain on this sitting</p>
+            <p className="text-[12px] font-medium text-ink-muted">Obtain on this sitting</p>
             {portal.url ? (
               <a
                 href={portal.url}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-0.5 block text-[12.5px] font-medium text-brand hover:underline"
+                className="mt-0.5 block text-[13px] font-medium text-brand hover:underline"
               >
                 {portal.label}
               </a>
             ) : (
-              <p className="mt-0.5 text-[12.5px] font-medium text-ink">{portal.label}</p>
+              <p className="mt-0.5 text-[13px] font-medium text-ink">{portal.label}</p>
             )}
             <p className="mt-1 text-[12px] leading-relaxed text-ink-secondary">{portalObtainLine(portal)}</p>
           </div>
@@ -75,7 +75,7 @@ export function FieldAdvise({
       {quotes.length ? (
         <div className="space-y-1 rounded-md bg-sunken px-2 py-1.5">
           {quotes.slice(0, 3).map((q, i) => (
-            <p key={i} className="text-[11.5px] leading-relaxed text-ink">
+            <p key={i} className="text-[12px] leading-relaxed text-ink">
               “{q.text}”{q.page ? <span className="text-ink-muted"> · p.{q.page}</span> : null}
             </p>
           ))}
@@ -89,7 +89,7 @@ export function FieldAdvise({
           lean === 'none' && 'bg-sunken ring-[var(--ring)]',
         )}
       >
-        <p className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+        <p className="text-[12px] font-medium text-ink-muted">
           {lean === 'tick' ? 'Lean tick' : lean === 'cross' ? 'Lean cross' : 'Advise'}
         </p>
         <p className="mt-0.5 text-[12px] leading-relaxed text-ink">{advise.why}</p>

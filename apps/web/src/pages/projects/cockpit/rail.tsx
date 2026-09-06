@@ -256,7 +256,9 @@ export function CockpitPaneStrip({
   const tabs = here.tabs.filter((t) => t.pane !== 'people' || (me ? reachesEveryProject(me.role) : false));
 
   return (
-    <div className={cn('shrink-0 space-y-1.5 border-b border-hairline bg-surface py-2', wrap ? 'px-4' : 'px-3')}>
+    <div className={cn('shrink-0 border-b border-hairline bg-surface', wrap ? 'px-4' : 'px-3')}>
+      {/* The rule the tabs sit on. The active one joins it; the rest stop short. */}
+      <div className="border-b border-hairline pt-1">
       <ChipScroller wrap={wrap}>
         {SECTIONS.map((section) => {
           const Icon = section.icon;
@@ -268,9 +270,22 @@ export function CockpitPaneStrip({
               type="button"
               onClick={() => onGo(section.home)}
               aria-current={on ? 'true' : undefined}
+              /*
+                Sections are tabs; the row under them is not.
+
+                Both rows were pills, at two sizes, so the primary divisions of
+                a file and the panes inside one of them read as a single blurry
+                mass of the same control. A tab is the right shape for "which
+                part of this am I in" — it sits on a rule, it marks the current
+                one by joining it, and nothing else in the product looks like
+                it. The row beneath can then be plain text, because it no
+                longer has to compete for a shape.
+              */
               className={cn(
-                'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] coarse:min-h-11',
-                on ? 'bg-brand-soft font-semibold text-brand' : 'bg-sunken text-ink-secondary hover:text-ink',
+                'inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] -mb-px coarse:min-h-11',
+                on
+                  ? 'border-brand font-semibold text-brand'
+                  : 'border-transparent text-ink-secondary hover:border-hairline hover:text-ink',
               )}
             >
               <Icon size={13} />
@@ -280,10 +295,14 @@ export function CockpitPaneStrip({
           );
         })}
       </ChipScroller>
+      </div>
 
       {here.key === 'assess' ? (
-        <AssessNav project={project} ddId={ddId} scopeId={scopeId} onGo={onGo} wrap={wrap} />
+        <div className="py-1.5">
+          <AssessNav project={project} ddId={ddId} scopeId={scopeId} onGo={onGo} wrap={wrap} />
+        </div>
       ) : tabs.length > 1 ? (
+        <div className="py-1.5">
         <ChipScroller wrap={wrap}>
           {tabs.map((tab) => {
             const on = paneActive(pane, tab.pane);
@@ -295,8 +314,8 @@ export function CockpitPaneStrip({
                 onClick={() => onGo(tab.pane)}
                 aria-current={on ? 'true' : undefined}
                 className={cn(
-                  'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] coarse:min-h-11',
-                  on ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] coarse:min-h-11',
+                  on ? 'font-semibold text-ink' : 'text-ink-muted hover:text-ink-secondary',
                 )}
               >
                 {tab.label}
@@ -305,6 +324,7 @@ export function CockpitPaneStrip({
             );
           })}
         </ChipScroller>
+        </div>
       ) : null}
     </div>
   );
@@ -343,7 +363,7 @@ function AssessNav({
           onClick={() => onGo('dd')}
           aria-current={!ddId ? 'true' : undefined}
           className={cn(
-            'inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-[11.5px] coarse:min-h-11',
+            'inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-[12px] coarse:min-h-11',
             !ddId ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
           )}
         >
@@ -356,7 +376,7 @@ function AssessNav({
             onClick={() => onGo('dd', { ddId: a.id })}
             aria-current={ddId === a.id ? 'true' : undefined}
             className={cn(
-              'inline-flex max-w-[14rem] shrink-0 items-center truncate rounded-full px-2.5 py-1 text-[11.5px] coarse:min-h-11',
+              'inline-flex max-w-[14rem] shrink-0 items-center truncate rounded-full px-2.5 py-1 text-[12px] coarse:min-h-11',
               ddId === a.id ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
             )}
           >
@@ -370,7 +390,7 @@ function AssessNav({
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="inline-flex max-w-[18rem] items-center gap-1.5 rounded-full bg-sunken px-2.5 py-1 text-[11.5px] text-ink-secondary hover:text-ink coarse:min-h-11"
+          className="inline-flex max-w-[18rem] items-center gap-1.5 rounded-full bg-sunken px-2.5 py-1 text-[12px] text-ink-secondary hover:text-ink coarse:min-h-11"
         >
           <span className="truncate">{current ? current.name : `All assessments (${rows.length})`}</span>
           <ChevronDown size={12} />
@@ -379,7 +399,7 @@ function AssessNav({
           <button
             type="button"
             onClick={() => onGo('dd')}
-            className="text-[11.5px] text-ink-muted hover:text-ink coarse:min-h-11"
+            className="text-[12px] text-ink-muted hover:text-ink coarse:min-h-11"
           >
             All
           </button>
@@ -431,8 +451,8 @@ function AssessNav({
                 onClick={() => onGo('scope', { ddId: current.id, scopeId: scope.id })}
                 aria-current={on ? 'true' : undefined}
                 className={cn(
-                  'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] coarse:min-h-11',
-                  on ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] coarse:min-h-11',
+                  on ? 'font-semibold text-ink' : 'text-ink-muted hover:text-ink-secondary',
                 )}
               >
                 {SCOPE_LABEL[scope.scopeKey]}

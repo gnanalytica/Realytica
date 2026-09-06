@@ -139,7 +139,7 @@ export function CredentialsCard() {
         ) : null}
 
         {rows.length === 0 ? (
-          <p className="text-[12.5px] text-ink-muted">Nothing stored. A connector, MCP or HTTP node that needs one will say so.</p>
+          <p className="text-[13px] text-ink-muted">Nothing stored. A connector, MCP or HTTP node that needs one will say so.</p>
         ) : (
           <div className="divide-y divide-hairline">
             {rows.map((cred) => (
@@ -202,7 +202,7 @@ export function CredentialsCard() {
 
       <Modal open={askUrlFor !== null} onClose={() => setAskUrlFor(null)} title={`Test “${askUrlFor?.label ?? ''}”`}>
         <div className="space-y-3">
-          <p className="text-[12.5px] text-ink-secondary">
+          <p className="text-[13px] text-ink-secondary">
             This kind of credential is a header sent to whatever a node calls, so there is nothing to try it against
             on its own. Give an endpoint and it will be sent there once, and the answer reported. A 401 or 403 means
             the credential was rejected; anything else means it was accepted.

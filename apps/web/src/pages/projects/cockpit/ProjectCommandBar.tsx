@@ -232,12 +232,12 @@ export function ProjectCommandBar({
             }}
             placeholder="Find a check, a document, a finding — or run a command"
             aria-label="Run a command"
-            className="w-full bg-transparent text-[13.5px] text-ink outline-none placeholder:text-ink-muted"
+            className="w-full bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-muted"
           />
         </div>
         <ul className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {matches.length === 0 ? (
-            <li className="px-3 py-6 text-center text-[12.5px] text-ink-muted">Nothing on this project matches that.</li>
+            <li className="px-3 py-6 text-center text-[13px] text-ink-muted">Nothing on this project matches that.</li>
           ) : (
             matches.map((c, i) => (
               <li key={c.id}>
@@ -257,7 +257,7 @@ export function ProjectCommandBar({
                     {c.kind === 'go' || c.kind === 'open' ? 'Go' : c.kind === 'ask' ? 'Ask' : 'Do'}
                   </span>
                   <span className="min-w-0 flex-grow">
-                    <span className="block truncate text-[12.5px] text-ink">{c.label}</span>
+                    <span className="block truncate text-[13px] text-ink">{c.label}</span>
                     {/* A record's provenance is where it lives; a verb's is just
                         its own kind, which the badge already said. */}
                     {c.kind === 'open' ? (

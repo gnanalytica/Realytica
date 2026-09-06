@@ -57,7 +57,7 @@ export default function Members() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-ink">{data?.tenant?.name ?? 'Workspace'}</h1>
           {me ? (
-            <p className="mt-0.5 text-[12.5px] text-ink-secondary">
+            <p className="mt-0.5 text-[13px] text-ink-secondary">
               Signed in as {me.email} · {WORKSPACE_ROLE_LABEL[me.role]}
             </p>
           ) : null}
@@ -101,7 +101,7 @@ export default function Members() {
                 Invite
               </Button>
             </div>
-            <p className="mt-2 text-[11.5px] text-ink-muted">
+            <p className="mt-2 text-[12px] text-ink-muted">
               No email is sent. They get in by signing in with that address.
             </p>
           </CardBody>

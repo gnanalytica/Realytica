@@ -189,7 +189,7 @@ export function ValuationSummary({
                     money(run.indicatedValue, run.currency)
                   )}
                 </p>
-                <p className="mt-1.5 font-mono text-[12.5px] tabular-nums text-ink-secondary">
+                <p className="mt-1.5 font-mono text-[13px] tabular-nums text-ink-secondary">
                   {money(run.low, run.currency)} – {money(run.high, run.currency)}
                   {spreadPct !== null ? (
                     <span className="text-ink-muted">
@@ -243,7 +243,7 @@ export function ValuationSummary({
           // background then end above the disclosure they were drawn around.
           <div
             className={cn(
-              'rounded-lg bg-warning/10 px-3 py-2 text-[12.5px] leading-relaxed text-ink ring-1 ring-inset ring-warning/40',
+              'rounded-lg bg-warning/10 px-3 py-2 text-[13px] leading-relaxed text-ink ring-1 ring-inset ring-warning/40',
             )}
           >
             <span className="font-medium">Band too wide to act on</span>
@@ -256,12 +256,12 @@ export function ValuationSummary({
 
         {drivers.length > 0 ? (
           <div>
-            <p className="text-[10.5px] uppercase tracking-wider text-ink-muted">
+            <p className="text-[12px] font-medium text-ink-muted">
               Largest drivers against the locality median
             </p>
             <ul className="mt-1.5 space-y-1">
               {drivers.map((d) => (
-                <li key={d.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 text-[12.5px]">
+                <li key={d.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 text-[13px]">
                   <span className="min-w-0 truncate text-ink">{d.label}</span>
                   <span
                     className={cn(
@@ -280,7 +280,7 @@ export function ValuationSummary({
               explanation when most of the gap is unaccounted for.
             */}
             {unexplained && Math.abs(unexplained.impactPct) > 10 ? (
-              <p className="mt-2 text-[11.5px] text-ink-muted">
+              <p className="mt-2 text-[12px] text-ink-muted">
                 {pct(unexplained.impactPct, 1, true)} unexplained
               </p>
             ) : null}

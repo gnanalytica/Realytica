@@ -71,13 +71,13 @@ export function EvidenceProof({
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline px-4 py-3">
           <div className="min-w-0">
             <h2 className="truncate text-[13px] font-semibold text-ink">{evidence.title}</h2>
-            <p className="truncate text-[11.5px] text-ink-muted">{file?.fileName ?? 'No file on this row'}</p>
+            <p className="truncate text-[12px] text-ink-muted">{file?.fileName ?? 'No file on this row'}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {file ? (
               <a
                 href={evidenceFileUrl(projectId, evidence.id, file.id)}
-                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11.5px] text-brand hover:bg-brand-soft"
+                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] text-brand hover:bg-brand-soft"
               >
                 <Download size={12} /> Download
               </a>
@@ -122,8 +122,8 @@ function ProofBody({
     return (
       <Shell>
         <FileWarning size={20} className="text-ink-muted" />
-        <p className="text-[12.5px] text-ink-secondary">This evidence row has no file behind it yet.</p>
-        <p className="max-w-[420px] text-center text-[11.5px] text-ink-muted">
+        <p className="text-[13px] text-ink-secondary">This evidence row has no file behind it yet.</p>
+        <p className="max-w-[420px] text-center text-[12px] text-ink-muted">
           Attach it in chat or on the register. Any quotes above came from ingest and are not the file.
         </p>
       </Shell>
@@ -161,8 +161,8 @@ function ProofBody({
   if (kind === 'text') return <TextView blob={state.blob} />;
   return (
     <Shell>
-      <p className="text-[12.5px] text-ink-secondary">Nothing here can render a {state.contentType.replace(/^application\//, '')} file.</p>
-      <p className="max-w-[420px] text-center text-[11.5px] text-ink-muted">
+      <p className="text-[13px] text-ink-secondary">Nothing here can render a {state.contentType.replace(/^application\//, '')} file.</p>
+      <p className="max-w-[420px] text-center text-[12px] text-ink-muted">
         Download it rather than see an approximation. Any quotes above came from ingest.
       </p>
     </Shell>

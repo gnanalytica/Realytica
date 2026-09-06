@@ -116,7 +116,7 @@ export function AnswerBody({
 
 function BlockView({ block, render }: { block: Block; render: (spans: Inline[]) => ReactNode[] }) {
   if (block.kind === 'heading') {
-    return <p className="text-mini font-semibold uppercase tracking-[0.06em] text-ink-muted">{render(block.spans)}</p>;
+    return <p className="text-[12px] font-semibold text-ink-muted">{render(block.spans)}</p>;
   }
   if (block.kind === 'bullets') {
     return (

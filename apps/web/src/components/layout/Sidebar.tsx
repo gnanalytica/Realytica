@@ -44,11 +44,16 @@ function NavGroup({
 }) {
   return (
     <>
-      {heading ? (
-        <p className={cn('px-2.5 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-muted', collapsed && 'lg:hidden')}>
-          {heading}
-        </p>
-      ) : null}
+      {/*
+        A rule, not a word.
+
+        This group was headed "MORE", which names nothing: the reader learns
+        that there are additional items, which they can already see. The split
+        is real — above is the work, below is how the workspace is set up and
+        what it has been doing — and a hairline says "different kind of thing"
+        without spending a line of uppercase micro-caps saying it badly.
+      */}
+      {heading ? <hr className={cn('mx-2.5 my-3 border-t border-hairline', collapsed && 'lg:mx-1.5')} aria-hidden /> : null}
       {items.map((item) => (
         <NavLink
           key={item.to}

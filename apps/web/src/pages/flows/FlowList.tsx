@@ -42,7 +42,7 @@ export default function FlowList() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-ink">Automations</h1>
-        <p className="mt-0.5 text-[12.5px] text-ink-secondary">
+        <p className="mt-0.5 text-[13px] text-ink-secondary">
           What the agents do, drawn rather than deployed. A flow proposes; a person accepts.
         </p>
       </div>

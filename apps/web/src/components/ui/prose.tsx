@@ -37,7 +37,7 @@ export function Prose({
   size?: 'sm' | 'md';
 }) {
   if (!children) return null;
-  const base = size === 'sm' ? 'text-[12.5px] leading-relaxed' : 'text-[13px] leading-relaxed';
+  const base = size === 'sm' ? 'text-[13px] leading-relaxed' : 'text-[13px] leading-relaxed';
   const dense = quantityDensity(children) > 0.45;
   return (
     <p className={cn(base, 'text-ink-secondary', className)}>
@@ -155,10 +155,10 @@ export function SplitProse({ text, tone, lead, alwaysOpen, className }: {
 export function FactRow({ label, value, tone }: { label: string; value: ReactNode; tone?: 'critical' | 'warning' | 'good' }) {
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-hairline py-1.5 last:border-0">
-      <span className="text-[12.5px] text-ink-secondary">{label}</span>
+      <span className="text-[13px] text-ink-secondary">{label}</span>
       <span
         className={cn(
-          'shrink-0 font-mono text-[12.5px] tabular-nums font-medium',
+          'shrink-0 font-mono text-[13px] tabular-nums font-medium',
           tone === 'critical' ? 'text-critical' : tone === 'warning' ? 'text-ink' : tone === 'good' ? 'text-good' : 'text-ink',
         )}
       >

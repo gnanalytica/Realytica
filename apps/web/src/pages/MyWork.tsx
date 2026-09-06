@@ -100,7 +100,7 @@ export default function MyWork() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-ink">My work</h1>
-        <p className="mt-0.5 text-[12.5px] text-ink-secondary">
+        <p className="mt-0.5 text-[13px] text-ink-secondary">
           {items.length === 0
             ? 'Everything across every project with your name on it.'
             : `${items.length} open across every project${overdue > 0 ? ` · ${overdue} late` : ''}`}
@@ -123,7 +123,7 @@ export default function MyWork() {
                 onClick={() => setKind(key)}
                 aria-current={on ? 'true' : undefined}
                 className={cn(
-                  'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] coarse:min-h-11',
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] coarse:min-h-11',
                   on ? 'bg-brand-soft font-semibold text-brand' : 'bg-sunken text-ink-secondary hover:text-ink',
                 )}
               >

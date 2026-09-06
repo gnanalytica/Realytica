@@ -88,7 +88,7 @@ export function CriticFlagBanner({ finding, compact }: { finding: CriticFinding;
     >
       <div className="flex flex-wrap items-center gap-1.5">
         <AlertOctagon size={13} className={tone === 'critical' ? 'text-critical' : 'text-ink'} aria-hidden="true" />
-        <span className="text-mini font-semibold uppercase tracking-wide text-ink">
+        <span className="text-[12px] font-semibold text-ink">
           Critic flagged this claim — {VERDICT_LABEL[finding.verdict]}
         </span>
       </div>
@@ -150,7 +150,7 @@ function FindingCard({ finding }: { finding: CriticFinding }) {
 
           {finding.unsupportedSpecifics.length > 0 ? (
             <div className="rounded-lg bg-critical/10 p-3 ring-1 ring-inset ring-critical/40">
-              <p className="mb-1.5 flex items-center gap-1.5 text-mini font-semibold uppercase tracking-wide text-critical">
+              <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-critical">
                 <AlertOctagon size={12} aria-hidden="true" />
                 Specifics the evidence does not support ({finding.unsupportedSpecifics.length})
               </p>
@@ -173,7 +173,7 @@ function FindingCard({ finding }: { finding: CriticFinding }) {
 
           {finding.checkedAgainst.length > 0 ? (
             <div>
-              <p className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">Checked against</p>
+              <p className="mb-1 text-[12px] font-semibold text-ink-muted">Checked against</p>
               <ul className="flex flex-wrap gap-1.5">
                 {finding.checkedAgainst.map((c, i) => (
                   <li key={i} className="rounded-md bg-sunken px-1.5 py-0.5 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
@@ -229,11 +229,11 @@ export function VerificationPanel({ verification }: { verification: Verification
               </div>
               <div className="flex shrink-0 gap-4">
                 <div>
-                  <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">Checked</div>
+                  <div className="text-[12px] font-medium text-ink-muted">Checked</div>
                   <div className="mt-1 text-2xl font-semibold leading-tight text-ink">{verification.checkedCount}</div>
                 </div>
                 <div>
-                  <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">Flagged</div>
+                  <div className="text-[12px] font-medium text-ink-muted">Flagged</div>
                   <div className={cn('mt-1 text-2xl font-semibold leading-tight', flaggedCount > 0 ? 'text-critical' : 'text-ink')}>
                     {flaggedCount}
                   </div>

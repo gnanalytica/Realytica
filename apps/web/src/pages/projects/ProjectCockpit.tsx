@@ -572,7 +572,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             about the project. What this row is for is the way back and the
             health of the file; the switcher says which file it is.
           */}
-          <Link to="/projects" className="text-[11.5px] text-ink-secondary hover:text-ink">
+          <Link to="/projects" className="text-[12px] text-ink-secondary hover:text-ink">
             Projects
           </Link>
           <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
@@ -580,7 +580,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           <button
             type="button"
             onClick={() => setCommandOpen(true)}
-            className="rounded-lg border border-[var(--ring)] bg-surface px-2.5 py-1 text-[11.5px] text-ink-muted hover:text-ink"
+            className="rounded-lg border border-[var(--ring)] bg-surface px-2.5 py-1 text-[12px] text-ink-muted hover:text-ink"
           >
             Run a command <span className="font-mono">⌘K</span>
           </button>
@@ -590,7 +590,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             title={focusMode ? 'Leave focus' : 'Focus the conversation (⌘.)'}
             aria-pressed={focusMode}
             className={cn(
-              'flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px]',
+              'flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px]',
               focusMode ? 'border-brand bg-brand-soft text-brand' : 'border-[var(--ring)] bg-surface text-ink-secondary hover:text-ink',
             )}
           >

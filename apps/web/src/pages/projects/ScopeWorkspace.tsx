@@ -378,12 +378,12 @@ export default function ScopeWorkspace() {
                 <p className="text-[12px] font-medium text-ink">Cards for this check</p>
                 {pinned.map((item) => (
                   <div key={item.id}>
-                    <p className="text-[12.5px] font-medium text-ink">{item.title}</p>
-                    <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink-secondary">{item.rationale}</p>
+                    <p className="text-[13px] font-medium text-ink">{item.title}</p>
+                    <p className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">{item.rationale}</p>
                     {proposalQuotes(item.payload).length ? (
                       <div className="mt-1.5 space-y-1 rounded-md bg-surface px-2 py-1.5">
                         {proposalQuotes(item.payload).slice(0, 3).map((q, i) => (
-                          <p key={i} className="text-[11.5px] leading-relaxed text-ink">
+                          <p key={i} className="text-[12px] leading-relaxed text-ink">
                             “{q.text}”{q.page ? <span className="text-ink-muted"> · p.{q.page}</span> : null}
                           </p>
                         ))}
@@ -410,7 +410,7 @@ export default function ScopeWorkspace() {
               <div className="space-y-1 rounded-lg bg-sunken px-3 py-2">
                 <p className="text-[12px] font-medium text-ink">Quoted from the file</p>
                 {quotes.slice(0, 4).map((q, i) => (
-                  <p key={i} className="text-[11.5px] leading-relaxed text-ink-secondary">
+                  <p key={i} className="text-[12px] leading-relaxed text-ink-secondary">
                     “{q.text}”{q.page ? ` · p.${q.page}` : ''}
                   </p>
                 ))}

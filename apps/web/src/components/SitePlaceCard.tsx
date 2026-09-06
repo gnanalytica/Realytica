@@ -123,7 +123,7 @@ export function SitePlaceCard({ project }: { project: DdProject }) {
           <>
             <div className="space-y-1">
               {/* Empty for a pin the file stated: no provider matched an address to print. */}
-              {location.resolvedAddress ? <p className="text-[12.5px] text-ink">{location.resolvedAddress}</p> : null}
+              {location.resolvedAddress ? <p className="text-[13px] text-ink">{location.resolvedAddress}</p> : null}
               <div className="flex flex-wrap items-center gap-1.5">
                 <Badge tone="neutral">{PRECISION_LABEL[location.precision] ?? location.precision.replace(/_/g, ' ')}</Badge>
                 <span className="text-mini tabular-nums text-ink-muted">

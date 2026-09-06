@@ -27,7 +27,7 @@ import { OwnerInput } from '../../components/OwnerInput';
 import { AssignCell } from '../../components/AssignCell';
 import { MineToggle, useMine } from '../../components/MineToggle';
 import { RemedialCostChart } from '../../components/charts';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast , Why } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, RegisterRow, Select, Textarea, useToast, Why } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
@@ -126,7 +126,7 @@ export function RisksActions() {
         <Button onClick={() => setRiskOpen(true)}>Add risk</Button>
       </div>
       <section className="space-y-2">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Risks</h2>
+        <h2 className="text-[12px] font-semibold text-ink-secondary">Risks</h2>
         {risks.rows.length === 0 ? (
           <EmptyState title="No risks" description="Convert findings into scored risks on the project register." />
         ) : (
@@ -145,32 +145,33 @@ export function RisksActions() {
                   refuse to (`shrink-0`), so the row is the same shape at every
                   description length.
                 */
-                <LiveRow key={r.id} id={r.id} highlightIds={liveIds} variant="flush" className="flex items-start justify-between gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-medium text-ink">{r.title}</p>
-                    <Why>{r.cause}</Why>
-                    {/*
-                      One meta line, not two. The owner had a line of its own
-                      with an icon, which on a register where every row shares
-                      an owner is the same address repeated down the page — a
-                      whole line per risk spent on a constant.
-                    */}
-                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-ink-muted">
-                      <span>
-                        {IMPACT_TYPE_LABEL[r.category]} · P {r.probability} · impact {r.impactScore} ·{' '}
-                        {r.findingIds.length} {r.findingIds.length === 1 ? 'finding' : 'findings'}
-                      </span>
-                      <AssignCell className="-ml-1.5" project={project} targetId={r.id} owner={r.owner} onAssigned={setProject} />
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Badge tone={severityTone(r.materiality)}>{SEVERITY_LABEL[r.materiality]}</Badge>
-                    <Select value={r.status} onChange={(e) => void api.patchRisk(project.id, r.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}>
-                      {(Object.keys(RISK_STATUS_LABEL) as DdRiskStatus[]).map((s) => (
-                        <option key={s} value={s}>{RISK_STATUS_LABEL[s]}</option>
-                      ))}
-                    </Select>
-                  </div>
+                <LiveRow key={r.id} id={r.id} highlightIds={liveIds} variant="flush">
+                  <RegisterRow
+                    title={r.title}
+                    why={r.cause}
+                    meta={
+                      <>
+                        <span>
+                          {IMPACT_TYPE_LABEL[r.category]} · P {r.probability} · impact {r.impactScore} ·{' '}
+                          {r.findingIds.length} {r.findingIds.length === 1 ? 'finding' : 'findings'}
+                        </span>
+                        <AssignCell className="-ml-1.5" project={project} targetId={r.id} owner={r.owner} onAssigned={setProject} />
+                      </>
+                    }
+                    trailing={
+                      <div className="flex items-center gap-2">
+                        <Badge tone={severityTone(r.materiality)}>{SEVERITY_LABEL[r.materiality]}</Badge>
+                        <Select
+                          value={r.status}
+                          onChange={(e) => void api.patchRisk(project.id, r.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}
+                        >
+                          {(Object.keys(RISK_STATUS_LABEL) as DdRiskStatus[]).map((s) => (
+                            <option key={s} value={s}>{RISK_STATUS_LABEL[s]}</option>
+                          ))}
+                        </Select>
+                      </div>
+                    }
+                  />
                 </LiveRow>
               ))}
             </CardBody>
@@ -178,14 +179,14 @@ export function RisksActions() {
         )}
       </section>
       <section className="space-y-2">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">Actions</h2>
+        <h2 className="text-[12px] font-semibold text-ink-secondary">Actions</h2>
         {actions.rows.length === 0 ? (
           <EmptyState title="No actions" description="Actions turn findings and risks into owned work." />
         ) : (
           <>
             <Card>
               <CardBody className="space-y-2">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-ink-muted">Remedial cost by band</p>
+                <p className="text-[12px] font-medium text-ink-secondary">Remedial cost by band</p>
                 <RemedialCostChart summary={costSummary} />
               </CardBody>
             </Card>
@@ -291,18 +292,22 @@ export function DecisionRegister() {
             {project.decisions.map((d) => (
               /* Same shape, same fix — a long rationale must not relocate the
                  status dropdown. */
-              <div key={d.id} className="flex items-start justify-between gap-3 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-medium text-ink">{d.title}</p>
-                  <Why>{d.rationale}</Why>
-                  <p className="mt-1 text-[11px] text-ink-muted">{DECISION_TYPE_LABEL[d.decisionType]} · {d.decisionMaker}</p>
-                </div>
-                <Select className="shrink-0" value={d.status} onChange={(e) => void api.patchDecision(project.id, d.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}>
-                  {(Object.keys(DECISION_STATUS_LABEL) as DecisionStatus[]).map((s) => (
-                    <option key={s} value={s}>{DECISION_STATUS_LABEL[s]}</option>
-                  ))}
-                </Select>
-              </div>
+              <RegisterRow
+                key={d.id}
+                title={d.title}
+                why={d.rationale}
+                meta={<span>{DECISION_TYPE_LABEL[d.decisionType]} · {d.decisionMaker}</span>}
+                trailing={
+                  <Select
+                    value={d.status}
+                    onChange={(e) => void api.patchDecision(project.id, d.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}
+                  >
+                    {(Object.keys(DECISION_STATUS_LABEL) as DecisionStatus[]).map((s) => (
+                      <option key={s} value={s}>{DECISION_STATUS_LABEL[s]}</option>
+                    ))}
+                  </Select>
+                }
+              />
             ))}
           </CardBody>
         </Card>

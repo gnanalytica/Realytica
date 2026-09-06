@@ -142,7 +142,7 @@ export function SheetPlacer({
       }
     >
       <div className="space-y-3">
-        <p className="text-[12.5px] text-ink-secondary">
+        <p className="text-[13px] text-ink-secondary">
           Click something you can recognise on the sheet — a road junction, a survey corner, a lake edge — then say where it is. Two points
           place it; a third is what first lets the fit disagree with you.
         </p>
