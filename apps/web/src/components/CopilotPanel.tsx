@@ -646,7 +646,9 @@ export function CopilotPanel({
               onClick={() => setTab(key)}
               aria-pressed={tab === key}
               className={cn(
-                'rounded-md px-2 py-1 text-[12px] capitalize transition-colors duration-quick',
+                // 26px on a touch pointer, on the tabs that switch the chat
+                // panel between the conversation and the run log.
+                'rounded-md px-2 py-1 text-[12px] capitalize transition-colors duration-quick coarse:min-h-11 coarse:px-3',
                 tab === key ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
               )}
             >

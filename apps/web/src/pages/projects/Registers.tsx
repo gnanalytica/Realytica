@@ -326,7 +326,7 @@ export function EvidenceRegister() {
                     type="button"
                     onClick={() => toggle(group.name)}
                     aria-expanded={isOpen(group.name)}
-                    className="flex w-full items-center gap-2 border-y border-hairline bg-sunken/60 px-4 py-1.5 text-left hover:bg-sunken"
+                    className="flex w-full items-center gap-2 border-y border-hairline bg-sunken/60 px-4 py-1.5 text-left hover:bg-sunken coarse:min-h-11"
                   >
                     <ChevronRight
                       size={13}

@@ -57,7 +57,9 @@ export function AssignCell({
           setEditing(true);
         }}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12px] hover:bg-sunken',
+          // 22px in a register row. It sits inline in a meta line, so it grows
+          // by padding on a touch pointer rather than by height everywhere.
+          'inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12px] hover:bg-sunken coarse:min-h-11 coarse:px-2',
           owner ? 'text-ink-secondary' : 'text-ink-muted',
           className,
         )}

@@ -66,7 +66,9 @@ export default function TopBar({ onOpenMobile }: TopBarProps) {
         type="button"
         onClick={onOpenMobile}
         aria-label="Open navigation"
-        className="-ml-1 rounded-lg p-1.5 text-ink-secondary hover:bg-sunken hover:text-ink lg:hidden"
+        /* The button that opens navigation on a phone measured 29px. It is
+           the one control a touch user cannot route around. */
+        className="-ml-1 rounded-lg p-1.5 text-ink-secondary hover:bg-sunken hover:text-ink coarse:min-h-11 coarse:min-w-11 lg:hidden"
       >
         <Menu size={17} />
       </button>
@@ -107,7 +109,7 @@ export default function TopBar({ onOpenMobile }: TopBarProps) {
           onClick={cycleTheme}
           aria-label={`Theme: ${THEME_LABEL[theme]}. Click to change.`}
           title={`Theme: ${THEME_LABEL[theme]}`}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-secondary ring-1 ring-inset ring-[var(--ring)] transition-colors hover:bg-sunken hover:text-ink"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-secondary ring-1 ring-inset ring-[var(--ring)] transition-colors hover:bg-sunken hover:text-ink coarse:h-11 coarse:w-11"
         >
           <ThemeIcon size={15} />
         </button>

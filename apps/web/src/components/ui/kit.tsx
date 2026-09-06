@@ -124,7 +124,9 @@ export function InfoTip({ label, className }: { label: ReactNode; className?: st
       <button
         type="button"
         aria-label="About this"
-        className="shrink-0 rounded-full p-0.5 text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        /* 16px, and it appears on nearly every card header. An icon button has
+           no typography to protect, so it simply grows on a touch pointer. */
+        className="grid shrink-0 place-items-center rounded-full p-0.5 text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand coarse:min-h-11 coarse:min-w-11"
       >
         <Info size={12} aria-hidden="true" />
       </button>
