@@ -52,7 +52,7 @@ export default function About() {
   return (
     <div className="mx-auto max-w-4xl space-y-8 pb-16">
       <section className="space-y-2 pt-2 text-center">
-        <p className="text-mini font-semibold uppercase tracking-[0.14em] text-brand">Realytica</p>
+        <p className="text-[12px] font-semibold text-brand">Realytica</p>
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{VISION}</h1>
         <p className="text-[13px] text-ink-secondary">{POSITIONING}</p>
         <p className="text-xs text-ink-muted">Due diligence OS · manual-first · AI drafts optional</p>
@@ -70,7 +70,7 @@ export default function About() {
         <CardBody className="overflow-x-auto">
           <table className="w-full min-w-[480px] border-collapse text-left">
             <thead>
-              <tr className="border-b border-hairline text-mini uppercase tracking-wide text-ink-muted">
+              <tr className="border-b border-hairline text-[11px] font-medium text-ink-muted">
                 <th className="py-2 pr-4 font-medium">Product</th>
                 <th className="py-2 font-medium">What it answers</th>
               </tr>

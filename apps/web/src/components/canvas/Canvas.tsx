@@ -438,7 +438,7 @@ export default function Canvas({ layout, selectedId, onSelect, runsById, ariaLab
               <div
                 key={`caption-${lane.lane}`}
                 aria-hidden="true"
-                className="absolute truncate text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted"
+                className="absolute truncate text-[12px] font-semibold text-ink-muted"
                 style={{
                   left: lane.x,
                   top: layout.options.padding,

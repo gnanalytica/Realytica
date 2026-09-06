@@ -97,7 +97,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-hairline pb-3">
         <div className="min-w-0">
           <h2 className="text-[16px] font-semibold tracking-tight text-ink">{report.title}</h2>
-          <p className="mt-1 max-w-[70ch] text-[12.5px] text-ink-secondary">{summary}</p>
+          <p className="mt-1 max-w-[70ch] text-[13px] text-ink-secondary">{summary}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Badge tone={frozen ? 'neutral' : 'good'}>{frozen ? report.status : 'live'}</Badge>
@@ -131,7 +131,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
       {frozen && drift && drift.length > 0 ? (
         <div className="space-y-2 rounded-lg border border-hairline bg-sunken p-3">
           {drift.map((row) => (
-            <div key={row.blockId} className="text-[12.5px]">
+            <div key={row.blockId} className="text-[13px]">
               <span className="font-medium text-ink">{row.heading}</span>{' '}
               <span className="text-ink-muted">
                 {row.wasCount} → {row.nowCount}
@@ -214,17 +214,17 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
           }}
         />
         {live ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2 py-0.5 text-[10.5px] font-medium text-brand">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand">
             <span className="h-1.5 w-1.5 rounded-full bg-brand" />
             live · {resolved.lines.length}
           </span>
         ) : block.detachedAt ? (
-          <span className="rounded-full bg-sunken px-2 py-0.5 text-[10.5px] text-ink-muted">
+          <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-ink-muted">
             detached from {block.detachedFrom ? REPORT_SOURCE_LABEL[block.detachedFrom] : 'the registers'} on{' '}
             {new Date(block.detachedAt).toLocaleDateString()} — no longer updates
           </span>
         ) : (
-          <span className="rounded-full bg-sunken px-2 py-0.5 text-[10.5px] text-ink-muted">your words</span>
+          <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-ink-muted">your words</span>
         )}
 
         {!frozen ? (
@@ -307,7 +307,7 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
                 />
                 material only
               </label>
-              <span className="text-[11.5px] text-ink-muted">{REPORT_SOURCE_READS[block.source!.kind]}</span>
+              <span className="text-[12px] text-ink-muted">{REPORT_SOURCE_READS[block.source!.kind]}</span>
             </div>
           ) : null}
           {resolved.lines.length === 0 ? (
@@ -332,7 +332,7 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
               })}
             </ul>
           )}
-          {resolved.note && resolved.lines.length > 0 ? <p className="mt-1.5 text-[11.5px] text-ink-muted">{resolved.note}</p> : null}
+          {resolved.note && resolved.lines.length > 0 ? <p className="mt-1.5 text-[12px] text-ink-muted">{resolved.note}</p> : null}
         </>
       ) : (
         <ProseField
@@ -406,7 +406,7 @@ function HeadingField({ value, disabled, onCommit }: { value: string; disabled?:
         }
       }}
       aria-label="Section heading"
-      className="-ml-1 min-w-0 flex-1 rounded bg-transparent px-1 py-0.5 text-[13.5px] font-semibold tracking-tight text-ink outline-none hover:bg-sunken focus:bg-sunken disabled:hover:bg-transparent"
+      className="-ml-1 min-w-0 flex-1 rounded bg-transparent px-1 py-0.5 text-[14px] font-semibold tracking-tight text-ink outline-none hover:bg-sunken focus:bg-sunken disabled:hover:bg-transparent"
     />
   );
 }

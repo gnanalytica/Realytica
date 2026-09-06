@@ -123,7 +123,7 @@ export default function ProjectList() {
           {groupEntries.map(([group, rows]) => (
             <div key={group} className="space-y-2">
               {showGroups ? (
-                <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">{group}</h2>
+                <h2 className="text-[12px] font-semibold text-ink-secondary">{group}</h2>
               ) : null}
               {rows.map((p) => (
                 <Link key={p.id} to={`/projects/${p.id}`} className="block">

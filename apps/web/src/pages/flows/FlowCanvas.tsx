@@ -295,7 +295,7 @@ export function FlowCanvas({
                 onSelect(node.id);
               }}
             >
-              <p className="truncate text-[12.5px] font-semibold text-ink">{nodeLabel(node)}</p>
+              <p className="truncate text-[13px] font-semibold text-ink">{nodeLabel(node)}</p>
               <p className="truncate text-[11px] text-ink-muted">{summaryOf(node)}</p>
               <div className="mt-0.5 flex items-center gap-1">
                 {type.spends ? <span className="rounded bg-warning/15 px-1 text-[10px] text-ink-secondary">costs</span> : null}

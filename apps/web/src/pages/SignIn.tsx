@@ -63,7 +63,7 @@ export default function SignIn({ notice, onSignedIn }: { notice?: string; onSign
         <CardBody className="space-y-4 text-center">
           <div>
             <p className="text-[15px] font-semibold tracking-tight text-ink">Realytica</p>
-            <p className="mt-0.5 text-[12.5px] text-ink-secondary">Due diligence OS</p>
+            <p className="mt-0.5 text-[13px] text-ink-secondary">Due diligence OS</p>
           </div>
 
           {notice ? <Callout tone="warning" title="Signed out">{notice}</Callout> : null}

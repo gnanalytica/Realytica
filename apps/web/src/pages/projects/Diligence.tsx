@@ -177,10 +177,10 @@ export default function Diligence() {
                             <Link
                               key={s.id}
                               to={`${a.id}/scopes/${s.id}`}
-                              className="inline-flex items-center gap-1.5 rounded-full bg-sunken px-2.5 py-1 text-[11.5px] text-ink-secondary hover:text-brand coarse:min-h-11"
+                              className="inline-flex items-center gap-1.5 rounded-full bg-sunken px-2.5 py-1 text-[12px] text-ink-secondary hover:text-brand coarse:min-h-11"
                             >
                               {SCOPE_LABEL[s.scopeKey]}
-                              <span className="tabular text-[10.5px] text-ink-muted">
+                              <span className="tabular text-[11px] text-ink-muted">
                                 {c.done}/{c.total}
                               </span>
                             </Link>

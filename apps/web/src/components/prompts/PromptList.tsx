@@ -111,7 +111,7 @@ export function PromptList({ prompts, selectedKey, onSelect, className }: Prompt
   return (
     <div className={cn('flex min-h-0 flex-col', className)}>
       <div className="flex items-center gap-2 border-b border-hairline px-3 py-2">
-        <span className="text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">
+        <span className="text-[12px] font-semibold text-ink-muted">
           {prompts.length} prompt{prompts.length === 1 ? '' : 's'}
         </span>
         <Select
@@ -139,7 +139,7 @@ export function PromptList({ prompts, selectedKey, onSelect, className }: Prompt
             return (
               <section key={agent}>
                 <header className="sticky top-0 z-10 flex items-center gap-2 bg-sunken px-3 py-1.5">
-                  <h3 className="text-mini font-semibold uppercase tracking-[0.07em] text-ink-secondary">
+                  <h3 className="text-[12px] font-semibold text-ink-secondary">
                     {AGENT_LABEL[agent] ?? agent}
                   </h3>
                   <span className="text-mini text-ink-muted">{items.length}</span>

@@ -408,7 +408,7 @@ export default function ProjectPeople() {
         <Disclosure title={`${data.staff.length} people reach this project as workspace staff`}>
           <div className="space-y-1 pt-1">
             {data.staff.map((s) => (
-              <p key={s.email} className="text-[12.5px] text-ink-secondary">
+              <p key={s.email} className="text-[13px] text-ink-secondary">
                 {s.name ?? s.email}
                 <span className="text-ink-muted"> · {WORKSPACE_ROLE_LABEL[s.role]}</span>
               </p>

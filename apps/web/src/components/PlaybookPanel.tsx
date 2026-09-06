@@ -125,13 +125,13 @@ function StepRow({
           <p className="text-mini italic leading-relaxed text-ink-muted">{step.question}</p>
           {step.blockedBy && step.blockedBy.length > 0 && (
             <p className="text-mini leading-relaxed text-ink-secondary">
-              <span className="font-semibold uppercase tracking-wide text-ink-muted">Waiting on</span>{' '}
+              <span className="font-semibold text-ink-muted">Waiting on</span>{' '}
               {step.blockedBy.map((k) => stepsByKey.get(k)?.label ?? k).join(', ')}
             </p>
           )}
           {step.needs.length > 0 && (
             <p className="flex flex-wrap items-center gap-1.5 text-mini text-ink-muted">
-              <span className="font-semibold uppercase tracking-wide">Needs</span>
+              <span className="font-semibold">Needs</span>
               {step.needs.map((k) => (
                 <Badge key={k} tone="neutral">
                   {DOCUMENT_KIND_LABEL[k]}
@@ -141,7 +141,7 @@ function StepRow({
           )}
           {step.citation && (
             <p className="text-mini leading-relaxed text-ink-muted">
-              <span className="font-semibold uppercase tracking-wide">Tested against</span> {step.citation}
+              <span className="font-semibold">Tested against</span> {step.citation}
             </p>
           )}
         </div>

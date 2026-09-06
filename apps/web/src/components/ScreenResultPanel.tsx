@@ -83,7 +83,7 @@ function ComplianceRow({ check }: { check: ComplianceCheck }) {
         <span className="min-w-0 text-[13px] font-medium text-ink">{check.label}</span>
         <Badge tone={COMPLIANCE_TONE[check.verdict]}>{COMPLIANCE_WORD[check.verdict]}</Badge>
       </div>
-      <p className="mt-0.5 text-[12.5px] leading-snug text-ink-secondary">{check.headline}</p>
+      <p className="mt-0.5 text-[13px] leading-snug text-ink-secondary">{check.headline}</p>
       <Why>
         <p>{check.finding}</p>
         <p>
@@ -523,7 +523,7 @@ export function ScreenResultPanel({
                 Dutiable value —{' '}
                 {costs.dutiableBasis === 'consideration' ? 'the consideration' : 'the statutory guidance value'}
               </span>
-              <span className="font-mono text-[12.5px] tabular-nums text-ink">
+              <span className="font-mono text-[13px] tabular-nums text-ink">
                 {money(costs.dutiableValue, costs.currency)}
               </span>
             </div>

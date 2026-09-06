@@ -43,8 +43,8 @@ export function DocxView({ blob, highlightTerm }: { blob: Blob; highlightTerm?: 
     return highlightInHtml(html, highlightTerm.trim());
   }, [html, highlightTerm]);
 
-  if (error) return <div className="p-6 text-[12.5px] text-ink-secondary">This Word file could not be converted: {error}</div>;
-  if (!marked) return <div className="p-6 text-[12.5px] text-ink-muted">Converting the document…</div>;
+  if (error) return <div className="p-6 text-[13px] text-ink-secondary">This Word file could not be converted: {error}</div>;
+  if (!marked) return <div className="p-6 text-[13px] text-ink-muted">Converting the document…</div>;
 
   return (
     <div className="flex h-full min-h-0 flex-col">

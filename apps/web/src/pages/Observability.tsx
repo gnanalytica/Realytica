@@ -185,7 +185,7 @@ function RoutingCard({ routes, providers }: { routes: AgentRoute[]; providers: P
         <div className="overflow-x-auto">
           <table className="w-full min-w-[38rem] text-left text-xs">
             <thead>
-              <tr className="border-b border-hairline text-mini uppercase tracking-wide text-ink-muted">
+              <tr className="border-b border-hairline text-[11px] font-medium text-ink-muted">
                 <th className="pb-1.5 pr-3 font-semibold">Agent</th>
                 <th className="pb-1.5 pr-3 font-semibold">Tier</th>
                 <th className="pb-1.5 pr-3 font-semibold">Route</th>
@@ -256,7 +256,7 @@ function PerformanceTable({ rows }: { rows: ProviderPerformance[] }) {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[42rem] text-left text-xs">
               <thead>
-                <tr className="border-b border-hairline text-mini uppercase tracking-wide text-ink-muted">
+                <tr className="border-b border-hairline text-[11px] font-medium text-ink-muted">
                   <th className="pb-1.5 pr-3 font-semibold">Route</th>
                   <th className="pb-1.5 pr-3 text-right font-semibold">Calls</th>
                   <th className="pb-1.5 pr-3 text-right font-semibold">Median</th>

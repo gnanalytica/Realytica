@@ -99,7 +99,7 @@ export function ConditionEditor({
         Add a test
       </Button>
 
-      <p className="text-[11.5px] text-ink-muted">
+      <p className="text-[12px] text-ink-muted">
         Carries on when <span className="text-ink-secondary">{describeGroup(group)}</span>.
       </p>
     </div>

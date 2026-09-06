@@ -283,9 +283,9 @@ function TurnBubble({
                   )}
                 >
                   <span className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 text-[12.5px] text-ink group-hover:text-brand">{choice.label}</span>
+                    <span className="min-w-0 flex-1 text-[13px] text-ink group-hover:text-brand">{choice.label}</span>
                     {choice.kind ? (
-                      <span className="shrink-0 text-mini uppercase tracking-wide text-ink-muted">{choice.kind}</span>
+                      <span className="shrink-0 text-[11px] font-medium text-ink-muted">{choice.kind}</span>
                     ) : null}
                   </span>
                   {choice.detail ? (
@@ -720,8 +720,15 @@ export function CopilotPanel({
             as the first thing to do, and each one is drawn from what the case
             actually holds — so this is the shortest description of the file
             anybody gets, as well as the way in.
+
+            Sat at the bottom rather than centred. Centred, it floated in the
+            middle of a tall empty column with the composer far below it, so
+            the two halves of one action — read the suggestion, type the
+            question — were at opposite ends of the pane. Above the composer
+            they read as one thing, and the empty space goes where empty space
+            belongs, which is above the content rather than around it.
           */
-          <div className={cn('flex flex-1 flex-col justify-center gap-3', compact ? 'py-3' : 'py-6')}>
+          <div className={cn('flex flex-1 flex-col justify-end gap-3', compact ? 'py-3' : 'py-6')}>
             <div className="flex items-center gap-2.5">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand">
                 <Sparkles size={14} />
@@ -742,7 +749,7 @@ export function CopilotPanel({
                     disabled={disabled}
                     onClick={() => void submit(s)}
                     className={cn(
-                      'group flex w-full items-center gap-2 rounded-lg bg-surface px-3 py-2 text-left text-[12.5px] text-ink-secondary',
+                      'group flex w-full items-center gap-2 rounded-lg bg-surface px-3 py-2 text-left text-[13px] text-ink-secondary',
                       'ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick',
                       'hover:bg-brand-soft hover:text-brand hover:ring-brand/30 disabled:cursor-not-allowed disabled:opacity-50',
                       'coarse:min-h-11',

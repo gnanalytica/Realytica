@@ -220,7 +220,16 @@ export function CardBody({ className, children }: { className?: string; children
 export function SectionTitle({ children, hint }: { children: ReactNode; hint?: ReactNode }) {
   return (
     <div className="mb-2 flex items-baseline justify-between gap-3">
-      <h3 className="text-mini font-semibold uppercase tracking-[0.07em] text-ink-muted">{children}</h3>
+      {/*
+        Sentence case, not micro-caps.
+
+        Uppercase at eleven pixels with letter-spacing is the house style of
+        every generated dashboard, and it costs something real: capitals remove
+        the word-shape a reader recognises without spelling out, so the label
+        that was meant to be skimmed is the one that has to be read. Weight and
+        colour separate a heading from its content perfectly well at this size.
+      */}
+      <h3 className="text-[12px] font-semibold text-ink-secondary">{children}</h3>
       {hint ? <span className="text-xs text-ink-muted">{hint}</span> : null}
     </div>
   );
@@ -352,7 +361,7 @@ export function Stat({
 }) {
   return (
     <div className={cn('min-w-0', className)} title={hint}>
-      <div className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</div>
+      <div className="text-[12px] font-medium text-ink-muted">{label}</div>
       <div
         className={cn('mt-1 truncate font-semibold leading-tight tracking-tight', valueSizeClass(value, 'stat'), TONE_TEXT[tone])}
         title={hint ?? (typeof value === 'string' ? value : undefined)}
@@ -458,6 +467,117 @@ export function Tile({
  * the top of a page, where four figures are the first thing a reader sees and
  * the difference between them should be visible before any of them is read.
  */
+/**
+ * One row of a register.
+ *
+ * Findings, Risks and Decisions are the same shape of thing — a title, the
+ * sentence behind it, a line of facts, and one control on the right — and each
+ * had built that shape separately. They had already drifted: Risks carries a
+ * comment explaining why the owner belongs inline in the meta line ("a whole
+ * line per risk spent on a constant"), and Findings, which was never changed,
+ * still spent that line. A shared row is how that stops happening a third
+ * time.
+ *
+ * The trailing slot does not wrap and does not move. A long title must not
+ * relocate the status dropdown, because a register is read by running down a
+ * column, and a column that jogs left and right is not one.
+ */
+export function RegisterRow({
+  title,
+  why,
+  meta,
+  trailing,
+  className,
+}: {
+  title: ReactNode;
+  /** The engine's own prose, behind a disclosure. Absent is normal. */
+  why?: ReactNode;
+  /** The facts a reader scans: category, counts, owner. One line. */
+  meta?: ReactNode;
+  /** The control that acts on this row. Right-aligned and fixed. */
+  trailing?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex items-start justify-between gap-3 px-4 py-3', className)}>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium text-ink">{title}</p>
+        {why ? <Why>{why}</Why> : null}
+        {meta ? (
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-ink-muted">{meta}</div>
+        ) : null}
+      </div>
+      {trailing ? <div className="shrink-0">{trailing}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * A row of figures that describe where a file stands.
+ *
+ * Replaces four tinted tiles in a 2×2 grid, which is the shape a dashboard
+ * takes when nobody has decided what matters. Every tile was the same size, so
+ * "0 overdue actions" — good news, and the commonest reading — occupied the
+ * same quarter of the screen as three unevidenced material findings. Two of
+ * the four were routinely zero. The tints made it worse: a wash of colour
+ * behind a figure reads as a state before it is read as a number, and half the
+ * washes were reporting nothing wrong.
+ *
+ * So: one line, hairline-separated, no fills. The figure carries colour ONLY
+ * when it is telling somebody to act — that is the whole vocabulary, and it
+ * works because nothing else on the strip is competing for it. A zero stays
+ * legible rather than being hidden, because "nothing overdue" is a fact worth
+ * reading; it just stops shouting.
+ */
+export function StandingStrip({ items, className }: { items: StandingItem[]; className?: string }) {
+  return (
+    <dl
+      className={cn(
+        'flex flex-wrap items-stretch gap-x-6 gap-y-3 rounded-xl bg-sunken px-4 py-3 ring-1 ring-inset ring-[var(--ring)]',
+        className,
+      )}
+    >
+      {items.map((item, i) => (
+        <div
+          key={typeof item.label === 'string' ? item.label : i}
+          className={cn('min-w-[8.5rem] flex-1', i > 0 ? 'border-l border-hairline pl-6' : null)}
+        >
+          <dt className="text-[12px] leading-none text-ink-muted">{item.label}</dt>
+          <dd className="mt-1.5 flex items-baseline gap-1.5">
+            <span
+              className={cn(
+                'text-[19px] font-semibold leading-none tracking-tight tabular-nums',
+                // Colour is reserved for a figure somebody has to act on.
+                item.alert ? TONE_TEXT[item.alert] : 'text-ink',
+              )}
+            >
+              {item.value}
+            </span>
+            {item.hint ? <span className="text-[12px] leading-none text-ink-secondary">{item.hint}</span> : null}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export interface StandingItem {
+  label: ReactNode;
+  value: ReactNode;
+  /** Sits beside the figure, not under it — a strip is one line, not four cards. */
+  hint?: ReactNode;
+  /**
+   * Set only when this figure is asking for action. Absent means "read it and
+   * move on", which is what most of these are most of the time.
+   *
+   * Narrower than `Tone` on purpose: this palette renders `warning` and
+   * `serious` as plain ink, deliberately, so accepting them here would offer a
+   * prop that silently does nothing. These two are the tones that actually
+   * change what a figure looks like.
+   */
+  alert?: 'critical' | 'good';
+}
+
 export function StatTile({
   label,
   value,
@@ -476,7 +596,7 @@ export function StatTile({
   return (
     <Tile tone={tone} className={cn('p-4', className)}>
       <div className="flex items-start justify-between gap-3">
-        <span className="text-mini font-medium uppercase tracking-[0.06em] text-ink-muted">{label}</span>
+        <span className="text-[12px] font-medium text-ink-muted">{label}</span>
         {icon ? <span className={cn('shrink-0', TONE_TEXT[tone])}>{icon}</span> : null}
       </div>
       {/*
@@ -1085,7 +1205,7 @@ export function Disclosure({
     <details open={defaultOpen} className="group rounded-xl bg-surface ring-1 ring-inset ring-[var(--ring)] print-open">
       <summary
         className={cn(
-          'flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2.5 text-[12.5px] font-medium text-ink coarse:min-h-11',
+          'flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2.5 text-[13px] font-medium text-ink coarse:min-h-11',
           'hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
           '[&::-webkit-details-marker]:hidden',
         )}

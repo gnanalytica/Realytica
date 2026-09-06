@@ -190,13 +190,13 @@ export function PdfView({
 
   if (error) {
     return (
-      <div className="p-6 text-[12.5px] text-ink-secondary">
+      <div className="p-6 text-[13px] text-ink-secondary">
         This PDF could not be opened: {error}
       </div>
     );
   }
   if (!doc) {
-    return <div className="p-6 text-[12.5px] text-ink-muted">Opening the document…</div>;
+    return <div className="p-6 text-[13px] text-ink-muted">Opening the document…</div>;
   }
 
   return (

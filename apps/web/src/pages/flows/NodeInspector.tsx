@@ -57,7 +57,7 @@ export function NodeInspector({
           </div>
         </div>
         <p className="mt-1.5 text-[12px] text-ink-muted">{type.summary}</p>
-        {type.caution ? <p className="mt-1 text-[11.5px] text-ink-secondary">{type.caution}</p> : null}
+        {type.caution ? <p className="mt-1 text-[12px] text-ink-secondary">{type.caution}</p> : null}
       </div>
 
       {mine.map((p, i) => (
@@ -73,7 +73,7 @@ export function NodeInspector({
       {node.kind === 'trigger' ? null : (
         <div>
           <Toggle checked={!node.disabled} onChange={(on) => onChange({ disabled: !on })} label="Runs" />
-          <p className="mt-0.5 text-[11.5px] text-ink-muted">Turned off, the run passes straight through this node.</p>
+          <p className="mt-0.5 text-[12px] text-ink-muted">Turned off, the run passes straight through this node.</p>
         </div>
       )}
 

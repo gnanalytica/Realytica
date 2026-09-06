@@ -56,7 +56,7 @@ function ResultBar({ scope }: { scope: ScopeInstance }) {
           />
         ))}
       </div>
-      <p className="mt-1.5 text-[11.5px] text-ink-secondary">
+      <p className="mt-1.5 text-[12px] text-ink-secondary">
         {[
           ...segments.map((s) => `${s.n} ${CHECK_RESULT_LABEL[s.result].toLowerCase()}`),
           pending > 0 ? `${pending} not started` : null,
@@ -106,7 +106,7 @@ export default function DdWorkspace() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-ink">{assessment.name}</h2>
-          <p className="tabular mt-1 text-[12.5px] text-ink-secondary">
+          <p className="tabular mt-1 text-[13px] text-ink-secondary">
             {target} · {assessment.owner} · {progress.checkDone}/{progress.checkTotal} checks · {findings.length} findings
           </p>
         </div>
@@ -145,7 +145,7 @@ export default function DdWorkspace() {
                     </div>
                     <ResultBar scope={scope} />
                     {c.findings > 0 || c.missing > 0 ? (
-                      <p className="text-[11.5px] text-ink-muted">
+                      <p className="text-[12px] text-ink-muted">
                         {[c.findings > 0 ? `${c.findings} findings` : null, c.missing > 0 ? `${c.missing} missing evidence` : null]
                           .filter(Boolean)
                           .join(' · ')}

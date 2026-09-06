@@ -383,7 +383,7 @@ export function ProjectGraphCanvas({
           <button
             type="button"
             onClick={resetToProject}
-            className="rounded-md px-2 py-1 text-[11.5px] text-ink-secondary ring-1 ring-[var(--ring)] hover:bg-sunken hover:text-ink"
+            className="rounded-md px-2 py-1 text-[12px] text-ink-secondary ring-1 ring-[var(--ring)] hover:bg-sunken hover:text-ink"
           >
             Back to the project
           </button>
@@ -521,7 +521,7 @@ export function ProjectGraphCanvas({
                       }}
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[11.5px] font-medium leading-tight text-ink">{node.label}</span>
+                        <span className="block truncate text-[12px] font-medium leading-tight text-ink">{node.label}</span>
                         <span className="block truncate text-[10px] text-ink-muted">
                           {KIND_LABEL[node.kind]}
                           {node.detail ? ` · ${node.detail}` : ''}
@@ -534,7 +534,7 @@ export function ProjectGraphCanvas({
                         is which — the bombardment again, one card at a time.
                       */}
                       {more ? (
-                        <span className="shrink-0 rounded-full bg-sunken px-1.5 py-0.5 font-mono text-[9.5px] tabular-nums text-ink-muted">
+                        <span className="shrink-0 rounded-full bg-sunken px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-ink-muted">
                           +{more}
                         </span>
                       ) : null}

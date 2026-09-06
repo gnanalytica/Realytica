@@ -170,7 +170,7 @@ export function EvidenceDropZone({
                   ))}
                 </Select>
                 {match?.ambiguousWith ? (
-                  <p className="mt-1.5 text-[11.5px] text-ink-muted">
+                  <p className="mt-1.5 text-[12px] text-ink-muted">
                     Also fits “{match.ambiguousWith.title}”.
                   </p>
                 ) : null}

@@ -131,7 +131,7 @@ export function ValuationWorkingPanel({
               </li>
             ))}
           </ul>
-          <p className={cn('mt-2 text-[11.5px]', working.externalities.capped ? 'text-critical' : 'text-ink-muted')}>
+          <p className={cn('mt-2 text-[12px]', working.externalities.capped ? 'text-critical' : 'text-ink-muted')}>
             {working.externalities.say}
           </p>
           {working.unadjusted.indicated !== null ? (
@@ -141,7 +141,7 @@ export function ValuationWorkingPanel({
           ) : null}
         </section>
       ) : (
-        <p className="text-[11.5px] text-ink-muted">{working.externalities.say}</p>
+        <p className="text-[12px] text-ink-muted">{working.externalities.say}</p>
       )}
     </div>
   );
@@ -175,12 +175,12 @@ function ApproachComparison({ working, currency }: { working: ValuationWorking; 
   return (
     <section className="rounded-lg border border-hairline bg-surface">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 border-b border-hairline px-3 py-2 [@container(min-width:34rem)]:grid-cols-[minmax(0,1fr)_5rem_4rem_auto]">
-        <span className="text-[10.5px] uppercase tracking-wider text-ink-muted">Approach</span>
-        <span className="hidden text-right text-[10.5px] uppercase tracking-wider text-ink-muted [@container(min-width:34rem)]:block">
+        <span className="text-[12px] font-medium text-ink-muted">Approach</span>
+        <span className="hidden text-right text-[12px] font-medium text-ink-muted [@container(min-width:34rem)]:block">
           Weight
         </span>
         <span className="hidden [@container(min-width:34rem)]:block" aria-hidden="true" />
-        <span className="text-right text-[10.5px] uppercase tracking-wider text-ink-muted">Amount</span>
+        <span className="text-right text-[12px] font-medium text-ink-muted">Amount</span>
       </div>
 
       <ul className="divide-y divide-hairline">
@@ -195,7 +195,7 @@ function ApproachComparison({ working, currency }: { working: ValuationWorking; 
               key={run.method}
               className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 px-3 py-2 [@container(min-width:34rem)]:grid-cols-[minmax(0,1fr)_5rem_4rem_auto]"
             >
-              <span className="min-w-0 text-[12.5px] text-ink">
+              <span className="min-w-0 text-[13px] text-ink">
                 {VALUATION_METHOD_LABEL[run.method]}
                 {usable ? null : (
                   <span className="block text-[11px] text-ink-muted">
@@ -204,7 +204,7 @@ function ApproachComparison({ working, currency }: { working: ValuationWorking; 
                 )}
               </span>
 
-              <span className="hidden text-right font-mono text-[11.5px] tabular-nums text-ink-secondary [@container(min-width:34rem)]:block">
+              <span className="hidden text-right font-mono text-[12px] tabular-nums text-ink-secondary [@container(min-width:34rem)]:block">
                 {usable ? `${(run.weight * 100).toFixed(0)}%` : '—'}
               </span>
 
@@ -220,7 +220,7 @@ function ApproachComparison({ working, currency }: { working: ValuationWorking; 
 
               <span
                 className={cn(
-                  'text-right font-mono text-[12.5px] tabular-nums',
+                  'text-right font-mono text-[13px] tabular-nums',
                   usable ? 'text-ink' : 'text-ink-muted',
                 )}
               >
@@ -235,13 +235,13 @@ function ApproachComparison({ working, currency }: { working: ValuationWorking; 
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 border-t border-hairline bg-sunken/40 px-3 py-2 [@container(min-width:34rem)]:grid-cols-[minmax(0,1fr)_5rem_4rem_auto]">
           {/* The basis is a sentence and this is a figures row. It reads on
               request; the report prints it. */}
-          <span className="min-w-0 text-[12.5px] font-medium text-ink">
+          <span className="min-w-0 text-[13px] font-medium text-ink">
             Blended
             <Why label="Basis">{working.reconciliation.spreadBasis}</Why>
           </span>
           <span className="hidden [@container(min-width:34rem)]:block" aria-hidden="true" />
           <span className="hidden [@container(min-width:34rem)]:block" aria-hidden="true" />
-          <span className="text-right font-mono text-[12.5px] font-semibold tabular-nums text-ink">
+          <span className="text-right font-mono text-[13px] font-semibold tabular-nums text-ink">
             {money(blended, currency)}
           </span>
         </div>
@@ -271,7 +271,7 @@ function ApproachCard({
         )}
       </div>
 
-      <p className="mt-0.5 font-mono text-[11.5px] text-ink-muted">{run.formula}</p>
+      <p className="mt-0.5 font-mono text-[12px] text-ink-muted">{run.formula}</p>
 
       {/*
         The missing inputs are named three times on this screen: the approaches
@@ -290,7 +290,7 @@ function ApproachCard({
 
       <div className="mt-2 grid gap-3 sm:grid-cols-2">
         <div>
-          <p className="text-[10.5px] uppercase tracking-wider text-ink-muted">Inputs</p>
+          <p className="text-[12px] font-medium text-ink-muted">Inputs</p>
           <ul className="mt-1 space-y-1">
             {run.inputs.map((input) => (
               <li key={input.key} className="text-[12px]">
@@ -300,7 +300,7 @@ function ApproachCard({
                     {input.value === null ? 'not recorded' : `${input.value.toLocaleString('en-IN')}${input.unit ? ` ${input.unit}` : ''}`}
                   </span>
                 </div>
-                <p className={cn('text-[10.5px]', SOURCE_TONE[input.source.kind])}>
+                <p className={cn('text-[11px]', SOURCE_TONE[input.source.kind])}>
                   {sourceLine(input)} — {INPUT_SOURCE_STRENGTH[input.source.kind]}
                   {input.evidenceId ? ' · evidenced' : ''}
                 </p>
@@ -315,10 +315,10 @@ function ApproachCard({
                   dropped rather than trusted to stay distinct.
                 */}
                 {input.note && !sourceSays(input, input.note) ? (
-                  <p className="text-[10.5px] text-ink-muted">{input.note}</p>
+                  <p className="text-[11px] text-ink-muted">{input.note}</p>
                 ) : null}
                 {onOpenCheck && input.source.kind === 'check_field' && input.source.checkId ? (
-                  <button type="button" className="text-[10.5px] text-brand underline" onClick={() => onOpenCheck(input.source.kind === 'check_field' ? input.source.checkId : '')}>
+                  <button type="button" className="text-[11px] text-brand underline" onClick={() => onOpenCheck(input.source.kind === 'check_field' ? input.source.checkId : '')}>
                     open the check
                   </button>
                 ) : null}
@@ -329,7 +329,7 @@ function ApproachCard({
 
         {run.steps.length ? (
           <div>
-            <p className="text-[10.5px] uppercase tracking-wider text-ink-muted">Working</p>
+            <p className="text-[12px] font-medium text-ink-muted">Working</p>
             <ul className="mt-1 space-y-1">
               {run.steps.map((step, i) => (
                 <li key={i} className="text-[12px]">
@@ -337,7 +337,7 @@ function ApproachCard({
                     <span className="text-ink-secondary">{step.label}</span>
                     <span className="shrink-0 font-mono text-ink">{Math.round(step.value).toLocaleString('en-IN')}</span>
                   </div>
-                  <p className="font-mono text-[10.5px] text-ink-muted">{step.expression}</p>
+                  <p className="font-mono text-[11px] text-ink-muted">{step.expression}</p>
                 </li>
               ))}
             </ul>
@@ -348,7 +348,7 @@ function ApproachCard({
       {/* A div rather than a p below — `Why` renders a <details>, and a
           paragraph cannot hold one: the browser closes the <p> before it. */}
       {usable ? (
-        <div className="mt-2 text-[11.5px] text-ink-muted">
+        <div className="mt-2 text-[12px] text-ink-muted">
           Weight {(run.weight * 100).toFixed(0)}%
           <Why label="Why this weight">{run.weightBasis}</Why>
         </div>

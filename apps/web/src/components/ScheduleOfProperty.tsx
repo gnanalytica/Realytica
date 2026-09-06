@@ -121,7 +121,7 @@ export function ScheduleOfProperty({ graph }: { graph: TitleGraph }) {
                 }
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-mini font-semibold uppercase tracking-wide text-ink-muted">{SIDE_LABEL[side]}</span>
+                  <span className="text-[12px] font-semibold text-ink-muted">{SIDE_LABEL[side]}</span>
                   {conflict && <Badge tone="serious">Sources disagree</Badge>}
                 </div>
                 {claims === undefined ? (
@@ -143,7 +143,7 @@ export function ScheduleOfProperty({ graph }: { graph: TitleGraph }) {
 
         {dimensions.length > 0 && (
           <div>
-            <h4 className="mb-1 text-mini font-semibold uppercase tracking-wide text-ink-muted">Dimensions stated</h4>
+            <h4 className="mb-1 text-[12px] font-semibold text-ink-muted">Dimensions stated</h4>
             <ul className="m-0 list-none space-y-1 p-0">
               {dimensions.map(d => (
                 <li key={d.stated} className="flex items-baseline justify-between gap-3 text-[13px]">

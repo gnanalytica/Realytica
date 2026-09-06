@@ -117,18 +117,18 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
           const blank = isBlank(values[def.key]);
           return (
             <label key={def.key} className={cn('block', (def.kind === 'table' || def.kind === 'longtext' || def.kind === 'evidence') && 'sm:col-span-2')}>
-              <span className="flex items-baseline gap-1.5 text-[11.5px] text-ink-secondary">
+              <span className="flex items-baseline gap-1.5 text-[12px] text-ink-secondary">
                 {def.label}
                 {def.unit ? <span className="text-ink-muted">({def.unit})</span> : null}
                 {def.proof === 'required' ? (
                   <span
-                    className="rounded bg-sunken px-1 text-[9.5px] uppercase tracking-wide text-ink-muted"
+                    className="rounded bg-sunken px-1 text-[12px] font-medium text-ink-muted"
                     title="This value has to cite something on the evidence register. File the document first, then record it against that row."
                   >
                     proof
                   </span>
                 ) : null}
-                {def.from ? <span className="ml-auto truncate text-[10.5px] text-ink-muted">from {def.from}</span> : null}
+                {def.from ? <span className="ml-auto truncate text-[11px] text-ink-muted">from {def.from}</span> : null}
               </span>
               {def.kind === 'computed' ? (
                 // Worked out, so there is nothing to type into. Shown as a
@@ -237,7 +237,7 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                   className={cn(inputCls, blank && 'border-dashed placeholder:text-ink-muted')}
                 />
               )}
-              {def.hint && blank ? <span className="mt-0.5 block text-[10.5px] text-ink-muted">{def.hint}</span> : null}
+              {def.hint && blank ? <span className="mt-0.5 block text-[11px] text-ink-muted">{def.hint}</span> : null}
             </label>
           );
         })}
@@ -245,13 +245,13 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
 
       {insights.length ? (
         <div className="space-y-1.5 rounded-lg border border-hairline bg-sunken p-2.5">
-          <p className="text-[10.5px] uppercase tracking-wider text-ink-muted">
+          <p className="text-[12px] font-medium text-ink-muted">
             Computed from these values — not a conclusion about the check
           </p>
           {insights.map((insight) => (
             <div key={insight.text} className="flex items-start gap-2">
               <Badge tone={SEVERITY_TONE[insight.severity]}>{insight.severity}</Badge>
-              <p className="text-[12.5px] leading-snug text-ink-secondary">{insight.text}</p>
+              <p className="text-[13px] leading-snug text-ink-secondary">{insight.text}</p>
             </div>
           ))}
         </div>
@@ -427,19 +427,19 @@ function EvidenceField({
               <li
                 key={id}
                 className={cn(
-                  'flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px]',
+                  'flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px]',
                   gap ? 'border-warning/40 bg-warning/10 text-ink' : 'border-hairline bg-raised text-ink',
                 )}
               >
                 <span>{row ? row.title : id}</span>
                 {row ? (
-                  <span className={cn('text-[10.5px]', gap ? 'text-[var(--status-warning-text)]' : 'text-ink-muted')}>
+                  <span className={cn('text-[11px]', gap ? 'text-[var(--status-warning-text)]' : 'text-ink-muted')}>
                     {gap ? `${EVIDENCE_STATUS_LABEL[row.status]} — not on the file yet` : EVIDENCE_STATUS_LABEL[row.status]}
                   </span>
                 ) : (
                   // Only reachable if a row was deleted after being cited; the
                   // API refuses to record one that never existed.
-                  <span className="text-[10.5px] text-critical">no longer on the register</span>
+                  <span className="text-[11px] text-critical">no longer on the register</span>
                 )}
                 {!disabled ? (
                   <button type="button" className="text-ink-muted hover:text-ink" onClick={() => onChange(selected.filter((x) => x !== id))}>
@@ -457,7 +457,7 @@ function EvidenceField({
           <select
             value=""
             disabled={busy}
-            className="h-7 rounded-md border border-hairline bg-surface px-2 text-[11.5px] text-ink"
+            className="h-7 rounded-md border border-hairline bg-surface px-2 text-[12px] text-ink"
             onChange={(e) => {
               if (!e.target.value) return;
               onChange([...selected, e.target.value]);
@@ -473,7 +473,7 @@ function EvidenceField({
           </select>
 
           {onAttach ? (
-            <label className={cn('cursor-pointer text-[11.5px] font-medium text-brand', busy && 'opacity-50')}>
+            <label className={cn('cursor-pointer text-[12px] font-medium text-brand', busy && 'opacity-50')}>
               {busy ? 'Uploading…' : 'Upload'}
               <input
                 type="file"
