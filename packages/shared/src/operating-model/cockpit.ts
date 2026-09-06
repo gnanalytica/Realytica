@@ -588,7 +588,15 @@ function standingDelta(before: FileStanding, after: FileStanding): ChatMetric[] 
 export function applyProjectChat(
   project: DdProject,
   question: string,
-  options: { actor?: string; viewContext?: string; ingest?: ChatIngestFile[]; sides?: ChatSideBundle; sitting?: SittingRef } = {},
+  options: {
+    actor?: string;
+    viewContext?: string;
+    ingest?: ChatIngestFile[];
+    sides?: ChatSideBundle;
+    sitting?: SittingRef;
+    /** What reading the attached documents cost. Rendered beside the turn, as a chat turn's cost already is. */
+    spend?: TurnSpend;
+  } = {},
 ): ProjectChatResult {
   ensureProjectShape(project);
   const actor = options.actor ?? 'operator';
@@ -1278,6 +1286,7 @@ export function applyProjectChat(
     citedNodeIds: citedNodeIds ? [...new Set(citedNodeIds)] : undefined,
     toolCalls,
     metrics,
+    spend: options.spend,
     proposalIds: offered.map((p) => p.id),
   });
   appendTurns(project, userTurn, assistantTurn);

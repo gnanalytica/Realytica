@@ -216,20 +216,37 @@ describe('the unconfigured provider', () => {
 describe('a pin the case states, rather than one a geocoder guessed', () => {
   const STATED = { lat: 12.9352, lng: 77.6994 };
 
-  test('the coordinate is the pin, and the geocoder is not called at all', async () => {
-    let asked = 0;
+  const counting = (overrides: Record<string, unknown> = {}) => {
     const provider = stubProvider();
-    const counting: PlaceProvider = { ...provider, geocode: async (r) => { asked += 1; return provider.geocode(r); } };
+    let asked = 0;
+    const wrapped: PlaceProvider = { ...provider, geocode: async (r) => { asked += 1; return provider.geocode(r); } };
     const seed = seedFor('Devanahalli');
-    const context = await buildSiteContext({
-      caseId: 'test-case',
-      identity: { ...seed.identity, statedPoint: STATED },
-      provider: counting,
-      now: NOW,
-    });
-    assert.equal(asked, 0, 'a file that says where it is does not need to be guessed at');
-    assert.deepEqual(context.location!.point, STATED);
+    return {
+      run: () => buildSiteContext({
+        caseId: 'test-case',
+        identity: { ...seed.identity, statedPoint: STATED, ...overrides },
+        provider: wrapped,
+        now: NOW,
+      }),
+      asked: () => asked,
+    };
+  };
+
+  test('the coordinate is the pin; a geocode never becomes one', async () => {
+    const probe = counting();
+    const context = await probe.run();
+    assert.deepEqual(context.location!.point, STATED, 'the file said where it is; nothing may overrule that');
     assert.equal(context.location!.precision, 'stated');
+    assert.equal(context.location!.provider, 'case_documents');
+    // One call, and only to disagree — see `disagreementSentence`.
+    assert.equal(probe.asked(), 1, 'the address is geocoded to cross-check the coordinate, not to replace it');
+  });
+
+  test('with no address to check against, the geocoder is not called at all', async () => {
+    const probe = counting({ addressLine: '', locality: '', city: '', state: '', postalCode: '' });
+    const context = await probe.run();
+    assert.equal(probe.asked(), 0, 'there is nothing to disagree with, so nothing is spent asking');
+    assert.deepEqual(context.location!.point, STATED);
   });
 
   test('it says on its face that it was not geocoded and not verified', async () => {
@@ -278,6 +295,27 @@ describe('a pin the case states, rather than one a geocoder guessed', () => {
       context.gaps.length,
       'five nearby kinds failing for one reason is one thing the reader needs told, not five',
     );
+  });
+
+  test('says so when the address on file resolves somewhere else entirely', async () => {
+    // SITE is the stub's geocode answer; the stated point is put a long way
+    // from it, which is the shape of a mistyped digit or a document about a
+    // different property.
+    const context = await build({}, { statedPoint: { lat: 12.9352, lng: 77.6994 } });
+    assert.match(context.location!.caveat, /address on file resolves/);
+    assert.match(context.location!.caveat, /worth resolving before either is relied on/);
+    assert.deepEqual(context.location!.point, { lat: 12.9352, lng: 77.6994 }, 'the coordinate still wins; it just no longer wins silently');
+  });
+
+  test('stays quiet when the two agree, so the sentence means something when it appears', async () => {
+    const context = await build({}, { statedPoint: { lat: SITE.lat + 0.001, lng: SITE.lng } });
+    assert.doesNotMatch(context.location!.caveat, /address on file resolves/);
+  });
+
+  test('does not invent agreement when the cross-check could not run', async () => {
+    const context = await build({ geocodeFails: true }, { statedPoint: { lat: 12.9352, lng: 77.6994 } });
+    assert.ok(context.location, 'a failed cross-check must not cost the case its pin');
+    assert.doesNotMatch(context.location!.caveat, /address on file resolves/);
   });
 
   test('what the pin was built from is the coordinate, so it does not read as stale on every load', () => {

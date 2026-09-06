@@ -690,6 +690,22 @@ export async function runExplorer(input: RunExplorerInput): Promise<RunExplorerR
     capabilityGaps = mergeGaps(capabilityGaps, result.capabilityGaps);
     usage = sumUsage([usage, result.usage]);
 
+    /*
+     * A search that did not happen is not a degraded search.
+     *
+     * `server_web_search_unavailable` reaches here when the route accepted the
+     * server tool and never ran it — measured on OpenRouter, which drops it
+     * silently and answers 200. An exploration iteration with no search is
+     * recollection dressed as a lead, so the run stops here rather than
+     * accumulating them.
+     */
+    if (result.capabilityGaps.includes('server_web_search_unavailable')) {
+      hardError = `Iteration ${i} ran no search: the route accepted the web-search tool and never used it, so there was no outside to explore.`;
+      emit({ kind: 'error', label: 'No search ran', detail: hardError });
+      stoppedBecause = 'error';
+      break;
+    }
+
     if (result.stopReason === 'refusal') {
       hardError = 'Claude declined to continue this iteration (safety filtering).';
       emit({ kind: 'error', label: 'Request refused', detail: hardError });

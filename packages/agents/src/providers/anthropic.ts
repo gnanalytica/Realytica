@@ -36,6 +36,7 @@ import type {
   LlmResult,
   LlmStopReason,
   LlmSystemBlock,
+  LlmServerTool,
   LlmTool,
   LlmToolChoice,
   LlmToolRequest,
@@ -358,6 +359,46 @@ type ToolRunnerParams = Parameters<Anthropic['beta']['messages']['toolRunner']>[
  * Reported only when a document actually asked for them. A call with no
  * document has nothing to cite, and flagging it would bury the real signal.
  */
+/**
+ * Whether a server-hosted tool this call asked for actually ran.
+ *
+ * The same lesson as citations, learned again on a different feature and at a
+ * higher cost. Measured against OpenRouter: a request carrying Anthropic's
+ * `web_search` server tool is accepted with HTTP 200, no error and no warning,
+ * and the tool is simply dropped. The model then says, in prose, "I don't have
+ * a web search tool available in this conversation" — and market research,
+ * property discovery and exploration, whose entire job is to bring in facts
+ * from outside the case file, present that as research.
+ *
+ * Read off the answer, because the declaration cannot know. Server-tool blocks
+ * are Anthropic-shaped and deliberately not translated by the port, so the
+ * evidence is looked for on the native message: a `server_tool_use` block, a
+ * `*_tool_result` block, or a server-tool line in the usage.
+ *
+ * A model that simply chose not to search produces the same silence as a route
+ * that dropped the tool, and from here the two are indistinguishable. That is
+ * acceptable because the consequence is identical: no search ran, so the
+ * answer is unresearched, and an unresearched answer must not be filed as
+ * research whichever of the two happened.
+ */
+export function serverToolGaps(tools: LlmTool[] | undefined, native: unknown): CapabilityGap[] {
+  const asked = (tools ?? []).filter((t): t is LlmServerTool => 'kind' in t && t.kind === 'server');
+  if (asked.length === 0) return [];
+  if (usedAServerTool(native)) return [];
+  return [...new Set(asked.map(tool => tool.gap))];
+}
+
+function usedAServerTool(native: unknown): boolean {
+  const message = native as { content?: unknown; usage?: { server_tool_use?: unknown } } | null;
+  if (!message) return false;
+  if (message.usage?.server_tool_use) return true;
+  if (!Array.isArray(message.content)) return false;
+  return message.content.some((block: unknown) => {
+    const type = (block as { type?: unknown } | null)?.type;
+    return typeof type === 'string' && (type === 'server_tool_use' || type.endsWith('_tool_result'));
+  });
+}
+
 export function citationGap(req: LlmRequest, content: LlmContentBlock[]): CapabilityGap[] {
   const wanted = req.messages.some(m =>
     typeof m.content !== 'string'
@@ -409,7 +450,7 @@ class AnthropicProvider implements LlmProvider {
       content,
       stopReason: toStopReason(message.stop_reason),
       usage: estimateUsage(req.model, message.usage),
-      capabilityGaps: citationGap(req, content),
+      capabilityGaps: [...citationGap(req, content), ...serverToolGaps(req.tools, message)],
       durationMs: Date.now() - startedAt,
       timeToFirstTokenMs: firstTokenAt === undefined ? undefined : firstTokenAt - startedAt,
       retries: 0,
@@ -449,7 +490,9 @@ class AnthropicProvider implements LlmProvider {
       content: toContentBlocks(final.content),
       stopReason: toStopReason(final.stop_reason),
       usage: estimateUsage(req.model, final.usage),
-      capabilityGaps: [],
+      // A tool-runner turn can span several messages; the last one carries the
+      // usage totals and is where a server tool's traces land.
+      capabilityGaps: serverToolGaps(req.tools, final),
       durationMs: Date.now() - startedAt,
       // The tool runner consumes its own streams; there is no single
       // first-token moment for the call as a whole, so this is honestly absent

@@ -312,6 +312,22 @@ export async function runPropertyDiscovery(params: RunPropertyDiscoveryParams): 
   }
 
   capabilityGaps = result.capabilityGaps;
+
+  /*
+   * A search that did not happen is not a degraded search.
+   *
+   * `server_web_search_unavailable` reaches here when the route accepted the
+   * server tool and never ran it — measured on OpenRouter, which drops it
+   * silently and answers 200. Everything below this point turns the reply into
+   * findings on a case file, and a reply written without a single search is
+   * recollection. Cancelled, exactly as the disabled-flag branch above does,
+   * and for the same reason: there is no outside to report on.
+   */
+  if (capabilityGaps.includes('server_web_search_unavailable')) {
+    const reason = `The route accepted the web-search tool and never ran it, so nothing outside the case file was consulted — the sweep was not run rather than answered from recollection. ${describeGap('server_web_search_unavailable')}`;
+    emit({ kind: 'plan', label: 'No search ran', detail: reason });
+    return finish('cancelled', reason, planOnly(reason));
+  }
   for (const gap of capabilityGaps) {
     emit({ kind: 'message', label: `Degraded on route ${route.provider}: ${gap}`, detail: describeGap(gap) });
   }

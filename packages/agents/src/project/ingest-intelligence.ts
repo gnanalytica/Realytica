@@ -4,9 +4,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { AgentStep, CaseDocument, ChatIngestFile, DdProject } from '@realytica/shared';
+import type { AgentRun, AgentStep, CaseDocument, ChatIngestFile, DdProject, TurnSpend } from '@realytica/shared';
 import { failureCause, projectToIdentity } from '@realytica/shared';
 import { runDocumentIntelligence } from '../agents/document-intelligence';
+import { priceTokens } from '../telemetry/pricing';
 
 export interface EnrichIngestParams {
   project: DdProject;
@@ -14,6 +15,36 @@ export interface EnrichIngestParams {
   buffers: Buffer[];
   now?: string;
   onStep?: (step: AgentStep) => void;
+  /**
+   * What each document read cost, as it finishes.
+   *
+   * Reading a scanned deed is the most expensive call this product makes —
+   * whole PDFs into the extraction tier, once per document — and the upload
+   * turn was the one turn that showed no figure beside it. A chat turn has
+   * carried its own cost since the copilot was tiered; this closes the gap
+   * for the turn that costs the most.
+   *
+   * A callback rather than a return value so a run that throws part-way still
+   * reports what it spent before it did.
+   */
+  onSpend?: (spend: TurnSpend) => void;
+}
+
+/**
+ * Prices one document read and hands it back.
+ *
+ * `exact` travels with the figure rather than being inferred from it: the
+ * pricing module returns zero for a model it has no rate for, and a zero that
+ * means "not priced" must never render as a call that was free.
+ */
+function reportSpend(onSpend: ((spend: TurnSpend) => void) | undefined, run: AgentRun): void {
+  if (!onSpend || !run.usage) return;
+  const price = priceTokens(run.provider ?? 'anthropic', run.model, {
+    inputTokens: run.usage.inputTokens,
+    outputTokens: run.usage.outputTokens,
+    cacheReadTokens: run.usage.cacheReadTokens,
+  });
+  onSpend({ usd: price.costUsd, exact: price.confidence === 'exact' });
 }
 
 function stubDocument(projectId: string, file: ChatIngestFile, now: string): CaseDocument {
@@ -101,6 +132,7 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
         now,
         onStep: params.onStep,
       });
+      reportSpend(params.onSpend, result.run);
       if (result.run.status !== 'succeeded' || result.fields.length === 0) {
         /*
          * Nothing was read, so nothing may be said about the contents. The

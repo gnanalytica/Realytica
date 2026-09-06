@@ -268,6 +268,22 @@ export async function runMarketResearch(params: RunMarketResearchParams): Promis
 
   const usage = result.usage;
 
+  /*
+   * A search that did not happen is not a degraded search.
+   *
+   * `server_web_search_unavailable` reaches here when the route accepted the
+   * server tool and never ran it — measured on OpenRouter, which drops it
+   * silently and answers 200. Everything below this point turns the reply into
+   * findings on a case file, and a reply written without a single search is
+   * recollection. Cancelled, exactly as the disabled-flag branch above does,
+   * and for the same reason: there is no outside to report on.
+   */
+  if (capabilityGaps.includes('server_web_search_unavailable')) {
+    const reason = `The route accepted the web-search tool and never ran it, so nothing outside the case file was consulted — market research was not run rather than answered from recollection. ${describeGap('server_web_search_unavailable')}`;
+    emit({ kind: 'error', label: 'No search ran', detail: reason });
+    return finish('cancelled', reason, usage);
+  }
+
   if (result.stopReason === 'refusal') {
     const reason = 'Claude declined to perform this research (safety filtering).';
     emit({ kind: 'error', label: 'Request refused', detail: reason });
