@@ -26,6 +26,16 @@ function paneForHit(kind: SearchKind): ProjectCockpitPane {
   return paneForTalk(kind);
 }
 
+/**
+ * The ids the input and the list point at.
+ *
+ * `aria-activedescendant` is a pointer, so both halves have to agree on the
+ * name of every row. Derived rather than generated so they cannot drift: one
+ * palette is open at a time, and the index is what the keyboard is moving.
+ */
+const LIST_ID = 'command-bar-matches';
+const optionId = (index: number): string => `command-bar-option-${index}`;
+
 const GO: Array<{ pane: ProjectCockpitPane; label: string; hint: string }> = [
   { pane: 'overview', label: 'Open overview', hint: 'Go' },
   { pane: 'assets', label: 'Open assets', hint: 'Go' },
@@ -166,6 +176,23 @@ export function ProjectCommandBar({
     return found.slice(0, 10);
   }, [commands, query, records]);
 
+  /*
+   * A new query is a new list, so the highlight goes back to the top.
+   *
+   * This used to clamp the old index to the new length, keyed on the length
+   * alone — so typing a letter that happened to return the same number of
+   * matches left the highlight on a row that was now a different command
+   * entirely. Arrow down to the third result, type one more character, press
+   * Enter, and you ran something you never looked at. The palette runs `do`
+   * commands that write to the file, so that is not only surprising.
+   *
+   * Keyed on the query, with the clamp kept for the other way the list can
+   * change — records arriving from a refresh while the palette is open.
+   */
+  useEffect(() => {
+    setActive(0);
+  }, [query]);
+
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, matches.length - 1)));
   }, [matches.length]);
@@ -232,17 +259,37 @@ export function ProjectCommandBar({
             }}
             placeholder="Find a check, a document, a finding — or run a command"
             aria-label="Run a command"
+            /*
+              The combobox pattern, which this was missing.
+
+              Arrowing down moved a background colour and nothing else: the
+              list was a plain <ul> of buttons, so a screen reader announced
+              the input and then silence, however far down the matches you
+              travelled. `aria-activedescendant` is what makes the highlight
+              audible — it points at the option the keyboard is on, so the
+              same keystroke that moves the highlight reads the row out.
+
+              `aria-expanded` is bound to whether there is anything to expand
+              into. Hard-coding it true would announce a list to somebody the
+              filter has just emptied.
+            */
+            role="combobox"
+            aria-expanded={matches.length > 0}
+            aria-controls={LIST_ID}
+            aria-activedescendant={matches[active] ? optionId(active) : undefined}
+            aria-autocomplete="list"
             className="w-full bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-muted"
           />
         </div>
-        <ul className="min-h-0 flex-1 overflow-y-auto p-1.5">
+        <ul id={LIST_ID} role="listbox" aria-label="Matches" className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {matches.length === 0 ? (
             <li className="px-3 py-6 text-center text-[13px] text-ink-muted">Nothing on this project matches that.</li>
           ) : (
             matches.map((c, i) => (
-              <li key={c.id}>
+              <li key={c.id} id={optionId(i)} role="option" aria-selected={i === active}>
                 <button
                   type="button"
+                  tabIndex={-1}
                   onMouseEnter={() => setActive(i)}
                   onClick={() => void run(c)}
                   className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left coarse:min-h-11 ${
@@ -250,7 +297,7 @@ export function ProjectCommandBar({
                   }`}
                 >
                   <span
-                    className={`mt-0.5 w-7 shrink-0 text-[10px] font-semibold uppercase tracking-[0.05em] ${
+                    className={`mt-0.5 w-7 shrink-0 text-[11px] font-semibold ${
                       c.kind === 'do' ? 'text-brand' : 'text-ink-muted'
                     }`}
                   >
