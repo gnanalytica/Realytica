@@ -66,7 +66,14 @@ function NavGroup({
           aria-label={collapsed ? item.label : undefined}
           className={({ isActive }) =>
             cn(
-              'group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium',
+              /* `coarse:` for the pointer, not `lg:` for the window: a tablet
+                 is wide and still fingered. These rows measured 36px against
+                 the 44 a thumb needs, on the app's primary navigation. */
+              /* `min-h-11` rather than more padding: padding arithmetic landed
+                 these at 43.5px — half a pixel short, and invisible unless the
+                 measurement is taken unrounded. State the minimum instead of
+                 computing it. */
+              'group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium coarse:min-h-11',
               'transition-[background-color,color] duration-quick ease-state',
               isActive
                 ? 'bg-brand-soft text-brand before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-r before:bg-brand'
@@ -162,7 +169,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
             type="button"
             onClick={onCloseMobile}
             aria-label="Close navigation"
-            className="ml-auto rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink coarse:p-3 lg:hidden"
+            className="ml-auto rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink coarse:min-h-11 coarse:min-w-11 lg:hidden"
           >
             <X size={16} />
           </button>

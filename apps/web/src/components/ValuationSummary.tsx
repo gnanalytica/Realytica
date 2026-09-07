@@ -53,6 +53,30 @@ export function ValuationSummary({
   const completeness = screen?.completeness.score;
 
   /*
+   * The inputs standing between this file and a figure.
+   *
+   * Every skipped approach already carries the reason it could not run; they
+   * repeat across approaches (three of four want an area of some kind), so
+   * they are deduplicated and capped. Three is enough to act on and more than
+   * three is a list somebody skims.
+   */
+  const blocking = [
+    ...new Set(
+      (run.working?.reconciliation.skippedMethods ?? [])
+        // `because` is composed as `missing a, b, c`, so the prefix comes off
+        // and the list is split back into the input names it was built from —
+        // otherwise three approaches waiting on an area read as three
+        // different problems.
+        .flatMap((m) => (m.because.startsWith('missing ') ? m.because.slice(8).split(', ') : []))
+        .map((name) => name.trim())
+        .filter((name) => name.length > 0),
+    ),
+  ];
+  // Two in the headline. A third pushes it onto a second line and the sheet
+  // lists them all anyway.
+  const blockingShown = blocking.slice(0, 2);
+
+  /*
    * Half-width as a percentage of the mid.
    *
    * A range is the honest output and a range is also easy to skim past: the
@@ -213,11 +237,39 @@ export function ValuationSummary({
                 </p>
               </>
             ) : (
-              <p className="text-[17px] font-semibold leading-tight text-ink">
-                {outcome === 'approaches_disagree'
-                  ? 'No figure — the approaches disagree'
-                  : 'No figure — no approach had all of its inputs'}
-              </p>
+              /*
+                A dead end that names its own way out.
+                
+                Measured on a cold-start file: three fields on the create form,
+                four clicks, two runs, and the answer was "No figure — no
+                approach had all of its inputs" over four rows of "Not run".
+                Every one of them was waiting on an area, and recording a plot
+                area turned that same file into ₹13.2 Cr ± 8% with no other
+                change. The screen knew which cell it was waiting on and spent
+                its largest type saying that something was missing instead.
+                
+                So the inputs are named, deduplicated, and the sheet that
+                proposes values for them is one click away. The wording stays
+                honest — there is still no figure — but "no approach had all of
+                its inputs" is a statement about the software, and "waiting on:
+                plot area" is a statement about the reader's next move.
+              */
+              <>
+                <p className="text-[17px] font-semibold leading-tight text-ink">
+                  {outcome === 'approaches_disagree'
+                    ? 'No figure — the approaches disagree'
+                    : blockingShown.length > 0
+                      ? `No figure yet — waiting on ${blockingShown.join(' and ').toLowerCase()}`
+                      : 'No figure — no approach had all of its inputs'}
+                </p>
+                {outcome !== 'approaches_disagree' && blockingShown.length > 0 ? (
+                  <p className="mt-1 text-[13px] text-ink-secondary">
+                    Record {blockingShown.length === 1 ? 'it' : 'them'} on the input sheet
+                    {blocking.length > blockingShown.length ? `, with ${blocking.length - blockingShown.length} more` : ''} —
+                    it proposes what this deployment already holds for this locality, and each proposal says where it came from.
+                  </p>
+                ) : null}
+              </>
             )}
             <p className="mt-1 text-[12px] text-ink-muted">{method}</p>
           </div>

@@ -374,7 +374,9 @@ function ActionCost({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-[11px] text-ink-muted underline-offset-2 hover:text-brand hover:underline"
+        /* 17px on a phone, which is not a target. Padding rather than a
+           bigger font: this is deliberately quiet until somebody wants it. */
+        className="-mx-1 rounded px-1 py-0.5 text-[11px] text-ink-muted underline-offset-2 hover:text-brand hover:underline coarse:min-h-11 coarse:px-2"
       >
         Add cost
       </button>
