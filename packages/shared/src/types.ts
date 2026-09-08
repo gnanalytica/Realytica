@@ -565,7 +565,15 @@ export type BoundarySource =
   /** Traced by the user on a map. Honest about being a trace, not a survey. */
   | 'drawn'
   /** Transcribed from a licensed surveyor's plan. The only authoritative kind. */
-  | 'surveyed';
+  | 'surveyed'
+  /**
+   * Read from the state's own published cadastre (Telangana's TGRAC layers,
+   * Karnataka's K-GIS) for the survey number on file. A government record and
+   * therefore stronger than a trace, but machine-read and not a licensed
+   * survey: the register's own boundaries carry survey error, and nobody has
+   * walked this one.
+   */
+  | 'revenue_map';
 
 /**
  * The parcel's outline, as somebody supplied it.

@@ -57,6 +57,9 @@ importers:
       '@realytica/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@realytica/site-intel':
+        specifier: workspace:*
+        version: link:../../packages/site-intel
       '@vercel/blob':
         specifier: ^2.8.0
         version: 2.8.0
@@ -173,6 +176,8 @@ importers:
         version: 5.9.3
 
   packages/shared: {}
+
+  packages/site-intel: {}
 
 packages:
 

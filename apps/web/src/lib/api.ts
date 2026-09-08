@@ -98,6 +98,7 @@ import type {
   OrchestratorRun,
   GisOverlayRead,
   ParcelBoundary,
+  RevenueMapRead,
   WorkspaceRole,
   ProjectGrant,
   CreateProjectGrantInput,
@@ -882,6 +883,24 @@ export const api = {
     }),
   clearSurveyBoundary: (projectId: string) =>
     request<void>(`/projects/${projectId}/gis-overlay/survey`, { method: 'DELETE' }),
+  revenueLevels: (projectId: string, q: { state: 'TS' | 'KA'; district?: string; mandal?: string }) => {
+    const params = new URLSearchParams({ state: q.state });
+    if (q.district) params.set('district', q.district);
+    if (q.mandal) params.set('mandal', q.mandal);
+    return request<{ items: string[]; snapshotOn?: string; labels: { district: string; mandal: string; village: string } }>(
+      `/projects/${projectId}/gis-overlay/revenue/levels?${params.toString()}`,
+    );
+  },
+  readRevenueMap: (
+    projectId: string,
+    body: { state: 'TS' | 'KA'; district: string; mandal: string; village: string; surveyNo: string },
+  ) =>
+    request<{ read: RevenueMapRead; boundary: ParcelBoundary | null; notEvidence: true; note: string }>(
+      `/projects/${projectId}/gis-overlay/revenue`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  clearRevenueMap: (projectId: string) =>
+    request<void>(`/projects/${projectId}/gis-overlay/revenue`, { method: 'DELETE' }),
   projectGraphNeighbourhood: (projectId: string, query: string, hops = 2) =>
     request<{
       query: string;

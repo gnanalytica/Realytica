@@ -26,10 +26,24 @@ import { planningMapsFor, type PlanningMapSource, type PlanningRealm } from './p
 import { civicHitsNear, matchNamedResources, simplifyRing, type NamedRing } from './civic-layers';
 import type { ChatPlacesPull, DdProject } from './types';
 import type { SittingRef } from './sitting';
+import { haversineMetres } from '../site';
+import {
+  REVENUE_MAP_CAVEAT,
+  revenueLayerLabel,
+  type RevenueMapFeatureKind,
+  type RevenueMapRead,
+} from './revenue-map';
 
 export const GIS_OVERLAY_RADIUS_M = 1_200;
 
-export type GisContextKind = 'osm_water' | 'osm_waterway' | 'osm_landuse' | 'civic_lake' | 'civic_ward';
+export type GisContextKind =
+  | 'osm_water'
+  | 'osm_waterway'
+  | 'osm_landuse'
+  | 'civic_lake'
+  | 'civic_ward'
+  /** The state's own layers, read for the survey number on file — see `revenue-map.ts`. */
+  | RevenueMapFeatureKind;
 
 export interface GisContextFeature {
   id: string;
@@ -39,7 +53,12 @@ export interface GisContextFeature {
   ring?: GeoPoint[];
   /** Open polyline (drains, streams). */
   line?: GeoPoint[];
+  /** A station or similar node. Only revenue-map features carry one. */
+  point?: GeoPoint;
   landuse?: string;
+  /** Revenue-map features: which government layer, and how far from the parcel. */
+  layerKey?: string;
+  distanceM?: number;
 }
 
 export interface GisOverlayHit {
@@ -58,9 +77,22 @@ export interface GisOverlayHit {
     | 'civic_ward'
     | 'civic_lake'
     | 'civic_lake_overlap'
-    | 'withdrawn_sheet';
+    | 'withdrawn_sheet'
+    | 'revenue_parcel'
+    | 'revenue_far_from_pin'
+    | 'revenue_extent'
+    | 'revenue_prohibited'
+    | 'revenue_register_unjoined'
+    | 'revenue_factor'
+    | 'revenue_insight'
+    | 'revenue_anchor'
+    | 'revenue_unread';
   severity: 'info' | 'flag';
-  standing: 'context' | 'survey' | 'statute_needed';
+  /**
+   * `record` is a government layer read by machine for this survey number:
+   * stronger than volunteer context, weaker than a filed extract.
+   */
+  standing: 'context' | 'survey' | 'record' | 'statute_needed';
   text: string;
   metres?: number;
   featureId?: string;
@@ -88,6 +120,18 @@ export interface GisOverlayRead {
     refused: PlanningMapSource[];
   };
   withdrawnSheets: Array<{ name: string; url: string; standing: 'withdrawn' }>;
+  /** Present once the revenue map has been read for this file. */
+  revenue?: {
+    standing: 'record';
+    readAt: string;
+    state: RevenueMapRead['state'];
+    surveyNo: string;
+    village: string | null;
+    sourceLabel: string;
+    featureCount: number;
+    unreadLayers: string[];
+    caveat: string;
+  };
   dpplansHint?: string;
   osm: {
     standing: 'context';
@@ -337,6 +381,7 @@ export function compareProjectGis(
     osm?: { features: GisContextFeature[]; fetchedAt?: string; error?: string };
     civic?: { lakes?: NamedRing[]; wards?: NamedRing[]; error?: string };
     withdrawnSheets?: Array<{ name: string; url: string }>;
+    revenue?: RevenueMapRead;
   },
 ): GisOverlayRead {
   const planning = compareProjectPlanning(project, { sitting: extra?.sitting, places: extra?.places });
@@ -362,7 +407,8 @@ export function compareProjectGis(
       ring: simplifyRing(h.feature.ring),
     })),
   ];
-  const features = [...osmFeatures, ...civicFeatures];
+  const revenueFeatures = extra?.revenue ? revenueMapFeatures(extra.revenue) : [];
+  const features = [...osmFeatures, ...civicFeatures, ...revenueFeatures];
   const hits: GisOverlayHit[] = [
     {
       code: 'not_rmp',
@@ -406,6 +452,8 @@ export function compareProjectGis(
       }
     }
   }
+
+  if (extra?.revenue) hits.push(...revenueMapHits(extra.revenue, project, origin));
 
   if (extra?.osm?.error) {
     hits.push({
@@ -501,6 +549,19 @@ export function compareProjectGis(
     planning,
     maps,
     withdrawnSheets,
+    revenue: extra?.revenue
+      ? {
+          standing: 'record',
+          readAt: extra.revenue.readAt,
+          state: extra.revenue.state,
+          surveyNo: extra.revenue.surveyNo,
+          village: extra.revenue.village,
+          sourceLabel: extra.revenue.sourceLabel,
+          featureCount: revenueFeatures.length,
+          unreadLayers: extra.revenue.unreadLayers.map((u) => u.layer),
+          caveat: REVENUE_MAP_CAVEAT,
+        }
+      : undefined,
     dpplansHint,
     osm: {
       standing: 'context',
@@ -549,4 +610,162 @@ export function wantsGisOverlay(question: string): boolean {
     /\b(gis overlay|map overlay|osm overlay|show (it )?on the map|intersect.{0,30}(map|osm|survey|water))\b/i.test(q)
     || /\b(overlay).{0,20}\b(map|osm|survey|gis)\b/i.test(q)
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* The revenue map on the overlay                                      */
+/* ------------------------------------------------------------------ */
+
+const MAX_REVENUE_FEATURES = 120;
+const MAX_REVENUE_FACTOR_HITS = 8;
+const MAX_REVENUE_INSIGHT_HITS = 6;
+
+/** The state's layers, clipped by the engine, simplified for the canvas. */
+export function revenueMapFeatures(read: RevenueMapRead): GisContextFeature[] {
+  const out: GisContextFeature[] = [];
+  for (const f of read.features) {
+    if (out.length >= MAX_REVENUE_FEATURES) break;
+    const feature: GisContextFeature = {
+      id: f.id,
+      kind: f.kind,
+      name: f.name ?? undefined,
+      layerKey: f.layerKey,
+      distanceM: f.distanceM,
+    };
+    if (f.ring && f.ring.length >= 4) feature.ring = simplifyRing(f.ring);
+    else if (f.line && f.line.length >= 2) feature.line = f.line;
+    else if (f.point) feature.point = f.point;
+    else continue;
+    out.push(feature);
+  }
+  return out;
+}
+
+function placeOf(read: RevenueMapRead): string {
+  return [read.village, read.mandal, read.district].filter(Boolean).join(', ');
+}
+
+/**
+ * What the read says, as overlay hits.
+ *
+ * A factor the engine marked as pushing the value down, or as critical, is a
+ * flag. Everything else is a note. The engine's percentages are NOT carried
+ * into the text: Realytica's valuation model owns the number, and a reader
+ * who sees "-12%" beside a lake will treat it as the adjustment rather than
+ * as one engine's opinion of one.
+ */
+/** Beyond this, the pin and the parcel are not describing the same place. */
+const REVENUE_FAR_FROM_PIN_M = 1_000;
+
+export function revenueMapHits(read: RevenueMapRead, project: DdProject, pin?: GeoPoint | null): GisOverlayHit[] {
+  const hits: GisOverlayHit[] = [];
+  const readOn = read.readAt.slice(0, 10);
+  const extent = `${Math.round(read.areaSqm).toLocaleString()} sqm surveyed${read.registerExtent ? `; the register records “${read.registerExtent}”` : ''}`;
+  hits.push({
+    code: 'revenue_parcel',
+    severity: 'info',
+    standing: 'record',
+    text: `Revenue map: Sy. ${read.surveyNo}, ${placeOf(read)} — ${read.sourceLabel}, read ${readOn}. ${extent}. ${REVENUE_MAP_CAVEAT}`,
+  });
+
+  // The geocoded address against the register's parcel. A survey number that
+  // resolves twenty kilometres from the address on the file is the wrong
+  // survey number, the wrong village, or the wrong address — and every layer
+  // read around it describes somebody else's land.
+  if (pin) {
+    const apart = haversineMetres(pin, read.centre);
+    if (apart > REVENUE_FAR_FROM_PIN_M) {
+      hits.push({
+        code: 'revenue_far_from_pin',
+        severity: 'flag',
+        standing: 'record',
+        metres: Math.round(apart),
+        text: `The revenue map places Sy. ${read.surveyNo}, ${placeOf(read)} about ${apart >= 2_000 ? `${(apart / 1000).toFixed(1)} km` : `${Math.round(apart)} m`} from this project’s pin. One of them is the wrong place: check the survey number, the village and the address before reading anything else off this overlay.`,
+      });
+    }
+  }
+
+  // A person's outline against the register's. `survey_area` already compares
+  // the boundary on file to the land area typed on the project; this is the
+  // other disagreement, between two drawn shapes.
+  const onFile = project.surveyBoundary;
+  if (onFile && onFile.source !== 'revenue_map' && read.areaSqm > 0) {
+    const diffPct = ((onFile.computedAreaSqm - read.areaSqm) / read.areaSqm) * 100;
+    if (Math.abs(diffPct) >= 5) {
+      hits.push({
+        code: 'revenue_extent',
+        severity: 'flag',
+        standing: 'record',
+        text: `The supplied survey outline encloses ${Math.abs(diffPct).toFixed(1)}% ${diffPct < 0 ? 'less' : 'more'} than the revenue map’s parcel for Sy. ${read.surveyNo} (${Math.round(read.areaSqm).toLocaleString()} sqm). Both are kept. Which one is the land being sold is a question for the surveyor and the deed.`,
+      });
+    }
+  }
+
+  if (read.prohibitedCategory) {
+    hits.push({
+      code: 'revenue_prohibited',
+      severity: 'flag',
+      standing: 'record',
+      text: `Sy. ${read.surveyNo} is on the prohibited-property register (${read.prohibitedCategory}). The Sub-Registrar cannot register a transfer of land on this list. Confirm against the district’s published list before anything else on this file.`,
+    });
+  } else if (read.prohibitedRegisterUnjoined) {
+    hits.push({
+      code: 'revenue_register_unjoined',
+      severity: 'info',
+      standing: 'statute_needed',
+      text: `No prohibited-register entry came back for Sy. ${read.surveyNo}, because ${read.sourceLabel} is not joined to that register. This is silence, not a clean title: the district list still has to be checked.`,
+    });
+  }
+
+  const factors = [...read.factors].sort((a, b) => rank(b) - rank(a)).slice(0, MAX_REVENUE_FACTOR_HITS);
+  for (const f of factors) {
+    const flag = f.direction === 'down' || f.severity === 'critical' || f.severity === 'high';
+    hits.push({
+      code: 'revenue_factor',
+      severity: flag ? 'flag' : 'info',
+      standing: 'record',
+      metres: f.distanceM ?? undefined,
+      text: `${f.headline} ${f.detail} (Source: ${f.source}.)`,
+    });
+  }
+
+  const told = new Set(read.factors.map((f) => f.layerKey));
+  const insights = read.insights
+    .filter((i) => i.kind === 'planned' || i.kind === 'zoning' || !told.has(i.layerKey))
+    .slice(0, MAX_REVENUE_INSIGHT_HITS);
+  for (const i of insights) {
+    hits.push({
+      code: 'revenue_insight',
+      severity: 'info',
+      standing: 'record',
+      featureId: i.featureId ?? undefined,
+      metres: i.distanceM,
+      text: `${i.title} (${i.status}${i.direction ? `, ${Math.round(i.distanceM)} m ${i.direction}` : ''}): ${i.meaning} Source: ${i.source}.`,
+    });
+  }
+
+  if (read.anchor) {
+    hits.push({
+      code: 'revenue_anchor',
+      severity: 'info',
+      standing: 'record',
+      text: `Published guidance value ${read.anchor.locality ? `for ${read.anchor.locality}` : ''}: ₹${Math.round(read.anchor.guidancePerUnit).toLocaleString()} per ${read.anchor.unit === 'sqyd' ? 'sq yd' : 'sq ft'}. ${read.anchor.note}`,
+    });
+  }
+
+  if (read.unreadLayers.length) {
+    hits.push({
+      code: 'revenue_unread',
+      severity: 'info',
+      standing: 'record',
+      text: `${read.unreadLayers.length} government layer${read.unreadLayers.length === 1 ? '' : 's'} could not be read (${read.unreadLayers.map((u) => revenueLayerLabel(u.layer)).join(', ')}). Their absence from the map means nothing. Read the revenue map again later.`,
+    });
+  }
+
+  return hits;
+}
+
+function rank(f: RevenueMapRead['factors'][number]): number {
+  const sev = { critical: 4, high: 3, medium: 2, low: 1 }[f.severity];
+  return sev * 2 + (f.direction === 'down' ? 1 : 0);
 }

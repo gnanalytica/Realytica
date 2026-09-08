@@ -7,6 +7,7 @@
  * on these same records; nothing here requires a model to function.
  */
 
+import type { RevenueMapRead } from './revenue-map';
 import type {
   ChatChoice,
   ChatMetric,
@@ -1567,6 +1568,13 @@ export interface DdProject {
    * on a check.
    */
   surveyBoundary?: ParcelBoundary;
+  /**
+   * What the state's revenue map said about the survey number on this file:
+   * the parcel, the statutory layers around it, and a guidance-value anchor.
+   * A machine read of a government record. Not evidence until a person files
+   * the extract. See `revenue-map.ts`.
+   */
+  revenueMap?: RevenueMapRead;
   createdAt: string;
   updatedAt: string;
 }

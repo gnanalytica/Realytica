@@ -122,6 +122,8 @@ app.use('/api/libraries', needs('read'), librariesRouter);
  */
 app.use('/api/projects/:projectId/chat', limits.expensive);
 app.use('/api/projects/:projectId/screen', limits.expensive);
+// Reading the revenue map fans out to ten government layers; budgeted like a model call.
+app.use('/api/projects/:projectId/gis-overlay/revenue', limits.expensive);
 app.use('/api/projects/:projectId/ai/drafts', limits.expensive);
 app.use('/api/projects/:projectId/photographs/read', limits.expensive);
 app.use('/api/projects/:projectId/evidence', limits.upload);
