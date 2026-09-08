@@ -122,8 +122,12 @@ app.use('/api/libraries', needs('read'), librariesRouter);
  */
 app.use('/api/projects/:projectId/chat', limits.expensive);
 app.use('/api/projects/:projectId/screen', limits.expensive);
-// Reading the revenue map fans out to ten government layers; budgeted like a model call.
-app.use('/api/projects/:projectId/gis-overlay/revenue', limits.expensive);
+// Reading the revenue map fans out to ten government layers; budgeted like a
+// model call. Only the read: the picker's level lists under the same path
+// are a handful of cached reads and must not spend that budget.
+app.use('/api/projects/:projectId/gis-overlay/revenue', (req, res, next) =>
+  req.method === 'POST' ? limits.expensive(req, res, next) : next(),
+);
 app.use('/api/projects/:projectId/ai/drafts', limits.expensive);
 app.use('/api/projects/:projectId/photographs/read', limits.expensive);
 app.use('/api/projects/:projectId/evidence', limits.upload);

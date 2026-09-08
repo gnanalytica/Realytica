@@ -725,7 +725,7 @@ export function revenueMapHits(read: RevenueMapRead, project: DdProject, pin?: G
       severity: flag ? 'flag' : 'info',
       standing: 'record',
       metres: f.distanceM ?? undefined,
-      text: `${f.headline} ${f.detail} (Source: ${f.source}.)`,
+      text: `${f.headline} ${f.detail} (Source: ${f.source || revenueLayerLabel(f.layerKey)}.)`,
     });
   }
 

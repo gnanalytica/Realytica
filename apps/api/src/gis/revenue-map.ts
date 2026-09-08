@@ -234,7 +234,11 @@ export function toRevenueMapRead(report: SiteIntelReport, readAt = new Date().to
           locality: guidance.locality,
           // The engine's note points at its own "which road" question, which
           // this card does not ask. The rest of the sentence stands.
-          note: guidance.note.replace(/ — name the road above and its own value applies/, ''),
+          note: guidance.note
+            .replace(/ — name the road above and its own value applies/, '')
+            // The engine's sentence about its own ×1.3 uplift describes a
+            // figure this record does not carry.
+            .replace(/\s*Uplifted ×[\d.]+ to a traded level[^.]*\./, ''),
         }
       : null,
     emptyLayers: report.areaMap.emptyLayers,
