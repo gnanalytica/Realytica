@@ -7,6 +7,7 @@ import { sheetIsPlaceable, type DdProject, type GisContextFeature, type GisOverl
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Disclosure, cn } from './ui/kit';
 import { api } from '../lib/api';
 import { RevenueMapPicker } from './RevenueMapPicker';
+import { RevenueMapBrief } from './RevenueMapBrief';
 
 /**
  * Pin + optional survey sketch + OSM + OpenCity civic clips.
@@ -56,6 +57,17 @@ const REVENUE_STYLE: Record<string, L.PathOptions> = {
 };
 
 const REVENUE_KINDS = new Set(Object.keys(REVENUE_STYLE));
+
+/** Hit codes the brief under the map already says, as points. */
+const BRIEF_COVERS = new Set<GisOverlayHit['code']>([
+  'revenue_parcel',
+  'revenue_prohibited',
+  'revenue_register_unjoined',
+  'revenue_factor',
+  'revenue_insight',
+  'revenue_anchor',
+  'revenue_unread',
+]);
 
 function isRevenue(feature: GisContextFeature): boolean {
   return REVENUE_KINDS.has(feature.kind);
@@ -382,12 +394,21 @@ export function GisOverlayCard({
     };
   }, [read, showBbmp]);
 
-  const flags = useMemo(() => (read?.hits ?? []).filter((h) => h.severity === 'flag'), [read]);
+  /*
+    The revenue map's own findings are not read as hits. They arrive as
+    sentences — headline, rule, source — and eight in a row under the map read
+    as an essay. `RevenueMapBrief` lays the same read out as points under
+    headings. Only the two hits that compare the read against the rest of the
+    file stay here: a parcel far from the pin, and an outline that disagrees
+    with the register — both are about this file, not about the land.
+  */
+  const flags = useMemo(() => (read?.hits ?? []).filter((h) => h.severity === 'flag' && !BRIEF_COVERS.has(h.code)), [read]);
   const notes = useMemo(
     () =>
       (read?.hits ?? []).filter(
         (h) =>
           h.severity === 'info' &&
+          !BRIEF_COVERS.has(h.code) &&
           h.code !== 'map_sitting' &&
           h.code !== 'withdrawn_sheet' &&
           // Unconditional: these two fire on every project and describe the
@@ -567,6 +588,8 @@ export function GisOverlayCard({
         )}
 
         {loading && !read ? <p className="text-[13px] text-ink-muted">Building the overlay…</p> : null}
+
+        {project.revenueMap ? <RevenueMapBrief read={project.revenueMap} /> : null}
 
         {flags.length ? (
           <ul className="space-y-1.5">

@@ -219,3 +219,234 @@ export function surveyNoFromParcelId(parcelId: string | undefined | null): strin
 export function revenueLayerLabel(layerKey: string): string {
   return layerKey.replace(/^ka_/, '').replace(/_/g, ' ');
 }
+
+/* ------------------------------------------------------------------ */
+/* The brief: the read as points a person can scan                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One line on the brief. `title` is the thing, `where` is how far and which
+ * way, `says` is the one sentence that matters, `why` is the rule or the
+ * next step behind it. Never a percentage — see the design note.
+ */
+export interface RevenueBriefItem {
+  code: string;
+  title: string;
+  /** "40 m south", "inside the plot", or null when distance means nothing. */
+  where: string | null;
+  says: string;
+  why: string | null;
+  source: string;
+  tone: 'critical' | 'warning' | 'info' | 'good';
+  featureId: string | null;
+}
+
+export interface RevenueMapBrief {
+  parcel: {
+    surveyNo: string;
+    place: string;
+    source: string;
+    readOn: string;
+    extentSqm: number;
+    registerExtent: string | null;
+    classification: string | null;
+  };
+  /** The prohibited register, in one word a reader can act on. */
+  register: { state: 'listed'; category: string } | { state: 'unjoined' } | { state: 'clear' };
+  /** What pulls the value down or blocks a use. The engine's drag factors. */
+  warnings: RevenueBriefItem[];
+  /** Roads, rail, drains and stations that are proposed or under acquisition. */
+  planned: RevenueBriefItem[];
+  /** What the master plan or land-use survey zones this land as. */
+  zoning: RevenueBriefItem[];
+  /** Lakes, drains and other features nearby that no factor already covers. */
+  nearby: RevenueBriefItem[];
+  /** What works in the plot's favour. The engine's uplift factors. */
+  positives: RevenueBriefItem[];
+  guidance: { perUnit: number; unit: 'sqyd' | 'sqft'; locality: string | null; note: string } | null;
+  notChecked: { layer: string; reason: string }[];
+  /** Layers that answered and found nothing within reach of the parcel. */
+  checkedClear: string[];
+}
+
+const MAX_BRIEF_ITEMS_PER_SECTION = 8;
+
+/** "40 m" or "1.2 km", the way a person says it. */
+export function metresLabel(m: number): string {
+  if (!Number.isFinite(m) || m < 0) return '';
+  if (m >= 1_000) return `${(m / 1_000).toFixed(1)} km`;
+  return `${Math.round(m)} m`;
+}
+
+/**
+ * A distance of zero is not a place. The engine reports 0 both for a feature
+ * the parcel sits inside and for a factor that has no distance at all (the
+ * extent check, a zone), and the sentence beside it already says which. So
+ * zero prints nothing, and only a real distance gets a direction.
+ */
+function whereLabel(distanceM: number | null | undefined, direction: string | null | undefined): string | null {
+  if (distanceM === null || distanceM === undefined || !Number.isFinite(distanceM) || distanceM <= 0) return null;
+  const d = metresLabel(distanceM);
+  return direction ? `${d} ${direction}` : `${d} away`;
+}
+
+function factorTone(f: RevenueMapFactor): RevenueBriefItem['tone'] {
+  if (f.direction === 'up') return 'good';
+  if (f.severity === 'critical') return 'critical';
+  if (f.severity === 'high' || f.severity === 'medium') return 'warning';
+  return 'info';
+}
+
+function factorItem(f: RevenueMapFactor): RevenueBriefItem {
+  return {
+    code: f.code,
+    title: f.label,
+    where: whereLabel(f.distanceM, null),
+    says: f.headline,
+    why: f.detail || null,
+    source: f.source || revenueLayerLabel(f.layerKey),
+    tone: factorTone(f),
+    featureId: null,
+  };
+}
+
+function insightItem(i: RevenueMapInsight): RevenueBriefItem {
+  const tone: RevenueBriefItem['tone'] = i.kind === 'risk' ? 'warning' : 'info';
+  return {
+    code: i.code,
+    title: i.title,
+    where: whereLabel(i.distanceM, i.direction),
+    says: i.meaning,
+    why: i.status || null,
+    source: i.source,
+    tone,
+    featureId: i.featureId,
+  };
+}
+
+function rankFactor(f: RevenueMapFactor): number {
+  const sev = { critical: 4, high: 3, medium: 2, low: 1 }[f.severity];
+  return sev * 2 + (f.direction === 'down' ? 1 : 0);
+}
+
+/**
+ * The layer family a code belongs to — "water" for `water_body_near` and for
+ * `ka_water:0:679`, "zone" for `zone_residential` and for `ka_zone_mix`.
+ *
+ * Factors and insights come from the same layers but name them differently:
+ * a factor's `layerKey` is the ArcGIS path the evidence cites, an insight's is
+ * the engine's own key. The code is the one thing both spell the same way.
+ */
+function family(code: string): string {
+  const tokens = code.split(/[_:]/).filter((t) => t && t !== 'ka');
+  return tokens[0] ?? code;
+}
+
+const PAIR_DISTANCE_M = 5;
+
+function sameDistance(factorM: number | null, insightM: number): boolean {
+  if (factorM === null || !Number.isFinite(factorM)) return true;
+  if (factorM <= 0 && insightM <= 0) return true;
+  return Math.abs(factorM - insightM) <= PAIR_DISTANCE_M;
+}
+
+/**
+ * One item from a factor and the insight that describes the same feature.
+ * The insight names the thing and says which way it lies; the factor says
+ * what it means and what to do about it. Neither alone is the whole line.
+ */
+function mergedItem(f: RevenueMapFactor, i: RevenueMapInsight): RevenueBriefItem {
+  return {
+    code: f.code,
+    title: i.title,
+    where: whereLabel(i.distanceM, i.direction),
+    says: f.headline,
+    why: f.detail || i.status || null,
+    source: f.source || i.source,
+    tone: factorTone(f),
+    featureId: i.featureId,
+  };
+}
+
+/**
+ * The read, grouped the way a reader asks about land: what is wrong with it,
+ * what is coming near it, what the plan says it is, what else is around it,
+ * what is in its favour, what the state says it is worth, and what could not
+ * be checked. Every group is a short list; nothing here is a paragraph.
+ *
+ * The engine reports the same lake twice — once as a factor ("near a water
+ * body", with the rule and the advice) and once as an insight ("Anekal Kere,
+ * 679 m west"). One line, not two: a factor and an insight from the same
+ * layer family at the same distance are merged, the insight lending its name
+ * and direction, the factor its meaning and tone. A merged line sits under
+ * the planning heading when the insight is a zone or a planned work — those
+ * are the things a valuer cannot see from the ground — and otherwise under
+ * the factor's own verdict.
+ */
+export function revenueMapBrief(read: RevenueMapRead): RevenueMapBrief {
+  const factors = [...read.factors].sort((a, b) => rankFactor(b) - rankFactor(a));
+  const insights = [...read.insights].sort((a, b) => a.distanceM - b.distanceM);
+
+  const paired = new Set<RevenueMapFactor>();
+  const warnings: RevenueBriefItem[] = [];
+  const positives: RevenueBriefItem[] = [];
+  const planned: RevenueBriefItem[] = [];
+  const zoning: RevenueBriefItem[] = [];
+  const nearby: RevenueBriefItem[] = [];
+
+  for (const i of insights) {
+    const fam = family(i.code);
+    const match = factors.find((f) => !paired.has(f) && family(f.code) === fam && sameDistance(f.distanceM, i.distanceM));
+    const item = match ? mergedItem(match, i) : insightItem(i);
+    if (match) paired.add(match);
+    if (i.kind === 'planned') planned.push(item);
+    else if (i.kind === 'zoning') zoning.push(item);
+    else if (match) (match.direction === 'up' ? positives : warnings).push(item);
+    else nearby.push(item);
+  }
+  for (const f of factors) {
+    if (paired.has(f)) continue;
+    (f.direction === 'up' ? positives : warnings).push(factorItem(f));
+  }
+  // A factor's rank decides the order within a verdict, merged or not.
+  const rankOf = (item: RevenueBriefItem) => {
+    const f = read.factors.find((x) => x.code === item.code);
+    return f ? rankFactor(f) : 0;
+  };
+  warnings.sort((a, b) => rankOf(b) - rankOf(a));
+  positives.sort((a, b) => rankOf(b) - rankOf(a));
+
+  const register: RevenueMapBrief['register'] = read.prohibitedCategory
+    ? { state: 'listed', category: read.prohibitedCategory }
+    : read.prohibitedRegisterUnjoined
+      ? { state: 'unjoined' }
+      : { state: 'clear' };
+
+  return {
+    parcel: {
+      surveyNo: read.surveyNo,
+      place: [read.village, read.mandal, read.district].filter(Boolean).join(', '),
+      source: read.sourceLabel,
+      readOn: read.readAt.slice(0, 10),
+      extentSqm: Math.round(read.areaSqm),
+      registerExtent: read.registerExtent,
+      classification: read.classification,
+    },
+    register,
+    warnings: warnings.slice(0, MAX_BRIEF_ITEMS_PER_SECTION),
+    planned: planned.slice(0, MAX_BRIEF_ITEMS_PER_SECTION),
+    zoning: zoning.slice(0, MAX_BRIEF_ITEMS_PER_SECTION),
+    nearby: nearby.slice(0, MAX_BRIEF_ITEMS_PER_SECTION),
+    positives: positives.slice(0, MAX_BRIEF_ITEMS_PER_SECTION),
+    guidance: read.anchor
+      ? {
+          perUnit: Math.round(read.anchor.guidancePerUnit),
+          unit: read.anchor.unit,
+          locality: read.anchor.locality,
+          note: read.anchor.note,
+        }
+      : null,
+    notChecked: read.unreadLayers.map((u) => ({ layer: revenueLayerLabel(u.layer), reason: u.reason })),
+    checkedClear: read.emptyLayers.map(revenueLayerLabel),
+  };
+}

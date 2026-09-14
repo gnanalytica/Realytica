@@ -136,8 +136,8 @@ projectGisOverlayRouter.post<ProjectParams>('/revenue', async (req, res) => {
     boundary,
     notEvidence: true,
     note: boundary
-      ? 'The parcel from the revenue map is on this project as its boundary. It is a government record read by machine, not a licensed survey, and not filed as evidence until a person attaches the extract.'
-      : 'The revenue map was read. The survey outline a person supplied stays as the boundary; the register’s parcel is compared against it.',
+      ? 'Parcel from the revenue map is now the project boundary. A machine-read record, not a survey; attach the extract to file it as evidence.'
+      : 'Revenue map read. Your uploaded outline stays as the boundary; the register’s parcel is compared against it below.',
   });
 });
 

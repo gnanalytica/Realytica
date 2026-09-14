@@ -110,3 +110,30 @@ Anekal Kere as a state water feature, a residential zone from the BMRDA
 sheet, and the Kaveri guidance value for Anekal Kasaba as an anchor note.
 
 `pnpm check` runs the engine's suites alongside the rest.
+
+## 2026-09-14 — the read as points, not prose
+
+The factors, insights, anchor and unread layers used to reach the card as
+`revenue_*` hits: a headline, the rule behind it and the source, run together
+into one sentence each, up to fourteen of them under the map. Read in a row
+they were an essay, and the picker above the map opened with a paragraph of
+its own.
+
+`revenueMapBrief(read)` in `packages/shared/src/operating-model/revenue-map.ts`
+now groups the same read under the questions a reader actually asks of a
+survey number — **Warnings** (drag factors), **Planned near the plot**
+(insights of kind `planned`: alignments, widening, stations), **Town planning
+says** (`zoning`), **Also nearby** (`existing`/`risk` insights no factor already
+covers, so a tank is not listed twice), **In the plot's favour** (uplift
+factors) — plus four labelled facts on top: extent, revenue class, the
+prohibited register in one word, and the guidance value. `RevenueMapBrief.tsx`
+renders it; each item is one bold line, one sentence, and the rule in smaller
+type beneath. The engine's percentages still never print
+(`test/revenue-map.test.ts`).
+
+The hits are still produced — the model, the copilot and the tests keep them —
+but `GisOverlayCard` no longer renders the ones the brief covers. The two
+that stay as flags are about this file rather than the land: a parcel far from
+the pin, and an outline that disagrees with the register. The picker's
+paragraph became a title and a one-line description; its "on file" sentence
+became labelled facts.

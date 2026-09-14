@@ -155,17 +155,37 @@ export function RevenueMapPicker({
 
   return (
     <div className="flex flex-col gap-2.5 rounded-lg bg-sunken p-3 ring-1 ring-inset ring-[var(--ring)]">
-      <p className="text-[12px] leading-relaxed text-ink-secondary">
-        Read the state’s revenue map for a survey number: the parcel as the cadastre draws it, the government layers
-        around it, and the published guidance value. A record read by machine — not a survey, not evidence.
-      </p>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <p className="text-[13px] font-medium text-ink">Revenue map by survey number</p>
+        <p className="text-[12px] text-ink-muted">Parcel boundary · government layers around it · guidance value</p>
+      </div>
       {read ? (
-        <p className="text-[12px] text-ink">
-          On file: Sy. {read.surveyNo}
-          {read.village ? `, ${read.village}` : ''} — {read.sourceLabel}, read {read.readAt.slice(0, 10)}.{' '}
-          <span className="tabular-nums">{read.featureCount}</span> features
-          {read.unreadLayers.length ? `; ${read.unreadLayers.length} layer${read.unreadLayers.length === 1 ? '' : 's'} unread` : ''}.
-        </p>
+        <ul className="flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] text-ink-secondary">
+          <li>
+            <span className="text-ink-muted">On file: </span>
+            <span className="text-ink">
+              Sy. {read.surveyNo}
+              {read.village ? `, ${read.village}` : ''}
+            </span>
+          </li>
+          <li>
+            <span className="text-ink-muted">Source: </span>
+            {read.sourceLabel}
+          </li>
+          <li>
+            <span className="text-ink-muted">Read: </span>
+            {read.readAt.slice(0, 10)}
+          </li>
+          <li>
+            <span className="text-ink-muted">Layers drawn: </span>
+            <span className="tabular-nums">{read.featureCount}</span>
+          </li>
+          {read.unreadLayers.length ? (
+            <li className="text-ink">
+              {read.unreadLayers.length} layer{read.unreadLayers.length === 1 ? '' : 's'} not read
+            </li>
+          ) : null}
+        </ul>
       ) : null}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <Field label="State">
@@ -233,7 +253,11 @@ export function RevenueMapPicker({
           {error}
         </Callout>
       ) : null}
-      {note ? <p className="text-[12px] leading-relaxed text-ink-secondary">{note}</p> : null}
+      {note ? (
+        <Callout tone="info" title="Read done">
+          {note}
+        </Callout>
+      ) : null}
     </div>
   );
 }

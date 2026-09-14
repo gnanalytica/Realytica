@@ -11,6 +11,7 @@ import {
   buildProjectGraph,
   clearRevenueMap,
   compareProjectGis,
+  revenueMapBrief,
   revenueMapHits,
   seedDemoProject,
   surveyNoFromParcelId,
@@ -267,5 +268,195 @@ describe('revenue map on a project', () => {
     assert.equal(surveyNoFromParcelId('Sy 12 / 1'), '12');
     assert.equal(surveyNoFromParcelId(''), '');
     assert.equal(surveyNoFromParcelId(undefined), '');
+  });
+});
+
+describe('the brief: the read as points', () => {
+  it('groups factors and insights under the questions a reader asks', () => {
+    const brief = revenueMapBrief(read());
+    assert.equal(brief.parcel.surveyNo, '10');
+    assert.equal(brief.parcel.place, 'Anekal, Anekal, Bengaluru (Urban)');
+    assert.equal(brief.parcel.extentSqm, 2400);
+    assert.deepEqual(brief.register, { state: 'unjoined' });
+
+    assert.equal(brief.warnings.length, 1, 'the drain buffer is the one warning');
+    assert.equal(brief.warnings[0].title, 'Drain buffer');
+    assert.equal(brief.warnings[0].where, '40 m away');
+    assert.equal(brief.warnings[0].tone, 'warning');
+    assert.match(brief.warnings[0].says, /stream runs about 40 m/);
+    assert.match(brief.warnings[0].why ?? '', /RMP 2015/);
+
+    assert.equal(brief.positives.length, 1, 'the residential zone is the one plus');
+    assert.equal(brief.positives[0].tone, 'good');
+
+    assert.equal(brief.nearby.length, 1, 'the tank is nearby and no factor names its layer');
+    assert.equal(brief.nearby[0].title, 'Anekal Kere');
+    assert.equal(brief.nearby[0].where, '240 m east');
+
+    assert.deepEqual(brief.planned, []);
+    assert.deepEqual(brief.zoning, []);
+    assert.equal(brief.guidance?.perUnit, 18_400);
+    assert.equal(brief.guidance?.unit, 'sqyd');
+    assert.deepEqual(brief.notChecked, []);
+    assert.deepEqual(brief.checkedClear, ['lulc']);
+  });
+
+  it('never prints the engine’s value percentages on the brief', () => {
+    const brief = revenueMapBrief(read());
+    const text = JSON.stringify([brief.warnings, brief.positives, brief.nearby, brief.planned, brief.zoning]);
+    assert.doesNotMatch(text, /-?\d+%/);
+  });
+
+  it('keeps a planned alignment and a zone even when a factor covers the same layer; drops a duplicate lake', () => {
+    const brief = revenueMapBrief(
+      read({
+        insights: [
+          {
+            code: 'rrr',
+            kind: 'planned',
+            layerKey: 'rrr',
+            featureId: 'rrr:1',
+            title: 'Regional Ring Road',
+            status: 'Proposed — land acquisition in progress',
+            distanceM: 1800,
+            direction: 'south',
+            meaning: 'The alignment passes 1.8 km south. Access improves without the plot being taken.',
+            source: 'Telangana GIS — RRR alignment',
+          },
+          {
+            code: 'ka_zone',
+            kind: 'zoning',
+            layerKey: 'ka_masterplan',
+            featureId: null,
+            title: 'Residential zone',
+            status: 'BMRDA master plan, proposed land use',
+            distanceM: 0,
+            direction: null,
+            meaning: 'Zoned residential in the Anekal LPA sheet.',
+            source: 'BMRDA master plan',
+          },
+          {
+            code: 'ka_drain_near',
+            kind: 'risk',
+            layerKey: 'ka_drain',
+            featureId: 'ka_drain:1',
+            title: 'Stream',
+            status: 'Mapped in the 2023 land-use survey',
+            distanceM: 40,
+            direction: 'south',
+            meaning: 'A stream 40 m south.',
+            source: 'K-GIS LULC 2023',
+          },
+        ],
+      }),
+    );
+    assert.equal(brief.planned.length, 1);
+    assert.equal(brief.planned[0].where, '1.8 km south');
+    assert.equal(brief.zoning.length, 1, 'the zone insight and the zone factor become one line under planning');
+    assert.equal(brief.zoning[0].where, null, 'zero distance is not a place; the sentence says it applies to the plot');
+    assert.equal(brief.zoning[0].tone, 'good', 'the merged line carries the factor’s verdict');
+    assert.match(brief.zoning[0].says, /zones this land residential/);
+    assert.deepEqual(brief.positives, [], 'the zone factor moved under planning; it is not printed twice');
+    assert.deepEqual(brief.nearby, [], 'the drain insight merged into the drain factor; it is not repeated');
+    assert.equal(brief.warnings.length, 1);
+    assert.equal(brief.warnings[0].title, 'Stream', 'the insight names it');
+    assert.equal(brief.warnings[0].where, '40 m south', 'and says which way');
+    assert.match(brief.warnings[0].why ?? '', /RMP 2015/, 'the factor supplies the rule');
+  });
+
+  it('merges by code family and distance, not by layer key — the two spell layers differently', () => {
+    // Read live from K-GIS on 2026-09-14: a factor cites the ArcGIS path, an
+    // insight the engine key, and the same industrial zone was printed twice.
+    const brief = revenueMapBrief(
+      read({
+        factors: [
+          {
+            code: 'industrial_adjacent',
+            label: 'Land zoned industrial nearby',
+            direction: 'down',
+            severity: 'high',
+            headline: 'Within about 400 m of land the master plan zones for industry.',
+            detail: 'Adjacency brings heavy-vehicle traffic, effluent and noise.',
+            impactLowPct: -15,
+            impactHighPct: -5,
+            layerKey: 'BMRDA/BMRDA/MapServer/4',
+            source: 'BMRDA master plan — Anekal LPA',
+            distanceM: null,
+          },
+          {
+            code: 'water_body_amenity',
+            label: 'Near a water body',
+            direction: 'up',
+            severity: 'low',
+            headline: 'A live tank at this distance supports price.',
+            detail: 'The premium is modest.',
+            impactLowPct: 2,
+            impactHighPct: 6,
+            layerKey: 'LULC/State_LULC_2023/MapServer/0',
+            source: 'K-GIS LULC 2023',
+            distanceM: 679.1,
+          },
+        ],
+        insights: [
+          {
+            code: 'ka_industrial_near',
+            kind: 'zoning',
+            layerKey: 'ka_masterplan_near',
+            featureId: null,
+            title: 'Land zoned industrial within about 400 m',
+            status: 'BMRDA master plan, proposed land use',
+            distanceM: 400,
+            direction: null,
+            meaning: 'Inside the 400 m box the master plan zones some land for industry.',
+            source: 'BMRDA master plan',
+          },
+          {
+            code: 'ka_water:0:679',
+            kind: 'existing',
+            layerKey: 'ka_water',
+            featureId: 'ka_water:0',
+            title: 'Anekal Kere',
+            status: 'Mapped as tank in the 2023 land-use survey',
+            distanceM: 679.1,
+            direction: 'west',
+            meaning: '679 m to the west.',
+            source: 'K-GIS LULC 2023',
+          },
+          {
+            code: 'ka_water:1:720',
+            kind: 'existing',
+            layerKey: 'ka_water',
+            featureId: 'ka_water:2',
+            title: 'Unnamed tank',
+            status: 'Mapped as tank in the 2023 land-use survey',
+            distanceM: 720.3,
+            direction: 'north',
+            meaning: '720 m to the north.',
+            source: 'K-GIS LULC 2023',
+          },
+        ],
+      }),
+    );
+    assert.equal(brief.zoning.length, 1, 'one industrial line, under planning');
+    assert.equal(brief.zoning[0].tone, 'warning');
+    assert.equal(brief.zoning[0].where, '400 m away');
+    assert.deepEqual(brief.warnings, [], 'the industrial factor is not printed a second time as a warning');
+    assert.equal(brief.positives.length, 1);
+    assert.equal(brief.positives[0].title, 'Anekal Kere', 'the named tank, not "near a water body"');
+    assert.equal(brief.positives[0].where, '679 m west');
+    assert.equal(brief.nearby.length, 1);
+    assert.equal(brief.nearby[0].title, 'Unnamed tank', 'the second tank has no factor and stays a note');
+  });
+
+  it('names a listed parcel, and the layers that did not answer', () => {
+    const brief = revenueMapBrief(
+      read({
+        prohibitedCategory: 'Government land',
+        prohibitedRegisterUnjoined: false,
+        unreadLayers: [{ layer: 'ka_masterplan', reason: 'timeout' }],
+      }),
+    );
+    assert.deepEqual(brief.register, { state: 'listed', category: 'Government land' });
+    assert.deepEqual(brief.notChecked, [{ layer: 'masterplan', reason: 'timeout' }]);
   });
 });
