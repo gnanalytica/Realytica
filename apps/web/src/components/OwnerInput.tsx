@@ -25,6 +25,7 @@ export function OwnerInput({
   project,
   placeholder,
   className,
+  'aria-label': ariaLabel,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -32,6 +33,8 @@ export function OwnerInput({
   project?: DdProject;
   placeholder?: string;
   className?: string;
+  /** Names the row this owner belongs to, where the field is one of many. */
+  'aria-label'?: string;
 }) {
   const listId = useId();
   const roster = useRoster();
@@ -41,6 +44,7 @@ export function OwnerInput({
     <>
       <Input
         value={value}
+        aria-label={ariaLabel}
         list={options.length > 0 ? listId : undefined}
         placeholder={placeholder ?? 'Name or email'}
         className={className}

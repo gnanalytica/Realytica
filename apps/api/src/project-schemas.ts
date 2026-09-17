@@ -534,6 +534,14 @@ export const projectChatBodySchema = z.object({
 
 export const projectChatProposalBodySchema = z.object({
   actor: actorSchema,
+  /**
+   * The card as the person confirmed it, when they opened it in the wizard.
+   *
+   * A proposal is a draft; reviewing one is allowed to change it. Only the
+   * fields a form renders are taken — see `PROPOSAL_IDENTITY` in the route
+   * for why the rest are not.
+   */
+  payload: z.record(z.unknown()).optional(),
 });
 
 export const projectOrchestrateBodySchema = z.object({

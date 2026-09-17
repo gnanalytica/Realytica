@@ -90,11 +90,16 @@ export default function ProjectList() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <StatTile label="Projects" value={String(all.length)} hint={`${active} active`} />
-        <StatTile label="At risk" value={String(red)} hint="Health red" />
-        <StatTile label="Overdue actions" value={String(overdue)} />
-      </div>
+      {/* `pending` rather than zeroes: the first paint used to read
+          "Projects 0 · 0 active", which is not a slow number, it is a wrong
+          one — and it is the first thing anybody sees on opening the app. */}
+      {data || !error ? (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <StatTile label="Projects" value={String(all.length)} hint={`${active} active`} pending={!data} />
+          <StatTile label="At risk" value={String(red)} hint="Health red" pending={!data} />
+          <StatTile label="Overdue actions" value={String(overdue)} pending={!data} />
+        </div>
+      ) : null}
 
       {error ? <Callout tone="critical" title="Could not load projects">{error}</Callout> : null}
       {loading && !data ? (

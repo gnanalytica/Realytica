@@ -14,7 +14,7 @@ import {
   type ScopeKey,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, SubmitButton, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { LiveRow } from './LiveRow';
 import { OwnerInput } from '../../components/OwnerInput';
@@ -204,9 +204,17 @@ export default function Diligence() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => void start()} disabled={busy || !owner.trim() || (targetType === 'assets' && targetAssetIds.length === 0) || (ddType === 'custom' && extra.length === 0)}>
+            <SubmitButton
+              onClick={() => void start()}
+              busy={busy}
+              needs={[
+                ...(owner.trim() ? [] : ['Owner']),
+                ...(targetType === 'assets' && targetAssetIds.length === 0 ? ['Assets'] : []),
+                ...(ddType === 'custom' && extra.length === 0 ? ['Additional scopes'] : []),
+              ]}
+            >
               Create assessment
-            </Button>
+            </SubmitButton>
           </>
         }
       >
@@ -233,7 +241,7 @@ export default function Diligence() {
           <Field label="Name" hint="Defaults to the DD type label.">
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-          <Field label="Owner">
+          <Field label="Owner" required>
             <OwnerInput value={owner} onChange={setOwner} project={project} />
           </Field>
           <Field label="Target">

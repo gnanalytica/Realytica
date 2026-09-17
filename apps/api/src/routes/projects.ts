@@ -139,6 +139,7 @@ import {
   textOf,
 } from '@realytica/agents';
 import { readExifCapture } from '../exif';
+import { applyReviewedPayload } from '../proposal-review';
 
 /**
  * A hard ceiling on one read request.
@@ -1306,6 +1307,7 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req,
     res.status(404).json({ error: 'Proposal not found' });
     return;
   }
+  applyReviewedPayload(item.payload, parsed.data.payload);
   refreshProjectDerived(project);
   if (item.kind === 'run_screen') {
     const now = new Date().toISOString();

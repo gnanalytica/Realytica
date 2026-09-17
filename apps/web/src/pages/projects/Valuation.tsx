@@ -362,7 +362,9 @@ export default function Valuation() {
                         ) : null}
                         {a.notes ? <Why>{a.notes}</Why> : null}
                       </span>
-                      <span className="text-right font-mono tabular-nums text-ink">{money(a.amount, latest.currency)}</span>
+                      <span className={a.amount > 0 ? 'text-right font-mono tabular-nums text-ink' : 'text-right font-mono tabular-nums text-ink-muted'}>
+                        {a.amount > 0 ? money(a.amount, latest.currency) : 'no figure'}
+                      </span>
                     </li>
                   ))}
                 </ul>

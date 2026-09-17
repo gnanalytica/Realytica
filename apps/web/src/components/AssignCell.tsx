@@ -19,12 +19,21 @@ import { OwnerInput } from './OwnerInput';
 export function AssignCell({
   project,
   targetId,
+  subject,
   owner,
   onAssigned,
   className,
 }: {
   project: DdProject;
   targetId: string;
+  /**
+   * What this cell assigns — the row's own title.
+   *
+   * A register of forty rows produced forty buttons all called "Unassigned",
+   * which is a list a screen reader cannot navigate and an automated test
+   * cannot address. The visible text stays short; the name says what it owns.
+   */
+  subject: string;
   owner?: string;
   onAssigned: (project: DdProject) => void;
   className?: string;
@@ -52,12 +61,15 @@ export function AssignCell({
     return (
       <button
         type="button"
+        aria-label={owner ? `Owner of ${subject}: ${owner}. Reassign.` : `Assign an owner to ${subject}`}
         onClick={() => {
           setDraft(owner ?? '');
           setEditing(true);
         }}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12px] hover:bg-sunken',
+          // 22px in a register row. It sits inline in a meta line, so it grows
+          // by padding on a touch pointer rather than by height everywhere.
+          'inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12px] hover:bg-sunken coarse:min-h-11 coarse:px-2',
           owner ? 'text-ink-secondary' : 'text-ink-muted',
           className,
         )}
@@ -70,9 +82,9 @@ export function AssignCell({
 
   return (
     <span className={cn('inline-flex items-center gap-1.5', className)}>
-      <OwnerInput value={draft} onChange={setDraft} project={project} className="w-48" />
-      <Button size="sm" loading={busy} onClick={() => void save()}>Save</Button>
-      <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(false)}>Cancel</Button>
+      <OwnerInput value={draft} onChange={setDraft} project={project} className="w-48" aria-label={`Owner of ${subject}`} />
+      <Button size="sm" loading={busy} onClick={() => void save()} aria-label={`Save the owner of ${subject}`}>Save</Button>
+      <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(false)} aria-label={`Stop reassigning ${subject}`}>Cancel</Button>
     </span>
   );
 }

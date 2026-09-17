@@ -493,7 +493,12 @@ export function GisOverlayCard({
             <LayerToggle on={showWards} onClick={() => setShowWards((v) => !v)}>GBA wards {wardCount}
             </LayerToggle>
           ) : null}
-          <LayerToggle on={showSurvey} onClick={() => setShowSurvey((v) => !v)} disabled={!read?.survey}>
+          <LayerToggle
+            on={showSurvey}
+            onClick={() => setShowSurvey((v) => !v)}
+            disabled={!read?.survey}
+            disabledReason="No survey sketch on file — upload a GeoJSON or KML and it draws here."
+          >
             {read?.survey?.source === 'revenue_map' ? 'Revenue-map parcel' : 'Survey sketch'}
           </LayerToggle>
           {revenueCount > 0 ? (
@@ -712,34 +717,47 @@ function LayerToggle({
   on,
   onClick,
   disabled,
+  disabledReason,
   children,
 }: {
   on: boolean;
   onClick: () => void;
   disabled?: boolean;
+  /** Why it cannot be switched on — shown on hover and read as the name. */
+  disabledReason?: string;
   children: ReactNode;
 }) {
+  /*
+   * A layer with nothing to draw is off, whatever the preference behind it says.
+   *
+   * The survey toggle held its own remembered state and was disabled only
+   * because no sketch was on file, so it rendered ticked and greyed at the
+   * same time — which reads as "this layer is on and you may not turn it
+   * off", the opposite of the truth. The tick follows what is on the map.
+   */
+  const lit = on && !disabled;
   return (
     <button
       type="button"
-      aria-pressed={on}
+      aria-pressed={lit}
       disabled={disabled}
+      title={disabled ? disabledReason : undefined}
       onClick={onClick}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition-colors duration-base',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
         disabled ? 'cursor-not-allowed text-ink-muted opacity-50' : 'hover:bg-sunken',
-        on ? 'text-ink' : 'text-ink-muted',
+        lit ? 'text-ink' : 'text-ink-muted',
       )}
     >
       <span
         aria-hidden
         className={cn(
           'grid h-3 w-3 shrink-0 place-items-center rounded-[3px] ring-1 ring-inset',
-          on ? 'bg-brand text-white ring-brand' : 'bg-surface ring-[var(--ring)]',
+          lit ? 'bg-brand text-white ring-brand' : 'bg-surface ring-[var(--ring)]',
         )}
       >
-        {on ? <Check size={9} strokeWidth={3} /> : null}
+        {lit ? <Check size={9} strokeWidth={3} /> : null}
       </span>
       {children}
     </button>

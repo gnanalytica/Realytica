@@ -61,7 +61,7 @@ function ProposalCards({
   proposals: ChatProposal[];
   busy: boolean;
   hideIds?: Set<string>;
-  onApprove: (id: string) => void;
+  onApprove: (id: string, payload?: Record<string, unknown>) => void;
   onSkip: (id: string) => void;
 }) {
   const rows = (turn.proposalIds ?? [])
@@ -354,11 +354,13 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   );
 
   const handleProposal = useCallback(
-    async (id: string, action: 'commit' | 'reject') => {
+    // `payload` carries a card the person opened and corrected in the wizard;
+    // absent, the card files exactly as it was proposed.
+    async (id: string, action: 'commit' | 'reject', payload?: Record<string, unknown>) => {
       setAsking(true);
       try {
         const response =
-          action === 'commit' ? await api.commitChatProposal(project.id, id) : await api.rejectChatProposal(project.id, id);
+          action === 'commit' ? await api.commitChatProposal(project.id, id, payload) : await api.rejectChatProposal(project.id, id);
         applyResult(response);
       } finally {
         setAsking(false);
@@ -420,7 +422,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     ...outlet,
     highlightIds,
     pinnedProposals: project.chatProposals ?? [],
-    onApproveProposal: (id) => void handleProposal(id, 'commit'),
+    onApproveProposal: (id, payload) => void handleProposal(id, 'commit', payload),
     onSkipProposal: (id) => void handleProposal(id, 'reject'),
     proposalBusy: asking,
     onOpenCited: openCited,
@@ -472,7 +474,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             compact={isDesktop}
             onClose={() => setDockTalk(null)}
             onOpen={goPane}
-            onApprove={(id) => void handleProposal(id, 'commit')}
+            onApprove={(id, payload) => void handleProposal(id, 'commit', payload)}
             onSkip={(id) => void handleProposal(id, 'reject')}
             onProject={setProject}
           />
@@ -493,7 +495,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               proposals={project.chatProposals ?? []}
               busy={asking}
               hideIds={dockCardIds}
-              onApprove={(id) => void handleProposal(id, 'commit')}
+              onApprove={(id, payload) => void handleProposal(id, 'commit', payload)}
               onSkip={(id) => void handleProposal(id, 'reject')}
             />
           </>
