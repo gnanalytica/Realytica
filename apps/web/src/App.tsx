@@ -86,6 +86,10 @@ export default function App() {
             <Route path="dd/:ddId/scopes/:scopeId" element={<ScopeWorkspace />} />
             <Route path="evidence" element={<EvidenceRegister />} />
             <Route path="visits" element={<SiteRecord />} />
+            {/* The page is called Site everywhere it is linked, so that is the
+                address people bookmark and paste. Without this it fell through
+                to the catch-all and landed them on the projects list. */}
+            <Route path="site" element={<Navigate to="../visits" replace />} />
             <Route path="findings" element={<FindingRegister />} />
             <Route path="risks" element={<RisksActions />} />
             <Route path="decisions" element={<DecisionRegister />} />

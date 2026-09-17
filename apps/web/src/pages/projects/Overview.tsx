@@ -14,7 +14,7 @@ import {
   type LifecycleStage,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, Field, Modal, Select, Skeleton, StandingStrip, Textarea, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Field, Modal, Select, Skeleton, StandingStrip, SubmitButton, Textarea, useToast } from '../../components/ui/kit';
 import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
 import { LiveRow } from './LiveRow';
@@ -82,7 +82,7 @@ export default function Overview() {
           subtitle={project.reference}
           action={
             <Link to={cockpitPath(project.id, step.pane, step.extra)} className="text-[12px] text-brand">
-              Open this sitting
+              Open the workspace
             </Link>
           }
         />
@@ -285,7 +285,7 @@ export default function Overview() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setStageOpen(false)}>Cancel</Button>
-            <Button onClick={() => void changeStage()} disabled={busy || !reason.trim()}>Save</Button>
+            <SubmitButton onClick={() => void changeStage()} busy={busy} needs={reason.trim() ? [] : ['Reason']}>Save</SubmitButton>
           </>
         }
       >
@@ -297,7 +297,7 @@ export default function Overview() {
               ))}
             </Select>
           </Field>
-          <Field label="Reason" hint="Kept on the stage history.">
+          <Field label="Reason" required hint="Kept on the stage history.">
             <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} />
           </Field>
         </div>

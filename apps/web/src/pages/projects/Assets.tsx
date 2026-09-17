@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { LIFECYCLE_STAGE_LABEL, LIFECYCLE_STAGES, UNICLASS_ENTITIES, looksLikeUniclassCode, type LifecycleStage } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, Select, SubmitButton, Textarea, useToast } from '../../components/ui/kit';
 import { assetTree } from '@realytica/shared';
 import type { ProjectOutlet } from './ProjectLayout';
 import { LiveRow } from './LiveRow';
@@ -121,12 +121,12 @@ export default function Assets() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => void add()} disabled={busy || !name.trim()}>Add</Button>
+            <SubmitButton onClick={() => void add()} busy={busy} needs={name.trim() ? [] : ['Name']}>Add</SubmitButton>
           </>
         }
       >
         <div className="space-y-3">
-          <Field label="Name">
+          <Field label="Name" required>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tower A" />
           </Field>
           <Field label="Asset type">
@@ -181,7 +181,7 @@ export default function Assets() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setStageAsset(null)}>Cancel</Button>
-            <Button onClick={() => void changeAssetStage()} disabled={busy || !reason.trim()}>Save</Button>
+            <SubmitButton onClick={() => void changeAssetStage()} busy={busy} needs={reason.trim() ? [] : ['Reason']}>Save</SubmitButton>
           </>
         }
       >
@@ -193,7 +193,7 @@ export default function Assets() {
               ))}
             </Select>
           </Field>
-          <Field label="Reason">
+          <Field label="Reason" required hint="Kept on the asset's stage history — it is the answer to 'why did this move' a year from now.">
             <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} />
           </Field>
         </div>

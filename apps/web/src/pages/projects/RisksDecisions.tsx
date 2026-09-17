@@ -27,7 +27,7 @@ import { OwnerInput } from '../../components/OwnerInput';
 import { AssignCell } from '../../components/AssignCell';
 import { MineToggle, useMine } from '../../components/MineToggle';
 import { RemedialCostChart } from '../../components/charts';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, RegisterRow, Select, Textarea, useToast, Why } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, RegisterRow, Select, SubmitButton, Textarea, useToast, Why } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
@@ -128,7 +128,15 @@ export function RisksActions() {
       <section className="space-y-2">
         <h2 className="text-[12px] font-semibold text-ink-secondary">Risks</h2>
         {risks.rows.length === 0 ? (
-          <EmptyState title="No risks" description="Convert findings into scored risks on the project register." />
+          mineOnly && project.risks.length > 0 ? (
+            <EmptyState
+              title="None of these are yours"
+              description={`${project.risks.length} ${project.risks.length === 1 ? 'risk is' : 'risks are'} on this register, owned by somebody else.`}
+              action={<Button onClick={() => setMineOnly(false)}>Show everyone's</Button>}
+            />
+          ) : (
+            <EmptyState title="No risks" description="Convert findings into scored risks on the project register." />
+          )
         ) : (
           <Card>
             <CardBody className="divide-y divide-hairline p-0">
@@ -155,7 +163,7 @@ export function RisksActions() {
                           {IMPACT_TYPE_LABEL[r.category]} · P {r.probability} · impact {r.impactScore} ·{' '}
                           {r.findingIds.length} {r.findingIds.length === 1 ? 'finding' : 'findings'}
                         </span>
-                        <AssignCell className="-ml-1.5" project={project} targetId={r.id} owner={r.owner} onAssigned={setProject} />
+                        <AssignCell className="-ml-1.5" project={project} targetId={r.id} subject={r.title} owner={r.owner} onAssigned={setProject} />
                       </>
                     }
                     trailing={
@@ -181,7 +189,15 @@ export function RisksActions() {
       <section className="space-y-2">
         <h2 className="text-[12px] font-semibold text-ink-secondary">Actions</h2>
         {actions.rows.length === 0 ? (
-          <EmptyState title="No actions" description="Actions turn findings and risks into owned work." />
+          mineOnly && project.actions.length > 0 ? (
+            <EmptyState
+              title="None of these are yours"
+              description={`${project.actions.length} ${project.actions.length === 1 ? 'action is' : 'actions are'} open, owned by somebody else.`}
+              action={<Button onClick={() => setMineOnly(false)}>Show everyone's</Button>}
+            />
+          ) : (
+            <EmptyState title="No actions" description="Actions turn findings and risks into owned work." />
+          )
         ) : (
           <>
             <Card>
@@ -200,9 +216,13 @@ export function RisksActions() {
                         <p className="text-[12px] text-ink-muted">
                           {ACTION_KIND_LABEL[a.kind]}{a.dueDate ? ` · due ${a.dueDate}` : ''}
                         </p>
-                        <AssignCell className="-ml-1.5" project={project} targetId={a.id} owner={a.owner} onAssigned={setProject} />
+                        <AssignCell className="-ml-1.5" project={project} targetId={a.id} subject={a.title} owner={a.owner} onAssigned={setProject} />
                       </div>
-                      <Select value={a.status} onChange={(e) => void api.patchAction(project.id, a.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}>
+                      <Select
+                        value={a.status}
+                        aria-label={`Status of action ${a.title}`}
+                        onChange={(e) => void api.patchAction(project.id, a.id, e.target.value).then(async () => setProject(await api.getProject(project.id)))}
+                      >
                         {(Object.keys(ACTION_STATUS_LABEL) as ActionStatus[]).map((s) => (
                           <option key={s} value={s}>{ACTION_STATUS_LABEL[s]}</option>
                         ))}
@@ -217,10 +237,10 @@ export function RisksActions() {
         )}
       </section>
 
-      <Modal open={riskOpen} onClose={() => setRiskOpen(false)} title="Add risk" footer={<><Button variant="ghost" onClick={() => setRiskOpen(false)}>Cancel</Button><Button onClick={() => void addRisk()} disabled={busy || !title.trim() || !cause.trim()}>Add</Button></>}>
+      <Modal open={riskOpen} onClose={() => setRiskOpen(false)} title="Add risk" footer={<><Button variant="ghost" onClick={() => setRiskOpen(false)}>Cancel</Button><SubmitButton onClick={() => void addRisk()} busy={busy} needs={[...(title.trim() ? [] : ['Title']), ...(cause.trim() ? [] : ['Cause'])]}>Add</SubmitButton></>}>
         <div className="space-y-3">
-          <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
-          <Field label="Cause"><Textarea value={cause} onChange={(e) => setCause(e.target.value)} rows={3} /></Field>
+          <Field label="Title" required><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
+          <Field label="Cause" required><Textarea value={cause} onChange={(e) => setCause(e.target.value)} rows={3} /></Field>
           <Field label="Impact category">
             <Select value={category} onChange={(e) => setCategory(e.target.value as RiskImpactType)}>
               {Object.entries(IMPACT_TYPE_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
@@ -239,10 +259,10 @@ export function RisksActions() {
         </div>
       </Modal>
 
-      <Modal open={actionOpen} onClose={() => setActionOpen(false)} title="Add action" footer={<><Button variant="ghost" onClick={() => setActionOpen(false)}>Cancel</Button><Button onClick={() => void addAction()} disabled={busy || !actionTitle.trim() || !actionOwner.trim()}>Add</Button></>}>
+      <Modal open={actionOpen} onClose={() => setActionOpen(false)} title="Add action" footer={<><Button variant="ghost" onClick={() => setActionOpen(false)}>Cancel</Button><SubmitButton onClick={() => void addAction()} busy={busy} needs={[...(actionTitle.trim() ? [] : ['Title']), ...(actionOwner.trim() ? [] : ['Owner'])]}>Add</SubmitButton></>}>
         <div className="space-y-3">
-          <Field label="Title"><Input value={actionTitle} onChange={(e) => setActionTitle(e.target.value)} /></Field>
-          <Field label="Owner"><OwnerInput value={actionOwner} onChange={setActionOwner} project={project} /></Field>
+          <Field label="Title" required><Input value={actionTitle} onChange={(e) => setActionTitle(e.target.value)} /></Field>
+          <Field label="Owner" required><OwnerInput value={actionOwner} onChange={setActionOwner} project={project} /></Field>
           <Field label="Kind">
             <Select value={actionKind} onChange={(e) => setActionKind(e.target.value as ActionKind)}>
               {Object.entries(ACTION_KIND_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
@@ -312,16 +332,16 @@ export function DecisionRegister() {
           </CardBody>
         </Card>
       )}
-      <Modal open={open} onClose={() => setOpen(false)} title="Record decision" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={() => void add()} disabled={busy || !title.trim() || !rationale.trim() || !decisionMaker.trim()}>Save</Button></>}>
+      <Modal open={open} onClose={() => setOpen(false)} title="Record decision" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><SubmitButton onClick={() => void add()} busy={busy} needs={[...(title.trim() ? [] : ['Title']), ...(decisionMaker.trim() ? [] : ['Decision maker']), ...(rationale.trim() ? [] : ['Rationale'])]}>Save</SubmitButton></>}>
         <div className="space-y-3">
-          <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
+          <Field label="Title" required><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
           <Field label="Type">
             <Select value={decisionType} onChange={(e) => setDecisionType(e.target.value as DecisionType)}>
               {Object.entries(DECISION_TYPE_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
             </Select>
           </Field>
-          <Field label="Decision maker"><Input value={decisionMaker} onChange={(e) => setDecisionMaker(e.target.value)} /></Field>
-          <Field label="Rationale"><Textarea value={rationale} onChange={(e) => setRationale(e.target.value)} rows={3} /></Field>
+          <Field label="Decision maker" required><Input value={decisionMaker} onChange={(e) => setDecisionMaker(e.target.value)} /></Field>
+          <Field label="Rationale" required><Textarea value={rationale} onChange={(e) => setRationale(e.target.value)} rows={3} /></Field>
         </div>
       </Modal>
     </div>
@@ -374,6 +394,7 @@ function ActionCost({
       <button
         type="button"
         onClick={() => setOpen(true)}
+        aria-label={`Price the action ${action.title}`}
         /* 17px on a phone, which is not a target. Padding rather than a
            bigger font: this is deliberately quiet until somebody wants it. */
         className="-mx-1 rounded px-1 py-0.5 text-[11px] text-ink-muted underline-offset-2 hover:text-brand hover:underline coarse:min-h-11 coarse:px-2"
@@ -387,6 +408,7 @@ function ActionCost({
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-ink-muted">
       <Select
         className="h-6 text-[11px]"
+        aria-label={`Cost band for ${action.title}`}
         value={action.costBand ?? ''}
         onChange={(e) => onChange({ costBand: (e.target.value || null) as RemedialBand | null })}
       >
@@ -401,6 +423,7 @@ function ActionCost({
           className="h-6 w-32 text-[11px]"
           inputMode="decimal"
           placeholder="Estimate"
+          aria-label={`Cost estimate for ${action.title}, in ${currency}`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => {

@@ -221,10 +221,13 @@ function ApproachComparison({ working, currency }: { working: ValuationWorking; 
               <span
                 className={cn(
                   'text-right font-mono text-[13px] tabular-nums',
-                  usable ? 'text-ink' : 'text-ink-muted',
+                  usable && amount > 0 ? 'text-ink' : 'text-ink-muted',
                 )}
               >
-                {usable ? money(amount, currency) : 'no figure'}
+                {/* A usable approach that reconciled to nothing is still not
+                    a figure: ₹0 in a column of amounts reads as a valuation of
+                    zero rather than as an approach that produced none. */}
+                {usable && amount > 0 ? money(amount, currency) : 'no figure'}
               </span>
             </li>
           );

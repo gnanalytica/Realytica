@@ -3,7 +3,7 @@ import { KeyRound, PlugZap } from 'lucide-react';
 import { CREDENTIAL_KINDS, type CredentialKind } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
-import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Modal, Select, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Modal, Select, SubmitButton, useToast } from '../../components/ui/kit';
 import { formatWhen } from '../projects/shared';
 
 /**
@@ -112,7 +112,7 @@ export function CredentialsCard() {
         {open ? (
           <div className="space-y-2 rounded-lg border border-hairline bg-sunken p-3">
             <div className="flex flex-wrap items-end gap-2">
-              <Field label="Name" className="min-w-[12rem] flex-grow">
+              <Field label="Name" required className="min-w-[12rem] flex-grow">
                 <Input value={label} placeholder="Kaveri portal" onChange={(e) => setLabel(e.target.value)} />
               </Field>
               <Field label="Kind">
@@ -131,10 +131,10 @@ export function CredentialsCard() {
                 <Input value={username} onChange={(e) => setUsername(e.target.value)} />
               </Field>
             ) : null}
-            <Field label="Secret" hint="Stored once. It is never shown again — not to you either.">
+            <Field label="Secret" required hint="Stored once. It is never shown again — not to you either.">
               <Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} />
             </Field>
-            <Button disabled={busy || !label.trim() || !secret} onClick={() => void save()}>Store it</Button>
+            <SubmitButton busy={busy} needs={[...(label.trim() ? [] : ['Name']), ...(secret ? [] : ['Secret'])]} onClick={() => void save()}>Store it</SubmitButton>
           </div>
         ) : null}
 

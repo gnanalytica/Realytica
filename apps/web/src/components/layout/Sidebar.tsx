@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import { ChevronsLeft, ChevronsRight, BookOpen, CircleCheck, FolderTree, Gauge, Info, ScrollText, Users, Workflow, X } from 'lucide-react';
 import { cn } from '../ui/kit';
+import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 
 export interface SidebarProps {
   collapsed: boolean;
@@ -137,6 +138,25 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
     };
   }, [mobileOpen, onCloseMobile]);
 
+  /*
+   * A drawer parked offscreen is still in the accessibility tree.
+   *
+   * On a phone the rail is translated out of the viewport by a class, which
+   * moves the pixels and nothing else: every one of its links stayed
+   * focusable and stayed readable to a screen reader, at negative
+   * coordinates, in front of the page the reader was actually on. `inert`
+   * cannot be set from CSS and must not be set on the desktop rail — where
+   * the same element is a permanent column — so the breakpoint is read here.
+   */
+  const desktop = useMediaQuery(DESKTOP_QUERY);
+  const aside = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = aside.current;
+    if (!el) return;
+    if (!desktop && !mobileOpen) el.setAttribute('inert', '');
+    else el.removeAttribute('inert');
+  }, [desktop, mobileOpen]);
+
   return (
     <>
       {mobileOpen ? (
@@ -148,6 +168,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
       ) : null}
 
       <aside
+        ref={aside}
         className={cn(
           'fixed inset-y-0 left-0 z-50 flex w-[220px] shrink-0 flex-col border-r border-hairline bg-surface transition-transform duration-200 ease-out',
           'lg:static lg:z-auto lg:translate-x-0',

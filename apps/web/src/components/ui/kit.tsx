@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 import { createContext, forwardRef, useContext, useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, Check, ChevronDown, Info, Loader2, ShieldAlert, X, XCircle } from 'lucide-react';
 
 export const cn = clsx;
@@ -310,6 +311,64 @@ export function Button({ variant = 'secondary', size = 'md', icon, loading, clas
   );
 }
 
+/** "Title", "Cause" → "Title and Cause"; three or more get commas. */
+export function andList(words: string[]): string {
+  if (words.length <= 1) return words[0] ?? '';
+  return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+}
+
+/**
+ * The button that commits a form, which says what it is waiting for.
+ *
+ * A submit that is disabled and silent is the single most common way this
+ * application looked broken: the reader fills a dialog in, the button stays
+ * grey, and nothing anywhere says which field is still empty. So the reason
+ * is named, in the same words as the labels above it, and it is wired to the
+ * button with `aria-describedby` so a screen reader reads it as part of the
+ * button rather than as loose text in the footer.
+ *
+ * `busy` is separate from `needs` on purpose. "Nothing is missing but the
+ * save has not come back yet" and "you still owe me a title" are different
+ * states and they looked identical before: both were a grey button.
+ */
+export function SubmitButton({
+  needs = [],
+  busy = false,
+  variant = 'primary',
+  onClick,
+  children,
+}: {
+  /** Labels of the fields still required, exactly as the fields are labelled. */
+  needs?: string[];
+  busy?: boolean;
+  variant?: 'primary' | 'secondary' | 'danger';
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const id = useId();
+  const blocked = needs.length > 0;
+  return (
+    <>
+      {blocked ? (
+        // `mr-auto` in a footer that lays out `justify-end`: the reason sits
+        // at the far left, against the button it explains.
+        <span id={id} className="mr-auto min-w-0 text-[12px] text-ink-secondary">
+          Needs {andList(needs)}
+        </span>
+      ) : null}
+      <Button
+        variant={variant}
+        loading={busy}
+        disabled={blocked}
+        aria-describedby={blocked ? id : undefined}
+        onClick={onClick}
+      >
+        {children}
+      </Button>
+    </>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Badges, dots, stats                                                 */
 /* ------------------------------------------------------------------ */
@@ -587,6 +646,7 @@ export function StatTile({
   tone = 'neutral',
   icon,
   className,
+  pending = false,
 }: {
   label: ReactNode;
   value: ReactNode;
@@ -594,7 +654,25 @@ export function StatTile({
   tone?: Tone;
   icon?: ReactNode;
   className?: string;
+  /**
+   * The figure has not arrived yet.
+   *
+   * Not the same as zero, and the difference is the whole point: a tile that
+   * renders "0 projects" while the request is still in flight tells the
+   * reader their workspace is empty, and they believe it. The tile keeps its
+   * size and its label and withholds only the number.
+   */
+  pending?: boolean;
 }) {
+  if (pending) {
+    return (
+      <Tile tone={tone} className={cn('p-4', className)} aria-busy="true">
+        <span className="text-[12px] font-medium text-ink-muted">{label}</span>
+        <Skeleton className="mt-1.5 h-[26px] w-16" />
+        {hint ? <Skeleton className="mt-1.5 h-[15px] w-24" /> : null}
+      </Tile>
+    );
+  }
   return (
     <Tile tone={tone} className={cn('p-4', className)}>
       <div className="flex items-start justify-between gap-3">
@@ -1048,14 +1126,70 @@ export function Callout({
   );
 }
 
-export function Modal({
-  open,
-  onClose,
-  title,
-  children,
-  footer,
-  width = 'md',
-}: {
+/* ------------------------------------------------------------------ */
+/* Layers — what sits above the application, and what that costs it     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Everything that paints over the application renders into `document.body`
+ * marked `data-layer`, not into the page that opened it.
+ *
+ * Two reasons, and the second is the one that matters. A dialog nested in
+ * the tree inherits every `overflow: hidden` and stacking context between
+ * it and the root, so where it appears depends on where it was declared.
+ * And a dialog that cannot be distinguished from the page behind it cannot
+ * make that page inert — which is the actual defect this was written for:
+ * a screen reader tabbing straight past an open dialog into the controls
+ * underneath it, and changing them.
+ */
+function useLayer(kind: 'modal' | 'toast') {
+  const [host] = useState(() => {
+    const el = document.createElement('div');
+    el.dataset.layer = kind;
+    return el;
+  });
+  useEffect(() => {
+    document.body.appendChild(host);
+    return () => {
+      host.remove();
+    };
+  }, [host]);
+  return host;
+}
+
+/**
+ * How many dialogs are open. A dialog opened from a dialog must not
+ * un-inert the page when the inner one closes, so the background is only
+ * released by the last one out.
+ */
+let openDialogs = 0;
+
+/** Marks everything that is not a layer as `inert` for as long as a dialog is open. */
+function useInertBackground() {
+  useEffect(() => {
+    openDialogs += 1;
+    const marked: Element[] = [];
+    if (openDialogs === 1) {
+      for (const child of [...document.body.children]) {
+        // Toasts keep working over a dialog: a failed save has to be able to
+        // say so while the form the reader is still looking at stays open.
+        if (child instanceof HTMLElement && child.dataset.layer) continue;
+        if (child.hasAttribute('inert')) continue;
+        child.setAttribute('inert', '');
+        marked.push(child);
+      }
+    }
+    return () => {
+      openDialogs -= 1;
+      for (const child of marked) child.removeAttribute('inert');
+    };
+  }, []);
+}
+
+const FOCUSABLE =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])';
+
+export function Modal(props: {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
@@ -1063,22 +1197,83 @@ export function Modal({
   footer?: ReactNode;
   width?: 'sm' | 'md' | 'lg';
 }) {
+  // The frame is a separate component so its effects run on open and clean up
+  // on close. A hook inside `Modal` itself would live for as long as the page
+  // that declares the dialog, which is not the same lifetime at all.
+  if (!props.open) return null;
+  return <ModalFrame {...props} />;
+}
+
+function ModalFrame({
+  onClose,
+  title,
+  children,
+  footer,
+  width = 'md',
+}: {
+  open?: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  children: ReactNode;
+  footer?: ReactNode;
+  width?: 'sm' | 'md' | 'lg';
+}) {
+  const host = useLayer('modal');
+  const panel = useRef<HTMLDivElement>(null);
+  const labelId = useId();
+  useInertBackground();
+
+  // Focus goes in on open and comes back out on close. Coming back matters
+  // more than going in: a reader who opened a dialog from a row in a register
+  // of two hundred should not be returned to the top of it.
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const returnTo = document.activeElement;
+    const first = panel.current?.querySelector<HTMLElement>(FOCUSABLE);
+    (first ?? panel.current)?.focus();
+    return () => {
+      if (returnTo instanceof HTMLElement && returnTo.isConnected) returnTo.focus();
+    };
+  }, []);
+
+  // `inert` on the background stops the pointer and the accessibility tree,
+  // but Tab is a document-order walk that would still leave through the end
+  // of the dialog. Cycle it back.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !panel.current) return;
+      const stops = [...panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (el) => el.offsetParent !== null || el === document.activeElement,
+      );
+      if (stops.length === 0) {
+        e.preventDefault();
+        panel.current.focus();
+        return;
+      }
+      const edge = e.shiftKey ? stops[0] : stops[stops.length - 1];
+      if (document.activeElement === edge || !panel.current.contains(document.activeElement)) {
+        e.preventDefault();
+        (e.shiftKey ? stops[stops.length - 1] : stops[0]).focus();
+      }
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [onClose]);
 
-  if (!open) return null;
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div
+        ref={panel}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={labelId}
+        tabIndex={-1}
         className={cn(
-          'relative z-10 flex max-h-[min(92dvh,40rem)] w-full flex-col overflow-hidden animate-fade-in rounded-xl bg-surface shadow-pop ring-1 ring-[var(--ring)]',
+          'relative z-10 flex max-h-[min(92dvh,40rem)] w-full flex-col overflow-hidden animate-fade-in rounded-xl bg-surface shadow-pop outline-none ring-1 ring-[var(--ring)]',
           'mb-[env(safe-area-inset-bottom)] sm:mb-0',
           width === 'sm' && 'max-w-sm',
           width === 'md' && 'max-w-lg',
@@ -1086,17 +1281,18 @@ export function Modal({
         )}
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline px-4 py-3">
-          <h2 className="min-w-0 truncate text-[13px] font-semibold text-ink">{title}</h2>
+          <h2 id={labelId} className="min-w-0 truncate text-[13px] font-semibold text-ink">{title}</h2>
           <button onClick={onClose} className="shrink-0 rounded p-1 coarse:p-3 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Close">
             <X size={15} />
           </button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
         {footer ? (
-          <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-hairline px-4 py-3">{footer}</footer>
+          <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-hairline px-4 py-3">{footer}</footer>
         ) : null}
       </div>
-    </div>
+    </div>,
+    host,
   );
 }
 
@@ -1141,6 +1337,7 @@ export function useToast() {
 export function ToastHost({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastMsg[]>([]);
   const seq = useRef(0);
+  const host = useLayer('toast');
 
   const push = (text: string, tone: Tone = 'neutral') => {
     const id = ++seq.current;
@@ -1151,7 +1348,11 @@ export function ToastHost({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div className="no-print pointer-events-none fixed bottom-[max(4.75rem,env(safe-area-inset-bottom))] left-3 right-3 z-[60] flex max-w-sm flex-col gap-2 lg:bottom-4 lg:left-auto lg:right-4 lg:w-80">
+      {/* Into the toast layer rather than here in the tree: an open dialog
+          marks the application inert, and a save that failed has to be able
+          to say so over the form the reader is still looking at. */}
+      {createPortal(
+      <div className="no-print pointer-events-none fixed bottom-[max(4.75rem,env(safe-area-inset-bottom))] left-3 right-3 z-[70] flex max-w-sm flex-col gap-2 lg:bottom-4 lg:left-auto lg:right-4 lg:w-80">
         {items.map((i) => {
           const Icon = TONE_ICON[i.tone];
           return (
@@ -1164,7 +1365,9 @@ export function ToastHost({ children }: { children: ReactNode }) {
             </div>
           );
         })}
-      </div>
+      </div>,
+      host,
+      )}
     </ToastCtx.Provider>
   );
 }

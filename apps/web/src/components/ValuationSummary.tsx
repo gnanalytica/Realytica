@@ -48,7 +48,18 @@ export function ValuationSummary({
   method: string;
 }) {
   const outcome = run.working?.reconciliation.outcome;
-  const hasFigure = !run.working || outcome === 'indicated';
+  /*
+   * Zero is not a valuation.
+   *
+   * The reconciliation can report `indicated` and still arrive at nothing —
+   * every approach ran, each on inputs that were present but empty — and a
+   * run stored before the working block existed has no outcome to read at
+   * all. Both used to reach the headline, which then set ₹0 in the largest
+   * type on the page with ₹0 – ₹0 under it and a confidence badge beside it.
+   * Nothing about that is a hedge a reader can see through: it looks like a
+   * valuation and it says the property is worth nothing.
+   */
+  const hasFigure = (!run.working || outcome === 'indicated') && run.indicatedValue > 0;
   const band = screen?.confidence.band;
   const completeness = screen?.completeness.score;
 
@@ -260,7 +271,9 @@ export function ValuationSummary({
                     ? 'No figure — the approaches disagree'
                     : blockingShown.length > 0
                       ? `No figure yet — waiting on ${blockingShown.join(' and ').toLowerCase()}`
-                      : 'No figure — no approach had all of its inputs'}
+                      : outcome === 'indicated' || !run.working
+                        ? 'No figure — the approaches reconciled to nothing'
+                        : 'No figure — no approach had all of its inputs'}
                 </p>
                 {outcome !== 'approaches_disagree' && blockingShown.length > 0 ? (
                   <p className="mt-1 text-[13px] text-ink-secondary">
@@ -275,9 +288,24 @@ export function ValuationSummary({
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {band ? <Badge tone={BAND_TONE[band] ?? 'neutral'}>{BAND_WORD[band] ?? band}</Badge> : null}
+            {/* The confidence badge grades a figure, so it goes where there
+                is one. "High confidence" beside "No figure yet" is a sentence
+                about nothing, and beside ₹0 it was worse than that. The
+                completeness badge stays either way: how much of the file is
+                documented is a fact about the evidence, true whether or not a
+                number came out, and it is deliberately worded to say so. */}
+            {hasFigure && band ? (
+              <Badge tone={BAND_TONE[band] ?? 'neutral'} title="How much to believe the figure — how far the approaches agreed, and on how much evidence.">
+                {BAND_WORD[band] ?? band}
+              </Badge>
+            ) : null}
             {completeness !== undefined ? (
-              <Badge tone={completeness >= 60 ? 'neutral' : 'warning'}>{completeness}% documented</Badge>
+              <Badge
+                tone={completeness >= 60 ? 'neutral' : 'warning'}
+                title="How much of the evidence this valuation wants is on file. Not a statement about the figure."
+              >
+                {completeness}% documented
+              </Badge>
             ) : null}
           </div>
         </div>

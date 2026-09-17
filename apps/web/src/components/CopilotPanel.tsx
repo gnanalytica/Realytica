@@ -645,6 +645,14 @@ export function CopilotPanel({
               type="button"
               onClick={() => setTab(key)}
               aria-pressed={tab === key}
+              /* The count sits in its own span, and the accessible name is
+                 computed by concatenating text nodes without the margin
+                 between them — so the tab was announced as "Activity6". */
+              aria-label={
+                key === 'activity'
+                  ? `Activity — ${activity.length} ${activity.length === 1 ? 'entry' : 'entries'}`
+                  : 'Chat'
+              }
               className={cn(
                 // 26px on a touch pointer, on the tabs that switch the chat
                 // panel between the conversation and the run log.

@@ -460,7 +460,11 @@ export function compareProjectGis(
       code: 'osm_unavailable',
       severity: 'info',
       standing: 'context',
-      text: `OpenStreetMap context did not load (${extra.osm.error}). The pin and survey sketch still draw. Statutory land use is unchanged: obtain the RMP / LPA sheet.`,
+      // What a reader needs first is whether this is about their property.
+      // It is not — so the reassurance leads and the provider's own status
+      // code trails, rather than an HTTP number opening a sentence on a
+      // dashboard about a piece of land.
+      text: `Context layers are unavailable just now, so this map is showing less than usual. Nothing about the property has changed: the pin and survey sketch still draw, and statutory land use still comes from the RMP / LPA sheet. (OpenStreetMap: ${extra.osm.error}.)`,
     });
   }
 
@@ -473,7 +477,7 @@ export function compareProjectGis(
       code: 'osm_unavailable',
       severity: 'info',
       standing: 'context',
-      text: `OpenCity civic layers did not fully load (${extra.civic.error}). Ward/lake overlay may be incomplete.`,
+      text: `Some civic layers are unavailable just now, so the ward and lake overlay may be incomplete. (OpenCity: ${extra.civic.error}.)`,
     });
   }
   for (const h of wardHits) {

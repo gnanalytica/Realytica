@@ -412,6 +412,23 @@
     --text-micro: 12px;
     --text-mini: 12.5px;
   }
+
+  /*
+   * A checkbox is 13px, everywhere, forever.
+   *
+   * It is the one control in the product that cannot be fixed where it is
+   * used: the size is the user agent's, no utility class moves it, and there
+   * are nine of them across the registers, the report editor and the DD
+   * scopes. Measured on a Pixel 7 the select-all in the evidence register was
+   * 13px tall — half of WCAG 2.5.8's minimum and a third of what a thumb
+   * wants. 24px under a thumb and untouched under a mouse, where the pointer
+   * is precise and the smaller box reads better beside 13px text.
+   */
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
 }
 
 /* Leaflet draws into this node; keep it under app chrome and inherit type. */

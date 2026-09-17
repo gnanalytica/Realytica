@@ -34,7 +34,7 @@ import {
   type ScopeKey,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, RegisterRow, Select, Textarea, cn, useToast , Why } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, RegisterRow, Select, SubmitButton, Textarea, andList, cn, useToast , Why } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
@@ -101,6 +101,24 @@ export function EvidenceRegister() {
    * no scope keep a group of their own rather than being dropped: an
    * unfiled document is exactly the one somebody needs to notice.
    */
+  /*
+   * What is currently hiding rows, in the reader's words.
+   *
+   * Empty because nothing is filed and empty because a filter excluded
+   * everything are opposite facts that rendered identically, and the status
+   * filter defaults to `gaps` — so the most common way to see an empty
+   * register is to have no outstanding documents at all.
+   */
+  const narrowing = [
+    ...(statusFilter === 'gaps'
+      ? ['outstanding']
+      : statusFilter === 'all'
+        ? []
+        : [EVIDENCE_STATUS_LABEL[statusFilter].toLowerCase()]),
+    ...(query.trim() ? [`a match for \u201c${query.trim()}\u201d`] : []),
+    ...(mineOnly ? ['yours'] : []),
+  ];
+
   const groups = useMemo(() => {
     const scopeName = new Map<string, string>();
     for (const assessment of project.assessments) {
@@ -255,7 +273,12 @@ export function EvidenceRegister() {
       {(pick) => (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} className="w-full max-w-xs sm:w-48">
+        <Select
+          value={statusFilter}
+          aria-label="Filter the register by status"
+          onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+          className="w-full max-w-xs sm:w-48"
+        >
           <option value="gaps">Gaps ({scoped.filter((e) => GAP_STATUSES.includes(e.status)).length})</option>
           <option value="all">All ({scoped.length})</option>
           {EVIDENCE_STATUSES.map((s) => (
@@ -296,10 +319,31 @@ export function EvidenceRegister() {
       ) : null}
 
       {rows.length === 0 ? (
-        <EmptyState
-        title="No evidence yet"
-        description="Drop a folder of documents here."
-      />
+        narrowing.length === 0 ? (
+          <EmptyState title="No evidence yet" description="Drop a folder of documents here." />
+        ) : (
+          /* An empty register and an empty filter look identical on screen and
+             are opposite facts. This one used to say "No evidence yet" over a
+             project holding forty-six documents — and the register opens on
+             the gaps filter, so it said it on a project where nothing is
+             outstanding, which is the best possible news, reported as a
+             blank. Say what is hiding the rows, and offer to stop. */
+          <EmptyState
+            title="Nothing matches this filter"
+            description={`${scoped.length} ${scoped.length === 1 ? 'item is' : 'items are'} filed here. None ${scoped.length === 1 ? 'is' : 'are'} ${andList(narrowing)}.`}
+            action={
+              <Button
+                onClick={() => {
+                  setStatusFilter('all');
+                  setQuery('');
+                  setMineOnly(false);
+                }}
+              >
+                Show everything
+              </Button>
+            }
+          />
+        )
       ) : (
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
@@ -376,6 +420,7 @@ export function EvidenceRegister() {
                     className="-ml-1.5"
                     project={project}
                     targetId={e.id}
+                    subject={e.title}
                     owner={e.owner}
                     onAssigned={setProject}
                   />
@@ -419,11 +464,15 @@ export function EvidenceRegister() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {(e.attachments ?? []).length ? (
-                    <Button size="sm" variant="ghost" onClick={() => setProofId(e.id)}>
+                    <Button size="sm" variant="ghost" aria-label={`Open the proof for ${e.title}`} onClick={() => setProofId(e.id)}>
                       Open proof
                     </Button>
                   ) : null}
-                  <Select value={e.status} onChange={(ev) => void setStatus(e.id, ev.target.value as EvidenceStatus)}>
+                  <Select
+                    value={e.status}
+                    aria-label={`Status of ${e.title}`}
+                    onChange={(ev) => void setStatus(e.id, ev.target.value as EvidenceStatus)}
+                  >
                     {EVIDENCE_STATUSES.map((s) => (
                       <option key={s} value={s}>{EVIDENCE_STATUS_LABEL[s]}</option>
                     ))}
@@ -490,12 +539,12 @@ export function EvidenceRegister() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => void add()} disabled={busy || !title.trim()}>Add</Button>
+            <SubmitButton onClick={() => void add()} busy={busy} needs={title.trim() ? [] : ['Title']}>Add</SubmitButton>
           </>
         }
       >
         <div className="space-y-3">
-          <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
+          <Field label="Title" required><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
           <Field label="Kind">
             <Select value={kind} onChange={(e) => setKind(e.target.value as EvidenceKind)}>
               {Object.entries(EVIDENCE_KIND_LABEL).map(([k, label]) => (
@@ -596,8 +645,16 @@ export function FindingRegister() {
         <div className="flex-grow" />
         <Button onClick={() => setOpen(true)}>Add finding</Button>
       </div>
-      {project.findings.length === 0 ? (
-        <EmptyState title="No findings" description="Raised from check results, or added here." />
+      {rows.length === 0 ? (
+        mineOnly && project.findings.length > 0 ? (
+          <EmptyState
+            title="None of these are yours"
+            description={`${project.findings.length} ${project.findings.length === 1 ? 'finding is' : 'findings are'} on this register, owned by somebody else.`}
+            action={<Button onClick={() => setMineOnly(false)}>Show everyone's</Button>}
+          />
+        ) : (
+          <EmptyState title="No findings" description="Raised from check results, or added here." />
+        )
       ) : (
         <Card>
           <CardBody className="divide-y divide-hairline p-0">
@@ -619,7 +676,7 @@ export function FindingRegister() {
                         applied to this register, so a column every row shares
                         was costing a line per finding.
                       */}
-                      <AssignCell className="-ml-1.5" project={project} targetId={f.id} owner={f.owner} onAssigned={setProject} />
+                      <AssignCell className="-ml-1.5" project={project} targetId={f.id} subject={f.title} owner={f.owner} onAssigned={setProject} />
                     </>
                   }
                   trailing={
@@ -631,7 +688,11 @@ export function FindingRegister() {
                       >
                         {ricsConditionRating(f.severity)} · {SEVERITY_LABEL[f.severity]}
                       </Badge>
-                      <Select value={f.status} onChange={(e) => void setStatus(f.id, e.target.value as FindingStatus)}>
+                      <Select
+                        value={f.status}
+                        aria-label={`Status of finding ${f.title}`}
+                        onChange={(e) => void setStatus(f.id, e.target.value as FindingStatus)}
+                      >
                         {FINDING_STATUSES.map((s) => (
                           <option key={s} value={s}>{FINDING_STATUS_LABEL[s]}</option>
                         ))}
@@ -654,13 +715,19 @@ export function FindingRegister() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => void add()} disabled={busy || !title.trim() || !description.trim()}>Add</Button>
+            <SubmitButton
+              onClick={() => void add()}
+              busy={busy}
+              needs={[...(title.trim() ? [] : ['Title']), ...(description.trim() ? [] : ['Description'])]}
+            >
+              Add
+            </SubmitButton>
           </>
         }
       >
         <div className="space-y-3">
-          <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
-          <Field label="Description"><Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} /></Field>
+          <Field label="Title" required><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
+          <Field label="Description" required><Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} /></Field>
           <Field label="Severity">
             <Select value={severity} onChange={(e) => setSeverity(e.target.value as FindingSeverity)}>
               {(['low', 'medium', 'high', 'critical'] as FindingSeverity[]).map((s) => (
