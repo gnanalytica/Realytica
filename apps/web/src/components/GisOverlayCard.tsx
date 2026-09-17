@@ -6,6 +6,8 @@ import 'leaflet/dist/leaflet.css';
 import { sheetIsPlaceable, type DdProject, type GisContextFeature, type GisOverlayHit, type GisOverlayRead, type SheetPlacement } from '@realytica/shared';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Disclosure, cn } from './ui/kit';
 import { api } from '../lib/api';
+import { RevenueMapPicker } from './RevenueMapPicker';
+import { RevenueMapBrief } from './RevenueMapBrief';
 
 /**
  * Pin + optional survey sketch + OSM + OpenCity civic clips.
@@ -39,7 +41,49 @@ function flaggedIds(hits: GisOverlayHit[]): Set<string> {
 const WARD_STYLE: L.PathOptions = { color: '#6d28d9', weight: 2, dashArray: '5 4', fillColor: '#c4b5fd', fillOpacity: 0.12 };
 const CIVIC_LAKE_STYLE: L.PathOptions = { color: '#0f766e', weight: 2, fillColor: '#14b8a6', fillOpacity: 0.28 };
 
+/*
+ * The state's own layers, read for the survey number on file. Drawn heavier
+ * than OSM because they are a government record, and hatched rather than
+ * filled so they never read as the parcel.
+ */
+const REVENUE_STYLE: Record<string, L.PathOptions> = {
+  state_water: { color: '#0369a1', weight: 2.5, fillColor: '#0ea5e9', fillOpacity: 0.3 },
+  state_drain: { color: '#0369a1', weight: 3, dashArray: '6 4', opacity: 0.95 },
+  state_flood: { color: '#7c2d12', weight: 1.5, dashArray: '3 3', fillColor: '#fb923c', fillOpacity: 0.16 },
+  state_alignment: { color: '#9f1239', weight: 3, dashArray: '8 4', opacity: 0.95 },
+  state_landuse: { color: '#6b21a8', weight: 1.5, dashArray: '4 3', fillColor: '#a855f7', fillOpacity: 0.14 },
+  state_transport: { color: '#166534', weight: 2, fillColor: '#22c55e', fillOpacity: 0.9 },
+  state_prohibited: { color: '#b91c1c', weight: 2.5, fillColor: '#ef4444', fillOpacity: 0.2 },
+};
+
+const REVENUE_KINDS = new Set(Object.keys(REVENUE_STYLE));
+
+/** Hit codes the brief under the map already says, as points. */
+const BRIEF_COVERS = new Set<GisOverlayHit['code']>([
+  'revenue_parcel',
+  'revenue_prohibited',
+  'revenue_register_unjoined',
+  'revenue_factor',
+  'revenue_insight',
+  'revenue_anchor',
+  'revenue_unread',
+]);
+
+function isRevenue(feature: GisContextFeature): boolean {
+  return REVENUE_KINDS.has(feature.kind);
+}
+
 function addFeature(group: L.LayerGroup, feature: GisContextFeature, flagged: boolean): void {
+  if (isRevenue(feature)) {
+    const style = REVENUE_STYLE[feature.kind];
+    const label = `${feature.name ?? feature.kind.replace('state_', '').replace(/_/g, ' ')} — ${feature.layerKey ?? 'state layer'}${
+      feature.distanceM !== undefined ? `, ${Math.round(feature.distanceM)} m` : ''
+    } (revenue map, not evidence)`;
+    if (feature.ring) L.polygon(latlngs(feature.ring), style).bindTooltip(label).addTo(group);
+    else if (feature.line) L.polyline(feature.line.map((p) => [p.lat, p.lng] as L.LatLngExpression), style).bindTooltip(label).addTo(group);
+    else if (feature.point) L.circleMarker([feature.point.lat, feature.point.lng], { ...style, radius: 6 }).bindTooltip(label).addTo(group);
+    return;
+  }
   const water = feature.kind === 'osm_water' || feature.kind === 'osm_waterway';
   const style =
     feature.kind === 'civic_ward'
@@ -92,6 +136,7 @@ export function GisOverlayCard({
     pin?: L.Layer;
     lakes?: L.LayerGroup;
     wards?: L.LayerGroup;
+    revenue?: L.LayerGroup;
   }>({});
   const tilesRef = useRef<{ satellite?: L.TileLayer; streets?: L.TileLayer }>({});
   const wmsRef = useRef<L.TileLayer.WMS | null>(null);
@@ -110,6 +155,7 @@ export function GisOverlayCard({
   const [showBbmp, setShowBbmp] = useState(true);
   const [showLakes, setShowLakes] = useState(true);
   const [showWards, setShowWards] = useState(true);
+  const [showRevenue, setShowRevenue] = useState(true);
   const [sheets, setSheets] = useState<SheetPlacement[]>([]);
   const [showSheet, setShowSheet] = useState(true);
   const [sheetOpacity, setSheetOpacity] = useState(0.6);
@@ -176,7 +222,7 @@ export function GisOverlayCard({
     const map = mapRef.current;
     if (!map || !read) return;
 
-    for (const key of ['water', 'landuse', 'survey', 'pin', 'lakes', 'wards'] as const) {
+    for (const key of ['water', 'landuse', 'survey', 'pin', 'lakes', 'wards', 'revenue'] as const) {
       const layer = layersRef.current[key];
       if (layer) {
         map.removeLayer(layer);
@@ -190,11 +236,13 @@ export function GisOverlayCard({
     const lakes = L.layerGroup();
     const wards = L.layerGroup();
     const survey = L.layerGroup();
+    const revenue = L.layerGroup();
     const bounds: L.LatLngExpression[] = [];
 
     for (const feature of read.features) {
-      const group =
-        feature.kind === 'osm_landuse'
+      const group = isRevenue(feature)
+        ? revenue
+        : feature.kind === 'osm_landuse'
           ? landuse
           : feature.kind === 'civic_lake'
             ? lakes
@@ -202,7 +250,9 @@ export function GisOverlayCard({
               ? wards
               : water;
       addFeature(group, feature, flagged.has(feature.id));
-      for (const p of feature.ring ?? feature.line ?? []) bounds.push([p.lat, p.lng]);
+      // Revenue-map features reach 3 km out; the frame follows the parcel,
+      // the pin and the context, not the far end of a rajakaluve.
+      if (!isRevenue(feature)) for (const p of feature.ring ?? feature.line ?? []) bounds.push([p.lat, p.lng]);
     }
 
     if (read.survey?.ring.length) {
@@ -225,7 +275,7 @@ export function GisOverlayCard({
       bounds.push([read.pin.lat, read.pin.lng]);
     }
 
-    layersRef.current = { water, landuse, lakes, wards, survey, pin: pinLayer };
+    layersRef.current = { water, landuse, lakes, wards, survey, revenue, pin: pinLayer };
     if (bounds.length) {
       map.fitBounds(L.latLngBounds(bounds), { padding: [28, 28], maxZoom: 16 });
     }
@@ -244,7 +294,8 @@ export function GisOverlayCard({
     sync(layersRef.current.lakes, showLakes);
     sync(layersRef.current.wards, showWards);
     sync(layersRef.current.survey, showSurvey);
-  }, [read, showWater, showLanduse, showLakes, showWards, showSurvey]);
+    sync(layersRef.current.revenue, showRevenue);
+  }, [read, showWater, showLanduse, showLakes, showWards, showSurvey, showRevenue]);
 
   useEffect(() => {
     let live = true;
@@ -343,12 +394,21 @@ export function GisOverlayCard({
     };
   }, [read, showBbmp]);
 
-  const flags = useMemo(() => (read?.hits ?? []).filter((h) => h.severity === 'flag'), [read]);
+  /*
+    The revenue map's own findings are not read as hits. They arrive as
+    sentences — headline, rule, source — and eight in a row under the map read
+    as an essay. `RevenueMapBrief` lays the same read out as points under
+    headings. Only the two hits that compare the read against the rest of the
+    file stay here: a parcel far from the pin, and an outline that disagrees
+    with the register — both are about this file, not about the land.
+  */
+  const flags = useMemo(() => (read?.hits ?? []).filter((h) => h.severity === 'flag' && !BRIEF_COVERS.has(h.code)), [read]);
   const notes = useMemo(
     () =>
       (read?.hits ?? []).filter(
         (h) =>
           h.severity === 'info' &&
+          !BRIEF_COVERS.has(h.code) &&
           h.code !== 'map_sitting' &&
           h.code !== 'withdrawn_sheet' &&
           // Unconditional: these two fire on every project and describe the
@@ -361,6 +421,7 @@ export function GisOverlayCard({
   const liveBbmp = Boolean(read?.maps.liveOverlays.some((s) => s.key === 'bbmp_gis'));
   const lakeCount = read?.features.filter((f) => f.kind === 'civic_lake').length ?? 0;
   const wardCount = read?.features.filter((f) => f.kind === 'civic_ward').length ?? 0;
+  const revenueCount = read?.features.filter(isRevenue).length ?? 0;
   // The reference shelf — where to get the real sheet, and what must never be
   // filed as one. It belongs on the file, but it is reading for the land-use
   // sitting, not for the dashboard, so it folds away until asked for.
@@ -432,8 +493,13 @@ export function GisOverlayCard({
             <LayerToggle on={showWards} onClick={() => setShowWards((v) => !v)}>GBA wards {wardCount}
             </LayerToggle>
           ) : null}
-          <LayerToggle on={showSurvey} onClick={() => setShowSurvey((v) => !v)} disabled={!read?.survey}>Survey sketch
+          <LayerToggle on={showSurvey} onClick={() => setShowSurvey((v) => !v)} disabled={!read?.survey}>
+            {read?.survey?.source === 'revenue_map' ? 'Revenue-map parcel' : 'Survey sketch'}
           </LayerToggle>
+          {revenueCount > 0 ? (
+            <LayerToggle on={showRevenue} onClick={() => setShowRevenue((v) => !v)}>State layers {revenueCount}
+            </LayerToggle>
+          ) : null}
           {liveBbmp ? (
             <LayerToggle on={showBbmp} onClick={() => setShowBbmp((v) => !v)}>BBMP WMS lakes/parks
             </LayerToggle>
@@ -472,8 +538,22 @@ export function GisOverlayCard({
             <span className="tabular-nums">{read.osm.featureCount}</span> OSM ·{' '}
             <span className="tabular-nums">{lakeCount}</span> lakes ·{' '}
             <span className="tabular-nums">{wardCount}</span> wards · context only, never an extent
+            {read.revenue ? (
+              <>
+                {' '}· <span className="tabular-nums">{read.revenue.featureCount}</span> from the revenue map · a record, not evidence
+              </>
+            ) : null}
           </p>
         ) : null}
+
+        <RevenueMapPicker
+          project={project}
+          read={read?.revenue}
+          onRead={async () => {
+            await onChanged();
+            await load();
+          }}
+        />
 
         {placedSheet && showSheet ? (
           /* A raster somebody will read a boundary off, so how well it is
@@ -508,6 +588,8 @@ export function GisOverlayCard({
         )}
 
         {loading && !read ? <p className="text-[13px] text-ink-muted">Building the overlay…</p> : null}
+
+        {project.revenueMap ? <RevenueMapBrief read={project.revenueMap} /> : null}
 
         {flags.length ? (
           <ul className="space-y-1.5">

@@ -1,0 +1,3535 @@
+{
+  "capturedAt": "2026-09-03",
+  "report": {
+    "subject": {
+      "point": {
+        "lat": 17.42353901872963,
+        "lng": 78.588312111581
+      },
+      "kind": "open_plot",
+      "area": 2316.1682931626556,
+      "areaUnit": "sqyd",
+      "answers": {
+        "approval": "panchayat",
+        "road_width": 20,
+        "litigation": false,
+        "corner": true
+      },
+      "surveyNo": "12"
+    },
+    "place": {
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "withinHmda": true,
+      "withinOrr": true
+    },
+    "parcel": {
+      "ref": "ulb:72499",
+      "source": "ulb",
+      "parcelNo": "12",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58826747400008,
+            17.423767375000068
+          ],
+          [
+            78.58854607900008,
+            17.423716994000074
+          ],
+          [
+            78.58851471100007,
+            17.423447146000058
+          ],
+          [
+            78.58827476300007,
+            17.423283652000066
+          ],
+          [
+            78.58821148800007,
+            17.42326175900007
+          ],
+          [
+            78.58808530100004,
+            17.42334359000006
+          ],
+          [
+            78.58813179300006,
+            17.423489046000043
+          ],
+          [
+            78.58819518900003,
+            17.423629911000035
+          ],
+          [
+            78.58808518900008,
+            17.423792685000024
+          ],
+          [
+            78.58826747400008,
+            17.423767375000068
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42353901872963,
+        "lng": 78.588312111581
+      },
+      "areaSqm": 1936.6116802777972,
+      "areaSqyd": 2316.1682931626556,
+      "areaAcres": 0.4785471680088131,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    "factors": [
+      {
+        "code": "approval_panchayat",
+        "label": "Gram panchayat layout only",
+        "severity": "caution",
+        "direction": "drag",
+        "confidence": "declared",
+        "headline": "A panchayat-only layout is not an approved layout, and most lenders will not fund it.",
+        "detail": "Panchayats have no power to approve layouts inside the HMDA area; plots in these layouts are sold as approved constantly. Without regularisation the buyer cannot get a building permission, and the resale pool shrinks to cash buyers.",
+        "impactLowPct": -22,
+        "impactHighPct": -10,
+        "evidence": {
+          "source": "Answered by you — not independently verified"
+        }
+      },
+      {
+        "code": "corner_plot",
+        "label": "Corner plot",
+        "severity": "info",
+        "direction": "uplift",
+        "confidence": "declared",
+        "headline": "Two open sides — better light, better access, and shop-front potential.",
+        "detail": "Corner plots carry a standing premium in Hyderabad layouts, larger where the second road is also wide.",
+        "impactLowPct": 5,
+        "impactHighPct": 10,
+        "evidence": {
+          "source": "Answered by you — not independently verified"
+        }
+      }
+    ],
+    "outstandingQuestions": [
+      {
+        "key": "regularised",
+        "question": "Has it been regularised under LRS or BRS?",
+        "because": "A panchayat-era layout without regularisation cannot get a building permission, and the pending fee lands on the buyer.",
+        "kind": "choice",
+        "options": [
+          {
+            "value": "done",
+            "label": "Regularised"
+          },
+          {
+            "value": "applied",
+            "label": "Applied, not yet issued"
+          },
+          {
+            "value": "no",
+            "label": "Not applied"
+          },
+          {
+            "value": "na",
+            "label": "Not applicable"
+          }
+        ],
+        "appliesTo": [
+          "open_plot",
+          "independent_house"
+        ],
+        "required": false
+      },
+      {
+        "key": "facing",
+        "question": "Which direction does it face?",
+        "because": "Facing carries a measurable premium in Hyderabad, not merely a sentimental one — east and north plots resell faster.",
+        "kind": "choice",
+        "options": [
+          {
+            "value": "east",
+            "label": "East"
+          },
+          {
+            "value": "north",
+            "label": "North"
+          },
+          {
+            "value": "north_east",
+            "label": "North-east"
+          },
+          {
+            "value": "west",
+            "label": "West"
+          },
+          {
+            "value": "south",
+            "label": "South"
+          },
+          {
+            "value": "other",
+            "label": "Other / not sure"
+          }
+        ],
+        "appliesTo": [
+          "open_plot",
+          "independent_house",
+          "apartment",
+          "agricultural_land"
+        ],
+        "required": false
+      },
+      {
+        "key": "possession",
+        "question": "Is the plot physically fenced and in the seller's possession?",
+        "because": "Paper ownership and physical possession part company often enough in peri-urban Hyderabad that lenders check it separately.",
+        "kind": "boolean",
+        "appliesTo": [
+          "open_plot",
+          "agricultural_land"
+        ],
+        "required": false
+      }
+    ],
+    "estimate": {
+      "anchor": {
+        "ratePerUnit": 15200,
+        "unit": "sqyd",
+        "basis": "guidance_multiplied",
+        "locality": "Ghatkesar",
+        "marketMultiple": 1.9,
+        "note": "Statutory rate for Ghatkesar mandal — no separate rate listed for this village, uplifted 1.9x to a traded level. Statutory rates are a stamp-duty floor, not a market price. Snapshot of 2026-08-25 — confirm on the IGRS portal before relying on it."
+      },
+      "adjustedRateLow": 10955,
+      "adjustedRateHigh": 16854,
+      "valueLow": 25000000,
+      "valueHigh": 39000000,
+      "quantity": 2316.17,
+      "quantityUnit": "sqyd",
+      "totalUpliftPct": 10,
+      "totalDragPct": -22
+    },
+    "confidence": {
+      "level": "low",
+      "reason": "One or more government layers could not be reached, so something that affects value may not have been checked."
+    },
+    "gaps": [
+      {
+        "layer": "Recorded flooding areas",
+        "reason": "The state GIS could not be reached, so this was not checked."
+      },
+      {
+        "layer": "Storm-water drain widening",
+        "reason": "The state GIS could not be reached, so this was not checked."
+      },
+      {
+        "layer": "Metro stations",
+        "reason": "The state GIS could not be reached, so this was not checked."
+      },
+      {
+        "layer": "Industrial land use",
+        "reason": "The state GIS could not be reached, so this was not checked."
+      }
+    ],
+    "generatedAt": "2026-09-03T10:36:00.998Z"
+  },
+  "neighbours": [
+    {
+      "ref": "ulb:71959",
+      "source": "ulb",
+      "parcelNo": "17",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": "Govt. Land",
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58682946200008,
+            17.42274924900005
+          ],
+          [
+            78.58692580100006,
+            17.42268936000005
+          ],
+          [
+            78.58680396600005,
+            17.422555525000064
+          ],
+          [
+            78.58649657100005,
+            17.422606877000078
+          ],
+          [
+            78.58642619300008,
+            17.42259181000003
+          ],
+          [
+            78.58634218900005,
+            17.42282333600002
+          ],
+          [
+            78.58641180700005,
+            17.422793091000074
+          ],
+          [
+            78.58666774900007,
+            17.422726600000033
+          ],
+          [
+            78.58682946200008,
+            17.42274924900005
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.4226799407572,
+        "lng": 78.58665325310537
+      },
+      "areaSqm": 982.2058801091504,
+      "areaSqyd": 1174.708456028936,
+      "areaAcres": 0.24270835868366447,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72103",
+      "source": "ulb",
+      "parcelNo": "121",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58850283600003,
+            17.42046582300003
+          ],
+          [
+            78.58823154000004,
+            17.420723831000032
+          ],
+          [
+            78.58809024200008,
+            17.42085852300005
+          ],
+          [
+            78.58810654300004,
+            17.421179731000052
+          ],
+          [
+            78.58827165900004,
+            17.421371676000035
+          ],
+          [
+            78.58858430300006,
+            17.42152085600003
+          ],
+          [
+            78.58868242100004,
+            17.421587679000027
+          ],
+          [
+            78.58864784000008,
+            17.42137160900006
+          ],
+          [
+            78.58850283600003,
+            17.42046582300003
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.421043832294572,
+        "lng": 78.5883766046105
+      },
+      "areaSqm": 4416.492420373812,
+      "areaSqyd": 5282.080974331246,
+      "areaAcres": 1.091339044283315,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72107",
+      "source": "ulb",
+      "parcelNo": "2",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58626950700005,
+            17.421941383000046
+          ],
+          [
+            78.58619570400003,
+            17.42151315900003
+          ],
+          [
+            78.58623359900008,
+            17.421319485000026
+          ],
+          [
+            78.58534442000007,
+            17.42110380300005
+          ],
+          [
+            78.58534652300006,
+            17.42139419600005
+          ],
+          [
+            78.58537076800008,
+            17.42156545200004
+          ],
+          [
+            78.58559607800004,
+            17.421623847000035
+          ],
+          [
+            78.58575131800006,
+            17.42194698800006
+          ],
+          [
+            78.58626950700005,
+            17.421941383000046
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.421533807360653,
+        "lng": 78.58581876807929
+      },
+      "areaSqm": 6267.163538399203,
+      "areaSqyd": 7495.465210466506,
+      "areaAcres": 1.5486498368732449,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72108",
+      "source": "ulb",
+      "parcelNo": "18",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58634218900005,
+            17.42282333600002
+          ],
+          [
+            78.58642619300008,
+            17.42259181000003
+          ],
+          [
+            78.58649793800004,
+            17.42240331100004
+          ],
+          [
+            78.58646939100004,
+            17.42234454900006
+          ],
+          [
+            78.58636999800007,
+            17.422235122000075
+          ],
+          [
+            78.58630245100005,
+            17.422018146000028
+          ],
+          [
+            78.58626950700005,
+            17.421941383000046
+          ],
+          [
+            78.58575131800006,
+            17.42194698800006
+          ],
+          [
+            78.58580901800008,
+            17.42221336500006
+          ],
+          [
+            78.58582286700005,
+            17.42226928100007
+          ],
+          [
+            78.58597700800004,
+            17.422622990000036
+          ],
+          [
+            78.58609407600005,
+            17.422849364000058
+          ],
+          [
+            78.58634218900005,
+            17.42282333600002
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.422355086962867,
+        "lng": 78.58614078034796
+      },
+      "areaSqm": 5274.683830615815,
+      "areaSqyd": 6308.469358801768,
+      "areaAcres": 1.3034027600830098,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72109",
+      "source": "ulb",
+      "parcelNo": "4",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58700343600003,
+            17.42222399900004
+          ],
+          [
+            78.58721584000006,
+            17.42208209100005
+          ],
+          [
+            78.58710598100004,
+            17.421743578000076
+          ],
+          [
+            78.58723154400008,
+            17.421586769000044
+          ],
+          [
+            78.58687793700005,
+            17.421507070000075
+          ],
+          [
+            78.58682145000006,
+            17.421482886000035
+          ],
+          [
+            78.58659449200007,
+            17.421377922000033
+          ],
+          [
+            78.58623359900008,
+            17.421319485000026
+          ],
+          [
+            78.58619570400003,
+            17.42151315900003
+          ],
+          [
+            78.58626950700005,
+            17.421941383000046
+          ],
+          [
+            78.58630245100005,
+            17.422018146000028
+          ],
+          [
+            78.58635304700005,
+            17.422045672000024
+          ],
+          [
+            78.58660375500006,
+            17.422264347000066
+          ],
+          [
+            78.58668046700006,
+            17.42226921200006
+          ],
+          [
+            78.58700343600003,
+            17.42222399900004
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42180411513558,
+        "lng": 78.58668121556354
+      },
+      "areaSqm": 8199.174603738837,
+      "areaSqyd": 9806.131213956252,
+      "areaAcres": 2.0260601681727795,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72110",
+      "source": "ulb",
+      "parcelNo": "5",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58781638900007,
+            17.422097713000028
+          ],
+          [
+            78.58780004000005,
+            17.42193522100007
+          ],
+          [
+            78.58768798000006,
+            17.42190522100003
+          ],
+          [
+            78.58769292000005,
+            17.421814236000046
+          ],
+          [
+            78.58776394400007,
+            17.421814785000038
+          ],
+          [
+            78.58777008500005,
+            17.421650631000034
+          ],
+          [
+            78.58723154400008,
+            17.421586769000044
+          ],
+          [
+            78.58710598100004,
+            17.421743578000076
+          ],
+          [
+            78.58721584000006,
+            17.42208209100005
+          ],
+          [
+            78.58754013000004,
+            17.42220159900006
+          ],
+          [
+            78.58755190900007,
+            17.42207831500002
+          ],
+          [
+            78.58781638900007,
+            17.422097713000028
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42186768652434,
+        "lng": 78.5874535115559
+      },
+      "areaSqm": 3561.5391789582554,
+      "areaSqyd": 4259.565407545395,
+      "areaAcres": 0.8800754974267345,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72111",
+      "source": "ulb",
+      "parcelNo": "6",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58806705200004,
+            17.422085966000054
+          ],
+          [
+            78.58821799900005,
+            17.421959481000044
+          ],
+          [
+            78.58821751000005,
+            17.421825702000035
+          ],
+          [
+            78.58834771600004,
+            17.421823003000043
+          ],
+          [
+            78.58835843100007,
+            17.421651005000058
+          ],
+          [
+            78.58810504700006,
+            17.421646917000032
+          ],
+          [
+            78.58777008500005,
+            17.421650631000034
+          ],
+          [
+            78.58776394400007,
+            17.421814785000038
+          ],
+          [
+            78.58769292000005,
+            17.421814236000046
+          ],
+          [
+            78.58768798000006,
+            17.42190522100003
+          ],
+          [
+            78.58780004000005,
+            17.42193522100007
+          ],
+          [
+            78.58781638900007,
+            17.422097713000028
+          ],
+          [
+            78.58806705200004,
+            17.422085966000054
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.421849418799265,
+        "lng": 78.5880453837722
+      },
+      "areaSqm": 2527.50547990808,
+      "areaSqyd": 3022.8713959414986,
+      "areaAcres": 0.6245602057730368,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72112",
+      "source": "ulb",
+      "parcelNo": "7",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58877024100008,
+            17.421942874000024
+          ],
+          [
+            78.58858649400008,
+            17.42172596000006
+          ],
+          [
+            78.58835843100007,
+            17.421651005000058
+          ],
+          [
+            78.58834771600004,
+            17.421823003000043
+          ],
+          [
+            78.58821751000005,
+            17.421825702000035
+          ],
+          [
+            78.58821799900005,
+            17.421959481000044
+          ],
+          [
+            78.58834912900005,
+            17.421970400000077
+          ],
+          [
+            78.58833561500006,
+            17.422066442000073
+          ],
+          [
+            78.58860560100004,
+            17.422098970000036
+          ],
+          [
+            78.58877024100008,
+            17.421942874000024
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.421889045143196,
+        "lng": 78.58844879735246
+      },
+      "areaSqm": 1746.3806209391382,
+      "areaSqyd": 2088.653839696309,
+      "areaAcres": 0.4315400495240308,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72113",
+      "source": "ulb",
+      "parcelNo": "8",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58833561500006,
+            17.422066442000073
+          ],
+          [
+            78.58834912900005,
+            17.421970400000077
+          ],
+          [
+            78.58821799900005,
+            17.421959481000044
+          ],
+          [
+            78.58806705200004,
+            17.422085966000054
+          ],
+          [
+            78.58811330600008,
+            17.422122132000027
+          ],
+          [
+            78.58821866200003,
+            17.422154765000073
+          ],
+          [
+            78.58833561500006,
+            17.422066442000073
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42202422701927,
+        "lng": 78.58824114312094
+      },
+      "areaSqm": 398.16069142027357,
+      "areaSqyd": 476.1962237670031,
+      "areaAcres": 0.098387649538637,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72114",
+      "source": "ulb",
+      "parcelNo": "9",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58842760600004,
+            17.422961739000073
+          ],
+          [
+            78.58827330000008,
+            17.422725340000056
+          ],
+          [
+            78.58832085500006,
+            17.42243242400002
+          ],
+          [
+            78.58861261000004,
+            17.42222644000003
+          ],
+          [
+            78.58900964200006,
+            17.422205526000027
+          ],
+          [
+            78.58906329400008,
+            17.422077219000073
+          ],
+          [
+            78.58884977700006,
+            17.42198928700003
+          ],
+          [
+            78.58877024100008,
+            17.421942874000024
+          ],
+          [
+            78.58860560100004,
+            17.422098970000036
+          ],
+          [
+            78.58833561500006,
+            17.422066442000073
+          ],
+          [
+            78.58821866200003,
+            17.422154765000073
+          ],
+          [
+            78.58811330600008,
+            17.422122132000027
+          ],
+          [
+            78.58806705200004,
+            17.422085966000054
+          ],
+          [
+            78.58781638900007,
+            17.422097713000028
+          ],
+          [
+            78.58815749400003,
+            17.42301969600004
+          ],
+          [
+            78.58842760600004,
+            17.422961739000073
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.422377306456628,
+        "lng": 78.58832216465206
+      },
+      "areaSqm": 5420.356377419747,
+      "areaSqyd": 6482.692274798599,
+      "areaAcres": 1.339399230330289,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72115",
+      "source": "ulb",
+      "parcelNo": "10",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58860702300007,
+            17.42291913300005
+          ],
+          [
+            78.58860171100008,
+            17.422843297000043
+          ],
+          [
+            78.58860647700004,
+            17.422511863000068
+          ],
+          [
+            78.58861261000004,
+            17.42222644000003
+          ],
+          [
+            78.58832085500006,
+            17.42243242400002
+          ],
+          [
+            78.58827330000008,
+            17.422725340000056
+          ],
+          [
+            78.58842760600004,
+            17.422961739000073
+          ],
+          [
+            78.58860702300007,
+            17.42291913300005
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.4226138222597,
+        "lng": 78.58842748548517
+      },
+      "areaSqm": 2077.0334091657232,
+      "areaSqyd": 2484.111283197004,
+      "areaAcres": 0.513246132891943,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72116",
+      "source": "ulb",
+      "parcelNo": "15",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58726149100005,
+            17.422523359000024
+          ],
+          [
+            78.58738937700008,
+            17.422425445000044
+          ],
+          [
+            78.58758686800007,
+            17.422310029000073
+          ],
+          [
+            78.58754013000004,
+            17.42220159900006
+          ],
+          [
+            78.58721584000006,
+            17.42208209100005
+          ],
+          [
+            78.58700343600003,
+            17.42222399900004
+          ],
+          [
+            78.58697076800007,
+            17.422299099000043
+          ],
+          [
+            78.58695929100008,
+            17.42239502700005
+          ],
+          [
+            78.58713000800003,
+            17.42257148300007
+          ],
+          [
+            78.58726149100005,
+            17.422523359000024
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42231275695775,
+        "lng": 78.58723080465904
+      },
+      "areaSqm": 2179.8707870141684,
+      "areaSqyd": 2607.1037634914474,
+      "areaAcres": 0.538657802374266,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72117",
+      "source": "ulb",
+      "parcelNo": "16",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58713000800003,
+            17.42257148300007
+          ],
+          [
+            78.58695929100008,
+            17.42239502700005
+          ],
+          [
+            78.58697076800007,
+            17.422299099000043
+          ],
+          [
+            78.58700343600003,
+            17.42222399900004
+          ],
+          [
+            78.58668046700006,
+            17.42226921200006
+          ],
+          [
+            78.58660375500006,
+            17.422264347000066
+          ],
+          [
+            78.58635304700005,
+            17.422045672000024
+          ],
+          [
+            78.58630245100005,
+            17.422018146000028
+          ],
+          [
+            78.58636999800007,
+            17.422235122000075
+          ],
+          [
+            78.58646939100004,
+            17.42234454900006
+          ],
+          [
+            78.58649793800004,
+            17.42240331100004
+          ],
+          [
+            78.58642619300008,
+            17.42259181000003
+          ],
+          [
+            78.58649657100005,
+            17.422606877000078
+          ],
+          [
+            78.58680396600005,
+            17.422555525000064
+          ],
+          [
+            78.58692580100006,
+            17.42268936000005
+          ],
+          [
+            78.58714389000005,
+            17.42266825300004
+          ],
+          [
+            78.58713000800003,
+            17.42257148300007
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.422415891691543,
+        "lng": 78.58672324687329
+      },
+      "areaSqm": 2806.381101761868,
+      "areaSqyd": 3356.4038638346533,
+      "areaAcres": 0.6934718726931102,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72119",
+      "source": "ulb",
+      "parcelNo": "20",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58686031700006,
+            17.422860999000022
+          ],
+          [
+            78.58682946200008,
+            17.42274924900005
+          ],
+          [
+            78.58666774900007,
+            17.422726600000033
+          ],
+          [
+            78.58641180700005,
+            17.422793091000074
+          ],
+          [
+            78.58634218900005,
+            17.42282333600002
+          ],
+          [
+            78.58609407600005,
+            17.422849364000058
+          ],
+          [
+            78.58614798600007,
+            17.423163895000073
+          ],
+          [
+            78.58636058500008,
+            17.42351016300006
+          ],
+          [
+            78.58686031700006,
+            17.422860999000022
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.423040506431708,
+        "lng": 78.5864581659149
+      },
+      "areaSqm": 3876.094733602347,
+      "areaSqyd": 4635.770719908444,
+      "areaAcres": 0.9578038677496785,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72120",
+      "source": "ulb",
+      "parcelNo": "33",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58683580600007,
+            17.42454751200006
+          ],
+          [
+            78.58641593600004,
+            17.423643193000032
+          ],
+          [
+            78.58636058500008,
+            17.42351016300006
+          ],
+          [
+            78.58614798600007,
+            17.423163895000073
+          ],
+          [
+            78.58603639900008,
+            17.423233499000048
+          ],
+          [
+            78.58602742700003,
+            17.423363289000065
+          ],
+          [
+            78.58599995800006,
+            17.423568139000054
+          ],
+          [
+            78.58604207800005,
+            17.423883518000025
+          ],
+          [
+            78.58612185500004,
+            17.42450819800007
+          ],
+          [
+            78.58648770500008,
+            17.424554988000068
+          ],
+          [
+            78.58683580600007,
+            17.42454751200006
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.423996597308562,
+        "lng": 78.58632112599824
+      },
+      "areaSqm": 7375.229575746033,
+      "areaSqyd": 8820.701161777595,
+      "areaAcres": 1.8224589177226436,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72388",
+      "source": "ulb",
+      "parcelNo": "116",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58977352400007,
+            17.418629747000068
+          ],
+          [
+            78.58970483700006,
+            17.41854886300007
+          ],
+          [
+            78.58848220000004,
+            17.416664965000052
+          ],
+          [
+            78.58840580700007,
+            17.416574699000023
+          ],
+          [
+            78.58786465700007,
+            17.41680315900004
+          ],
+          [
+            78.58687566800006,
+            17.417459333000068
+          ],
+          [
+            78.58695854500007,
+            17.417576948000033
+          ],
+          [
+            78.58744876200007,
+            17.418362503000026
+          ],
+          [
+            78.58762695800004,
+            17.41867112400007
+          ],
+          [
+            78.58812103500003,
+            17.418470558000024
+          ],
+          [
+            78.58845109300006,
+            17.41856177300002
+          ],
+          [
+            78.58852072200006,
+            17.41859124900003
+          ],
+          [
+            78.58875861300004,
+            17.41904055400005
+          ],
+          [
+            78.58873575900003,
+            17.41929182800004
+          ],
+          [
+            78.58786194300006,
+            17.419831044000034
+          ],
+          [
+            78.58781270500003,
+            17.41985330700004
+          ],
+          [
+            78.58798855400005,
+            17.42017512600006
+          ],
+          [
+            78.58847568300007,
+            17.420135793000043
+          ],
+          [
+            78.58850283600003,
+            17.42046582300003
+          ],
+          [
+            78.58864784000008,
+            17.42137160900006
+          ],
+          [
+            78.58868242100004,
+            17.421587679000027
+          ],
+          [
+            78.58923364800006,
+            17.42193448000006
+          ],
+          [
+            78.58923021000004,
+            17.42182623800005
+          ],
+          [
+            78.58924410200007,
+            17.421516626000027
+          ],
+          [
+            78.58921398400008,
+            17.420514360000027
+          ],
+          [
+            78.58924537700005,
+            17.420344081000053
+          ],
+          [
+            78.58945125200006,
+            17.419714896000073
+          ],
+          [
+            78.58972033200007,
+            17.418737970000052
+          ],
+          [
+            78.58977352400007,
+            17.418629747000068
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.418775327263596,
+        "lng": 78.58916411368693
+      },
+      "areaSqm": 73699.69995716313,
+      "areaSqyd": 88144.10756414325,
+      "areaAcres": 18.211592471930423,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72393",
+      "source": "ulb",
+      "parcelNo": "89",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.59102925800005,
+            17.41955815600005
+          ],
+          [
+            78.59101020900005,
+            17.41943288600004
+          ],
+          [
+            78.59085129900006,
+            17.41833119300003
+          ],
+          [
+            78.59083530500004,
+            17.41820644300003
+          ],
+          [
+            78.59070889000003,
+            17.418245010000078
+          ],
+          [
+            78.58990448000003,
+            17.418575100000055
+          ],
+          [
+            78.58977352400007,
+            17.418629747000068
+          ],
+          [
+            78.58972033200007,
+            17.418737970000052
+          ],
+          [
+            78.58945125200006,
+            17.419714896000073
+          ],
+          [
+            78.58924537700005,
+            17.420344081000053
+          ],
+          [
+            78.58921398400008,
+            17.420514360000027
+          ],
+          [
+            78.58924410200007,
+            17.421516626000027
+          ],
+          [
+            78.58923021000004,
+            17.42182623800005
+          ],
+          [
+            78.58923364800006,
+            17.42193448000006
+          ],
+          [
+            78.58933877900006,
+            17.421911333000025
+          ],
+          [
+            78.59100418200006,
+            17.421971391000056
+          ],
+          [
+            78.59110407000009,
+            17.421979830000055
+          ],
+          [
+            78.59109374300004,
+            17.421847136000054
+          ],
+          [
+            78.59107408000006,
+            17.421609527000044
+          ],
+          [
+            78.59102207300003,
+            17.41968237100002
+          ],
+          [
+            78.59102925800005,
+            17.41955815600005
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.420321817320332,
+        "lng": 78.59020848200734
+      },
+      "areaSqm": 67435.94859348299,
+      "areaSqyd": 80652.72328067699,
+      "areaAcres": 16.663785801792766,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72401",
+      "source": "ulb",
+      "parcelNo": "76",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.59110407000009,
+            17.421979830000055
+          ],
+          [
+            78.59100418200006,
+            17.421971391000056
+          ],
+          [
+            78.58933877900006,
+            17.421911333000025
+          ],
+          [
+            78.58923364800006,
+            17.42193448000006
+          ],
+          [
+            78.58913440200007,
+            17.422018597000033
+          ],
+          [
+            78.58906329400008,
+            17.422077219000073
+          ],
+          [
+            78.58900964200006,
+            17.422205526000027
+          ],
+          [
+            78.58861261000004,
+            17.42222644000003
+          ],
+          [
+            78.58860647700004,
+            17.422511863000068
+          ],
+          [
+            78.58860171100008,
+            17.422843297000043
+          ],
+          [
+            78.58860702300007,
+            17.42291913300005
+          ],
+          [
+            78.58875009700006,
+            17.423072115000025
+          ],
+          [
+            78.58875201100005,
+            17.423289617000023
+          ],
+          [
+            78.58899753900005,
+            17.423369786000023
+          ],
+          [
+            78.58916937900005,
+            17.423423236000076
+          ],
+          [
+            78.58967268400005,
+            17.423515907000024
+          ],
+          [
+            78.59026800200007,
+            17.423655921000034
+          ],
+          [
+            78.59040757600008,
+            17.423690408000027
+          ],
+          [
+            78.59056267700004,
+            17.42371835800003
+          ],
+          [
+            78.59087932900007,
+            17.42379502800003
+          ],
+          [
+            78.59169354000005,
+            17.42393859300006
+          ],
+          [
+            78.59181076900006,
+            17.42395309400007
+          ],
+          [
+            78.59178717000003,
+            17.423843558000044
+          ],
+          [
+            78.59115007200006,
+            17.42212702000006
+          ],
+          [
+            78.59110407000009,
+            17.421979830000055
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42285106799944,
+        "lng": 78.590176882394
+      },
+      "areaSqm": 53501.34990526594,
+      "areaSqyd": 63987.081950369306,
+      "areaAcres": 13.22047147734903,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72402",
+      "source": "ulb",
+      "parcelNo": "75",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.59128034000008,
+            17.425220258000024
+          ],
+          [
+            78.59121373900007,
+            17.425108187000035
+          ],
+          [
+            78.59044729300007,
+            17.423798687000044
+          ],
+          [
+            78.59040757600008,
+            17.423690408000027
+          ],
+          [
+            78.59026800200007,
+            17.423655921000034
+          ],
+          [
+            78.58967268400005,
+            17.423515907000024
+          ],
+          [
+            78.58916937900005,
+            17.423423236000076
+          ],
+          [
+            78.58899753900005,
+            17.423369786000023
+          ],
+          [
+            78.58895291700003,
+            17.423762097000065
+          ],
+          [
+            78.58876556600006,
+            17.423731417000056
+          ],
+          [
+            78.58861449300008,
+            17.423735944000043
+          ],
+          [
+            78.58854607900008,
+            17.423716994000074
+          ],
+          [
+            78.58826747400008,
+            17.423767375000068
+          ],
+          [
+            78.58828424700005,
+            17.423924859000067
+          ],
+          [
+            78.58843411100008,
+            17.42403596300005
+          ],
+          [
+            78.58866301900008,
+            17.424220262000063
+          ],
+          [
+            78.58917322400004,
+            17.424573774000066
+          ],
+          [
+            78.58921161400008,
+            17.424678604000064
+          ],
+          [
+            78.58923613600007,
+            17.424829585000055
+          ],
+          [
+            78.58863953900004,
+            17.424960471000077
+          ],
+          [
+            78.58828229400007,
+            17.42509210000003
+          ],
+          [
+            78.58842376900003,
+            17.425776651000035
+          ],
+          [
+            78.58841618500009,
+            17.425914052000053
+          ],
+          [
+            78.58850221200004,
+            17.425935286000026
+          ],
+          [
+            78.58990855800005,
+            17.42656644300007
+          ],
+          [
+            78.59000032900008,
+            17.42660328900007
+          ],
+          [
+            78.59005644200005,
+            17.42649490200006
+          ],
+          [
+            78.59028004000004,
+            17.425782138000045
+          ],
+          [
+            78.59117497700004,
+            17.425273572000037
+          ],
+          [
+            78.59128034000008,
+            17.425220258000024
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.4249285942269,
+        "lng": 78.58966844246336
+      },
+      "areaSqm": 67134.99152368,
+      "areaSqyd": 80292.78162082868,
+      "areaAcres": 16.589417690253857,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72415",
+      "source": "ulb",
+      "parcelNo": "34",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58488317000007,
+            17.425394226000037
+          ],
+          [
+            78.58497615000005,
+            17.425250838000068
+          ],
+          [
+            78.58496728400007,
+            17.425049922000028
+          ],
+          [
+            78.58525929600006,
+            17.42502773800004
+          ],
+          [
+            78.58536393400004,
+            17.424912793000033
+          ],
+          [
+            78.58568466700007,
+            17.42475651600006
+          ],
+          [
+            78.58590027000008,
+            17.424744315000055
+          ],
+          [
+            78.58648211500008,
+            17.42499977500006
+          ],
+          [
+            78.58659225300005,
+            17.424847544000045
+          ],
+          [
+            78.58648770500008,
+            17.424554988000068
+          ],
+          [
+            78.58612185500004,
+            17.42450819800007
+          ],
+          [
+            78.58604207800005,
+            17.423883518000025
+          ],
+          [
+            78.58599995800006,
+            17.423568139000054
+          ],
+          [
+            78.58569762100007,
+            17.423077802000023
+          ],
+          [
+            78.58562703300004,
+            17.422960298000078
+          ],
+          [
+            78.58544828100008,
+            17.422977227000047
+          ],
+          [
+            78.58477707600008,
+            17.42316280600005
+          ],
+          [
+            78.58471107600008,
+            17.423692953000057
+          ],
+          [
+            78.58469212400007,
+            17.423799238000072
+          ],
+          [
+            78.58458469400006,
+            17.423763278000024
+          ],
+          [
+            78.58441334500003,
+            17.42373105200005
+          ],
+          [
+            78.58343529200005,
+            17.423884333000046
+          ],
+          [
+            78.58331453700004,
+            17.423884352000073
+          ],
+          [
+            78.58331940900007,
+            17.424013888000047
+          ],
+          [
+            78.58345554300007,
+            17.42575392400005
+          ],
+          [
+            78.58350124800006,
+            17.42588831100005
+          ],
+          [
+            78.58362567100005,
+            17.42584454400003
+          ],
+          [
+            78.58438860900003,
+            17.425279927000076
+          ],
+          [
+            78.58488317000007,
+            17.425394226000037
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.424373650489013,
+        "lng": 78.58474937780466
+      },
+      "areaSqm": 58595.61360248053,
+      "areaSqyd": 70079.7706254709,
+      "areaAcres": 14.479291451543574,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72416",
+      "source": "ulb",
+      "parcelNo": "28",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58828229400007,
+            17.42509210000003
+          ],
+          [
+            78.58820598400007,
+            17.424886405000052
+          ],
+          [
+            78.58815409000005,
+            17.42472201100003
+          ],
+          [
+            78.58776062400005,
+            17.424797107000074
+          ],
+          [
+            78.58753974300004,
+            17.42500050900003
+          ],
+          [
+            78.58748782400005,
+            17.425038808000068
+          ],
+          [
+            78.58748774200006,
+            17.424777145000064
+          ],
+          [
+            78.58720880700008,
+            17.424906106000037
+          ],
+          [
+            78.58707666600003,
+            17.424944996000022
+          ],
+          [
+            78.58693359500006,
+            17.425043981000044
+          ],
+          [
+            78.58659225300005,
+            17.424847544000045
+          ],
+          [
+            78.58648211500008,
+            17.42499977500006
+          ],
+          [
+            78.58662451900005,
+            17.425025093000045
+          ],
+          [
+            78.58704933600006,
+            17.425169442000026
+          ],
+          [
+            78.58725783600005,
+            17.425431590000073
+          ],
+          [
+            78.58773741300007,
+            17.425646639000036
+          ],
+          [
+            78.58825962700007,
+            17.425843453000027
+          ],
+          [
+            78.58841618500009,
+            17.425914052000053
+          ],
+          [
+            78.58842376900003,
+            17.425776651000035
+          ],
+          [
+            78.58828229400007,
+            17.42509210000003
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.425245615375946,
+        "lng": 78.5877363592239
+      },
+      "areaSqm": 12322.462172377136,
+      "areaSqyd": 14737.542104084641,
+      "areaAcres": 3.0449467157199672,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72418",
+      "source": "ulb",
+      "parcelNo": "35",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58648211500008,
+            17.42499977500006
+          ],
+          [
+            78.58590027000008,
+            17.424744315000055
+          ],
+          [
+            78.58568466700007,
+            17.42475651600006
+          ],
+          [
+            78.58571888100005,
+            17.42483935100006
+          ],
+          [
+            78.58629092900003,
+            17.42558620500006
+          ],
+          [
+            78.58670368200006,
+            17.425447125000062
+          ],
+          [
+            78.58648211500008,
+            17.42499977500006
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42515194587945,
+        "lng": 78.58622438885055
+      },
+      "areaSqm": 4799.128286186165,
+      "areaSqyd": 5739.709661200615,
+      "areaAcres": 1.1858904258678955,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72447",
+      "source": "ulb",
+      "parcelNo": "3",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": "Govt. Land",
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58923364800006,
+            17.42193448000006
+          ],
+          [
+            78.58868242100004,
+            17.421587679000027
+          ],
+          [
+            78.58858430300006,
+            17.42152085600003
+          ],
+          [
+            78.58827165900004,
+            17.421371676000035
+          ],
+          [
+            78.58764351200006,
+            17.421331473000066
+          ],
+          [
+            78.58735730500007,
+            17.421326727000064
+          ],
+          [
+            78.58728506700004,
+            17.421315009000068
+          ],
+          [
+            78.58704932800003,
+            17.421298001000025
+          ],
+          [
+            78.58687037900006,
+            17.42123246600005
+          ],
+          [
+            78.58656448800008,
+            17.421134751000068
+          ],
+          [
+            78.58584430900004,
+            17.420875058000036
+          ],
+          [
+            78.58535500200009,
+            17.420688361000032
+          ],
+          [
+            78.58534575300007,
+            17.420753153000078
+          ],
+          [
+            78.58534442000007,
+            17.42110380300005
+          ],
+          [
+            78.58623359900008,
+            17.421319485000026
+          ],
+          [
+            78.58659449200007,
+            17.421377922000033
+          ],
+          [
+            78.58682145000006,
+            17.421482886000035
+          ],
+          [
+            78.58687793700005,
+            17.421507070000075
+          ],
+          [
+            78.58723154400008,
+            17.421586769000044
+          ],
+          [
+            78.58777008500005,
+            17.421650631000034
+          ],
+          [
+            78.58810504700006,
+            17.421646917000032
+          ],
+          [
+            78.58835843100007,
+            17.421651005000058
+          ],
+          [
+            78.58858649400008,
+            17.42172596000006
+          ],
+          [
+            78.58877024100008,
+            17.421942874000024
+          ],
+          [
+            78.58884977700006,
+            17.42198928700003
+          ],
+          [
+            78.58906329400008,
+            17.422077219000073
+          ],
+          [
+            78.58913440200007,
+            17.422018597000033
+          ],
+          [
+            78.58923364800006,
+            17.42193448000006
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42136524084932,
+        "lng": 78.58713559257654
+      },
+      "areaSqm": 13043.815522737885,
+      "areaSqyd": 15600.273530982033,
+      "areaAcres": 3.2231970105334775,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72461",
+      "source": "ulb",
+      "parcelNo": "51",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58597119700005,
+            17.42997381500004
+          ],
+          [
+            78.58605469300005,
+            17.429905917000042
+          ],
+          [
+            78.58619305300004,
+            17.429736513000023
+          ],
+          [
+            78.58688824900008,
+            17.428742750000026
+          ],
+          [
+            78.58695698100007,
+            17.428633648000073
+          ],
+          [
+            78.58700481100004,
+            17.42854651700003
+          ],
+          [
+            78.58750384000007,
+            17.427065393000078
+          ],
+          [
+            78.58758689900003,
+            17.426660398000024
+          ],
+          [
+            78.58725783600005,
+            17.425431590000073
+          ],
+          [
+            78.58704933600006,
+            17.425169442000026
+          ],
+          [
+            78.58662451900005,
+            17.425025093000045
+          ],
+          [
+            78.58648211500008,
+            17.42499977500006
+          ],
+          [
+            78.58670368200006,
+            17.425447125000062
+          ],
+          [
+            78.58629092900003,
+            17.42558620500006
+          ],
+          [
+            78.58620843000006,
+            17.425717336000048
+          ],
+          [
+            78.58590396600005,
+            17.42592940000003
+          ],
+          [
+            78.58575205000005,
+            17.425811647000046
+          ],
+          [
+            78.58570298400008,
+            17.426456674000065
+          ],
+          [
+            78.58568452200007,
+            17.42658406700002
+          ],
+          [
+            78.58570550400003,
+            17.42703018000003
+          ],
+          [
+            78.58555490300006,
+            17.427196579000054
+          ],
+          [
+            78.58520830300006,
+            17.42721619100007
+          ],
+          [
+            78.58510474500008,
+            17.427574764000042
+          ],
+          [
+            78.58508077200008,
+            17.427686531000063
+          ],
+          [
+            78.58511634200005,
+            17.427848054000037
+          ],
+          [
+            78.58546698500004,
+            17.429159949000052
+          ],
+          [
+            78.58569707300006,
+            17.42989439200005
+          ],
+          [
+            78.58572662900008,
+            17.43000844200003
+          ],
+          [
+            78.58585435100008,
+            17.429996018000054
+          ],
+          [
+            78.58597119700005,
+            17.42997381500004
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.427468070144613,
+        "lng": 78.5863556045679
+      },
+      "areaSqm": 85564.06087071233,
+      "areaSqyd": 102333.7651224717,
+      "areaAcres": 21.143339901337125,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72462",
+      "source": "ulb",
+      "parcelNo": "52",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58953860700007,
+            17.42856852400007
+          ],
+          [
+            78.58969375700008,
+            17.42856320900006
+          ],
+          [
+            78.58959060700005,
+            17.428479656000036
+          ],
+          [
+            78.58967838200005,
+            17.428364163000026
+          ],
+          [
+            78.59000277200005,
+            17.42670871100006
+          ],
+          [
+            78.59000032900008,
+            17.42660328900007
+          ],
+          [
+            78.58990855800005,
+            17.42656644300007
+          ],
+          [
+            78.58850221200004,
+            17.425935286000026
+          ],
+          [
+            78.58841618500009,
+            17.425914052000053
+          ],
+          [
+            78.58825962700007,
+            17.425843453000027
+          ],
+          [
+            78.58773741300007,
+            17.425646639000036
+          ],
+          [
+            78.58725783600005,
+            17.425431590000073
+          ],
+          [
+            78.58758689900003,
+            17.426660398000024
+          ],
+          [
+            78.58750384000007,
+            17.427065393000078
+          ],
+          [
+            78.58700481100004,
+            17.42854651700003
+          ],
+          [
+            78.58695698100007,
+            17.428633648000073
+          ],
+          [
+            78.58707193400005,
+            17.428681195000024
+          ],
+          [
+            78.58800920100003,
+            17.428620998000042
+          ],
+          [
+            78.58847629900004,
+            17.428524578000065
+          ],
+          [
+            78.58953860700007,
+            17.42856852400007
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.427300064709186,
+        "lng": 78.58849159803746
+      },
+      "areaSqm": 75925.57316875564,
+      "areaSqyd": 90806.22976953612,
+      "areaAcres": 18.761617720978535,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72493",
+      "source": "ulb",
+      "parcelNo": "21",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58724715000005,
+            17.42378274400005
+          ],
+          [
+            78.58689931400005,
+            17.422924506000072
+          ],
+          [
+            78.58686031700006,
+            17.422860999000022
+          ],
+          [
+            78.58636058500008,
+            17.42351016300006
+          ],
+          [
+            78.58641593600004,
+            17.423643193000032
+          ],
+          [
+            78.58669378700006,
+            17.42362766800005
+          ],
+          [
+            78.58689122900006,
+            17.42398411000005
+          ],
+          [
+            78.58724368400004,
+            17.42398718000004
+          ],
+          [
+            78.58724715000005,
+            17.42378274400005
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.423496659029244,
+        "lng": 78.58684000381281
+      },
+      "areaSqm": 5975.0909137719045,
+      "areaSqyd": 7146.149258615224,
+      "areaAcres": 1.4764771195486,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72494",
+      "source": "ulb",
+      "parcelNo": "22",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58749982100005,
+            17.423512368000047
+          ],
+          [
+            78.58760357000006,
+            17.423427273000073
+          ],
+          [
+            78.58749955400003,
+            17.42300218300005
+          ],
+          [
+            78.58744352500008,
+            17.422923698000034
+          ],
+          [
+            78.58757094700007,
+            17.422848459000022
+          ],
+          [
+            78.58745809800007,
+            17.42261657800003
+          ],
+          [
+            78.58732813900008,
+            17.422653440000033
+          ],
+          [
+            78.58729215600005,
+            17.422600943000077
+          ],
+          [
+            78.58726149100005,
+            17.422523359000024
+          ],
+          [
+            78.58713000800003,
+            17.42257148300007
+          ],
+          [
+            78.58714389000005,
+            17.42266825300004
+          ],
+          [
+            78.58692580100006,
+            17.42268936000005
+          ],
+          [
+            78.58682946200008,
+            17.42274924900005
+          ],
+          [
+            78.58686031700006,
+            17.422860999000022
+          ],
+          [
+            78.58689931400005,
+            17.422924506000072
+          ],
+          [
+            78.58724715000005,
+            17.42378274400005
+          ],
+          [
+            78.58749982100005,
+            17.423512368000047
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.423093056200315,
+        "lng": 78.58725900340839
+      },
+      "areaSqm": 6443.254134018525,
+      "areaSqyd": 7706.067810074443,
+      "areaAcres": 1.5921627706765378,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72495",
+      "source": "ulb",
+      "parcelNo": "14",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58815749400003,
+            17.42301969600004
+          ],
+          [
+            78.58781638900007,
+            17.422097713000028
+          ],
+          [
+            78.58755190900007,
+            17.42207831500002
+          ],
+          [
+            78.58754013000004,
+            17.42220159900006
+          ],
+          [
+            78.58758686800007,
+            17.422310029000073
+          ],
+          [
+            78.58738937700008,
+            17.422425445000044
+          ],
+          [
+            78.58726149100005,
+            17.422523359000024
+          ],
+          [
+            78.58729215600005,
+            17.422600943000077
+          ],
+          [
+            78.58732813900008,
+            17.422653440000033
+          ],
+          [
+            78.58745809800007,
+            17.42261657800003
+          ],
+          [
+            78.58757094700007,
+            17.422848459000022
+          ],
+          [
+            78.58744352500008,
+            17.422923698000034
+          ],
+          [
+            78.58749955400003,
+            17.42300218300005
+          ],
+          [
+            78.58761833100004,
+            17.42293426200007
+          ],
+          [
+            78.58797370600007,
+            17.42297777600004
+          ],
+          [
+            78.58805687500006,
+            17.423052658000074
+          ],
+          [
+            78.58815749400003,
+            17.42301969600004
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.422591726728534,
+        "lng": 78.587738463284
+      },
+      "areaSqm": 5339.856442349496,
+      "areaSqyd": 6386.415153726696,
+      "areaAcres": 1.3195072631666727,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72496",
+      "source": "ulb",
+      "parcelNo": "32",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58726673000007,
+            17.424311198000055
+          ],
+          [
+            78.58747325000007,
+            17.424276314000053
+          ],
+          [
+            78.58742809200004,
+            17.424101588000042
+          ],
+          [
+            78.58724368400004,
+            17.42398718000004
+          ],
+          [
+            78.58689122900006,
+            17.42398411000005
+          ],
+          [
+            78.58669378700006,
+            17.42362766800005
+          ],
+          [
+            78.58641593600004,
+            17.423643193000032
+          ],
+          [
+            78.58683580600007,
+            17.42454751200006
+          ],
+          [
+            78.58700798600006,
+            17.424315402000047
+          ],
+          [
+            78.58714293900005,
+            17.424261928000078
+          ],
+          [
+            78.58726673000007,
+            17.424311198000055
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42407424442613,
+        "lng": 78.58690560606124
+      },
+      "areaSqm": 4451.98938258418,
+      "areaSqyd": 5324.534987808771,
+      "areaAcres": 1.1001105346712337,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72497",
+      "source": "ulb",
+      "parcelNo": "23",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58767602700004,
+            17.423805294000033
+          ],
+          [
+            78.58762892600004,
+            17.42369914300002
+          ],
+          [
+            78.58749982100005,
+            17.423512368000047
+          ],
+          [
+            78.58724715000005,
+            17.42378274400005
+          ],
+          [
+            78.58724368400004,
+            17.42398718000004
+          ],
+          [
+            78.58742809200004,
+            17.424101588000042
+          ],
+          [
+            78.58763771100007,
+            17.423964006000062
+          ],
+          [
+            78.58767602700004,
+            17.423805294000033
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42383801130717,
+        "lng": 78.58748303351227
+      },
+      "areaSqm": 1918.9058459480507,
+      "areaSqyd": 2294.992291542823,
+      "areaAcres": 0.47417196106256665,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72498",
+      "source": "ulb",
+      "parcelNo": "13",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58808518900008,
+            17.423792685000024
+          ],
+          [
+            78.58819518900003,
+            17.423629911000035
+          ],
+          [
+            78.58813179300006,
+            17.423489046000043
+          ],
+          [
+            78.58808530100004,
+            17.42334359000006
+          ],
+          [
+            78.58821148800007,
+            17.42326175900007
+          ],
+          [
+            78.58815749400003,
+            17.42301969600004
+          ],
+          [
+            78.58805687500006,
+            17.423052658000074
+          ],
+          [
+            78.58797370600007,
+            17.42297777600004
+          ],
+          [
+            78.58761833100004,
+            17.42293426200007
+          ],
+          [
+            78.58749955400003,
+            17.42300218300005
+          ],
+          [
+            78.58760357000006,
+            17.423427273000073
+          ],
+          [
+            78.58749982100005,
+            17.423512368000047
+          ],
+          [
+            78.58762892600004,
+            17.42369914300002
+          ],
+          [
+            78.58767602700004,
+            17.423805294000033
+          ],
+          [
+            78.58808518900008,
+            17.423792685000024
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42336363879122,
+        "lng": 78.58782789014934
+      },
+      "areaSqm": 5693.9058995794585,
+      "areaSqyd": 6809.854780472031,
+      "areaAcres": 1.4069947893537254,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72499",
+      "source": "ulb",
+      "parcelNo": "12",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58826747400008,
+            17.423767375000068
+          ],
+          [
+            78.58854607900008,
+            17.423716994000074
+          ],
+          [
+            78.58851471100007,
+            17.423447146000058
+          ],
+          [
+            78.58827476300007,
+            17.423283652000066
+          ],
+          [
+            78.58821148800007,
+            17.42326175900007
+          ],
+          [
+            78.58808530100004,
+            17.42334359000006
+          ],
+          [
+            78.58813179300006,
+            17.423489046000043
+          ],
+          [
+            78.58819518900003,
+            17.423629911000035
+          ],
+          [
+            78.58808518900008,
+            17.423792685000024
+          ],
+          [
+            78.58826747400008,
+            17.423767375000068
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42353901872963,
+        "lng": 78.588312111581
+      },
+      "areaSqm": 1936.6116802777972,
+      "areaSqyd": 2316.1682931626556,
+      "areaAcres": 0.4785471680088131,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72500",
+      "source": "ulb",
+      "parcelNo": "11",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58899753900005,
+            17.423369786000023
+          ],
+          [
+            78.58875201100005,
+            17.423289617000023
+          ],
+          [
+            78.58875009700006,
+            17.423072115000025
+          ],
+          [
+            78.58860702300007,
+            17.42291913300005
+          ],
+          [
+            78.58842760600004,
+            17.422961739000073
+          ],
+          [
+            78.58815749400003,
+            17.42301969600004
+          ],
+          [
+            78.58821148800007,
+            17.42326175900007
+          ],
+          [
+            78.58827476300007,
+            17.423283652000066
+          ],
+          [
+            78.58851471100007,
+            17.423447146000058
+          ],
+          [
+            78.58854607900008,
+            17.423716994000074
+          ],
+          [
+            78.58861449300008,
+            17.423735944000043
+          ],
+          [
+            78.58876556600006,
+            17.423731417000056
+          ],
+          [
+            78.58895291700003,
+            17.423762097000065
+          ],
+          [
+            78.58899753900005,
+            17.423369786000023
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.423334290080675,
+        "lng": 78.58861808133611
+      },
+      "areaSqm": 4589.171699514617,
+      "areaSqyd": 5488.603673386094,
+      "areaAcres": 1.134009023426879,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72501",
+      "source": "ulb",
+      "parcelNo": "30",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58748774200006,
+            17.424777145000064
+          ],
+          [
+            78.58753749400006,
+            17.424428947000024
+          ],
+          [
+            78.58747325000007,
+            17.424276314000053
+          ],
+          [
+            78.58726673000007,
+            17.424311198000055
+          ],
+          [
+            78.58732989300006,
+            17.42455483300006
+          ],
+          [
+            78.58724461600008,
+            17.424723407000045
+          ],
+          [
+            78.58695661700006,
+            17.42466390800007
+          ],
+          [
+            78.58687608200006,
+            17.424604459000022
+          ],
+          [
+            78.58683580600007,
+            17.42454751200006
+          ],
+          [
+            78.58648770500008,
+            17.424554988000068
+          ],
+          [
+            78.58659225300005,
+            17.424847544000045
+          ],
+          [
+            78.58693359500006,
+            17.425043981000044
+          ],
+          [
+            78.58707666600003,
+            17.424944996000022
+          ],
+          [
+            78.58720880700008,
+            17.424906106000037
+          ],
+          [
+            78.58748774200006,
+            17.424777145000064
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.424697727480428,
+        "lng": 78.58702435074652
+      },
+      "areaSqm": 4118.112237349547,
+      "areaSqyd": 4925.22124542073,
+      "areaAcres": 1.0176076953348616,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72502",
+      "source": "ulb",
+      "parcelNo": "31",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58726673000007,
+            17.424311198000055
+          ],
+          [
+            78.58714293900005,
+            17.424261928000078
+          ],
+          [
+            78.58700798600006,
+            17.424315402000047
+          ],
+          [
+            78.58683580600007,
+            17.42454751200006
+          ],
+          [
+            78.58687608200006,
+            17.424604459000022
+          ],
+          [
+            78.58695661700006,
+            17.42466390800007
+          ],
+          [
+            78.58724461600008,
+            17.424723407000045
+          ],
+          [
+            78.58732989300006,
+            17.42455483300006
+          ],
+          [
+            78.58726673000007,
+            17.424311198000055
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42450788757979,
+        "lng": 78.58713519625036
+      },
+      "areaSqm": 1798.7779330536273,
+      "areaSqyd": 2151.320503438169,
+      "areaAcres": 0.44448770732193577,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72503",
+      "source": "ulb",
+      "parcelNo": "29",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58776062400005,
+            17.424797107000074
+          ],
+          [
+            78.58773803200006,
+            17.42446251800004
+          ],
+          [
+            78.58753749400006,
+            17.424428947000024
+          ],
+          [
+            78.58748774200006,
+            17.424777145000064
+          ],
+          [
+            78.58748782400005,
+            17.425038808000068
+          ],
+          [
+            78.58753974300004,
+            17.42500050900003
+          ],
+          [
+            78.58776062400005,
+            17.424797107000074
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.424699708562688,
+        "lng": 78.58760227981023
+      },
+      "areaSqm": 1391.1640296938567,
+      "areaSqyd": 1663.8183322859531,
+      "areaAcres": 0.34376411824089936,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72504",
+      "source": "ulb",
+      "parcelNo": "24",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58815409000005,
+            17.42472201100003
+          ],
+          [
+            78.58812161500003,
+            17.42432627900007
+          ],
+          [
+            78.58808518900008,
+            17.423792685000024
+          ],
+          [
+            78.58767602700004,
+            17.423805294000033
+          ],
+          [
+            78.58763771100007,
+            17.423964006000062
+          ],
+          [
+            78.58742809200004,
+            17.424101588000042
+          ],
+          [
+            78.58747325000007,
+            17.424276314000053
+          ],
+          [
+            78.58753749400006,
+            17.424428947000024
+          ],
+          [
+            78.58773803200006,
+            17.42446251800004
+          ],
+          [
+            78.58776062400005,
+            17.424797107000074
+          ],
+          [
+            78.58815409000005,
+            17.42472201100003
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42425997683768,
+        "lng": 78.58784262396284
+      },
+      "areaSqm": 5830.82534049792,
+      "areaSqyd": 6973.609068955619,
+      "areaAcres": 1.4408283200321526,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72505",
+      "source": "ulb",
+      "parcelNo": "25",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58866301900008,
+            17.424220262000063
+          ],
+          [
+            78.58843411100008,
+            17.42403596300005
+          ],
+          [
+            78.58828424700005,
+            17.423924859000067
+          ],
+          [
+            78.58826747400008,
+            17.423767375000068
+          ],
+          [
+            78.58808518900008,
+            17.423792685000024
+          ],
+          [
+            78.58812161500003,
+            17.42432627900007
+          ],
+          [
+            78.58866301900008,
+            17.424220262000063
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.42408450994347,
+        "lng": 78.58828668469891
+      },
+      "areaSqm": 1963.0682514779273,
+      "areaSqyd": 2347.810088977267,
+      "areaAcres": 0.4850847291275345,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72506",
+      "source": "ulb",
+      "parcelNo": "26",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58866301900008,
+            17.424220262000063
+          ],
+          [
+            78.58812161500003,
+            17.42432627900007
+          ],
+          [
+            78.58815409000005,
+            17.42472201100003
+          ],
+          [
+            78.58848763900005,
+            17.424704984000073
+          ],
+          [
+            78.58863953900004,
+            17.424960471000077
+          ],
+          [
+            78.58923613600007,
+            17.424829585000055
+          ],
+          [
+            78.58921161400008,
+            17.424678604000064
+          ],
+          [
+            78.58917322400004,
+            17.424573774000066
+          ],
+          [
+            78.58866301900008,
+            17.424220262000063
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.424582800182073,
+        "lng": 78.58866653412271
+      },
+      "areaSqm": 6163.0589559949985,
+      "areaSqyd": 7370.957166136745,
+      "areaAcres": 1.5229250343257739,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    },
+    {
+      "ref": "ulb:72507",
+      "source": "ulb",
+      "parcelNo": "27",
+      "village": "Boduppal",
+      "mandal": "Ghatkesar",
+      "district": "Rangareddy",
+      "classification": "Habited Village: Listed in Other Wards",
+      "prohibitedCategory": null,
+      "sourceLabel": "Municipal cadastre",
+      "rings": [
+        [
+          [
+            78.58863953900004,
+            17.424960471000077
+          ],
+          [
+            78.58848763900005,
+            17.424704984000073
+          ],
+          [
+            78.58815409000005,
+            17.42472201100003
+          ],
+          [
+            78.58820598400007,
+            17.424886405000052
+          ],
+          [
+            78.58828229400007,
+            17.42509210000003
+          ],
+          [
+            78.58863953900004,
+            17.424960471000077
+          ]
+        ]
+      ],
+      "centroid": {
+        "lat": 17.424878986124334,
+        "lng": 78.58839067409315
+      },
+      "areaSqm": 1408.3291675156026,
+      "areaSqyd": 1684.3476662641474,
+      "areaAcres": 0.34800571617027837,
+      "classificationCode": "574171",
+      "registerExtent": null,
+      "remarks": null
+    }
+  ]
+}

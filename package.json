@@ -15,7 +15,7 @@
     "build:vercel": "pnpm build && node scripts/build-vercel-output.mjs",
     "preview": "pnpm -F @realytica/web preview",
     "start": "pnpm -F @realytica/api start",
-    "typecheck": "tsc -p packages/shared && tsc -p packages/agents && tsc -p apps/api && tsc -p apps/web && tsc -p tsconfig.test.json",
+    "typecheck": "tsc -p packages/shared && tsc -p packages/site-intel && tsc -p packages/agents && tsc -p apps/api && tsc -p apps/web && tsc -p tsconfig.test.json",
     "test": "tsx --import ./test/no-ambient-credentials.ts --test \"test/**/*.test.ts\"",
     "check": "pnpm typecheck && pnpm lint && pnpm lint:classes && pnpm lint:type && pnpm test",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/web/dist",
