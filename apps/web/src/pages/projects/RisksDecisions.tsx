@@ -11,23 +11,18 @@ import {
   RISK_STATUS_LABEL,
   SEVERITY_LABEL,
   remedialCostSummary,
-  type ActionKind,
   type ActionRecord,
   type ActionStatus,
   type DecisionStatus,
-  type DecisionType,
   type DdRiskStatus,
-  type FindingSeverity,
-  type Probability,
   type RemedialBand,
-  type RiskImpactType,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { OwnerInput } from '../../components/OwnerInput';
 import { AssignCell } from '../../components/AssignCell';
 import { MineToggle, useMine } from '../../components/MineToggle';
+import { CreateButton } from '../../components/create/CreateWizard';
 import { RemedialCostChart } from '../../components/charts';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, RegisterRow, Select, SubmitButton, Textarea, useToast, Why } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Input, RegisterRow, Select, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
@@ -41,65 +36,6 @@ export function RisksActions() {
     ...(searchParams.get('action') ? [searchParams.get('action')!] : []),
   ];
   const toast = useToast();
-  const [riskOpen, setRiskOpen] = useState(false);
-  const [actionOpen, setActionOpen] = useState(false);
-  const [title, setTitle] = useState('');
-  const [cause, setCause] = useState('');
-  const [category, setCategory] = useState<RiskImpactType>('cost');
-  const [probability, setProbability] = useState<Probability>('possible');
-  const [impactScore, setImpactScore] = useState<1 | 2 | 3 | 4 | 5>(3);
-  const [materiality, setMateriality] = useState<FindingSeverity>('high');
-  const [actionTitle, setActionTitle] = useState('');
-  const [actionOwner, setActionOwner] = useState('');
-  const [actionKind, setActionKind] = useState<ActionKind>('remediation');
-  const [dueDate, setDueDate] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  async function addRisk() {
-    setBusy(true);
-    try {
-      await api.addRisk(project.id, {
-        title,
-        cause,
-        category,
-        impactType: category,
-        probability,
-        impactScore,
-        materiality,
-      });
-      setProject(await api.getProject(project.id));
-      setRiskOpen(false);
-      setTitle('');
-      setCause('');
-      toast('Risk added', 'good');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not add risk', 'critical');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function addAction() {
-    setBusy(true);
-    try {
-      await api.addAction(project.id, {
-        title: actionTitle,
-        kind: actionKind,
-        owner: actionOwner,
-        priority: materiality,
-        dueDate: dueDate || undefined,
-      });
-      setProject(await api.getProject(project.id));
-      setActionOpen(false);
-      setActionTitle('');
-      toast('Action added', 'good');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not add action', 'critical');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function setCost(id: string, body: { costEstimate?: number | null; costBand?: RemedialBand | null }) {
     try {
       await api.setActionCost(project.id, id, body);
@@ -122,8 +58,8 @@ export function RisksActions() {
       <div className="flex flex-wrap items-center gap-2">
         <MineToggle count={risks.count + actions.count} on={mineOnly} onChange={setMineOnly} />
         <div className="flex-grow" />
-        <Button variant="ghost" onClick={() => setActionOpen(true)}>Add action</Button>
-        <Button onClick={() => setRiskOpen(true)}>Add risk</Button>
+        <CreateButton kind="add_action" project={project} onCreated={setProject} variant="ghost" />
+        <CreateButton kind="add_risk" project={project} onCreated={setProject} />
       </div>
       <section className="space-y-2">
         <h2 className="text-[12px] font-semibold text-ink-secondary">Risks</h2>
@@ -237,72 +173,16 @@ export function RisksActions() {
         )}
       </section>
 
-      <Modal open={riskOpen} onClose={() => setRiskOpen(false)} title="Add risk" footer={<><Button variant="ghost" onClick={() => setRiskOpen(false)}>Cancel</Button><SubmitButton onClick={() => void addRisk()} busy={busy} needs={[...(title.trim() ? [] : ['Title']), ...(cause.trim() ? [] : ['Cause'])]}>Add</SubmitButton></>}>
-        <div className="space-y-3">
-          <Field label="Title" required><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
-          <Field label="Cause" required><Textarea value={cause} onChange={(e) => setCause(e.target.value)} rows={3} /></Field>
-          <Field label="Impact category">
-            <Select value={category} onChange={(e) => setCategory(e.target.value as RiskImpactType)}>
-              {Object.entries(IMPACT_TYPE_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-            </Select>
-          </Field>
-          <Field label="Probability">
-            <Select value={probability} onChange={(e) => setProbability(e.target.value as Probability)}>
-              {(['rare', 'unlikely', 'possible', 'likely', 'almost_certain'] as Probability[]).map((p) => <option key={p} value={p}>{p}</option>)}
-            </Select>
-          </Field>
-          <Field label="Impact score">
-            <Select value={String(impactScore)} onChange={(e) => setImpactScore(Number(e.target.value) as 1 | 2 | 3 | 4 | 5)}>
-              {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
-            </Select>
-          </Field>
-        </div>
-      </Modal>
-
-      <Modal open={actionOpen} onClose={() => setActionOpen(false)} title="Add action" footer={<><Button variant="ghost" onClick={() => setActionOpen(false)}>Cancel</Button><SubmitButton onClick={() => void addAction()} busy={busy} needs={[...(actionTitle.trim() ? [] : ['Title']), ...(actionOwner.trim() ? [] : ['Owner'])]}>Add</SubmitButton></>}>
-        <div className="space-y-3">
-          <Field label="Title" required><Input value={actionTitle} onChange={(e) => setActionTitle(e.target.value)} /></Field>
-          <Field label="Owner" required><OwnerInput value={actionOwner} onChange={setActionOwner} project={project} /></Field>
-          <Field label="Kind">
-            <Select value={actionKind} onChange={(e) => setActionKind(e.target.value as ActionKind)}>
-              {Object.entries(ACTION_KIND_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-            </Select>
-          </Field>
-          <Field label="Due date"><Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
-        </div>
-      </Modal>
     </div>
   );
 }
 
 export function DecisionRegister() {
   const { project, setProject } = useOutletContext<ProjectOutlet>();
-  const toast = useToast();
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState('');
-  const [rationale, setRationale] = useState('');
-  const [decisionType, setDecisionType] = useState<DecisionType>('proceed');
-  const [decisionMaker, setDecisionMaker] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  async function add() {
-    setBusy(true);
-    try {
-      await api.addDecision(project.id, { title, rationale, decisionType, decisionMaker });
-      setProject(await api.getProject(project.id));
-      setOpen(false);
-      toast('Decision recorded', 'good');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not add decision', 'critical');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <Button onClick={() => setOpen(true)}>Record decision</Button>
+        <CreateButton kind="add_decision" project={project} onCreated={setProject} />
       </div>
       {project.decisions.length === 0 ? (
         <EmptyState title="No decisions" description="Recorded against the findings that supported them." />
@@ -332,18 +212,6 @@ export function DecisionRegister() {
           </CardBody>
         </Card>
       )}
-      <Modal open={open} onClose={() => setOpen(false)} title="Record decision" footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><SubmitButton onClick={() => void add()} busy={busy} needs={[...(title.trim() ? [] : ['Title']), ...(decisionMaker.trim() ? [] : ['Decision maker']), ...(rationale.trim() ? [] : ['Rationale'])]}>Save</SubmitButton></>}>
-        <div className="space-y-3">
-          <Field label="Title" required><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
-          <Field label="Type">
-            <Select value={decisionType} onChange={(e) => setDecisionType(e.target.value as DecisionType)}>
-              {Object.entries(DECISION_TYPE_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-            </Select>
-          </Field>
-          <Field label="Decision maker" required><Input value={decisionMaker} onChange={(e) => setDecisionMaker(e.target.value)} /></Field>
-          <Field label="Rationale" required><Textarea value={rationale} onChange={(e) => setRationale(e.target.value)} rows={3} /></Field>
-        </div>
-      </Modal>
     </div>
   );
 }

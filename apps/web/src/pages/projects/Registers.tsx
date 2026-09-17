@@ -24,17 +24,14 @@ import {
   type EnvironmentalCondition,
   type EvidenceAttachment,
   type EvidenceRecord,
-  type EvidenceKind,
   type EvidenceStatus,
   type FindingRecord,
-  type FindingSeverity,
   type FindingStatus,
-  type Iso19650Ref,
   type RicsEscalation,
-  type ScopeKey,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, Modal, RegisterRow, Select, SubmitButton, Textarea, andList, cn, useToast , Why } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Input, RegisterRow, Select, andList, cn, useToast } from '../../components/ui/kit';
+import { CreateButton } from '../../components/create/CreateWizard';
 import type { ProjectOutlet } from './ProjectLayout';
 import { severityTone } from './shared';
 import { LiveRow } from './LiveRow';
@@ -169,13 +166,7 @@ export function EvidenceRegister() {
       return next;
     });
 
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState('');
-  const [kind, setKind] = useState<EvidenceKind>('document');
-  const [source, setSource] = useState('');
-  const [iso, setIso] = useState<Iso19650Ref>({});
   const [reading, setReading] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (focusId) setProofId(focusId);
@@ -183,29 +174,6 @@ export function EvidenceRegister() {
 
   const proof = proofId ? project.evidence.find((e) => e.id === proofId) : undefined;
   const proofQuotes = useMemo(() => (proof ? quotesForEvidence(project, proof.id) : []), [proof, project]);
-
-  async function add() {
-    setBusy(true);
-    try {
-      await api.addEvidence(project.id, {
-        title,
-        kind,
-        source: source || undefined,
-        status: 'received',
-        assessmentIds: assessmentId ? [assessmentId] : [],
-        iso19650: Object.values(iso).some(Boolean) ? iso : undefined,
-      });
-      setProject(await api.getProject(project.id));
-      setOpen(false);
-      setTitle('');
-      setIso({});
-      toast('Evidence recorded', 'good');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not add evidence', 'critical');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function setStatus(id: string, status: EvidenceStatus) {
     try {
@@ -291,7 +259,12 @@ export function EvidenceRegister() {
         <MineToggle count={mineCount} on={mineOnly} onChange={setMineOnly} />
         <div className="flex-grow" />
         <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => setOpen(true)}>Record an item</Button>
+          <CreateButton
+            kind="file_evidence"
+            project={project}
+            onCreated={setProject}
+            initial={assessmentId ? { assessmentIds: [assessmentId] } : undefined}
+          />
           <EvidenceDropButton onPick={pick} />
         </div>
       </div>
@@ -532,57 +505,6 @@ export function EvidenceRegister() {
           }}
         />
       ) : null}
-      <Modal
-        open={open}
-        onClose={() => setOpen(false)}
-        title="Record evidence"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <SubmitButton onClick={() => void add()} busy={busy} needs={title.trim() ? [] : ['Title']}>Add</SubmitButton>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <Field label="Title" required><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
-          <Field label="Kind">
-            <Select value={kind} onChange={(e) => setKind(e.target.value as EvidenceKind)}>
-              {Object.entries(EVIDENCE_KIND_LABEL).map(([k, label]) => (
-                <option key={k} value={k}>{label}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Source"><Input value={source} onChange={(e) => setSource(e.target.value)} /></Field>
-          {/* Every part optional, and the name still forms. A pack collects
-              documents from a dozen sources and most arrive with none of this
-              known; refusing to name anything until all six are filled would
-              mean naming nothing. Unknown parts become the standard's own XX. */}
-          <Field
-            label="Document reference (ISO 19650)"
-            hint={`Optional, part by part. This one would be named ${iso19650Name(project.reference, iso)}.`}
-          >
-            <div className="grid grid-cols-3 gap-2">
-              {(
-                [
-                  ['originator', 'Originator'],
-                  ['volume', 'Volume'],
-                  ['level', 'Level'],
-                  ['type', 'Type (DR/SP/RP)'],
-                  ['role', 'Role (A/C/S/K/M)'],
-                  ['number', 'Number'],
-                ] as [keyof Iso19650Ref, string][]
-              ).map(([key, label]) => (
-                <Input
-                  key={key}
-                  placeholder={label}
-                  value={iso[key] ?? ''}
-                  onChange={(e) => setIso((prev) => ({ ...prev, [key]: e.target.value }))}
-                />
-              ))}
-            </div>
-          </Field>
-        </div>
-      </Modal>
     </div>
       )}
     </EvidenceDropZone>
@@ -595,30 +517,8 @@ export function FindingRegister() {
   const toast = useToast();
   const focusId = searchParams.get('finding') ?? undefined;
   const liveIds = [...(highlightIds ?? []), ...(focusId ? [focusId] : [])];
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [severity, setSeverity] = useState<FindingSeverity>('medium');
-  const [discipline, setDiscipline] = useState<ScopeKey>('technical');
-  const [busy, setBusy] = useState(false);
   const [mineOnly, setMineOnly] = useState(false);
   const { count: mineCount, rows } = useMine(project.findings, mineOnly);
-
-  async function add() {
-    setBusy(true);
-    try {
-      await api.addFinding(project.id, { title, description, severity, discipline });
-      setProject(await api.getProject(project.id));
-      setOpen(false);
-      setTitle('');
-      setDescription('');
-      toast('Finding added to the project register', 'good');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not add finding', 'critical');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function setStatus(id: string, status: FindingStatus) {
     try {
@@ -643,7 +543,7 @@ export function FindingRegister() {
       <div className="flex flex-wrap items-center gap-2">
         <MineToggle count={mineCount} on={mineOnly} onChange={setMineOnly} />
         <div className="flex-grow" />
-        <Button onClick={() => setOpen(true)}>Add finding</Button>
+        <CreateButton kind="add_finding" project={project} onCreated={setProject} />
       </div>
       {rows.length === 0 ? (
         mineOnly && project.findings.length > 0 ? (
@@ -708,42 +608,6 @@ export function FindingRegister() {
           </CardBody>
         </Card>
       )}
-      <Modal
-        open={open}
-        onClose={() => setOpen(false)}
-        title="Add finding"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <SubmitButton
-              onClick={() => void add()}
-              busy={busy}
-              needs={[...(title.trim() ? [] : ['Title']), ...(description.trim() ? [] : ['Description'])]}
-            >
-              Add
-            </SubmitButton>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <Field label="Title" required><Input value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
-          <Field label="Description" required><Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} /></Field>
-          <Field label="Severity">
-            <Select value={severity} onChange={(e) => setSeverity(e.target.value as FindingSeverity)}>
-              {(['low', 'medium', 'high', 'critical'] as FindingSeverity[]).map((s) => (
-                <option key={s} value={s}>{SEVERITY_LABEL[s]}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Discipline">
-            <Select value={discipline} onChange={(e) => setDiscipline(e.target.value as ScopeKey)}>
-              {Object.entries(SCOPE_LABEL).map(([k, label]) => (
-                <option key={k} value={k}>{label}</option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-      </Modal>
     </div>
   );
 }

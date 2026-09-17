@@ -1005,10 +1005,11 @@ export const api = {
       return readProjectChatStream(res, opts?.onStep);
     });
   },
-  commitChatProposal: (projectId: string, proposalId: string) =>
+  /** `payload` is the card as the person confirmed it in the wizard. */
+  commitChatProposal: (projectId: string, proposalId: string, payload?: Record<string, unknown>) =>
     request<ProjectChatResult & { project: DdProject }>(`/projects/${projectId}/chat/proposals/${proposalId}/commit`, {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify(payload ? { payload } : {}),
     }),
   rejectChatProposal: (projectId: string, proposalId: string) =>
     request<ProjectChatResult & { project: DdProject }>(`/projects/${projectId}/chat/proposals/${proposalId}/reject`, {

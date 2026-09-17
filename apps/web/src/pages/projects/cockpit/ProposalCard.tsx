@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { ArrowRight, ChevronRight } from 'lucide-react';
 import { proposalChanges, type ChatProposal, type DdProject } from '@realytica/shared';
 import { Badge, Button, cn } from '../../../components/ui/kit';
+import { CreateWizard } from '../../../components/create/CreateWizard';
+import { specForProposal } from '../../../components/create/specs';
 
 /**
  * One card, closed.
@@ -28,10 +30,12 @@ export function ProposalCard({
   project: DdProject;
   item: ChatProposal;
   busy: boolean;
-  onApprove: (id: string) => void;
+  /** `payload` is the card as the person confirmed it in the wizard. */
+  onApprove: (id: string, payload?: Record<string, unknown>) => void;
   onSkip: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const pending = item.status === 'proposed';
   const url = typeof item.payload.url === 'string' ? item.payload.url : '';
   /*
@@ -55,6 +59,10 @@ export function ProposalCard({
    * has no before, and a diff against nothing is the title again.
    */
   const changes = useMemo(() => proposalChanges(project, item), [project, item]);
+  // Creations have a form; changes have a diff, which the card already draws.
+  const reviewable = useMemo(() => specForProposal(item.kind), [item.kind]);
+  // A card raised from a file the person dropped themselves.
+  const uploaded = typeof item.payload.storageKey === 'string' && item.payload.storageKey.length > 0;
   return (
     <div className="rounded-lg bg-surface px-3 py-2 ring-1 ring-inset ring-[var(--ring)]">
       <div className="flex items-start gap-2">
@@ -118,14 +126,54 @@ export function ProposalCard({
         </div>
       ) : null}
       {pending ? (
-        <div className="mt-2 flex gap-1.5">
-          <Button size="sm" variant="primary" disabled={busy} onClick={() => onApprove(item.id)}>
-            Approve
-          </Button>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {/*
+            A card that CREATES a record opens the form instead of filing it.
+
+            This was the only write in the product that happened without
+            anybody seeing what was about to be written: Approve took a
+            payload composed by a model and put it straight into a register.
+            The card carried a title and a rationale — never the fields. So
+            for creations the primary is the form, filled in with what was
+            proposed, and Approve moves under it.
+
+            Uploads keep the one-click path in front. Six dropped files raise
+            six cards, and six modals to file six documents you just chose
+            yourself is worse than the problem; the form is still there, as
+            "Edit first", for the one whose title came out wrong.
+          */}
+          {reviewable && !uploaded ? (
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => setReviewing(true)}>
+              Review &amp; {reviewable.spec.verb.toLowerCase()}
+            </Button>
+          ) : (
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => onApprove(item.id)}>
+              Approve
+            </Button>
+          )}
+          {reviewable && uploaded ? (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setReviewing(true)}>
+              Edit first
+            </Button>
+          ) : null}
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => onSkip(item.id)}>
             Skip
           </Button>
         </div>
+      ) : null}
+      {reviewable ? (
+        <CreateWizard
+          kind={reviewable.kind}
+          project={project}
+          open={reviewing}
+          proposed={item.payload}
+          busy={busy}
+          onClose={() => setReviewing(false)}
+          onSubmit={(draft) => {
+            setReviewing(false);
+            onApprove(item.id, draft);
+          }}
+        />
       ) : null}
     </div>
   );
