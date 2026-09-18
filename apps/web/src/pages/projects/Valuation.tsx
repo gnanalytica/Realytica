@@ -14,9 +14,10 @@ import {
   suggestValuationInputs,
   resolveStatePack,
   REFERENCE_DATA,
+  type PatchProjectInput,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Select, Tabs, Why, useToast } from '../../components/ui/kit';
+import { Badge, Button, Callout, Card, CardBody, CardHeader, Select, Tabs, Why, useToast } from '../../components/ui/kit';
 import type { TabDef } from '../../components/ui/kit';
 import { ScreenResultPanel } from '../../components/ScreenResultPanel';
 import { ScheduleOfProperty } from '../../components/ScheduleOfProperty';
@@ -191,6 +192,23 @@ export default function Valuation() {
       return e instanceof Error ? e.message : 'Could not save';
     }
   }
+  /**
+   * The property's own measurements, saved the same way.
+   *
+   * Two of the four approaches take their area straight off the project, so
+   * this is the write that unblocks a cold file — and it needs no assessment,
+   * no check and no evidence citation, which is the whole reason it can be
+   * offered before anything else exists.
+   */
+  async function commitProject(patch: PatchProjectInput): Promise<string | null> {
+    try {
+      setProject(await api.patchProject(project.id, patch));
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Could not save';
+    }
+  }
+
   const setView = (key: string) => {
     const next = new URLSearchParams(params);
     // 'working' is the default, so it stays out of the URL — otherwise every
@@ -237,10 +255,32 @@ export default function Valuation() {
       </div>
 
       {!latest ? (
-        <EmptyState
-          title="No valuation run yet"
-          description="Record the land and built-up areas, then run a screen or a valuation."
-        />
+        /*
+          The sheet, not an empty state.
+
+          This said "Record the land and built-up areas, then run a screen or
+          a valuation" and gave nowhere to record them. Walked on a new file,
+          that sent the reader to run a valuation which could not succeed, to
+          be told to open a sheet, which told them to start an assessment —
+          three screens each pointing at the next, around two numbers that
+          live on the project and that this page can now take directly.
+
+          An empty state whose own instruction is unreachable from it is a
+          worse page than the form it was standing in for.
+        */
+        <>
+          <Callout tone="info" title="Nothing measured yet">
+            Every approach multiplies a rate by an area. Record one below and run a valuation — the rest of the sheet
+            fills in as the assessment does.
+          </Callout>
+          <ValuationInputSheet
+            project={project}
+            suggestions={suggestions}
+            onCommit={commitField}
+            onCommitProject={commitProject}
+            disabled={busy}
+          />
+        </>
       ) : (
         <>
         {/*
@@ -265,6 +305,7 @@ export default function Valuation() {
             project={project}
             suggestions={suggestions}
             onCommit={commitField}
+            onCommitProject={commitProject}
             disabled={busy}
           />
         ) : null}

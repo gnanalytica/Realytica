@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LIFECYCLE_STAGES, PROJECT_ARCHETYPES, type LifecycleStage, type ProjectArchetype } from '@realytica/shared';
+import { LIFECYCLE_STAGES, PROJECT_ARCHETYPES, type LifecycleStage, type ProjectArchetype, type Tenure } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { OwnerInput } from '../../components/OwnerInput';
-import { Button, Card, CardBody, CardHeader, Field, Input, Select, Textarea, useToast } from '../../components/ui/kit';
+import { Button, Card, CardBody, CardHeader, Disclosure, Field, Input, Select, Textarea, useToast } from '../../components/ui/kit';
 
 export default function NewProject() {
   const navigate = useNavigate();
@@ -31,8 +31,21 @@ export default function NewProject() {
   const [jurisdiction, setJurisdiction] = useState('');
   const [portfolio, setPortfolio] = useState('');
   const [landArea, setLandArea] = useState('');
+  const [saleable, setSaleable] = useState('');
   const [builtUp, setBuiltUp] = useState('');
   const [budget, setBudget] = useState('');
+  /*
+   * The survey number, on the form that creates the file.
+   *
+   * `CreateProjectInput` has taken a `parcelId` since the model was written
+   * and this form has never asked for one, which is why the worked client
+   * file carries five documents, three valuation runs and no survey number.
+   * Nothing downstream can key on a field nobody was asked for: the
+   * discovery sweep refuses to search without it and the revenue-map read
+   * has no parcel to fetch.
+   */
+  const [parcelId, setParcelId] = useState('');
+  const [tenure, setTenure] = useState<Tenure | ''>('');
   const [busy, setBusy] = useState(false);
   /*
    * Errors appear on submit, not on every keystroke — telling somebody the
@@ -46,6 +59,12 @@ export default function NewProject() {
     const n = Number(value.replaceAll(',', ''));
     return value.trim() && Number.isFinite(n) && n >= 0 ? n : undefined;
   }
+
+  /** Whether anything on this form gives an approach an area to work from. */
+  const measured =
+    optionalNumber(landArea) !== undefined ||
+    optionalNumber(saleable) !== undefined ||
+    optionalNumber(builtUp) !== undefined;
 
   function validate(): Record<string, string> {
     const next: Record<string, string> = {};
@@ -86,12 +105,28 @@ export default function NewProject() {
         developer: developer || undefined,
         jurisdiction: jurisdiction || undefined,
         portfolio: portfolio || undefined,
+        parcelId: parcelId.trim() || undefined,
+        tenure: tenure || undefined,
         landAreaSqm: optionalNumber(landArea),
+        saleableAreaSqm: optionalNumber(saleable),
         builtUpAreaSqm: optionalNumber(builtUp),
         budget: optionalNumber(budget),
       });
       toast('Project created', 'good');
-      navigate(`/projects/${project.id}`);
+      /*
+       * Land where the answer is, not on the front door.
+       *
+       * Walked on a file created with the three required fields and nothing
+       * else, the route to a figure was nine steps: the Value tab said record
+       * the areas and gave nowhere to do it, a valuation had to be run and
+       * fail first, the input sheet then said to start an assessment, and the
+       * number every one of those screens was waiting for was a project field
+       * this form could have collected.
+       *
+       * So a file that carries a measurement opens on its figure, and one that
+       * does not opens on the cells that are the reason it has none.
+       */
+      navigate(measured ? `/projects/${project.id}/valuation` : `/projects/${project.id}/valuation?view=inputs`);
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Could not create project', 'critical');
     } finally {
@@ -108,7 +143,7 @@ export default function NewProject() {
       */}
       <h1 className="text-xl font-semibold tracking-tight text-ink">New project</h1>
       <Card>
-        <CardHeader title="Identity" />
+        <CardHeader title="The property" />
         <CardBody className="space-y-3">
           {/* A placeholder that is the real name of the one project already in
               the system reads as a value, not an example. */}
@@ -167,47 +202,100 @@ export default function NewProject() {
               />
             </Field>
           </div>
-          <Field label="Owner / DD lead (optional)" hint="Who leads the diligence on this file.">
-            <OwnerInput value={owner} onChange={setOwner} />
-          </Field>
-          <Field label="Developer (optional)" hint="The counterparty building or selling it.">
-            <Input value={developer} onChange={(e) => setDeveloper(e.target.value)} />
-          </Field>
-          <Field label="Jurisdiction (optional)" hint="The state whose statutory rules apply.">
-            <Input value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} placeholder="e.g. Karnataka" />
-          </Field>
-          <Field label="Portfolio (optional)" hint="Optional grouping across projects.">
-            <Input value={portfolio} onChange={(e) => setPortfolio(e.target.value)} placeholder="Bengaluru residential" />
-          </Field>
           {/*
-            Optional to the form, and the only thing standing between a new
-            project and a number.
-            Every valuation approach measures a rate against an area, so a
-            project created without these answers "no approach had all of its
-            inputs" on the Value tab — four rows each naming what it lacks. That
-            is honest and it is not what somebody expected from a field marked
-            optional with no further comment. Say what they unlock.
+            The survey number is identity, not detail.
+
+            It is what the encumbrance chain is searched by, what the revenue
+            map is fetched by, and what a document extraction matches against.
+            Sitting it beside the address is the difference between a file the
+            rest of the product can work on and one it cannot.
           */}
-          <p className="text-[12px] text-ink-secondary">
-            Optional, but these three are what the Value tab needs: an area and a locality median are the whole of
-            an indicative range. Without an area every approach reports a missing input instead of a figure.
-          </p>
-          <div className="grid gap-3 [@container(min-width:30rem)]:grid-cols-3">
-            <Field label="Land area, sqm (optional)" hint="Plot extent — unlocks the land and residual approaches.">
-              <Input inputMode="decimal" value={landArea} onChange={(e) => setLandArea(e.target.value)} placeholder="0" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Survey number(s)" hint="As the deed writes them. The encumbrance search and the revenue map both key on this.">
+              <Input value={parcelId} onChange={(e) => setParcelId(e.target.value)} placeholder="e.g. Sy. No. 12/3, 14" />
             </Field>
-            <Field label="Built-up, sqm (optional)" hint="Constructed area — unlocks the comparable-rate approach.">
-              <Input inputMode="decimal" value={builtUp} onChange={(e) => setBuiltUp(e.target.value)} placeholder="0" />
-            </Field>
-            <Field label="Budget, INR (optional)" hint="Asking price — compared against the indicated range.">
-              <Input inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="0" />
+            <Field label="Tenure" hint="Leasehold changes what the property is worth and what can be built on it.">
+              <Select value={tenure} onChange={(e) => setTenure(e.target.value as Tenure | '')}>
+                <option value="">Not known yet</option>
+                <option value="freehold">Freehold</option>
+                <option value="leasehold">Leasehold</option>
+              </Select>
             </Field>
           </div>
-          <Field label="Description (optional)" hint="Anything the file should open with.">
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
+        </CardBody>
+      </Card>
+
+      {/*
+        Its own card, because it is its own question.
+
+        These were four fields at the bottom of Identity, every one labelled
+        "(optional)", under a paragraph explaining that they were the only
+        thing standing between a new project and a number. Optional is a true
+        statement about the form and a misleading one about the product: the
+        form does not need them and the Value tab cannot answer without them.
+        Measured on a file created without them, the route to a figure was
+        nine steps and two valuation runs that could not succeed.
+
+        So they get a card, a heading in the reader's own terms, and a
+        sentence that says what skipping them costs rather than reassuring
+        them that it is fine.
+      */}
+      <Card>
+        <CardHeader
+          title="What it takes to value it"
+          subtitle={
+            measured
+              ? 'Enough to run. The file will open on its indicative figure.'
+              : 'Skip these and the file opens on this same sheet instead of a figure — an area is what every approach measures a rate against.'
+          }
+        />
+        <CardBody className="space-y-3">
+          <div className="grid gap-3 [@container(min-width:30rem)]:grid-cols-3">
+            <Field label="Plot area, sqm" hint="The land. Unlocks the cost and residual approaches.">
+              <Input inputMode="decimal" value={landArea} onChange={(e) => setLandArea(e.target.value)} placeholder="1,200" />
+            </Field>
+            <Field label="Area being valued, sqm" hint="Saleable or carpet area. Unlocks the comparable and income approaches.">
+              <Input inputMode="decimal" value={saleable} onChange={(e) => setSaleable(e.target.value)} placeholder="950" />
+            </Field>
+            <Field label="Built-up, sqm" hint="Constructed area, where it differs from the area being sold.">
+              <Input inputMode="decimal" value={builtUp} onChange={(e) => setBuiltUp(e.target.value)} placeholder="0" />
+            </Field>
+          </div>
+          <Field label="Asking price, INR" hint="Compared against the indicative range, never used to produce it.">
+            <Input inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="0" />
           </Field>
         </CardBody>
       </Card>
+
+      {/*
+        Folded, because none of it changes what the file can do.
+
+        Four fields that file the project rather than describe the property.
+        Open, they were four more rows between somebody and the button, on a
+        form whose whole job is to get out of the way.
+      */}
+      <Disclosure title="Who it belongs to, and where it files">
+        <div className="space-y-3 px-3 pb-3">
+          <Field label="Owner / DD lead" hint="Who leads the diligence on this file.">
+            <OwnerInput value={owner} onChange={setOwner} />
+          </Field>
+          <Field label="Developer" hint="The counterparty building or selling it.">
+            <Input value={developer} onChange={(e) => setDeveloper(e.target.value)} />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Jurisdiction" hint="The state whose statutory rules apply.">
+              <Input value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} placeholder="e.g. Karnataka" />
+            </Field>
+            <Field label="Portfolio" hint="Grouping across projects.">
+              <Input value={portfolio} onChange={(e) => setPortfolio(e.target.value)} placeholder="Bengaluru residential" />
+            </Field>
+          </div>
+          <Field label="Description" hint="Anything the file should open with.">
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
+          </Field>
+        </div>
+      </Disclosure>
+
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" onClick={() => navigate('/projects')}>
           Cancel
