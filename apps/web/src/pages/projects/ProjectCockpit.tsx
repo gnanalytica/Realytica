@@ -8,6 +8,7 @@ import {
   isProjectCockpitPane,
   hasSpokenConversation,
   paneFromProjectPath,
+  fileIsBare,
   projectNextStep,
   paneForTalk,
   sittingFromCitedId,
@@ -386,12 +387,16 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const nodeLabels = useMemo(() => graphNodeLabels(project), [project]);
 
   const suggestions = useMemo(() => {
-    if (project.assets.length === 0) return [next.title, 'Guide me'];
+    // Same predicate as the next step itself, rather than a second reading of
+    // `assets.length`: a chip offering to add a land parcel beside a file that
+    // already carries its measurements and a figure is the same disagreement
+    // one control further down.
+    if (fileIsBare(project)) return [next.title, 'Guide me'];
     const rows = ["What's next?", 'Guide me'];
     if (pendingDrafts) rows.push('Review pending drafts');
     rows.push('Set owner to Priya Shah');
     return rows.slice(0, 4);
-  }, [project.assets.length, next.title, pendingDrafts]);
+  }, [project, next.title, pendingDrafts]);
 
   /**
    * The dock is a pointer to something not on screen. When the work pane is
