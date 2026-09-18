@@ -45,6 +45,7 @@ import {
   suggestionsFor,
   type CheckInstance,
   type DdProject,
+  type PatchProjectInput,
   type FieldSuggestion,
 } from '@realytica/shared';
 import { Badge, Button, Card, CardBody, CardHeader, Meter, Select, Tooltip, cn } from './ui/kit';
@@ -96,6 +97,7 @@ export function ValuationInputSheet({
   project,
   suggestions = [],
   onCommit,
+  onCommitProject,
   disabled,
 }: {
   project: DdProject;
@@ -113,6 +115,15 @@ export function ValuationInputSheet({
     values: Record<string, CheckFieldWrite>,
     sourceEvidenceId?: string,
   ) => Promise<string | null>;
+  /**
+   * Called with the property's own measurements.
+   *
+   * Separate from `onCommit` because these are not check fields and never
+   * were: two of the four approaches read their area straight off the
+   * project, so they are recordable on a file with no assessment on it —
+   * which is precisely the file that cannot get a figure.
+   */
+  onCommitProject?: (patch: PatchProjectInput) => Promise<string | null>;
   disabled?: boolean;
 }) {
   const checks = useMemo(() => checksByDefinition(project), [project]);
@@ -184,6 +195,7 @@ export function ValuationInputSheet({
 
   return (
     <div className="space-y-4">
+      {onCommitProject ? <PropertyCard project={project} onCommit={onCommitProject} disabled={disabled} /> : null}
       {APPROACHES.map((approach) => {
         const check = checks.get(approach.definitionId);
         const defs = (CHECK_FIELDS[approach.definitionId] ?? []) as CheckFieldDef[];
@@ -492,3 +504,109 @@ export function ValuationInputSheet({
 }
 
 export default ValuationInputSheet;
+
+/* ------------------------------------------------------------------ */
+/* The property's own measurements                                     */
+/* ------------------------------------------------------------------ */
+
+/** The four project fields the approaches read, and what each one unlocks. */
+const PROPERTY_FIELDS: { key: keyof PatchProjectInput; label: string; unlocks: string }[] = [
+  { key: 'landAreaSqm', label: 'Plot area', unlocks: 'Cost and residual approaches' },
+  { key: 'saleableAreaSqm', label: 'Area being valued', unlocks: 'Comparable and income approaches' },
+  { key: 'builtUpAreaSqm', label: 'Built-up area', unlocks: 'Depreciation, where there is a building' },
+  { key: 'budget', label: 'Asking price', unlocks: 'Compared against the range, never used to make it' },
+];
+
+/**
+ * The two cells that were unreachable.
+ *
+ * `Plot area` and `Area valued` are read off the project, not off a check —
+ * `valuation-run.ts` takes them from `landAreaSqm` and `saleableAreaSqm`
+ * directly. Every other row on this sheet needs an assessment to exist before
+ * it has anywhere to record into, and these two never did. They were
+ * nonetheless the two the headline named on a cold file, and the only way to
+ * reach them was the create form, which called them optional.
+ *
+ * So they sit at the top, on every file, assessment or not. It is the shortest
+ * path in the product between a blank valuation and a figure.
+ */
+function PropertyCard({
+  project,
+  onCommit,
+  disabled,
+}: {
+  project: DdProject;
+  onCommit: (patch: PatchProjectInput) => Promise<string | null>;
+  disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState<Partial<Record<string, string>>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const [rejected, setRejected] = useState<Record<string, string>>({});
+
+  const stored = (key: keyof PatchProjectInput): number | undefined =>
+    project[key as 'landAreaSqm'] ?? undefined;
+
+  async function commit(key: keyof PatchProjectInput, raw: string): Promise<void> {
+    const text = raw.trim();
+    const n = Number(text.replace(/[,\s]/g, ''));
+    const next = text === '' ? undefined : Number.isFinite(n) && n >= 0 ? n : undefined;
+    if (text !== '' && next === undefined) {
+      setRejected((p) => ({ ...p, [key]: 'That is not a number this can measure with.' }));
+      return;
+    }
+    if (String(stored(key) ?? '') === String(next ?? '')) {
+      setDraft(({ [key]: _drop, ...rest }) => rest);
+      return;
+    }
+    setSaving(key);
+    const error = await onCommit({ [key]: next } as PatchProjectInput);
+    setSaving(null);
+    setRejected(({ [key]: _drop, ...rest }) => rest);
+    if (error) setRejected((p) => ({ ...p, [key]: error }));
+    else setDraft(({ [key]: _drop, ...rest }) => rest);
+  }
+
+  const filled = PROPERTY_FIELDS.filter((f) => stored(f.key) !== undefined).length;
+
+  return (
+    <Card>
+      <CardHeader
+        title="The property"
+        subtitle="Measured once, read by every approach. Recordable before any assessment exists."
+        action={<Meter label="recorded" value={filled / PROPERTY_FIELDS.length} />}
+      />
+      <CardBody className="p-0">
+        <ul className="divide-y divide-hairline">
+          {PROPERTY_FIELDS.map((field) => {
+            const value = stored(field.key);
+            const typed = draft[field.key];
+            return (
+              <li key={field.key} className="grid grid-cols-[minmax(0,1fr)_9rem] items-baseline gap-3 px-4 py-2.5">
+                <span className="min-w-0">
+                  <span className="block text-[13px] text-ink">{field.label}</span>
+                  <span className="block text-mini text-ink-muted">{field.unlocks}</span>
+                  {rejected[field.key] ? (
+                    <span className="block text-mini text-critical">{rejected[field.key]}</span>
+                  ) : null}
+                </span>
+                <input
+                  inputMode="decimal"
+                  aria-label={`${field.label}${field.key === 'budget' ? ', in rupees' : ', in square metres'}`}
+                  disabled={disabled || saving === field.key}
+                  value={typed ?? (value === undefined ? '' : String(value))}
+                  onChange={(e) => setDraft((p) => ({ ...p, [field.key]: e.target.value }))}
+                  onBlur={(e) => void commit(field.key, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur();
+                  }}
+                  placeholder={field.key === 'budget' ? '₹' : 'sqm'}
+                  className="h-8 w-full rounded-md bg-sunken px-2 text-right font-mono text-[13px] tabular-nums text-ink ring-1 ring-inset ring-[var(--ring)] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+                />
+              </li>
+            );
+          })}
+        </ul>
+      </CardBody>
+    </Card>
+  );
+}

@@ -62,6 +62,21 @@ const geoPointSchema = z.object({
   lng: z.number().min(-180).max(180),
 });
 
+/**
+ * How the property is held. Not a detail: leasehold changes both what it is
+ * worth and what may be built on it.
+ */
+const tenureSchema = z.enum(['freehold', 'leasehold', 'unknown']);
+
+/**
+ * The survey number, as the deed writes it.
+ *
+ * Free text with a generous bound, because Karnataka alone writes these as
+ * "41/2", "41/2P1", "Sy. No. 41/2 and 43" and a dozen other shapes, and a
+ * regex at the door would refuse the ones a reader copied correctly.
+ */
+const parcelIdSchema = z.string().trim().max(200);
+
 export const createProjectBodySchema = z.object({
   name: z.string().trim().min(1).max(200),
   type: projectArchetypeSchema,
@@ -80,6 +95,15 @@ export const createProjectBodySchema = z.object({
   currency: z.enum(['INR', 'EUR']).optional(),
   portfolio: z.string().max(200).optional(),
   siteCoordinate: geoPointSchema.optional(),
+  /*
+   * Both of these are on `CreateProjectInput` and on `PatchProjectInput`,
+   * are written by `createProject`, and were on neither schema — so zod
+   * stripped them silently at the door and no project in the system has ever
+   * carried a survey number. Nothing errored; the field simply did not
+   * arrive. `test/project-door.test.ts` holds this shut.
+   */
+  parcelId: parcelIdSchema.optional(),
+  tenure: tenureSchema.optional(),
   actor: actorSchema,
 });
 
@@ -354,6 +378,15 @@ export const patchProjectBodySchema = z.object({
   portfolio: z.string().max(200).optional(),
   status: projectStatusSchema.optional(),
   siteCoordinate: geoPointSchema.optional(),
+  /*
+   * Both of these are on `CreateProjectInput` and on `PatchProjectInput`,
+   * are written by `createProject`, and were on neither schema — so zod
+   * stripped them silently at the door and no project in the system has ever
+   * carried a survey number. Nothing errored; the field simply did not
+   * arrive. `test/project-door.test.ts` holds this shut.
+   */
+  parcelId: parcelIdSchema.optional(),
+  tenure: tenureSchema.optional(),
   actor: actorSchema,
 });
 
