@@ -1,6 +1,7 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
 import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { looksLikeProviderError } from './provider-failure';
+import { documentAnswers } from './document-parse';
 import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
 import { isReportBoundSource, reportIsFrozen, reportSummaryLine, reportTemplate, resolveReportBlock, REPORT_SOURCE_LABEL } from './report-blocks';
 import type { EnvironmentalCondition, RemedialBand, RicsEscalation } from './standards';
@@ -27,6 +28,7 @@ import type {
   EvidenceAttachment,
   EvidenceRecord,
   FindingRecord,
+  FindingSeverity,
   GenerateReportInput,
   GeneratedReport,
   LifecycleStage,
@@ -440,6 +442,23 @@ function seedExpectedEvidence(project: DdProject, assessment: DdAssessment, at: 
         seen.add(key);
         if (project.evidence.some((e) => e.title.toLowerCase() === title.toLowerCase() && e.scopeInstanceIds.includes(scope.id))) continue;
         if (project.evidence.some((e) => e.title.toLowerCase() === title.toLowerCase() && e.assessmentIds.includes(assessment.id))) continue;
+        /*
+         * The document may already be on file. A deed read and filed before
+         * anybody chose a DD IS the title extract this check expects, and
+         * seeding an empty "Title extract" row beside it made the check report
+         * its proof missing while the proof sat one row away. The filed row is
+         * linked to this check instead, and no duplicate gap is created.
+         */
+        const filed = project.evidence.find(
+          (e) => e.attachments.length > 0 && e.documentType && documentAnswers(e.documentType, title),
+        );
+        if (filed) {
+          if (!filed.assessmentIds.includes(assessment.id)) filed.assessmentIds.push(assessment.id);
+          if (!filed.scopeInstanceIds.includes(scope.id)) filed.scopeInstanceIds.push(scope.id);
+          if (!filed.checkIds.includes(check.id)) filed.checkIds.push(check.id);
+          if (!check.evidenceIds.includes(filed.id)) check.evidenceIds.push(filed.id);
+          continue;
+        }
         project.evidence.push({
           id: id('ev'),
           title,
@@ -1455,6 +1474,28 @@ export function patchRecordStatus<T extends { id: string; status: string; update
   record.updatedAt = at;
   touch(project, at);
   audit(project, { actor, action: 'status_change', entityType, entityId: record.id, oldValue: previous, newValue: String(status), at });
+  refreshProjectDerived(project);
+  return record;
+}
+
+/**
+ * Re-grade a finding.
+ *
+ * A person's call, and audited as one: severity decides whether a finding is
+ * material, whether the red-flag report carries it, and the RICS rating it
+ * prints under — so the previous grade is kept on the audit trail rather
+ * than overwritten in place.
+ */
+export function patchFindingSeverity(project: DdProject, findingId: string, severity: FindingSeverity, actor = DEFAULT_ACTOR): FindingRecord {
+  const record = project.findings.find((f) => f.id === findingId);
+  if (!record) throw new Error('Finding not found');
+  if (record.severity === severity) return record;
+  const at = nowIso();
+  const previous = record.severity;
+  record.severity = severity;
+  record.updatedAt = at;
+  touch(project, at);
+  audit(project, { actor, action: 'severity_change', entityType: 'finding', entityId: record.id, oldValue: previous, newValue: severity, at });
   refreshProjectDerived(project);
   return record;
 }

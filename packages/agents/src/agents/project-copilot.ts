@@ -209,6 +209,16 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
       spend: { usd: price.costUsd, exact: price.confidence === 'exact' },
     };
   } catch (e) {
-    return { ...empty, text: `The project copilot hit an error: ${describeError(e)}` };
+    /*
+     * Rethrown, never returned as the answer.
+     *
+     * This used to hand back "The project copilot hit an error: Error 404 from
+     * <endpoint>…" as the turn's text. The route cannot tell that apart from a
+     * real answer, so it stored it, showed it, and recorded the run as
+     * answered — an endpoint URL and an upstream body in front of the person,
+     * and no fallback. Thrown, it lands in the route's own catch, which marks
+     * the turn unanswered in plain words and lets the registers answer.
+     */
+    throw e instanceof Error ? e : new Error(describeError(e));
   }
 }

@@ -619,6 +619,19 @@ export interface EvidenceRecord {
   /** Verbatim DI quotes copied off the ingest card when the person approved. */
   quotes?: Array<{ text: string; page?: number }>;
   extractionNotes?: string;
+  /**
+   * What the filed document states, each with its page and its own words.
+   *
+   * Copied off the ingest card on approval. Kept on the row, not only pushed
+   * into checks, because most of a file arrives before the DD that would ask
+   * for it exists — the extent is read in week one and the parcel check is
+   * instantiated in week two. When it is, these are what it is offered.
+   */
+  facts?: import('./document-parse').DocumentFact[];
+  /** What the document was read as — "Sale deed", "Encumbrance certificate". */
+  documentType?: string;
+  /** How its words were obtained: its own text layer, or OCR of a scan. */
+  readMethod?: 'text' | 'ocr' | 'mixed';
   createdAt: string;
   updatedAt: string;
   /**
@@ -1378,6 +1391,29 @@ export interface ChatIngestFile {
   quotes?: Array<{ text: string; page?: number }>;
   pages?: number;
   kindHint?: string;
+  /**
+   * What reading the document on this server found — see `document-parse`.
+   *
+   * Present whenever the file had readable text (a text layer or OCR), with
+   * or without a model. `facts` carry their page and the words they came
+   * from; nothing here is written to a register until a card is approved.
+   */
+  read?: IngestRead;
+}
+
+export interface IngestRead {
+  type: import('./document-parse').ReadDocumentType;
+  label: string;
+  confidence: number;
+  method: 'text' | 'ocr' | 'mixed';
+  /** Mean OCR confidence, 0..100, when any page was OCR'd. */
+  ocrConfidence?: number;
+  facts: import('./document-parse').DocumentFact[];
+  flags: import('./document-parse').DocumentFlag[];
+  summary: string;
+  rowHints: string[];
+  scopes: ScopeKey[];
+  evidenceKind: EvidenceKind;
 }
 
 export interface OrchestratorRun {

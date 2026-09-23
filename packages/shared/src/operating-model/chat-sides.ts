@@ -254,7 +254,9 @@ function proposalsFromWeb(project: DdProject, pull: ChatWebPull | undefined, act
   if (!pull) {
     return {
       cards: [],
-      text: 'Web search was not run on this turn. Enable REALYTICA_AGENT_WEB_SEARCH=1 for locality-only search (no address, owner or documents leave the system). Gated government portals stay blocked — we do not scrape them.',
+      // Said to the person asking, so it names what happened rather than the
+      // environment variable an operator would set — that lives in the docs.
+      text: 'Locality web search is off on this deployment, so I have not searched. Gated government portals stay blocked either way — we do not scrape them.',
     };
   }
   if (!pull.enabled) {

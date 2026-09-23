@@ -1,4 +1,4 @@
-import { Router, type Request } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { needs, principalOf } from '../auth/middleware';
 import { fireAndForget } from '../flows/triggers';
 import {
@@ -156,6 +156,9 @@ import { beginRun, listRuns } from '../runs/journal';
 import { startBackgroundRun } from '../runs/background';
 import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
+import { mergeModelReading, readIngestLocally } from '../documents/intake';
+import { readOntoRegister, type RegisterUpload } from '../documents/register-read';
+import { loadSampleDocuments, SAMPLE_REQUEST } from '../documents/samples';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { UPLOAD_LIMITS } from '../uploads';
@@ -988,10 +991,28 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
     return;
   }
-  refreshProjectDerived(project);
   const question = parsed.data.question;
-  const actor = actorOf(req);
   const sitting = parsed.data.sitting;
+  /*
+   * "Use the sample documents": load the synthetic set and send it down the
+   * upload path, exactly as if the person had dropped the files in.
+   */
+  if (SAMPLE_REQUEST.test(question)) {
+    const samples = await loadSampleDocuments();
+    if (samples.length) {
+      await ingestTurn(req, res, project, samples, {
+        question,
+        viewContext: parsed.data.viewContext,
+        sessionId: parsed.data.sessionId,
+        ddId: sitting?.ddId,
+        scopeId: sitting?.scopeId,
+        checkId: sitting?.checkId,
+      });
+      return;
+    }
+  }
+  refreshProjectDerived(project);
+  const actor = actorOf(req);
   /*
    * Everything below reads `canvas`, never `project`.
    *
@@ -1128,7 +1149,13 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     } catch (e) {
       const described = describeError(e);
       unanswered = unansweredReason(failureCause(described));
-      line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'error', label: described } });
+      // The raw description names the endpoint and can carry the upstream
+      // body; it goes to the ledger, which is an admin surface. The person
+      // gets what happened and what happens next.
+      line({
+        type: 'step',
+        step: { id: randomUUID(), at: new Date().toISOString(), kind: 'error', label: 'The model could not answer — answering from the file instead' },
+      });
       journalTail = journalTail.then(() => journal.fail(described));
       await journalTail;
       /* fall through to the wizard — a model failure must not block chat */
@@ -1207,17 +1234,31 @@ const chatUpload = multer({
   limits: { fileSize: UPLOAD_LIMITS.maxFileBytes, files: 10 },
 });
 
-projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), async (req, res) => {
-  const project = findProject(req.params.projectId);
-  if (!project) {
-    res.status(404).json({ error: 'Project not found' });
-    return;
-  }
-  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
-  if (files.length === 0) {
-    res.status(400).json({ error: 'No files uploaded' });
-    return;
-  }
+/** One uploaded file, however it arrived — multipart, or read from the bundled samples. */
+interface IngestUpload {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
+
+interface IngestFields {
+  question?: string;
+  viewContext?: string;
+  sessionId?: string;
+  ddId?: unknown;
+  scopeId?: unknown;
+  checkId?: unknown;
+}
+
+/**
+ * The upload turn: store, read, understand, and answer with cards.
+ *
+ * Shared by the chat's file upload and by "use the sample documents", so a
+ * sample goes down exactly the path a real deed does — nothing about trying
+ * the product is a separate, friendlier code path.
+ */
+async function ingestTurn(req: Request, res: Response, project: DdProject, files: IngestUpload[], fields: IngestFields): Promise<void> {
   refreshProjectDerived(project);
   const seen = viewFor(req, project);
   const canvas = seen.project;
@@ -1228,18 +1269,21 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
   for (const file of files) {
     const storageKey = documentKey({ id: randomUUID(), fileName: file.originalname });
     await storageAdapter.putDocument(project.id, storageKey, file.buffer, file.mimetype);
-    ingest.push({
+    const row: ChatIngestFile = {
       fileName: file.originalname,
       mimeType: file.mimetype || 'application/octet-stream',
       sizeBytes: file.size,
       storageKey,
       excerpt: extractReadableExcerpt(file.buffer, file.mimetype || '', file.originalname) || undefined,
-    });
+    };
+    // Read here first, with no model: text layer or OCR, then what the
+    // document is and states. See `documents/intake`.
+    ingest.push(await readIngestLocally(row, file.buffer, (step) => line({ type: 'step', step })));
   }
   const sitting = sittingFromBody({
-    ddId: req.body?.ddId,
-    scopeId: req.body?.scopeId,
-    checkId: req.body?.checkId,
+    ddId: fields.ddId,
+    scopeId: fields.scopeId,
+    checkId: fields.checkId,
   });
   let enriched = ingest;
   /*
@@ -1254,27 +1298,42 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
   let readCostUsd = 0;
   let readCostExact = true;
   let readAnything = false;
-  try {
-    enriched = await enrichIngestWithDocumentIntelligence({
-      project: canvas,
-      files: ingest,
-      buffers: files.map((f) => f.buffer),
-      onStep: (step) => line({ type: 'step', step }),
-      onSpend: (spend) => {
-        readAnything = true;
-        readCostUsd += spend.usd;
-        readCostExact = readCostExact && spend.exact;
-      },
-    });
-  } catch {
-    enriched = ingest;
+  /*
+   * The model reads afterwards, and only where one is configured — asking an
+   * unconfigured one just streams "Model request failed" under a document
+   * that was already read. Its reading is laid over the local one; its
+   * failure never replaces it.
+   */
+  if (agentCapability().available) {
+    try {
+      const modelRead = await enrichIngestWithDocumentIntelligence({
+        project: canvas,
+        files: ingest.map((f) => ({ ...f, read: undefined })),
+        buffers: files.map((f) => f.buffer),
+        // The local reading already announced each file. The model's own
+        // "Reading …" would say it twice, and its failure is not news about a
+        // document that was read — so only its progress passes through.
+        onStep: (step) => {
+          if (/^Reading /.test(step.label) || /fail|error|could not|unavailable/i.test(step.label) || step.kind === 'error') return;
+          line({ type: 'step', step });
+        },
+        onSpend: (spend) => {
+          readAnything = true;
+          readCostUsd += spend.usd;
+          readCostExact = readCostExact && spend.exact;
+        },
+      });
+      enriched = ingest.map((local, i) => mergeModelReading(local, modelRead[i]));
+    } catch {
+      enriched = ingest;
+    }
   }
   if (clientGone()) {
     res.end();
     return;
   }
-  const question = typeof req.body?.question === 'string' ? req.body.question : '';
-  const viewContext = typeof req.body?.viewContext === 'string' ? req.body.viewContext : undefined;
+  const question = fields.question ?? '';
+  const viewContext = fields.viewContext;
   const result = applyProjectChat(canvas, question, {
     actor: actorOf(req),
     viewContext,
@@ -1283,11 +1342,33 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
     spend: readAnything ? { usd: readCostUsd, exact: readCostExact } : undefined,
   });
   sayWhatIsMissing(seen, question, result);
-  stampSession(result, typeof req.body?.sessionId === 'string' ? req.body.sessionId : undefined);
+  stampSession(result, fields.sessionId);
   mergeConversation(project, canvas, actorOf(req), turnsBefore);
   await store.save();
   line({ type: 'result', ...result, project: canvas });
   res.end();
+}
+
+projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (files.length === 0) {
+    res.status(400).json({ error: 'No files uploaded' });
+    return;
+  }
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  await ingestTurn(req, res, project, files, {
+    question: typeof body.question === 'string' ? body.question : '',
+    viewContext: typeof body.viewContext === 'string' ? body.viewContext : undefined,
+    sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
+    ddId: body.ddId,
+    scopeId: body.scopeId,
+    checkId: body.checkId,
+  });
 });
 
 projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req, res) => {
@@ -1793,6 +1874,7 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
 
   try {
     const attached = [];
+    const reads: RegisterUpload[] = [];
     for (const file of files) {
       const storageKey = documentKey({ id: randomUUID(), fileName: file.originalname });
       const isImage = file.mimetype.startsWith('image/');
@@ -1828,7 +1910,18 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
           actorOf(req),
         ),
       );
+      reads.push({
+        evidenceId: req.params.evidenceId,
+        buffer: file.buffer,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+        storageKey,
+        sitePhoto: isImage && Boolean(rawPurpose || visitId),
+      });
     }
+    // Read what was filed: facts onto the row, anything it would change as cards in chat.
+    await readOntoRegister(project, reads, actorOf(req)).catch(() => ({ read: 0 }));
     await persistPaneWrite(req, project, `Attached ${plural(attached.length, 'file')} to evidence.`, {
       citedEvidenceIds: [req.params.evidenceId],
     });
@@ -1896,6 +1989,7 @@ projectsRouter.post('/:projectId/evidence/files', evidenceUpload.array('files', 
 
   try {
     const attached = [];
+    const reads: RegisterUpload[] = [];
     for (const [i, file] of files.entries()) {
       const storageKey = documentKey({ id: randomUUID(), fileName: file.originalname });
       const isImage = file.mimetype.startsWith('image/');
@@ -1923,7 +2017,9 @@ projectsRouter.post('/:projectId/evidence/files', evidenceUpload.array('files', 
           actorOf(req),
         ),
       );
+      reads.push({ evidenceId: ids[i] as string, buffer: file.buffer, fileName: file.originalname, mimeType: file.mimetype, sizeBytes: file.size, storageKey });
     }
+    await readOntoRegister(project, reads, actorOf(req)).catch(() => ({ read: 0 }));
     const rows = new Set(ids).size;
     await persistPaneWrite(
       req,

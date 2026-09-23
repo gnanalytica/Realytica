@@ -383,6 +383,85 @@ export function createProjectTools(
     },
   });
 
+  /**
+   * What one check actually records, so the interview can ask for it by name.
+   *
+   * Separate from `get_check` because the two answer different questions and
+   * the field schema is the larger of the two: `get_check` says what the check
+   * is for and what is filed against it, this says which values it holds, what
+   * is still blank, and what the engine worked out from them.
+   *
+   * The keys matter more than the values. `record_check_fields` rejects a key
+   * the definition does not declare, so a model with no way to read them can
+   * only guess and be refused — which is the state this tool exists to end.
+   *
+   * The insights and tolerances travel with the fields deliberately. A model
+   * that can see two numbers will subtract them and call the result a
+   * divergence; these are the computed ones, and the prompt forbids inventing
+   * others.
+   */
+  const getCheckFields = betaTool({
+    name: 'get_check_fields',
+    description:
+      'Read what one check records: every declared field with its exact key, label, unit and current value, which fields are still blank, which are recorded with nothing on the evidence register behind them, and the insights and tolerances the engine computed. Call before asking someone for a value and before proposing record_check_fields — these keys are the only ones that will be accepted.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['checkId'],
+      properties: { checkId: { type: 'string' } },
+    } as const,
+    run: async ({ checkId }) => {
+      let seated: ReturnType<typeof findCheck>;
+      try {
+        seated = findCheck(project, checkId);
+      } catch {
+        return JSON.stringify({ error: 'Check not found. Call get_sitting or search_registers for the id.' });
+      }
+      const { assessment, scope, check } = seated;
+      const reading = checkFieldReading(check);
+      openTalk(bag, sittingFromCitedId(project, check.id));
+      bag.toolCalls.push({
+        name: 'get_check_fields',
+        summary: `${check.title} — ${reading.filled}/${reading.total} filled`,
+      });
+      const describe = (def: (typeof reading.defs)[number]) => ({
+        key: def.key,
+        label: def.label,
+        kind: def.kind,
+        unit: def.unit,
+        from: def.from,
+        hint: def.hint,
+        options: def.options,
+        // Defaults to true on the definition; spelled out here so a model does
+        // not read a missing flag as optional.
+        required: def.required !== false,
+        // Nobody can answer a computed field — asking for one is asking the
+        // wrong person for the wrong thing.
+        computed: def.kind === 'computed',
+        proof: def.proof,
+      });
+      return JSON.stringify({
+        assessment: { id: assessment.id, name: assessment.name },
+        scope: { id: scope.id, label: SCOPE_LABEL[scope.scopeKey] },
+        check: { id: check.id, title: check.title, result: check.result },
+        filled: reading.filled,
+        total: reading.total,
+        fields: reading.defs.map((def) => ({
+          ...describe(def),
+          value: formatFieldValue(def, reading.values[def.key]),
+          blank: isBlank(reading.values[def.key]),
+          sourceEvidenceId: reading.values[def.key]?.sourceEvidenceId,
+        })),
+        missing: reading.missing.map(describe),
+        unproven: reading.unproven.map(describe),
+        insights: reading.insights,
+        tolerances: reading.tolerances,
+        note:
+          'Ask for ONE missing field at a time, by its label and unit. Propose record_check_fields with these exact keys — any other key is rejected and nothing is written. Never guess a value, and never state a divergence of your own: insights and tolerances here are the computed ones.',
+      });
+    },
+  });
+
   const getFinding = betaTool({
     name: 'get_finding',
     description: 'Read one finding by id with linked evidence titles. Use before proposing a duplicate or a critic card.',
@@ -526,6 +605,85 @@ export function createProjectTools(
         })),
         caveat:
           'A photograph geotag is what the camera claimed, not where the shot was taken. A sheet placement is derived from control points a person placed. A photograph reading is what a model saw, never a diagnosis — say so if you use one. None of these is a survey.',
+      });
+    },
+  });
+
+  /**
+   * The report as it stands, block by block, before anything is proposed
+   * against it.
+   *
+   * Which block is live is the whole point. A live block's words are the
+   * registers' words — `editReportBlock` refuses text on one — so a model
+   * that cannot see the flag will propose a rewrite that is rejected, or
+   * describe an edit it never made. With the flag it can pick the only two
+   * moves that exist: retune what the block reads, or write a paragraph
+   * beside it.
+   *
+   * An issued report shows what it said at issue rather than what the
+   * registers say now, exactly as the reader sees it, because an answer about
+   * a document somebody was sent must describe that document.
+   */
+  const getReport = betaTool({
+    name: 'get_report',
+    description:
+      'Read a report before proposing any edit to it: status, whether it is frozen, and every block with its id, heading, whether it is live (reads the registers) or authored prose, and what it currently says. With no reportId this reads the open one. Call before propose_update kind=edit_report — a live block will refuse text.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { reportId: { type: 'string' } },
+    } as const,
+    run: async ({ reportId }) => {
+      const report = reportId ? project.reports.find((r) => r.id === reportId) : openReportOf(project);
+      if (!report) {
+        bag.toolCalls.push({ name: 'get_report', summary: reportId ? 'Report not found' : 'No open report' });
+        return JSON.stringify({
+          report: null,
+          note: reportId
+            ? 'No report with that id. Read get_project for the reports on this file.'
+            : 'No open report on this file. Propose generate_report {kind} to raise one; every issued report is frozen and cannot be edited.',
+        });
+      }
+      const frozen = reportIsFrozen(report.status);
+      // A report id resolves to no sitting, so the pane is opened by name —
+      // the person should be looking at the report the answer is about.
+      if (!bag.navigations.some((n) => n.target === 'reports')) bag.navigations.push({ target: 'reports' });
+      bag.toolCalls.push({ name: 'get_report', summary: `${report.title} — ${report.body.blocks.length} block(s)${frozen ? ', frozen' : ''}` });
+      return JSON.stringify({
+        report: {
+          id: report.id,
+          kind: report.kind,
+          title: report.title,
+          status: report.status,
+          frozen,
+          generatedAt: report.generatedAt,
+          // Recomputed rather than read off the body, which is where the
+          // report itself gets it.
+          summary: reportSummaryLine(project),
+        },
+        blocks: clipList(report.body.blocks, 30).map((block) => {
+          const live = isLiveBlock(block);
+          const lines = frozen && block.frozen ? block.frozen : resolveReportBlock(project, block).lines;
+          return {
+            id: block.id,
+            heading: block.heading ?? (block.source ? REPORT_SOURCE_LABEL[block.source.kind] : undefined),
+            origin: block.origin,
+            live,
+            sourceKind: block.source?.kind,
+            detachedFrom: block.detachedFrom,
+            detachedAt: block.detachedAt,
+            editedAt: block.editedAt,
+            // Enough to identify and talk about the block. The report pane is
+            // where somebody reads it; a model quoting all of it back would
+            // spend the turn on text the person already has.
+            lines: clipList(lines, 6).map((line) => (line.length > 240 ? `${line.slice(0, 240)}…` : line)),
+            lineCount: lines.length,
+          };
+        }),
+        blockCount: report.body.blocks.length,
+        note: frozen
+          ? 'This report is frozen: it was issued and must not change. Propose generate_report for a fresh one rather than editing this.'
+          : 'A live block reads the registers and refuses text. To change what it says, propose edit_report {reportId, blockId, source}. To add prose, propose {reportId, text, heading?, afterBlockId?}. To rewrite prose somebody wrote, propose {reportId, blockId, text} and say what you changed.',
       });
     },
   });
@@ -1096,9 +1254,11 @@ export function createProjectTools(
     getProject,
     getSitting,
     getCheck,
+    getCheckFields,
     getFinding,
     getStandardsView,
     getSiteRecord,
+    getReport,
     searchRegisters,
     getSubgraph,
     traceConclusion,

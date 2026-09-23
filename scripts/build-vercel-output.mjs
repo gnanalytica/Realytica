@@ -1,4 +1,5 @@
 import { build } from 'esbuild';
+import { createRequire } from 'node:module';
 import fsp from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -83,6 +84,11 @@ async function bundleFunction() {
     sourcemap: true,
     logLevel: 'info',
     banner: { js: NODE_GLOBALS_BANNER },
+    // The one exception to bundling everything: Tesseract runs its OCR in a
+    // worker thread started from a script path inside its own package, and
+    // loads a WebAssembly core from beside it. Inlined, neither path exists.
+    // It stays a real package, copied in with its dependencies below.
+    external: ['tesseract.js'],
   });
 
   await fsp.writeFile(
@@ -122,6 +128,50 @@ async function bundleFunction() {
   );
 }
 
+/**
+ * Copy a package and everything it depends on into the function's own
+ * node_modules, flat.
+ *
+ * pnpm nests each package's dependencies beside it in its store, so each one
+ * is resolved from the package that asked for it, not from the root. The
+ * result is a plain node_modules the function's Node can resolve from.
+ */
+async function copyPackageTree(name, fromDir, into, seen = new Set()) {
+  if (seen.has(name)) return;
+  seen.add(name);
+  const require = createRequire(path.join(fromDir, 'package.json'));
+  let pkgJson;
+  try {
+    pkgJson = require.resolve(`${name}/package.json`);
+  } catch {
+    return; // optional or platform-specific; the package works without it
+  }
+  const pkgDir = path.dirname(pkgJson);
+  await fsp.cp(pkgDir, path.join(into, name), { recursive: true, dereference: true });
+  const manifest = JSON.parse(await fsp.readFile(pkgJson, 'utf8'));
+  for (const dep of Object.keys(manifest.dependencies ?? {})) {
+    await copyPackageTree(dep, pkgDir, into, seen);
+  }
+}
+
+/**
+ * What document reading needs at runtime, beside the bundle: Tesseract and
+ * its tree, the OCR language data (so nothing is fetched from a CDN), and the
+ * sample documents the chat can load for somebody trying the product.
+ */
+async function copyDocumentReading() {
+  const apiDir = path.join(root, 'apps/api');
+  await copyPackageTree('tesseract.js', apiDir, path.join(functionDir, 'node_modules'));
+  const langDir = path.join(functionDir, 'ocr-lang');
+  await fsp.mkdir(langDir, { recursive: true });
+  const require = createRequire(path.join(apiDir, 'package.json'));
+  for (const lang of ['eng', 'kan']) {
+    const data = path.join(path.dirname(require.resolve(`@tesseract.js-data/${lang}/package.json`)), '4.0.0_best_int', `${lang}.traineddata.gz`);
+    await fsp.copyFile(data, path.join(langDir, `${lang}.traineddata.gz`));
+  }
+  await fsp.cp(path.join(apiDir, 'sample-documents'), path.join(functionDir, 'sample-documents'), { recursive: true });
+}
+
 async function copyStatic() {
   const webDist = path.join(root, 'apps/web/dist');
   if (!(await fsp.stat(path.join(webDist, 'index.html')).catch(() => null))) {
@@ -159,5 +209,6 @@ await fsp.rm(outputDir, { recursive: true, force: true });
 await fsp.mkdir(functionDir, { recursive: true });
 await copyStatic();
 await bundleFunction();
+await copyDocumentReading();
 await writeConfig();
 console.log(`[build] Vercel build output written to ${path.relative(root, outputDir)}`);

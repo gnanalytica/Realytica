@@ -58,6 +58,8 @@ import type {
   ScopeKey,
 } from './types';
 import { connectorEvidenceInput } from './chat-sides';
+import { absorbAnsweredGaps, factFillProposals, flagFindingProposals, matchReadToRow } from './document-intake';
+import type { DocumentFact } from './document-parse';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -312,36 +314,61 @@ export function classifyIngestFile(
   const hay = `${file.fileName.replace(/[_-]+/g, ' ')} ${file.excerpt ?? ''} ${file.extractionNotes ?? ''} ${file.kindHint ?? ''}`.toLowerCase();
   let best: FileHint = { keys: [], kind: 'document', scopes: [], titles: ['Uploaded document'] };
   let bestScore = 0;
-  for (const hint of FILE_HINTS) {
-    const s = scoreHint(hay, hint);
-    if (s > bestScore) {
-      best = hint;
-      bestScore = s;
+  /*
+   * A document that was READ says what it is, and that outranks every guess
+   * made from its filename. The hint is built from the reading so the scopes
+   * and the evidence kind follow the document's content: a zoning
+   * certificate is a regulatory certificate, not a map, whatever it is
+   * called.
+   */
+  const read = file.read && file.read.type !== 'other' && file.read.confidence >= 0.35 ? file.read : undefined;
+  if (read) {
+    best = { keys: [], kind: read.evidenceKind, scopes: read.scopes, titles: [read.label] };
+    bestScore = 99;
+  } else {
+    for (const hint of FILE_HINTS) {
+      const s = scoreHint(hay, hint);
+      if (s > bestScore) {
+        best = hint;
+        bestScore = s;
+      }
     }
   }
 
   const gaps = openGaps(project);
-  let byTitle = gaps.find((g) => hay.includes(g.title.toLowerCase()) || best.titles.some((t) => g.title.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(g.title.toLowerCase())));
+  let byTitle = read
+    ? matchReadToRow(project, read, file.kindHint)
+    : gaps.find((g) => hay.includes(g.title.toLowerCase()) || best.titles.some((t) => g.title.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(g.title.toLowerCase())));
   const assessmentIds = new Set<string>(byTitle?.assessmentIds ?? []);
   const scopeInstanceIds = new Set<string>(byTitle?.scopeInstanceIds ?? []);
   const checkIds = new Set<string>(byTitle?.checkIds ?? []);
 
+  const hints = [...best.titles, ...(read?.rowHints ?? [])].map((t) => t.toLowerCase().trim()).filter((t) => t.length > 2);
+  const expects = (expected: string[]) =>
+    expected.some((t) => {
+      const e = t.toLowerCase();
+      return (!read && hay.includes(e)) || hints.some((h) => e.includes(h) || h.includes(e));
+    });
   for (const assessment of activeAssessments(project)) {
     for (const scope of assessment.scopes) {
       if (best.scopes.includes(scope.scopeKey)) {
         assessmentIds.add(assessment.id);
         scopeInstanceIds.add(scope.id);
         for (const check of scope.checks) {
-          if (check.expectedEvidence.some((t) => hay.includes(t.toLowerCase()) || best.titles.some((bt) => t.toLowerCase().includes(bt.toLowerCase())))) {
-            checkIds.add(check.id);
-          }
+          if (expects(check.expectedEvidence)) checkIds.add(check.id);
         }
       }
     }
   }
 
+  /*
+   * The check somebody has open pulls an unread upload towards itself — they
+   * dropped it there for a reason. A document that was READ as something the
+   * open check does not ask for goes where it belongs instead: a sale deed
+   * dropped while the EC check is open is still a sale deed.
+   */
   const sitting = sittingCheckOf(project, prefer);
-  if (sitting) {
+  if (sitting && (!read || expects(sitting.check.expectedEvidence))) {
     assessmentIds.add(sitting.assessment.id);
     scopeInstanceIds.add(sitting.scope.id);
     const ordered = [sitting.check.id, ...[...checkIds].filter((id) => id !== sitting.check.id)];
@@ -391,6 +418,21 @@ function clip(text: string, max: number): string {
  * times. Unmatched scopes are now simply absent rather than announced.
  */
 function ingestRationale(file: ChatIngestFile, scopeNames: string[]): string {
+  /*
+   * A document read on this server: what it is, then the handful of things it
+   * states that a diligence turns on, each with its page. The quote behind
+   * every one is on the card's payload and lands on the evidence row.
+   */
+  if (file.read && file.read.type !== 'other') {
+    const how = file.read.method === 'text' ? '' : ` Read by OCR${file.read.ocrConfidence ? ` (${file.read.ocrConfidence}% confidence)` : ''}.`;
+    const facts = file.read.facts
+      .filter((f) => !f.key.startsWith('boundary_'))
+      .slice(0, 6)
+      .map((f) => `${f.label} ${f.display} (p.${f.page})`)
+      .join('; ');
+    const flags = file.read.flags.length ? ` ⚑ ${file.read.flags.map((f) => f.title).join('; ')}.` : '';
+    return clip(`${file.read.summary}.${how}${facts ? ` ${facts}.` : ''}${flags}${scopeNames.length ? ` Links to ${scopeNames.join(', ')}.` : ''}`, 700);
+  }
   if (file.readFailure) return file.readFailure;
   const quotes = (file.quotes ?? [])
     .slice(0, 3)
@@ -434,11 +476,24 @@ export function proposalsFromIngest(
      * the same fact in three places on one card, which is the habit this whole
      * change is about.
      */
+    const read = file.read && file.read.type !== 'other' ? file.read : undefined;
     const kind = classified.evidence?.title ?? classified.hint.titles[0] ?? 'new evidence';
+    /*
+     * A read document is named for what it is; a new row gets the document's
+     * own label rather than a filename with its underscores turned to
+     * spaces. Quotes come from the facts, so the row carries the words its
+     * values were read from.
+     */
+    const factQuotes = read
+      ? read.facts
+          .filter((f) => !f.key.startsWith('boundary_'))
+          .slice(0, 6)
+          .map((f) => ({ text: `${f.label}: ${f.quote}`.slice(0, 240), page: f.page }))
+      : [];
     out.push(
       proposal(
         'file_evidence',
-        file.readFailure ? file.fileName : `${file.fileName} → ${kind}`,
+        file.readFailure && !read ? file.fileName : `${file.fileName} → ${kind}`,
         ingestRationale(file, scopeNames),
         classified.evidence
           ? 'Marks the expected item received and attaches the file.'
@@ -448,17 +503,20 @@ export function proposalsFromIngest(
           mimeType: file.mimeType,
           sizeBytes: file.sizeBytes,
           storageKey: file.storageKey,
-          excerpt: file.excerpt,
+          excerpt: file.excerpt?.slice(0, 4000),
           kind: classified.hint.kind,
-          title: classified.evidence?.title ?? file.fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '),
+          title: classified.evidence?.title ?? (read ? read.label : file.fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ')),
           evidenceId: classified.evidence?.id,
           assessmentIds: classified.assessmentIds,
           scopeInstanceIds: classified.scopeInstanceIds,
           checkIds: classified.checkIds,
           checkId: classified.checkIds[0],
-          quotes: file.quotes,
-          extractionNotes: file.extractionNotes,
-          readFailure: file.readFailure,
+          quotes: factQuotes.length ? factQuotes : file.quotes,
+          extractionNotes: read ? read.summary : file.extractionNotes,
+          readFailure: read ? undefined : file.readFailure,
+          facts: read?.facts,
+          documentType: read?.label,
+          readMethod: read?.method,
         },
         actor,
         {
@@ -467,6 +525,11 @@ export function proposalsFromIngest(
         },
       ),
     );
+    if (read) {
+      const source = { fileName: file.fileName, evidenceId: classified.evidence?.id, storageKey: file.storageKey, documentLabel: read.label };
+      out.push(...factFillProposals(project, read.facts, source, actor, out));
+      out.push(...flagFindingProposals(project, read.flags, source, actor, out));
+    }
   }
   return out;
 }
@@ -553,6 +616,15 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     if (quotes.length) evidence.quotes = mergeQuoteLists(evidence.quotes, quotes);
     const notes = proposalExtractionNotes(payload);
     if (notes) evidence.extractionNotes = notes;
+    // What the document states travels with it onto the row, so a check
+    // started later — and every chat answer — can read it with its page.
+    if (Array.isArray(payload.facts) && payload.facts.length) {
+      const incoming = payload.facts as DocumentFact[];
+      const kept = (evidence.facts ?? []).filter((f) => !incoming.some((n) => n.key === f.key));
+      evidence.facts = [...kept, ...incoming];
+    }
+    if (typeof payload.documentType === 'string') evidence.documentType = payload.documentType;
+    if (payload.readMethod === 'text' || payload.readMethod === 'ocr' || payload.readMethod === 'mixed') evidence.readMethod = payload.readMethod;
     if (payload.storageKey && payload.fileName) {
       attachEvidenceFile(
         project,
@@ -566,6 +638,9 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
         actor,
       );
     }
+    // A document that answers other open rows too — the DD's "Title
+    // extract" beside the pack's "Sale deed" — answers all of them.
+    absorbAnsweredGaps(project, evidence);
     for (const checkId of evidence.checkIds) {
       for (const assessment of project.assessments) {
         for (const scope of assessment.scopes) {
@@ -579,7 +654,14 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     const record = addAction(project, payload as unknown as CreateActionInput, actor);
     recordId = record.id;
   } else if (item.kind === 'add_finding') {
-    const record = addFinding(project, payload as unknown as CreateFindingInput, actor);
+    // A finding a document raised cites that document — found by its stored
+    // file when the row it landed on did not exist when the card was raised.
+    const storageKey = typeof payload.sourceStorageKey === 'string' ? payload.sourceStorageKey : undefined;
+    const filed = storageKey ? project.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey)) : undefined;
+    const input = { ...(payload as unknown as CreateFindingInput) };
+    if (filed && !(input.evidenceIds ?? []).includes(filed.id)) input.evidenceIds = [...(input.evidenceIds ?? []), filed.id];
+    delete (input as unknown as Record<string, unknown>).sourceStorageKey;
+    const record = addFinding(project, input, actor);
     recordId = record.id;
   } else if (item.kind === 'generate_report') {
     const record = generateReport(
@@ -593,7 +675,18 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     );
     recordId = record.id;
   } else if (item.kind === 'record_check_fields') {
-    const outcome = recordCheckFields(project, String(payload.checkId), (payload.values ?? {}) as Record<string, unknown>, actor);
+    /*
+     * Values read off a document cite it. The row is named directly when it
+     * existed when the card was raised; a document filed as a NEW row has no
+     * id until its own card is approved, so it is found by the stored file.
+     * A value with no source is still recordable — it is simply unproven,
+     * which is what it is.
+     */
+    const storageKey = typeof payload.sourceStorageKey === 'string' ? payload.sourceStorageKey : undefined;
+    const sourceEvidenceId =
+      (typeof payload.sourceEvidenceId === 'string' && project.evidence.some((e) => e.id === payload.sourceEvidenceId) ? payload.sourceEvidenceId : undefined)
+      ?? (storageKey ? project.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey))?.id : undefined);
+    const outcome = recordCheckFields(project, String(payload.checkId), (payload.values ?? {}) as Record<string, unknown>, actor, sourceEvidenceId);
     // A card whose values will not coerce must not commit silently: the
     // person accepted a set of numbers, and half of them landing is worse
     // than none.
@@ -964,14 +1057,24 @@ export function interpretConversation(project: DdProject, question: string, acto
     );
   }
 
-  const addAssetHit = q.match(
-    /\b(?:add|create|new)\s+(?:an?\s+)?(?:asset\s+)?(?:called\s+|named\s+)?["']?([A-Za-z0-9][A-Za-z0-9 ./-]{0,40}?)["']?(?:\s+as\s+(?:a\s+)?([A-Za-z ]{2,40}))?(?:\s+at\s+([A-Za-z /]+))?$/i,
-  ) ?? q.match(/\badd\s+["']?([A-Za-z0-9][A-Za-z0-9 ./-]{1,40})["']?(?:\s*[—,-]\s*([A-Za-z ]{2,40}))?/i);
+  /*
+   * "Add a risk: …", "add a note: …", "add evidence: …" name a register, not
+   * an asset. The asset patterns below are loose on purpose — "add Tower D"
+   * has to work — and so they used to read "a risk" and "a note" as asset
+   * names and put both on the asset tree beside the risk they were meant to
+   * log. A sentence that names a register is never an asset sentence.
+   */
+  const namesRegister = /\b(?:add|create|new|log|raise|record|open|request)\s+(?:an?\s+|the\s+)?(?:risks?|findings?|actions?|decisions?|evidence|notes?|reports?|documents?|files?|comments?|tasks?|to-?dos?|checks?|scopes?|drafts?|dd|assessments?|requests?)\b/i.test(q);
+  const addAssetHit = namesRegister
+    ? null
+    : q.match(
+        /\b(?:add|create|new)\s+(?:an?\s+)?(?:asset\s+)?(?:called\s+|named\s+)?["']?([A-Za-z0-9][A-Za-z0-9 ./-]{0,40}?)["']?(?:\s+as\s+(?:a\s+)?([A-Za-z ]{2,40}))?(?:\s+at\s+([A-Za-z /]+))?$/i,
+      ) ?? q.match(/\badd\s+["']?([A-Za-z0-9][A-Za-z0-9 ./-]{1,40})["']?(?:\s*[—,-]\s*([A-Za-z ]{2,40}))?/i);
   if (addAssetHit) {
-    const name = clipPhrase(addAssetHit[1] ?? '');
+    const name = clipPhrase(addAssetHit[1] ?? '').replace(/^(?:an?|the)\s+/i, '');
     const type = inferAssetType(name, addAssetHit[2] ?? '');
     const stage = matchStage(addAssetHit[3] ?? q);
-    const reserved = /^(risk|finding|action|decision|asset|evidence|scope|report|draft)$/i;
+    const reserved = /^(?:risks?|findings?|actions?|decisions?|assets?|evidence|scopes?|reports?|drafts?|notes?|documents?|files?|checks?|tasks?)$/i;
     if (name.length >= 2 && !reserved.test(name) && !project.assets.some((a) => a.name.toLowerCase() === name.toLowerCase())) {
       out.push(
         proposal(
@@ -1087,7 +1190,35 @@ export function interpretConversation(project: DdProject, question: string, acto
     );
   }
 
-  const riskHit = q.match(/\b(?:add|raise|log|record)\s+(?:a\s+)?risk[:\s]+(.{8,180})/i);
+  /*
+   * "Add evidence: survey sketch", "request the occupancy certificate" — a
+   * document the file needs and does not have. It goes on the evidence
+   * register as REQUESTED, which is what makes it count as a gap and what the
+   * upload matcher looks for when the document later arrives.
+   */
+  const evidenceHit =
+    q.match(/\b(?:add|log|record|create)\s+(?:an?\s+)?(?:evidence|document)(?:\s+request)?\s*[:\-–]\s*(.{3,160})/i)
+    ?? q.match(/\b(?:add|log|record|create)\s+(?:an?\s+)?evidence\s+request\s+(?:for\s+)?(.{3,160})/i)
+    ?? q.match(/\brequest\s+(?:the\s+|an?\s+)?(.{3,120}?)(?:\s+from\s+.+)?$/i);
+  if (evidenceHit && !findingHit && !actionHit) {
+    const title = clipPhrase(evidenceHit[1] ?? '').replace(/^(?:the|an?)\s+/i, '');
+    const label = title.charAt(0).toUpperCase() + title.slice(1);
+    const existing = project.evidence.find((e) => e.title.toLowerCase() === label.toLowerCase());
+    if (label.length >= 3 && !existing) {
+      out.push(
+        proposal(
+          'file_evidence',
+          `Request: ${label}`,
+          'Goes on the evidence register as requested — a gap until the document arrives. Drop it into the chat when it does.',
+          'Adds a requested row to the evidence register.',
+          { title: label, kind: 'document', status: 'requested', source: 'chat_request', description: q.slice(0, 300) },
+          actor,
+        ),
+      );
+    }
+  }
+
+  const riskHit = q.match(/\b(?:add|raise|log|record)\s+(?:an?\s+)?risk[:\s]+(.{8,180})/i);
   if (riskHit) {
     const title = clipPhrase(riskHit[1] ?? '').slice(0, 160);
     out.push(

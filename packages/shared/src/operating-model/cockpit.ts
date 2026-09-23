@@ -7,7 +7,7 @@
  * Model conclusions stay propose-and-review.
  */
 
-import { CHECK_RESULT_LABEL, LIFECYCLE_STAGE_LABEL } from './catalogs';
+import { CHECK_RESULT_LABEL, LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL } from './catalogs';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
 import {
@@ -16,8 +16,10 @@ import {
   ensureProjectShape,
   insertReportBlock,
   issueReport,
+  generateReport,
   packCompleteness,
   packEvidence,
+  patchFindingSeverity,
   patchRecordStatus,
   reattachReportBlock,
   recommendedDdTypes,
@@ -25,6 +27,7 @@ import {
   removeReportBlock,
 } from './operations';
 import { interpretReportCommand, looksLikeReportCommand, openReportOf } from './report-command';
+import { reportSummaryLine } from './report-blocks';
 import type {
   ChatChoice,
   ActionRecord,
@@ -39,11 +42,13 @@ import type {
   OrchestratorRun,
   ProjectChatResult,
   ProjectChatTurn,
+  ReportKind,
   RiskRecord,
 } from './types';
 import {
   buildWizardProposals,
   commitChatProposal,
+  createChatProposal,
   interpretConversation,
   matchProposal,
   proposalsFromIngest,
@@ -61,6 +66,8 @@ import {
 } from './wizard';
 import { projectNextStep, materialOpenFindings, unevidencedFindings, findingCriticSitting } from './next-step';
 import { placeProposalsFromIngest } from './place-extract';
+import { ddForDocumentsProposal, factsOnFile, pendingFactProposals } from './document-intake';
+import { answerFromFile } from './file-answers';
 import { detectChatSideIntents, handleChatSides } from './chat-sides';
 import { clarifyRecordCommand, clarifySubject, looksLikeCommand, resolveSubject, sittingTitle } from './clarify';
 import { verifyAttribution } from './attribution';
@@ -300,6 +307,122 @@ function wantsPersonCapability(q: string): boolean {
  * "Guide me" / next-step is a named sitting — also deterministic — so a model
  * cannot dump the evidence library in its place.
  */
+function mostCommonKind(cards: ChatProposal[]): ChatProposalKind {
+  const counts = new Map<ChatProposalKind, number>();
+  for (const c of cards) counts.set(c.kind, (counts.get(c.kind) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+}
+
+/**
+ * What approving just did, in words — "Filed 9 documents, started the
+ * Acquisition / Site DD and recorded the parcel." — rather than "Filed 13
+ * cards", which named the mechanism and not the result.
+ */
+function approvalReceipt(cards: ChatProposal[]): string {
+  const count = (kind: ChatProposalKind) => cards.filter((c) => c.kind === kind).length;
+  const parts: string[] = [];
+  const filed = cards.filter((c) => c.kind === 'file_evidence');
+  const requested = filed.filter((c) => c.payload.status === 'requested').length;
+  if (filed.length - requested) parts.push(`filed ${plural(filed.length - requested, 'document')}`);
+  if (requested) parts.push(`requested ${plural(requested, 'document')}`);
+  for (const c of cards.filter((p) => p.kind === 'start_dd')) parts.push(`started the ${String(c.payload.name ?? c.title.replace(/^Start /, ''))}`);
+  if (count('record_check_fields')) parts.push(`recorded values on ${plural(count('record_check_fields'), 'check')}`);
+  if (count('record_check')) parts.push(`recorded ${plural(count('record_check'), 'check result')}`);
+  if (count('add_finding')) parts.push(`raised ${plural(count('add_finding'), 'finding')}`);
+  if (count('add_risk')) parts.push(`logged ${plural(count('add_risk'), 'risk')}`);
+  if (count('add_action') + count('request_evidence')) parts.push(`opened ${plural(count('add_action') + count('request_evidence'), 'action')}`);
+  if (count('patch_project')) parts.push('updated the project record');
+  if (count('add_asset')) parts.push(`added ${plural(count('add_asset'), 'asset')}`);
+  if (count('generate_report')) parts.push(`generated ${plural(count('generate_report'), 'report')}`);
+  if (count('run_screen')) parts.push('ran the property screen');
+  if (count('run_valuation')) parts.push('ran the valuation');
+  const known = new Set<ChatProposalKind>(['file_evidence', 'start_dd', 'record_check_fields', 'record_check', 'add_finding', 'add_risk', 'add_action', 'request_evidence', 'patch_project', 'add_asset', 'generate_report', 'run_screen', 'run_valuation']);
+  const other = cards.filter((c) => !known.has(c.kind)).length;
+  if (other) parts.push(`applied ${plural(other, 'other change')}`);
+  if (!parts.length) return `Done — ${plural(cards.length, 'card')} approved.`;
+  const sentence = parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
+}
+
+/** What just opened, and the one figure worth knowing about it. */
+function paneLine(project: DdProject, pane: ProjectCockpitPane): string {
+  const openF = project.findings.filter((f) => !['closed', 'rejected', 'duplicate', 'superseded'].includes(f.status));
+  const material = openF.filter((f) => f.severity === 'critical' || f.severity === 'high').length;
+  const gapCount = project.evidence.filter((e) => ['expected', 'missing', 'requested'].includes(e.status)).length;
+  const filed = project.evidence.filter((e) => e.attachments.length).length;
+  const today = new Date().toISOString().slice(0, 10);
+  const openA = project.actions.filter((a) => a.status !== 'closed');
+  const overdue = openA.filter((a) => a.status === 'overdue' || (a.dueDate && a.dueDate < today)).length;
+  switch (pane) {
+    case 'evidence':
+      return `Evidence is open — ${plural(filed, 'document')} filed, ${gapCount} outstanding.`;
+    case 'findings':
+      return `Findings are open — ${plural(openF.length, 'open finding')}${material ? `, ${material} material` : ''}.`;
+    case 'risks':
+      return `Risks are open — ${plural(project.risks.filter((r) => r.status !== 'closed').length, 'open risk')}.`;
+    case 'actions':
+      return `Actions are open — ${plural(openA.length, 'open action')}${overdue ? `, ${overdue} overdue` : ''}.`;
+    case 'reports':
+      return project.reports.length ? `Reports are open — ${plural(project.reports.length, 'report')}.` : 'Reports are open. None yet — say “generate the executive DD report”.';
+    case 'graph':
+      return 'The knowledge graph is open — click a node to see what it touches.';
+    case 'valuation':
+      return project.lastScreen?.indicatedMid ? 'Valuation is open.' : 'Valuation is open. Say “run the property screen” for an indicative range.';
+    case 'assets':
+      return `Assets are open — ${plural(project.assets.length, 'asset')}.`;
+    case 'dd':
+      return project.assessments.length ? `DDs are open — ${plural(project.assessments.length, 'DD')}.` : 'DDs are open. None started yet.';
+    case 'decisions':
+      return `Decisions are open — ${plural(project.decisions.length, 'decision')}.`;
+    default:
+      return `${pane.charAt(0).toUpperCase()}${pane.slice(1)} is open.`;
+  }
+}
+
+/**
+ * "Open the evidence register" is a request for a pane, not a check.
+ *
+ * Checks list what evidence they expect, and one of them expects "Evidence
+ * register" — so the sitting resolver matched it, and "open the evidence
+ * register" opened a valuation check instead of the register. A verb that
+ * opens things, followed by a pane's own name and a word like "register",
+ * is always the pane.
+ */
+function asksForPane(ql: string): boolean {
+  return /^(?:please\s+)?(?:open|show(?:\s+me)?|go\s+to|switch\s+to|take\s+me\s+to|see|view)\b/.test(ql)
+    && /\b(?:register|pane|tab|list|page|graph|canvas)\b/.test(ql)
+    && NAV_RULES.some((r) => r.test(ql));
+}
+
+/**
+ * Which report somebody asked to be generated, or null.
+ *
+ * Needs a verb that makes something — "what does the red flag report say" is
+ * a question about one, not a request for a new one.
+ */
+export function reportKindRequested(question: string): ReportKind | null {
+  const q = question.toLowerCase();
+  if (!/\b(?:generate|create|draft|build|make|prepare|produce|write|run|give\s+me|new)\b/.test(q)) return null;
+  if (!/\breports?\b|\bred[\s-]flag\b|\bpack\b/.test(q)) return null;
+  if (/\bred[\s-]flag/.test(q)) return 'red_flag';
+  if (/\bdetailed\b/.test(q)) return 'detailed_dd';
+  if (/\b(?:evidence\s+)?completeness\b/.test(q)) return 'evidence_completeness';
+  if (/\b(?:open\s+)?risks?\b.*\bactions?\b|\brisk\s+(?:and|&)\s+action\b/.test(q)) return 'open_risk_action';
+  if (/\bchanges?\b/.test(q)) return 'changes_since_previous';
+  if (/\bvaluation\b/.test(q)) return 'indicative_valuation';
+  if (/\bhandover\b/.test(q)) return 'handover_readiness';
+  return 'executive_dd';
+}
+
+/** "Mark the EC finding as critical" → 'critical'. */
+export function findingSeverityRequested(question: string): FindingRecord['severity'] | null {
+  const q = question.toLowerCase();
+  if (!/\bfindings?\b/.test(q)) return null;
+  if (!/\b(?:mark|set|raise|lower|downgrade|upgrade|make|change|grade|re-?grade|escalate)\b/.test(q)) return null;
+  const hit = /\b(critical|high|medium|low)\b/.exec(q);
+  return hit ? (hit[1] as FindingRecord['severity']) : null;
+}
+
 export function wantsDeterministicProjectChat(
   project: DdProject,
   question: string,
@@ -310,6 +433,11 @@ export function wantsDeterministicProjectChat(
   const ql = q.toLowerCase();
   if (!q) return true;
   if (wantsApprove(ql) || wantsReject(ql)) return true;
+  // A factual question the file itself answers is looked up, not paraphrased:
+  // instant, free, and every figure carries its page.
+  if (answerFromFile(project, q)) return true;
+  if (reportKindRequested(q) || findingSeverityRequested(q)) return true;
+  if (/^(?:please\s+)?add\s+(?:an?\s+)?note\b/i.test(q)) return true;
   if (wantsWizard(q)) return true;
   if (wantsCritic(q)) return true;
   if (startDdFromQuestion(project, q, 'probe')) return true;
@@ -661,7 +789,8 @@ export function applyProjectChat(
   const registerRecordCommand =
     (/\b(close|complete|done|finish)\b/.test(ql) && /\baction\b/.test(ql))
     || (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql))
-    || (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql));
+    || (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql))
+    || Boolean(findingSeverityRequested(q));
   const recordCommand =
     registerRecordCommand || (looksLikeCommand(q) && /\b(check|scope|assessment|dd)\b/.test(ql));
   /*
@@ -678,6 +807,9 @@ export function applyProjectChat(
       // screen, which is the only reading, and the only safe one.
       || (Boolean(options.sitting?.checkId) && looksLikeCheckRecordOnSitting(q)));
   const reportCommand = looksLikeReportCommand(q, Boolean(openReportOf(project)));
+  const reportToGenerate = reportKindRequested(q);
+  const severityChange = findingSeverityRequested(q);
+  const bareNote = !reportCommand && /^(?:please\s+)?add\s+(?:an?\s+)?note\b/i.test(q);
   const runOrchestrate = /\borchestrat/.test(ql) && !/^(open|show|go to|switch to|see|view)\b/.test(ql);
   const proposeDrafts = /\bpropose\b/.test(ql) && /\bdrafts?\b/.test(ql);
   const runValuation = /\b(run|compute|start)\b/.test(ql) && /\bvaluat/.test(ql) && !wantsProjectScreen(q);
@@ -694,10 +826,16 @@ export function applyProjectChat(
      * encumbrance certificate naming twelve survey numbers and still report
      * "no geocoded pin on this project".
      */
-    const rows = offer([
-      ...proposalsFromIngest(project, ingest, actor, prefer),
-      ...placeProposalsFromIngest(project, ingest, actor),
-    ]);
+    const built = [...proposalsFromIngest(project, ingest, actor, prefer), ...placeProposalsFromIngest(project, ingest, actor)];
+    // No DD yet: offer the one these documents answer, last, so approving
+    // everything files them, starts it, and then offers its values.
+    const startDd = ddForDocumentsProposal(
+      project,
+      [...ingest.flatMap((f) => f.read?.facts ?? []), ...factsOnFile(project).map((row) => row.fact)],
+      actor,
+      built,
+    );
+    const rows = offer(startDd ? [...built, startDd] : built);
     /*
      * One line, and the cards carry the rest.
      *
@@ -717,12 +855,39 @@ export function applyProjectChat(
      * this branch used to duplicate.
      */
     const oneCause = unread > 1 && new Set(failures).size === 1 ? failures[0]! : null;
-    assistantText =
-      unread === 0
-        ? `Read ${plural(ingest.length, 'file')}. Approve to file.`
-        : unread === ingest.length
-          ? `${oneCause ?? failures[0]!} Approving still files ${ingest.length === 1 ? 'it' : `all ${ingest.length}`} on the register, unread.`
-          : `Read ${plural(ingest.length - unread, 'file')}; ${unread} I couldn’t. Approve to file.`;
+    /*
+     * Say what the documents ARE, and what needs a person, in one line each
+     * at most — the cards carry the facts and their pages. "Read 1 file"
+     * told somebody who had just dropped in a sale deed nothing they did not
+     * already know.
+     */
+    const read = ingest.filter((f) => f.read && f.read.type !== 'other');
+    const named = read.map((f) => {
+      const raw = f.read!.label;
+      // "Sale deed" reads as "the sale deed"; "DC conversion order" keeps its acronym.
+      const label = /^[A-Z][a-z]/.test(raw) ? raw.charAt(0).toLowerCase() + raw.slice(1) : raw;
+      return f.read!.method === 'text' ? label : `${label} (scan, read by OCR)`;
+    });
+    const fills = rows.filter((p) => p.kind === 'record_check_fields').length;
+    const redFlags = rows.filter((p) => p.kind === 'add_finding');
+    const patches = rows.filter((p) => p.kind === 'patch_project').length;
+    const extras = [
+      fills ? `${plural(fills, 'check')} can take values from ${ingest.length === 1 ? 'it' : 'them'}` : '',
+      patches ? `${plural(patches, 'project detail')} to fill` : '',
+      startDd ? `approving also starts the ${String(startDd.payload.name ?? startDd.title.replace(/^Start /, ''))}, whose checks ${ingest.length === 1 ? 'it answers' : 'they answer'}` : '',
+    ].filter(Boolean);
+    const flagLine = redFlags.length ? `\n⚑ ${redFlags.map((p) => p.title).join('; ')}.` : '';
+    const heading =
+      read.length === ingest.length
+        ? named.length === 1
+          ? `Read the ${named[0]}.`
+          : `Read ${named.length} documents: ${named.join(', ')}.`
+        : read.length
+          ? `Read ${named.join(', ')}; ${ingest.length - read.length} I couldn’t read${unread ? ` — ${oneCause ?? failures[0]!}` : ''}.`
+          : unread === ingest.length
+            ? `${oneCause ?? failures[0]!} Approving still files ${ingest.length === 1 ? 'it' : `all ${ingest.length}`} on the register, unread.`
+            : `Read ${plural(ingest.length - unread, 'file')}; ${unread} I couldn’t.`;
+    assistantText = `${heading}${extras.length ? ` ${extras.join('; ')}.` : ''}${flagLine}${read.length || unread < ingest.length ? '\nApprove to file, or say “approve all”.' : ''}`;
     citedEvidenceIds = rows.flatMap((p) => p.citedEvidenceIds ?? []);
     citedNodeIds = rows.flatMap((p) => p.citedNodeIds ?? []);
     highlightIds.push(...citedEvidenceIds);
@@ -791,11 +956,18 @@ export function applyProjectChat(
        * assessment leaves the pack at 0/16, and that is the fact worth putting
        * in front of somebody who has just spent a minute approving cards.
        */
-      assistantText = `Filed ${plural(done.length, 'card')}.`;
+      assistantText = approvalReceipt(targets);
       metrics = standingDelta(before, fileStanding(project));
       toolCalls = [{ name: 'approve', summary: `${done.length} committed` }];
-      const extra = extrasFromPayload(targets[0]!.payload as Record<string, unknown>);
-      const pane = extra?.checkId ? 'scope' : paneForProposalKind(targets[0]!.kind);
+      /*
+       * One card approved opens exactly what it wrote — a filed deed opens at
+       * its page. A batch opens the register it mostly wrote to, and nothing
+       * more: auto-opening the first document's viewer over a batch put a
+       * modal over the chat just as it offered the next step.
+       */
+      const lead = targets[0]!;
+      const extra = targets.length === 1 ? extrasFromPayload(lead.payload as Record<string, unknown>) : undefined;
+      const pane = extra?.checkId ? 'scope' : paneForProposalKind(mostCommonKind(targets));
       navigate(pane, `Opened ${pane}`, extra);
       /*
        * One suggestion, and only one.
@@ -806,8 +978,25 @@ export function applyProjectChat(
        * read, and it inherits the collapsed card treatment rather than adding
        * another paragraph. Idle means the file needs nothing — then say nothing.
        */
+      /*
+       * What the documents already said, offered to the checks that can now
+       * hold it. Most files arrive before the DD that asks for them: a deed
+       * read in week one states the extent the parcel check instantiated in
+       * week two is about to ask for. Offered here, the moment a DD lands,
+       * rather than making somebody re-upload or re-type what is on file.
+       */
+      const fills = pendingFactProposals(project, actor);
+      if (fills.length) {
+        offer(fills);
+        assistantText += ` ${plural(fills.length, 'check')} can take values from documents already on file — say “approve all” to record them.`;
+      }
+      const startDd = fills.length ? undefined : ddForDocumentsProposal(project, factsOnFile(project).map((row) => row.fact), actor);
+      if (startDd) {
+        offer([startDd]);
+        assistantText += ` Your documents answer checks in the ${startDd.title.replace(/^Start /, '')} — approve to start it.`;
+      }
       const next = projectNextStep(project, actor);
-      if (next.kind !== 'idle' && next.proposals.length) offer([next.proposals[0]!]);
+      if (next.kind !== 'idle' && next.proposals.length && !fills.length && !startDd) offer([next.proposals[0]!]);
     }
   } else if (wantsReject(ql)) {
     const hit = matchProposal(project, q) ?? project.chatProposals.find((p) => p.status === 'proposed');
@@ -838,6 +1027,68 @@ export function applyProjectChat(
       `${run.openFindingCount} open finding(s). Pack completeness is the health figure — not the full evidence library.`,
     ].join('\n');
     toolCalls = [{ name: 'orchestrate', summary: `Proposed ${run.draftIds.length} draft(s)` }];
+  } else if (reportToGenerate) {
+    /*
+     * "Generate the red flag report" is the person's own instruction, so it
+     * runs — the same way starting a DD from chat does. It used to fall
+     * through to the model, which on a deployment without one meant an
+     * apology instead of a report.
+     */
+    const label = REPORT_KIND_LABEL[reportToGenerate].replace(/^([A-Z])(?=[a-z])/, (c) => c.toLowerCase());
+    // A card, like every other thing chat would create: the report is one
+    // approval away, and it is the kind that was asked for — the old card
+    // chose its own kind from the findings and offered nothing when none
+    // were material.
+    offer([
+      createChatProposal(
+        'generate_report',
+        `Generate the ${label}`,
+        `It will open with: ${reportSummaryLine(project)}`,
+        'Creates the report. Its sections read the registers live until you issue it.',
+        { kind: reportToGenerate, assessmentIds: [], generatedBy: actor },
+        actor,
+      ),
+    ]);
+    assistantText = `Ready to generate the ${label} — ${reportSummaryLine(project)} Approve below.`;
+    toolCalls = [{ name: 'generate_report', summary: REPORT_KIND_LABEL[reportToGenerate] }];
+  } else if (severityChange) {
+    const hit = matchTitle(openFindings(), q) as FindingRecord | undefined;
+    if (hit) {
+      const before = hit.severity;
+      patchFindingSeverity(project, hit.id, severityChange, actor);
+      navigate('findings', `Re-graded finding “${hit.title}”`, { findingId: hit.id });
+      assistantText = before === severityChange ? `“${hit.title}” is already ${severityChange}.` : `“${hit.title}” is now ${severityChange} (was ${before}).`;
+      toolCalls = [{ name: 'patch_finding', summary: `${hit.title} → ${severityChange}` }];
+      citedNodeIds = [hit.id];
+      highlightIds.push(hit.id);
+    } else {
+      const asked = clarifyRecordCommand(project, q, 'finding', openFindings(), `Mark ${severityChange}`);
+      assistantText = asked.text;
+      choices = asked.choices;
+      toolCalls = [{ name: 'clarify', summary: asked.summary }];
+      navigate('findings', 'Opened findings');
+    }
+  } else if (bareNote) {
+    /*
+     * "Add a note: …" with no word saying where. Report edits demand the
+     * report noun on purpose, so this is never guessed into one — it is
+     * asked, with the answer one tap away.
+     */
+    const note = q.replace(/^(?:please\s+)?add\s+(?:an?\s+)?note\s*(?:to\s+\w+\s*)?[:\-–]?\s*/i, '').trim();
+    const open = openReportOf(project);
+    if (open) {
+      assistantText = `Add that to the ${open.title}?`;
+      choices = [
+        { id: id('chc'), label: `Add to ${open.title}`, detail: note.slice(0, 60), send: `Add a note to the report: ${note}`, kind: 'action' },
+      ];
+    } else {
+      assistantText = 'There is no open report to add that note to yet. Generate one, then say the note again.';
+      choices = [
+        { id: id('chc'), label: 'Generate the executive DD report', detail: 'Reads the registers live', send: 'Generate the executive DD report', kind: 'action' },
+        { id: id('chc'), label: 'Generate the red flag report', detail: 'Material findings only', send: 'Generate the red flag report', kind: 'action' },
+      ];
+    }
+    toolCalls = [{ name: 'clarify', summary: open ? 'Which report' : 'No open report' }];
   } else if (reportCommand) {
     /*
      * The person editing their own report, through chat.
@@ -1011,11 +1262,32 @@ export function applyProjectChat(
       citedNodeIds = committed.recordId ? [committed.recordId] : undefined;
       if (committed.recordId) highlightIds.push(committed.recordId);
       toolCalls = [{ name: 'start_dd', summary: startDd.title }];
+      // The new checks can take what the documents on file already state.
+      const fills = offer(pendingFactProposals(project, actor));
+      if (fills.length) assistantText += `\n${plural(fills.length, 'check')} can take values from documents already on file — say “approve all” to record them.`;
     } else {
-      const named = sittingWithField(project, talkSittingFromText(project, q));
+      const named = asksForPane(ql) ? undefined : sittingWithField(project, talkSittingFromText(project, q));
       const namedSitting = named && (named.kind === 'check' || named.kind === 'scope' || named.kind === 'dd');
       const rewrite = /\b(add|start|set|request|create|close|assign|approve|skip|run|compute|propose|orchestrat)\b/i.test(ql);
-      if (namedSitting && !rewrite) {
+      /*
+       * A factual question is answered from the file before anything else
+       * reads it as a place to go. "What is the encumbrance status?" names
+       * the encumbrances check, and used to open it and describe the check —
+       * when the person asked what the EC says, and the EC was on file.
+       */
+      const fileAnswer = answerFromFile(project, q);
+      if (fileAnswer) {
+        assistantText = fileAnswer.text;
+        citedEvidenceIds = fileAnswer.citedEvidenceIds;
+        citedNodeIds = fileAnswer.citedNodeIds.length ? fileAnswer.citedNodeIds : undefined;
+        highlightIds.push(...fileAnswer.citedEvidenceIds, ...fileAnswer.citedNodeIds);
+        toolCalls = [{ name: 'answer_from_file', summary: fileAnswer.summary }];
+        if (fileAnswer.navigate) {
+          const { pane, evidenceId, page } = fileAnswer.navigate;
+          navigate(pane, '', evidenceId ? { evidenceId, page } : undefined);
+        }
+        if (fileAnswer.choices?.length) choices = fileAnswer.choices;
+      } else if (namedSitting && !rewrite) {
         const pane = paneForTalk(named.kind);
         navigate(pane, `Opened ${named.label}`, named.extra);
         assistantText = sittingBrief(project, named);
@@ -1031,11 +1303,16 @@ export function applyProjectChat(
           for (const item of interpreted.proposals) {
             project.chatProposals.push(item);
             const committed = commitChatProposal(project, item.id, actor);
-            done.push(`${item.title}${committed.recordId ? ` → ${committed.recordId}` : ''}`);
+            // The record's title, never its id: "→ ast_1a0cfb…" named nothing
+            // a person recognises and read like a stack trace in the chat.
+            done.push(item.title);
             if (committed.recordId) highlightIds.push(committed.recordId);
           }
           commands.push(`Applied ${done.length} update(s) from chat`);
-          assistantText = `Applied from this message:\n${done.map((d) => `• ${d}`).join('\n')}\n\nThe right-hand pane shows the live record. To change it again, say the new value.`;
+          assistantText =
+            done.length === 1
+              ? `Done — ${done[0]!.charAt(0).toLowerCase()}${done[0]!.slice(1)}. It’s open on the right.`
+              : `Done:\n${done.map((d) => `• ${d}`).join('\n')}\nOpen on the right.`;
           toolCalls = [{ name: 'apply', summary: `${done.length} applied` }];
           navigate(paneForProposalKind(interpreted.proposals[0]!.kind), `Opened ${paneForProposalKind(interpreted.proposals[0]!.kind)}`);
           citedNodeIds = highlightIds;
@@ -1083,13 +1360,10 @@ export function applyProjectChat(
   } else if (wantsProjectScreen(q)) {
     const card = proposeProjectScreen(project, actor);
     const cards = offer([card]);
+    // The card carries the detail; this says what approving it does, once.
+    // It used to reprint the card's own title and rationale beneath itself.
     assistantText = cards.length
-      ? [
-          'A property screen treats this project as the site and your evidence as the papers.',
-          'Approve the card to write findings, risks, actions, gaps, an indicative valuation and a proposed pursue/don’t decision into the same registers. Nothing is a certified value.',
-          `• ${card.title}`,
-          `  ${card.rationale}`,
-        ].join('\n')
+      ? 'Ready to screen the property against the evidence on file. Approve to write findings, risks, gaps and an indicative value — nothing is a certified valuation.'
       : 'A property-screen card is already open — approve or skip it.';
     toolCalls = [{ name: 'screen', summary: 'Proposed property screen' }];
     navigate('overview', 'Opened overview');
@@ -1149,7 +1423,7 @@ export function applyProjectChat(
       navigate('risks', 'Opened risks');
     }
   } else if (isShow || NAV_RULES.some((r) => r.test(ql) && /^(open|show|go to|switch to|take me|see|view)\b/.test(ql))) {
-    const talk = sittingWithField(project, talkSittingFromText(project, q));
+    const talk = asksForPane(ql) ? undefined : sittingWithField(project, talkSittingFromText(project, q));
     if (talk) {
       const pane = paneForTalk(talk.kind);
       navigate(pane, `Opened ${talk.label}`, talk.extra);
@@ -1176,10 +1450,9 @@ export function applyProjectChat(
       } else {
       const pane = NAV_RULES.find((r) => r.test(ql))?.pane ?? 'overview';
       navigate(pane, `Opened ${pane}`);
-      const brief = briefingAnswer(project, options.viewContext);
-      assistantText = `Opening the ${pane} pane.\n\n${brief.text}`;
-      citedEvidenceIds = brief.citedEvidenceIds ?? [];
-      citedNodeIds = brief.citedNodeIds;
+      // One line: what opened and the figure that matters there. The full
+      // register briefing used to follow — ten lines under "open the graph".
+      assistantText = paneLine(project, pane);
       toolCalls = [{ name: 'navigate', summary: pane }];
       }
     }

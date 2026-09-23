@@ -113,7 +113,14 @@ function extrasForNavigation(
     };
   }
   if (target === 'graph' && ids[0]) return { node: ids[0] };
-  if (target === 'evidence' && ids[0] && project.evidence.some((e) => e.id === ids[0])) return { evidenceId: ids[0] };
+  /*
+   * No evidence fallback. On the evidence register an `evidenceId` opens the
+   * document viewer, a modal over the chat — so falling back to the first
+   * highlighted id opened the first of nine documents whenever a batch was
+   * approved, hiding the message that offered the next step. The rows are
+   * highlighted either way; a document opens only when the server names it
+   * (one card approved, or an answer quoting a page).
+   */
   if (target === 'findings' && ids[0] && project.findings.some((f) => f.id === ids[0])) return { findingId: ids[0] };
   if ((target === 'risks' || target === 'actions') && ids[0]) {
     if (project.risks.some((r) => r.id === ids[0])) return { riskId: ids[0] };
@@ -303,10 +310,36 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
    * Keyed to the project so switching files starts a new sitting rather than
    * continuing the last one under a different heading.
    */
-  const sessionId = useMemo(
-    () => `ses_${project.id.slice(-6)}_${Date.now().toString(36)}`,
-    [project.id],
-  );
+  const [sessionId, sessionStartedAt] = useMemo(() => {
+    const now = Date.now();
+    return [`ses_${project.id.slice(-6)}_${now.toString(36)}`, new Date(now).toISOString()] as const;
+  }, [project.id]);
+
+  /*
+   * Cards still waiting from an earlier sitting.
+   *
+   * Opening the file starts a fresh chat, which is right — and it used to
+   * mean that thirteen unapproved cards from yesterday were invisible while
+   * "Approve all" sat in the chips, ready to approve them sight unseen. They
+   * lead the new chat instead, as themselves, one approval away.
+   */
+  const leadTurn = useMemo((): CopilotTurn | undefined => {
+    const shownHere = new Set(
+      (project.conversation ?? [])
+        .filter((t) => t.sessionId === sessionId || (!t.sessionId && t.at >= sessionStartedAt))
+        .flatMap((t) => t.proposalIds ?? []),
+    );
+    const waiting = (project.chatProposals ?? []).filter((p) => p.status === 'proposed' && !shownHere.has(p.id));
+    if (!waiting.length) return undefined;
+    return {
+      id: 'waiting-from-earlier',
+      role: 'assistant',
+      text: `${waiting.length === 1 ? 'One card is' : `${waiting.length} cards are`} still waiting from earlier. Approve ${waiting.length === 1 ? 'it' : 'them'} below, or say “approve every open card”.`,
+      at: sessionStartedAt,
+      citedEvidenceIds: [],
+      proposalIds: waiting.map((p) => p.id),
+    } as unknown as CopilotTurn;
+  }, [project.conversation, project.chatProposals, sessionId, sessionStartedAt]);
   const handleAsk = useCallback(
     async (
       question: string,
@@ -383,13 +416,36 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const next = useMemo(() => projectNextStep(project), [project]);
   const nodeLabels = useMemo(() => graphNodeLabels(project), [project]);
 
+  /*
+   * What to offer, from where the file stands.
+   *
+   * These used to end with "Set owner to Priya Shah" on every project — a
+   * demo name offered as the thing to do next on a stranger's file. Each chip
+   * now follows from the state: cards waiting, documents missing, findings
+   * open, a report worth generating.
+   */
   const suggestions = useMemo(() => {
-    if (project.assets.length === 0) return [next.title, 'Guide me'];
-    const rows = ["What's next?", 'Guide me'];
+    const rows: string[] = [];
+    const waiting = (project.chatProposals ?? []).filter((p) => p.status === 'proposed').length;
+    const filed = project.evidence.filter((e) => (e.attachments ?? []).length).length;
+    const material = project.findings.filter(
+      (f) => (f.severity === 'critical' || f.severity === 'high') && !['closed', 'rejected', 'duplicate', 'superseded'].includes(f.status),
+    ).length;
+    if (waiting) rows.push('Approve all');
+    if (filed === 0) {
+      // A file with nothing on it: the fastest way to see what this does is
+      // the bundled sample set, read through the same path as a real upload.
+      rows.push('Use the sample documents', 'What can you do?', 'What documents do I need?');
+    } else {
+      rows.push('Summarise this file');
+      if (material) rows.push('Which findings are critical?');
+      rows.push("What's missing?");
+      if (material && !project.reports.some((r) => r.kind === 'red_flag')) rows.push('Generate the red flag report');
+    }
     if (pendingDrafts) rows.push('Review pending drafts');
-    rows.push('Set owner to Priya Shah');
-    return rows.slice(0, 4);
-  }, [project.assets.length, next.title, pendingDrafts]);
+    if (!rows.includes("What's next?") && rows.length < 4) rows.push("What's next?");
+    return [...new Set(rows)].slice(0, 4);
+  }, [project.chatProposals, project.evidence, project.findings, project.reports, pendingDrafts]);
 
   /**
    * The dock is a pointer to something not on screen. When the work pane is
@@ -429,6 +485,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const chat = (
     <CopilotPanel
       sessionId={sessionId}
+      sessionStartedAt={sessionStartedAt}
+      leadTurn={leadTurn}
       fill
       compact={!isDesktop}
       conversation={conversation}

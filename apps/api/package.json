@@ -10,14 +10,17 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@realytica/agents": "workspace:*",
     "@realytica/shared": "workspace:*",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/kan": "^1.0.0",
     "@vercel/blob": "^2.8.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "multer": "^1.4.5-lts.1",
     "pdfjs-dist": "^4.10.38",
-    "zod": "^3.24.1",
-    "@realytica/agents": "workspace:*"
+    "tesseract.js": "^7.0.0",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
