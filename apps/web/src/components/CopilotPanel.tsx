@@ -422,6 +422,8 @@ export function CopilotPanel({
   onOpenEvidence,
   fallback,
   sessionId,
+  sessionStartedAt,
+  leadTurn,
   fill,
   nodes,
   appliedByTurn,
@@ -470,6 +472,17 @@ export function CopilotPanel({
    * is what a caller that does not mint one gets.
    */
   sessionId?: string;
+  /**
+   * When this sitting began. A turn the server wrote outside a chat request —
+   * the note after a document filed on the register was read — carries no
+   * sitting, and still belongs in the chat the person has open.
+   */
+  sessionStartedAt?: string;
+  /**
+   * Shown first when present: cards still waiting from an earlier sitting,
+   * so reopening a file never hides work that is one approval away.
+   */
+  leadTurn?: CopilotTurn;
   /** Take the height of the container rather than capping at 26rem. */
   fill?: boolean;
   /** The case's graph, so a cited node id can render as its label. */
@@ -608,10 +621,12 @@ export function CopilotPanel({
   );
   const [viewing, setViewing] = useState<string | null>(null);
   const past = useMemo(() => sessions.filter((s) => s.id !== sessionId), [sessions, sessionId]);
-  const live = useMemo(
-    () => (sessionId ? spoken.filter((t) => t.sessionId === sessionId) : spoken),
-    [spoken, sessionId],
-  );
+  const live = useMemo(() => {
+    const own = sessionId
+      ? spoken.filter((t) => t.sessionId === sessionId || (!t.sessionId && sessionStartedAt !== undefined && t.at >= sessionStartedAt))
+      : spoken;
+    return leadTurn ? [leadTurn, ...own] : own;
+  }, [spoken, sessionId, sessionStartedAt, leadTurn]);
   const viewed = viewing ? (sessions.find((s) => s.id === viewing)?.turns ?? []) : live;
 
   // Chat opens by default even when empty: it is what the composer below is

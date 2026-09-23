@@ -209,7 +209,16 @@ export function placeProposalsFromIngest(
     if (!text) continue;
 
     if (!parcelDone) {
-      const numbers = extractSurveyNumbers(text);
+      /*
+       * A document that was read says which survey number it is ABOUT. A
+       * deed's boundary schedule names its neighbours too — "West by: Survey
+       * No. 118/1" — and scraping every number off the page made the
+       * neighbour part of the parcel. The reading picks the one the document
+       * keeps returning to; the scrape is the fallback for a file nothing
+       * read.
+       */
+      const read = file.read?.facts.find((f) => f.key === 'survey_numbers');
+      const numbers = read ? String(read.value).split(/\s*,\s*/).filter(Boolean) : extractSurveyNumbers(text);
       if (numbers.length > 0) {
         const parcelId = formatParcelId(numbers);
         const patch: PatchProjectInput = { parcelId };

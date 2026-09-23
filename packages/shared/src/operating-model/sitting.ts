@@ -5,8 +5,10 @@
 
 import { CHECK_RESULT_LABEL, SCOPE_LABEL } from './catalogs';
 import { portalForCheck, portalObtainLine } from './portals';
-import type { ChatProposal, DdAssessment, DdProject, ProjectChatTurn, ScopeInstance } from './types';
+import type { ChatProposal, CheckInstance, DdAssessment, DdProject, ProjectChatTurn, ScopeInstance } from './types';
 import { plural } from './text';
+import { CHECK_DEFINITIONS } from './libraries';
+import { readCheckFields, worstInsight } from './check-fields';
 
 const DUMP =
   /Wizard for |Evidence gaps \(\d{2,}\)|Request \d{2,} outstanding|292 outstanding|library completeness is a separate/i;
@@ -206,6 +208,22 @@ export function checkAdvise(project: DdProject, check: { id: string; title: stri
       return t === n || t.includes(n) || n.includes(t);
     });
   });
+  /*
+   * The numbers outrank the paperwork. A check whose recorded values the
+   * engine has found out of tolerance — a khata extent 1.3% short of the deed
+   * — used to lean "tick" because a file and quotes were on it. Having the
+   * documents is not the same as the documents agreeing.
+   */
+  const definitionId = (check as { definitionId?: string }).definitionId;
+  const def = definitionId ? CHECK_DEFINITIONS.find((d) => d.id === definitionId) : undefined;
+  if (def?.fields?.length) {
+    const reading = readCheckFields(check as unknown as CheckInstance, def.fields, def.insightRules ?? []);
+    const worst = worstInsight(reading.insights);
+    if (worst && worst !== 'low') {
+      const lead = reading.insights.find((i) => i.severity === worst)!;
+      return { lean: 'cross', why: `${lead.text} Cross, or record it partially compliant with the reason.` };
+    }
+  }
   if (held.length && quotes.length) {
     return { lean: 'tick', why: 'A file and quotes are on this check. Tick if they hold.' };
   }

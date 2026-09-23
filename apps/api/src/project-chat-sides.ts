@@ -309,7 +309,10 @@ export async function pullWebForProject(project: DdProject, question: string): P
       note: hits.length ? undefined : 'Search ran but returned no structured, sourced hits to propose.',
     };
   } catch (err) {
-    return { enabled: false, query, hits: [], note: describeError(err) };
+    // The note becomes the chat reply, so it says what happened in plain
+    // words; the transport detail goes to the server log, not the person.
+    console.warn(`[web-search] ${describeError(err)}`);
+    return { enabled: false, query, hits: [], note: 'The locality search could not run just now, so nothing was searched. The file itself is unchanged.' };
   }
 }
 

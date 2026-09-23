@@ -25,24 +25,42 @@ const THEME_LABEL: Record<ThemeMode, string> = { light: 'Light', dark: 'Dark', s
 
 type ApiStatus = 'checking' | 'online' | 'offline';
 
-/** Sticky top bar: route title, one-shot API health check, and the theme cycle control. */
+/** Sticky top bar: route title, an API health check that retries until it answers, and the theme cycle control. */
 export default function TopBar({ onOpenMobile }: TopBarProps) {
   const location = useLocation();
   const [theme, setTheme] = useState<ThemeMode>(() => getStoredTheme());
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
 
+  /*
+   * Checked until it answers, not once.
+   *
+   * A single failed probe — a cold start, a deploy rolling over, the dev
+   * server restarting on a save — used to leave "API offline" pinned to
+   * every page for the rest of the visit while every request underneath it
+   * was succeeding. Offline now keeps asking, backing off, and clears itself
+   * the moment the API is back.
+   */
   useEffect(() => {
     let cancelled = false;
-    api.health().then(
-      () => {
-        if (!cancelled) setApiStatus('online');
-      },
-      () => {
-        if (!cancelled) setApiStatus('offline');
-      },
-    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let wait = 3000;
+    const probe = () => {
+      api.health().then(
+        () => {
+          if (!cancelled) setApiStatus('online');
+        },
+        () => {
+          if (cancelled) return;
+          setApiStatus('offline');
+          timer = setTimeout(probe, wait);
+          wait = Math.min(wait * 2, 30000);
+        },
+      );
+    };
+    probe();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, []);
 
@@ -55,7 +73,9 @@ export default function TopBar({ onOpenMobile }: TopBarProps) {
   const ThemeIcon = THEME_ICON[theme];
   const healthLabel =
     apiStatus === 'offline'
-      ? 'API offline — start it with `pnpm dev:api`'
+      ? import.meta.env.DEV
+        ? 'API offline — start it with `pnpm dev:api`'
+        : 'Cannot reach the server — retrying.'
       : apiStatus === 'checking'
         ? 'Checking API…'
         : 'API online';

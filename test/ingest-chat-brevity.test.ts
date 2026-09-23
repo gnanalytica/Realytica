@@ -96,7 +96,8 @@ describe('an upload reply does not restate its own cards', () => {
     assert.equal(p.evidence.length, 2, 'both were filed');
     assert.ok(!/ev_/.test(text), `no raw record ids in chat prose: ${text}`);
     assert.ok(!text.includes('RERA_Cert.pdf'), 'the cards already carry the names');
-    assert.match(text, /Filed 2 cards/);
+    // Says what approving did, not how many cards it took.
+    assert.match(text, /Filed 2 documents/);
   });
 });
 
