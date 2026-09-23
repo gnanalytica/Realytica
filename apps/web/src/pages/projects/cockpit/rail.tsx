@@ -205,6 +205,29 @@ function useEdges(): [React.RefObject<HTMLDivElement>, { start: boolean; end: bo
 /** The chip row, with a fade wherever it continues past the edge. */
 function ChipScroller({ wrap, children }: { wrap: boolean; children: ReactNode }) {
   const [ref, edges] = useEdges();
+
+  /*
+   * The row scrolls to whichever chip is current.
+   *
+   * The fade says the row continues; it does not say the tab you are ON is
+   * the one out of sight. Measured at 390px: standing on the report, the
+   * Report tab sat at x=401 in a strip ending at 378, so the strip showed
+   * four tabs none of which was marked — the reader's own position in the
+   * file, off the edge, behind a swipe they had no reason to make.
+   */
+  useEffect(() => {
+    const el = ref.current;
+    const current = el?.querySelector<HTMLElement>('[aria-current]');
+    if (!el || !current) return;
+    const strip = el.getBoundingClientRect();
+    const chip = current.getBoundingClientRect();
+    if (chip.left >= strip.left - 1 && chip.right <= strip.right + 1) return;
+    el.scrollTo({
+      left: el.scrollLeft + (chip.left - strip.left) - (strip.width - chip.width) / 2,
+      behavior: 'smooth',
+    });
+  });
+
   if (wrap) return <div className={chipRow(true)}>{children}</div>;
   return (
     <div className="relative min-w-0">

@@ -81,7 +81,7 @@ export default function ProjectSwitcher() {
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label="Switch project"
-        className="flex w-full min-w-0 max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-sunken sm:px-2"
+        className="flex w-full min-w-0 max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-sunken coarse:min-h-11 coarse:py-2.5 sm:px-2"
       >
         <FolderTree size={15} className="shrink-0 text-ink-muted" />
         <span className="min-w-0 flex-1 overflow-hidden">

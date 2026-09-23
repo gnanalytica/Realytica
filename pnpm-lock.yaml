@@ -57,6 +57,9 @@ importers:
       '@realytica/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@realytica/site-intel':
+        specifier: workspace:*
+        version: link:../../packages/site-intel
       '@tesseract.js-data/eng':
         specifier: ^1.0.0
         version: 1.0.0
@@ -182,6 +185,8 @@ importers:
         version: 5.9.3
 
   packages/shared: {}
+
+  packages/site-intel: {}
 
 packages:
 

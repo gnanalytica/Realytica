@@ -358,7 +358,13 @@ function IconBtn({ children, title, disabled, onClick }: { children: React.React
       aria-label={title}
       disabled={disabled}
       onClick={onClick}
-      className="rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink disabled:opacity-40"
+      /*
+        21px on a touch pointer, for the controls that reorder a report and
+        remove blocks from it. Small is the right look on a desktop — these
+        are quiet until you want them — but a control that removes a section
+        of a report has to be hittable on the first try.
+      */
+      className="grid place-items-center rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink disabled:opacity-40 coarse:min-h-11 coarse:min-w-11"
     >
       {children}
     </button>

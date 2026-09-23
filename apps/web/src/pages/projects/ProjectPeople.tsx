@@ -389,7 +389,8 @@ export default function ProjectPeople() {
             <ReachForm project={project} reach={fresh} disabled={busy} onChange={setFresh} />
             <Button
               icon={<UserPlus size={14} />}
-              disabled={busy || !email.trim()}
+              loading={busy}
+              disabled={!email.trim()}
               onClick={() =>
                 void run(`${email.trim()} is on this project`, async () => {
                   await api.addProjectPerson(project.id, { ...toInput(fresh), email: email.trim() });

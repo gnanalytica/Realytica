@@ -438,6 +438,7 @@ export function wantsDeterministicProjectChat(
   if (answerFromFile(project, q)) return true;
   if (reportKindRequested(q) || findingSeverityRequested(q)) return true;
   if (/^(?:please\s+)?add\s+(?:an?\s+)?note\b/i.test(q)) return true;
+  if (/\b(?:add|log|record|create|request)\s+(?:an?\s+|the\s+)?(?:evidence|document)(?:\s+request)?\s*[:\-–]/i.test(q)) return true;
   if (wantsWizard(q)) return true;
   if (wantsCritic(q)) return true;
   if (startDdFromQuestion(project, q, 'probe')) return true;
@@ -810,6 +811,19 @@ export function applyProjectChat(
   const reportToGenerate = reportKindRequested(q);
   const severityChange = findingSeverityRequested(q);
   const bareNote = !reportCommand && /^(?:please\s+)?add\s+(?:an?\s+)?note\b/i.test(q);
+  /*
+   * "Add evidence: survey sketch" when a survey sketch is already filed. The
+   * request makes no card — there is nothing to request — and used to fall
+   * through to the portal side-branch, which answered with where to obtain a
+   * document the file already holds.
+   */
+  const askedEvidence = /\b(?:add|log|record|create|request)\s+(?:an?\s+|the\s+)?(?:evidence|document)(?:\s+request)?\s*[:\-–]\s*(.{3,160})/i.exec(q)?.[1]?.trim().replace(/[.!?]+$/, '');
+  const evidenceOnFile = askedEvidence
+    ? project.evidence.find((e) => {
+        const want = askedEvidence.toLowerCase().replace(/^(?:the|an?)\s+/, '');
+        return e.title.toLowerCase() === want || (e.documentType ?? '').toLowerCase() === want;
+      })
+    : undefined;
   const runOrchestrate = /\borchestrat/.test(ql) && !/^(open|show|go to|switch to|see|view)\b/.test(ql);
   const proposeDrafts = /\bpropose\b/.test(ql) && /\bdrafts?\b/.test(ql);
   const runValuation = /\b(run|compute|start)\b/.test(ql) && /\bvaluat/.test(ql) && !wantsProjectScreen(q);
@@ -836,6 +850,20 @@ export function applyProjectChat(
       built,
     );
     const rows = offer(startDd ? [...built, startDd] : built);
+    /*
+     * A DD card may already be waiting — "guide me" offers one as the next
+     * step. It belongs in THIS turn too, or "approve all" files the documents
+     * and leaves the DD they answer one approval behind.
+     */
+    const readFacts = ingest.some((f) => (f.read?.facts ?? []).length);
+    const waitingDd = !startDd && readFacts && !project.assessments.some((a) => a.status !== 'archived')
+      ? project.chatProposals.find((p) => p.kind === 'start_dd' && p.status === 'proposed' && !rows.includes(p))
+      : undefined;
+    if (waitingDd) {
+      offered = [...offered, waitingDd];
+      rows.push(waitingDd);
+    }
+    const ddCard = startDd ?? waitingDd;
     /*
      * One line, and the cards carry the rest.
      *
@@ -874,7 +902,7 @@ export function applyProjectChat(
     const extras = [
       fills ? `${plural(fills, 'check')} can take values from ${ingest.length === 1 ? 'it' : 'them'}` : '',
       patches ? `${plural(patches, 'project detail')} to fill` : '',
-      startDd ? `approving also starts the ${String(startDd.payload.name ?? startDd.title.replace(/^Start /, ''))}, whose checks ${ingest.length === 1 ? 'it answers' : 'they answer'}` : '',
+      ddCard ? `approving also starts the ${String(ddCard.payload.name ?? ddCard.title.replace(/^Start /, ''))}, whose checks ${ingest.length === 1 ? 'it answers' : 'they answer'}` : '',
     ].filter(Boolean);
     const flagLine = redFlags.length ? `\n⚑ ${redFlags.map((p) => p.title).join('; ')}.` : '';
     const heading =
@@ -1068,6 +1096,14 @@ export function applyProjectChat(
       toolCalls = [{ name: 'clarify', summary: asked.summary }];
       navigate('findings', 'Opened findings');
     }
+  } else if (evidenceOnFile) {
+    const held = evidenceOnFile.attachments.length > 0;
+    assistantText = held
+      ? `${evidenceOnFile.documentType ?? evidenceOnFile.title} is already on the register, with its file. Opening it.`
+      : `“${evidenceOnFile.title}” is already on the register as ${evidenceOnFile.status}. Drop the document into the chat when you have it.`;
+    toolCalls = [{ name: 'navigate', summary: evidenceOnFile.title }];
+    citedEvidenceIds = [evidenceOnFile.id];
+    navigate('evidence', '', held ? { evidenceId: evidenceOnFile.id } : undefined);
   } else if (bareNote) {
     /*
      * "Add a note: …" with no word saying where. Report edits demand the

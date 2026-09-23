@@ -71,6 +71,21 @@ export function ProjectCommandBar({
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
+  /*
+   * The `do` command that has been chosen but not yet confirmed.
+   *
+   * A palette is a place people move fast, and four of the verbs in this one
+   * write to the file — "Run property screen" raises findings, risks and a
+   * valuation; "Mark risk mitigated" changes a register a report is built
+   * from. Enter ran them outright, so a mistyped query plus a reflex Enter
+   * was a write nobody looked at. Arming rather than a dialog: the second
+   * Enter is one keystroke, it keeps the palette's speed for the reader who
+   * meant it, and it costs the reader who did not exactly nothing.
+   *
+   * `go`, `open` and `ask` are untouched — navigating somewhere by accident
+   * is undone by navigating back.
+   */
+  const [armed, setArmed] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -191,7 +206,14 @@ export function ProjectCommandBar({
    */
   useEffect(() => {
     setActive(0);
+    setArmed(null);
   }, [query]);
+
+  // Moving off a command disarms it: what is armed must be what is highlighted,
+  // or the confirmation is confirming something the reader is no longer on.
+  useEffect(() => {
+    setArmed(null);
+  }, [active]);
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, matches.length - 1)));
@@ -212,6 +234,10 @@ export function ProjectCommandBar({
       } else if (command.kind === 'ask') {
         onAsk(query.trim());
         onClose();
+      } else if (armed !== command.id) {
+        setArmed(command.id);
+        setBusy(false);
+        return;
       } else {
         await command.run();
         await onChanged();
@@ -309,6 +335,11 @@ export function ProjectCommandBar({
                         its own kind, which the badge already said. */}
                     {c.kind === 'open' ? (
                       <span className="block truncate text-[11px] text-ink-muted">{c.hint}</span>
+                    ) : null}
+                    {armed === c.id ? (
+                      <span className="block text-[11px] font-medium text-brand">
+                        This writes to the file — press Enter again to run it.
+                      </span>
                     ) : null}
                   </span>
                 </button>

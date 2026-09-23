@@ -12,6 +12,7 @@
   "dependencies": {
     "@realytica/agents": "workspace:*",
     "@realytica/shared": "workspace:*",
+    "@realytica/site-intel": "workspace:*",
     "@tesseract.js-data/eng": "^1.0.0",
     "@tesseract.js-data/kan": "^1.0.0",
     "@vercel/blob": "^2.8.0",

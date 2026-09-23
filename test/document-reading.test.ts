@@ -217,6 +217,24 @@ describe('what a read document proposes', () => {
   });
 });
 
+describe('a DD card already waiting', () => {
+  it('rides along with the documents, so one "approve all" starts it', async () => {
+    const { applyProjectChat, createChatProposal } = await import('@realytica/shared');
+    const project = freshProject();
+    // "Guide me" offered the DD earlier; it is still open.
+    project.chatProposals.push(
+      createChatProposal('start_dd', 'Start Acquisition / Site DD', 'Next step.', 'Starts it.', { ddType: 'acquisition', name: 'Acquisition / Site DD', owner: 'tester', targetType: 'project' }, 'tester'),
+    );
+    const file = await ingestOf('Sale_Deed_2019_Sy_118-2_Whitefield.pdf');
+    const upload = applyProjectChat(project, '', { ingest: [file] });
+    assert.ok(upload.proposals.some((p) => p.kind === 'start_dd'), 'the waiting DD card is in this turn');
+    assert.match(upload.assistantTurn.text, /also starts the Acquisition/);
+    const approved = applyProjectChat(project, 'approve all');
+    assert.equal(project.assessments.length, 1, 'the DD started');
+    assert.ok(approved.proposals.some((p) => p.kind === 'record_check_fields'), 'its values are offered at once');
+  });
+});
+
 describe('documents filed before the DD that asks for them', () => {
   it('are linked to the new checks instead of leaving empty duplicate rows', async () => {
     const project = freshProject();

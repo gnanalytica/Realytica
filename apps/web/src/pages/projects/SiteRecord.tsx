@@ -33,7 +33,7 @@ import {
   type VisitLimitationKind,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, EmptyState, Field, InfoTip, Input, Modal, Select, Textarea, useToast } from '../../components/ui/kit';
+import { Badge, Button, Card, CardBody, EmptyState, Field, InfoTip, Input, Modal, Select, SubmitButton, Textarea, useToast } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
 import { SheetPlacer } from '../../components/SheetPlacer';
 
@@ -273,8 +273,9 @@ function NewSheet({ project, onAdded }: { project: ProjectOutlet['project']; onA
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button
-              disabled={busy || !title.trim() || !evidenceId}
+            <SubmitButton
+              busy={busy}
+              needs={[...(title.trim() ? [] : ['Title']), ...(evidenceId ? [] : ['The file it is filed as'])]}
               onClick={() => {
                 setBusy(true);
                 void api
@@ -290,12 +291,12 @@ function NewSheet({ project, onAdded }: { project: ProjectOutlet['project']; onA
               }}
             >
               Add
-            </Button>
+            </SubmitButton>
           </>
         }
       >
         <div className="space-y-3">
-          <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="RMP 2015, sheet 12" /></Field>
+          <Field label="Title" required><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="RMP 2015, sheet 12" /></Field>
           <Field label="Kind">
             <Select value={kind} onChange={(e) => setKind(e.target.value as SheetKind)}>
               {(Object.keys(SHEET_KIND_LABEL) as SheetKind[]).map((k) => (
@@ -303,7 +304,7 @@ function NewSheet({ project, onAdded }: { project: ProjectOutlet['project']; onA
               ))}
             </Select>
           </Field>
-          <Field label="The file it is filed as" hint="Only evidence rows with a file attached can be placed.">
+          <Field label="The file it is filed as" required hint="Only evidence rows with a file attached can be placed.">
             <Select value={evidenceId} onChange={(e) => setEvidenceId(e.target.value)}>
               <option value="">Choose an evidence row…</option>
               {candidates.map((e) => (
@@ -352,8 +353,9 @@ function VisitModal({
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button
-            disabled={busy || !title.trim() || !surveyor.trim()}
+          <SubmitButton
+            busy={busy}
+            needs={[...(title.trim() ? [] : ['Title']), ...(surveyor.trim() ? [] : ['Surveyor'])]}
             onClick={() =>
               onSubmit({
                 title,
@@ -369,12 +371,12 @@ function VisitModal({
             }
           >
             Record
-          </Button>
+          </SubmitButton>
         </>
       }
     >
       <div className="space-y-3">
-        <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Condition walk, towers A and B" /></Field>
+        <Field label="Title" required><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Condition walk, towers A and B" /></Field>
         <Field label="Purpose" hint={CAPTURE_PURPOSE_NOTE[purpose]}>
           <Select value={purpose} onChange={(e) => setPurpose(e.target.value as CapturePurpose)}>
             {CAPTURE_PURPOSES.map((p) => (
@@ -391,7 +393,7 @@ function VisitModal({
               <option value="aborted">Aborted — could not inspect</option>
             </Select>
           </Field>
-          <Field label="Surveyor" hint="A report has to say who looked."><Input value={surveyor} onChange={(e) => setSurveyor(e.target.value)} /></Field>
+          <Field label="Surveyor" required hint="A report has to say who looked."><Input value={surveyor} onChange={(e) => setSurveyor(e.target.value)} /></Field>
           <Field label="Accompanied by"><Input value={accompaniedBy} onChange={(e) => setAccompaniedBy(e.target.value)} /></Field>
         </div>
         <Field label="Conditions" hint="Heavy rain means no report on ponding. Recorded because it limits what the visit can say.">

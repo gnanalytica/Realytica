@@ -253,11 +253,44 @@ export function findingCriticSitting(
   };
 }
 
+/**
+ * Whether the file knows anything about the property yet.
+ *
+ * The first branch below used to test `assets.length === 0` and then say
+ * "Nothing on the file to diligence yet" — a claim about the whole file made
+ * on the strength of one list being empty. Once the create form started
+ * collecting the plot area, the area being valued and the survey number, and
+ * the file opened on its own indicative figure, that sentence was rendered
+ * beside ₹10.97 Cr and a filled-in property. Two panes, side by side, one of
+ * them wrong.
+ *
+ * So the condition now tests what the sentence actually claims. A file with a
+ * measurement, a survey number, a document or a valuation on it is not bare,
+ * whether or not anybody has named an asset — and the next useful move there
+ * is to start the diligence, which the branch below already offers and which
+ * targets the project when no asset exists.
+ *
+ * Deliberately excludes the address and the coordinate: both can be filled in
+ * by the geocoder from the city and locality the form already required, so a
+ * file would stop being bare without anybody having told it anything.
+ */
+export function fileIsBare(project: DdProject): boolean {
+  return (
+    project.assets.length === 0 &&
+    (project.evidence ?? []).length === 0 &&
+    (project.valuationRuns ?? []).length === 0 &&
+    project.landAreaSqm === undefined &&
+    project.saleableAreaSqm === undefined &&
+    project.builtUpAreaSqm === undefined &&
+    !project.parcelId?.trim()
+  );
+}
+
 export function projectNextStep(project: DdProject, actor = 'operator'): NextStep {
   ensureProjectShape(project);
   const owner = project.owner || actor;
 
-  if (project.assets.length === 0) {
+  if (fileIsBare(project)) {
     const hint = suggestedAssets(project)[0] ?? { name: 'Land parcel', assetType: 'Land' };
     const card = createChatProposal(
       'add_asset',

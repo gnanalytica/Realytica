@@ -10,7 +10,7 @@ export interface ProjectOutlet {
   refresh: () => Promise<void>;
   setProject: (next: DdProject) => void;
   pinnedProposals?: ChatProposal[];
-  onApproveProposal?: (id: string) => void;
+  onApproveProposal?: (id: string, payload?: Record<string, unknown>) => void;
   onSkipProposal?: (id: string) => void;
   proposalBusy?: boolean;
   highlightIds?: string[];

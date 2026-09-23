@@ -61,7 +61,7 @@ export function SittingDock({
   compact?: boolean;
   onClose: () => void;
   onOpen: (pane: ProjectCockpitPane, extra?: CockpitPathExtra) => void;
-  onApprove: (id: string) => void;
+  onApprove: (id: string, payload?: Record<string, unknown>) => void;
   onSkip: (id: string) => void;
   onProject: (next: DdProject) => void;
 }) {
@@ -116,7 +116,7 @@ function CheckPeek({
   busy?: boolean;
   compact?: boolean;
   onOpen: (pane: ProjectCockpitPane, extra?: CockpitPathExtra) => void;
-  onApprove: (id: string) => void;
+  onApprove: (id: string, payload?: Record<string, unknown>) => void;
   onSkip: (id: string) => void;
   onProject: (next: DdProject) => void;
 }) {

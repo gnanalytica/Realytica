@@ -341,6 +341,41 @@ export function ProjectGraphCanvas({
     if (size.width > 0) setView(fitLegible(layout.bounds, size.width, size.height));
   }, [layout, size.width, size.height]);
 
+  /*
+   * Keyboard focus pans the canvas.
+   *
+   * The canvas clips and the cards are real buttons, so Tab reaches every one
+   * of them whether or not it is on screen — and eight of them were not.
+   * Measured at 1280px on a file with a long chat history: eight cards sat
+   * between x=1237 and x=1374, past the right edge of a pane that does not
+   * scroll, so tabbing to one moved the focus ring somewhere the reader
+   * cannot see. Dragging is the sighted way out of that and it is not a
+   * keyboard gesture. This is: focus something off the edge and the view
+   * comes to it, with a margin so the card is not flush against the rim.
+   */
+  const revealOnFocus = useCallback(
+    (x: number, y: number) => {
+      if (size.width <= 0) return;
+      const margin = 24;
+      setView((v) => {
+        const left = x * v.k + v.x;
+        const top = y * v.k + v.y;
+        const right = left + NODE_W * v.k;
+        const bottom = top + NODE_H * v.k;
+        let dx = 0;
+        let dy = 0;
+        if (left < margin) dx = margin - left;
+        else if (right > size.width - margin) dx = size.width - margin - right;
+        if (top < margin) dy = margin - top;
+        else if (bottom > size.height - margin) dy = size.height - margin - bottom;
+        if (dx === 0 && dy === 0) return v;
+        adjustedRef.current = true;
+        return { ...v, x: v.x + dx, y: v.y + dy };
+      });
+    },
+    [size.width, size.height],
+  );
+
   const zoomByCentre = useCallback(
     (factor: number) => {
       adjustedRef.current = true;
@@ -506,6 +541,7 @@ export function ProjectGraphCanvas({
                       key={node.id}
                       type="button"
                       onPointerDown={(e) => e.stopPropagation()}
+                      onFocus={() => revealOnFocus(x, y)}
                       onClick={() => select(node.id)}
                       title={more ? `${node.label} — ${more} more connected` : node.label}
                       className={cn(

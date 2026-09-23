@@ -55,7 +55,7 @@ export function FieldAdvise({
         if (!portal) return null;
         return (
           <div className="rounded-md bg-sunken px-2.5 py-2 ring-1 ring-inset ring-[var(--ring)]">
-            <p className="text-[12px] font-medium text-ink-muted">Obtain on this sitting</p>
+            <p className="text-[12px] font-medium text-ink-muted">Where to obtain it</p>
             {portal.url ? (
               <a
                 href={portal.url}

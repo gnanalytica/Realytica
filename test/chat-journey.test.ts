@@ -164,6 +164,14 @@ describe('commands that used to land in the wrong place', () => {
     assert.equal(row?.status, 'requested');
   });
 
+  it('"add evidence: …" for a document already filed says so, instead of offering portals', () => {
+    const project = readFile();
+    const out = applyProjectChat(project, 'add evidence: sale deed');
+    assert.match(out.assistantTurn.text, /already on the register/);
+    assert.ok(!/places to get this/.test(out.assistantTurn.text));
+    assert.equal(project.evidence.filter((e) => /sale deed/i.test(e.title)).length, 1, 'no duplicate row');
+  });
+
   it('"open the evidence register" opens the register, not a check that mentions one', () => {
     const project = readFile();
     createAssessment(project, { ddType: 'acquisition', name: 'Acquisition', owner: 'tester', targetType: 'project' });

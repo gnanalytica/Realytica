@@ -8,6 +8,7 @@ import {
   isProjectCockpitPane,
   hasSpokenConversation,
   paneFromProjectPath,
+  fileIsBare,
   projectNextStep,
   paneForTalk,
   sittingFromCitedId,
@@ -61,7 +62,7 @@ function ProposalCards({
   proposals: ChatProposal[];
   busy: boolean;
   hideIds?: Set<string>;
-  onApprove: (id: string) => void;
+  onApprove: (id: string, payload?: Record<string, unknown>) => void;
   onSkip: (id: string) => void;
 }) {
   const rows = (turn.proposalIds ?? [])
@@ -387,11 +388,13 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   );
 
   const handleProposal = useCallback(
-    async (id: string, action: 'commit' | 'reject') => {
+    // `payload` carries a card the person opened and corrected in the wizard;
+    // absent, the card files exactly as it was proposed.
+    async (id: string, action: 'commit' | 'reject', payload?: Record<string, unknown>) => {
       setAsking(true);
       try {
         const response =
-          action === 'commit' ? await api.commitChatProposal(project.id, id) : await api.rejectChatProposal(project.id, id);
+          action === 'commit' ? await api.commitChatProposal(project.id, id, payload) : await api.rejectChatProposal(project.id, id);
         applyResult(response);
       } finally {
         setAsking(false);
@@ -435,7 +438,11 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     if (filed === 0) {
       // A file with nothing on it: the fastest way to see what this does is
       // the bundled sample set, read through the same path as a real upload.
-      rows.push('Use the sample documents', 'What can you do?', 'What documents do I need?');
+      rows.push('Use the sample documents');
+      // Same predicate as the next step itself, so the chip and the step
+      // never disagree about whether the file is bare.
+      if (fileIsBare(project)) rows.push(next.title);
+      rows.push('What can you do?', 'What documents do I need?');
     } else {
       rows.push('Summarise this file');
       if (material) rows.push('Which findings are critical?');
@@ -445,7 +452,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     if (pendingDrafts) rows.push('Review pending drafts');
     if (!rows.includes("What's next?") && rows.length < 4) rows.push("What's next?");
     return [...new Set(rows)].slice(0, 4);
-  }, [project.chatProposals, project.evidence, project.findings, project.reports, pendingDrafts]);
+  }, [project, next.title, pendingDrafts]);
 
   /**
    * The dock is a pointer to something not on screen. When the work pane is
@@ -476,7 +483,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     ...outlet,
     highlightIds,
     pinnedProposals: project.chatProposals ?? [],
-    onApproveProposal: (id) => void handleProposal(id, 'commit'),
+    onApproveProposal: (id, payload) => void handleProposal(id, 'commit', payload),
     onSkipProposal: (id) => void handleProposal(id, 'reject'),
     proposalBusy: asking,
     onOpenCited: openCited,
@@ -530,7 +537,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             compact={isDesktop}
             onClose={() => setDockTalk(null)}
             onOpen={goPane}
-            onApprove={(id) => void handleProposal(id, 'commit')}
+            onApprove={(id, payload) => void handleProposal(id, 'commit', payload)}
             onSkip={(id) => void handleProposal(id, 'reject')}
             onProject={setProject}
           />
@@ -551,7 +558,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               proposals={project.chatProposals ?? []}
               busy={asking}
               hideIds={dockCardIds}
-              onApprove={(id) => void handleProposal(id, 'commit')}
+              onApprove={(id, payload) => void handleProposal(id, 'commit', payload)}
               onSkip={(id) => void handleProposal(id, 'reject')}
             />
           </>

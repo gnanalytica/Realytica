@@ -325,6 +325,7 @@ export default function ScopeWorkspace() {
               className="-ml-1.5"
               project={project}
               targetId={check.id}
+              subject={check.title}
               owner={check.owner}
               onAssigned={setProject}
             />

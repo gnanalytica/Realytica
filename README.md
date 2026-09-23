@@ -296,6 +296,9 @@ realytica/
 │   │       │                market research · diligence planner
 │   │       ├── knowledge/   Karnataka proof-route corpus
 │   │       └── orchestrator.ts
+│   ├── site-intel/          @realytica/site-intel — Kshetra's engine: a survey number in,
+│   │   └── src/             the parcel, the state's layers around it, factors, guidance rate out
+│   │                        (TGRAC / K-GIS, Telangana + Bengaluru region; see docs/design/2026-09-08)
 │   └── shared/              @realytica/shared — domain contract + screening engine
 │       └── src/
 │           ├── types.ts     the frozen domain model both apps build against
@@ -309,6 +312,21 @@ country-agnostic; India and the Netherlands each supply a country pack (currency
 expected documents, statutory rate basis, transaction taxes, registry names), and each locality
 supplies market data (median price per m², statutory rate, yield, liquidity, zoning, FAR,
 replacement cost, an eight-quarter trend).
+
+### The revenue map (Kshetra)
+
+The GIS overlay card can read the state's own cadastre for the survey number
+on the file: pick state → district → mandal/taluk → village, give the survey
+number, and the parcel is drawn from TGRAC (Telangana) or K-GIS (Karnataka)
+with the government layers around it — tanks, nalas, flood lines, alignments,
+master-plan zoning, the prohibited register — and the published guidance value.
+That engine is Kshetra (`gnanalytica/kshetra`), vendored as
+`packages/site-intel`. What it produces is a **record**: a government layer
+read by machine, stronger than OSM context, never evidence until a person
+files the extract, and never allowed to overwrite a surveyor's outline. The
+value band it computes for itself does not cross over; Realytica prices with
+its own model. Design note and the three decisions behind it:
+[`docs/design/2026-09-08-kshetra-revenue-map.md`](docs/design/2026-09-08-kshetra-revenue-map.md).
 
 ### The Karnataka / Bengaluru State Pack
 

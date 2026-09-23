@@ -332,7 +332,11 @@ export function ScreenResultPanel({
                         ),
                       }}
                     >
-                      {money(anchor.low, currency, { compact: true })} – {money(anchor.high, currency, { compact: true })}
+                      {/* "₹0 – ₹0" is not a narrow range, it is an anchor
+                          that found nothing, and it read as the former. */}
+                      {anchor.high > 0
+                        ? `${money(anchor.low, currency, { compact: true })} – ${money(anchor.high, currency, { compact: true })}`
+                        : 'no figure'}
                     </FormulaTip>
                   </span>
                 </div>
