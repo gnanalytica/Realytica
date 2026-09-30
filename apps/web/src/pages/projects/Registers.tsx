@@ -45,6 +45,14 @@ const EVIDENCE_STATUSES = Object.keys(EVIDENCE_STATUS_LABEL) as EvidenceStatus[]
 const FINDING_STATUSES = Object.keys(FINDING_STATUS_LABEL) as FindingStatus[];
 
 const GAP_STATUSES: EvidenceStatus[] = ['expected', 'requested', 'missing'];
+const FILED_STATUSES: EvidenceStatus[] = ['received', 'validated', 'used'];
+
+/** A document somebody has actually put on the file. */
+function isFiled(e: { status: EvidenceStatus; attachments: unknown[] }): boolean {
+  return FILED_STATUSES.includes(e.status) || (e.attachments.length > 0 && e.status !== 'rejected');
+}
+
+type RegisterFilter = 'all' | 'gaps' | 'filed' | EvidenceStatus;
 
 const BULK_STATUSES = ['requested', 'received', 'validated', 'missing'] satisfies EvidenceStatus[];
 
@@ -55,11 +63,15 @@ export function EvidenceRegister() {
   const assessmentId = searchParams.get('dd') ?? undefined;
   const focusId = searchParams.get('evidence') ?? undefined;
   const focusPage = searchParams.get('page');
-  const [statusFilter, setStatusFilter] = useStickyState<'all' | 'gaps' | EvidenceStatus>(
+  /*
+   * A file with documents on it opens on them; one with none opens on what is
+   * missing. Either way the choice sticks per project once somebody makes it.
+   */
+  const [statusFilter, setStatusFilter] = useStickyState<RegisterFilter>(
     project.id,
     'evidenceStatus',
-    'gaps',
-    (v) => v === 'all' || v === 'gaps' || (EVIDENCE_STATUSES as string[]).includes(v),
+    project.evidence.some(isFiled) ? 'filed' : 'gaps',
+    (v) => v === 'all' || v === 'gaps' || v === 'filed' || (EVIDENCE_STATUSES as string[]).includes(v),
   );
   const [query, setQuery] = useState('');
   // Not sticky, unlike the status filter: "mine" is a question somebody asks
@@ -77,7 +89,8 @@ export function EvidenceRegister() {
   const rows = scoped.filter((e) => {
     if (focusId && e.id === focusId) return true;
     if (statusFilter === 'gaps' && !GAP_STATUSES.includes(e.status)) return false;
-    if (statusFilter !== 'all' && statusFilter !== 'gaps' && e.status !== statusFilter) return false;
+    if (statusFilter === 'filed' && !isFiled(e)) return false;
+    if (statusFilter !== 'all' && statusFilter !== 'gaps' && statusFilter !== 'filed' && e.status !== statusFilter) return false;
     if (query.trim() && !e.title.toLowerCase().includes(query.trim().toLowerCase())) return false;
     if (mineOnly && !(me && ownedBy(e.owner, me))) return false;
     return true;
@@ -109,9 +122,11 @@ export function EvidenceRegister() {
   const narrowing = [
     ...(statusFilter === 'gaps'
       ? ['outstanding']
-      : statusFilter === 'all'
-        ? []
-        : [EVIDENCE_STATUS_LABEL[statusFilter].toLowerCase()]),
+      : statusFilter === 'filed'
+        ? ['on file']
+        : statusFilter === 'all'
+          ? []
+          : [EVIDENCE_STATUS_LABEL[statusFilter].toLowerCase()]),
     ...(query.trim() ? [`a match for \u201c${query.trim()}\u201d`] : []),
     ...(mineOnly ? ['yours'] : []),
   ];
@@ -247,6 +262,7 @@ export function EvidenceRegister() {
           onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
           className="w-full max-w-xs sm:w-48"
         >
+          <option value="filed">On file ({scoped.filter(isFiled).length})</option>
           <option value="gaps">Gaps ({scoped.filter((e) => GAP_STATUSES.includes(e.status)).length})</option>
           <option value="all">All ({scoped.length})</option>
           {EVIDENCE_STATUSES.map((s) => (
