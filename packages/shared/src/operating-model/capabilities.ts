@@ -77,6 +77,7 @@ export function patchProject(project: DdProject, input: PatchProjectInput, actor
   if (input.tenure !== undefined) project.tenure = input.tenure;
   if (input.plot !== undefined) project.plot = input.plot;
   if (input.karnataka !== undefined) project.karnataka = input.karnataka;
+  if (input.engagement !== undefined) project.engagement = input.engagement;
   touch(project, at);
   project.audit.push({
     id: id('aud'),
@@ -141,7 +142,9 @@ export function matchProjectLocality(project: DdProject, localities = REFERENCE_
   if (byName) return byName;
   const byCity = localities.find((l) => l.city.toLowerCase() === city);
   if (byCity) return byCity;
-  return localities.find((l) => l.city.toLowerCase().includes(city.slice(0, 6))) ?? localities[0];
+  // No fallback. Handing an unmatched city the first row in the table gave a
+  // Hosakote project Whitefield's figures with nothing on the page to say so.
+  return localities.find((l) => l.city.toLowerCase().includes(city.slice(0, 6)));
 }
 
 function inr(n: number): string {
@@ -160,8 +163,11 @@ function defaultPremise(project: DdProject): ValuationPremise {
 
 export function computeIndicativeValuation(project: DdProject, actor = 'operator'): Omit<ValuationRun, 'id' | 'createdAt' | 'createdBy' | 'status' | 'signOff'> {
   ensureProjectShape(project);
-  const locality = matchProjectLocality(project);
-  const working = runValuationApproaches(project, locality ?? undefined);
+  // No locality table. Its rates are illustrative, not market data, so an
+  // approach runs only on rates somebody recorded on the comparable-inputs
+  // check; with none, the run says which inputs are missing and gives no
+  // figure.
+  const working = runValuationApproaches(project, undefined);
   const { reconciliation } = working;
 
   const relied = project.evidence.filter((e) => e.used);
@@ -173,8 +179,6 @@ export function computeIndicativeValuation(project: DdProject, actor = 'operator
   const comparable = working.runs.find((r) => r.method === 'comparable_rate');
 
   return {
-    localityId: locality?.id,
-    localityLabel: locality ? `${locality.locality}, ${locality.city}` : undefined,
     // Kept for the readers that predate the working. Each is the amount of the
     // approach that produced it, or undefined when that approach did not run —
     // never a partial figure standing in for one that failed.
@@ -377,7 +381,6 @@ export function setValuationSignOff(project: DdProject, runId: string, signOff: 
 export function computeCapabilityRuns(project: DdProject): CapabilityRun[] {
   ensureProjectShape(project);
   const at = nowIso();
-  const locality = matchProjectLocality(project);
   const latestVal = project.valuationRuns[project.valuationRuns.length - 1];
   const costFindings = project.findings.filter((f) => f.discipline === 'cost_quantity' && f.status !== 'closed' && f.status !== 'rejected');
   const costRisks = project.risks.filter((r) => r.category === 'cost' && r.status !== 'closed');
@@ -387,15 +390,18 @@ export function computeCapabilityRuns(project: DdProject): CapabilityRun[] {
   const saleable = project.saleableAreaSqm || project.builtUpAreaSqm || 0;
   const impliedPsm = saleable && latestVal ? latestVal.indicatedValue / saleable : 0;
 
+  const valued = latestVal && latestVal.indicatedValue > 0 ? latestVal : undefined;
   return [
     {
       kind: 'valuation',
-      status: latestVal ? 'computed' : 'not_run',
-      summary: latestVal
-        ? `Indicative ${inr(latestVal.indicatedValue)} (${latestVal.ibbi.premise}, ${latestVal.signOff.split('_').join(' ')}).`
-        : 'No valuation run yet. Compute from project areas and locality medians.',
+      status: valued ? 'computed' : 'not_run',
+      summary: valued
+        ? `Indicative ${inr(valued.indicatedValue)} (${valued.ibbi.premise}, ${valued.signOff.split('_').join(' ')}).`
+        : latestVal
+          ? 'The last valuation run gave no figure: no approach had all of its inputs. Record rates on the Value tab.'
+          : 'No valuation run yet. Record rates on the Value tab, then run it.',
       metrics: {
-        indicated: latestVal ? Math.round(latestVal.indicatedValue) : 0,
+        indicated: valued ? Math.round(valued.indicatedValue) : 0,
         runs: project.valuationRuns.length,
       },
       updatedAt: latestVal?.createdAt ?? at,
@@ -426,27 +432,26 @@ export function computeCapabilityRuns(project: DdProject): CapabilityRun[] {
     },
     {
       kind: 'market',
-      status: locality ? 'computed' : 'not_run',
-      summary: locality
-        ? `${locality.locality}: median ${inr(locality.medianPricePerSqm)}/sqm, yield ${(locality.grossYield * 100).toFixed(1)}%, liquidity ${locality.liquidityDays} days. ${marketFindings.length} open market findings.`
-        : 'No locality match for market comparables.',
+      status: 'not_run',
+      // No market dataset is connected. The locality table this used to quote
+      // is illustrative, and a median from it is not evidence about this site.
+      summary: `No market data on file. Record comparables on the Value tab. ${marketFindings.length} open market findings.`,
       metrics: {
-        medianPsm: locality?.medianPricePerSqm ?? 0,
-        yieldPct: locality ? Math.round(locality.grossYield * 1000) / 10 : 0,
+        medianPsm: 0,
+        yieldPct: 0,
         openFindings: marketFindings.length,
       },
       updatedAt: at,
     },
     {
       kind: 'benchmarking',
-      status: impliedPsm && locality ? 'computed' : 'not_run',
-      summary:
-        impliedPsm && locality
-          ? `Indication ${inr(impliedPsm)}/sqm vs locality median ${inr(locality.medianPricePerSqm)}/sqm (${Math.round((impliedPsm / locality.medianPricePerSqm - 1) * 100)}%).`
-          : 'Run valuation with saleable/BUA area to benchmark against the locality.',
+      status: 'not_run',
+      summary: impliedPsm
+        ? `Indication ${inr(impliedPsm)}/sqm. No market benchmark on file to compare it with.`
+        : 'Run a valuation with a saleable or built-up area first.',
       metrics: {
         impliedPsm: Math.round(impliedPsm),
-        localityPsm: locality?.medianPricePerSqm ?? 0,
+        localityPsm: 0,
       },
       updatedAt: at,
     },

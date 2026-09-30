@@ -85,7 +85,7 @@ export default function ProjectList() {
             Refresh
           </Button>
           <Button icon={<Plus size={14} />} onClick={() => navigate('/projects/new')}>
-            New project
+            New engagement
           </Button>
         </div>
       </div>
@@ -131,7 +131,7 @@ export default function ProjectList() {
                 <h2 className="text-[12px] font-semibold text-ink-secondary">{group}</h2>
               ) : null}
               {rows.map((p) => (
-                <Link key={p.id} to={`/projects/${p.id}`} className="block">
+                <Link key={p.id} to={`/projects/${p.id}/dashboard`} className="block">
                   <Card className="transition-colors hover:bg-sunken/60">
                     <CardBody className="flex flex-wrap items-start justify-between gap-3">
                       <div>

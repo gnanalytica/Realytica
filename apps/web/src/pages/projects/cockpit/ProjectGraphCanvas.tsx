@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Maximize2, Minus, Plus, X } from 'lucide-react';
-import { buildProjectGraph, extractProjectSubgraph, findProjectNodes, type DdProject, type ProjectGraphEdge, type ProjectGraphNode } from '@realytica/shared';
+import { ExternalLink, GitBranch, Maximize2, Minus, Plus, X } from 'lucide-react';
+import { buildProjectGraph, extractProjectSubgraph, findProjectNodes, traceProjectNode, type DdProject, type ProjectGraphEdge, type ProjectGraphNode } from '@realytica/shared';
 import { Badge, cn } from '../../../components/ui/kit';
 import { computeFit, zoomAbout, MAX_ZOOM, MIN_ZOOM } from '../../../components/canvas/Canvas';
 import type { Transform } from '../../../components/canvas/Canvas';
@@ -205,12 +205,41 @@ export function ProjectGraphCanvas({
   project,
   focusId,
   onSelect,
+  onOpen,
 }: {
   project: DdProject;
   focusId?: string | null;
   onSelect?: (id: string | null) => void;
+  /** Open the record a node stands for, in its own view. */
+  onOpen?: (id: string) => void;
 }) {
   const graph = useMemo(() => buildProjectGraph(project), [project]);
+  /*
+   * "Why is this here?": the node and everything it rests on, walked down to
+   * the documents, and nothing else. A finding's trace is the check that
+   * raised it, the evidence that check cited, the page that evidence is.
+   */
+  const [traceId, setTraceId] = useState<string | null>(null);
+  /*
+   * Documents the file is still waiting for are left out of the trace. A
+   * check can expect two hundred papers; drawing every placeholder buries the
+   * three that were actually filed and relied on. The count of what was left
+   * out is said instead.
+   */
+  const { trace, placeholdersHidden } = useMemo(() => {
+    if (!traceId) return { trace: null, placeholdersHidden: 0 };
+    const cone = traceProjectNode(graph, traceId);
+    if (!cone) return { trace: null, placeholdersHidden: 0 };
+    const waiting = new Set(
+      project.evidence.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested').map((e) => e.id),
+    );
+    const nodes = cone.nodes.filter((n) => n.id === traceId || !waiting.has(n.id));
+    const kept = new Set(nodes.map((n) => n.id));
+    return {
+      trace: { nodes, edges: cone.edges.filter((e) => kept.has(e.from) && kept.has(e.to)) },
+      placeholdersHidden: cone.nodes.length - nodes.length,
+    };
+  }, [graph, traceId, project.evidence]);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(focusId ?? null);
 
@@ -265,8 +294,8 @@ export function ProjectGraphCanvas({
   /* A search reaches past what has been opened — otherwise it can only find
      what is already on screen, which is not a search. */
   const visible = useMemo(
-    () => extractProjectSubgraph(graph, [...expanded, ...matches], 1),
-    [graph, expanded, matches],
+    () => trace ?? extractProjectSubgraph(graph, [...expanded, ...matches], 1),
+    [graph, expanded, matches, trace],
   );
 
   const layout = useMemo(() => layoutGraph(visible.nodes), [visible.nodes]);
@@ -398,6 +427,7 @@ export function ProjectGraphCanvas({
   function resetToProject() {
     setExpanded([project.id]);
     setSelectedId(null);
+    setTraceId(null);
     setQuery('');
     onSelect?.(null);
   }
@@ -414,6 +444,15 @@ export function ProjectGraphCanvas({
           {visible.nodes.length} of {graph.nodes.length} nodes · {visible.edges.length} of {graph.edges.length} links ·
           {' '}click a node to open what it touches
         </p>
+        {trace ? (
+          <span className="rounded-md bg-brand-soft px-2 py-1 text-[12px] text-brand">
+            Tracing {graph.nodes.find((n) => n.id === traceId)?.label ?? 'a node'} down to its documents
+            {placeholdersHidden ? ` · ${placeholdersHidden} documents still expected, not shown` : ''}
+            <button type="button" onClick={() => setTraceId(null)} className="ml-2 font-medium underline">
+              Show the file
+            </button>
+          </span>
+        ) : null}
         {visible.nodes.length < graph.nodes.length || expanded.length > 1 ? (
           <button
             type="button"
@@ -623,6 +662,28 @@ export function ProjectGraphCanvas({
               <button type="button" aria-label="Close inspector" onClick={() => select(null)} className="rounded p-1 text-ink-muted hover:bg-sunken">
                 <X size={14} />
               </button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setTraceId(traceId === selected.id ? null : selected.id)}
+                aria-pressed={traceId === selected.id}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken',
+                  traceId === selected.id ? 'bg-brand-soft text-brand' : 'text-ink-secondary',
+                )}
+              >
+                <GitBranch size={12} /> Why is this here?
+              </button>
+              {onOpen && selected.kind !== 'project' ? (
+                <button
+                  type="button"
+                  onClick={() => onOpen(selected.id)}
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken"
+                >
+                  <ExternalLink size={12} /> Open
+                </button>
+              ) : null}
             </div>
             <ul className="mt-3 space-y-1">
               {selectedEdges.map((e) => (

@@ -61,6 +61,16 @@ export interface DocumentFact {
   page: number;
   /** The words themselves, clipped at a sentence. Never rewritten. */
   quote: string;
+  /**
+   * The value exactly as the page writes it, when the page is not in English:
+   * a Kannada owner's name beside its transliteration. Never instead of
+   * `value`, because two Kannada names can romanise identically and the
+   * register a lawyer checks holds the original.
+   */
+  originalValue?: string;
+  originalScript?: import('../script').DocScript;
+  /** Who read it: this server's parser, or a model whose page was verified. */
+  source?: 'parser' | 'model';
 }
 
 /** Something a first read should raise, with the words that raise it. */

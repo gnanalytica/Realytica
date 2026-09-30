@@ -27,19 +27,19 @@ import { cn } from '../../../components/ui/kit';
 import { useMe } from '../../../lib/useMe';
 
 /**
- * Navigation in two rows rather than thirteen chips.
+ * Eight views, one row.
  *
- * The first row is the five things a file is: what it looks like, what is
- * being assessed, what has been recorded, what it is worth, what goes out.
- * The second row is where you are inside that — sub-tabs for most sections,
- * and for Assess the actual assessment and its scopes, because "which DD am
- * I in" is a navigation question, not a page.
+ * The workspace is a conversation beside a canvas, and the canvas has eight
+ * views: what the file is, its documents, the site, its value, the technical
+ * DD, the people on it, the report, and the graph behind all of them. Only
+ * Technical DD and Report carry a second row, for the registers and drafts
+ * that belong to them.
  *
- * Every pane keeps its route. Consolidation here is about what is on screen
- * at once, not about removing surfaces.
+ * Every pane keeps its route. Auto-run is still reachable by address and from
+ * the command bar; it is not a view a firm opens during an engagement.
  */
 
-export type CockpitSectionKey = 'overview' | 'assess' | 'records' | 'valuation' | 'report';
+export type CockpitSectionKey = 'overview' | 'documents' | 'site' | 'value' | 'tdd' | 'people' | 'report' | 'graph';
 
 export interface CockpitTab {
   pane: ProjectCockpitPane;
@@ -56,48 +56,29 @@ export interface CockpitSection {
   /** Where the section opens. */
   home: ProjectCockpitPane;
   tabs: CockpitTab[];
+  /** Only for staff; a collaborator asking for it gets a 404. */
+  staffOnly?: boolean;
 }
 
 export const SECTIONS: CockpitSection[] = [
+  { key: 'overview', label: 'Overview', icon: LayoutDashboard, home: 'overview', tabs: [{ pane: 'overview', label: 'Overview', icon: LayoutDashboard }] },
+  { key: 'documents', label: 'Documents', icon: FileStack, home: 'evidence', tabs: [{ pane: 'evidence', label: 'Documents', icon: FileStack }] },
+  { key: 'site', label: 'Site', icon: Camera, home: 'visits', tabs: [{ pane: 'visits', label: 'Site', icon: Camera }] },
+  { key: 'value', label: 'Value', icon: CircleDollarSign, home: 'valuation', tabs: [{ pane: 'valuation', label: 'Value', icon: CircleDollarSign }] },
   {
-    key: 'overview',
-    label: 'Overview',
-    icon: LayoutDashboard,
-    home: 'overview',
-    tabs: [
-      { pane: 'overview', label: 'Summary', icon: LayoutDashboard },
-      { pane: 'graph', label: 'Graph', icon: Waypoints },
-      { pane: 'people', label: 'People', icon: Users },
-    ],
-  },
-  {
-    key: 'assess',
-    label: 'Assess',
+    key: 'tdd',
+    label: 'Technical DD',
     icon: ClipboardList,
     home: 'dd',
-    tabs: [{ pane: 'dd', label: 'Assessments', icon: ClipboardList, also: ['scope'] }],
-  },
-  {
-    key: 'records',
-    label: 'Records',
-    icon: FileStack,
-    home: 'evidence',
     tabs: [
-      { pane: 'evidence', label: 'Evidence', icon: FileStack },
-      { pane: 'visits', label: 'Site', icon: Camera },
+      { pane: 'dd', label: 'Checks', icon: ClipboardList, also: ['scope'] },
       { pane: 'findings', label: 'Findings', icon: Search },
-      { pane: 'risks', label: 'Risks', icon: GitBranch, also: ['actions'] },
+      { pane: 'risks', label: 'Risks and actions', icon: GitBranch, also: ['actions'] },
       { pane: 'decisions', label: 'Decisions', icon: Scale },
       { pane: 'assets', label: 'Assets', icon: Building2 },
     ],
   },
-  {
-    key: 'valuation',
-    label: 'Value',
-    icon: CircleDollarSign,
-    home: 'valuation',
-    tabs: [{ pane: 'valuation', label: 'Valuation', icon: CircleDollarSign }],
-  },
+  { key: 'people', label: 'People', icon: Users, home: 'people', staffOnly: true, tabs: [{ pane: 'people', label: 'People', icon: Users }] },
   {
     key: 'report',
     label: 'Report',
@@ -105,11 +86,15 @@ export const SECTIONS: CockpitSection[] = [
     home: 'reports',
     tabs: [
       { pane: 'reports', label: 'Reports', icon: FileText },
-      { pane: 'drafts', label: 'Drafts', icon: Sparkles },
+      { pane: 'drafts', label: 'AI drafts', icon: Sparkles },
       { pane: 'orchestrate', label: 'Auto-run', icon: Workflow },
     ],
   },
+  { key: 'graph', label: 'Graph', icon: Waypoints, home: 'graph', tabs: [{ pane: 'graph', label: 'Graph', icon: Waypoints }] },
 ];
+
+/** Tabs a section shows in its second row: Auto-run is reachable, not listed. */
+const HIDDEN_TABS: ReadonlySet<ProjectCockpitPane> = new Set(['orchestrate']);
 
 const TABS = SECTIONS.flatMap((s) => s.tabs.map((t) => ({ section: s, tab: t })));
 
@@ -129,7 +114,8 @@ export function paneLabel(pane: ProjectCockpitPane): string {
   // Overview), the standalone name is the section's.
   if (pane === 'overview') return 'Overview';
   if (pane === 'scope') return 'Scope';
-  if (pane === 'actions') return 'Risks & actions';
+  if (pane === 'actions') return 'Risks and actions';
+  if (pane === 'dd') return 'Technical DD';
   return tabHolding(pane).tab.label;
 }
 
@@ -276,15 +262,16 @@ export function CockpitPaneStrip({
   // Who else is on a file is the workspace's business. A collaborator asking
   // for it gets a 404, so showing them the tab would only be an invitation to
   // find that out.
-  const tabs = here.tabs.filter((t) => t.pane !== 'people' || (me ? reachesEveryProject(me.role) : false));
+  const staff = me ? reachesEveryProject(me.role) : false;
+  const sections = SECTIONS.filter((section) => !section.staffOnly || staff);
+  const tabs = here.tabs.filter((t) => !HIDDEN_TABS.has(t.pane) || t.pane === pane);
 
   return (
     <div className={cn('shrink-0 border-b border-hairline bg-surface', wrap ? 'px-4' : 'px-3')}>
       {/* The rule the tabs sit on. The active one joins it; the rest stop short. */}
       <div className="border-b border-hairline pt-1">
       <ChipScroller wrap={wrap}>
-        {SECTIONS.map((section) => {
-          const Icon = section.icon;
+        {sections.map((section) => {
           const on = section.key === here.key;
           const count = sectionBadge(section, badges);
           return (
@@ -305,13 +292,14 @@ export function CockpitPaneStrip({
                 longer has to compete for a shape.
               */
               className={cn(
-                'inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] -mb-px coarse:min-h-11',
+                'inline-flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2 text-[13px] -mb-px coarse:min-h-11',
                 on
                   ? 'border-brand font-semibold text-brand'
                   : 'border-transparent text-ink-secondary hover:border-hairline hover:text-ink',
               )}
             >
-              <Icon size={13} />
+              {/* Words only: eight icons beside eight words wrapped the row
+                  onto two lines beside a wide conversation. */}
               {section.label}
               {count != null ? <Count n={count} /> : null}
             </button>
@@ -320,11 +308,7 @@ export function CockpitPaneStrip({
       </ChipScroller>
       </div>
 
-      {here.key === 'assess' ? (
-        <div className="py-1.5">
-          <AssessNav project={project} ddId={ddId} scopeId={scopeId} onGo={onGo} wrap={wrap} />
-        </div>
-      ) : tabs.length > 1 ? (
+      {tabs.length > 1 ? (
         <div className="py-1.5">
         <ChipScroller wrap={wrap}>
           {tabs.map((tab) => {
@@ -347,6 +331,12 @@ export function CockpitPaneStrip({
             );
           })}
         </ChipScroller>
+        </div>
+      ) : null}
+      {/* Inside Checks, which assessment and which scope. */}
+      {here.key === 'tdd' && (pane === 'dd' || pane === 'scope') && project.assessments.length > 0 ? (
+        <div className="border-t border-hairline py-1.5">
+          <AssessNav project={project} ddId={ddId} scopeId={scopeId} onGo={onGo} wrap={wrap} />
         </div>
       ) : null}
     </div>

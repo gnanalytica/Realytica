@@ -127,7 +127,7 @@ export function ProjectCommandBar({
     out.push({
       kind: 'do',
       id: 'do:screen',
-      label: 'Run property screen (write findings, risks, valuation)',
+      label: 'Run property screen (write findings, risks and actions from the documents)',
       hint: 'Do',
       run: async () => {
         await api.runProjectScreen(project.id);

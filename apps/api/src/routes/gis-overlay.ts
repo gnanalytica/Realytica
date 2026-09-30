@@ -7,9 +7,12 @@
  */
 
 import { Router } from 'express';
+import { actorOf } from '@realytica/shared';
+import { principalOf } from '../auth/middleware';
 import {
   applyRevenueMap,
   applySurveyBoundary,
+  fileRevenueMapAsEvidence,
   clearRevenueMap,
   clearSurveyBoundary,
   compareProjectGis,
@@ -125,7 +128,8 @@ projectGisOverlayRouter.post<ProjectParams>('/revenue', async (req, res) => {
     res.status(outcome.status).json({ error: outcome.error });
     return;
   }
-  const boundary = applyRevenueMap(project, outcome.read, str(body.actor) || 'operator');
+  // Whoever is signed in reads the map; the body never names them.
+  const boundary = applyRevenueMap(project, outcome.read, actorOf(principalOf(req)));
   noteProjectEdit(
     project,
     `Read the revenue map for Sy. ${outcome.read.surveyNo}, ${[outcome.read.village, outcome.read.mandal].filter(Boolean).join(', ')}.`,
@@ -141,13 +145,36 @@ projectGisOverlayRouter.post<ProjectParams>('/revenue', async (req, res) => {
   });
 });
 
+/**
+ * File the current revenue-map read on the evidence register. A person's
+ * decision, made from the Site tab; the read itself stays a record.
+ */
+projectGisOverlayRouter.post<ProjectParams>('/revenue/file', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    const before = project.evidence.length;
+    const record = fileRevenueMapAsEvidence(project, actorOf(principalOf(req)));
+    if (project.evidence.length > before) {
+      noteProjectEdit(project, `Filed the revenue-map read for Sy. ${project.revenueMap?.surveyNo} as evidence.`, { citedEvidenceIds: [record.id] });
+      await store.save();
+    }
+    res.status(201).json({ evidence: record, project });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Could not file the read' });
+  }
+});
+
 projectGisOverlayRouter.delete<ProjectParams>('/revenue', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  clearRevenueMap(project, 'operator');
+  clearRevenueMap(project, actorOf(principalOf(req)));
   noteProjectEdit(project, 'Cleared the revenue-map read.');
   await store.save();
   res.status(204).end();
@@ -159,14 +186,14 @@ projectGisOverlayRouter.put<ProjectParams>('/survey', async (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  const body = req.body as { fileText?: string; note?: string; actor?: string } | undefined;
+  const body = req.body as { fileText?: string; note?: string } | undefined;
   const fileText = typeof body?.fileText === 'string' ? body.fileText : '';
   if (!fileText.trim()) {
     res.status(400).json({ error: 'Upload a surveyor\'s GeoJSON or KML. A mouse-drawn shape is not a survey.' });
     return;
   }
   try {
-    const boundary = applySurveyBoundary(project, fileText, body?.note, body?.actor?.trim() || 'operator');
+    const boundary = applySurveyBoundary(project, fileText, body?.note, actorOf(principalOf(req)));
     noteProjectEdit(project, 'Supplied a survey outline for the GIS overlay.');
     await store.save();
     res.json({
@@ -185,7 +212,7 @@ projectGisOverlayRouter.delete<ProjectParams>('/survey', async (req, res) => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  clearSurveyBoundary(project, 'operator');
+  clearSurveyBoundary(project, actorOf(principalOf(req)));
   noteProjectEdit(project, 'Cleared the supplied survey outline.');
   await store.save();
   res.status(204).end();

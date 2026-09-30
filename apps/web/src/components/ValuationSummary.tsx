@@ -278,8 +278,9 @@ export function ValuationSummary({
                 {outcome !== 'approaches_disagree' && blockingShown.length > 0 ? (
                   <p className="mt-1 text-[13px] text-ink-secondary">
                     Record {blockingShown.length === 1 ? 'it' : 'them'} on the input sheet
-                    {blocking.length > blockingShown.length ? `, with ${blocking.length - blockingShown.length} more` : ''} —
-                    it proposes what this deployment already holds for this locality, and each proposal says where it came from.
+                    {blocking.length > blockingShown.length ? `, with ${blocking.length - blockingShown.length} more` : ''}:
+                    rates from comparables the firm holds, the published guidance value, or a figure a person can stand behind.
+                    Each input says where it came from.
                   </p>
                 ) : null}
               </>

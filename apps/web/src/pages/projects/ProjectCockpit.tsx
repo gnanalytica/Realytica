@@ -1,7 +1,8 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
+import { ChevronLeft, LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
 import {
+  LIFECYCLE_STAGE_LABEL,
   PROJECT_HEALTH_LABEL,
   cockpitPath,
   graphNodeLabels,
@@ -38,6 +39,7 @@ import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
 import { CockpitPaneStrip, paneLabel } from './cockpit/rail';
 import { SittingChip, SittingDock } from './cockpit/SittingPeek';
 import { ProposalCard } from './cockpit/ProposalCard';
+import { SampleBadge } from '../../components/project/ProjectPanels';
 
 function sameSitting(a: TalkSitting, b: TalkSitting): boolean {
   return (
@@ -403,6 +405,22 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     [project.id, applyResult],
   );
 
+  /*
+   * A question asked from the case dashboard arrives as `?ask=`. It is asked
+   * once, and the parameter is dropped so a reload does not ask it again.
+   */
+  const [, setSearchParams] = useSearchParams();
+  const asked = useRef(false);
+  useEffect(() => {
+    const q = searchParams.get('ask');
+    if (!q || asked.current) return;
+    asked.current = true;
+    setPendingQuestion(q);
+    const next = new URLSearchParams(searchParams);
+    next.delete('ask');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   useEffect(() => {
     if (!pendingQuestion) return;
     const q = pendingQuestion;
@@ -436,9 +454,11 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     ).length;
     if (waiting) rows.push('Approve all');
     if (filed === 0) {
-      // A file with nothing on it: the fastest way to see what this does is
-      // the bundled sample set, read through the same path as a real upload.
-      rows.push('Use the sample documents');
+      // A sample project with nothing on it: the fastest way to see what this
+      // does is the bundled sample set, read through the same path as a real
+      // upload. Never on a client file, where it would put invented deeds
+      // beside real ones.
+      if (project.sample) rows.push('Use the sample documents');
       // Same predicate as the next step itself, so the chip and the step
       // never disagree about whether the file is bare.
       if (fileIsBare(project)) rows.push(next.title);
@@ -637,10 +657,20 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             about the project. What this row is for is the way back and the
             health of the file; the switcher says which file it is.
           */}
-          <Link to="/projects" className="text-[12px] text-ink-secondary hover:text-ink">
-            Projects
+          <Link
+            to={`/projects/${project.id}/dashboard`}
+            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken"
+          >
+            <ChevronLeft size={14} />
+            Dashboard
           </Link>
-          <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
+          {/* The name is the top bar's switcher, forty pixels up; this row
+              carries the way back and the state of the file. */}
+          <div className="flex min-w-0 items-center gap-2">
+            <Badge tone="neutral">{LIFECYCLE_STAGE_LABEL[project.currentStage]}</Badge>
+            <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
+            <SampleBadge project={project} />
+          </div>
           <div className="flex-grow" />
           <button
             type="button"

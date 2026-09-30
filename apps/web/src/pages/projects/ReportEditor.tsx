@@ -26,10 +26,11 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { GripVertical, Link2, Link2Off, Lock, Plus, Trash2 } from 'lucide-react';
+import { Check, FileDown, GripVertical, Link2, Link2Off, Lock, Plus, Printer, Trash2 } from 'lucide-react';
 import {
   REPORT_BOUND_SOURCES,
   REPORT_KIND_LABEL,
+  REPORT_SECTION_STATE_LABEL,
   REPORT_SOURCE_LABEL,
   REPORT_SOURCE_READS,
   isLiveBlock,
@@ -41,9 +42,11 @@ import {
   type ReportBlock,
   type ReportBoundSourceKind,
   type ReportDriftRow,
+  type ReportSectionState,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Callout, InfoTip, Select, cn, useToast } from '../../components/ui/kit';
+import { exportReportDocx } from '../../lib/report-export';
+import { Badge, Button, Callout, Field, InfoTip, Input, Modal, Select, SubmitButton, cn, useToast } from '../../components/ui/kit';
 
 interface Props {
   project: DdProject;
@@ -58,6 +61,11 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
   const frozen = reportIsFrozen(report.status);
   const [busy, setBusy] = useState<string | null>(null);
   const [drift, setDrift] = useState<ReportDriftRow[] | null>(null);
+  const [issuing, setIssuing] = useState(false);
+  const [signerName, setSignerName] = useState(project.engagement?.lead ?? '');
+  const [signerRole, setSignerRole] = useState('');
+  const approved = report.body.blocks.filter((b) => b.state === 'approved').length;
+  const unapproved = report.body.blocks.length - approved;
 
   // The summary is recomputed on every render rather than read off the stored
   // report: it is the document's own reading of itself, and a stale one at the
@@ -102,23 +110,48 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
         <div className="flex shrink-0 items-center gap-2">
           <Badge tone={frozen ? 'neutral' : 'good'}>{frozen ? report.status : 'live'}</Badge>
           <InfoTip label="Sections with a coloured rail read the registers and update as the file does. The rest are your words. Detaching a live section stops it updating, and the report says so." />
+          <Button
+            variant="ghost"
+            icon={<FileDown size={13} />}
+            disabled={busy !== null}
+            onClick={() =>
+              void run('export', () => exportReportDocx(project, report), 'Word document downloaded')
+            }
+          >
+            Word
+          </Button>
+          <Button
+            variant="ghost"
+            icon={<Printer size={13} />}
+            onClick={() => window.open(`/projects/${project.id}/reports/${report.id}/print`, '_blank', 'noopener')}
+          >
+            PDF
+          </Button>
           {!frozen ? (
-            <Button
-              variant="ghost"
-              disabled={busy !== null}
-              onClick={() => {
-                if (!confirm('Issue this report? Every live section freezes at what it says now, and the document stops changing. A later version is a new report.')) return;
-                void run('issue', () => api.issueReport(project.id, report.id), 'Issued — this report no longer moves');
-              }}
-            >
-              <Lock size={13} /> Issue
+            <Button variant="primary" icon={<Lock size={13} />} disabled={busy !== null} onClick={() => setIssuing(true)}>
+              Issue
             </Button>
           ) : null}
         </div>
       </header>
 
+      {!frozen && report.body.blocks.length ? (
+        <p className="text-[12px] text-ink-secondary">
+          <span className="font-medium text-ink">{approved} of {report.body.blocks.length}</span> sections approved.
+          {' '}Changing what a section says puts it back to drafted.
+        </p>
+      ) : null}
+
+      {frozen && report.signedBy ? (
+        <p className="text-[12px] text-ink-secondary">
+          Signed by <span className="font-medium text-ink">{report.signedBy}</span>
+          {report.signedRole ? `, ${report.signedRole}` : ''}
+          {report.signedAt ? ` on ${new Date(report.signedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}.
+        </p>
+      ) : null}
+
       {frozen ? (
-        <Callout tone="neutral" title={`Issued ${new Date(report.generatedAt).toLocaleDateString()}`}>
+        <Callout tone="neutral" title={`Issued ${new Date(report.signedAt ?? report.generatedAt).toLocaleDateString()}`}>
           This is what the report said when it was issued, and it will not change again — somebody is holding this version.
           {drift === null ? null : drift.length === 0 ? (
             <> Nothing in the registers has moved since.</>
@@ -173,6 +206,107 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
           <Plus size={13} /> Add a paragraph
         </Button>
       ) : null}
+
+      <Modal
+        open={issuing}
+        onClose={() => setIssuing(false)}
+        title="Issue and sign this report"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setIssuing(false)}>Cancel</Button>
+            <SubmitButton
+              busy={busy === 'issue'}
+              needs={signerName.trim() ? [] : ['Who signs it']}
+              onClick={() =>
+                void run(
+                  'issue',
+                  async () => {
+                    await api.issueReport(project.id, report.id, { signerName: signerName.trim(), signerRole: signerRole.trim() || undefined });
+                    setIssuing(false);
+                  },
+                  'Issued and signed. This report no longer changes.',
+                )
+              }
+            >
+              Issue and sign
+            </SubmitButton>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-[13px] leading-relaxed text-ink-secondary">
+            Every live section freezes at what it says now and the document stops changing. A later version is a new report.
+          </p>
+          {unapproved > 0 ? (
+            <Callout tone="warning" title={`${unapproved} section${unapproved === 1 ? ' is' : 's are'} not approved`}>
+              You can still issue it; the sign-off is yours.
+            </Callout>
+          ) : null}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Signed by" required>
+              <Input value={signerName} onChange={(e) => setSignerName(e.target.value)} placeholder="Name, as you sign" />
+            </Field>
+            <Field label="Capacity">
+              <Input value={signerRole} onChange={(e) => setSignerRole(e.target.value)} placeholder="e.g. Partner, Chartered Engineer" />
+            </Field>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+const STATE_TONE: Record<ReportSectionState, 'neutral' | 'info' | 'good'> = {
+  drafted: 'neutral',
+  checked: 'info',
+  approved: 'good',
+};
+
+/** Drafted, checked, approved: one click each, and who did it. */
+function SectionState({
+  block,
+  frozen,
+  busy,
+  onSet,
+}: {
+  block: ReportBlock;
+  frozen: boolean;
+  busy: boolean;
+  onSet: (state: ReportSectionState) => void;
+}) {
+  const current: ReportSectionState = block.state ?? 'drafted';
+  const who = block.stateBy && block.state && block.state !== 'drafted'
+    ? `${REPORT_SECTION_STATE_LABEL[current]} by ${block.stateBy}${block.stateAt ? ` on ${new Date(block.stateAt).toLocaleDateString()}` : ''}`
+    : undefined;
+  if (frozen) {
+    return (
+      <Badge tone={STATE_TONE[current]} title={who}>
+        {REPORT_SECTION_STATE_LABEL[current]}
+      </Badge>
+    );
+  }
+  return (
+    <div className="inline-flex items-center rounded-md bg-sunken p-0.5" role="group" aria-label="Section state" title={who}>
+      {(['drafted', 'checked', 'approved'] as ReportSectionState[]).map((state) => (
+        <button
+          key={state}
+          type="button"
+          disabled={busy}
+          aria-pressed={current === state}
+          onClick={() => current !== state && onSet(state)}
+          className={cn(
+            'inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] coarse:min-h-11',
+            current === state
+              ? state === 'approved'
+                ? 'bg-[rgb(var(--status-good-rgb)/0.15)] font-semibold text-ink'
+                : 'bg-surface font-semibold text-ink shadow-card'
+              : 'text-ink-muted hover:text-ink',
+          )}
+        >
+          {current === state && state === 'approved' ? <Check size={11} /> : null}
+          {REPORT_SECTION_STATE_LABEL[state]}
+        </button>
+      ))}
     </div>
   );
 }
@@ -226,6 +360,12 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
         ) : (
           <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-ink-muted">your words</span>
         )}
+        <SectionState
+          block={block}
+          frozen={frozen}
+          busy={busy}
+          onSet={(state) => onRun(() => api.setReportSectionState(project.id, report.id, block.id, state))}
+        />
 
         {!frozen ? (
           <div className="ml-auto flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
@@ -412,7 +552,7 @@ function HeadingField({ value, disabled, onCommit }: { value: string; disabled?:
         }
       }}
       aria-label="Section heading"
-      className="-ml-1 min-w-0 flex-1 rounded bg-transparent px-1 py-0.5 text-[14px] font-semibold tracking-tight text-ink outline-none hover:bg-sunken focus:bg-sunken disabled:hover:bg-transparent"
+      className="-ml-1 min-w-[12rem] flex-1 rounded bg-transparent px-1 py-0.5 text-[14px] font-semibold tracking-tight text-ink outline-none hover:bg-sunken focus:bg-sunken disabled:hover:bg-transparent"
     />
   );
 }

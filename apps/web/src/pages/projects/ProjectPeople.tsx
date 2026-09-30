@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { UserPlus } from 'lucide-react';
+import { Send, UserPlus } from 'lucide-react';
 import {
   DD_TYPE_DEFINITIONS,
   GRANT_AREAS,
@@ -14,6 +14,7 @@ import {
   can,
   describeGrant,
   grantHasExpired,
+  requestAgeDays,
   type CreateProjectGrantInput,
   type DdProject,
   type GrantArea,
@@ -41,6 +42,7 @@ import {
   useToast,
 } from '../../components/ui/kit';
 import type { ProjectOutlet } from './ProjectLayout';
+import { NewRequestModal, PROFESSIONAL_ROLES, RequestList } from '../../components/project/RequestsPanel';
 import { formatWhen } from './shared';
 
 /**
@@ -237,6 +239,54 @@ function ReachForm({
   );
 }
 
+/** What the file is waiting on, and from whom. */
+function ProjectRequests() {
+  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const [creating, setCreating] = useState(false);
+  const rows = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const order = { sent: 0, draft: 1, answered: 2, cancelled: 3 } as const;
+    return (project.requests ?? [])
+      .map((request) => ({
+        projectId: project.id,
+        request,
+        ageDays: requestAgeDays(request),
+        overdue: request.status === 'sent' && Boolean(request.dueAt && request.dueAt < today),
+      }))
+      .sort((a, b) => order[a.request.status] - order[b.request.status] || b.ageDays - a.ageDays);
+  }, [project]);
+  const refresh = async () => setProject(await api.getProject(project.id));
+  const open = rows.filter((r) => r.request.status === 'sent').length;
+  return (
+    <Card>
+      <CardHeader
+        title="Requests"
+        subtitle={rows.length ? `${open} waiting on others · ${rows.length} in all` : 'Nothing asked for yet'}
+        info="A request linked to an expected document closes itself when that document is filed."
+        action={
+          <Button size="sm" variant="primary" icon={<Send size={13} />} onClick={() => setCreating(true)}>
+            New request
+          </Button>
+        }
+      />
+      <CardBody>
+        <RequestList
+          rows={rows}
+          onChanged={refresh}
+          empty="Record who you have asked for a document or an answer, and by when. The portfolio shows everything overdue."
+        />
+      </CardBody>
+      <NewRequestModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        projects={[{ id: project.id, name: project.name, evidence: project.evidence }]}
+        initialProjectId={project.id}
+        onCreated={refresh}
+      />
+    </Card>
+  );
+}
+
 export default function ProjectPeople() {
   const { project } = useOutletContext<ProjectOutlet>();
   const me = useMe();
@@ -245,6 +295,7 @@ export default function ProjectPeople() {
   const mayStaff = me ? can(me.role, 'admin') : false;
 
   const [email, setEmail] = useState('');
+  const [professionalRole, setProfessionalRole] = useState('');
   const [fresh, setFresh] = useState<Reach>(CLOSED);
   const [editing, setEditing] = useState<Record<string, Reach>>({});
   const [busy, setBusy] = useState(false);
@@ -264,6 +315,7 @@ export default function ProjectPeople() {
 
   return (
     <div className="space-y-4">
+      <ProjectRequests />
       {error ? <Callout tone="critical" title="Could not load who is on this project">{error}</Callout> : null}
       {loading && !data ? <Skeleton className="h-32 w-full" /> : null}
 
@@ -378,14 +430,24 @@ export default function ProjectPeople() {
             info="They get in by signing in with this address. No email is sent, and nothing is ticked until you tick it."
           />
           <CardBody className="space-y-3">
-            <Field label="Email" className="max-w-md">
-              <Input
-                type="email"
-                value={email}
-                placeholder="contractor@firm.in"
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </Field>
+            <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+              <Field label="Email">
+                <Input
+                  type="email"
+                  value={email}
+                  placeholder="advocate@firm.in"
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </Field>
+              <Field label="Their role on this file" hint="Describes them. What they may reach is below.">
+                <Select value={professionalRole} onChange={(e) => setProfessionalRole(e.target.value)}>
+                  <option value="">Not stated</option>
+                  {PROFESSIONAL_ROLES.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
             <ReachForm project={project} reach={fresh} disabled={busy} onChange={setFresh} />
             <Button
               icon={<UserPlus size={14} />}
@@ -393,8 +455,13 @@ export default function ProjectPeople() {
               disabled={!email.trim()}
               onClick={() =>
                 void run(`${email.trim()} is on this project`, async () => {
-                  await api.addProjectPerson(project.id, { ...toInput(fresh), email: email.trim() });
+                  await api.addProjectPerson(project.id, {
+                    ...toInput(fresh),
+                    email: email.trim(),
+                    professionalRole: professionalRole || undefined,
+                  });
                   setEmail('');
+                  setProfessionalRole('');
                   setFresh(CLOSED);
                 })
               }

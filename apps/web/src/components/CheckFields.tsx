@@ -238,6 +238,22 @@ export function CheckFields({ defs, values, insights, disabled, evidence, onAtta
                 />
               )}
               {def.hint && blank ? <span className="mt-0.5 block text-[11px] text-ink-muted">{def.hint}</span> : null}
+              {/* Where the value was read, in the document's own words. */}
+              {!blank && values[def.key]?.sourceEvidenceId ? (
+                <span className="mt-0.5 block text-[11px] leading-snug text-ink-muted">
+                  {(() => {
+                    const cited = values[def.key]!;
+                    const row = evidence?.find((e) => e.id === cited.sourceEvidenceId);
+                    return (
+                      <>
+                        {row ? row.title : 'Cited document'}
+                        {cited.page ? `, p.${cited.page}` : ''}
+                        {cited.quote ? <>: “{cited.quote}”</> : null}
+                      </>
+                    );
+                  })()}
+                </span>
+              ) : null}
             </label>
           );
         })}

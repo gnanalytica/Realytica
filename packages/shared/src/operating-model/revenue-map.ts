@@ -32,7 +32,8 @@
 
 import type { GeoPoint, ParcelBoundary } from '../types';
 import { buildBoundary } from '../geometry';
-import type { DdProject } from './types';
+import type { DdProject, EvidenceRecord } from './types';
+import { addEvidence } from './operations';
 
 /** Which state's layers were read. */
 export type RevenueMapState = 'TS' | 'KA';
@@ -449,4 +450,49 @@ export function revenueMapBrief(read: RevenueMapRead): RevenueMapBrief {
     notChecked: read.unreadLayers.map((u) => ({ layer: revenueLayerLabel(u.layer), reason: u.reason })),
     checkedClear: read.emptyLayers.map(revenueLayerLabel),
   };
+}
+
+/** The code a filed revenue-map read carries, so the same read is filed once. */
+export function revenueMapEvidenceCode(read: RevenueMapRead): string {
+  return `revenue-map:${read.parcelRef}:${read.readAt}`;
+}
+
+/**
+ * File the revenue-map read on the evidence register, when a person decides to.
+ *
+ * A read is a record until then: a machine reading of the state's published
+ * cadastre and GIS layers. Filing it makes it citable, and the row says what
+ * it is in its own title and description, so nobody later mistakes it for a
+ * certified extract or a licensed survey. Filing the same read twice returns
+ * the row already filed.
+ */
+export function fileRevenueMapAsEvidence(project: DdProject, actor = 'operator'): EvidenceRecord {
+  const read = project.revenueMap;
+  if (!read) throw new Error('No revenue map has been read for this project.');
+  const code = revenueMapEvidenceCode(read);
+  const existing = project.evidence.find((e) => e.screenCode === code);
+  if (existing) return existing;
+  const place = [read.village, read.mandal, read.district].filter(Boolean).join(', ');
+  const lines = [
+    `Machine read of the state's published cadastre and GIS for Sy. ${read.surveyNo}${place ? `, ${place}` : ''}, from ${read.sourceLabel}, on ${read.readAt.slice(0, 10)}.`,
+    `Surveyed extent from the parcel outline: ${Math.round(read.areaSqm).toLocaleString('en-IN')} m²${read.registerExtent ? `; the register records ${read.registerExtent}` : ''}.`,
+    read.classification ? `Classification on the register: ${read.classification}.` : '',
+    read.prohibitedCategory ? `On the prohibited register: ${read.prohibitedCategory}.` : '',
+    ...read.factors.map((f) => `${f.label}: ${f.headline}`),
+    read.anchor ? `Guidance value as published: ₹${read.anchor.guidancePerUnit.toLocaleString('en-IN')} per ${read.anchor.unit === 'sqft' ? 'sq ft' : 'sq yd'}${read.anchor.locality ? ` (${read.anchor.locality})` : ''}.` : '',
+    read.unreadLayers.length ? `Layers that could not be read: ${read.unreadLayers.map((l) => l.layer).join(', ')}.` : '',
+    REVENUE_MAP_CAVEAT,
+  ].filter(Boolean);
+  return addEvidence(
+    project,
+    {
+      title: `State revenue map read, Sy. ${read.surveyNo}${read.village ? ` ${read.village}` : ''}`,
+      kind: 'gis',
+      description: lines.join('\n'),
+      source: 'revenue_map',
+      status: 'received',
+      screenCode: code,
+    },
+    actor,
+  );
 }

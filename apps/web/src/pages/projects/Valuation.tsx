@@ -10,7 +10,6 @@ import {
   VALUATION_SIGN_OFF_LABEL,
   type ValuationSignOff,
   type CheckFieldWrite,
-  matchProjectLocality,
   suggestValuationInputs,
   resolveStatePack,
   REFERENCE_DATA,
@@ -94,7 +93,7 @@ export default function Valuation() {
     try {
       await api.runProjectScreen(project.id);
       setProject(await api.getProject(project.id));
-      toast('Property screen wrote findings, risks and an indicative valuation', 'good');
+      toast('Property screen wrote findings, risks, actions and a red flag report', 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not run property screen', 'critical');
     } finally {
@@ -124,7 +123,8 @@ export default function Valuation() {
     () =>
       suggestValuationInputs(
         project,
-        matchProjectLocality(project),
+        // No locality table: its rates are illustrative, not market data.
+        undefined,
         resolveStatePack({ country: countryForCurrency(project.currency), state: project.jurisdiction ?? '' }, REFERENCE_DATA.statePacks),
       ),
     [project],
@@ -429,8 +429,9 @@ export default function Valuation() {
 
         {/* The screen's own blend of anchors — the second opinion on the same
             question, and the card that reconciles itself against the figure
-            pinned at the top when the two methods disagree. */}
-        {screenPanel(['range'])}
+            pinned at the top when the two methods disagree. A screen with
+            no market data behind it has no blend, so no card. */}
+        {screenResult && screenResult.anchors.length > 0 ? screenPanel(['range']) : null}
         </>
         ) : null}
         </>

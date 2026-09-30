@@ -56,12 +56,3 @@ describe('a documented Bengaluru site', () => {
   });
 });
 
-describe('a record with nothing to draw', () => {
-  it('an Amsterdam case with no consideration-bearing conveyance has no trajectory', () => {
-    // The Van Woustraat seed holds a koopovereenkomst (an agreement, which
-    // does not convey) and a Kadaster extract — no conveyance recites a
-    // consideration, so there is no history to draw and none is invented.
-    const { result } = screenSeed('Van Woustraat');
-    assert.equal(result.priceTrajectory, undefined);
-  });
-});

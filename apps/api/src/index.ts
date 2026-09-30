@@ -1,6 +1,7 @@
 import { app, initApp } from './app';
 import { store } from './store';
 import { startScheduler, stopScheduler } from './flows/triggers';
+import { automationsEnabled } from './flows/enabled';
 
 /**
  * Local-server entry point: awaits app initialisation, then listens on a
@@ -25,7 +26,7 @@ async function main(): Promise<void> {
    * That deployment drives `POST /api/flows/tick` from a platform cron
    * instead, which runs exactly this code.
    */
-  startScheduler();
+  if (automationsEnabled()) startScheduler();
 
   const server = app.listen(PORT, () => {
     console.log(`[realytica-api] listening on port ${PORT} (${store.data.projects?.length ?? 0} project(s) loaded)`);

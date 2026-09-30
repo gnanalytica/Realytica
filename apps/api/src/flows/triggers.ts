@@ -8,6 +8,7 @@ import {
   type TriggerNodeConfig,
   type TriggerOn,
 } from '@realytica/shared';
+import { automationsEnabled } from './enabled';
 import { store } from '../store';
 import { handlersFor } from './handlers';
 import { recordRun, runsFor } from './runs';
@@ -155,6 +156,7 @@ export async function fireTrigger(on: TriggerOn, event: FlowEvent): Promise<stri
  * route that let it reject would let a drawn flow fail a real write.
  */
 export function fireAndForget(on: TriggerOn, event: FlowEvent): void {
+  if (!automationsEnabled()) return;
   void fireTrigger(on, event).catch((err: unknown) => {
     console.error(`[flows] trigger ${on} threw outside the run loop:`, err);
   });

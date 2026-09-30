@@ -61,7 +61,8 @@ describe('planning overlay', () => {
     assert.equal(read.notEvidence, true);
     assert.equal(read.inForce.id, 'ref_rmp_2015');
     assert.ok(read.flags.some((f) => f.code === 'not_geometry'));
-    assert.ok(read.flags.some((f) => f.code === 'pack_not_sheet'));
+    // The locality table's zoning is illustrative, so it is not offered at all.
+    assert.equal(read.locality, undefined);
     assert.ok(read.flags.some((f) => f.code === 'conversion'));
     const text = serializePlanningOverlay(read);
     assert.match(text, /not a geometric intersection/i);

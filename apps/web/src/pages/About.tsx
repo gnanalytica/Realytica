@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   CheckCircle2,
   CircleDollarSign,
@@ -8,7 +7,6 @@ import {
   ListChecks,
   Milestone,
   Quote,
-  RotateCcw,
   ShieldCheck,
   Users2,
   XCircle,
@@ -22,40 +20,22 @@ import {
   PRODUCT_PRINCIPLES,
   ROLLOUT_PHASES,
 } from '@realytica/shared';
-import { api } from '../lib/api';
-import { Button, Callout, Card, CardBody, CardHeader, Modal, SectionTitle, cn, useToast } from '../components/ui/kit';
+import { Callout, Card, CardBody, CardHeader, SectionTitle, cn } from '../components/ui/kit';
 
 /** Static product-page copy quoted directly from docs/SOURCE_SPEC.md — not part of the shared package. */
-const VISION = 'A living due diligence system of record for real estate and construction projects.';
-const POSITIONING = 'Manual-first. AI executes later on the same structured objects.';
+const VISION = 'The project workspace for engineering firms and developers.';
+const POSITIONING = 'A copilot beside every view. People decide what goes on the record.';
 const NORTH_STAR =
-  'Realytica succeeds when a project team can run progressive due diligence — with shared evidence, findings, risks, actions and decisions — without trapping intelligence in a static report, and without needing AI to operate.';
+  'Realytica succeeds when a firm runs an engagement from the first document to the signed report in one place, with its engineers and the outside professionals on the file working together, and every figure traceable to the page it came from.';
 
 export default function About() {
-  const toast = useToast();
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetting, setResetting] = useState(false);
-
-  async function handleReset() {
-    setResetting(true);
-    try {
-      await api.resetAll();
-      toast('Demo data reset', 'good');
-      setResetOpen(false);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not reset demo data', 'critical');
-    } finally {
-      setResetting(false);
-    }
-  }
-
   return (
     <div className="mx-auto max-w-4xl space-y-8 pb-16">
       <section className="space-y-2 pt-2 text-center">
         <p className="text-[12px] font-semibold text-brand">Realytica</p>
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{VISION}</h1>
         <p className="text-[13px] text-ink-secondary">{POSITIONING}</p>
-        <p className="text-xs text-ink-muted">Due diligence OS · manual-first · AI drafts optional</p>
+        <p className="text-xs text-ink-muted">Project workspace · Karnataka · India</p>
       </section>
 
       <Card as="article" className="border-l-4 border-l-brand p-5">
@@ -218,46 +198,14 @@ export default function About() {
             </li>
           </ul>
           <Callout tone="warning" title="Geographic coverage in this build" collapsible>
-            Phase 1 is deliberately one state/metro. Indian rules here are calibrated for{' '}
-            <strong>Karnataka (Bengaluru)</strong> — stamp duty, registration fees and the property-register
-            instrument (the Khata extract) are all set at state level in India, so they are not portable to
-            another state. The Netherlands pack covers Noord-Holland, Utrecht and Zuid-Holland; Dutch
-            conveyancing instruments are national, so only market-data reach is limited there. A case entered
-            outside a covered state still screens, but is flagged with a material risk rather than being
-            quietly measured against the wrong document set. The State / Municipality Pack tier that would
-            remove this limit is Phase 2 work.
+            This build covers <strong>Karnataka</strong>, with Telangana revenue maps. Stamp duty, registration
+            fees and the property register (the khata extract) are set by each Indian state, so they are not
+            portable to another one. A project entered outside a covered state still screens, but is flagged with
+            a material risk rather than quietly measured against the wrong documents.
           </Callout>
-          <div className="flex items-center justify-between rounded-lg bg-sunken p-3">
-            <div>
-              <p className="text-[13px] font-medium text-ink">Reset demo data</p>
-              <p className="text-xs text-ink-secondary">Clears every case and restores an empty portfolio.</p>
-            </div>
-            <Button variant="danger" size="sm" icon={<RotateCcw size={13} />} onClick={() => setResetOpen(true)}>
-              Reset demo data
-            </Button>
-          </div>
         </CardBody>
       </Card>
 
-      <Modal
-        open={resetOpen}
-        onClose={() => !resetting && setResetOpen(false)}
-        title="Reset all demo data?"
-        footer={
-          <>
-            <Button variant="secondary" size="sm" onClick={() => setResetOpen(false)} disabled={resetting}>
-              Cancel
-            </Button>
-            <Button variant="danger" size="sm" onClick={() => void handleReset()} loading={resetting}>
-              {resetting ? 'Resetting…' : 'Reset everything'}
-            </Button>
-          </>
-        }
-      >
-        <p className="text-[13px] leading-relaxed text-ink-secondary">
-          This permanently deletes every case, document and screen in this local instance. This cannot be undone.
-        </p>
-      </Modal>
     </div>
   );
 }

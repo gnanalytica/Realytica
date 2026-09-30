@@ -398,6 +398,10 @@ export interface CheckFieldValue {
   value: string | number | boolean | string[] | CheckTableRow[] | null;
   /** The evidence row this was read off, when it came from a document. */
   sourceEvidenceId?: string;
+  /** The page of that document the value is on, when it was read off one. */
+  page?: number;
+  /** The document's own words for the value, never rewritten. */
+  quote?: string;
   at: string;
   by: string;
 }
@@ -854,7 +858,24 @@ export interface GeneratedReport {
   generatedAt: string;
   generatedBy: string;
   reviewer?: string;
+  /**
+   * Who signed it out, as they sign, and in what capacity. Set when the
+   * report is issued; the signer names themselves, the app records who
+   * pressed the button in `reviewer` and in the audit trail.
+   */
+  signedBy?: string;
+  signedRole?: string;
+  signedAt?: string;
 }
+
+/** Where one section of a report stands before it goes out. */
+export type ReportSectionState = 'drafted' | 'checked' | 'approved';
+
+export const REPORT_SECTION_STATE_LABEL: Record<ReportSectionState, string> = {
+  drafted: 'Drafted',
+  checked: 'Checked',
+  approved: 'Approved',
+};
 
 export type ReportBoundSourceKind =
   | 'particulars'
@@ -931,6 +952,14 @@ export interface ReportBlock {
   detachedFrom?: ReportBoundSourceKind;
   editedAt?: string;
   editedBy?: string;
+  /**
+   * Drafted, checked by a second person, approved to go out. Any change to
+   * what the section says puts it back to drafted: a check is of the words
+   * that were checked.
+   */
+  state?: ReportSectionState;
+  stateBy?: string;
+  stateAt?: string;
 }
 
 export interface ResolvedReportBlock {
@@ -1393,6 +1422,13 @@ export interface ChatIngestFile {
   pages?: number;
   kindHint?: string;
   /**
+   * What a model read off the document, each fact on a page its quote was
+   * verified against, with the original script kept beside the reading.
+   * Merged into `read.facts` by the API; nothing here is filed until a card
+   * is approved.
+   */
+  modelFacts?: import('./document-parse').DocumentFact[];
+  /**
    * What reading the document on this server found — see `document-parse`.
    *
    * Present whenever the file had readable text (a text layer or OCR), with
@@ -1465,6 +1501,75 @@ export interface ProjectScreenSnapshot {
   openCriticalRisks: number;
 }
 
+/**
+ * Where an engagement is, as the firm runs it.
+ *
+ * Not the property's lifecycle stage. A villa project under construction can
+ * be at "documents" for one engagement (a lender's TDD) and "issued" for
+ * another (last year's screening). This is the firm's pipeline: what it has
+ * been asked to do, and how far it has got.
+ */
+export type EngagementStage = 'intake' | 'documents' | 'site_visit' | 'analysis' | 'review' | 'issued';
+
+export const ENGAGEMENT_STAGES: EngagementStage[] = ['intake', 'documents', 'site_visit', 'analysis', 'review', 'issued'];
+
+export const ENGAGEMENT_STAGE_LABEL: Record<EngagementStage, string> = {
+  intake: 'Intake',
+  documents: 'Documents',
+  site_visit: 'Site visit',
+  analysis: 'Analysis',
+  review: 'Review',
+  issued: 'Issued',
+};
+
+/** The commercial facts of an engagement: who asked, for what fee, by when. */
+export interface Engagement {
+  stage: EngagementStage;
+  /** Who the report is for: "Canara Bank, Jayanagar", or the developer by name. */
+  client?: string;
+  /** Agreed fee, in the project's currency. Absent until agreed. */
+  fee?: number;
+  /** The person leading it, as they sign. */
+  lead?: string;
+  /** ISO date the report is due to the client. */
+  dueDate?: string;
+  /** What was asked for, in the client's words: "Screening and TDD". */
+  scope?: string;
+}
+
+export type ProjectRequestStatus = 'draft' | 'sent' | 'answered' | 'cancelled';
+
+/**
+ * Something the file is waiting on from a named person.
+ *
+ * An expected evidence row says a document is missing; it does not say who
+ * was asked for it, when, or by when it was promised. Those three are what
+ * "waiting on others" is made of, and the age of a request is the one number
+ * a lead chases every morning.
+ */
+export interface ProjectRequest {
+  id: string;
+  /** What is asked for: "Encumbrance certificate 2004 to 2026". */
+  title: string;
+  detail?: string;
+  /** Who owes it, as a person would name them. */
+  recipient: string;
+  /** Their role on this file: "Owner's advocate", "Architect". */
+  recipientRole?: string;
+  status: ProjectRequestStatus;
+  sentAt?: string;
+  /** ISO date it was promised by. */
+  dueAt?: string;
+  /** The expected evidence row this will satisfy, when there is one. */
+  evidenceId?: string;
+  /** The document that answered it. */
+  answeredByEvidenceId?: string;
+  answeredAt?: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+}
+
 export interface DdProject {
   id: string;
   /**
@@ -1479,6 +1584,18 @@ export interface DdProject {
   reference: string;
   name: string;
   type: ProjectArchetype;
+  /**
+   * A labelled sample engagement, loaded on request to show the product.
+   *
+   * Its people, documents and findings are illustrative. Every surface that
+   * lists or opens a project marks it, so nobody mistakes it for a client
+   * file.
+   */
+  sample?: boolean;
+  /** The firm's engagement on this project: stage, client, fee, lead, due. */
+  engagement?: Engagement;
+  /** What the file is waiting on, and from whom. */
+  requests?: ProjectRequest[];
   subtype?: string;
   description?: string;
   location: string;
@@ -1631,6 +1748,12 @@ export interface ProjectSummary {
   overdueActions: number;
   evidenceMissing: number;
   portfolio?: string;
+  sample?: boolean;
+  engagement?: Engagement;
+  /** Requests sent and not yet answered. */
+  waitingOn: number;
+  /** Proposals and drafts a person has not yet accepted or rejected. */
+  pendingDecisions: number;
   updatedAt: string;
 }
 
@@ -1656,6 +1779,7 @@ export interface CreateProjectInput {
   tenure?: Tenure;
   plot?: PlotAttributes;
   karnataka?: KarnatakaAttributes;
+  engagement?: Engagement;
 }
 
 export interface PatchProjectInput {
@@ -1684,6 +1808,8 @@ export interface PatchProjectInput {
    * of a property when it is two.
    */
   karnataka?: KarnatakaAttributes;
+  /** Patched whole, for the same reason: a stage and a due date go together. */
+  engagement?: Engagement;
 }
 
 export interface CreateAssetInput {

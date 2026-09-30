@@ -14,8 +14,10 @@ function pageTitle(pathname: string): string {
   if (pathname.startsWith('/projects')) return '';
   if (pathname.startsWith('/libraries')) return 'Libraries';
   if (pathname.startsWith('/about')) return 'About Realytica';
-  if (pathname.startsWith('/observability')) return 'AI activity';
-  if (pathname.startsWith('/prompts')) return 'AI instructions';
+  if (pathname.startsWith('/portfolio')) return 'Portfolio';
+  if (pathname.startsWith('/requests')) return 'Requests';
+  if (pathname.startsWith('/members')) return 'People';
+  if (pathname.startsWith('/work')) return 'My work';
   return 'Realytica';
 }
 

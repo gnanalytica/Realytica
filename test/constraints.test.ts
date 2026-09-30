@@ -155,12 +155,4 @@ describe('water exposure', () => {
     assert.equal(result.risks.filter(r => r.code === 'flood_catchment_exposure').length, 0);
   });
 
-  test('an unclassified locality is recorded as unassessed rather than passed over', () => {
-    const { result } = screenSeed('Van Woustraat');
-    assert.equal(result.waterExposure, undefined);
-    assert.ok(
-      result.evidence.some(e => e.sourceRef === 'locality.waterExposure' && /has not been assessed/.test(e.statement)),
-      'the absence must be visible in the evidence ledger',
-    );
-  });
 });

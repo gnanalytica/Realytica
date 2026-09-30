@@ -55,3 +55,5 @@ export * from './planning-maps';
 export * from './civic-layers';
 export * from './gis-overlay';
 export * from './revenue-map';
+export * from './project-requests';
+export * from './portfolio';

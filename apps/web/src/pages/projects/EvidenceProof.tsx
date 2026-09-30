@@ -1,8 +1,8 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Download, FileWarning } from 'lucide-react';
-import type { EvidenceAttachment, EvidenceRecord } from '@realytica/shared';
+import type { DocumentFact, EvidenceAttachment, EvidenceRecord } from '@realytica/shared';
 import { evidenceFileUrl } from '../../lib/api';
-import { Button } from '../../components/ui/kit';
+import { Button, cn } from '../../components/ui/kit';
 import { fetchEvidenceFile, renderKindFor, type DocumentSourceState } from '../../components/viewer/source';
 
 /*
@@ -56,9 +56,15 @@ export function EvidenceProof({
     };
   }, [projectId, evidence.id, file?.id, file?.fileName, file?.mimeType, file]);
 
-  const page = citedPage ?? quotes?.find((q) => q.page)?.page ?? evidence.quotes?.find((q) => q.page)?.page;
-  const term = highlightTerm ?? quotes?.[0]?.text ?? evidence.quotes?.[0]?.text;
+  /*
+   * A fact picked in the panel moves the viewer to its page and lights its
+   * words. Until one is picked, the citation the caller opened with stands.
+   */
+  const [picked, setPicked] = useState<DocumentFact | null>(null);
+  const page = picked?.page ?? citedPage ?? quotes?.find((q) => q.page)?.page ?? evidence.quotes?.find((q) => q.page)?.page;
+  const term = picked?.quote ?? highlightTerm ?? quotes?.[0]?.text ?? evidence.quotes?.[0]?.text;
   const shownQuotes = quotes?.length ? quotes : evidence.quotes;
+  const facts = evidence.facts ?? [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4">
@@ -66,12 +72,19 @@ export function EvidenceProof({
       <div
         role="dialog"
         aria-modal="true"
-        className="relative z-10 flex max-h-[min(92dvh,52rem)] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-surface shadow-pop ring-1 ring-[var(--ring)]"
+        className={cn(
+          'relative z-10 flex max-h-[min(92dvh,56rem)] w-full flex-col overflow-hidden rounded-xl bg-surface shadow-pop ring-1 ring-[var(--ring)]',
+          facts.length ? 'max-w-6xl' : 'max-w-4xl',
+        )}
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline px-4 py-3">
           <div className="min-w-0">
             <h2 className="truncate text-[13px] font-semibold text-ink">{evidence.title}</h2>
-            <p className="truncate text-[12px] text-ink-muted">{file?.fileName ?? 'No file on this row'}</p>
+            <p className="truncate text-[12px] text-ink-muted">
+              {file?.fileName ?? 'No file on this row'}
+              {evidence.documentType ? ` · read as ${evidence.documentType}` : ''}
+              {evidence.readMethod === 'ocr' ? ' · from a scan' : ''}
+            </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {file ? (
@@ -87,7 +100,7 @@ export function EvidenceProof({
             </Button>
           </div>
         </header>
-        {shownQuotes?.length ? (
+        {!facts.length && shownQuotes?.length ? (
           <div className="shrink-0 space-y-1 border-b border-hairline bg-sunken px-4 py-2">
             {shownQuotes.slice(0, 4).map((q, i) => (
               <p key={i} className="text-[12px] leading-relaxed text-ink-secondary">
@@ -96,8 +109,59 @@ export function EvidenceProof({
             ))}
           </div>
         ) : null}
-        <div className="min-h-[18rem] flex-1 overflow-hidden bg-sunken">
-          <ProofBody state={state} fileName={file?.fileName ?? evidence.title} citedPage={page} highlightTerm={term} />
+        <div className={cn('flex min-h-0 flex-1 flex-col', facts.length && 'md:flex-row')}>
+          <div className="min-h-[18rem] min-w-0 flex-1 overflow-hidden bg-sunken">
+            <ProofBody state={state} fileName={file?.fileName ?? evidence.title} citedPage={page} highlightTerm={term} />
+          </div>
+          {facts.length ? (
+            <aside
+              aria-label="What this document states"
+              className="max-h-[40dvh] shrink-0 overflow-y-auto border-t border-hairline md:max-h-none md:w-[22rem] md:border-l md:border-t-0"
+            >
+              <div className="sticky top-0 border-b border-hairline bg-surface px-4 py-2.5">
+                <p className="text-[12px] font-semibold text-ink">What this document states</p>
+                <p className="text-[11px] text-ink-muted">
+                  {facts.length} fact{facts.length === 1 ? '' : 's'}, each with its page and its own words. Pick one to see it.
+                </p>
+              </div>
+              <ul className="divide-y divide-hairline">
+                {facts.map((fact) => {
+                  const on = picked?.key === fact.key;
+                  return (
+                    <li key={fact.key}>
+                      <button
+                        type="button"
+                        onClick={() => setPicked(on ? null : fact)}
+                        aria-pressed={on}
+                        className={cn('block w-full px-4 py-2.5 text-left hover:bg-sunken', on && 'bg-brand-soft/60')}
+                      >
+                        <span className="flex items-baseline justify-between gap-2">
+                          <span className="text-[11px] font-medium text-ink-secondary">{fact.label}</span>
+                          <span className="shrink-0 font-mono text-[10px] text-ink-muted">
+                            p.{fact.page}
+                            {fact.source === 'model' ? ' · AI read' : ''}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 block text-[13px] font-medium text-ink">{fact.display}</span>
+                        {fact.originalValue ? (
+                          <span
+                            lang={fact.originalScript === 'kannada' ? 'kn' : fact.originalScript === 'telugu' ? 'te' : undefined}
+                            className="mt-0.5 block text-[14px] text-ink [font-family:'Noto_Sans_Kannada','Noto_Sans_Telugu','Kannada_Sangam_MN','Telugu_Sangam_MN','Tunga',system-ui,sans-serif]"
+                          >
+                            {fact.originalValue}
+                            <span className="ml-1.5 align-middle text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+                              {fact.originalScript} original
+                            </span>
+                          </span>
+                        ) : null}
+                        <span className="mt-1 block text-[11px] leading-snug text-ink-muted">“{fact.quote}”</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </aside>
+          ) : null}
         </div>
       </div>
     </div>

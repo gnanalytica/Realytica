@@ -189,60 +189,10 @@ const DEVANAHALLI_BDA_SITE: CreateCaseRequest = {
     'A clean, BDA-approved site in a land-banking corridor near the airport. Looking for a straightforward read on land value and whether the paperwork is genuinely in order before committing.',
 };
 
-const ZUIDAS_OFFICE: CreateCaseRequest = {
-  identity: {
-    label: 'Grade-A office floor — WTC Tower H, Zuidas',
-    country: 'NL',
-    state: 'Noord-Holland',
-    city: 'Amsterdam',
-    locality: 'Zuidas',
-    addressLine: 'WTC Tower H, Strawinskylaan 1, Zuidas',
-    postalCode: '1077XW',
-    parcelId: 'AMSTERDAM AC 4321',
-    propertyType: 'commercial_office',
-    tenure: 'freehold',
-    builtUpAreaSqm: 680,
-    plotAreaSqm: 200,
-    yearBuilt: 2015,
-    floor: 8,
-    totalFloors: 12,
-    askingPrice: 5700000,
-    currency: 'EUR',
-  },
-  ownerName: 'Bram de Groot',
-  notes: 'Sense-checking an internal valuation ahead of a client engagement.',
-};
-
-const DE_PIJP_APARTMENT: CreateCaseRequest = {
-  identity: {
-    label: '2-room apartment — Van Woustraat, De Pijp',
-    country: 'NL',
-    state: 'Noord-Holland',
-    city: 'Amsterdam',
-    locality: 'De Pijp',
-    addressLine: 'Van Woustraat 145-2, De Pijp',
-    postalCode: '1073AK',
-    parcelId: 'AMSTERDAM P 8765',
-    propertyType: 'residential_apartment',
-    tenure: 'freehold',
-    builtUpAreaSqm: 72,
-    plotAreaSqm: 30,
-    yearBuilt: 1932,
-    floor: 1,
-    totalFloors: 3,
-    askingPrice: 575000,
-    currency: 'EUR',
-  },
-  ownerName: 'Sanne Bakker',
-  notes: "Advising a first-time buy-to-let client. Want a clear read on yield and condition risk given the building's age.",
-};
-
 export const FIXTURE_CASES: CreateCaseRequest[] = [
   WHITEFIELD_APARTMENT,
   GACHIBOWLI_LEASEHOLD_OFFICE,
   GUNJUR_GRAM_PANCHAYAT_SITE,
-  ZUIDAS_OFFICE,
-  DE_PIJP_APARTMENT,
   DEVANAHALLI_BDA_SITE,
 ];
 
@@ -266,19 +216,6 @@ export const FIXTURE_DOCUMENT_FILENAMES: Record<string, string[]> = {
   // Deliberately thin — no khata, no EC, no conversion order — so the case
   // screens badly on genuine document absence, not just on the identity flags.
   [GUNJUR_GRAM_PANCHAYAT_SITE.identity.label]: ['Sale_Agreement_SriRanga_Site42.pdf', 'Form_9_11_GramPanchayat_SriRanga.pdf'],
-  [ZUIDAS_OFFICE.identity.label]: [
-    'Koopovereenkomst_WTC_Tower_H.pdf',
-    'Kadaster_Uittreksel_2025.pdf',
-    'WOZ_beschikking_2026.pdf',
-    'Energielabel_C_2024.pdf',
-    'Huurovereenkomst_Tenant_BV.pdf',
-  ],
-  [DE_PIJP_APARTMENT.identity.label]: [
-    'Koopovereenkomst_Van_Woustraat.pdf',
-    'Kadaster_Uittreksel_VanWoustraat.pdf',
-    'WOZ_beschikking_2026_VanWoustraat.pdf',
-    'Energielabel_D_2023.pdf',
-  ],
   // Clean and fully documented — the counterpart to the Gunjur site above, so
   // the land-rate path has both a good and a bad example.
   [DEVANAHALLI_BDA_SITE.identity.label]: [

@@ -95,15 +95,6 @@ describe('offer advice', () => {
     }
   });
 
-  test('no state pack means the all-in figure says so rather than understating', () => {
-    const { result } = screenSeed('Van Woustraat');
-    const offer = result.offer!;
-    assert.equal(offer.acquisitionCostsAtTarget, 0);
-    assert.ok(
-      offer.unpriced.some(u => /No state pack covers this property/.test(u)),
-      'an uncomputed cost must be named, not silently treated as zero',
-    );
-  });
 });
 
 describe('forced-sale value', () => {

@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { AgentRun, AgentStep, CaseDocument, ChatIngestFile, DdProject, TurnSpend } from '@realytica/shared';
+import type { AgentRun, AgentStep, CaseDocument, ChatIngestFile, DdProject, DocumentFact, ExtractedField, TurnSpend } from '@realytica/shared';
 import { failureCause, projectToIdentity } from '@realytica/shared';
 import { runDocumentIntelligence } from '../agents/document-intelligence';
 import { priceTokens } from '../telemetry/pricing';
@@ -62,6 +62,32 @@ function stubDocument(projectId: string, file: ChatIngestFile, now: string): Cas
     ocrStatus: 'pending',
     extracted: [],
   };
+}
+
+/**
+ * A model's fields as document facts, only where a verified citation placed
+ * the field's own quote on a page. A field with no page is a reading nobody
+ * can check against the document, so it stays in the notes and out of the
+ * facts that can fill a check.
+ */
+function factsFromFields(fields: ExtractedField[]): DocumentFact[] {
+  const facts: DocumentFact[] = [];
+  for (const f of fields) {
+    if (!f.sourcePage || !f.quote) continue;
+    if (facts.some((existing) => existing.key === f.key)) continue;
+    facts.push({
+      key: f.key,
+      label: f.label,
+      value: f.value,
+      ...(f.unit ? { unit: f.unit } : {}),
+      display: f.unit ? `${f.value} ${f.unit}` : f.value,
+      page: f.sourcePage,
+      quote: f.quote,
+      ...(f.originalValue ? { originalValue: f.originalValue, originalScript: f.originalScript } : {}),
+      source: 'model',
+    });
+  }
+  return facts;
 }
 
 function clipQuote(label: string, value: string, max = 140): string {
@@ -146,10 +172,13 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
         );
         continue;
       }
+      // The document's own words where the model gave them; its reading
+      // (label and value) only where it did not.
       const quotes = result.fields.slice(0, 4).map((f) => ({
-        text: clipQuote(f.label, f.value),
+        text: f.quote ? f.quote.slice(0, 140) : clipQuote(f.label, f.value),
         page: f.sourcePage,
       }));
+      const modelFacts = factsFromFields(result.fields);
       const pages = result.fields.reduce((max, f) => Math.max(max, f.sourcePage ?? 0), 0);
       out.push({
         ...file,
@@ -157,6 +186,7 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
         extractionNotes: result.notes?.slice(0, 400) || undefined,
         quotes,
         pages: pages || undefined,
+        ...(modelFacts.length ? { modelFacts } : {}),
       });
     } catch {
       out.push(file);

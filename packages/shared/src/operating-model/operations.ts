@@ -1,4 +1,5 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
+import { reconcileRequests } from './project-requests';
 import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { looksLikeProviderError } from './provider-failure';
 import { documentAnswers } from './document-parse';
@@ -46,6 +47,7 @@ import type {
   ScopeInstance,
   ScopeKey,
   StageRecord,
+  ReportSectionState,
 } from './types';
 
 const DEFAULT_ACTOR = 'operator';
@@ -169,6 +171,8 @@ export function ensureProjectShape(project: DdProject): void {
 
 export function refreshProjectDerived(project: DdProject): void {
   ensureProjectShape(project);
+  // A request whose document has arrived is answered, whoever filed it.
+  reconcileRequests(project);
   project.health = deriveHealth(project);
   for (const action of project.actions) {
     if (action.status !== 'closed' && action.dueDate && action.dueDate < nowIso().slice(0, 10) && action.status !== 'overdue') {
@@ -196,6 +200,12 @@ export function toProjectSummary(project: DdProject): ProjectSummary {
     overdueActions: project.actions.filter((a) => a.status === 'overdue' || (a.status !== 'closed' && a.dueDate && a.dueDate < today)).length,
     evidenceMissing: project.evidence.filter((e) => e.status === 'missing' || e.status === 'expected' || e.status === 'requested').length,
     portfolio: project.portfolio,
+    sample: project.sample,
+    engagement: project.engagement,
+    waitingOn: (project.requests ?? []).filter((r) => r.status === 'sent').length,
+    pendingDecisions:
+      project.chatProposals.filter((p) => p.status === 'proposed').length
+      + project.aiDrafts.filter((d) => d.status === 'draft' || d.status === 'in_review').length,
     updatedAt: project.updatedAt,
   };
 }
@@ -230,6 +240,9 @@ export function createProject(input: CreateProjectInput, reference: string, acto
     tenure: input.tenure,
     plot: input.plot,
     karnataka: input.karnataka,
+    // Every new project starts an engagement at intake, so it has a place in
+    // the pipeline from the moment it exists.
+    engagement: input.engagement ?? { stage: 'intake' },
     stakeholders: [],
     assets: [],
     assessments: [],
@@ -668,6 +681,8 @@ export function recordCheckFields(
   values: Record<string, unknown>,
   actor = DEFAULT_ACTOR,
   sourceEvidenceId?: string,
+  /** Where on the document each value was read, keyed by field. */
+  citations?: Record<string, { page?: number; quote?: string }>,
 ): RecordCheckFieldsResult {
   const { check } = findCheck(project, checkId);
   const { fields } = checkSchema(check);
@@ -712,7 +727,15 @@ export function recordCheckFields(
       }
     }
 
-    accepted[key] = { value: parsed.value, at, by: actor, ...(sourceEvidenceId ? { sourceEvidenceId } : {}) };
+    const cited = sourceEvidenceId ? citations?.[key] : undefined;
+    accepted[key] = {
+      value: parsed.value,
+      at,
+      by: actor,
+      ...(sourceEvidenceId ? { sourceEvidenceId } : {}),
+      ...(cited?.page ? { page: cited.page } : {}),
+      ...(cited?.quote ? { quote: cited.quote.slice(0, 220) } : {}),
+    };
   }
 
   if (rejected.length === 0) {
@@ -1875,6 +1898,33 @@ function stamp(report: GeneratedReport, block: ReportBlock, actor: string, at: s
   block.editedAt = at;
   block.editedBy = actor;
   report.body.summary = '';
+  // A check or an approval was of the words as they stood. New words are a
+  // new draft.
+  if (block.state && block.state !== 'drafted') {
+    block.state = 'drafted';
+    block.stateBy = actor;
+    block.stateAt = at;
+  }
+}
+
+/** Mark where a section stands: drafted, checked, or approved to go out. */
+export function setReportBlockState(
+  project: DdProject,
+  reportId: string,
+  blockId: string,
+  state: ReportSectionState,
+  actor = DEFAULT_ACTOR,
+): ReportBlock {
+  const at = nowIso();
+  const report = editableReport(project, reportId);
+  const block = blockIn(report, blockId);
+  const before = block.state ?? 'drafted';
+  block.state = state;
+  block.stateBy = actor;
+  block.stateAt = at;
+  touch(project, at);
+  audit(project, { actor, action: 'report_section_state', entityType: 'report', entityId: reportId, oldValue: before, newValue: `${blockId}:${state}`, at });
+  return block;
 }
 
 /** Add a block. Prose by default; pass a source to bind one to the registers. */
@@ -2039,7 +2089,12 @@ export function moveReportBlock(project: DdProject, reportId: string, blockId: s
  * after it was sent would be the more dangerous of the two failures, because
  * nobody would know to look.
  */
-export function issueReport(project: DdProject, reportId: string, actor = DEFAULT_ACTOR): GeneratedReport {
+export function issueReport(
+  project: DdProject,
+  reportId: string,
+  actor = DEFAULT_ACTOR,
+  signOff?: { name?: string; role?: string },
+): GeneratedReport {
   const at = nowIso();
   const report = editableReport(project, reportId);
   for (const block of report.body.blocks) {
@@ -2051,6 +2106,9 @@ export function issueReport(project: DdProject, reportId: string, actor = DEFAUL
   report.body.summary = reportSummaryLine(project);
   report.status = 'issued';
   report.reviewer = actor;
+  report.signedBy = signOff?.name?.trim() || actor;
+  if (signOff?.role?.trim()) report.signedRole = signOff.role.trim();
+  report.signedAt = at;
   touch(project, at);
   audit(project, { actor, action: 'issue_report', entityType: 'report', entityId: reportId, newValue: 'issued', at });
   return report;

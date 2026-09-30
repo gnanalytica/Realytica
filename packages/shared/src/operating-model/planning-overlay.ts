@@ -8,7 +8,6 @@
  */
 
 import { DD_CONNECTORS } from '../dd-connectors';
-import { matchProjectLocality } from './capabilities';
 import { portalForCheck } from './portals';
 import { sittingCheckOf, type SittingRef } from './sitting';
 import type { ChatPlacesPull, DdProject } from './types';
@@ -126,7 +125,6 @@ export function compareProjectPlanning(
   extra?: { sitting?: SittingRef; places?: ChatPlacesPull },
 ): PlanningOverlayRead {
   const seated = landUseSittingOf(project, extra?.sitting);
-  const locality = matchProjectLocality(project);
   const pin = planningPinOf(project, extra?.places);
   const conversionFindingIds = project.findings
     .filter((f) => f.status !== 'closed' && f.status !== 'rejected' && /convert|agricultur|s\.?\s*95|land use|zoning/i.test(`${f.title} ${f.description}`))
@@ -144,11 +142,6 @@ export function compareProjectPlanning(
       code: 'plan_in_force',
       severity: 'info',
       text: PLAN_IN_FORCE.note,
-    },
-    {
-      code: 'pack_not_sheet',
-      severity: 'info',
-      text: 'The locality pack zoning string is a market dataset for this corridor. It is not the land-use hatch on the sheet for this survey number.',
     },
   ];
 
@@ -186,17 +179,9 @@ export function compareProjectPlanning(
     notEvidence: true,
     inForce: PLAN_IN_FORCE,
     pin,
-    locality: locality
-      ? {
-          id: locality.id,
-          locality: locality.locality,
-          city: locality.city,
-          zoning: locality.zoning,
-          farAllowed: locality.farAllowed,
-          permittedUses: locality.permittedUses,
-          planningNote: locality.planningNote,
-        }
-      : undefined,
+    // The locality table's zoning and FAR are illustrative, not the plan in
+    // force, so they are not offered as a reading of this site.
+    locality: undefined,
     thisFile: {
       checkId: seated?.check.id,
       checkTitle: seated?.check.title,

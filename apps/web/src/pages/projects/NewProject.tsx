@@ -46,6 +46,11 @@ export default function NewProject() {
    */
   const [parcelId, setParcelId] = useState('');
   const [tenure, setTenure] = useState<Tenure | ''>('');
+  // The engagement: who asked, for what, led by whom, due when.
+  const [client, setClient] = useState('');
+  const [scope, setScope] = useState('');
+  const [lead, setLead] = useState('');
+  const [dueDate, setDueDate] = useState('');
   const [busy, setBusy] = useState(false);
   /*
    * Errors appear on submit, not on every keystroke — telling somebody the
@@ -106,13 +111,20 @@ export default function NewProject() {
         jurisdiction: jurisdiction || undefined,
         portfolio: portfolio || undefined,
         parcelId: parcelId.trim() || undefined,
+        engagement: {
+          stage: 'intake',
+          client: client.trim() || undefined,
+          scope: scope.trim() || undefined,
+          lead: (lead || owner).trim() || undefined,
+          dueDate: dueDate || undefined,
+        },
         tenure: tenure || undefined,
         landAreaSqm: optionalNumber(landArea),
         saleableAreaSqm: optionalNumber(saleable),
         builtUpAreaSqm: optionalNumber(builtUp),
         budget: optionalNumber(budget),
       });
-      toast('Project created', 'good');
+      toast('Engagement created', 'good');
       /*
        * Land where the answer is, not on the front door.
        *
@@ -126,7 +138,8 @@ export default function NewProject() {
        * So a file that carries a measurement opens on its figure, and one that
        * does not opens on the cells that are the reason it has none.
        */
-      navigate(measured ? `/projects/${project.id}/valuation` : `/projects/${project.id}/valuation?view=inputs`);
+      // Into the workspace, where the copilot asks for the documents first.
+      navigate(`/projects/${project.id}`);
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Could not create project', 'critical');
     } finally {
@@ -141,7 +154,28 @@ export default function NewProject() {
         below it, so it moved onto them as hints — which is where somebody
         choosing a type or a stage is actually looking.
       */}
-      <h1 className="text-xl font-semibold tracking-tight text-ink">New project</h1>
+      <h1 className="text-xl font-semibold tracking-tight text-ink">New engagement</h1>
+      <Card>
+        <CardHeader title="The engagement" subtitle="Who asked, for what, and by when. It puts the file in the portfolio pipeline." />
+        <CardBody className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Client" hint="Who the report is for.">
+              <Input value={client} onChange={(e) => setClient(e.target.value)} placeholder="e.g. the developer, or a bank branch" />
+            </Field>
+            <Field label="What was asked for" hint="In the client's words.">
+              <Input value={scope} onChange={(e) => setScope(e.target.value)} placeholder="e.g. Screening and technical DD" />
+            </Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Lead" hint="Who leads it and signs.">
+              <Input value={lead} onChange={(e) => setLead(e.target.value)} placeholder="Name" />
+            </Field>
+            <Field label="Report due" hint="Shows on the portfolio's next 14 days.">
+              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            </Field>
+          </div>
+        </CardBody>
+      </Card>
       <Card>
         <CardHeader title="The property" />
         <CardBody className="space-y-3">
@@ -245,8 +279,8 @@ export default function NewProject() {
           title="What it takes to value it"
           subtitle={
             measured
-              ? 'Enough to run. The file will open on its indicative figure.'
-              : 'Skip these and the file opens on this same sheet instead of a figure — an area is what every approach measures a rate against.'
+              ? 'Enough for the approaches to run once rates are recorded on the Value tab.'
+              : 'An area is what every valuation approach measures a rate against. Add it here or later on the Value tab.'
           }
         />
         <CardBody className="space-y-3">
@@ -261,7 +295,7 @@ export default function NewProject() {
               <Input inputMode="decimal" value={builtUp} onChange={(e) => setBuiltUp(e.target.value)} placeholder="0" />
             </Field>
           </div>
-          <Field label="Asking price, INR" hint="Compared against the indicative range, never used to produce it.">
+          <Field label="Asking price, INR" hint="Compared against an indicative figure once there is one, never used to produce it.">
             <Input inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="0" />
           </Field>
         </CardBody>
@@ -302,7 +336,7 @@ export default function NewProject() {
         </Button>
         {/* Never disabled on an empty field — that is the silent failure. */}
         <Button type="submit" disabled={busy}>
-          Create project
+          Create engagement
         </Button>
       </div>
     </form>

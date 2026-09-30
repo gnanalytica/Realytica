@@ -131,8 +131,12 @@ describe('project particulars reaching the engine', () => {
     assert.ok(project.lastScreen, 'the headline snapshot is still written');
     const full = project.lastScreenResult;
     assert.ok(full, 'the working behind the verdict must survive the run');
-    assert.ok(full.anchors.length > 0);
-    assert.ok(full.comparables.length > 0);
+    // Nothing built on the illustrative market tables reaches a project.
+    assert.equal(full.anchors.length, 0);
+    assert.equal(full.comparables.length, 0);
+    assert.equal(full.drivers.length, 0);
+    assert.equal(full.indicativeValue.mid, 0);
+    assert.equal(full.evidence.some((e) => e.sourceType === 'comparable'), false);
     assert.ok(full.evidence.length > 0);
     assert.ok(full.stateCompliance, 'the compliance checks are the reason to keep it');
     assert.equal(full.recommendation.verdict, project.lastScreen?.verdict);

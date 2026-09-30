@@ -10,11 +10,10 @@ export function CockpitGraph() {
       <GraphPane
         project={project}
         focusId={params.get('node')}
+        // Opening a record is a button in the inspector; a click on a node
+        // stays in the graph, which is what exploring it needs.
+        onOpen={onOpenCited}
         onSelect={(id) => {
-          if (id && onOpenCited) {
-            onOpenCited(id);
-            return;
-          }
           setParams(
             (prev) => {
               const next = new URLSearchParams(prev);

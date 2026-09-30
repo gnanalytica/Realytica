@@ -949,6 +949,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       confidence,
       sourceDocumentId: document.id,
       sourcePage,
+      quote: raw.quote.slice(0, 220),
       method: 'ocr',
     });
 
