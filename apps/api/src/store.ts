@@ -225,7 +225,26 @@ const PROJECT_KEY = 'project.json';
  */
 const REFRESH_MIN_INTERVAL_MS = 2_000;
 
-class Store {
+/** How often one project may be re-read from storage for a request; see `syncProject`. */
+const PROJECT_SYNC_INTERVAL_MS = 1_000;
+
+/** How often the workspace document may be re-read for a request; see `syncIndex`. */
+const INDEX_SYNC_INTERVAL_MS = 2_000;
+
+/**
+ * Every workspace field, as JSON, keyed by name. Projects are sharded and
+ * the index is derived, so neither is part of it.
+ */
+function coreSnapshot(data: StoreData): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [key, value] of Object.entries(data)) {
+    if (key === 'projects' || key === 'projectIds') continue;
+    out.set(key, JSON.stringify(value ?? null));
+  }
+  return out;
+}
+
+export class Store {
   data: StoreData = emptyStore();
 
   /**
@@ -261,6 +280,7 @@ class Store {
      * project somebody deleted.
      */
     const ids = this.data.projectIds ?? [];
+    this.indexed = new Set(ids);
     if (ids.length > 0) {
       const loadedProjects = await Promise.all(ids.map(id => this.readProject(id)));
       const shards = loadedProjects.filter((p): p is DdProject => p !== null);
@@ -276,10 +296,123 @@ class Store {
     // Everything loaded is by definition already persisted, so nothing is
     // rewritten until it actually changes.
     for (const project of this.data.projects ?? []) this.persistedAt.set(project.id, project.updatedAt);
+    this.coreBaseline = coreSnapshot(this.data);
+  }
+
+  /**
+   * Take what other instances have written to the workspace since this one
+   * last looked: projects created or removed there, and the workspace fields
+   * this instance has not itself changed — who belongs, what they may reach.
+   *
+   * Serverless runs several instances, each holding the store it loaded at
+   * its own boot. Without this, a project refreshed through one instance was
+   * missing from the next list another served, and a member added through
+   * one was refused by the other. Called before every request; throttled,
+   * and concurrent callers share one read.
+   */
+  async syncIndex(): Promise<void> {
+    const now = Date.now();
+    if (this.indexSync && now - this.indexSync.at < INDEX_SYNC_INTERVAL_MS) return this.indexSync.promise;
+    const promise = this.pullIndex().catch((err: unknown) => {
+      console.warn(`[store] could not sync the workspace: ${(err as Error).message}`);
+    });
+    this.indexSync = { at: now, promise };
+    return promise;
+  }
+
+  private async pullIndex(): Promise<void> {
+    const raw = await storageAdapter.readStore();
+    if (!raw) return;
+    const loaded = normalizeStoreData(raw) as Record<string, unknown>;
+    const data = this.data as Record<string, unknown>;
+    const mine = coreSnapshot(this.data);
+    for (const key of new Set([...mine.keys(), ...Object.keys(loaded)])) {
+      if (key === 'projects' || key === 'projectIds') continue;
+      // Changed here and not yet written: this instance's own, left alone.
+      if (mine.has(key) && mine.get(key) !== this.coreBaseline.get(key)) continue;
+      const value = key in loaded ? loaded[key] : (raw as Record<string, unknown>)[key];
+      data[key] = value;
+      this.coreBaseline.set(key, JSON.stringify(value ?? null));
+    }
+
+    // A legacy document carries its projects inline and names no ids.
+    if (!Array.isArray(raw.projectIds)) return;
+    const stored = new Set(raw.projectIds.filter((id): id is string => typeof id === 'string'));
+    const projects = this.data.projects ?? (this.data.projects = []);
+    const held = new Set(projects.map((project) => project.id));
+    const missing = [...stored].filter((id) => !held.has(id));
+    const shards = (await Promise.all(missing.map((id) => this.readProject(id)))).filter((p): p is DdProject => p !== null);
+    for (const shard of shards) {
+      if (projects.some((project) => project.id === shard.id)) continue;
+      projects.push(shard);
+      this.persistedAt.set(shard.id, shard.updatedAt);
+    }
+    // Removed through another instance: this one knew it as stored, storage
+    // no longer names it, and nothing about it here is waiting to be written.
+    this.data.projects = projects.filter(
+      (project) => stored.has(project.id) || !this.indexed.has(project.id) || this.persistedAt.get(project.id) !== project.updatedAt,
+    );
+    const live = new Set(this.data.projects.map((project) => project.id));
+    for (const id of [...this.persistedAt.keys()]) if (!live.has(id)) this.persistedAt.delete(id);
+    this.indexed = stored;
+  }
+
+  /**
+   * One project, as storage has it now, before a request about it is served.
+   *
+   * An approval made through one instance was invisible to the next page
+   * another served, and that instance's next save put its older copy back
+   * over it. The stored copy replaces the held one in place, so every
+   * reference a handler already holds stays the live one — unless this
+   * instance holds a change of its own it has not written yet, which its own
+   * save is about to do. Throttled per project; concurrent callers share one
+   * read; `force` skips the throttle, for a turn that has been running long
+   * enough for the file to have moved underneath it.
+   */
+  async syncProject(id: string, opts: { force?: boolean } = {}): Promise<void> {
+    const now = Date.now();
+    const last = this.projectSyncs.get(id);
+    if (!opts.force && last && now - last.at < PROJECT_SYNC_INTERVAL_MS) return last.promise;
+    const promise = this.pullProject(id).catch((err: unknown) => {
+      console.warn(`[store] could not sync project ${id}: ${(err as Error).message}`);
+    });
+    this.projectSyncs.set(id, { at: now, promise });
+    return promise;
+  }
+
+  private async pullProject(id: string): Promise<void> {
+    const stored = await this.readProject(id);
+    if (!stored) return;
+    const projects = this.data.projects ?? (this.data.projects = []);
+    const held = projects.find((project) => project.id === id);
+    if (!held) {
+      projects.push(stored);
+      this.persistedAt.set(id, stored.updatedAt);
+      return;
+    }
+    if (stored.updatedAt === held.updatedAt) return;
+    if (held.updatedAt !== this.persistedAt.get(id)) return;
+    const target = held as unknown as Record<string, unknown>;
+    for (const key of Object.keys(target)) delete target[key];
+    Object.assign(target, stored);
+    this.persistedAt.set(id, stored.updatedAt);
   }
 
   /** When the core document was last re-read, for the throttle below. */
   private lastRefresh = 0;
+
+  /**
+   * Each workspace field as this instance last read or wrote it, which is
+   * how a change made here is told from one another instance made.
+   */
+  private coreBaseline = new Map<string, string>();
+
+  /** The project ids the stored index held when this instance last read or wrote it. */
+  private indexed = new Set<string>();
+
+  private indexSync: { at: number; promise: Promise<void> } | undefined;
+
+  private projectSyncs = new Map<string, { at: number; promise: Promise<void> }>();
 
   /**
    * Re-read the workspace-level half of the store from the adapter.
@@ -407,11 +540,7 @@ class Store {
       if (!live.has(id)) this.persistedAt.delete(id);
     }
 
-    // The core document: everything that is not a project, plus the index of
-    // which shards to load. `projects` is written empty rather than omitted so
-    // an older build reading this document finds a shape it understands
-    // instead of a missing key.
-    await storageAdapter.writeStore({ ...this.data, projects: [], projectIds: [...live] });
+    await this.writeCore(live);
 
     // After the store is durable, never before: the graph is an index over it,
     // and an index written ahead of the thing it indexes can point at a state
@@ -419,6 +548,46 @@ class Store {
     // dependency on the graph layer, which imports it back.
     const { syncGraph } = await import('./graph/sync');
     await syncGraph(projects);
+  }
+
+  /**
+   * The core document: everything that is not a project, plus the index of
+   * which shards to load. `projects` is written empty rather than omitted so
+   * an older build reading this document finds a shape it understands
+   * instead of a missing key.
+   *
+   * Written only when this instance changed something in it, and then over
+   * what is stored now rather than over this instance's snapshot of it: a
+   * field it changed is its own, every other field keeps what another
+   * instance wrote, and the index gains the projects created here and loses
+   * the ones removed here, whatever else it names. Writing the whole snapshot
+   * on every save was how one instance's save undid another's refresh of the
+   * samples, or its new member. Two instances changing the SAME field still
+   * resolve last-writer-wins.
+   */
+  private async writeCore(live: Set<string>): Promise<void> {
+    const mine = coreSnapshot(this.data);
+    const changed = [...mine].filter(([key, json]) => this.coreBaseline.get(key) !== json).map(([key]) => key);
+    const created = [...live].filter((id) => !this.indexed.has(id));
+    const removed = [...this.indexed].filter((id) => !live.has(id));
+    if (!changed.length && !created.length && !removed.length) return;
+
+    const raw = ((await storageAdapter.readStore()) ?? {}) as StoreData & Record<string, unknown>;
+    const ids = new Set([...(Array.isArray(raw.projectIds) ? raw.projectIds : []), ...created]);
+    for (const id of removed) ids.delete(id);
+    const data = this.data as Record<string, unknown>;
+    const merged: Record<string, unknown> = { ...raw };
+    for (const key of changed) merged[key] = data[key];
+    await storageAdapter.writeStore({ ...(merged as StoreData), projects: [], projectIds: [...ids] });
+
+    // What another instance wrote to a field this one left alone is now this one's too.
+    const adopted = normalizeStoreData(merged as StoreData) as Record<string, unknown>;
+    for (const key of mine.keys()) {
+      if (changed.includes(key)) continue;
+      data[key] = key in adopted ? adopted[key] : merged[key];
+    }
+    this.coreBaseline = coreSnapshot(this.data);
+    this.indexed = ids;
   }
 
   /** Alias for `save()`, kept for the SIGINT/SIGTERM shutdown path. */

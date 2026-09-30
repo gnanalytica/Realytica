@@ -35,14 +35,27 @@ export interface StoredUpload {
   storageKey: string;
 }
 
+/** A reading turn stops starting new files after this long, and says how many are left. */
+export const REREAD_BUDGET_MS = 300_000;
+
 /**
  * Each filed row's latest file, the unread ones unless asked again, with its
  * bytes from storage. A file whose bytes are gone is left out rather than read
- * as empty.
+ * as empty, and so is one whose card from an earlier reading is still waiting:
+ * asking again carries on with the rest instead of reading it twice.
  */
 export async function filedDocumentsToRead(project: DdProject, again: boolean): Promise<StoredUpload[]> {
+  const waiting = new Set(
+    (project.chatProposals ?? [])
+      .filter((card) => card.kind === 'file_evidence' && card.status === 'proposed')
+      .map((card) => String((card.payload as { storageKey?: unknown }).storageKey ?? '')),
+  );
   const rows = project.evidence.filter(
-    (e) => e.attachments.length > 0 && !NOT_RELIED_ON.has(e.status) && (again || !(e.facts ?? []).length),
+    (e) =>
+      e.attachments.length > 0
+      && !NOT_RELIED_ON.has(e.status)
+      && (again || !(e.facts ?? []).length)
+      && !waiting.has(e.attachments[e.attachments.length - 1]!.storageKey),
   );
   const out: StoredUpload[] = [];
   for (const row of rows) {
