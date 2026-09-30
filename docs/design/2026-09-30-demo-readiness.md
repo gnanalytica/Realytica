@@ -37,14 +37,26 @@ Checks run on 2026-09-30: typecheck, lint and the production build pass, and all
 
    Without them, document reading, file answers, the revenue map and every register still work. Only model chat and the map pin do not.
 2. Run `pnpm dev` and open `http://localhost:5173/portfolio`.
-3. To show a full file, press **Load the labelled samples** on an empty portfolio. In the Harohalli sample's workspace, **Use the sample documents** reads nine demo PDFs through the real upload path.
+3. On the Portfolio, an admin presses **Load the samples** (or **Refresh the samples**). This gives three labelled engagements, and removes only projects marked as samples, never client projects:
+   - **SAMPLE-1, Whitefield site (Analysis).** Its nine demo PDFs are read on the server through the real upload path, with no model. It arrives with document facts, cited check values, three check rulings, a subsisting-mortgage finding, a valued run from a labelled sample land rate, three requests (one answered) and a report under review.
+   - **SAMPLE-2, Harohalli township (Review).** Several assessments, an overdue request and an issued red flag report with a named sign-off.
+   - **SAMPLE-3, Koramangala infill (Documents).** An acquisition screen waiting on documents, with a sent request and a drafted one.
+
+## Stored data from before the release
+
+On its first start, the API takes out anything the illustrative reference tables left on stored projects. Each project is done once and gets an audit entry.
+- **The stored screen:** its value range, comparables and market drivers go.
+- **Valuation runs priced on locality medians:** removed, unless someone issued one.
+- **Evidence filed from the locality pack:** rejected, with the reason.
+- **What those tables raised:** findings are rejected, and risks, actions and the old screen's verdict are closed or withdrawn with the reason. Nothing a person wrote is deleted.
+- **The two engagements the old boot seed created:** marked as labelled samples, so a refresh replaces them.
 
 ## A five-minute walkthrough
 
 1. **Portfolio:** the pipeline, what needs a decision, and what is overdue.
-2. **Case dashboard:** the lifecycle, the key facts and the map. Ask "Does the extent on the sale deed match the khata?"
+2. **Case dashboard (Whitefield sample):** the lifecycle, the key facts and the map. Ask "Does the extent on the sale deed match the khata?"
 3. **Workspace:** the answer cites each document's page and opens the survey sketch at its fact. Documents shows the deed's 15 facts, each with its words on the page.
-4. **Technical DD:** a check with document-filled values, and the computed extent mismatch.
+4. **Technical DD:** the three rulings, a check with document-filled values, and the computed extent mismatch. Read the revenue map for Sy. 118/2 on the Site tab.
 5. **People:** record a request with a due date. It appears on the dashboard and the portfolio.
 6. **Report:** approve a section, export to Word, and open the PDF view. Issue with a named sign-off.
 7. **Graph:** pick a finding, then "Why is this here?"

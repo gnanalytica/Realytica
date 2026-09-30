@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CircleAlert, Plus, Search, Sparkles, TriangleAlert } from 'lucide-react';
+import { CircleAlert, Plus, RefreshCw, Search, Sparkles, TriangleAlert } from 'lucide-react';
 import {
   ENGAGEMENT_STAGES,
   ENGAGEMENT_STAGE_LABEL,
   LIFECYCLE_STAGE_LABEL,
+  can,
   type PortfolioDue,
   type PortfolioView,
   type ProjectSummary,
@@ -12,7 +13,8 @@ import {
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { readPref, writePref } from '../lib/prefs';
-import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Skeleton, cn, useToast } from '../components/ui/kit';
+import { useMe } from '../lib/useMe';
+import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Modal, Skeleton, cn, useToast } from '../components/ui/kit';
 import { Avatar, dayMonth } from '../components/project/ProjectPanels';
 
 const LAST_SEEN_KEY = 'portfolioLastSeen';
@@ -116,7 +118,10 @@ export default function Portfolio() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [seeding, setSeeding] = useState(false);
+  const [refreshOpen, setRefreshOpen] = useState(false);
   const [lastSeen] = useState<string | null>(() => readPref(LAST_SEEN_KEY));
+  const me = useMe();
+  const mayManageSamples = me ? can(me.role, 'admin') : false;
 
   // The visit is recorded on the way out, so this visit's digest still reads
   // against the previous one.
@@ -154,6 +159,22 @@ export default function Portfolio() {
     }
   }
 
+  async function refreshSamples() {
+    setSeeding(true);
+    try {
+      const out = await api.refreshSamples();
+      await refresh();
+      setRefreshOpen(false);
+      toast(`Replaced ${out.removed} sample${out.removed === 1 ? '' : 's'} with ${out.created} fresh ones`, 'good');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not refresh the samples', 'critical');
+    } finally {
+      setSeeding(false);
+    }
+  }
+
+  const sampleCount = (data?.projects ?? []).filter((p) => p.sample).length;
+
   const all = data?.projects ?? [];
   const issued = all.filter((p) => p.engagement?.stage === 'issued').length;
   const blockedProjects = all.filter((p) => p.health === 'red').length;
@@ -190,11 +211,45 @@ export default function Portfolio() {
               className="w-56 bg-transparent text-[13px] text-ink placeholder:text-ink-muted focus:outline-none"
             />
           </label>
+          {mayManageSamples && (data?.projects.length ?? 0) > 0 ? (
+            <Button variant="ghost" icon={<RefreshCw size={14} />} onClick={() => setRefreshOpen(true)} disabled={seeding}>
+              {sampleCount ? 'Refresh the samples' : 'Load the samples'}
+            </Button>
+          ) : null}
           <Button variant="primary" icon={<Plus size={15} />} onClick={() => navigate('/projects/new')}>
             New engagement
           </Button>
         </div>
       </header>
+
+      <Modal
+        open={refreshOpen}
+        onClose={() => !seeding && setRefreshOpen(false)}
+        title={sampleCount ? 'Refresh the sample engagements?' : 'Load the sample engagements?'}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRefreshOpen(false)} disabled={seeding}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={seeding} onClick={() => void (sampleCount ? refreshSamples() : loadSamples())}>
+              {sampleCount ? `Replace ${sampleCount} sample${sampleCount === 1 ? '' : 's'}` : 'Load them'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-2 text-[13px] leading-relaxed text-ink-secondary">
+          <p>
+            Three labelled sample engagements, ready to show: a Whitefield site whose demo documents are read onto it, a
+            township under construction, and an acquisition screen waiting on documents.
+          </p>
+          {sampleCount ? (
+            <p>
+              The {sampleCount} project{sampleCount === 1 ? '' : 's'} marked as samples here {sampleCount === 1 ? 'is' : 'are'} removed with
+              their documents and replaced. <span className="font-medium text-ink">Client projects are not touched.</span>
+            </p>
+          ) : null}
+        </div>
+      </Modal>
 
       {error ? <Callout tone="critical" title="Could not load the portfolio">{error}</Callout> : null}
 

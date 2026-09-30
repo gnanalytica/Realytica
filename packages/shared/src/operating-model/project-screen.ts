@@ -331,7 +331,7 @@ const PROJECT_REFERENCE_DATA: ReferenceData = {
  * the value mid, the comparable pool, locality liquidity, zoning and FAR by
  * locality, and water exposure by locality. None may reach a client file.
  */
-const MARKET_RISK_CODES: ReadonlySet<string> = new Set([
+export const MARKET_RISK_CODES: ReadonlySet<string> = new Set([
   'asking_price_above_mid',
   'thin_comparable_evidence',
   'land_comparables_widened',
@@ -348,7 +348,16 @@ const MARKET_RISK_CODES: ReadonlySet<string> = new Set([
  * Actions the engine raises from the value range or from duty charged on a
  * locality guidance value, keyed by the suffix of their id.
  */
-const MARKET_ACTIONS = ['lender-check', 'guidance-value-reference'];
+export const MARKET_ACTIONS = [
+  'lender-check',
+  'guidance-value-reference',
+  // Raised by the risks above; they go with them.
+  'risk-asking-gap',
+  'risk-thin-comps',
+  'risk-far',
+  'risk-zoning',
+  'risk-locality-data',
+];
 
 /**
  * A verdict from what the file holds, and nothing it does not.
