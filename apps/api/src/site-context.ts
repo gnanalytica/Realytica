@@ -14,6 +14,7 @@ import { buildSiteContext, placeProviderConfigured, placeProviderFor } from '@re
 export interface SiteContextHolder {
   id: string;
   siteContext?: SiteContext;
+  updatedAt?: string;
 }
 
 function streetViewUrlFor(id: string): (panoramaId: string, heading: number) => string {
@@ -56,6 +57,11 @@ export async function ensureIdentitySiteContext(
       streetViewUrl: streetViewUrlFor(holder.id),
     });
     holder.siteContext = context;
+    // The store writes a project only when its `updatedAt` moves. Without
+    // this the context lived in one server's memory: every other instance
+    // paid for the lookup again, and its map tile answered "no resolved
+    // location" for a site the card was showing.
+    if (holder.updatedAt !== undefined) holder.updatedAt = now;
     return context;
   } catch (err) {
     console.error(`[site-context] build failed for ${holder.id}:`, err);
