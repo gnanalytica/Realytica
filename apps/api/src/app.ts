@@ -94,6 +94,20 @@ app.get('/api/health', (_req, res) => {
 });
 
 /*
+ * Serverless runs several instances, each holding the store it loaded at its
+ * own boot. Before a request is served, take what the others have written
+ * since: the workspace first — who belongs is what the gate below reads —
+ * then the one project the request is about. See `store.syncIndex` and
+ * `store.syncProject`. A failed sync serves what this instance holds.
+ */
+app.use('/api', (_req: Request, _res: Response, next: NextFunction) => {
+  void store.syncIndex().then(() => next(), () => next());
+});
+app.use('/api/projects/:projectId', (req: Request, _res: Response, next: NextFunction) => {
+  void store.syncProject(req.params.projectId ?? '').then(() => next(), () => next());
+});
+
+/*
  * Everything below is authenticated.
  *
  * Mounted once, above the routers, rather than per route: a route added later

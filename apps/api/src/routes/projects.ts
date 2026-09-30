@@ -163,7 +163,7 @@ import { store } from '../store';
 import { mergeModelReading, readIngestLocally } from '../documents/intake';
 import { readOntoRegister, type RegisterUpload } from '../documents/register-read';
 import { loadSampleDocuments, SAMPLE_REQUEST } from '../documents/samples';
-import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST } from '../documents/reread';
+import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS } from '../documents/reread';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { UPLOAD_LIMITS } from '../uploads';
@@ -1012,6 +1012,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     if (filed.length) {
       await ingestTurn(req, res, project, filed, {
         question,
+        readBudgetMs: REREAD_BUDGET_MS,
         viewContext: parsed.data.viewContext,
         sessionId: parsed.data.sessionId,
         ddId: sitting?.ddId,
@@ -1276,6 +1277,12 @@ interface IngestUpload {
 
 interface IngestFields {
   question?: string;
+  /**
+   * Stop starting new files after this long and say how many are left. For
+   * filed documents read again, where scans can run to minutes; an upload
+   * reads everything it was given.
+   */
+  readBudgetMs?: number;
   viewContext?: string;
   sessionId?: string;
   ddId?: unknown;
@@ -1294,11 +1301,17 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
   refreshProjectDerived(project);
   const seen = viewFor(req, project);
   const canvas = seen.project;
-  const turnsBefore = project.conversation.length;
+  let turnsBefore = project.conversation.length;
   const stream = beginNdjson(res);
   const { line, clientGone } = stream;
   const ingest: ChatIngestFile[] = [];
-  for (const file of files) {
+  const started = Date.now();
+  let unread = 0;
+  for (const [index, file] of files.entries()) {
+    if (fields.readBudgetMs && index > 0 && Date.now() - started > fields.readBudgetMs) {
+      unread = files.length - index;
+      break;
+    }
     const storageKey = file.storageKey ?? documentKey({ id: randomUUID(), fileName: file.originalname });
     if (!file.storageKey) await storageAdapter.putDocument(project.id, storageKey, file.buffer, file.mimetype);
     const row: ChatIngestFile = {
@@ -1364,6 +1377,13 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
     res.end();
     return;
   }
+  /*
+   * Reading can take minutes, long enough for the file to move on another
+   * instance: a card approved, a row filed. The result lands on the file as
+   * it stands now, not as it stood when the reading began.
+   */
+  await store.syncProject(project.id, { force: true });
+  turnsBefore = project.conversation.length;
   const question = fields.question ?? '';
   const viewContext = fields.viewContext;
   const result = applyProjectChat(canvas, question, {
@@ -1374,6 +1394,12 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
     spend: readAnything ? { usd: readCostUsd, exact: readCostExact } : undefined,
   });
   sayWhatIsMissing(seen, question, result);
+  if (unread) {
+    const more = `${unread} more filed document${unread === 1 ? ' is' : 's are'} still to be read. Say "Read the filed documents" again to carry on.`;
+    result.assistantTurn.text = `${result.assistantTurn.text}\n\n${more}`;
+    const last = canvas.conversation[canvas.conversation.length - 1];
+    if (last?.id === result.assistantTurn.id && last !== result.assistantTurn) last.text = result.assistantTurn.text;
+  }
   stampSession(result, fields.sessionId);
   mergeConversation(project, canvas, actorOf(req), turnsBefore);
   await store.save();
