@@ -38,6 +38,9 @@ export function EngagementEditor({ project, onSaved }: { project: DdProject; onS
     setBusy(true);
     try {
       const next = await api.patchProject(project.id, {
+        // The lead is the project's owner: the new-engagement form asks for
+        // one person as "Owner / DD lead", and the overview shows it as owner.
+        owner: lead.trim() || undefined,
         // Patched whole: a stage and a due date go together.
         engagement: {
           ...current,
@@ -99,7 +102,7 @@ export function EngagementEditor({ project, onSaved }: { project: DdProject; onS
           <Field label="What was asked for" hint="In the client's words.">
             <Input value={scope} onChange={(e) => setScope(e.target.value)} placeholder="e.g. Screening and technical DD" />
           </Field>
-          <Field label="Lead" hint="Who leads it and signs.">
+          <Field label="Lead" hint="Who leads it and signs. Shown as the project's owner.">
             <Input value={lead} onChange={(e) => setLead(e.target.value)} placeholder="Name" />
           </Field>
         </div>
