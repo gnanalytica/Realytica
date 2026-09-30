@@ -56,14 +56,19 @@ export function initials(name: string): string {
 /** Square metres as a Karnataka file states land: acres and guntas beside m². */
 export function extentLabel(sqm: number | undefined): string | null {
   if (!sqm || sqm <= 0) return null;
-  const acres = sqm / 4046.8564224;
-  const whole = Math.floor(acres);
-  // One decimal, not rounded to a whole gunta: a deed writes 38 guntas for
-  // 38.6, and a rounded 39 would read as a disagreement with it.
-  const guntas = Math.round((acres - whole) * 400) / 10;
+  // Rounded as guntas first and then split, so 39.99 guntas carries into the
+  // next acre instead of reading "11 acres 40 guntas". One decimal, not a
+  // whole gunta: a deed writes 38 guntas for 38.6, and a rounded 39 would
+  // read as a disagreement with it.
+  const totalGuntas = Math.round((sqm / 101.17141056) * 10) / 10;
+  const acres = Math.floor(totalGuntas / 40);
+  const guntas = Math.round((totalGuntas - acres * 40) * 10) / 10;
   const guntaText = Number.isInteger(guntas) ? String(guntas) : guntas.toFixed(1);
-  const traditional = whole > 0 || guntas > 0 ? ` (${whole ? `${whole} acre${whole === 1 ? '' : 's'}` : ''}${whole && guntas ? ' ' : ''}${guntas ? `${guntaText} gunta${guntas === 1 ? '' : 's'}` : ''})` : '';
-  return `${Math.round(sqm).toLocaleString('en-IN')} m²${traditional}`;
+  const parts = [
+    acres ? `${acres} acre${acres === 1 ? '' : 's'}` : null,
+    guntas ? `${guntaText} gunta${guntas === 1 ? '' : 's'}` : null,
+  ].filter(Boolean);
+  return `${Math.round(sqm).toLocaleString('en-IN')} m²${parts.length ? ` (${parts.join(' ')})` : ''}`;
 }
 
 const CLOSED_FINDING = new Set(['closed', 'rejected', 'duplicate', 'superseded']);
