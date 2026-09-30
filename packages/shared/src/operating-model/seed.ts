@@ -41,7 +41,7 @@ export function seedDemoProject(): DdProject {
       jurisdiction: 'Karnataka / BMRDA',
       siteAddress: 'Sy. Nos. 41/1, 41/2 & 42, Harohalli Hobli, Kanakapura Taluk',
       currentStage: 'acquisition',
-      description: 'Phased gated township: three residential towers, clubhouse, internal roads and central utilities. Used as the sample engagement for the manual DD operating model.',
+      description: 'Phased gated township: three residential towers, clubhouse, internal roads and central utilities.',
       owner: 'DD Lead',
       developer: 'Harohalli Developments Pvt Ltd',
       landAreaSqm: 48_562,
@@ -459,7 +459,7 @@ export function seedBdaReferenceProject(): DdProject {
       siteAddress: 'Sy. No. 12/2, 80 Feet Road, Koramangala 4th Block',
       currentStage: 'acquisition',
       description:
-        'Reference infill inside the BDA local planning area so the RMP 2015 hatch can be read. Planning district 207 & 208 (Unclassified & Koramangala). Civic GIS (BBMP WMS, OpenCity lakes/wards) will clip here; that is not the master-plan sheet. Obtain the PD 207/208 land-use map or a zoning certificate on the land-use check.',
+        'Residential infill: about 4,200 m² built up on a 1,850 m² plot off 80 Feet Road. The site is inside the BDA Revised Master Plan 2015 area, planning districts 207 and 208, so its land use has to come from that land-use map or a zoning certificate.',
       owner: 'DD Lead',
       developer: 'Koramangala Infill Pvt Ltd',
       landAreaSqm: 1_850,
