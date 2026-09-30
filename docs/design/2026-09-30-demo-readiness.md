@@ -51,6 +51,24 @@ On its first start, the API takes out anything the illustrative reference tables
 - **What those tables raised:** findings are rejected, and risks, actions and the old screen's verdict are closed or withdrawn with the reason. Nothing a person wrote is deleted.
 - **The two engagements the old boot seed created:** marked as labelled samples, so a refresh replaces them.
 
+## Bringing an older file up to date
+
+A project filed before the reader existed has its documents on file and nothing read out of them.
+1. **Read the filed documents.** The workspace chat offers this as a chip whenever a filed document has nothing read. The stored files go back through the reader:
+   - Scanned pages are OCR'd at about 10–40 seconds each, so a long set takes a few turns of up to five minutes.
+   - Each turn says how many files are left.
+   - The cards land on the rows the files are already on. Review them and approve.
+2. **Run the property screen** (⌘K, "Run property screen"). A re-screen closes what an earlier screen raised and no longer finds, and replaces untouched red flag drafts. Anything a person has taken up stays as they left it.
+3. **Set up the engagement** on the case dashboard: stage, client, scope, lead and due date.
+
+Besides the land instruments, the reader now knows these approvals, and flags a term that has lapsed:
+- RERA registration certificates
+- environmental clearances (SEIAA)
+- utility, aviation (AAI height) and fire NOCs
+- certificates of incorporation
+
+Kannada EC scans don't OCR well enough to read on the server. A model that reads PDFs reads them, if one is configured.
+
 ## A five-minute walkthrough
 
 1. **Portfolio:** the pipeline, what needs a decision, and what is overdue.
