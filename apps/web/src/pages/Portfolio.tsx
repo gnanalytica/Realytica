@@ -244,8 +244,10 @@ export default function Portfolio() {
           </p>
           {sampleCount ? (
             <p>
-              The {sampleCount} project{sampleCount === 1 ? '' : 's'} marked as samples here {sampleCount === 1 ? 'is' : 'are'} removed with
-              their documents and replaced. <span className="font-medium text-ink">Client projects are not touched.</span>
+              {sampleCount === 1
+                ? 'The project marked as a sample here is removed with its documents and replaced. '
+                : `The ${sampleCount} projects marked as samples here are removed with their documents and replaced. `}
+              <span className="font-medium text-ink">Client projects are not touched.</span>
             </p>
           ) : null}
         </div>
