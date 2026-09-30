@@ -163,6 +163,7 @@ import { store } from '../store';
 import { mergeModelReading, readIngestLocally } from '../documents/intake';
 import { readOntoRegister, type RegisterUpload } from '../documents/register-read';
 import { loadSampleDocuments, SAMPLE_REQUEST } from '../documents/samples';
+import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST } from '../documents/reread';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { UPLOAD_LIMITS } from '../uploads';
@@ -1002,6 +1003,25 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const question = parsed.data.question;
   const sitting = parsed.data.sitting;
   /*
+   * "Read the filed documents": what is already on file goes back down the
+   * upload path from storage, so a document filed before the reader existed
+   * is read exactly as a new upload would be. Only what this person can see.
+   */
+  if (READ_FILED_REQUEST.test(question)) {
+    const filed = await filedDocumentsToRead(viewFor(req, project).project, asksAgain(question));
+    if (filed.length) {
+      await ingestTurn(req, res, project, filed, {
+        question,
+        viewContext: parsed.data.viewContext,
+        sessionId: parsed.data.sessionId,
+        ddId: sitting?.ddId,
+        scopeId: sitting?.scopeId,
+        checkId: sitting?.checkId,
+      });
+      return;
+    }
+  }
+  /*
    * "Use the sample documents": load the synthetic set and send it down the
    * upload path, exactly as if the person had dropped the files in. Only on a
    * labelled sample project: on a client file it would put invented deeds
@@ -1244,12 +1264,14 @@ const chatUpload = multer({
   limits: { fileSize: UPLOAD_LIMITS.maxFileBytes, files: 10 },
 });
 
-/** One uploaded file, however it arrived — multipart, or read from the bundled samples. */
+/** One uploaded file, however it arrived — multipart, the bundled samples, or already filed. */
 interface IngestUpload {
   originalname: string;
   mimetype: string;
   size: number;
   buffer: Buffer;
+  /** Set for a file already in storage: it is read from there, not stored again. */
+  storageKey?: string;
 }
 
 interface IngestFields {
@@ -1277,8 +1299,8 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
   const { line, clientGone } = stream;
   const ingest: ChatIngestFile[] = [];
   for (const file of files) {
-    const storageKey = documentKey({ id: randomUUID(), fileName: file.originalname });
-    await storageAdapter.putDocument(project.id, storageKey, file.buffer, file.mimetype);
+    const storageKey = file.storageKey ?? documentKey({ id: randomUUID(), fileName: file.originalname });
+    if (!file.storageKey) await storageAdapter.putDocument(project.id, storageKey, file.buffer, file.mimetype);
     const row: ChatIngestFile = {
       fileName: file.originalname,
       mimeType: file.mimetype || 'application/octet-stream',

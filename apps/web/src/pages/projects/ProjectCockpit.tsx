@@ -449,6 +449,11 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     const rows: string[] = [];
     const waiting = (project.chatProposals ?? []).filter((p) => p.status === 'proposed').length;
     const filed = project.evidence.filter((e) => (e.attachments ?? []).length).length;
+    // Filed before the reader existed, or that it could not read then: the
+    // file is there, but nothing on the row says what it states.
+    const unread = project.evidence.filter(
+      (e) => (e.attachments ?? []).length && !(e.facts ?? []).length && e.status !== 'rejected' && e.status !== 'superseded',
+    ).length;
     const material = project.findings.filter(
       (f) => (f.severity === 'critical' || f.severity === 'high') && !['closed', 'rejected', 'duplicate', 'superseded'].includes(f.status),
     ).length;
@@ -464,6 +469,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       if (fileIsBare(project)) rows.push(next.title);
       rows.push('What can you do?', 'What documents do I need?');
     } else {
+      if (unread) rows.push('Read the filed documents');
       rows.push('Summarise this file');
       if (material) rows.push('Which findings are critical?');
       rows.push("What's missing?");
