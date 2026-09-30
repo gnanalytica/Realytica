@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { RotateCw, TriangleAlert } from 'lucide-react';
 import { Button, Card, CardBody, EmptyState } from '../ui/kit';
+import { isStaleBuildError, mayReloadForNewBuild } from '../../lib/stale-build';
 
 /**
  * The last thing between a thrown render and a white screen.
@@ -68,6 +69,8 @@ export class ErrorBoundary extends Component<Props, State> {
     // The console is the only sink there is. Keep the component stack with it
     // — the message alone rarely says which pane threw.
     console.error('[ui] render failed', error, info.componentStack);
+    // A deploy since the page loaded: the new build is one reload away.
+    if (isStaleBuildError(error) && mayReloadForNewBuild()) window.location.reload();
   }
 
   private retry = (): void => {
@@ -77,6 +80,27 @@ export class ErrorBoundary extends Component<Props, State> {
   render(): ReactNode {
     const { error } = this.state;
     if (!error) return this.props.children;
+
+    if (isStaleBuildError(error)) {
+      return (
+        <div className="p-4">
+          <Card>
+            <CardBody>
+              <EmptyState
+                icon={<RotateCw size={22} />}
+                title="The app was updated"
+                description="A newer version went live while this page was open, and this screen belongs to it. Reload to carry on. Nothing you had saved is affected."
+                action={
+                  <Button size="sm" icon={<RotateCw size={13} />} onClick={() => window.location.reload()}>
+                    Reload
+                  </Button>
+                }
+              />
+            </CardBody>
+          </Card>
+        </div>
+      );
+    }
 
     const what = this.props.label ? `${this.props.label} could not be drawn` : 'This screen could not be drawn';
 
