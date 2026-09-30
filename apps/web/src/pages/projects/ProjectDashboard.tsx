@@ -14,6 +14,7 @@ import {
   ViewTiles,
   WaitingOnCard,
 } from '../../components/project/ProjectPanels';
+import { EngagementEditor } from '../../components/project/EngagementEditor';
 
 /*
  * The map carries Leaflet. Lazy, so the rest of the dashboard paints first.
@@ -86,9 +87,12 @@ export default function ProjectDashboard() {
             <p className="mt-0.5 text-[13px] text-ink-secondary">{subtitle}</p>
           </div>
         </div>
-        <Button variant="primary" icon={<MessageSquare size={15} />} onClick={() => navigate(`/projects/${project.id}`)}>
-          Open workspace
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <EngagementEditor project={project} onSaved={setData} />
+          <Button variant="primary" icon={<MessageSquare size={15} />} onClick={() => navigate(`/projects/${project.id}`)}>
+            Open workspace
+          </Button>
+        </div>
       </header>
 
       <LifecycleStepper project={project} />

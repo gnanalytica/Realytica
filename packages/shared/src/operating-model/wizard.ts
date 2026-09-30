@@ -384,6 +384,19 @@ export function classifyIngestFile(
     if (sittingGap) byTitle = sittingGap;
   }
 
+  /*
+   * A file already on a row is that row's. Reading a filed document again
+   * lands on the row it is filed on, not on whichever open gap the reading
+   * resembles; a gap it also answers is answered when the card is approved.
+   */
+  const holder = file.storageKey ? project.evidence.find((e) => e.attachments.some((a) => a.storageKey === file.storageKey)) : undefined;
+  if (holder) {
+    byTitle = holder;
+    for (const id of holder.assessmentIds) assessmentIds.add(id);
+    for (const id of holder.scopeInstanceIds) scopeInstanceIds.add(id);
+    for (const id of holder.checkIds) checkIds.add(id);
+  }
+
   return {
     hint: best,
     evidence: byTitle,
@@ -495,9 +508,11 @@ export function proposalsFromIngest(
         'file_evidence',
         file.readFailure && !read ? file.fileName : `${file.fileName} → ${kind}`,
         ingestRationale(file, scopeNames),
-        classified.evidence
-          ? 'Marks the expected item received and attaches the file.'
-          : 'Files the document on the evidence register.',
+        classified.evidence?.attachments.some((a) => a.storageKey === file.storageKey)
+          ? 'Records what the document states on the row it is filed on.'
+          : classified.evidence
+            ? 'Marks the expected item received and attaches the file.'
+            : 'Files the document on the evidence register.',
         {
           fileName: file.fileName,
           mimeType: file.mimeType,
@@ -625,7 +640,10 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     }
     if (typeof payload.documentType === 'string') evidence.documentType = payload.documentType;
     if (payload.readMethod === 'text' || payload.readMethod === 'ocr' || payload.readMethod === 'mixed') evidence.readMethod = payload.readMethod;
-    if (payload.storageKey && payload.fileName) {
+    // A document read again is already on its row; attaching it a second
+    // time would list the same file twice.
+    const held = evidence.attachments.some((a) => a.storageKey === payload.storageKey);
+    if (payload.storageKey && payload.fileName && !held) {
       attachEvidenceFile(
         project,
         evidence.id,

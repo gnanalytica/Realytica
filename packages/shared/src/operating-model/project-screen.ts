@@ -42,6 +42,7 @@ import type {
   ActionKind,
   ChatProposal,
   DdProject,
+  GeneratedReport,
   EvidenceRecord,
   EvidenceStatus,
   FindingSeverity,
@@ -78,14 +79,112 @@ function hasMark(record: { screenCode?: string }, haystack: string | undefined, 
   return Boolean(haystack?.includes(SCREEN_MARK(code)));
 }
 
+/** Raised, and not closed by a later screen (see `retireWhatIsNoLongerRaised`). */
 function already(project: DdProject, code: string): boolean {
   return (
-    project.findings.some((f) => hasMark(f, f.description, code))
-    || project.risks.some((r) => hasMark(r, r.cause, code) || hasMark(r, r.residualNote, code))
-    || project.actions.some((a) => hasMark(a, a.description, code))
+    project.findings.some((f) => !f.screenClosedAt && hasMark(f, f.description, code))
+    || project.risks.some((r) => !r.screenClosedAt && (hasMark(r, r.cause, code) || hasMark(r, r.residualNote, code)))
+    || project.actions.some((a) => !a.screenClosedAt && hasMark(a, a.description, code))
     || project.evidence.some((e) => hasMark(e, e.description, code))
-    || project.decisions.some((d) => hasMark(d, d.rationale, code))
+    || project.decisions.some((d) => !d.screenClosedAt && hasMark(d, d.rationale, code))
   );
+}
+
+/** A red flag report is a live reading of the registers; one nobody touched holds nothing a new one lacks. */
+function untouchedDraft(report: GeneratedReport): boolean {
+  return (
+    report.status === 'generated'
+    && !report.reviewer
+    && !report.signedBy
+    && (report.body.blocks ?? []).every((b) => !b.editedAt && !b.stateBy && !b.detachedAt)
+  );
+}
+
+/**
+ * Close what an earlier screen raised and this one no longer does.
+ *
+ * The screen used to only add. A finding it raised stayed open after the
+ * document that answered it was filed, and one built on facts an earlier
+ * engine had made up — a mother deed nobody supplied — stayed open for good,
+ * because the same code on every later run counted as already raised. Now a
+ * re-screen retires its own earlier output that it no longer stands behind,
+ * but only while nobody has taken it up: a finding still open, a risk still
+ * only identified, an action not started, a verdict still only proposed.
+ * Anything a person moved on is theirs and stays as they left it.
+ *
+ * Closed with the reason and `screenClosedAt`, never deleted; the same thing
+ * found again later is raised afresh. Earlier red flag drafts nobody touched
+ * are replaced by the one this run writes rather than piling up beside it.
+ */
+function retireWhatIsNoLongerRaised(project: DdProject, result: ScreenResult, verdictCode: string, actor: string, at: string): void {
+  const raised = new Set<string>([
+    ...result.risks.filter((flag) => flag.status === 'open').map((flag) => flag.code),
+    ...result.actions.filter((action) => !action.done).map((action) => action.id),
+  ]);
+  const note = `No longer raised by the screen of ${at.slice(0, 10)}.`;
+  const graph = result.titleGraph;
+  const graphRaises = Boolean(graph && (graph.contradictions.length > 0 || graph.integrityScore < 80));
+  const graphHeadline = graph?.headline || 'Title graph';
+  let closed = 0;
+
+  for (const f of project.findings) {
+    if (!f.screenCode || f.screenClosedAt || f.status !== 'open') continue;
+    if (f.screenCode === 'title-graph') {
+      // The same headline is the same finding; a different one replaces it.
+      if (graphRaises && f.title === graphHeadline) continue;
+      f.status = graphRaises ? 'superseded' : 'closed';
+      f.confidenceNote = graphRaises ? `Replaced by the title graph of ${at.slice(0, 10)}.` : note;
+    } else {
+      if (raised.has(f.screenCode)) continue;
+      f.status = 'closed';
+      f.confidenceNote = note;
+    }
+    f.screenClosedAt = at;
+    f.updatedAt = at;
+    closed += 1;
+  }
+  for (const r of project.risks) {
+    if (!r.screenCode || r.screenClosedAt || r.status !== 'identified' || raised.has(r.screenCode)) continue;
+    r.status = 'closed';
+    r.residualNote = note;
+    r.screenClosedAt = at;
+    r.updatedAt = at;
+    closed += 1;
+  }
+  for (const a of project.actions) {
+    if (!a.screenCode || a.screenClosedAt || a.status !== 'not_started' || raised.has(a.screenCode)) continue;
+    a.status = 'closed';
+    a.screenClosedAt = at;
+    a.updatedAt = at;
+    closed += 1;
+  }
+  for (const d of project.decisions) {
+    if (!d.screenCode?.startsWith('verdict:') || d.screenCode === verdictCode || d.screenClosedAt) continue;
+    if (d.status !== 'proposed' && d.status !== 'pending') continue;
+    d.status = 'rejected';
+    d.rationale = `${d.rationale}\n\nWithdrawn: the screen of ${at.slice(0, 10)} reached a different verdict.`;
+    d.screenClosedAt = at;
+    d.updatedAt = at;
+    closed += 1;
+  }
+
+  const before = project.reports.length;
+  project.reports = project.reports.filter((r) => !(r.kind === 'red_flag' && untouchedDraft(r)));
+  const replaced = before - project.reports.length;
+
+  if (!closed && !replaced) return;
+  project.audit.push({
+    id: id('aud'),
+    at,
+    actor,
+    action: 'rescreen',
+    entityType: 'project',
+    entityId: project.id,
+    newValue: [
+      closed ? `Closed ${closed} record${closed === 1 ? '' : 's'} the screen no longer raises` : '',
+      replaced ? `replaced ${replaced} untouched red flag draft${replaced === 1 ? '' : 's'}` : '',
+    ].filter(Boolean).join('; ') + '.',
+  });
 }
 
 function propertyTypeOf(project: DdProject): PropertyType {
@@ -637,6 +736,7 @@ export interface AppliedScreen {
 
 export function applyScreenToProject(project: DdProject, result: ScreenResult, actor = 'operator'): AppliedScreen {
   ensureProjectShape(project);
+  retireWhatIsNoLongerRaised(project, result, `verdict:${result.recommendation.verdict}`, actor, nowIso());
   const findingIds: string[] = [];
   const riskIds: string[] = [];
   const actionIds: string[] = [];
@@ -750,7 +850,12 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
 
   let decisionId: string | undefined;
   const verdictCode = `verdict:${result.recommendation.verdict}`;
-  if (!already(project, verdictCode)) {
+  // A verdict somebody rejected, or the clean-up withdrew, is no answer to a
+  // new run: only one still standing keeps this run from proposing its own.
+  const standing = project.decisions.some(
+    (d) => !d.screenClosedAt && d.status !== 'rejected' && hasMark(d, d.rationale, verdictCode),
+  );
+  if (!standing) {
     const decision = addDecision(
       project,
       {

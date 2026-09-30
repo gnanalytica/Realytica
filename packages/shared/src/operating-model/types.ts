@@ -735,6 +735,12 @@ export interface FindingRecord {
    * The same fact, in a field, where a reader never meets it.
    */
   screenCode?: string;
+  /**
+   * When a later screen closed this because it no longer raised it. Such a
+   * record does not count as raised: the same thing found again is raised
+   * afresh rather than hidden behind the one that was closed.
+   */
+  screenClosedAt?: string;
 }
 
 export interface RiskRecord {
@@ -771,6 +777,12 @@ export interface RiskRecord {
    * The same fact, in a field, where a reader never meets it.
    */
   screenCode?: string;
+  /**
+   * When a later screen closed this because it no longer raised it. Such a
+   * record does not count as raised: the same thing found again is raised
+   * afresh rather than hidden behind the one that was closed.
+   */
+  screenClosedAt?: string;
 }
 
 export interface ActionRecord {
@@ -814,6 +826,12 @@ export interface ActionRecord {
    * The same fact, in a field, where a reader never meets it.
    */
   screenCode?: string;
+  /**
+   * When a later screen closed this because it no longer raised it. Such a
+   * record does not count as raised: the same thing found again is raised
+   * afresh rather than hidden behind the one that was closed.
+   */
+  screenClosedAt?: string;
 }
 
 export interface DecisionRecord {
@@ -845,6 +863,12 @@ export interface DecisionRecord {
    * The same fact, in a field, where a reader never meets it.
    */
   screenCode?: string;
+  /**
+   * When a later screen closed this because it no longer raised it. Such a
+   * record does not count as raised: the same thing found again is raised
+   * afresh rather than hidden behind the one that was closed.
+   */
+  screenClosedAt?: string;
 }
 
 export interface GeneratedReport {
