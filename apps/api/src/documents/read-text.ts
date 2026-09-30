@@ -50,6 +50,12 @@ export interface ReadOptions {
   maxOcrPages?: number;
   /** Progress, for the chat's live steps. */
   onProgress?: (label: string) => void;
+  /**
+   * Epoch ms after which no further page is sent to OCR. The pages already
+   * read stand and the reading says it was cut, so a turn that is running
+   * out of time still returns what it has instead of losing all of it.
+   */
+  deadline?: number;
 }
 
 const IMAGE_TYPES = /^image\/(?:jpe?g|png|gif|bmp|tiff?|webp|x-portable)/i;
@@ -135,6 +141,9 @@ function pageText(items: Array<{ str?: string; hasEOL?: boolean; transform?: num
   return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/** How long one page image may take to arrive from the PDF parser before the page is skipped. */
+const IMAGE_WAIT_MS = 30_000;
+
 /**
  * The largest image painted on a page, as pixels.
  *
@@ -155,11 +164,24 @@ async function pageImage(pdfjs: typeof import('pdfjs-dist/legacy/build/pdf.mjs')
   let best: { width: number; height: number; kind: number; data: Uint8Array | Uint8ClampedArray } | null = null;
   for (const name of names) {
     const img = await new Promise<unknown>((resolve) => {
+      /*
+       * Where to wait is decided by the name, as pdf.js's own painter decides
+       * it: a `g_` image is shared and lives in commonObjs, every other one
+       * belongs to the page. This used to ask the page's store whether it
+       * HAD the image yet and wait on the shared one otherwise — so an image
+       * still being decoded at that instant was awaited in a store it would
+       * never reach, and the request hung on that page for good. On a
+       * scanned EC, page 6 of 14 did exactly that.
+       */
+      const store = name.startsWith('g_') ? page.commonObjs : page.objs;
+      const timer = setTimeout(() => resolve(null), IMAGE_WAIT_MS);
       try {
-        // Page-level objects first; a shared image lives in commonObjs.
-        if (page.objs.has(name)) page.objs.get(name, resolve);
-        else page.commonObjs.get(name, resolve);
+        store.get(name, (value: unknown) => {
+          clearTimeout(timer);
+          resolve(value);
+        });
       } catch {
+        clearTimeout(timer);
         resolve(null);
       }
     });
@@ -172,35 +194,68 @@ async function pageImage(pdfjs: typeof import('pdfjs-dist/legacy/build/pdf.mjs')
   return best;
 }
 
-/** Raw pixels as a PNM, which Tesseract's image loader reads natively. */
+/**
+ * The first page's largest image, decoded exactly as OCR would receive it.
+ * For tests that build scans from real pixels.
+ */
+export async function firstPageImage(bytes: Uint8Array) {
+  const { pdfjs, doc } = await loadPdf(bytes);
+  try {
+    return await pageImage(pdfjs, await doc.getPage(1));
+  } finally {
+    await doc.destroy().catch(() => undefined);
+  }
+}
+
+/**
+ * The longest side OCR is handed, in pixels. A 300 dpi A4 scan is 3,508 on
+ * its long side and goes through untouched; a 400 or 600 dpi one is halved,
+ * which costs Tesseract nothing it needs and saves most of its time.
+ */
+const MAX_OCR_EDGE = 3_600;
+
+/**
+ * Raw pixels as a PNM, which Tesseract's image loader reads natively.
+ *
+ * As small as the page allows. Every page used to be expanded to full-colour
+ * RGB, three bytes a pixel, even a black-and-white scan: 26 MB for a 300 dpi
+ * A4 page and 46 MB at 400 dpi, copied again into the OCR engine's memory —
+ * enough, with the Kannada model loaded beside the English one, to stall a
+ * serverless function on a single page. A 1-bit scan now travels as a 1-bit
+ * bitmap (1 MB), anything else as greyscale, and an oversized page at half
+ * size.
+ */
 function toPnm(img: { width: number; height: number; kind: number; data: Uint8Array | Uint8ClampedArray }): Buffer {
   const { width: w, height: h, kind, data } = img;
-  const rgb = Buffer.alloc(w * h * 3);
-  if (kind === 3) {
-    for (let i = 0, j = 0; i + 3 < data.length && j < rgb.length; i += 4, j += 3) {
-      rgb[j] = data[i]!;
-      rgb[j + 1] = data[i + 1]!;
-      rgb[j + 2] = data[i + 2]!;
-    }
-  } else if (kind === 1) {
-    // 1 bit per pixel, rows padded to whole bytes. pdf.js has already applied
-    // the image's decode array, so a set bit is WHITE — the same convention
-    // its own canvas painter uses. Inverting it hands OCR a negative.
-    const rowBytes = Math.ceil(w / 8);
-    for (let y = 0; y < h; y += 1) {
-      for (let x = 0; x < w; x += 1) {
-        const bit = (data[y * rowBytes + (x >> 3)]! >> (7 - (x & 7))) & 1;
-        const v = bit ? 255 : 0;
-        const j = (y * w + x) * 3;
-        rgb[j] = v;
-        rgb[j + 1] = v;
-        rgb[j + 2] = v;
-      }
-    }
-  } else {
-    rgb.set(data.subarray(0, Math.min(data.length, rgb.length)));
+  const rowBytes = Math.ceil(w / 8);
+  // 1 bit per pixel, rows padded to whole bytes. pdf.js has already applied
+  // the image's decode array, so a set bit is WHITE — the same convention its
+  // own canvas painter uses. Getting it backwards hands OCR a negative.
+  const grey = (x: number, y: number): number => {
+    if (kind === 1) return ((data[y * rowBytes + (x >> 3)]! >> (7 - (x & 7))) & 1) ? 255 : 0;
+    const at = (y * w + x) * (kind === 3 ? 4 : 3);
+    return Math.round(0.299 * data[at]! + 0.587 * data[at + 1]! + 0.114 * data[at + 2]!);
+  };
+  const scale = Math.max(w, h) > MAX_OCR_EDGE ? 2 : 1;
+
+  if (kind === 1 && scale === 1) {
+    // PBM, where a set bit is BLACK: the same rows with every bit flipped.
+    const bits = Buffer.alloc(rowBytes * h);
+    for (let i = 0; i < bits.length; i += 1) bits[i] = ~(data[i] ?? 0xff) & 0xff;
+    return Buffer.concat([Buffer.from(`P4\n${w} ${h}\n`), bits]);
   }
-  return Buffer.concat([Buffer.from(`P6\n${w} ${h}\n255\n`), rgb]);
+
+  const ow = Math.floor(w / scale);
+  const oh = Math.floor(h / scale);
+  const out = Buffer.alloc(ow * oh);
+  for (let y = 0; y < oh; y += 1) {
+    for (let x = 0; x < ow; x += 1) {
+      let sum = 0;
+      for (let dy = 0; dy < scale; dy += 1) for (let dx = 0; dx < scale; dx += 1) sum += grey(x * scale + dx, y * scale + dy);
+      out[y * ow + x] = Math.round(sum / (scale * scale));
+    }
+  }
+  return Buffer.concat([Buffer.from(`P5\n${ow} ${oh}\n255\n`), out]);
 }
 
 /* -------------------------------------------------------------------- */
@@ -292,9 +347,33 @@ function latinShare(text: string): number {
   return latin / letters.length;
 }
 
+/**
+ * The longest one recognition may take. The worker's own errors are
+ * swallowed (a failure there is not news to a reader), which also meant a
+ * worker that died mid-page left the page waiting for good and the request
+ * with it. Past this, the workers are let go, the next page starts on fresh
+ * ones, and this one is skipped.
+ */
+const PAGE_OCR_TIMEOUT_MS = 75_000;
+
+async function recognizeWithin(worker: Worker, image: Buffer): Promise<Awaited<ReturnType<Worker['recognize']>>> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('OCR took too long on this page')), PAGE_OCR_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([worker.recognize(image), timeout]);
+  } catch (err) {
+    await releaseOcr();
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function ocrImage(image: Buffer): Promise<{ text: string; confidence: number }> {
   const eng = await ocrWorker(['eng']);
-  const first = await eng.recognize(image);
+  const first = await recognizeWithin(eng, image);
   const text = first.data.text ?? '';
   const confidence = first.data.confidence ?? 0;
   // Weak English on a page with real content is usually a Kannada page. Read
@@ -302,7 +381,7 @@ async function ocrImage(image: Buffer): Promise<{ text: string; confidence: numb
   if ((confidence < 55 || latinShare(text) < 0.5) && text.replace(/\s/g, '').length > 20) {
     try {
       const both = await ocrWorker(['kan', 'eng']);
-      const second = await both.recognize(image);
+      const second = await recognizeWithin(both, image);
       if ((second.data.confidence ?? 0) > confidence) {
         return { text: second.data.text ?? '', confidence: second.data.confidence ?? 0 };
       }
@@ -394,6 +473,7 @@ export async function readDocumentText(
   const pages: string[] = [];
   const ocrPages: number[] = [];
   const confidences: number[] = [];
+  let cut = false;
   try {
     for (let n = 1; n <= last; n += 1) {
       const page = await doc.getPage(n);
@@ -404,7 +484,9 @@ export async function readDocumentText(
       } catch {
         text = '';
       }
-      if (text.replace(/\s/g, '').length < MIN_TEXT_CHARS && ocrPages.length < maxOcrPages) {
+      const outOfTime = options.deadline !== undefined && Date.now() > options.deadline;
+      if (outOfTime && text.replace(/\s/g, '').length < MIN_TEXT_CHARS) cut = true;
+      if (text.replace(/\s/g, '').length < MIN_TEXT_CHARS && ocrPages.length < maxOcrPages && !outOfTime) {
         // No usable text layer: a scan. Read the page image instead.
         try {
           const image = await pageImage(pdfjs, page);
@@ -435,8 +517,10 @@ export async function readDocumentText(
       method: 'none',
       ocrPages,
       totalPages,
-      truncated: totalPages > last,
-      failure: 'No legible text was found — the scan may be too faint, or the pages may be drawings.',
+      truncated: totalPages > last || cut,
+      failure: cut
+        ? 'The reading ran out of time before this scan was reached. Ask to read the filed documents again.'
+        : 'No legible text was found — the scan may be too faint, or the pages may be drawings.',
     };
   }
   const method = ocrPages.length === 0 ? 'text' : ocrPages.length === pages.filter((p) => p.trim()).length ? 'ocr' : 'mixed';
@@ -446,6 +530,6 @@ export async function readDocumentText(
     ocrPages,
     ocrConfidence: confidences.length ? Math.round(confidences.reduce((a, b) => a + b, 0) / confidences.length) : undefined,
     totalPages,
-    truncated: totalPages > last,
+    truncated: totalPages > last || cut,
   };
 }
