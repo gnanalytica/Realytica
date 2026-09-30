@@ -1323,7 +1323,10 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
     };
     // Read here first, with no model: text layer or OCR, then what the
     // document is and states. See `documents/intake`.
-    ingest.push(await readIngestLocally(row, file.buffer, (step) => line({ type: 'step', step })));
+    // The file under way stops sending pages to OCR a minute past the budget,
+    // so the turn ends inside the function's limit with what it has read.
+    const deadline = fields.readBudgetMs ? started + fields.readBudgetMs + 60_000 : undefined;
+    ingest.push(await readIngestLocally(row, file.buffer, (step) => line({ type: 'step', step }), { deadline }));
   }
   const sitting = sittingFromBody({
     ddId: fields.ddId,

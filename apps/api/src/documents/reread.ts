@@ -45,9 +45,12 @@ export const REREAD_BUDGET_MS = 300_000;
  * asking again carries on with the rest instead of reading it twice.
  */
 export async function filedDocumentsToRead(project: DdProject, again: boolean): Promise<StoredUpload[]> {
+  // Only a card that carries a reading counts: one from a reading that failed
+  // or ran out of time is no reason not to try again.
   const waiting = new Set(
     (project.chatProposals ?? [])
       .filter((card) => card.kind === 'file_evidence' && card.status === 'proposed')
+      .filter((card) => Array.isArray((card.payload as { facts?: unknown }).facts) && ((card.payload as { facts: unknown[] }).facts.length > 0))
       .map((card) => String((card.payload as { storageKey?: unknown }).storageKey ?? '')),
   );
   const rows = project.evidence.filter(

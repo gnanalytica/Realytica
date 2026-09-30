@@ -30,11 +30,13 @@ export async function readIngestLocally(
   file: ChatIngestFile,
   bytes: Buffer,
   onStep?: (step: AgentStep) => void,
+  opts: { deadline?: number } = {},
 ): Promise<ChatIngestFile> {
   onStep?.(step(`Reading ${file.fileName}`));
   let text: Awaited<ReturnType<typeof readDocumentText>>;
   try {
     text = await readDocumentText(new Uint8Array(bytes), file.mimeType, file.fileName, {
+      deadline: opts.deadline,
       onProgress: (label) => onStep?.(step(label, 'tool_call')),
     });
   } catch {
