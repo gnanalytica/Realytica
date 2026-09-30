@@ -686,7 +686,21 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     const sourceEvidenceId =
       (typeof payload.sourceEvidenceId === 'string' && project.evidence.some((e) => e.id === payload.sourceEvidenceId) ? payload.sourceEvidenceId : undefined)
       ?? (storageKey ? project.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey))?.id : undefined);
-    const outcome = recordCheckFields(project, String(payload.checkId), (payload.values ?? {}) as Record<string, unknown>, actor, sourceEvidenceId);
+    /*
+     * A value keeps its page and quote only if it is still the value the page
+     * states. A person who corrected it in the card recorded their own figure,
+     * and pinning the document's words to that would put a quote beside a
+     * number the quote does not say.
+     */
+    const values = (payload.values ?? {}) as Record<string, unknown>;
+    const offered =
+      payload.citations && typeof payload.citations === 'object'
+        ? (payload.citations as Record<string, { page?: number; quote?: string; value?: unknown }>)
+        : {};
+    const citations = Object.fromEntries(
+      Object.entries(offered).filter(([key, cite]) => key in values && String(values[key]) === String(cite.value)),
+    );
+    const outcome = recordCheckFields(project, String(payload.checkId), values, actor, sourceEvidenceId, citations);
     // A card whose values will not coerce must not commit silently: the
     // person accepted a set of numbers, and half of them landing is worse
     // than none.
@@ -729,7 +743,7 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     recordId = record.id;
   } else if (item.kind === 'run_screen') {
     const applied = screenProject(project, actor);
-    recordId = applied.valuationId;
+    recordId = applied.reportId ?? applied.decisionId ?? project.id;
   } else if (item.kind === 'patch_project') {
     patchProject(project, payload as PatchProjectInput, actor);
     recordId = project.id;

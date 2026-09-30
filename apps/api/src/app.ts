@@ -11,12 +11,13 @@ import { initPrompts } from './prompts';
 import { initTelemetry } from './telemetry';
 import { UPLOAD_LIMITS } from './uploads';
 import { referenceRouter } from './routes/reference';
-import { demoRouter, seedDemoProjects } from './routes/demo';
+import { demoRouter } from './routes/demo';
 import { librariesRouter, projectsRouter } from './routes/projects';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
 import { workRouter } from './routes/work';
+import { portfolioRouter } from './routes/portfolio';
 import { flowsRouter } from './routes/flows';
 import { promptsRouter } from './routes/prompts';
 import { graphAdapter } from './graph';
@@ -24,6 +25,7 @@ import { authenticate, authSettings, initAuth, needs } from './auth/middleware';
 import { corsPolicy, rateLimits, securityHeaders } from './http/hardening';
 import { reportOperators } from './auth/operator';
 import { initCredentialSealing } from './flows/credentials';
+import { automationsEnabled } from './flows/enabled';
 import { membersRouter } from './routes/members';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -138,11 +140,14 @@ app.use('/api/telemetry', needs('admin'), telemetryRouter);
 app.use('/api/prompts', needs('admin'), promptsRouter);
 app.use('/api/demo', demoRouter);
 app.use('/api/work', workRouter);
+app.use('/api/portfolio', portfolioRouter);
 // A flow decides what the agents do and what they cost, so reading one is any
 // member's business and changing one is the workspace's — the router carries
 // that split per route rather than being gated wholesale here.
-app.use('/api/flows/:flowId/run', limits.expensive);
-app.use('/api/flows', flowsRouter);
+if (automationsEnabled()) {
+  app.use('/api/flows/:flowId/run', limits.expensive);
+  app.use('/api/flows', flowsRouter);
+}
 app.use('/api/members', membersRouter);
 
 // 404 for any unmatched /api/* route.
@@ -204,7 +209,8 @@ app.use(errorHandler);
  * Async setup that must finish before `app` serves its first request:
  * loading the store via its `StorageAdapter` (filesystem locally, Vercel
  * Blob in a deployment with a Blob store attached — see `./storage/index.ts`),
- * then the boot-time demo-data auto-seed if it came back empty.
+ * and the prompt registry. Nothing is seeded: the sample engagements load
+ * only when an admin asks for them.
  *
  * `index.ts` awaits this before calling `app.listen`; the Vercel function
  * entry (`/api/index.ts` at the repo root) awaits it once per cold start,
@@ -236,12 +242,8 @@ export async function initApp(): Promise<void> {
   initTelemetry();
   // After the store, before the first flow run: what is on disk gets sealed,
   // and a deployment holding plaintext with no key is told so.
-  await initCredentialSealing();
+  if (automationsEnabled()) await initCredentialSealing();
   reportOperators(store.data.tenants?.length ?? 0);
-  if (!store.data.projects?.length) {
-    const created = await seedDemoProjects();
-    console.log(`[boot] no projects — auto-seeded ${created} demo project(s)`);
-  }
   void import('./reference/shelf-cache')
     .then(({ ingestOpenReferences }) => ingestOpenReferences())
     .then((r) => console.log(`[shelf] open PDFs ingested=${r.fetched} skipped=${r.skipped} failed=${r.failed}`))

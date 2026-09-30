@@ -32,6 +32,8 @@ import {
   PROJECT_ARCHETYPES,
   SCOPE_DEFINITIONS,
   addAction,
+  addRequest,
+  patchRequest,
   CAPTURE_PURPOSE_LABEL,
   captureConcerns,
   patchSiteVisit,
@@ -79,6 +81,7 @@ import {
   editReportBlock,
   insertReportBlock,
   issueReport,
+  setReportBlockState,
   moveReportBlock,
   reattachReportBlock,
   removeReportBlock,
@@ -171,6 +174,8 @@ import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/she
 import {
   changeStageBodySchema,
   createActionBodySchema,
+  createRequestBodySchema,
+  patchRequestBodySchema,
   createAssessmentBodySchema,
   classifyFindingBodySchema,
   createAssetBodySchema,
@@ -375,6 +380,7 @@ projectsRouter.use('/:projectId/graph/stored', workspaceOnly);
 projectsRouter.use('/:projectId/assets', workspaceWrites);
 projectsRouter.use('/:projectId/stage', workspaceWrites);
 projectsRouter.use('/:projectId/assessments', workspaceWrites);
+projectsRouter.use('/:projectId/requests', workspaceWrites);
 projectsRouter.use('/:projectId/graph', workspaceWrites);
 
 // Staffing the site. Who else is on a file, and on how much of it, is the
@@ -541,7 +547,6 @@ interface AnnotationBody {
   /** The node this is about. Must already be in the stored graph. */
   nodeId?: unknown;
   text?: unknown;
-  author?: unknown;
   /** Optional second node, to draw a link rather than leave a note. */
   linkedNodeId?: unknown;
 }
@@ -567,7 +572,9 @@ projectsRouter.post('/:projectId/graph/annotations', async (req, res) => {
   const body = req.body as AnnotationBody;
   const nodeId = typeof body.nodeId === 'string' ? body.nodeId.trim() : '';
   const text = typeof body.text === 'string' ? body.text.trim() : '';
-  const author = typeof body.author === 'string' ? body.author.trim() : '';
+  // The signed-in person, never a name the client sends: a note in the
+  // graph is attributed, and an attribution anyone can type is not one.
+  const author = actorOf(req);
   const linkedNodeId = typeof body.linkedNodeId === 'string' ? body.linkedNodeId.trim() : '';
   if (!nodeId || !text) {
     res.status(400).json({ error: 'nodeId and text are both required.' });
@@ -745,7 +752,7 @@ projectsRouter.post('/:projectId/screen', async (req, res) => {
     const applied = screenProject(project, actor, now, site);
     await persistPaneWrite(req, project, 'Ran the project screen.');
     await journal.finish(`Verdict ${applied.snapshot.verdict}.`);
-    res.status(201).json({ snapshot: applied.snapshot, valuationId: applied.valuationId, project });
+    res.status(201).json({ snapshot: applied.snapshot, reportId: applied.reportId, project });
   } catch (err) {
     await journal.fail(err instanceof Error ? err.message : String(err));
     throw err;
@@ -996,9 +1003,11 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const sitting = parsed.data.sitting;
   /*
    * "Use the sample documents": load the synthetic set and send it down the
-   * upload path, exactly as if the person had dropped the files in.
+   * upload path, exactly as if the person had dropped the files in. Only on a
+   * labelled sample project: on a client file it would put invented deeds
+   * beside real ones.
    */
-  if (SAMPLE_REQUEST.test(question)) {
+  if (project.sample && SAMPLE_REQUEST.test(question)) {
     const samples = await loadSampleDocuments();
     if (samples.length) {
       await ingestTurn(req, res, project, samples, {
@@ -2239,6 +2248,50 @@ projectsRouter.patch('/:projectId/risks/:riskId', async (req, res) => {
   }
 });
 
+/*
+ * Requests: what the file is waiting on, and from whom. Changed by the
+ * workspace; a collaborator reads the ones addressed to them.
+ */
+projectsRouter.post('/:projectId/requests', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = createRequestBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = addRequest(project, parsed.data, actorOf(req));
+    await persistPaneWrite(req, project, `${record.status === 'sent' ? 'Sent' : 'Drafted'} a request to ${record.recipient}: “${record.title}”.`, { citedNodeIds: [record.id] });
+    res.status(201).json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+projectsRouter.patch('/:projectId/requests/:requestId', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = patchRequestBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const record = patchRequest(project, req.params.requestId, parsed.data, actorOf(req));
+    await persistPaneWrite(req, project, `Request to ${record.recipient} is now ${record.status}: “${record.title}”.`, { citedNodeIds: [record.id] });
+    res.json(record);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
 projectsRouter.post('/:projectId/actions', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
@@ -2699,9 +2752,26 @@ projectsRouter.delete('/:projectId/reports/:reportId/blocks/:blockId', async (re
  * where this one is merely inconvenient. A later version is a new report.
  */
 projectsRouter.post('/:projectId/reports/:reportId/issue', async (req, res) => {
+  const body = (req.body ?? {}) as { signerName?: unknown; signerRole?: unknown };
+  const signOff = {
+    name: typeof body.signerName === 'string' ? body.signerName.slice(0, 120) : undefined,
+    role: typeof body.signerRole === 'string' ? body.signerRole.slice(0, 120) : undefined,
+  };
   await reportEdit(req, res, (project, actor) => {
-    const report = issueReport(project, req.params.reportId, actor);
-    return { note: `Issued “${report.title}”. It is frozen at what it said just now.`, cited: [report.id], body: report };
+    const report = issueReport(project, req.params.reportId, actor, signOff);
+    return { note: `Issued “${report.title}”, signed by ${report.signedBy}. It is frozen at what it said just now.`, cited: [report.id], body: report };
+  });
+});
+
+projectsRouter.post('/:projectId/reports/:reportId/blocks/:blockId/state', async (req, res) => {
+  const state = (req.body as { state?: unknown } | undefined)?.state;
+  if (state !== 'drafted' && state !== 'checked' && state !== 'approved') {
+    res.status(400).json({ error: 'state must be drafted, checked or approved' });
+    return;
+  }
+  await reportEdit(req, res, (project, actor) => {
+    const block = setReportBlockState(project, req.params.reportId, req.params.blockId, state, actor);
+    return { note: `Marked “${block.heading ?? 'a section'}” ${state}.`, cited: [block.id] };
   });
 });
 

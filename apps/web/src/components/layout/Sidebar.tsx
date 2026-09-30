@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronsLeft, ChevronsRight, BookOpen, CircleCheck, FolderTree, Gauge, Info, ScrollText, Users, Workflow, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, BookOpen, CircleCheck, FolderTree, Home, Inbox, Info, Users, X } from 'lucide-react';
 import { cn } from '../ui/kit';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 
 export interface SidebarProps {
   collapsed: boolean;
+  /** Inside a project workspace the rail stays narrow, whatever the preference. */
+  forceCollapsed?: boolean;
   onToggleCollapsed: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
@@ -18,19 +20,21 @@ interface NavItem {
   end: boolean;
 }
 
+/*
+ * The firm's work first: its engagements as a pipeline, the files, what it is
+ * waiting on from others, and the people it works with. Setup and reference
+ * sit below the rule.
+ */
 const PROJECT_ITEMS: NavItem[] = [
-  // First, above Projects, because it is the question somebody opens this
-  // app to answer and the projects list does not answer it.
-  { to: '/work', label: 'My work', icon: CircleCheck, end: false },
+  { to: '/portfolio', label: 'Portfolio', icon: Home, end: false },
   { to: '/projects', label: 'Projects', icon: FolderTree, end: false },
-  { to: '/libraries', label: 'Libraries', icon: BookOpen, end: false },
+  { to: '/requests', label: 'Requests', icon: Inbox, end: false },
+  { to: '/members', label: 'People', icon: Users, end: false },
 ];
 
 const MORE_ITEMS: NavItem[] = [
-  { to: '/flows', label: 'Automations', icon: Workflow, end: false },
-  { to: '/members', label: 'Workspace', icon: Users, end: false },
-  { to: '/observability', label: 'AI activity', icon: Gauge, end: false },
-  { to: '/prompts', label: 'AI instructions', icon: ScrollText, end: false },
+  { to: '/work', label: 'My work', icon: CircleCheck, end: false },
+  { to: '/libraries', label: 'Libraries', icon: BookOpen, end: false },
   { to: '/about', label: 'About', icon: Info, end: false },
 ];
 
@@ -117,7 +121,8 @@ function NavGroup({
  * Fixed left navigation. Collapses to an icon rail on large screens (state
  * remembered in localStorage by the parent); becomes an overlay drawer below `lg`.
  */
-export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }: SidebarProps) {
+export default function Sidebar({ collapsed: preferred, forceCollapsed = false, onToggleCollapsed, mobileOpen, onCloseMobile }: SidebarProps) {
+  const collapsed = preferred || forceCollapsed;
   /*
    * Escape closes it, and the page behind it stops scrolling while it is
    * open. A drawer without either is one a keyboard user cannot dismiss and
@@ -209,27 +214,29 @@ export default function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onCl
         </nav>
 
         <div className="border-t border-hairline p-3">
-          <button
-            type="button"
-            onClick={onToggleCollapsed}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="group relative mb-3 hidden w-full items-center justify-center rounded-lg py-1.5 text-ink-muted transition-colors hover:bg-sunken hover:text-ink lg:flex"
-          >
-            {collapsed ? <ChevronsRight size={15} /> : <ChevronsLeft size={15} />}
-            {/*
-              The way back out of the icon rail was an unlabelled chevron, which
-              is a poor thing to have to find when the labels are what you are
-              looking for.
-            */}
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-[12px] font-medium text-ink-inverse opacity-0 shadow-pop transition-opacity duration-quick ease-state lg:block group-hover:opacity-100 group-focus-visible:opacity-100"
+          {forceCollapsed ? null : (
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              className="group relative mb-3 hidden w-full items-center justify-center rounded-lg py-1.5 text-ink-muted transition-colors hover:bg-sunken hover:text-ink lg:flex"
             >
-              {collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            </span>
-          </button>
+              {collapsed ? <ChevronsRight size={15} /> : <ChevronsLeft size={15} />}
+              {/*
+                The way back out of the icon rail was an unlabelled chevron, which
+                is a poor thing to have to find when the labels are what you are
+                looking for.
+              */}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-[12px] font-medium text-ink-inverse opacity-0 shadow-pop transition-opacity duration-quick ease-state lg:block group-hover:opacity-100 group-focus-visible:opacity-100"
+              >
+                {collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              </span>
+            </button>
+          )}
           <div className={cn('text-mini leading-snug text-ink-muted', collapsed && 'lg:hidden')}>
-            <p className="font-medium text-ink-secondary">Due diligence OS</p>
+            <p className="font-medium text-ink-secondary">Project workspace</p>
           </div>
         </div>
       </aside>

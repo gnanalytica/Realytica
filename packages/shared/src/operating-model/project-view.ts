@@ -200,6 +200,13 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     sheets,
     conversation,
     ...(commercial ? {} : { budget: undefined }),
+    // The fee is a commercial term between the firm and its client.
+    ...(commercial || !project.engagement ? {} : { engagement: { ...project.engagement, fee: undefined } }),
+    // Requests name who else the firm is chasing. A collaborator sees the ones
+    // addressed to them and nothing else.
+    requests: (project.requests ?? []).filter(
+      (r) => r.recipient.trim().toLowerCase() === access.email.trim().toLowerCase(),
+    ),
     // A screen result carries an indicative value, so it travels with the
     // valuation rather than with the site.
     ...(area('valuation') ? {} : { lastScreen: undefined, lastScreenResult: undefined }),

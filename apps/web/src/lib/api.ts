@@ -1,4 +1,7 @@
 import type {
+  PortfolioView,
+  ProjectRequest,
+  ProjectRequestStatus,
   DurableRun,
   DurableRunState,
   AgentCapability,
@@ -497,6 +500,21 @@ export const api = {
     request<void>(`/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
 
   myWork: () => request<{ items: WorkItem[]; asOf: string }>('/work'),
+  portfolio: () => {
+    // The viewer's own date, so the fortnight starts on their today.
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return request<PortfolioView>(`/portfolio?today=${today}`);
+  },
+  createRequest: (
+    projectId: string,
+    body: { title: string; detail?: string; recipient: string; recipientRole?: string; dueAt?: string; evidenceId?: string; send?: boolean },
+  ) => request<ProjectRequest>(`/projects/${projectId}/requests`, { method: 'POST', body: JSON.stringify(body) }),
+  patchRequest: (
+    projectId: string,
+    requestId: string,
+    body: { title?: string; detail?: string; recipient?: string; recipientRole?: string; dueAt?: string | null; status?: ProjectRequestStatus; answeredByEvidenceId?: string },
+  ) => request<ProjectRequest>(`/projects/${projectId}/requests/${requestId}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   flowCatalogue: () => request<FlowCatalogue>('/flows/catalogue'),
 
@@ -559,7 +577,6 @@ export const api = {
   reference: () => request<ReferenceData>('/reference'),
   seedDemo: () => request<{ created: number }>('/demo/seed', { method: 'POST' }),
 
-  resetAll: () => request<{ ok: true }>('/demo/reset', { method: 'POST' }),
 
   agentCapability: () => request<AgentCapability>('/agents/capability'),
 
@@ -829,8 +846,10 @@ export const api = {
     }),
   removeReportBlock: (projectId: string, reportId: string, blockId: string) =>
     request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}`, { method: 'DELETE' }),
-  issueReport: (projectId: string, reportId: string, actor?: string) =>
-    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/issue`, { method: 'POST', body: JSON.stringify({ actor }) }),
+  issueReport: (projectId: string, reportId: string, signOff?: { signerName?: string; signerRole?: string }) =>
+    request<GeneratedReport>(`/projects/${projectId}/reports/${reportId}/issue`, { method: 'POST', body: JSON.stringify(signOff ?? {}) }),
+  setReportSectionState: (projectId: string, reportId: string, blockId: string, state: 'drafted' | 'checked' | 'approved') =>
+    request<unknown>(`/projects/${projectId}/reports/${reportId}/blocks/${blockId}/state`, { method: 'POST', body: JSON.stringify({ state }) }),
   reportDrift: (projectId: string, reportId: string) =>
     request<{ reportId: string; status: string; rows: ReportDriftRow[] }>(`/projects/${projectId}/reports/${reportId}/drift`),
 
@@ -868,7 +887,7 @@ export const api = {
     }>(`/projects/${projectId}/graph/stored${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ''}`),
   annotateProjectGraphNode: (
     projectId: string,
-    body: { nodeId: string; text: string; author?: string; linkedNodeId?: string },
+    body: { nodeId: string; text: string; linkedNodeId?: string },
   ) =>
     request<{ node: ProjectGraphNode; edges: ProjectGraphEdge[] }>(`/projects/${projectId}/graph/annotations`, {
       method: 'POST',
@@ -899,6 +918,8 @@ export const api = {
       `/projects/${projectId}/gis-overlay/revenue`,
       { method: 'POST', body: JSON.stringify(body) },
     ),
+  fileRevenueMap: (projectId: string) =>
+    request<{ evidence: EvidenceRecord; project: DdProject }>(`/projects/${projectId}/gis-overlay/revenue/file`, { method: 'POST' }),
   clearRevenueMap: (projectId: string) =>
     request<void>(`/projects/${projectId}/gis-overlay/revenue`, { method: 'DELETE' }),
   projectGraphNeighbourhood: (projectId: string, query: string, hops = 2) =>
@@ -920,7 +941,7 @@ export const api = {
   runValuation: (projectId: string, actor?: string) =>
     request<ValuationRun>(`/projects/${projectId}/valuation`, { method: 'POST', body: JSON.stringify({ actor }) }),
   runProjectScreen: (projectId: string, actor?: string) =>
-    request<{ snapshot: ProjectScreenSnapshot; valuationId: string; project: DdProject }>(`/projects/${projectId}/screen`, {
+    request<{ snapshot: ProjectScreenSnapshot; reportId?: string; project: DdProject }>(`/projects/${projectId}/screen`, {
       method: 'POST',
       body: JSON.stringify({ actor }),
     }),

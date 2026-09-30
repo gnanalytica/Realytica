@@ -115,8 +115,9 @@ export function useAreaUnitFor(country: CountryCode): AreaUnit {
  * but not `country`, and the two map one-to-one across the live country packs.
  * Same rule as `useAreaUnitFor`: follow the market until the user chooses.
  */
-export function countryForCurrency(currency: string): CountryCode {
-  return currency === 'EUR' ? 'NL' : 'IN';
+export function countryForCurrency(_currency: string): CountryCode {
+  // India is the only market this build serves.
+  return 'IN';
 }
 
 export function useAreaUnitForCurrency(currency: 'INR' | 'EUR'): AreaUnit {

@@ -126,6 +126,7 @@ export function factFillProposals(
     const { fields } = checkSchema(seated.check);
     if (!fields.length) continue;
     const values: Record<string, string | number | boolean> = {};
+    const citations: Record<string, { page: number; quote: string; value: string | number | boolean }> = {};
     const lines: string[] = [];
     for (const fact of facts) {
       const def = fields.find((f) => f.key === fact.key);
@@ -136,6 +137,7 @@ export function factFillProposals(
       // phrases differently is quoted, not forced.
       if (def.kind === 'enum' && def.options?.length && !def.options.some((o) => o.toLowerCase() === String(fact.value).toLowerCase())) continue;
       values[fact.key] = fact.value;
+      citations[fact.key] = { page: fact.page, quote: fact.quote, value: fact.value };
       lines.push(`${def.label}: ${fact.display} — “${fact.quote}” (p.${fact.page})`);
     }
     const keys = Object.keys(values);
@@ -149,6 +151,7 @@ export function factFillProposals(
         {
           checkId: seated.check.id,
           values,
+          citations,
           sourceEvidenceId: source.evidenceId,
           sourceStorageKey: source.storageKey,
           sourceFileName: source.fileName,

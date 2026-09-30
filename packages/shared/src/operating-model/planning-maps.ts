@@ -7,7 +7,6 @@
  */
 
 import { DD_CONNECTORS } from '../dd-connectors';
-import { matchProjectLocality } from './capabilities';
 import type { PlanningOverlayPin } from './planning-overlay';
 import type { DdProject } from './types';
 
@@ -124,7 +123,7 @@ export function pinLooksInsideBbmp(pin: { lat: number; lng: number } | null | un
 }
 
 export function planningRealmOf(project: DdProject, pin?: PlanningOverlayPin | null): PlanningRealm {
-  const hay = [project.jurisdiction, project.location, project.city, project.siteAddress, project.name, matchProjectLocality(project)?.planningNote]
+  const hay = [project.jurisdiction, project.location, project.city, project.siteAddress, project.name]
     .filter(Boolean)
     .join(' ');
   if (/\bbmrda\b|\bbiaapa\b|\bkanakapura\b|\bharohalli\b|\bramanagar|\bramnagar|\bgram panchayat\b/i.test(hay)) {

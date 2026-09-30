@@ -94,5 +94,44 @@ export function mergeModelReading(local: ChatIngestFile, model: ChatIngestFile |
     quotes: [...(model.quotes ?? []), ...(local.quotes ?? [])].slice(0, 8),
     kindHint: model.kindHint ?? local.kindHint,
     pages: model.pages ?? local.pages,
+    read: mergeFacts(local, model),
   };
+}
+
+/**
+ * The local reading's facts, with what only the model read added beside them.
+ *
+ * The parser's fact wins where both read the same key: it is deterministic
+ * and its quote is the text layer's own. Where the two agree on the value and
+ * the model also kept the page's original script, the original is carried
+ * onto the parser's fact, so a Kannada name keeps its Kannada form. Where the
+ * file had no readable text at all, the model's facts are the reading.
+ */
+function mergeFacts(local: ChatIngestFile, model: ChatIngestFile): ChatIngestFile['read'] {
+  const extra = model.modelFacts ?? [];
+  if (!extra.length) return local.read;
+  if (!local.read) {
+    return {
+      type: 'other',
+      label: model.kindHint ? model.kindHint.replaceAll('_', ' ') : 'Document',
+      confidence: 0.5,
+      method: 'ocr',
+      facts: extra,
+      flags: [],
+      summary: `${extra.length} fact${extra.length === 1 ? '' : 's'} read by the document reader, each on a page its quote was found on.`,
+      rowHints: [],
+      scopes: [],
+      evidenceKind: 'document',
+    };
+  }
+  const byKey = new Map(extra.map((f) => [f.key, f]));
+  const facts = local.read.facts.map((fact) => {
+    const twin = byKey.get(fact.key);
+    if (!twin || fact.originalValue || !twin.originalValue) return fact;
+    return String(twin.value).trim().toLowerCase() === String(fact.value).trim().toLowerCase()
+      ? { ...fact, originalValue: twin.originalValue, originalScript: twin.originalScript }
+      : fact;
+  });
+  const known = new Set(facts.map((f) => f.key));
+  return { ...local.read, facts: [...facts, ...extra.filter((f) => !known.has(f.key))] };
 }

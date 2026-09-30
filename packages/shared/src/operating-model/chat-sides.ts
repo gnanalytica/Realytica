@@ -13,7 +13,7 @@ import { CONNECTOR_ALIASES, portalForCheck, wantsPortalObtain } from './portals'
 import { compareProjectPlanning, landUseSittingOf, serializePlanningOverlay, wantsPlanningOverlay } from './planning-overlay';
 import { wantsGisOverlay } from './gis-overlay';
 import { CAPABILITY_KIND_LABEL } from './catalogs';
-import { computeCapabilityRuns, matchProjectLocality } from './capabilities';
+import { computeCapabilityRuns } from './capabilities';
 import type { ProjectCockpitPane } from './cockpit';
 import type {
   ChatPlacesPull,
@@ -357,34 +357,13 @@ function proposalsFromConnectors(
   };
 }
 
-function proposalsFromLocality(project: DdProject, actor: string): { cards: ChatProposal[]; text: string } {
-  const loc = matchProjectLocality(project);
-  if (!loc) {
-    return { cards: [], text: `No locality pack match for ${project.location}, ${project.city}. This is the offline country/state pack, not a live crawl.` };
-  }
-  const body = [
-    `${loc.locality}, ${loc.city} (${loc.state}).`,
-    `Median built-up ${loc.currency} ${loc.medianPricePerSqm.toLocaleString()}/sqm; land ${loc.currency} ${loc.medianLandRatePerSqm.toLocaleString()}/sqm; statutory land ${loc.currency} ${loc.statutoryLandRatePerSqm.toLocaleString()}/sqm.`,
-    `Gross yield ${(loc.grossYield * 100).toFixed(1)}%; liquidity ${loc.liquidityDays} days; FAR ${loc.farAllowed}; zoning ${loc.zoning}.`,
-    loc.planningNote,
-    loc.infrastructureNote,
-    'Offline locality pack — not a live transaction feed and not a certified valuation.',
-  ].join('\n');
-  const card = proposal(
-    'file_evidence',
-    `File locality pack: ${loc.locality}`,
-    body.replace(/\s+/g, ' ').slice(0, 400),
-    'Files the matched locality reference as evidence. It does not become an IBBI certificate.',
-    {
-      title: `Locality pack — ${loc.locality}`,
-      kind: 'document',
-      source: 'locality_pack',
-      status: 'received',
-      description: body,
-    } satisfies Partial<CreateEvidenceInput> & Record<string, unknown>,
-    actor,
-  );
-  return { cards: [card], text: `${body}\n\nApprove to file this pack note on the evidence register.` };
+function proposalsFromLocality(project: DdProject, _actor: string): { cards: ChatProposal[]; text: string } {
+  // The locality table is illustrative, not market data, so it is never filed
+  // on a client project or quoted as if it described one.
+  return {
+    cards: [],
+    text: `No market dataset is connected for ${project.location || project.city}. Record comparables you hold on the Value tab, or file a guidance-value extract, and I can work from those.`,
+  };
 }
 
 function proposalsFromCapabilities(project: DdProject, actor: string): { cards: ChatProposal[]; text: string } {
@@ -495,7 +474,7 @@ export function handleChatSides(
       const result = proposalsFromLocality(project, actor);
       cards.push(...result.cards);
       texts.push(result.text);
-      tools.push({ name: 'locality', summary: matchProjectLocality(project)?.locality ?? 'no match' });
+      tools.push({ name: 'locality', summary: 'no market dataset' });
       if (result.cards.length) pane = 'evidence';
     } else if (intent.kind === 'capabilities') {
       const result = proposalsFromCapabilities(project, actor);

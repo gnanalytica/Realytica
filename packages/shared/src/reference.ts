@@ -74,54 +74,10 @@ const INDIA_PACK: CountryPack = {
     'conservative floor anchor, not as a market estimate.',
 };
 
-const NETHERLANDS_PACK: CountryPack = {
-  country: 'NL',
-  countryName: 'Netherlands',
-  currency: 'EUR',
-  locale: 'nl-NL',
-  // Dutch conveyancing instruments are national (Kadaster, WOZ, energielabel),
-  // so coverage here is a statement about market-data reach, not document rules.
-  coveredStates: ['Noord-Holland', 'Utrecht', 'Zuid-Holland'],
-  parcelIdLabel: 'Kadastrale aanduiding',
-  statutoryRateLabel: 'WOZ value',
-  // Weights sum to 100. Kadaster extract, WOZ assessment and the sale/purchase
-  // agreement are the three documents that establish who owns what and on what
-  // terms; together they carry 70/100 so an optional-only file set never scores
-  // as "complete".
-  requiredDocuments: [
-    { kind: 'kadaster_extract', label: 'Kadaster extract (uittreksel)', weight: 25, required: true },
-    { kind: 'sale_agreement', label: 'Sale agreement (koopovereenkomst)', weight: 25, required: true },
-    { kind: 'woz_assessment', label: 'WOZ assessment (waardebeschikking)', weight: 20, required: true },
-    { kind: 'energy_label', label: 'Energy label (energielabel)', weight: 15, required: true },
-    { kind: 'lease_agreement', label: 'Lease agreement (huurovereenkomst)', weight: 15, required: false },
-  ],
-  datasets: ['Kadaster', 'CBS/NVM transaction statistics', 'BAG registry', 'Ruimtelijke plannen', 'Energielabel register'],
-  // Overdrachtsbelasting (transfer tax): 10.4% is the non-owner-occupied / investor
-  // rate that applies to the kind of acquisitions this product screens.
-  stampDutyPct: 10.4,
-  // The Kadaster registration levy is a small fixed notary disbursement rather than
-  // a percentage of price, so this is left near-zero rather than fabricating a rate.
-  registrationFeePct: 0.1,
-  // The Netherlands sells and permits on gebruiksoppervlakte (NEN 2580 usable
-  // floor area), so there is no super-built-up loading to add and the two
-  // ratios sit close to 1. Stated rather than omitted so the residual reads
-  // the same way in both countries instead of silently skipping a step.
-  areaRatios: {
-    saleableToFar: 1.0,
-    constructedToFar: 1.15,
-    source: 'NEN 2580 gebruiksoppervlakte — sale and permit measure the same area, so no loading applies',
-    verifyNote:
-      'Dutch practice measures both the sale and the permit on NEN 2580 usable floor area, so saleable and ' +
-      'permitted area coincide. The constructed ratio still exceeds 1 for parking and services. A NEN 2580 ' +
-      'meetrapport for the specific scheme replaces both.',
-  },
-  notes:
-    'Overdrachtsbelasting (property transfer tax) is 10.4% for investment acquisitions, versus a reduced ' +
-    'rate for owner-occupiers under the starters exemption. The WOZ value is a municipal assessment used ' +
-    'for tax purposes and is republished annually with roughly a one-year valuation lag against market price.',
-};
-
-export const COUNTRY_PACKS: CountryPack[] = [INDIA_PACK, NETHERLANDS_PACK];
+// India only. The Netherlands pack was removed on 2026-09-29: the market is
+// India until there are paying customers, and a pack that is not maintained
+// is worse than none.
+export const COUNTRY_PACKS: CountryPack[] = [INDIA_PACK];
 
 /* ------------------------------------------------------------------ */
 /* State / Municipality packs                                          */
@@ -262,8 +218,6 @@ function buildTrend(
  *    LAND, not apartment stock (see that locality's own comment below) — so
  *    its land rate sits only slightly above its own median, not diluted up
  *    by FAR the way a genuine apartment locality's is.
- *  - The Netherlands localities use related but distinct reasoning per
- *    locality — see the comment above that section.
  */
 const LOCALITY_BASE: LocalityReference[] = [
   // --- India — Bengaluru --------------------------------------------------
@@ -714,141 +668,6 @@ const LOCALITY_BASE: LocalityReference[] = [
       'Within commuting distance of the under-construction Blue Line station cluster around Hebbal; Hennur Road widening is underway. No metro station sits directly on this corridor today — connectivity is currently road-based.',
     source: 'State Registration Department (IGR) — Bengaluru Urban registrations',
   },
-  // --- Netherlands — Amsterdam -------------------------------------------------
-  // Land-rate logic differs by locality here, not just by number:
-  //  - Zuidas & De Pijp (Amsterdam): built out for decades/centuries, and
-  //    Zuidas additionally sits substantially on municipal erfpacht
-  //    (leasehold) rather than freehold — bare plots essentially never come
-  //    to market. The figures are a conservative, notional back-calculation
-  //    (not an observed transaction rate), and — because there is no
-  //    independent market to pull ahead of the assessment — statutory sits
-  //    much closer to median here (≈0.85–0.90×) than the ~0.5–0.6× typical
-  //    where a real market exists. This is deliberate: it is how "plots
-  //    barely transact" should look in the numbers, not an active market
-  //    dressed up with a plausible-looking gap.
-  //  - Kop van Zuid (Rotterdam) & Leidsche Rijn (Utrecht): both explicitly
-  //    still have active build-out phases per their planningNote, so plots
-  //    genuinely do trade — a normal ~0.55–0.58× statutory lag applies.
-  //    Leidsche Rijn's low FAR (1.2, low-rise Vinex housing) means the
-  //    FAR-dilution multiplier barely exceeds 1, so its land rate lands well
-  //    BELOW the built rate — the mirror image of Bengaluru's high-FAR
-  //    apartment markets, and a useful check that this isn't a formula
-  //    hard-coded to always push land above built.
-  {
-    id: 'nl-ams-zuidas',
-    country: 'NL',
-    state: 'Noord-Holland',
-    city: 'Amsterdam',
-    locality: 'Zuidas',
-    currency: 'EUR',
-    medianPricePerSqm: 8200,
-    statutoryRatePerSqm: 7400,
-    grossYield: 0.056,
-    yoyChangePct: 1.5,
-    liquidityDays: 140,
-    sampleSize: 26,
-    trend: buildTrend(8200, 1.5, 50),
-    zoning: 'Kantoren en gemengd stedelijk (Zuidas bestemmingsplan)',
-    permittedUses: ['commercial_office', 'retail_unit'],
-    farAllowed: 6,
-    planningNote: 'High-rise business-district plan allows dense floor ratios; several dock plots retain unbuilt office entitlement under the Zuidasdok programme.',
-    replacementCostPerSqm: 2650,
-    // Formula (k=0.72, FAR 6) gives 6 × (0.72×8,200 − 2,650) ≈ 19,500 — the
-    // extreme FAR makes the mechanical dilution-uplift implausibly large for
-    // a market with no actual freehold bare-land sales to calibrate against.
-    // Deliberately capped well below that to a conservative erfpacht-canon
-    // style grondwaarde instead (~1.46× built) rather than presenting false
-    // precision on a market that does not really transact.
-    medianLandRatePerSqm: 12000,
-    statutoryLandRatePerSqm: 10800,
-    infrastructureNote: 'Zuid station gives direct rail/metro/international connections; the Zuidasdok infrastructure works are an ongoing construction-noise consideration through the decade.',
-    source: 'Kadaster — non-residential transaction register',
-  },
-  {
-    id: 'nl-ams-de-pijp',
-    country: 'NL',
-    state: 'Noord-Holland',
-    city: 'Amsterdam',
-    locality: 'De Pijp',
-    currency: 'EUR',
-    medianPricePerSqm: 7900,
-    statutoryRatePerSqm: 7300,
-    grossYield: 0.038,
-    yoyChangePct: 6.5,
-    liquidityDays: 28,
-    sampleSize: 112,
-    trend: buildTrend(7900, 6.5, 50),
-    zoning: 'Wonen — gemengd binnenstedelijk',
-    permittedUses: ['residential_apartment', 'retail_unit'],
-    farAllowed: 2.4,
-    planningNote: 'Dense pre-war building blocks are largely built out; municipal policy restricts short-stay letting, which affects buy-to-let assumptions.',
-    replacementCostPerSqm: 2150,
-    // 2.4 × (0.72×7,900 − 2,150) ≈ 8,500, ~1.08× built — modest since De
-    // Pijp's dense pre-war blocks are fully built out and a bare plot here
-    // would only ever arise from a rare demolition/infill, not a market.
-    medianLandRatePerSqm: 8500,
-    statutoryLandRatePerSqm: 7200,
-    infrastructureNote: 'Well served by tram lines and the Ferdinand Bolstraat/Albert Cuyp retail strip; on-street parking permits are capped.',
-    source: 'CBS/NVM transaction statistics — Amsterdam',
-  },
-  // --- Netherlands — Rotterdam -------------------------------------------------
-  {
-    id: 'nl-rot-kop-van-zuid',
-    country: 'NL',
-    state: 'Zuid-Holland',
-    city: 'Rotterdam',
-    locality: 'Kop van Zuid',
-    currency: 'EUR',
-    medianPricePerSqm: 5200,
-    statutoryRatePerSqm: 4600,
-    grossYield: 0.046,
-    yoyChangePct: 7.5,
-    liquidityDays: 45,
-    sampleSize: 68,
-    trend: buildTrend(5200, 7.5, 50),
-    zoning: 'Gemengd — wonen, kantoor, voorzieningen',
-    permittedUses: ['residential_apartment', 'commercial_office', 'retail_unit'],
-    farAllowed: 3.2,
-    planningNote: 'Former harbour redevelopment area still has several plots in active build-out; mixed-use zoning gives flexibility on end use.',
-    replacementCostPerSqm: 2300,
-    // Active redevelopment area (k=0.76): 3.2 × (0.76×5,200 − 2,300) ≈ 5,300,
-    // roughly at parity with the built rate — remaining harbour-redevelopment
-    // plots genuinely do trade here, unlike the two Amsterdam localities.
-    medianLandRatePerSqm: 5300,
-    statutoryLandRatePerSqm: 3100,
-    infrastructureNote: 'Erasmus Bridge and Wilhelminapier metro access anchor the district; ongoing quayside development is a medium-term amenity upside.',
-    source: 'CBS/NVM transaction statistics — Rotterdam',
-  },
-  // --- Netherlands — Utrecht -------------------------------------------------
-  {
-    id: 'nl-utr-leidsche-rijn',
-    country: 'NL',
-    state: 'Utrecht',
-    city: 'Utrecht',
-    locality: 'Leidsche Rijn',
-    currency: 'EUR',
-    medianPricePerSqm: 4800,
-    statutoryRatePerSqm: 4300,
-    grossYield: 0.042,
-    yoyChangePct: 5,
-    liquidityDays: 35,
-    sampleSize: 95,
-    trend: buildTrend(4800, 5, 50),
-    zoning: 'Wonen — Vinex uitbreidingswijk',
-    permittedUses: ['residential_apartment', 'residential_villa'],
-    farAllowed: 1.2,
-    planningNote: 'Low-rise Vinex-era masterplan; remaining build phases (Leidsche Rijn Centrum) will add retail and density over the next decade.',
-    replacementCostPerSqm: 1950,
-    // 1.2 × (0.76×4,800 − 1,950) ≈ 2,000, well BELOW the built rate — the
-    // mirror image of the high-FAR Bengaluru/office markets above: low-rise
-    // Vinex housing has little floor-area dilution, so a bare building plot
-    // (kavel) here genuinely sells for a fraction of the finished home's sqm
-    // rate, matching how Dutch greenfield land actually prices.
-    medianLandRatePerSqm: 2000,
-    statutoryLandRatePerSqm: 1100,
-    infrastructureNote: 'Utrecht Leidsche Rijn rail station and A2 motorway access; local amenities are still catching up to population growth.',
-    source: 'CBS/NVM transaction statistics — Utrecht',
-  },
 ];
 
 /* ==================================================================== */
@@ -1153,10 +972,6 @@ function mkComparable(opts: {
 }
 
 const IGR_BLR = 'State Registration Department (IGR) — Bengaluru Urban registrations';
-const KADASTER_NONRES = 'Kadaster — non-residential transaction register';
-const NVM_AMS = 'CBS/NVM transaction statistics — Amsterdam';
-const NVM_ROT = 'CBS/NVM transaction statistics — Rotterdam';
-const NVM_UTR = 'CBS/NVM transaction statistics — Utrecht';
 
 export const COMPARABLE_POOL: Comparable[] = [
   // --- Whitefield, Bengaluru (5) ---
@@ -1284,29 +1099,6 @@ export const COMPARABLE_POOL: Comparable[] = [
   mkComparable({ localityKey: 'blr-ecity', label: 'Neeladri Road Layout Site No. 31, 30x40', address: 'Neeladri Road Layout, Site No. 31, Electronic City, Bengaluru, Karnataka', distanceKm: 2.9, propertyType: 'residential_plot', areaSqm: 111, transactedAt: '2025-03-27', pricePerSqm: 65800, source: IGR_BLR, roundTo: 1000 }),
   mkComparable({ localityKey: 'blr-ecity', label: 'Corner site, 40x60, Konappana Agrahara', address: 'Konappana Agrahara Corner Site, Electronic City, Bengaluru, Karnataka', distanceKm: 1.6, propertyType: 'residential_plot', areaSqm: 223, transactedAt: '2025-09-02', pricePerSqm: 69200, source: IGR_BLR, roundTo: 1000 }),
 
-  // --- Zuidas, Amsterdam (5, office) ---
-  mkComparable({ localityKey: 'ams-zuidas', label: 'WTC Tower H', address: 'WTC Tower H, Zuidas, Amsterdam, Noord-Holland', distanceKm: 0.4, propertyType: 'commercial_office', areaSqm: 850, transactedAt: '2025-09-18', pricePerSqm: 8350, source: KADASTER_NONRES, roundTo: 100 }),
-  mkComparable({ localityKey: 'ams-zuidas', label: 'Symphony Offices', address: 'Symphony Offices, Zuidas, Amsterdam, Noord-Holland', distanceKm: 0.9, propertyType: 'commercial_office', areaSqm: 640, transactedAt: '2025-03-22', pricePerSqm: 8050, source: KADASTER_NONRES, roundTo: 100 }),
-  mkComparable({ localityKey: 'ams-zuidas', label: 'The Rock Zuidas', address: 'The Rock, Zuidas, Amsterdam, Noord-Holland', distanceKm: 1.2, propertyType: 'commercial_office', areaSqm: 720, transactedAt: '2024-12-11', pricePerSqm: 8480, source: KADASTER_NONRES, roundTo: 100 }),
-  mkComparable({ localityKey: 'ams-zuidas', label: 'Mondriaan Tower Annex', address: 'Mondriaan Tower Annex, Zuidas, Amsterdam, Noord-Holland', distanceKm: 1.6, propertyType: 'commercial_office', areaSqm: 510, transactedAt: '2026-01-30', pricePerSqm: 7920, source: KADASTER_NONRES, roundTo: 100 }),
-  mkComparable({ localityKey: 'ams-zuidas', label: 'Vinoly Building', address: 'Vinoly Building, Zuidas, Amsterdam, Noord-Holland', distanceKm: 0.7, propertyType: 'commercial_office', areaSqm: 690, transactedAt: '2025-07-05', pricePerSqm: 8610, source: KADASTER_NONRES, roundTo: 100 }),
-
-  // --- De Pijp, Amsterdam (5, residential) ---
-  mkComparable({ localityKey: 'ams-depijp', label: 'Albert Cuypstraat woning', address: 'Albert Cuypstraat woning, De Pijp, Amsterdam, Noord-Holland', distanceKm: 0.3, propertyType: 'residential_apartment', areaSqm: 78, transactedAt: '2025-10-14', pricePerSqm: 8050, source: NVM_AMS, roundTo: 100 }),
-  mkComparable({ localityKey: 'ams-depijp', label: 'Ferdinand Bolstraat appartement', address: 'Ferdinand Bolstraat appartement, De Pijp, Amsterdam, Noord-Holland', distanceKm: 0.6, propertyType: 'residential_apartment', areaSqm: 65, transactedAt: '2025-05-02', pricePerSqm: 7780, source: NVM_AMS, roundTo: 100 }),
-  mkComparable({ localityKey: 'ams-depijp', label: 'Sarphatipark rand', address: 'Sarphatipark rand, De Pijp, Amsterdam, Noord-Holland', distanceKm: 0.5, propertyType: 'residential_apartment', areaSqm: 92, transactedAt: '2024-11-19', pricePerSqm: 8220, source: NVM_AMS, roundTo: 100 }),
-  mkComparable({ localityKey: 'ams-depijp', label: 'Van Woustraat bovenwoning', address: 'Van Woustraat bovenwoning, De Pijp, Amsterdam, Noord-Holland', distanceKm: 0.8, propertyType: 'residential_apartment', areaSqm: 71, transactedAt: '2026-02-08', pricePerSqm: 7650, source: NVM_AMS, roundTo: 100 }),
-  mkComparable({ localityKey: 'ams-depijp', label: 'Diamantbuurt hoekwoning', address: 'Diamantbuurt hoekwoning, De Pijp, Amsterdam, Noord-Holland', distanceKm: 1.1, propertyType: 'residential_apartment', areaSqm: 105, transactedAt: '2025-08-27', pricePerSqm: 7910, source: NVM_AMS, roundTo: 100 }),
-
-  // --- Kop van Zuid, Rotterdam (3) ---
-  mkComparable({ localityKey: 'rot-kvz', label: 'Wilhelminapier penthouse', address: 'Wilhelminapier penthouse, Kop van Zuid, Rotterdam, Zuid-Holland', distanceKm: 0.5, propertyType: 'residential_apartment', areaSqm: 98, transactedAt: '2025-06-21', pricePerSqm: 5350, source: NVM_ROT, roundTo: 100 }),
-  mkComparable({ localityKey: 'rot-kvz', label: 'Rijnhaven kade appartement', address: 'Rijnhaven kade appartement, Kop van Zuid, Rotterdam, Zuid-Holland', distanceKm: 0.9, propertyType: 'residential_apartment', areaSqm: 85, transactedAt: '2025-01-09', pricePerSqm: 5080, source: NVM_ROT, roundTo: 100 }),
-  mkComparable({ localityKey: 'rot-kvz', label: 'De Rotterdam kantoorunit', address: 'De Rotterdam kantoorunit, Kop van Zuid, Rotterdam, Zuid-Holland', distanceKm: 0.7, propertyType: 'commercial_office', areaSqm: 340, transactedAt: '2024-10-30', pricePerSqm: 5220, source: NVM_ROT, roundTo: 100 }),
-
-  // --- Leidsche Rijn, Utrecht (3) ---
-  mkComparable({ localityKey: 'utr-lr', label: 'Terwijde rijtjeswoning', address: 'Terwijde rijtjeswoning, Leidsche Rijn, Utrecht, Utrecht', distanceKm: 1.0, propertyType: 'residential_apartment', areaSqm: 118, transactedAt: '2025-04-03', pricePerSqm: 4720, source: NVM_UTR, roundTo: 100 }),
-  mkComparable({ localityKey: 'utr-lr', label: 'Parkwijk gezinswoning', address: 'Parkwijk gezinswoning, Leidsche Rijn, Utrecht, Utrecht', distanceKm: 1.4, propertyType: 'residential_apartment', areaSqm: 132, transactedAt: '2025-11-16', pricePerSqm: 4890, source: NVM_UTR, roundTo: 100 }),
-  mkComparable({ localityKey: 'utr-lr', label: 'Grauwaart nieuwbouw appartement', address: 'Grauwaart nieuwbouw appartement, Leidsche Rijn, Utrecht, Utrecht', distanceKm: 0.6, propertyType: 'residential_apartment', areaSqm: 84, transactedAt: '2026-01-22', pricePerSqm: 4760, source: NVM_UTR, roundTo: 100 }),
 ];
 
 export const REFERENCE_DATA: ReferenceData = {

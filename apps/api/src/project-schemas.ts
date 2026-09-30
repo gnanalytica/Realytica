@@ -77,6 +77,16 @@ const tenureSchema = z.enum(['freehold', 'leasehold', 'unknown']);
  */
 const parcelIdSchema = z.string().trim().max(200);
 
+/** The firm's engagement on a project. Every field but the stage is optional. */
+export const engagementSchema = z.object({
+  stage: z.enum(['intake', 'documents', 'site_visit', 'analysis', 'review', 'issued']),
+  client: z.string().trim().max(200).optional(),
+  fee: z.number().nonnegative().optional(),
+  lead: z.string().trim().max(120).optional(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  scope: z.string().trim().max(300).optional(),
+});
+
 export const createProjectBodySchema = z.object({
   name: z.string().trim().min(1).max(200),
   type: projectArchetypeSchema,
@@ -92,7 +102,9 @@ export const createProjectBodySchema = z.object({
   builtUpAreaSqm: z.number().nonnegative().optional(),
   saleableAreaSqm: z.number().nonnegative().optional(),
   budget: z.number().nonnegative().optional(),
-  currency: z.enum(['INR', 'EUR']).optional(),
+  // India only: the Netherlands pack was removed, so a EUR project would
+  // screen against nothing.
+  currency: z.enum(['INR']).optional(),
   portfolio: z.string().max(200).optional(),
   siteCoordinate: geoPointSchema.optional(),
   /*
@@ -104,6 +116,7 @@ export const createProjectBodySchema = z.object({
    */
   parcelId: parcelIdSchema.optional(),
   tenure: tenureSchema.optional(),
+  engagement: engagementSchema.optional(),
   actor: actorSchema,
 });
 
@@ -244,6 +257,28 @@ export const createRiskBodySchema = z.object({
   assetIds: z.array(z.string()).optional(),
   assessmentIds: z.array(z.string()).optional(),
   actor: actorSchema,
+});
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const createRequestBodySchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  detail: z.string().max(4000).optional(),
+  recipient: z.string().trim().min(1).max(200),
+  recipientRole: z.string().trim().max(120).optional(),
+  dueAt: isoDate.optional(),
+  evidenceId: z.string().max(120).optional(),
+  send: z.boolean().optional(),
+});
+
+export const patchRequestBodySchema = z.object({
+  title: z.string().trim().min(1).max(300).optional(),
+  detail: z.string().max(4000).optional(),
+  recipient: z.string().trim().min(1).max(200).optional(),
+  recipientRole: z.string().trim().max(120).optional(),
+  dueAt: isoDate.nullable().optional(),
+  status: z.enum(['draft', 'sent', 'answered', 'cancelled']).optional(),
+  answeredByEvidenceId: z.string().max(120).optional(),
 });
 
 export const createActionBodySchema = z.object({
@@ -387,6 +422,7 @@ export const patchProjectBodySchema = z.object({
    */
   parcelId: parcelIdSchema.optional(),
   tenure: tenureSchema.optional(),
+  engagement: engagementSchema.optional(),
   actor: actorSchema,
 });
 

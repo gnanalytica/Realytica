@@ -1,0 +1,174 @@
+import {
+  REPORT_KIND_LABEL,
+  readReportBlock,
+  reportIsFrozen,
+  reportSummaryLine,
+  type DdProject,
+  type GeneratedReport,
+} from '@realytica/shared';
+
+/**
+ * The report as a Word document, in a plain firm template.
+ *
+ * Built in the browser from the same blocks the editor shows, so the file is
+ * exactly what the screen says: live sections as they read now (or as they
+ * were frozen, once issued), a person's words as written. A draft says it is
+ * a draft on its first page and in its footer; only an issued report carries
+ * a signature.
+ *
+ * The library is loaded on the click, not with the app.
+ */
+export async function exportReportDocx(project: DdProject, report: GeneratedReport): Promise<void> {
+  const {
+    AlignmentType,
+    BorderStyle,
+    Document,
+    Footer,
+    HeadingLevel,
+    Packer,
+    PageNumber,
+    Paragraph,
+    TextRun,
+  } = await import('docx');
+
+  const frozen = reportIsFrozen(report.status);
+  const issued = report.status === 'issued';
+  const summary = frozen ? report.body.summary : reportSummaryLine(project);
+  const dated = new Date(issued && report.signedAt ? report.signedAt : Date.now()).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  const children: InstanceType<typeof Paragraph>[] = [
+    new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun({ text: report.title })] }),
+    new Paragraph({
+      spacing: { after: 80 },
+      children: [new TextRun({ text: project.name, bold: true, size: 26 })],
+    }),
+    new Paragraph({
+      spacing: { after: 80 },
+      children: [
+        new TextRun({
+          text: [project.siteAddress || project.location, project.city].filter(Boolean).join(', '),
+          color: '555555',
+        }),
+      ],
+    }),
+    new Paragraph({
+      spacing: { after: 240 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BBBBBB', space: 6 } },
+      children: [
+        new TextRun({ text: `${REPORT_KIND_LABEL[report.kind]} · ${project.reference} · ${dated}`, color: '555555' }),
+        ...(project.engagement?.client ? [new TextRun({ text: ` · For ${project.engagement.client}`, color: '555555' })] : []),
+      ],
+    }),
+  ];
+
+  if (!issued) {
+    children.push(
+      new Paragraph({
+        spacing: { after: 200 },
+        children: [
+          new TextRun({ text: 'DRAFT. ', bold: true, color: 'B42318' }),
+          new TextRun({ text: 'Not issued and not signed. Sections that read the project registers show what they say today.', color: 'B42318' }),
+        ],
+      }),
+    );
+  }
+
+  if (summary) {
+    children.push(new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun('Summary')] }));
+    children.push(new Paragraph({ spacing: { after: 200 }, children: [new TextRun(summary)] }));
+  }
+
+  for (const block of report.body.blocks) {
+    const resolved = readReportBlock(project, block, frozen);
+    const heading = block.heading ?? 'Section';
+    children.push(new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun(heading)] }));
+    if (block.origin === 'derived') {
+      if (resolved.lines.length === 0) {
+        children.push(
+          new Paragraph({
+            spacing: { after: 160 },
+            children: [new TextRun({ text: resolved.note ?? 'Nothing recorded for this section.', italics: true, color: '666666' })],
+          }),
+        );
+      } else {
+        for (const line of resolved.lines) {
+          children.push(new Paragraph({ bullet: { level: 0 }, children: [new TextRun(line)] }));
+        }
+        if (resolved.note) {
+          children.push(new Paragraph({ spacing: { after: 160 }, children: [new TextRun({ text: resolved.note, italics: true, color: '666666' })] }));
+        }
+      }
+    } else {
+      const paragraphs = (block.text ?? '').split(/\n{2,}|\n/).map((p) => p.trim()).filter(Boolean);
+      if (paragraphs.length === 0) {
+        children.push(new Paragraph({ children: [new TextRun({ text: 'Not yet written.', italics: true, color: '666666' })] }));
+      }
+      for (const text of paragraphs) {
+        children.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun(text)] }));
+      }
+    }
+  }
+
+  children.push(new Paragraph({ heading: HeadingLevel.HEADING_2, spacing: { before: 360 }, children: [new TextRun('Sign-off')] }));
+  if (issued) {
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({ text: 'Signed: ', bold: true }),
+          new TextRun(`${report.signedBy ?? report.reviewer ?? ''}${report.signedRole ? `, ${report.signedRole}` : ''}`),
+        ],
+      }),
+      new Paragraph({ children: [new TextRun({ text: 'Date: ', bold: true }), new TextRun(dated)] }),
+    );
+  } else {
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: 'Not signed. This draft has not been issued.', italics: true, color: '666666' })],
+      }),
+    );
+  }
+
+  const doc = new Document({
+    creator: 'Realytica',
+    title: report.title,
+    description: `${REPORT_KIND_LABEL[report.kind]} for ${project.name}`,
+    styles: {
+      default: { document: { run: { font: 'Calibri', size: 22 } } },
+    },
+    sections: [
+      {
+        properties: {},
+        footers: {
+          default: new Footer({
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({ text: `${project.reference} · ${report.title}${issued ? '' : ' · DRAFT'} · page `, size: 16, color: '777777' }),
+                  new TextRun({ children: [PageNumber.CURRENT], size: 16, color: '777777' }),
+                  new TextRun({ text: ' of ', size: 16, color: '777777' }),
+                  new TextRun({ children: [PageNumber.TOTAL_PAGES], size: 16, color: '777777' }),
+                ],
+              }),
+            ],
+          }),
+        },
+        children,
+      },
+    ],
+  });
+
+  const blob = await Packer.toBlob(doc);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${project.reference} ${report.title}${issued ? '' : ' (draft)'}.docx`.replace(/[\\/:*?"<>|]+/g, '-');
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}

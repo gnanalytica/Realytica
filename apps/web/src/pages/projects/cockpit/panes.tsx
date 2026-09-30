@@ -233,15 +233,17 @@ export function GraphPane({
   project,
   focusId,
   onSelect,
+  onOpen,
 }: {
   project: DdProject;
   focusId?: string | null;
   onSelect?: (id: string | null) => void;
+  onOpen?: (id: string) => void;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col p-3 sm:p-4">
-      <h2 className="mb-2 shrink-0 text-[15px] font-semibold text-ink">Knowledge graph</h2>
-      <ProjectGraphCanvas project={project} focusId={focusId} onSelect={onSelect} />
+      <h2 className="mb-2 shrink-0 text-[15px] font-semibold text-ink">Evidence graph</h2>
+      <ProjectGraphCanvas project={project} focusId={focusId} onSelect={onSelect} onOpen={onOpen} />
     </div>
   );
 }

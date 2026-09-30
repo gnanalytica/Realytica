@@ -56,7 +56,7 @@ describe('state pack resolution', () => {
     assert.deepEqual(jurisdictionSegments('Karnataka / BMRDA'), ['karnataka', 'bmrda']);
   });
 
-  it('loads the pack, its checks and its transaction costs for the seeded projects', () => {
+  it('loads the pack and its checks for the seeded projects, and no costs on a guessed guidance value', () => {
     for (const project of [seedDemoProject(), seedBdaReferenceProject()]) {
       const result = runProjectScreen(project);
       assert.ok(result.stateCompliance, `${project.reference} lost the Karnataka compliance summary`);
@@ -65,7 +65,9 @@ describe('state pack resolution', () => {
         (result.stateCompliance?.checks.length ?? 0) > 10,
         `${project.reference} should carry the pack's title checks`,
       );
-      assert.ok(result.transactionCosts, `${project.reference} lost its stamp duty / registration costs`);
+      // Duty is charged on the higher of price and guidance value, and the
+      // only guidance value available was the illustrative locality table.
+      assert.equal(result.transactionCosts, undefined);
     }
   });
 

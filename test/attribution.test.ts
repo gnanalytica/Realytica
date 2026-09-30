@@ -48,13 +48,16 @@ describe('claim extraction', () => {
 });
 
 describe('verification against the file', () => {
-  it('passes figures the screen actually produced, rounding included', () => {
+  it('passes figures the file actually holds, rounding included', () => {
     const project = seedDemoProject();
     screenProject(project);
-    const mid = project.lastScreen!.indicatedMid!;
+    // The screen gives no value on a project; the budget is a figure the file
+    // does hold.
+    assert.equal(project.lastScreen!.indicatedMid, undefined);
+    const budget = project.budget!;
     const text = [
-      `The indicative mid is ₹${Math.round(mid).toLocaleString('en-IN')}`,
-      `— call it ${(mid / 1e7).toFixed(1)} crore.`,
+      `The budget is ₹${Math.round(budget).toLocaleString('en-IN')}`,
+      `— call it ${(budget / 1e7).toFixed(1)} crore.`,
       `Completeness sits at ${project.lastScreenResult!.completeness.score}%.`,
     ].join(' ');
     const report = verifyAttribution(project, text);

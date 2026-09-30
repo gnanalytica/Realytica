@@ -58,13 +58,17 @@ export default function AppShell() {
     });
   }
 
-  const projectWorkspace = /^\/projects\/(?!new(?:\/|$))[^/]+/.test(location.pathname);
+  // The case dashboard is a page like any other; everything else under a
+  // project is the workspace, which fills the window and scrolls inside.
+  const projectWorkspace =
+    /^\/projects\/(?!new(?:\/|$))[^/]+/.test(location.pathname) && !/^\/projects\/[^/]+\/dashboard\/?$/.test(location.pathname);
 
   return (
     <AreaUnitProvider>
     <div className="flex min-h-full min-w-0">
       <Sidebar
         collapsed={collapsed}
+        forceCollapsed={projectWorkspace}
         onToggleCollapsed={toggleCollapsed}
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}

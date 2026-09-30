@@ -7,11 +7,15 @@
  * gaps and a proposed decision — the same registers the rest of the OS uses.
  */
 
-import { classifyDocument, extractFields, runScreen } from '../engine';
+import { classifyDocument, runScreen } from '../engine';
 import { REFERENCE_DATA } from '../reference';
 import type {
   CaseDocument,
+  CompletenessSummary,
+  ConfidenceSummary,
   DocumentKind,
+  ExtractedField,
+  ReferenceData,
   KarnatakaAttributes,
   KarnatakaJurisdiction,
   PropertyIdentity,
@@ -38,6 +42,8 @@ import type {
   ActionKind,
   ChatProposal,
   DdProject,
+  EvidenceRecord,
+  EvidenceStatus,
   FindingSeverity,
   Probability,
   ProjectScreenSnapshot,
@@ -149,10 +155,10 @@ function projectKarnatakaAttributes(project: DdProject): KarnatakaAttributes | u
 
 export function projectToIdentity(project: DdProject): PropertyIdentity {
   const locality = matchProjectLocality(project);
-  const country = project.currency === 'EUR' ? 'NL' : 'IN';
-  const state =
-    project.jurisdiction
-    || (country === 'IN' ? 'Karnataka' : 'Noord-Holland');
+  // India is the only country pack. A project is screened against Indian
+  // rules or not at all; the state decides which state pack applies.
+  const country = 'IN';
+  const state = project.jurisdiction || 'Karnataka';
   return {
     label: project.name,
     country,
@@ -189,13 +195,94 @@ function kindFromEvidenceTitle(title: string, fileName?: string): { kind: Docume
   return classifyDocument(fileName || `${title}.pdf`, 'application/pdf');
 }
 
+/**
+ * The screen's names for what a filed document states.
+ *
+ * The parser keys a fact by the check it can fill (`extent_title`,
+ * `khata_type`); the screen and the title graph read the older
+ * `ExtractedField` names (`extent`, `khataClassification`). Only the pairs
+ * that mean the same thing are listed. Any other fact keeps its own key: the
+ * screen still quotes it as evidence, it just does not reason from it.
+ */
+const SCREEN_FIELD_KEY: Record<string, string> = {
+  extent_title: 'extent',
+  extent_khata: 'assessedArea',
+  owner: 'ownerName',
+  consideration: 'considerationPaid',
+  registration_date: 'deedDate',
+  document_number: 'registrationNumber',
+  survey_numbers: 'surveyNumber',
+  khata_type: 'khataClassification',
+  khata_number: 'khataNumber',
+  sas_number: 'sasApplicationNumber',
+  sanctioned_far: 'approvedFar',
+  oc_date: 'ocIssueDate',
+  order_number: 'conversionOrderNumber',
+  conversion_date: 'conversionOrderDate',
+  boundary_north: 'boundaryNorth',
+  boundary_east: 'boundaryEast',
+  boundary_south: 'boundarySouth',
+  boundary_west: 'boundaryWest',
+};
+
+/** A khata type as the screen's classification field spells it. */
+function khataClassification(value: string): string {
+  const letter = value.trim().match(/^([AB])\b/i)?.[1];
+  return letter ? letter.toUpperCase() : value;
+}
+
+/**
+ * What a filed document states, in the screen's vocabulary.
+ *
+ * Every value here was read off the document and carries the page it was
+ * read from. Nothing is inferred to fill a gap: a deed whose reader found no
+ * owner has no owner field, and the screen says the owner is unconfirmed.
+ */
+function factsToFields(row: EvidenceRecord): ExtractedField[] {
+  const method = row.readMethod === 'ocr' ? 'ocr' : 'parser';
+  return (row.facts ?? []).map((fact) => {
+    const key = SCREEN_FIELD_KEY[fact.key] ?? fact.key;
+    const raw = typeof fact.value === 'boolean' ? (fact.value ? 'yes' : 'no') : String(fact.value);
+    return {
+      key,
+      label: fact.label,
+      value: key === 'khataClassification' ? khataClassification(raw) : raw,
+      unit: fact.unit,
+      // A parsed fact is read with its words beside it, so it is as sure as
+      // the reading. OCR of a scan is less so.
+      confidence: method === 'ocr' ? 0.75 : 0.9,
+      sourceDocumentId: row.id,
+      sourcePage: fact.page,
+      method,
+    };
+  });
+}
+
+/**
+ * Rows that stand for a document someone has supplied.
+ *
+ * An expected or requested row is a placeholder for a paper nobody has sent
+ * yet; counting it as on file would score a screen as complete on the
+ * strength of its own to-do list. A superseded or rejected paper is on file
+ * but no longer relied on.
+ */
+const NOT_RELIED_ON: ReadonlySet<EvidenceStatus> = new Set(['superseded', 'rejected', 'missing']);
+const ON_FILE: ReadonlySet<EvidenceStatus> = new Set(['received', 'validated', 'used']);
+
+function isOnFile(row: EvidenceRecord): boolean {
+  if (NOT_RELIED_ON.has(row.status)) return false;
+  return ON_FILE.has(row.status) || row.attachments.length > 0;
+}
+
 export function projectToScreenDocuments(project: DdProject): CaseDocument[] {
   const docs: CaseDocument[] = [];
   for (const row of project.evidence) {
+    if (!isOnFile(row)) continue;
     const attachment = row.attachments[0];
     const fileName = attachment?.fileName || row.fileName || `${row.title}.pdf`;
     const classified = kindFromEvidenceTitle(row.title, fileName);
-    const doc: CaseDocument = {
+    const extracted = factsToFields(row);
+    docs.push({
       id: row.id,
       caseId: project.id,
       fileName,
@@ -206,28 +293,254 @@ export function projectToScreenDocuments(project: DdProject): CaseDocument[] {
       classificationConfidence: classified.confidence,
       kindConfirmedByUser: false,
       pages: 1,
-      ocrStatus: 'complete',
-      extracted: [],
+      // 'complete' only for a document whose reading stated something. The
+      // engine and the title graph both fill a 'complete' document that has
+      // no fields with made-up values; a document nobody has read, or whose
+      // reading found nothing, must not be handed to them as one.
+      ocrStatus: extracted.length > 0 ? 'complete' : 'pending',
+      extracted,
       notes: row.source,
-    };
-    doc.extracted = extractFields(doc, projectToIdentity(project), project.id);
-    docs.push(doc);
+    });
   }
   return docs;
+}
+
+/**
+ * The reference data a client file may be screened against.
+ *
+ * The country and state packs are rules with provenance: stamp duty, the
+ * documents a Karnataka title needs, what an A-khata means. They stay.
+ *
+ * The locality table and the comparable pool are not market data. They are
+ * illustrative figures written to exercise the engine, and a screen that ran
+ * a client's site against them would hand the client a value range, a
+ * liquidity figure and a flood grade that describe nowhere in particular. So
+ * the pool goes in empty, and every locality loses the two tables (water and
+ * aerodrome) that the compliance checks would otherwise quote as if they were
+ * about this site. The engine still needs a locality row to run; what it
+ * computes from one is removed by `withoutMarketData` before anyone sees it.
+ */
+const PROJECT_REFERENCE_DATA: ReferenceData = {
+  ...REFERENCE_DATA,
+  comparablePool: [],
+  localities: REFERENCE_DATA.localities.map(({ waterExposure: _water, aerodrome: _aerodrome, ...locality }) => locality),
+};
+
+/**
+ * Risk flags the engine can only raise by reading those illustrative tables:
+ * the value mid, the comparable pool, locality liquidity, zoning and FAR by
+ * locality, and water exposure by locality. None may reach a client file.
+ */
+const MARKET_RISK_CODES: ReadonlySet<string> = new Set([
+  'asking_price_above_mid',
+  'thin_comparable_evidence',
+  'land_comparables_widened',
+  'no_land_comparables',
+  'locality_data_thin',
+  'long_liquidity',
+  'far_exceeded',
+  'zoning_mismatch',
+  'plot_road_width_far_cap',
+  'flood_catchment_exposure',
+]);
+
+/**
+ * Actions the engine raises from the value range or from duty charged on a
+ * locality guidance value, keyed by the suffix of their id.
+ */
+const MARKET_ACTIONS = ['lender-check', 'guidance-value-reference'];
+
+/**
+ * A verdict from what the file holds, and nothing it does not.
+ *
+ * The engine's own recommendation weighs a value range and a confidence band
+ * built from the market tables; both are gone, so this weighs the risks the
+ * documents and the state rules raised, and how much of the file is present.
+ */
+function recommendationFromFile(
+  risks: RiskFlag[],
+  completeness: CompletenessSummary,
+): ScreenResult['recommendation'] {
+  const open = risks.filter((r) => r.status === 'open');
+  const critical = open.filter((r) => r.severity === 'critical');
+  const serious = open.filter((r) => r.severity === 'serious');
+  const missing = completeness.missingCritical;
+  const reasoning: string[] = [];
+  const conditions: string[] = [];
+  let verdict: ScreenVerdict;
+
+  if (critical.length > 0) {
+    verdict = 'do_not_pursue';
+    reasoning.push(`${critical.length} open critical issue${critical.length === 1 ? '' : 's'}: ${critical.map((r) => r.title).join(', ')}.`);
+    conditions.push(...critical.map((r) => r.mitigation));
+  } else if (missing.length > 0) {
+    verdict = 'investigate_further';
+    reasoning.push(`${missing.length} critical document${missing.length === 1 ? ' is' : 's are'} not on file: ${missing.join(', ')}.`);
+    conditions.push('Obtain the missing documents and run the screen again.');
+  } else if (serious.length > 0) {
+    verdict = 'pursue_with_conditions';
+    reasoning.push(`${serious.length} serious issue${serious.length === 1 ? '' : 's'} to resolve: ${serious.map((r) => r.title).join(', ')}.`);
+    conditions.push(...serious.map((r) => r.mitigation));
+  } else {
+    verdict = 'pursue';
+    reasoning.push('No open critical or serious issues were raised by the documents on file.');
+  }
+  reasoning.push(`Document completeness is ${completeness.score}/100.`);
+  reasoning.push('No value is given here: the file holds no comparables or recorded rates. Record them on the Value tab.');
+  if (conditions.length === 0) conditions.push('None raised by the documents on file. Continue with the planned due diligence.');
+
+  const headline =
+    verdict === 'pursue'
+      ? 'No blocking issues in the documents on file.'
+      : verdict === 'pursue_with_conditions'
+        ? 'Workable, subject to the conditions below.'
+        : verdict === 'investigate_further'
+          ? 'Not enough on file to form a view.'
+          : 'Stop until the critical issues are resolved.';
+  return { verdict, headline, reasoning: reasoning.slice(0, 5), conditions: [...new Set(conditions)].slice(0, 6) };
+}
+
+/** Confidence in the screen, as a measure of the file rather than of a market. */
+function confidenceFromFile(completeness: CompletenessSummary): ConfidenceSummary {
+  const score = completeness.score;
+  return {
+    score,
+    band: score >= 80 ? 'high' : score >= 50 ? 'moderate' : 'low',
+    factors: [
+      {
+        key: 'documents',
+        label: 'Documents on file',
+        contribution: score,
+        note: completeness.missingCritical.length
+          ? `Missing: ${completeness.missingCritical.join(', ')}.`
+          : 'Every critical document is on file.',
+      },
+    ],
+    biggestLever: completeness.missingCritical[0]
+      ? `Put the ${completeness.missingCritical[0]} on file.`
+      : 'Record comparables or rates on the Value tab.',
+  };
+}
+
+/**
+ * The screen with everything built on the illustrative tables taken out.
+ *
+ * What stays is what the documents and the state rules support: completeness,
+ * the title graph (now read from real facts), the state compliance checks,
+ * the document risks and the actions that follow from them. What goes is the
+ * value range, the anchors, comparables, drivers, market context, costs
+ * charged on a guidance value, forced-sale and offer figures, the yield, the
+ * JD split and the price trajectory, which is drawn against the value range.
+ */
+export function withoutMarketData(result: ScreenResult): ScreenResult {
+  const risks = result.risks.filter((r) => !MARKET_RISK_CODES.has(r.code));
+  const keptRiskIds = new Set(risks.map((r) => r.id));
+  const stateCompliance = result.stateCompliance
+    ? {
+        ...result.stateCompliance,
+        checks: result.stateCompliance.checks.map((c) => ({
+          ...c,
+          relatedRiskIds: c.relatedRiskIds.filter((riskId) => keptRiskIds.has(riskId)),
+        })),
+      }
+    : undefined;
+  const actions = result.actions.flatMap((a) => {
+    const related = a.relatedRiskIds.filter((riskId) => keptRiskIds.has(riskId));
+    // An action raised only for risks that are gone goes with them, and so
+    // does one about duty on a guidance value this screen no longer computes.
+    if (a.relatedRiskIds.length > 0 && related.length === 0) return [];
+    if (MARKET_ACTIONS.some((key) => a.id.endsWith(`-${key}`))) return [];
+    return [{ ...a, relatedRiskIds: related }];
+  });
+
+  const cited = new Set<string>([
+    ...risks.flatMap((r) => r.evidenceIds),
+    ...(stateCompliance?.checks.flatMap((c) => c.evidenceIds) ?? []),
+  ]);
+  const evidence = result.evidence.filter(
+    (e) => e.sourceType === 'document' || e.sourceType === 'user_input' || cited.has(e.id),
+  );
+
+  const recommendation = recommendationFromFile(risks, result.completeness);
+  const confidence = confidenceFromFile(result.completeness);
+  const openCritical = risks.filter((r) => r.status === 'open' && r.severity === 'critical').length;
+  const currency = result.indicativeValue.currency;
+  const {
+    transactionCosts: _costs,
+    forcedSale: _forcedSale,
+    offer: _offer,
+    yield: _yield,
+    waterExposure: _water,
+    jdSplit: _jdSplit,
+    priceTrajectory: _trajectory,
+    ...rest
+  } = result;
+
+  return {
+    ...rest,
+    snapshot: {
+      headline: recommendation.headline,
+      bullets: [
+        `${result.completeness.score}/100 document completeness${result.completeness.missingCritical.length ? `, missing: ${result.completeness.missingCritical.join(', ')}` : ', all critical documents on file'}.`,
+        openCritical > 0 ? `${openCritical} open critical issue${openCritical === 1 ? '' : 's'} to resolve before proceeding.` : 'No open critical issues raised.',
+        'No market value: the file holds no comparables or recorded rates.',
+      ],
+      keyFacts: result.snapshot.keyFacts.filter((f) => f.label !== 'Locality'),
+    },
+    indicativeValue: {
+      low: 0,
+      mid: 0,
+      high: 0,
+      currency,
+      perSqm: { low: 0, mid: 0, high: 0 },
+      spreadPct: 0,
+      askingVsMidPct: null,
+    },
+    anchors: [],
+    comparables: [],
+    drivers: [],
+    risks,
+    planning: {
+      ...result.planning,
+      zoning: 'Not assessed',
+      permittedUses: [],
+      farAllowed: 0,
+      buildablePotentialSqm: 0,
+      restrictions: [],
+      statusNote: 'Zoning and permissible FAR come from the Master Plan or a sanctioned plan. Neither has been read for this site.',
+      source: 'Not assessed',
+      evidenceIds: [],
+    },
+    confidence,
+    evidence,
+    actions,
+    marketContext: {
+      medianPricePerSqm: 0,
+      yoyChangePct: 0,
+      liquidityDays: 0,
+      sampleSize: 0,
+      source: 'Not used: no market data on file',
+      trend: [],
+    },
+    stateCompliance,
+    recommendation,
+  };
 }
 
 export function runProjectScreen(project: DdProject, now = nowIso(), siteContext?: SiteContext): ScreenResult {
   ensureProjectShape(project);
   const identity = projectToIdentity(project);
-  return runScreen({
-    caseId: project.id,
-    reference: project.reference,
-    identity,
-    documents: projectToScreenDocuments(project),
-    refData: REFERENCE_DATA,
-    now,
-    siteContext: siteContext ?? project.siteContext,
-  });
+  return withoutMarketData(
+    runScreen({
+      caseId: project.id,
+      reference: project.reference,
+      identity,
+      documents: projectToScreenDocuments(project),
+      refData: PROJECT_REFERENCE_DATA,
+      now,
+      siteContext: siteContext ?? project.siteContext,
+    }),
+  );
 }
 
 function severityOf(flag: RiskSeverity): FindingSeverity {
@@ -291,9 +604,10 @@ function snapshotFrom(result: ScreenResult): ProjectScreenSnapshot {
     verdict: result.recommendation.verdict,
     headline: result.recommendation.headline,
     reasoning: result.recommendation.reasoning,
-    indicatedMid: result.indicativeValue.mid,
-    indicatedLow: result.indicativeValue.low,
-    indicatedHigh: result.indicativeValue.high,
+    // The screen gives no value on a project; see `withoutMarketData`.
+    indicatedMid: result.indicativeValue.mid > 0 ? result.indicativeValue.mid : undefined,
+    indicatedLow: result.indicativeValue.low > 0 ? result.indicativeValue.low : undefined,
+    indicatedHigh: result.indicativeValue.high > 0 ? result.indicativeValue.high : undefined,
     currency: result.indicativeValue.currency,
     completenessScore: result.completeness.score,
     confidenceScore: result.confidence.score,
@@ -301,88 +615,9 @@ function snapshotFrom(result: ScreenResult): ProjectScreenSnapshot {
   };
 }
 
-function writeValuationFromScreen(project: DdProject, result: ScreenResult, actor: string): ValuationRun {
-  const at = nowIso();
-  for (const prior of project.valuationRuns) {
-    if (prior.status === 'computed' || prior.status === 'issued') prior.status = 'superseded';
-  }
-  const locality = matchProjectLocality(project);
-  const mid = result.indicativeValue.mid;
-  const approaches = result.anchors.slice(0, 4).map((anchor) => {
-    const method = String(anchor.method);
-    const approach =
-      method.includes('cost') || method.includes('replacement')
-        ? ('cost' as const)
-        : method.includes('income') || method.includes('yield')
-          ? ('income' as const)
-          : method.includes('residual')
-            ? ('residual' as const)
-            : ('market' as const);
-    return {
-      approach,
-      // The anchor's own name, because three market-family anchors otherwise
-      // arrive as three rows called "Market / comparable". The rationale is
-      // the note; the name is no longer glued to the front of it.
-      label: anchor.label,
-      amount: anchor.mid,
-      notes: anchor.rationale,
-      weight: anchor.weight || 0.25,
-    };
-  });
-  const run: ValuationRun = {
-    id: id('val'),
-    status: 'computed',
-    signOff: 'unsigned',
-    localityId: locality?.id,
-    localityLabel: locality ? `${locality.locality}, ${locality.city}` : undefined,
-    comparableValue: result.indicativeValue.mid,
-    indicatedValue: mid,
-    low: result.indicativeValue.low,
-    high: result.indicativeValue.high,
-    currency: result.indicativeValue.currency === 'EUR' ? 'EUR' : 'INR',
-    ibbi: {
-      instruction: `Property screen of ${project.name}. Indicative decision-support only — not a certified valuation.`,
-      subject: `${project.name}, ${project.location}, ${project.city}.`,
-      dates: { valuationDate: at.slice(0, 10), evidenceCutoff: at.slice(0, 10) },
-      basis: 'market_value',
-      premise: project.currentStage === 'operations' || project.currentStage === 'handover' ? 'as_is' : 'residual',
-      legalPlanningAssumptions: result.risks
-        .filter((r) => r.category === 'title' || r.category === 'planning')
-        .map((r) => r.title)
-        .join('; ') || 'No title/planning flags from this screen. Absence is not a clean title.',
-      approaches: approaches.length
-        ? approaches
-        : [{ approach: 'market', amount: mid, notes: result.snapshot.headline, weight: 1 }],
-      reconciliation: `${result.indicativeValue.currency} ${Math.round(mid).toLocaleString()} (${Math.round(result.indicativeValue.low).toLocaleString()}–${Math.round(result.indicativeValue.high).toLocaleString()}). Completeness ${result.completeness.score}; confidence ${result.confidence.band}. ${result.recommendation.headline}`,
-      caveats: [
-        'Indicative only. Not an IBBI-registered valuer’s report.',
-        ...result.recommendation.reasoning.slice(0, 4),
-      ],
-      evidenceReliedUponIds: project.evidence.filter((e) => e.used).map((e) => e.id),
-      evidenceConsideredIds: project.evidence.filter((e) => e.considered && !e.used).map((e) => e.id),
-      evidenceGapIds: project.evidence.filter((e) => e.status === 'expected' || e.status === 'missing').map((e) => e.id),
-    },
-    createdAt: at,
-    createdBy: actor,
-  };
-  project.valuationRuns.push(run);
-  project.audit.push({
-    id: id('aud'),
-    at,
-    actor,
-    action: 'valuation_run',
-    entityType: 'valuation',
-    entityId: run.id,
-    newValue: String(Math.round(run.indicatedValue)),
-    reason: 'property_screen',
-  });
-  return run;
-}
-
 export interface AppliedScreen {
   result: ScreenResult;
   snapshot: ProjectScreenSnapshot;
-  valuationId: string;
   findingIds: string[];
   riskIds: string[];
   actionIds: string[];
@@ -492,7 +727,8 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
     }
   }
 
-  const valuation = writeValuationFromScreen(project, result, actor);
+  // No valuation run is written. The screen has no value to give: a figure
+  // comes only from the valuation run, over inputs somebody recorded.
   const snapshot = snapshotFrom(result);
   project.lastScreen = snapshot;
   // Keep the working, not just the verdict. The registers carry what the
@@ -528,7 +764,6 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
   return {
     result,
     snapshot,
-    valuationId: valuation.id,
     findingIds,
     riskIds,
     actionIds,
@@ -551,7 +786,7 @@ export function proposeProjectScreen(project: DdProject, actor = 'operator'): Ch
     id: id('prp'),
     kind: 'run_screen',
     title: `Run property screen on ${project.name}`,
-    rationale: `Treat this project as the site. Identity: ${identity.city} / ${identity.locality}. ${project.evidence.length} evidence row(s) become the papers. The engine writes findings, risks, actions, evidence gaps, an indicative valuation and a proposed pursue/don’t decision — nothing is certified.`,
+    rationale: `Treat this project as the site. Identity: ${identity.city} / ${identity.locality}. ${project.evidence.length} evidence row(s) become the papers. The screen writes findings, risks, actions, evidence gaps and a proposed decision from the documents and the state rules. It gives no value: that comes from the valuation run over recorded inputs.`,
     impact: 'Writes into the same registers the rest of the OS uses. Re-running skips rows already tagged from a prior screen.',
     status: 'proposed',
     payload: {},

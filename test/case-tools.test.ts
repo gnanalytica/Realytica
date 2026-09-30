@@ -94,12 +94,6 @@ describe('case tools', () => {
     assert.equal(payload.constraints.length, 6);
   });
 
-  test('an unassessed locality says so rather than returning null silently', async () => {
-    const payload = await call('Van Woustraat', 'get_site_constraints');
-    assert.equal(payload.waterExposure, null);
-    assert.match(payload.waterExposureNote, /not the same as low exposure/);
-  });
-
   test('a case with no map lookup gets an explanation, not an empty object', async () => {
     const payload = await call('Devanahalli', 'get_site_context');
     assert.match(payload.error, /No map lookup has been built/);

@@ -129,9 +129,9 @@ const SPEC = [
 const REFUSALS = [
   {
     clause: 'i',
-    title: 'AI is not required to operate.',
-    body: 'Every core workflow — project, asset tree, concurrent DDs, checks, registers, reports — must run with no model. AI later writes into these same objects; it does not replace them.',
-    margin: 'The BRD’s first principle.',
+    title: 'The AI proposes. A person decides.',
+    body: 'The copilot reads documents, drafts findings and report sections, and proposes changes as cards. Nothing reaches the record until a person accepts it, and every figure it states is checked against the file.',
+    margin: 'Only people change the record.',
   },
   {
     clause: 'ii',
@@ -141,9 +141,9 @@ const REFUSALS = [
   },
   {
     clause: 'iii',
-    title: 'An unissued figure is never a certified value.',
-    body: 'Indicative valuation is a later capability on this model. Until a registered valuer signs separately, the product does not pretend the range is a certificate.',
-    margin: 'Decision support, not a legal opinion.',
+    title: 'No figure without a source.',
+    body: 'Value drivers come from what someone put on the file: the guidance value as the state publishes it, comparables the firm holds, rates a person records. With none on file the product says so, rather than filling the gap with a plausible number.',
+    margin: 'Decision support, not a certified valuation.',
   },
 ];
 
@@ -161,11 +161,11 @@ export default function Landing() {
           <span className="flex items-baseline gap-3">
             <span className="font-display text-[17px] tracking-tight text-ink">Realytica</span>
             <span className="hidden font-mono text-mini uppercase tracking-[0.12em] text-ink-muted sm:inline">
-              Due diligence · project intelligence
+              Project workspace · engineering firms and developers
             </span>
           </span>
           <Link
-            to="/projects"
+            to="/portfolio"
             /* `coarse:` is the app's own convention for a finger-sized target
                and this page never applied it: both links here measured 23px,
                against the 44px a thumb needs. Padding rather than a taller
@@ -190,8 +190,8 @@ export default function Landing() {
       <section className="relative isolate mx-auto max-w-5xl px-4 pb-16 pt-12 sm:px-6 sm:pt-16">
         <span aria-hidden="true" className="pointer-events-none absolute inset-x-[-50vw] top-[-3.5rem] -z-10 h-[620px] bg-band" />
         <div className="mb-10 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 font-mono text-mini uppercase tracking-[0.12em] text-ink-muted">
-          <span>Ref. operating model</span>
-          <span>Manual first · AI later</span>
+          <span>Ref. project workspace</span>
+          <span>Copilot beside every view · people decide</span>
         </div>
 
         <Spread
@@ -209,21 +209,22 @@ export default function Landing() {
           }
         >
           <h1 className="m-0 font-display text-[32px] font-normal leading-[1.06] tracking-[-0.015em] text-ink sm:text-[40px] lg:text-[58px]">
-            <SetLine delay={40}>Run diligence as a</SetLine>
-            <SetLine delay={130}>living project record,</SetLine>
+            <SetLine delay={40}>Every engagement,</SetLine>
+            <SetLine delay={130}>from the first deed</SetLine>
             <SetLine delay={220}>
-              <span className="text-ink-secondary">not a static report.</span>
+              <span className="text-ink-secondary">to the signed report.</span>
             </SetLine>
           </h1>
 
           <p className="m-0 mt-8 max-w-[58ch] animate-fade-in text-[16px] leading-[1.65] text-ink-secondary" style={{ animationDelay: '340ms' }}>
-            Create the project and the asset tree. Start concurrent due diligence assessments from reusable scopes and
-            checks. Evidence, findings, risks, actions and decisions live once and link across DDs. AI comes later, on
-            this same model — it is not required to operate.
+            For engineering firms and developers in Karnataka. Drop in the sale deed, the EC and the khata: the copilot
+            reads them, Kannada included, and cites the page behind every value. The state's map layers, value drivers
+            from inputs you record, technical DD checks and the report sit on one file, with your team and outside
+            professionals working in it together.
           </p>
 
           <div className="mt-9 flex animate-fade-in flex-wrap items-center gap-6" style={{ animationDelay: '420ms' }}>
-            <Link to="/projects" className={CTA_CLASSES}>
+            <Link to="/portfolio" className={CTA_CLASSES}>
               Open the workspace
               <ArrowRight size={15} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
             </Link>
@@ -233,7 +234,7 @@ export default function Landing() {
           </div>
 
           <p className="m-0 mt-6 animate-fade-in font-mono text-mini text-ink-muted" style={{ animationDelay: '480ms' }}>
-            Manual system of record. No AI key required.
+            AI proposals wait for a person. Nothing is filed without one.
           </p>
         </Spread>
       </section>
@@ -243,13 +244,13 @@ export default function Landing() {
         <SectionHead
           n="01"
           title="What it records"
-          note="A due diligence assessment is an exercise at a point in time. Evidence, findings, risks, actions and decisions are reusable project reality — linked into DDs, not trapped inside them."
+          note="An assessment is an exercise at a point in time. Documents, findings, risks, actions and decisions are the project's own record, linked into each assessment rather than copied into it."
         />
         <Spread
           margin={
             <MarginNote label="Worked example">
-              A fire-escape finding on the Harohalli township sits once on the project register and participates in
-              Construction Progress and Design assessments. The report is a view of those records.
+              A fire-escape finding on a villa project sits once on the project register and appears in both the
+              construction progress and the design assessment. The report is a view of those records.
             </MarginNote>
           }
         >
@@ -307,7 +308,7 @@ export default function Landing() {
         <SectionHead
           n="03"
           title="What it refuses to do"
-          note="The first release proves that a team can run progressive due diligence by hand. Anything that would force AI, a department silo, or a fake certificate is out."
+          note="Three rules the product keeps, whatever the copilot is asked."
         />
         <div className="space-y-8">
           {REFUSALS.map(item => (
@@ -329,21 +330,21 @@ export default function Landing() {
         <SectionHead n="04" title="Scope and limitations" />
         <Spread
           margin={
-            <MarginNote label="First archetype">
-              Residential township — Harohalli is the sample. Other project types share the same operating model.
+            <MarginNote label="Coverage">
+              Karnataka's rules and revenue maps, with Telangana's maps. India only in this build.
             </MarginNote>
           }
         >
           <div className="max-w-[62ch] space-y-4 text-[15px] leading-[1.7] text-ink-secondary">
             <p className="m-0">
-              The operating model is the product: project setup, nested assets, stage history, concurrent DDs, shared
-              registers, dashboards, IBBI-structured indicative valuation, reusable engines, controlled AI drafts, and a
-              graph of data links. Reports are generated from those records.
+              A portfolio of engagements, a dashboard per property, and a workspace where the copilot sits beside eight
+              views: overview, documents, site, value, technical DD, people, report and the evidence graph. Reports are
+              built from the records and export to Word or PDF.
             </p>
             <p className="m-0">
-              It is <span className="text-ink">not</span> a certified valuation, a legal title certificate, a BIM
-              comparator, or a live-registry product. Indicative valuation and AI drafts sit on the same project
-              registers and never replace a registered valuer or a human reviewer.
+              It is <span className="text-ink">not</span> a certified valuation, a legal title certificate or a
+              live-registry product. Indicative figures and AI drafts sit on the same records and never replace a
+              registered valuer or the engineer who signs.
             </p>
           </div>
         </Spread>
@@ -354,18 +355,18 @@ export default function Landing() {
         <Spread
           margin={
             <MarginNote label="Access">
-              Sign-in is not enabled yet. The button opens the application directly.
+              The workspace owner invites the team and outside professionals, each to the parts of a file they need.
             </MarginNote>
           }
         >
           <h2 className="m-0 max-w-[24ch] font-display text-[30px] font-normal leading-tight tracking-tight text-ink sm:text-[38px]">
-            Start with a project, not a conversation.
+            Start with an engagement.
           </h2>
           <p className="m-0 mt-4 max-w-[56ch] text-[15px] leading-relaxed text-ink-secondary">
-            Open the sample Harohalli township or create a project of your own. Libraries, registers and reports are
-            already wired. Neither path needs an AI key.
+            Create one for a client's property and upload its documents. The copilot starts reading while you bring the
+            team in.
           </p>
-          <Link to="/projects" className={cn(CTA_CLASSES, 'mt-8')}>
+          <Link to="/portfolio" className={cn(CTA_CLASSES, 'mt-8')}>
             Open the application
             <ArrowRight size={15} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
           </Link>
@@ -377,7 +378,7 @@ export default function Landing() {
 
       <footer className="border-t border-ink/20">
         <div className="mx-auto flex max-w-5xl flex-col gap-1 px-4 py-8 font-mono text-mini uppercase tracking-[0.1em] text-ink-muted sm:flex-row sm:items-baseline sm:justify-between sm:px-6">
-          <span>Realytica · Due diligence OS</span>
+          <span>Realytica · Project workspace</span>
           <span>A system of record, not a legal opinion</span>
         </div>
       </footer>

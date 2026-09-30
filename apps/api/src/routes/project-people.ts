@@ -46,6 +46,7 @@ const reachSchema = z.object({
   areas: z.array(areaSchema).max(16).optional(),
   expiresAt: z.string().datetime().or(z.literal('')).optional(),
   note: z.string().max(500).optional(),
+  professionalRole: z.string().trim().max(80).optional(),
 });
 
 const addSchema = reachSchema.extend({ email: z.string().trim().email() });

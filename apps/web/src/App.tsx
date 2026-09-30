@@ -1,4 +1,4 @@
-import { lazy } from 'react';
+import { Suspense, lazy } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import AppShell from './components/layout/AppShell';
 import { AuthGate } from './components/layout/AuthGate';
@@ -15,7 +15,7 @@ import Diligence from './pages/projects/Diligence';
 import DdWorkspace from './pages/projects/DdWorkspace';
 import ScopeWorkspace from './pages/projects/ScopeWorkspace';
 import { EvidenceRegister, FindingRegister } from './pages/projects/Registers';
-import SiteRecord from './pages/projects/SiteRecord';
+import SiteView from './pages/projects/SiteView';
 import { RisksActions, DecisionRegister } from './pages/projects/RisksDecisions';
 import Reports from './pages/projects/Reports';
 import Valuation from './pages/projects/Valuation';
@@ -38,11 +38,11 @@ import ProjectPeople from './pages/projects/ProjectPeople';
  */
 const About = lazy(() => import('./pages/About'));
 const Members = lazy(() => import('./pages/Members'));
-const FlowList = lazy(() => import('./pages/flows/FlowList'));
-const FlowStudio = lazy(() => import('./pages/flows/FlowStudio'));
-const Observability = lazy(() => import('./pages/Observability'));
-const Prompts = lazy(() => import('./pages/Prompts'));
 const Libraries = lazy(() => import('./pages/projects/Libraries'));
+const Portfolio = lazy(() => import('./pages/Portfolio'));
+const Requests = lazy(() => import('./pages/Requests'));
+const ProjectDashboard = lazy(() => import('./pages/projects/ProjectDashboard'));
+const ReportPrint = lazy(() => import('./pages/projects/ReportPrint'));
 
 /*
  * Two project tabs that are the exception to the eager rule above.
@@ -64,6 +64,18 @@ export default function App() {
         {/* The landing page is the one thing outside the gate: somebody has to
             be able to read what this is before being asked to sign in. */}
         <Route index element={<Landing />} />
+        {/* The printable report stands outside the shell, so the page that
+            prints is the report and not the navigation around it. */}
+        <Route
+          path="projects/:projectId/reports/:reportId/print"
+          element={
+            <AuthGate>
+              <Suspense fallback={null}>
+                <ReportPrint />
+              </Suspense>
+            </AuthGate>
+          }
+        />
         <Route
           element={
             <AuthGate>
@@ -71,12 +83,16 @@ export default function App() {
             </AuthGate>
           }
         >
-          <Route path="app" element={<Navigate to="/projects" replace />} />
+          <Route path="app" element={<Navigate to="/portfolio" replace />} />
+          <Route path="portfolio" element={<Portfolio />} />
+          <Route path="requests" element={<Requests />} />
           <Route path="work" element={<MyWork />} />
-          <Route path="flows" element={<FlowList />} />
-          <Route path="flows/:flowId" element={<FlowStudio />} />
+          {/* Automations are off in this build; an old link lands somewhere useful. */}
+          <Route path="flows/*" element={<Navigate to="/portfolio" replace />} />
           <Route path="projects" element={<ProjectList />} />
           <Route path="projects/new" element={<NewProject />} />
+          {/* Outside the workspace: the whole file, full width, no chat. */}
+          <Route path="projects/:projectId/dashboard" element={<ProjectDashboard />} />
           <Route path="projects/:projectId" element={<ProjectLayout />}>
             <Route index element={<Overview />} />
             <Route path="cockpit" element={<Navigate to=".." replace />} />
@@ -85,7 +101,7 @@ export default function App() {
             <Route path="dd/:ddId" element={<DdWorkspace />} />
             <Route path="dd/:ddId/scopes/:scopeId" element={<ScopeWorkspace />} />
             <Route path="evidence" element={<EvidenceRegister />} />
-            <Route path="visits" element={<SiteRecord />} />
+            <Route path="visits" element={<SiteView />} />
             {/* The page is called Site everywhere it is linked, so that is the
                 address people bookmark and paste. Without this it fell through
                 to the catch-all and landed them on the projects list. */}
@@ -101,11 +117,13 @@ export default function App() {
             <Route path="people" element={<ProjectPeople />} />
           </Route>
           <Route path="libraries" element={<Libraries />} />
-          <Route path="observability" element={<Observability />} />
-          <Route path="prompts" element={<Prompts />} />
+          {/* Model operations are backend-only: the API keeps /api/telemetry
+              and /api/prompts for admins, and the pages are not in the app. */}
+          <Route path="observability" element={<Navigate to="/portfolio" replace />} />
+          <Route path="prompts" element={<Navigate to="/portfolio" replace />} />
           <Route path="members" element={<Members />} />
           <Route path="about" element={<About />} />
-          <Route path="*" element={<Navigate to="/projects" replace />} />
+          <Route path="*" element={<Navigate to="/portfolio" replace />} />
         </Route>
       </Routes>
     </ToastHost>

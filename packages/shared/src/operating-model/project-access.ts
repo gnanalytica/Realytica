@@ -95,6 +95,12 @@ export interface ProjectGrant {
   createdAt: string;
   createdBy: string;
   note?: string;
+  /**
+   * What they are on this file as a firm would say it: "Owner's advocate",
+   * "Chartered accountant", "Architect". Describes them; grants nothing. What
+   * they may reach is the rest of the grant.
+   */
+  professionalRole?: string;
 }
 
 export interface CreateProjectGrantInput {
@@ -107,6 +113,7 @@ export interface CreateProjectGrantInput {
   areas?: GrantArea[];
   expiresAt?: string;
   note?: string;
+  professionalRole?: string;
 }
 
 export function grantHasExpired(grant: ProjectGrant, now = new Date()): boolean {
@@ -131,7 +138,10 @@ export function grantCanWrite(grant: ProjectGrant): boolean {
  * blank is a row nobody notices.
  */
 export function describeGrant(grant: ProjectGrant): string {
-  const parts: string[] = [PROJECT_ROLE_LABEL[grant.role]];
+  const parts: string[] = [
+    ...(grant.professionalRole ? [grant.professionalRole] : []),
+    PROJECT_ROLE_LABEL[grant.role],
+  ];
   if (grant.allAssessments) parts.push('all assessments');
   else if (grant.assessmentIds.length === 0) parts.push('no assessments yet');
   else parts.push(`${grant.assessmentIds.length} assessment${grant.assessmentIds.length === 1 ? '' : 's'}`);
@@ -167,6 +177,7 @@ export function createProjectGrant(
     areas: [...new Set(input.areas ?? [])],
     ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
     ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+    ...(input.professionalRole?.trim() ? { professionalRole: input.professionalRole.trim() } : {}),
     createdAt: where.now ?? new Date().toISOString(),
     createdBy: where.createdBy,
   };
@@ -193,6 +204,10 @@ export function patchProjectGrant(grant: ProjectGrant, input: Partial<CreateProj
   if (input.note !== undefined) {
     if (input.note.trim()) grant.note = input.note.trim();
     else delete grant.note;
+  }
+  if (input.professionalRole !== undefined) {
+    if (input.professionalRole.trim()) grant.professionalRole = input.professionalRole.trim();
+    else delete grant.professionalRole;
   }
   return grant;
 }

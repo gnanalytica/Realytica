@@ -432,6 +432,9 @@ export function seedDemoProject(): DdProject {
   createValuationRun(project, 'Asha Menon');
   proposeAiDrafts(project, 'Asha Menon');
 
+  // A labelled sample: every surface that lists or opens it says so.
+  project.sample = true;
+  project.engagement = { stage: 'analysis', client: 'Sample client', lead: 'Asha Menon', scope: 'Screening and technical DD' };
   return project;
 }
 
@@ -540,5 +543,8 @@ export function seedBdaReferenceProject(): DdProject {
     'Legal counsel',
   );
 
+  // A labelled sample: every surface that lists or opens it says so.
+  project.sample = true;
+  project.engagement = { stage: 'documents', client: 'Sample client', lead: 'Asha Menon', scope: 'Land acquisition screening' };
   return project;
 }

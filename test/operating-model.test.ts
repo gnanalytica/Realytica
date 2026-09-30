@@ -297,8 +297,12 @@ describe('BRD later phases on the same project', () => {
     assert.ok(project.portfolio);
     assert.ok(project.valuationRuns.length >= 1);
     const run = project.valuationRuns[0];
-    assert.ok(run.indicatedValue > 0);
-    assert.ok(run.ibbi.approaches.length >= 1);
+    // No rates are recorded on the sample and no locality table stands in for
+    // them, so the run gives no figure and says which inputs are missing.
+    assert.equal(run.indicatedValue, 0);
+    assert.equal(run.localityId, undefined);
+    assert.equal(run.working?.reconciliation.outcome, 'no_approach_ran');
+    assert.match(run.ibbi.reconciliation, /No approach could be run/);
     assert.equal(run.signOff, 'unsigned');
     assert.ok(run.ibbi.caveats.some((c) => /certified/i.test(c)));
     const dash = toDashboard(project);
@@ -306,7 +310,8 @@ describe('BRD later phases on the same project', () => {
     assert.ok(dash.packCompleteness.total > 0);
     assert.ok(dash.packCompleteness.total < dash.evidenceCompleteness.expected);
     assert.ok(dash.ddProgress.length >= 4);
-    assert.ok(dash.capabilities.some((c) => c.kind === 'valuation' && c.status === 'computed'));
+    assert.ok(dash.capabilities.some((c) => c.kind === 'valuation' && c.status === 'not_run'));
+    assert.ok(dash.capabilities.some((c) => c.kind === 'market' && c.status === 'not_run'));
   });
 
   it('proposes AI drafts that only write registers after commit', () => {
@@ -699,16 +704,14 @@ describe('project chat wizard', () => {
     assert.ok(result.proposals.some((p) => p.kind === 'add_finding'));
   });
 
-  it('files the locality pack as evidence on approve', () => {
+  it('never files the illustrative locality table as evidence', () => {
     const project = createProject(
       { name: 'Locality', type: 'residential', location: 'Whitefield', city: 'Bengaluru' },
       'RYT-LC',
     );
     const result = applyProjectChat(project, "What's the locality market?");
-    const card = result.proposals.find((p) => p.kind === 'file_evidence');
-    assert.ok(card);
-    applyProjectChat(project, `Approve "${card!.title}"`);
-    assert.ok(project.evidence.some((e) => e.source === 'locality_pack'));
+    assert.equal(result.proposals.some((p) => p.kind === 'file_evidence'), false);
+    assert.equal(project.evidence.some((e) => e.source === 'locality_pack'), false);
   });
 
   it('commits an imperative risk from chat onto the work register', () => {

@@ -24,6 +24,9 @@ export const PROPOSAL_IDENTITY: ReadonlySet<string> = new Set([
   'blockId',
   'checkId',
   'checkIds',
+  // Where on a document each value was read. Decided when the card was
+  // raised; a person corrects values, not the page a document says them on.
+  'citations',
   'draftIds',
   'evidenceId',
   'mimeType',

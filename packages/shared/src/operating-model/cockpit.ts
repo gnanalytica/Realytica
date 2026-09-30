@@ -367,7 +367,7 @@ function paneLine(project: DdProject, pane: ProjectCockpitPane): string {
     case 'graph':
       return 'The knowledge graph is open — click a node to see what it touches.';
     case 'valuation':
-      return project.lastScreen?.indicatedMid ? 'Valuation is open.' : 'Valuation is open. Say “run the property screen” for an indicative range.';
+      return 'Valuation is open. Record rates on the input sheet, then say “run the valuation” for an indicative figure.';
     case 'assets':
       return `Assets are open — ${plural(project.assets.length, 'asset')}.`;
     case 'dd':

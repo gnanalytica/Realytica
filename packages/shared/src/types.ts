@@ -505,6 +505,12 @@ export interface ExtractedField {
   confidence: number;
   sourceDocumentId: string;
   sourcePage?: number;
+  /**
+   * The words on the page the value was read from, in the page's own script.
+   * Set by a model reading, whose page is only kept when this quote was found
+   * in a verified citation.
+   */
+  quote?: string;
   method: ExtractionMethod;
 }
 
