@@ -144,54 +144,83 @@ function pageText(items: Array<{ str?: string; hasEOL?: boolean; transform?: num
 /** How long one page image may take to arrive from the PDF parser before the page is skipped. */
 const IMAGE_WAIT_MS = 30_000;
 
+type PageImage = { width: number; height: number; kind: number; data: Uint8Array | Uint8ClampedArray };
+
 /**
  * The largest image painted on a page, as pixels.
  *
  * A scanned PDF page is one image drawn full-bleed. Rather than render the
  * page — which needs a native canvas on a server — the image is taken
  * straight from pdf.js, already decoded.
+ *
+ * Two ways a scan is painted. Most are an image. Many scanners, though, write
+ * a black-and-white page as an image MASK: a 1-bit stencil the page's fill
+ * colour is painted through, with no colour space of its own. pdf.js paints
+ * those with a different operator and carries the pixels in the operator
+ * itself, and reading only images meant every such page — utility NOCs, an
+ * environmental clearance — came back as "nothing legible". Once pdf.js has
+ * applied the mask's decode array, a set bit is where the page shows through,
+ * which is the 1-bit image convention exactly, so a mask is read as one.
  */
 async function pageImage(pdfjs: typeof import('pdfjs-dist/legacy/build/pdf.mjs'), page: import('pdfjs-dist/types/src/display/api').PDFPageProxy) {
   const ops = await page.getOperatorList();
   const names: string[] = [];
+  const masks: Array<{ data?: unknown; width?: number; height?: number }> = [];
   for (let i = 0; i < ops.fnArray.length; i += 1) {
     const fn = ops.fnArray[i];
     if (fn === pdfjs.OPS.paintImageXObject) {
       const name = ops.argsArray[i]?.[0];
       if (typeof name === 'string') names.push(name);
+    } else if (fn === pdfjs.OPS.paintImageMaskXObject) {
+      const mask = ops.argsArray[i]?.[0] as { data?: unknown; width?: number; height?: number } | undefined;
+      if (mask) masks.push(mask);
     }
   }
-  let best: { width: number; height: number; kind: number; data: Uint8Array | Uint8ClampedArray } | null = null;
+  let best: PageImage | null = null;
+  const consider = (candidate: PageImage) => {
+    if (!best || candidate.width * candidate.height > best.width * best.height) best = candidate;
+  };
+  for (const mask of masks) {
+    // Carried inline, or — like an image — by name.
+    const resolved = typeof mask.data === 'string' ? ((await awaitObject(page, mask.data)) as typeof mask | null) : mask;
+    const data = resolved?.data;
+    if ((data instanceof Uint8Array || data instanceof Uint8ClampedArray) && mask.width && mask.height) {
+      consider({ width: mask.width, height: mask.height, kind: 1, data });
+    }
+  }
   for (const name of names) {
-    const img = await new Promise<unknown>((resolve) => {
-      /*
-       * Where to wait is decided by the name, as pdf.js's own painter decides
-       * it: a `g_` image is shared and lives in commonObjs, every other one
-       * belongs to the page. This used to ask the page's store whether it
-       * HAD the image yet and wait on the shared one otherwise — so an image
-       * still being decoded at that instant was awaited in a store it would
-       * never reach, and the request hung on that page for good. On a
-       * scanned EC, page 6 of 14 did exactly that.
-       */
-      const store = name.startsWith('g_') ? page.commonObjs : page.objs;
-      const timer = setTimeout(() => resolve(null), IMAGE_WAIT_MS);
-      try {
-        store.get(name, (value: unknown) => {
-          clearTimeout(timer);
-          resolve(value);
-        });
-      } catch {
-        clearTimeout(timer);
-        resolve(null);
-      }
-    });
+    const img = await awaitObject(page, name);
     const candidate = img as { width?: number; height?: number; kind?: number; data?: Uint8Array } | null;
     if (!candidate?.data || !candidate.width || !candidate.height) continue;
-    if (!best || candidate.width * candidate.height > best.width * best.height) {
-      best = { width: candidate.width, height: candidate.height, kind: candidate.kind ?? 2, data: candidate.data };
-    }
+    consider({ width: candidate.width, height: candidate.height, kind: candidate.kind ?? 2, data: candidate.data });
   }
-  return best;
+  return best as PageImage | null;
+}
+
+/**
+ * One decoded object from pdf.js, or null if it never arrives.
+ *
+ * Where to wait is decided by the name, as pdf.js's own painter decides it:
+ * a `g_` object is shared and lives in commonObjs, every other one belongs to
+ * the page. This used to ask the page's store whether it HAD the image yet
+ * and wait on the shared one otherwise — so an image still being decoded at
+ * that instant was awaited in a store it would never reach, and the request
+ * hung on that page for good. On a scanned EC, page 6 of 14 did exactly that.
+ */
+function awaitObject(page: import('pdfjs-dist/types/src/display/api').PDFPageProxy, name: string): Promise<unknown> {
+  return new Promise<unknown>((resolve) => {
+    const store = name.startsWith('g_') ? page.commonObjs : page.objs;
+    const timer = setTimeout(() => resolve(null), IMAGE_WAIT_MS);
+    try {
+      store.get(name, (value: unknown) => {
+        clearTimeout(timer);
+        resolve(value);
+      });
+    } catch {
+      clearTimeout(timer);
+      resolve(null);
+    }
+  });
 }
 
 /**

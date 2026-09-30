@@ -33,8 +33,12 @@ async function samplePage(): Promise<{ width: number; height: number; grey: Uint
   return { width: img.width, height: img.height, grey };
 }
 
-/** A one-page PDF holding a 1-bit DeviceGray image, `scale` times the source size. */
-function bitonalPdf(src: { width: number; height: number; grey: Uint8Array }, scale: number): Uint8Array {
+/**
+ * A one-page PDF holding a 1-bit page, `scale` times the source size: a
+ * DeviceGray image, or — as many scanners write one — an image mask the fill
+ * colour is painted through.
+ */
+function bitonalPdf(src: { width: number; height: number; grey: Uint8Array }, scale: number, as: 'image' | 'mask' = 'image'): Uint8Array {
   const w = Math.round(src.width * scale);
   const h = Math.round(src.height * scale);
   const rowBytes = Math.ceil(w / 8);
@@ -42,18 +46,20 @@ function bitonalPdf(src: { width: number; height: number; grey: Uint8Array }, sc
   for (let y = 0; y < h; y += 1) {
     for (let x = 0; x < w; x += 1) {
       const v = src.grey[Math.min(src.height - 1, Math.floor(y / scale)) * src.width + Math.min(src.width - 1, Math.floor(x / scale))]!;
-      // DeviceGray at 1 bit: a set sample is white.
+      // DeviceGray at 1 bit: a set sample is white. A mask with the default
+      // decode paints where a sample is 0, so the same bits serve for both.
       if (v > 150) bits[y * rowBytes + (x >> 3)]! |= 0x80 >> (x & 7);
     }
   }
   const image = deflateSync(bits);
-  const content = Buffer.from('q 595 0 0 842 0 0 cm /Im0 Do Q');
+  const content = Buffer.from(as === 'mask' ? '0 g q 595 0 0 842 0 0 cm /Im0 Do Q' : 'q 595 0 0 842 0 0 cm /Im0 Do Q');
+  const colour = as === 'mask' ? '/ImageMask true' : '/ColorSpace /DeviceGray';
   const objects = [
     Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'),
     Buffer.from('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
     Buffer.from('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>'),
     Buffer.concat([
-      Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /FlateDecode /Length ${image.length} >>\nstream\n`),
+      Buffer.from(`<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} ${colour} /BitsPerComponent 1 /Filter /FlateDecode /Length ${image.length} >>\nstream\n`),
       image,
       Buffer.from('\nendstream'),
     ]),
@@ -89,6 +95,15 @@ describe('a 1-bit scan', () => {
     const text = await readDocumentText(pdf, 'application/pdf', 'large-bitonal-ec.pdf');
     assert.equal(text.method, 'ocr');
     assert.equal(parseDocumentText(text.pages, 'large-bitonal-ec.pdf').type, 'encumbrance_certificate');
+  });
+
+  it('is read when the scanner wrote it as an image mask', async () => {
+    const pdf = bitonalPdf(await samplePage(), 1, 'mask');
+    const text = await readDocumentText(pdf, 'application/pdf', 'mask-ec.pdf');
+    assert.equal(text.method, 'ocr');
+    const parsed = parseDocumentText(text.pages, 'mask-ec.pdf');
+    assert.equal(parsed.type, 'encumbrance_certificate', text.pages[0]?.slice(0, 300));
+    assert.ok(parsed.flags.some((f) => /mortgage/i.test(f.title)));
   });
 
   it('stops sending pages to OCR once the deadline has passed, and says it was cut', async () => {
