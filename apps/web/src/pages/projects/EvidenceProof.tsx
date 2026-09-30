@@ -1,9 +1,8 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Download, FileWarning } from 'lucide-react';
 import type { DocumentFact, EvidenceAttachment, EvidenceRecord } from '@realytica/shared';
-import { evidenceFileUrl } from '../../lib/api';
-import { Button, cn } from '../../components/ui/kit';
-import { fetchEvidenceFile, renderKindFor, type DocumentSourceState } from '../../components/viewer/source';
+import { Button, cn, useToast } from '../../components/ui/kit';
+import { fetchEvidenceFile, renderKindFor, saveEvidenceFile, type DocumentSourceState } from '../../components/viewer/source';
 
 /*
  * Both readers are loaded only when a document of that kind is opened.
@@ -33,6 +32,7 @@ export function EvidenceProof({
   onClose: () => void;
 }) {
   const [state, setState] = useState<DocumentSourceState>({ status: 'loading' });
+  const toast = useToast();
 
   useEffect(() => {
     if (!file) {
@@ -88,12 +88,17 @@ export function EvidenceProof({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {file ? (
-              <a
-                href={evidenceFileUrl(projectId, evidence.id, file.id)}
+              <button
+                type="button"
+                onClick={() =>
+                  void saveEvidenceFile(projectId, evidence.id, file.id, file.fileName).catch((e: unknown) =>
+                    toast(e instanceof Error ? e.message : 'The file could not be downloaded', 'critical'),
+                  )
+                }
                 className="flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] text-brand hover:bg-brand-soft"
               >
                 <Download size={12} /> Download
-              </a>
+              </button>
             ) : null}
             <Button size="sm" variant="ghost" onClick={onClose}>
               Close

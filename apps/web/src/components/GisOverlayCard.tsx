@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import { sheetIsPlaceable, type DdProject, type GisContextFeature, type GisOverlayHit, type GisOverlayRead, type SheetPlacement } from '@realytica/shared';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Disclosure, cn } from './ui/kit';
 import { api } from '../lib/api';
+import { useAuthedUrl } from '../lib/useAuthedUrl';
 import { RevenueMapPicker } from './RevenueMapPicker';
 import { RevenueMapBrief } from './RevenueMapBrief';
 
@@ -330,6 +331,11 @@ export function GisOverlayCard({
       .filter((s) => sheetIsPlaceable(s.reading) && s.reading.fit && s.sheet.attachmentId)
       .sort((a, b) => (rank[a.reading.verdict] ?? 9) - (rank[b.reading.verdict] ?? 9))[0];
   }, [sheets]);
+  const { url: sheetImage } = useAuthedUrl(
+    placedSheet && showSheet
+      ? `/api/projects/${project.id}/evidence/${placedSheet.sheet.evidenceId}/files/${placedSheet.sheet.attachmentId}?inline=1`
+      : undefined,
+  );
 
   /*
    * The placed sheet, drawn under the vector layers.
@@ -350,11 +356,10 @@ export function GisOverlayCard({
       map.removeLayer(sheetRef.current);
       sheetRef.current = null;
     }
-    if (!placedSheet || !showSheet) return undefined;
-    const placed = placedSheet;
-    const { north, south, east, west } = placed.reading.fit!.bounds;
+    if (!placedSheet || !showSheet || !sheetImage) return undefined;
+    const { north, south, east, west } = placedSheet.reading.fit!.bounds;
     const layer = L.imageOverlay(
-      `/api/projects/${project.id}/evidence/${placed.sheet.evidenceId}/files/${placed.sheet.attachmentId}?inline=1`,
+      sheetImage,
       [
         [south, west],
         [north, east],
@@ -368,7 +373,7 @@ export function GisOverlayCard({
       map.removeLayer(layer);
       if (sheetRef.current === layer) sheetRef.current = null;
     };
-  }, [placedSheet, showSheet, sheetOpacity, project.id]);
+  }, [placedSheet, showSheet, sheetOpacity, sheetImage]);
 
   useEffect(() => {
     const map = mapRef.current;

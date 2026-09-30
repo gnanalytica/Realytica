@@ -27,6 +27,7 @@ import { useMemo, useRef, useState } from 'react';
 import { readSheetFit, type SheetPlacement } from '@realytica/shared';
 import { api } from '../lib/api';
 import { Button, Field, Input, Modal, useToast } from './ui/kit';
+import { useAuthedUrl } from '../lib/useAuthedUrl';
 
 /**
  * A blank box is not zero.
@@ -70,9 +71,11 @@ export function SheetPlacer({
     placement.sheet.controlPoints.map((p) => ({ u: p.u, v: p.v, lat: String(p.lat), lng: String(p.lng), label: p.label ?? '' })),
   );
 
-  const src = placement.sheet.attachmentId
-    ? `/api/projects/${projectId}/evidence/${placement.sheet.evidenceId}/files/${placement.sheet.attachmentId}?inline=1`
-    : undefined;
+  const { url: src } = useAuthedUrl(
+    placement.sheet.attachmentId
+      ? `/api/projects/${projectId}/evidence/${placement.sheet.evidenceId}/files/${placement.sheet.attachmentId}?inline=1`
+      : undefined,
+  );
 
   /**
    * The fit as it stands under the current, possibly half-typed, points.
