@@ -184,7 +184,8 @@ const CLASSIFICATION_RULES: { pattern: RegExp; kind: DocumentKind; confidence: n
   { pattern: /sale.?deed|title.?deed|conveyance/i, kind: 'title_deed', confidence: 0.93 },
   { pattern: /mother.?deed|link.?doc/i, kind: 'mother_deed', confidence: 0.9 },
   { pattern: /sale.?agreement|koopovereenkomst|agreement.?to.?sell/i, kind: 'sale_agreement', confidence: 0.88 },
-  { pattern: /\bec[-_ ]|encumbrance/i, kind: 'encumbrance_certificate', confidence: 0.91 },
+  // "EC_2019.pdf", and the plural a merged set is filed under: "ECs_from_2015_to_2024.pdf".
+  { pattern: /\becs?[-_ ]|encumbrance/i, kind: 'encumbrance_certificate', confidence: 0.91 },
   { pattern: /khata/i, kind: 'khata_extract', confidence: 0.9 },
   { pattern: /form.?9|form.?11/i, kind: 'form_9_11', confidence: 0.88 },
   { pattern: /rera/i, kind: 'rera_registration', confidence: 0.89 },

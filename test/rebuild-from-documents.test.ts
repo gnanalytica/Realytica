@@ -11,6 +11,7 @@ import {
   applyScreenToProject,
   commitChatProposal,
   createProject,
+  projectToScreenDocuments,
   proposalsFromIngest,
   runProjectScreen,
   seedDemoProject,
@@ -154,5 +155,36 @@ describe('reading a filed document again', () => {
     assert.equal(asksAgain('Read the filed documents'), false);
     assert.equal(asksAgain('Re-read the documents'), true);
     assert.equal(asksAgain('read the documents again'), true);
+  });
+});
+
+describe('what the screen takes a filed document to be', () => {
+  function withRow(title: string, fileName: string, documentType?: string): DdProject {
+    const project = createProject({ name: 'Client villas', type: 'residential', location: 'Hosakote', city: 'Bengaluru' }, 'RYT-0009');
+    project.evidence.push({
+      id: 'ev_row',
+      title,
+      kind: 'document',
+      source: 'chat_upload',
+      status: 'received',
+      documentType,
+      attachments: [{ id: 'file_1', fileName, mimeType: 'application/pdf', sizeBytes: 1000, storageKey: `doc/${fileName}`, uploadedAt: '2026-09-04T00:00:00.000Z' }],
+      assessmentIds: [],
+      scopeInstanceIds: [],
+      checkIds: [],
+      createdAt: '2026-09-04T00:00:00.000Z',
+      updatedAt: '2026-09-04T00:00:00.000Z',
+    } as unknown as DdProject['evidence'][number]);
+    return project;
+  }
+
+  it('is what the document was read as, whatever its file is called', () => {
+    const doc = projectToScreenDocuments(withRow('Registration', 'scan_0042.pdf', 'RERA registration certificate'))[0]!;
+    assert.equal(doc.kind, 'rera_registration');
+  });
+
+  it('falls back to the file name, and knows a merged set of ECs by it', () => {
+    const doc = projectToScreenDocuments(withRow('ECs merged', 'ECs_from_01.04.2015_to_13.05.2024_merged.pdf'))[0]!;
+    assert.equal(doc.kind, 'encumbrance_certificate');
   });
 });
