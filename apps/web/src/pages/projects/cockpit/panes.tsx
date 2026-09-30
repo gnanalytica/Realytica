@@ -12,7 +12,8 @@ import {
   type AiDraftStatus,
   type DdProject,
 } from '@realytica/shared';
-import { api, evidenceFileUrl } from '../../../lib/api';
+import { api } from '../../../lib/api';
+import { saveEvidenceFile } from '../../../components/viewer/source';
 import { Badge, Button, Callout, EmptyState, useToast } from '../../../components/ui/kit';
 import { formatWhen, severityTone } from '../shared';
 import { useAsync } from '../../../lib/useAsync';
@@ -486,6 +487,7 @@ export function DraftsPane({ project, onChanged }: { project: DdProject; onChang
 }
 
 export function EvidencePane({ project, highlightIds }: { project: DdProject; highlightIds?: string[] }) {
+  const toast = useToast();
   const rows = [...project.evidence].sort((a, b) => {
     const ah = highlightIds?.includes(a.id) ? 0 : 1;
     const bh = highlightIds?.includes(b.id) ? 0 : 1;
@@ -508,13 +510,18 @@ export function EvidencePane({ project, highlightIds }: { project: DdProject; hi
                 {e.attachments.length > 0 ? (
                   <div className="mt-1.5 flex flex-wrap gap-2">
                     {e.attachments.map((f) => (
-                      <a
+                      <button
                         key={f.id}
-                        href={evidenceFileUrl(project.id, e.id, f.id)}
+                        type="button"
+                        onClick={() =>
+                          void saveEvidenceFile(project.id, e.id, f.id, f.fileName).catch((err: unknown) =>
+                            toast(err instanceof Error ? err.message : 'The file could not be downloaded', 'critical'),
+                          )
+                        }
                         className="text-[12px] text-brand underline"
                       >
                         {f.fileName}
-                      </a>
+                      </button>
                     ))}
                   </div>
                 ) : null}

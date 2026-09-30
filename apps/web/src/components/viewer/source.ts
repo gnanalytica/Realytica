@@ -15,7 +15,7 @@ export type DocumentSourceState =
   | { status: 'absent' }
   | { status: 'error'; message: string };
 
-import { evidenceFileUrl } from '../../lib/api';
+import { evidenceFileUrl, fetchWithAuth } from '../../lib/api';
 
 export { evidenceFileUrl };
 
@@ -69,7 +69,8 @@ export async function fetchEvidenceFile(
 ): Promise<DocumentSourceState> {
   let res: Response;
   try {
-    res = await fetch(evidenceFileUrl(projectId, evidenceId, fileId, { inline: true }));
+    // With the token: a plain `fetch` sends none, and the API answers 401.
+    res = await fetchWithAuth(evidenceFileUrl(projectId, evidenceId, fileId, { inline: true }));
   } catch (e) {
     return { status: 'error', message: e instanceof Error ? e.message : String(e) };
   }
@@ -86,4 +87,26 @@ export async function fetchEvidenceFile(
         ? claimedType
         : mimeFromName(fileName ?? '') ?? served;
   return { status: 'ready', blob, contentType, url: URL.createObjectURL(blob) };
+}
+
+/**
+ * Save a filed document to the reader's disk.
+ *
+ * A plain link to the file cannot do this once sign-in is on: following a
+ * link sends no Authorization header, so the API answers 401. The bytes are
+ * fetched with the session's token and handed to the browser as a download,
+ * the way the Word export already is.
+ */
+export async function saveEvidenceFile(projectId: string, evidenceId: string, fileId: string, fileName: string): Promise<void> {
+  const res = await fetchWithAuth(evidenceFileUrl(projectId, evidenceId, fileId));
+  if (res.status === 404) throw new Error('The file is not stored on this record.');
+  if (!res.ok) throw new Error(`The file could not be downloaded: ${res.status}`);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }

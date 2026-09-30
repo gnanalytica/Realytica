@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { MapPin, RefreshCw } from 'lucide-react';
 import type { AmenityKind, DdProject, SiteContext } from '@realytica/shared';
 import { api } from '../lib/api';
+import { AuthedImg } from './AuthedImg';
 import { Badge, Button, Card, CardBody, Spinner, useToast } from './ui/kit';
 
 /**
@@ -142,8 +143,8 @@ export function SitePlaceCard({ project }: { project: DdProject }) {
               gap sentences above have already explained.
             */}
             {mapped ? (
-              <img
-                src={`/api/projects/${project.id}/site-context/map?zoom=16&w=640&h=300`}
+              <AuthedImg
+                path={`/api/projects/${project.id}/site-context/map?zoom=16&w=640&h=300`}
                 alt={`Map of ${location.resolvedAddress || project.name}, with the site pin and any nearby places numbered`}
                 className="w-full rounded-lg ring-1 ring-inset ring-[var(--ring)]"
                 loading="lazy"
@@ -173,8 +174,8 @@ export function SitePlaceCard({ project }: { project: DdProject }) {
 
         {streetView ? (
           <div className="space-y-1">
-            <img
-              src={`/api/projects/${project.id}/site-context/street-view?pano=${encodeURIComponent(streetView.panoramaId)}&w=640&h=320`}
+            <AuthedImg
+              path={`/api/projects/${project.id}/site-context/street-view?pano=${encodeURIComponent(streetView.panoramaId)}&w=640&h=320`}
               alt="Street-level view from the nearest road the provider has imagery for"
               className="w-full rounded-lg ring-1 ring-inset ring-[var(--ring)]"
               loading="lazy"
