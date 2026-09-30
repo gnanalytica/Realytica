@@ -1295,6 +1295,16 @@ export function parseDocumentText(pages: string[], fileName = ''): ParsedDocumen
   };
 }
 
+/**
+ * The shared document kind a reading's label stands for, when it has one.
+ * `undefined` for a label nobody reads to, or one with no kind of its own.
+ */
+export function documentKindForLabel(label: string | undefined): DocumentKind | undefined {
+  if (!label) return undefined;
+  const profile = (Object.values(PROFILES) as TypeProfile[]).find((p) => p.label.toLowerCase() === label.toLowerCase());
+  return profile && profile.documentKind !== 'other' ? profile.documentKind : undefined;
+}
+
 /** The label a document type is shown under. */
 export function readDocumentLabel(type: ReadDocumentType): string {
   return type === 'other' ? OTHER.label : PROFILES[type].label;

@@ -29,6 +29,7 @@ import type {
   SiteContext,
 } from '../types';
 import { matchProjectLocality } from './capabilities';
+import { documentKindForLabel } from './document-parse';
 import {
   addAction,
   addDecision,
@@ -379,7 +380,11 @@ export function projectToScreenDocuments(project: DdProject): CaseDocument[] {
     if (!isOnFile(row)) continue;
     const attachment = row.attachments[0];
     const fileName = attachment?.fileName || row.fileName || `${row.title}.pdf`;
-    const classified = kindFromEvidenceTitle(row.title, fileName);
+    // What the document was read as outranks what its file is called: a RERA
+    // certificate saved as "scan_0042.pdf" is still one. The name is the
+    // fallback for a file nothing could read.
+    const read = documentKindForLabel(row.documentType);
+    const classified = read ? { kind: read, confidence: 0.95 } : kindFromEvidenceTitle(row.title, fileName);
     const extracted = factsToFields(row);
     docs.push({
       id: row.id,
