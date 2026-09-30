@@ -12,6 +12,7 @@ import { initTelemetry } from './telemetry';
 import { UPLOAD_LIMITS } from './uploads';
 import { referenceRouter } from './routes/reference';
 import { demoRouter } from './routes/demo';
+import { cleanReferenceData } from '@realytica/shared';
 import { librariesRouter, projectsRouter } from './routes/projects';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
@@ -233,6 +234,16 @@ export async function initApp(): Promise<void> {
   );
 
   await initStore();
+  /*
+   * Once per stored project: take off what the illustrative reference tables
+   * left on it before they stopped being used. Recorded on each project, so
+   * later boots skip it; see `cleanReferenceData`.
+   */
+  const cleaned = (store.data.projects ?? []).filter((project) => cleanReferenceData(project).changed);
+  if (cleaned.length) {
+    await store.save();
+    console.log(`[cleanup] removed illustrative reference data from ${cleaned.length} project(s)`);
+  }
   // Before the first request, on a server and on a cold serverless invocation
   // alike: until this runs the agent layer resolves every prompt to its
   // built-in, so an operator's edit would be silently ignored rather than

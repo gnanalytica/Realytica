@@ -548,3 +548,70 @@ export function seedBdaReferenceProject(): DdProject {
   project.engagement = { stage: 'documents', client: 'Sample client', lead: 'Asha Menon', scope: 'Land acquisition screening' };
   return project;
 }
+
+export const SEED_WHITEFIELD_SAMPLE_REFERENCE = 'SAMPLE-1';
+
+/**
+ * The site the bundled demo documents describe: Sy. No. 118/2, Whitefield.
+ *
+ * Nine synthetic papers (sale deed, mother deed, EC, khata, tax receipt,
+ * zoning certificate, conversion order, sanction, survey sketch) are read
+ * onto this file by the API when the samples are loaded, so every fact on it
+ * comes off a page the reader actually read. They disagree where a real set
+ * would need catching: the khata records a smaller extent than the title, and
+ * the EC shows a mortgage still subsisting.
+ *
+ * Only the shell is built here: the particulars the documents themselves
+ * state, and the assessment their facts fill.
+ */
+export function seedWhitefieldSample(): DdProject {
+  const actor = 'Sample engineer';
+  const project = createProject(
+    {
+      name: 'Whitefield tech park site, Sy. 118/2',
+      type: 'commercial',
+      location: 'Whitefield, Varthur Hobli',
+      city: 'Bengaluru',
+      jurisdiction: 'Karnataka / BBMP',
+      siteAddress: 'Sy. No. 118/2, Whitefield Village, Varthur Hobli, Bengaluru East Taluk',
+      currentStage: 'acquisition',
+      description:
+        'Sample engagement: a converted 12,000 sqm site with a sanctioned tech park, screened for a purchaser. Its documents are synthetic demo papers, each marked as one, read by the app.',
+      owner: actor,
+      developer: 'Whitefield Tech Parks LLP (sample)',
+      landAreaSqm: 12_000,
+      currency: 'INR',
+      portfolio: 'Samples',
+      parcelId: 'Sy. No. 118/2',
+      karnataka: {
+        jurisdiction: 'BBMP',
+        khataType: 'unknown',
+        eKhataIssued: false,
+        landConversionStatus: 'unknown',
+        areaBasis: 'unknown',
+      },
+    },
+    SEED_WHITEFIELD_SAMPLE_REFERENCE,
+    actor,
+  );
+  createAssessment(
+    project,
+    {
+      ddType: 'acquisition',
+      name: 'Acquisition screening and technical DD',
+      owner: actor,
+      reviewer: 'Sample partner',
+      targetType: 'project',
+      objective: 'Is the title clean and the sanctioned scheme deliverable before the purchaser commits?',
+    },
+    actor,
+  );
+  project.sample = true;
+  project.engagement = {
+    stage: 'analysis',
+    client: 'Sample purchaser',
+    lead: actor,
+    scope: 'Title screening and technical DD before purchase',
+  };
+  return project;
+}

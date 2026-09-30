@@ -1596,6 +1596,8 @@ export interface DdProject {
   engagement?: Engagement;
   /** What the file is waiting on, and from whom. */
   requests?: ProjectRequest[];
+  /** One-off data migrations already applied to this stored project. */
+  migrations?: string[];
   subtype?: string;
   description?: string;
   location: string;

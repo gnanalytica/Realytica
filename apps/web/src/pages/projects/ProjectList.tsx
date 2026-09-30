@@ -27,7 +27,7 @@ export default function ProjectList() {
     try {
       await api.seedDemo();
       await refresh();
-      toast('Sample project restored', 'good');
+      toast('Loaded the labelled sample engagements', 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not seed', 'critical');
     } finally {
@@ -118,7 +118,7 @@ export default function ProjectList() {
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => navigate('/projects/new')}>Create project</Button>
               <Button variant="ghost" onClick={() => void seed()} disabled={seeding}>
-                Load sample township
+                Load the labelled samples
               </Button>
             </div>
           }

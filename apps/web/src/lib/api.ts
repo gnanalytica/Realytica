@@ -576,6 +576,7 @@ export const api = {
 
   reference: () => request<ReferenceData>('/reference'),
   seedDemo: () => request<{ created: number }>('/demo/seed', { method: 'POST' }),
+  refreshSamples: () => request<{ removed: number; created: number }>('/demo/samples/refresh', { method: 'POST' }),
 
 
   agentCapability: () => request<AgentCapability>('/agents/capability'),

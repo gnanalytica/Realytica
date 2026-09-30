@@ -58,8 +58,11 @@ export function extentLabel(sqm: number | undefined): string | null {
   if (!sqm || sqm <= 0) return null;
   const acres = sqm / 4046.8564224;
   const whole = Math.floor(acres);
-  const guntas = Math.round((acres - whole) * 40);
-  const traditional = whole > 0 || guntas > 0 ? ` (${whole ? `${whole} acre${whole === 1 ? '' : 's'}` : ''}${whole && guntas ? ' ' : ''}${guntas ? `${guntas} gunta${guntas === 1 ? '' : 's'}` : ''})` : '';
+  // One decimal, not rounded to a whole gunta: a deed writes 38 guntas for
+  // 38.6, and a rounded 39 would read as a disagreement with it.
+  const guntas = Math.round((acres - whole) * 400) / 10;
+  const guntaText = Number.isInteger(guntas) ? String(guntas) : guntas.toFixed(1);
+  const traditional = whole > 0 || guntas > 0 ? ` (${whole ? `${whole} acre${whole === 1 ? '' : 's'}` : ''}${whole && guntas ? ' ' : ''}${guntas ? `${guntaText} gunta${guntas === 1 ? '' : 's'}` : ''})` : '';
   return `${Math.round(sqm).toLocaleString('en-IN')} m²${traditional}`;
 }
 
@@ -232,6 +235,10 @@ export function viewTiles(project: DdProject): ViewTileSpec[] {
   const attention = open.filter((f) => f.severity === 'high' || f.severity === 'medium').length;
   const checks = project.assessments.flatMap((a) => a.scopes.flatMap((s) => s.checks));
   const checked = checks.filter((c) => c.result !== 'pending').length;
+  // Values read off documents land on checks before anyone rules on them.
+  const withValues = checks.filter(
+    (c) => c.result === 'pending' && Object.values(c.fields ?? {}).some((v) => v.value !== null && v.value !== ''),
+  ).length;
 
   const requestsOpen = (project.requests ?? []).filter((r) => r.status === 'sent').length;
   const requestsDone = (project.requests ?? []).filter((r) => r.status === 'answered').length;
@@ -265,7 +272,9 @@ export function viewTiles(project: DdProject): ViewTileSpec[] {
       label: 'Technical DD',
       icon: ScrollText,
       chip: critical ? { tone: 'critical', text: `${critical} blocker${critical === 1 ? '' : 's'}` } : attention ? { tone: 'warning', text: `${attention} attention` } : undefined,
-      detail: checks.length ? `${checked} of ${checks.length} checks recorded` : 'No assessment started',
+      detail: checks.length
+        ? `${checked} of ${checks.length} checks recorded${withValues ? ` · values on ${withValues} more` : ''}`
+        : 'No assessment started',
     },
     {
       pane: 'people',
@@ -278,7 +287,7 @@ export function viewTiles(project: DdProject): ViewTileSpec[] {
       label: 'Report',
       icon: FileText,
       headline: report ? REPORT_KIND_LABEL[report.kind] : undefined,
-      detail: report ? `${report.status === 'issued' ? 'Issued' : report.status === 'reviewed' ? 'Reviewed' : 'Draft'} · ${report.title}` : 'No report yet',
+      detail: report ? reportCounts(project) : 'No report yet',
     },
     {
       pane: 'graph',
@@ -287,6 +296,13 @@ export function viewTiles(project: DdProject): ViewTileSpec[] {
       detail: 'Trace any finding to the page behind it',
     },
   ];
+}
+
+/** "1 issued · 1 in draft": what went out, and what is still being written. */
+function reportCounts(project: DdProject): string {
+  const issued = project.reports.filter((r) => r.status === 'issued').length;
+  const drafts = project.reports.length - issued;
+  return [issued ? `${issued} issued` : null, drafts ? `${drafts} in draft` : null].filter(Boolean).join(' · ');
 }
 
 export function ViewTiles({
