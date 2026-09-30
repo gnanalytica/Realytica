@@ -85,7 +85,7 @@ describe('an aviation height NOC', () => {
     assert.equal(fact(parsed, 'permissible_height')?.value, 55);
     assert.equal(fact(parsed, 'site_coordinates')?.display, '12°58′10.5″N, 77°38′5.25″E');
     assert.equal(fact(parsed, 'valid_until')?.value, '2020-03-10');
-    assert.ok(parsed.flags.some((f) => /height NOC lapsed on 10 Mar 2020/.test(f.title)));
+    assert.ok(parsed.flags.some((f) => f.title === 'The Airports Authority of India height NOC lapsed on 10 Mar 2020'));
   });
 
   it('answers an AAI NOC row, not the utility NOCs row', () => {
@@ -138,6 +138,13 @@ describe('a utility NOC', () => {
 });
 
 describe('a certificate of incorporation', () => {
+  it('reads a name the scan broke across lines', () => {
+    const text = `Corporate Identification Number (CIN): U12345KA2001PLC012345 I hereby certify that the name of the company has been changed from EXAMPLE\nDEVELOPERS LIMITED to EXAMPLE\nBUILDERS LIMITED with effect from the date of this certificate.`;
+    const parsed = read(text, 'COI.pdf');
+    assert.equal(fact(parsed, 'company_name')?.value, 'EXAMPLE BUILDERS LIMITED');
+    assert.equal(fact(parsed, 'former_name')?.value, 'EXAMPLE DEVELOPERS LIMITED');
+  });
+
   it('is read for the CIN and the name, before and after a change', () => {
     const text = `[page 1] GOVERNMENT OF INDIA MINISTRY OF CORPORATE AFFAIRS Registrar of Companies, Bangalore Certificate of Incorporation pursuant to change of name Corporate Identification Number (CIN): U12345KA2001PLC012345 I hereby certify that the name of the company has been changed from EXAMPLE DEVELOPERS LIMITED to EXAMPLE BUILDERS LIMITED with effect from the date of this certificate.`;
     const parsed = read(text, 'MOA__AOA_COI.pdf');

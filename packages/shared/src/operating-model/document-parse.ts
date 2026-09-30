@@ -794,8 +794,12 @@ function issuer(pages: string[]): (Hit & { value: string }) | null {
   return null;
 }
 
-/** What every no-objection certificate states: who, which reference, when, to whom, for what, over which land. */
-function nocCommon(pages: string[], facts: DocumentFact[], flags: DocumentFlag[], what: string): string | undefined {
+/**
+ * What every no-objection certificate states: who, which reference, when, to
+ * whom, for what, over which land. `what` names it in a lapse finding, from
+ * its issuer, so a register holding four lapsed NOCs says whose each one is.
+ */
+function nocCommon(pages: string[], facts: DocumentFact[], flags: DocumentFlag[], what: (issuer?: string) => string): string | undefined {
   const by = issuer(pages);
   if (by) push(facts, { key: 'issued_by', label: 'Issued by', value: by.value, display: by.value, page: by.page, quote: by.quote });
   const ref = reference(pages, /\bNOC\s*ID\b/) ?? reference(pages, /\b(?:No|Ref(?:erence)?\s*No)\b/);
@@ -808,7 +812,7 @@ function nocCommon(pages: string[], facts: DocumentFact[], flags: DocumentFlag[]
   if (sub) push(facts, { key: 'subject', label: 'Subject', value: sub.value, display: sub.value, page: sub.page, quote: sub.quote });
   const covered = surveyList(pages);
   if (covered) push(facts, { key: 'covered_survey_numbers', label: 'Survey numbers covered', value: covered.values.join(', '), display: listDisplay(covered.values), page: covered.page, quote: covered.quote });
-  validUntil(pages, facts, flags, on?.iso, what);
+  validUntil(pages, facts, flags, on?.iso, what(by?.value));
   return on?.iso;
 }
 
@@ -1106,7 +1110,7 @@ const BUILDERS: Partial<Record<ReadDocumentType, Builder>> = {
   },
 
   utility_noc(pages, facts, flags) {
-    nocCommon(pages, facts, flags, 'The NOC');
+    nocCommon(pages, facts, flags, (by) => (by ? `The ${by} NOC` : 'The NOC'));
     const load = find(pages, /(\d[\d,]*(?:\.\d+)?)\s*kW\b(?:\s*\(\s*(\d+(?:\.\d+)?)\s*MVA\s*\))?/i);
     if (load) {
       const kw = parseAmount(load.match[1]!);
@@ -1123,7 +1127,7 @@ const BUILDERS: Partial<Record<ReadDocumentType, Builder>> = {
    * level, the site's own elevation, where the site is, and the term.
    */
   aviation_noc(pages, facts, flags) {
-    nocCommon(pages, facts, flags, 'The height NOC');
+    nocCommon(pages, facts, flags, (by) => (by ? `The ${by} height NOC` : 'The height NOC'));
     const top = find(pages, /\bpermissible\s+top\s+elevation\b[^\d\n]{0,30}(\d{2,4}(?:\.\d+)?)\s*m/i);
     if (top) push(facts, { key: 'permissible_top_elevation', label: 'Permissible top elevation', value: Number(top.match[1]), unit: 'm AMSL', display: `${top.match[1]} m AMSL`, page: top.page, quote: top.quote });
     const site = find(pages, /\bsite\s+elevation\b[^\d]{0,60}?(\d{2,4}(?:\.\d+)?)\s*m/i);
@@ -1149,7 +1153,7 @@ const BUILDERS: Partial<Record<ReadDocumentType, Builder>> = {
   },
 
   fire_noc(pages, facts, flags) {
-    nocCommon(pages, facts, flags, 'The fire NOC');
+    nocCommon(pages, facts, flags, (by) => (by ? `The ${by} NOC` : 'The fire NOC'));
     const height = find(pages, /\bheight\s+of\s+(?:the\s+)?building\b[^\d\n]{0,30}(\d{1,3}(?:\.\d+)?)\s*m/i);
     if (height) push(facts, { key: 'building_height', label: 'Building height cleared', value: Number(height.match[1]), unit: 'm', display: `${height.match[1]} m`, page: height.page, quote: height.quote });
   },
@@ -1157,10 +1161,14 @@ const BUILDERS: Partial<Record<ReadDocumentType, Builder>> = {
   company_incorporation(pages, facts) {
     const cin = find(pages, /\b([LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6})\b/);
     if (cin) push(facts, { key: 'cin', label: 'Corporate identification number', value: cin.match[1]!, display: cin.match[1]!, page: cin.page, quote: cin.quote });
-    const renamed = find(pages, /\bname\s+of\s+the\s+company\s+has\s+been\s+changed\s+from\s+([A-Z][A-Z0-9 &.'-]+?)\s+to\s+([A-Z][A-Z0-9 &.'-]+?)(?=\s+with\s+effect|\s*[,.\n])/i);
+    // A scan breaks a name across lines ("SOBHA\nLIMITED"): the name runs to
+    // "with effect" or a full stop, and its line breaks are spaces.
+    const renamed = find(pages, /\bname\s+of\s+the\s+company\s+has\s+been\s+changed\s+from\s+([A-Z][A-Z0-9&.'\s-]+?)\s+to\s+([A-Z][A-Z0-9&.'\s-]+?)(?=\s+with\s+effect|\s*[,.](?:\s|$))/i);
     if (renamed) {
-      push(facts, { key: 'company_name', label: 'Company', value: renamed.match[2]!.trim(), display: renamed.match[2]!.trim(), page: renamed.page, quote: renamed.quote });
-      push(facts, { key: 'former_name', label: 'Formerly', value: renamed.match[1]!.trim(), display: renamed.match[1]!.trim(), page: renamed.page, quote: renamed.quote });
+      const now = renamed.match[2]!.replace(/\s+/g, ' ').trim();
+      const was = renamed.match[1]!.replace(/\s+/g, ' ').trim();
+      push(facts, { key: 'company_name', label: 'Company', value: now, display: now, page: renamed.page, quote: renamed.quote });
+      push(facts, { key: 'former_name', label: 'Formerly', value: was, display: was, page: renamed.page, quote: renamed.quote });
     } else {
       const named = find(pages, /\bhereby\s+certify\s+that\s+([A-Z][A-Za-z0-9 &.'-]{3,80}?)\s+is\s+(?:this\s+day\s+)?incorporated\b/i);
       if (named) push(facts, { key: 'company_name', label: 'Company', value: named.match[1]!.trim(), display: named.match[1]!.trim(), page: named.page, quote: named.quote });
