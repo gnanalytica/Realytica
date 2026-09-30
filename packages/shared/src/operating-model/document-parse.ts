@@ -10,8 +10,10 @@
  *
  * Deliberately narrow. It knows the Karnataka instruments a land diligence
  * turns on — deeds, the EC, khata, tax receipts, zoning, conversion,
- * sanction, survey sketch, OC — and the phrasing registries and the BBMP
- * actually use. It does not guess: a value it cannot find is absent, never a
+ * sanction, survey sketch, OC — the approvals a project's file is built on —
+ * the RERA registration, the environmental clearance, the utility, aviation
+ * and fire NOCs — and the promoter's certificate of incorporation, in the
+ * phrasing registries, boards and authorities actually use. It does not guess: a value it cannot find is absent, never a
  * default. A model, where one is configured, reads more; this is the floor
  * that works on every deployment, including one with no credentials.
  *
@@ -42,6 +44,12 @@ export type ReadDocumentType =
   | 'joint_development_agreement'
   | 'sale_agreement'
   | 'lease'
+  | 'rera_registration'
+  | 'environmental_clearance'
+  | 'utility_noc'
+  | 'aviation_noc'
+  | 'fire_noc'
+  | 'company_incorporation'
   | 'other';
 
 /** One thing a document states, with where it states it. */
@@ -258,6 +266,74 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     title: [/\bagreement\s+(?:to|for)\s+sale\b/i, /\bagreement\s+to\s+sell\b/i, /\bsale\s+agreement\b/i],
     body: [/\badvance\s+(?:amount|paid)\b/i, /\bbalance\s+(?:sale\s+)?consideration\b/i],
     file: [/agreement[\s_-]*(?:to[\s_-]*)?sel/i, /sale[\s_-]*agreement/i],
+  },
+  rera_registration: {
+    label: 'RERA registration certificate',
+    documentKind: 'rera_registration',
+    evidenceKind: 'certificate',
+    rowHints: ['rera registration', 'rera certificate', 'rera'],
+    scopes: ['regulatory', 'legal'],
+    title: [/\bReal\s+Estate\s+Regulatory\s+Authority\b/i, /\bregistration\s+certificate\s+of\s+project\b/i],
+    body: [/\bPRM\/[A-Z]{2}\/RERA\//, /\bACK\/[A-Z]{2}\/RERA\//, /\bproject\s+approval\s+date\b/i, /\bpromoter\b/i],
+    file: [/rera/i],
+  },
+  environmental_clearance: {
+    label: 'Environmental clearance',
+    documentKind: 'other',
+    evidenceKind: 'approval',
+    rowHints: ['environmental clearance', 'environment clearance', 'seiaa'],
+    scopes: ['esg', 'regulatory'],
+    title: [/\benvironment(?:al)?\s+clearance\b/i, /\bEnvironment\s+Impact\s+Assessment\s+Authority\b/i],
+    body: [/\bSEIAA\b/, /\bE\s*\(\s*P\s*\)\s*Act\b/i, /\bEIA\s+Notification\b/i, /\bMoEF/i],
+    file: [/environment/i, /seiaa/i],
+  },
+  utility_noc: {
+    label: 'Utility NOC',
+    documentKind: 'other',
+    evidenceKind: 'approval',
+    rowHints: ['utility nocs', 'utility noc'],
+    scopes: ['regulatory'],
+    title: [/\bno\s+objection\s+certificate\b/i, /\bNOC\b/],
+    body: [
+      /\bWater\s+Supply\s+and\s+Sewerage\s+Board\b/i,
+      /\bElectricity\s+Supply\s+Company\b/i,
+      /\bBharat\s+Sanchar\s+Nigam\b/i,
+      /\bpower\s+supply\b/i,
+      /\bwater\s+supply\b/i,
+      /\bsewerage\b/i,
+      /\btelecom\b/i,
+    ],
+    file: [/bwssb|bescom|bsnl|kptcl|utility/i],
+  },
+  aviation_noc: {
+    label: 'Aviation height NOC',
+    documentKind: 'other',
+    evidenceKind: 'approval',
+    rowHints: ['aai noc', 'height clearance', 'aviation noc'],
+    scopes: ['regulatory', 'technical'],
+    title: [/\bheight\s+clearance\b/i, /\bAirports?\s+Authority\s+of\s+India\b/i],
+    body: [/\bAMSL\b/, /\bpermissible\s+top\s+elevation\b/i, /\baerodrome\b/i, /\bNOC\s*ID\b/i, /\bcivil\s+aviation\b/i],
+    file: [/airport|aai/i],
+  },
+  fire_noc: {
+    label: 'Fire NOC',
+    documentKind: 'other',
+    evidenceKind: 'approval',
+    rowHints: ['fire noc', 'fire clearance'],
+    scopes: ['regulatory', 'hse'],
+    title: [/\bFire\s+(?:and|&)\s+Emergency\s+Services\b/i, /\bfire\s+(?:no\s+objection|clearance|NOC)\b/i],
+    body: [/\bfire\s+safety\b/i, /\brefuge\b/i, /\bsprinklers?\b/i, /\bfire\s+(?:fighting|hydrants?)\b/i, /\bNational\s+Building\s+Code\b/i],
+    file: [/fire/i],
+  },
+  company_incorporation: {
+    label: 'Certificate of incorporation',
+    documentKind: 'other',
+    evidenceKind: 'certificate',
+    rowHints: ['certificate of incorporation', 'memorandum of association', 'articles of association', 'moa', 'aoa'],
+    scopes: ['legal'],
+    title: [/\bcertificate\s+of\s+incorporation\b/i, /\bmemorandum\s+of\s+association\b/i, /\barticles\s+of\s+association\b/i],
+    body: [/\bCorporate\s+Identi(?:fication|ty)\s+Number\b/i, /\bRegistrar\s+of\s+Companies\b/i, /\bCompanies\s+Act\b/i, /\b[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}\b/],
+    file: [/moa|aoa|incorporation|(?:^|[^a-z])coi(?:[^a-z]|$)/i],
   },
   lease: {
     label: 'Lease deed',
@@ -564,6 +640,178 @@ function commonParcel(pages: string[], facts: DocumentFact[], extentKey?: string
   }
 }
 
+const SURVEY_NO = String.raw`\d{1,4}(?:\/[0-9A-Z]{1,4}){0,3}`;
+
+/**
+ * Every survey number in a document's list, in order, once each.
+ *
+ * An approval names the whole property it covers — a RERA certificate the
+ * phase's thirteen survey numbers, an environmental clearance the township's
+ * sixty — where a deed repeats its one. `surveyNumber` finds the one; this
+ * keeps the list.
+ */
+function surveyList(pages: string[]): (Hit & { values: string[] }) | null {
+  const hit = find(
+    pages,
+    new RegExp(String.raw`\b(?:Sy\.?|Survey)\s*(?:No'?s?\.?|Nos\.?|Numbers?)?\s*[:.]?\s*(${SURVEY_NO}(?:\s*(?:,|&|\band\b)\s*${SURVEY_NO}){1,})`, 'i'),
+  );
+  if (!hit) return null;
+  const values = [
+    ...new Set(
+      hit.match[1]!
+        .split(/\s*(?:,|&|\band\b)\s*/i)
+        .map((v) => v.trim().toUpperCase())
+        .filter((v) => new RegExp(`^${SURVEY_NO}$`).test(v)),
+    ),
+  ];
+  return values.length >= 2 ? { ...hit, values } : null;
+}
+
+function listDisplay(values: string[]): string {
+  const shown = values.slice(0, 6).join(', ');
+  return values.length > 6 ? `Sy. Nos. ${shown} and ${values.length - 6} more` : `Sy. Nos. ${shown}`;
+}
+
+/**
+ * The date a letter is dated, from its letterhead.
+ *
+ * Only the first "Date", "Dated" or "dt" at the top of the first page, and
+ * only a date right beside it. A board's letter goes on to cite the
+ * requisition it answers — "Ref: letter dated 12.02.2015" — and taking that
+ * when the letterhead's own date is illegible would put a wrong date on the
+ * approval, which is worse than none.
+ */
+function letterDate(pages: string[]): (Hit & { iso: string }) | null {
+  const head = (pages[0] ?? '').slice(0, 1400);
+  const label = /\b(?:Date[d]?|dt)\b\.?/i.exec(head);
+  if (!label) return null;
+  const after = head.slice(label.index, label.index + label[0].length + 60);
+  const date = new RegExp(DATE, 'i').exec(after);
+  if (!date) return null;
+  const iso = parseIndianDate(date[0]);
+  if (!iso) return null;
+  return { page: 1, match: date, quote: quoteAround(head, label.index, label[0].length + date.index + date[0].length) , iso };
+}
+
+const WORD_NUMBERS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+
+/** "valid for a period of 5 years" / "seven years" — the number of years an approval states it runs. */
+function validityYears(pages: string[]): (Hit & { years: number }) | null {
+  const hit = find(pages, /\bvalid(?:ity)?\b[^.\n]{0,40}?\b(?:for\s+)?(?:a\s+)?(?:period\s+of\s+)?(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:\(\s*\w+\s*\)\s*)?years?\b/i);
+  if (!hit) return null;
+  const raw = hit.match[1]!.toLowerCase();
+  const years = /^\d+$/.test(raw) ? Number(raw) : WORD_NUMBERS[raw];
+  return years ? { ...hit, years } : null;
+}
+
+function addYears(iso: string, years: number): string {
+  const [y, m, d] = iso.split('-');
+  return `${Number(y) + years}-${m}-${d}`;
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** The term an approval states, as a date, and a flag when it has passed. */
+function validUntil(pages: string[], facts: DocumentFact[], flags: DocumentFlag[], issued: string | undefined, what: string): void {
+  const term = validityYears(pages);
+  if (!term || !issued) return;
+  const until = addYears(issued, term.years);
+  push(facts, { key: 'valid_until', label: 'Valid until', value: until, display: displayDate(until), page: term.page, quote: term.quote });
+  if (until < today()) {
+    flags.push({
+      severity: 'high',
+      title: `${what} lapsed on ${displayDate(until)}`,
+      description: `It was issued on ${displayDate(issued)} and states it is valid for ${term.years} year${term.years === 1 ? '' : 's'}. Work it covers that was not complete by then needs it renewed or issued afresh.`,
+      page: term.page,
+      quote: term.quote,
+    });
+  }
+}
+
+/** The addressee, "To, M/s. …" — or "in favour of M/s. …" when the letterhead's line is illegible. */
+function addressee(pages: string[]): (Hit & { value: string }) | null {
+  const company = String.raw`([A-Z][A-Za-z .&'-]{2,80}?(?:Limited|Ltd\.?|LLP|Pvt\.?\s*Ltd\.?|Private\s+Limited))`;
+  const hit =
+    find(pages, new RegExp(String.raw`\bTo,?\s+M\/s\.?\s*${company}`, 'i'))
+    ?? find(pages, new RegExp(String.raw`\bin\s+favou?r\s+of\s+M\/?s\.?\s*${company}`, 'i'));
+  if (!hit) return null;
+  return { ...hit, value: hit.match[1]!.replace(/\s+/g, ' ').trim() };
+}
+
+/** "Sub: …" up to the reference line, capped. */
+function subject(pages: string[]): (Hit & { value: string }) | null {
+  // Up to 900 characters: a subject naming sixty survey numbers runs long
+  // before the reference line, and is cut back to its own words below.
+  const hit = find(pages, /\bSub(?:ject)?\s*[:.\-]+\s*([^\n]{8,900}?)(?=\s+(?:Ref|Reference)\s*[:.\-]|\s+Sir\b|\n|$)/i);
+  if (!hit) return null;
+  let value = hit.match[1]!.replace(/\s+/g, ' ').trim();
+  // The survey list the subject goes on to name is its own fact.
+  const at = value.search(/\s(?:at|on)\s+(?:property\s+bearing\s+)?(?:Sy\.?|Survey)\b|\s-\s*Issue\s+of\b/i);
+  if (at > 10) value = value.slice(0, at);
+  value = value.replace(/[\s,.\-]+$/, '');
+  return value.length > 3 ? { ...hit, value: value.length > 160 ? `${value.slice(0, 157)}…` : value } : null;
+}
+
+/** The reference a board writes as "No. …": slash-separated, as issued. */
+function reference(pages: string[], lead: RegExp): (Hit & { value: string }) | null {
+  const hit = find(pages, new RegExp(String.raw`${lead.source}\s*[.:]?\s*((?:[A-Z][A-Za-z()]*(?:\s\([A-Za-z0-9]+\))?|\d+)(?:\s?\/\s?[A-Za-z0-9()\-.]+){2,14})`, 'i'));
+  if (!hit) return null;
+  const parts = hit.match[1]!.replace(/\s*\/\s*/g, '/').replace(/[/.\s]+$/, '').split('/');
+  // OCR leaves stray marks after the reference ("…-IT/(5"): a last part with
+  // an unmatched bracket is not part of what the board wrote.
+  const balanced = (part: string) => (part.match(/\(/g) ?? []).length === (part.match(/\)/g) ?? []).length;
+  while (parts.length > 3 && !balanced(parts[parts.length - 1]!)) parts.pop();
+  const value = parts.join('/');
+  return value.length > 4 ? { ...hit, value } : null;
+}
+
+const ISSUERS: Array<[RegExp, string]> = [
+  [/\bAirports?\s+Authority\s+of\s+India\b/i, 'Airports Authority of India'],
+  [/\bWater\s+Supply\s+and\s+Sewerage\s+Board\b/i, 'Water Supply and Sewerage Board'],
+  [/\bElectricity\s+Supply\s+Company\b/i, 'Electricity Supply Company'],
+  [/\bBharat\s+Sanchar\s+Nigam\b/i, 'Bharat Sanchar Nigam Ltd'],
+  [/\bPower\s+Transmission\s+Corporation\b/i, 'Power Transmission Corporation'],
+  [/\bFire\s+(?:and|&)\s+Emergency\s+Services\b/i, 'Fire and Emergency Services'],
+  [/\bPollution\s+Control\s+Board\b/i, 'Pollution Control Board'],
+];
+
+/** Who issued a no-objection certificate, with the name it prints for itself. */
+function issuer(pages: string[]): (Hit & { value: string }) | null {
+  for (const [pattern, name] of ISSUERS) {
+    const hit = find(pages, new RegExp(String.raw`(?:\b([A-Za-z]{4,})\s+)?${pattern.source}`, 'i'));
+    if (!hit) continue;
+    // "Bangalore Water Supply and Sewerage Board": keep the one word naming
+    // the place, and nothing shorter — a scan's letterhead leaves "EE BE" in
+    // front of the name more often than not.
+    const place = hit.match[1] ?? '';
+    const value = place && !/^(?:the|by|of|from|and|issued|with|this|that|limited)$/i.test(place)
+      ? `${place.charAt(0).toUpperCase()}${place.slice(1).toLowerCase()} ${name}`
+      : name;
+    return { ...hit, value };
+  }
+  return null;
+}
+
+/** What every no-objection certificate states: who, which reference, when, to whom, for what, over which land. */
+function nocCommon(pages: string[], facts: DocumentFact[], flags: DocumentFlag[], what: string): string | undefined {
+  const by = issuer(pages);
+  if (by) push(facts, { key: 'issued_by', label: 'Issued by', value: by.value, display: by.value, page: by.page, quote: by.quote });
+  const ref = reference(pages, /\bNOC\s*ID\b/) ?? reference(pages, /\b(?:No|Ref(?:erence)?\s*No)\b/);
+  if (ref) push(facts, { key: 'noc_reference', label: 'Reference', value: ref.value, display: ref.value, page: ref.page, quote: ref.quote });
+  const on = letterDate(pages);
+  if (on) push(facts, { key: 'issued_on', label: 'Issued on', value: on.iso, display: displayDate(on.iso), page: on.page, quote: on.quote });
+  const to = addressee(pages);
+  if (to) push(facts, { key: 'issued_to', label: 'Issued to', value: to.value, display: to.value, page: to.page, quote: to.quote });
+  const sub = subject(pages);
+  if (sub) push(facts, { key: 'subject', label: 'Subject', value: sub.value, display: sub.value, page: sub.page, quote: sub.quote });
+  const covered = surveyList(pages);
+  if (covered) push(facts, { key: 'covered_survey_numbers', label: 'Survey numbers covered', value: covered.values.join(', '), display: listDisplay(covered.values), page: covered.page, quote: covered.quote });
+  validUntil(pages, facts, flags, on?.iso, what);
+  return on?.iso;
+}
+
 const BUILDERS: Partial<Record<ReadDocumentType, Builder>> = {
   sale_deed(pages, facts, flags) {
     commonParcel(pages, facts, 'extent_title', 'Extent per title');
@@ -776,6 +1024,150 @@ const BUILDERS: Partial<Record<ReadDocumentType, Builder>> = {
     const owner = text(pages, /\b(?:name\s+of\s+(?:the\s+)?(?:owner|khatedar|occupant))\b/);
     if (owner) push(facts, { key: 'owner', label: 'Owner on the RTC', value: owner.value, display: owner.value, page: owner.page, quote: owner.quote });
   },
+
+  /*
+   * A state RERA's certificate. The Karnataka one prints its labels as part
+   * of the image and only the values as text, so each value is found by its
+   * own shape — the registration number by its PRM/…/RERA/ form, the term by
+   * sitting just before the QR-code line — and by a label where one exists.
+   */
+  rera_registration(pages, facts, flags) {
+    const reg = find(pages, /\b(PRM\/[A-Z]{2}\/RERA\/[0-9A-Z/]+)/);
+    if (reg) {
+      const value = reg.match[1]!.replace(/\/+$/, '');
+      push(facts, { key: 'rera_number', label: 'RERA registration number', value, display: value, page: reg.page, quote: reg.quote });
+    }
+    const ack = find(pages, /\b(ACK\/[A-Z]{2}\/RERA\/[0-9A-Z/]+)/);
+    if (ack) {
+      const value = ack.match[1]!.replace(/\/+$/, '');
+      push(facts, { key: 'rera_acknowledgement', label: 'Application acknowledgement', value, display: value, page: ack.page, quote: ack.quote });
+    }
+    const project =
+      text(pages, /\bproject\s+name\b/, /[,;\n]/)
+      ?? (() => {
+        const hit = find(pages, /\bPRM\/[A-Z]{2}\/RERA\/[0-9A-Z/]+\s+([A-Z][A-Z0-9 &.'()-]{3,90}?)\s*,\s*(?:SY|SURVEY|S\.\s*NO)\b/);
+        return hit ? { ...hit, value: hit.match[1]!.trim() } : null;
+      })();
+    if (project) push(facts, { key: 'project_name', label: 'Project', value: project.value, display: project.value, page: project.page, quote: project.quote });
+    const list = surveyList(pages);
+    if (list) push(facts, { key: 'survey_numbers', label: 'Survey numbers', value: list.values.join(', '), display: listDisplay(list.values), page: list.page, quote: list.quote });
+    const approved = firstDateNear(pages, /\b(?:project\s+)?approval\s+date\b/) ?? firstDateNear(pages, /\bdate\s+of\s+(?:registration|approval)\b/);
+    if (approved) push(facts, { key: 'rera_approved_on', label: 'Approved on', value: approved.iso, display: displayDate(approved.iso), page: approved.page, quote: approved.quote });
+    const labelled = firstDateNear(pages, /\bvalid\s+(?:up\s*to|upto|till|until|to)\b/);
+    const beforeQr = (() => {
+      const hit = find(pages, new RegExp(`(${DATE})[\\s\\S]{0,40}?\\bPlease\\s+scan\\b`, 'i'));
+      const iso = hit ? parseIndianDate(hit.match.slice(1).find((g) => g && parseIndianDate(g)) ?? '') : null;
+      return hit && iso ? { ...hit, iso } : null;
+    })();
+    const valid = labelled ?? beforeQr;
+    if (valid) {
+      push(facts, { key: 'rera_valid_until', label: 'Registration valid until', value: valid.iso, display: displayDate(valid.iso), page: valid.page, quote: valid.quote });
+      if (valid.iso < today()) {
+        flags.push({
+          severity: 'high',
+          title: `RERA registration lapsed on ${displayDate(valid.iso)}`,
+          description: 'The registration has run past its term. Sales and advertising need it extended with the authority.',
+          page: valid.page,
+          quote: valid.quote,
+        });
+      }
+    }
+    const authority = find(pages, /\b([A-Z][a-z]+)\s+Real\s+Estate\s+Regulatory\s+Authority\b/);
+    if (authority) push(facts, { key: 'issued_by', label: 'Issued by', value: `${authority.match[1]} RERA`, display: `${authority.match[1]} Real Estate Regulatory Authority`, page: authority.page, quote: authority.quote });
+  },
+
+  environmental_clearance(pages, facts, flags) {
+    const by = find(pages, /\bState\s+(?:Level\s+)?Environment\s+Impact\s+Assessment\s+Authority\s*[-,]?\s*([A-Z][a-z]+)?/i);
+    if (by) {
+      const value = `SEIAA${by.match[1] ? ` ${by.match[1]}` : ''}`;
+      push(facts, { key: 'issued_by', label: 'Issued by', value, display: value, page: by.page, quote: by.quote });
+    }
+    const number = find(pages, /\bNo\.?\s*[:.]?\s*(SEIAA[\s\dA-Z/.()-]{2,40}?\d{4})\b/i);
+    if (number) {
+      const value = number.match[1]!.replace(/\s+/g, ' ').trim();
+      push(facts, { key: 'clearance_number', label: 'Clearance number', value, display: value, page: number.page, quote: number.quote });
+    }
+    const on = letterDate(pages);
+    if (on) push(facts, { key: 'issued_on', label: 'Issued on', value: on.iso, display: displayDate(on.iso), page: on.page, quote: on.quote });
+    const to = addressee(pages);
+    if (to) push(facts, { key: 'issued_to', label: 'Issued to', value: to.value, display: to.value, page: to.page, quote: to.quote });
+    const sub = subject(pages);
+    if (sub) push(facts, { key: 'subject', label: 'Subject', value: sub.value, display: sub.value, page: sub.page, quote: sub.quote });
+    const covered = surveyList(pages);
+    if (covered) push(facts, { key: 'covered_survey_numbers', label: 'Survey numbers covered', value: covered.values.join(', '), display: listDisplay(covered.values), page: covered.page, quote: covered.quote });
+    const built = extent(pages, /\b(?:total\s+)?built[\s-]?up\s+area\b/);
+    if (built) push(facts, { key: 'cleared_built_up_area', label: 'Built-up area cleared', value: built.sqm, unit: 'sqm', display: fmtSqm(built.sqm), page: built.page, quote: built.quote });
+    const units = find(pages, /\b(\d[\d,]*)\s+(?:residential\s+)?(?:dwelling\s+)?(?:units|flats|apartments)\b/i);
+    if (units) {
+      const n = parseAmount(units.match[1]!);
+      if (n) push(facts, { key: 'cleared_units', label: 'Units cleared', value: n, display: n.toLocaleString('en-IN'), page: units.page, quote: units.quote });
+    }
+    validUntil(pages, facts, flags, on?.iso, 'Environmental clearance');
+  },
+
+  utility_noc(pages, facts, flags) {
+    nocCommon(pages, facts, flags, 'The NOC');
+    const load = find(pages, /(\d[\d,]*(?:\.\d+)?)\s*kW\b(?:\s*\(\s*(\d+(?:\.\d+)?)\s*MVA\s*\))?/i);
+    if (load) {
+      const kw = parseAmount(load.match[1]!);
+      if (kw) {
+        const display = `${kw.toLocaleString('en-IN')} kW${load.match[2] ? ` (${load.match[2]} MVA)` : ''}`;
+        push(facts, { key: 'power_load', label: 'Power sanctioned', value: kw, unit: 'kW', display, page: load.page, quote: load.quote });
+      }
+    }
+  },
+
+  /*
+   * An AAI height clearance. What a diligence needs from it is the ceiling
+   * and whether it still runs: the permissible top elevation above mean sea
+   * level, the site's own elevation, where the site is, and the term.
+   */
+  aviation_noc(pages, facts, flags) {
+    nocCommon(pages, facts, flags, 'The height NOC');
+    const top = find(pages, /\bpermissible\s+top\s+elevation\b[^\d\n]{0,30}(\d{2,4}(?:\.\d+)?)\s*m/i);
+    if (top) push(facts, { key: 'permissible_top_elevation', label: 'Permissible top elevation', value: Number(top.match[1]), unit: 'm AMSL', display: `${top.match[1]} m AMSL`, page: top.page, quote: top.quote });
+    const site = find(pages, /\bsite\s+elevation\b[^\d]{0,60}?(\d{2,4}(?:\.\d+)?)\s*m/i);
+    if (site) push(facts, { key: 'site_elevation', label: 'Site elevation', value: Number(site.match[1]), unit: 'm AMSL', display: `${site.match[1]} m AMSL`, page: site.page, quote: site.quote });
+    const height = find(pages, /\bpermissible\s+height\s+above\s+ground(?:\s+level)?\b[^\d]{0,60}?(\d{1,3}(?:\.\d+)?)\s*m/i);
+    if (height) push(facts, { key: 'permissible_height', label: 'Permissible height above ground', value: Number(height.match[1]), unit: 'm', display: `${height.match[1]} m`, page: height.page, quote: height.quote });
+    const at = find(pages, /(\d{1,2})\s+(\d{1,2})\s+(\d{1,2}(?:\.\d+)?)\s*N\s*[-,]?\s*(\d{1,3})\s+(\d{1,2})\s+(\d{1,2}(?:\.\d+)?)\s*E\b/);
+    if (at) {
+      const [d1, m1, s1, d2, m2, s2] = at.match.slice(1, 7).map(Number) as [number, number, number, number, number, number];
+      const lat = d1 + m1 / 60 + s1 / 3600;
+      const lng = d2 + m2 / 60 + s2 / 3600;
+      if (lat <= 90 && lng <= 180) {
+        push(facts, {
+          key: 'site_coordinates',
+          label: 'Site coordinates',
+          value: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+          display: `${d1}°${m1}′${s1}″N, ${d2}°${m2}′${s2}″E`,
+          page: at.page,
+          quote: at.quote,
+        });
+      }
+    }
+  },
+
+  fire_noc(pages, facts, flags) {
+    nocCommon(pages, facts, flags, 'The fire NOC');
+    const height = find(pages, /\bheight\s+of\s+(?:the\s+)?building\b[^\d\n]{0,30}(\d{1,3}(?:\.\d+)?)\s*m/i);
+    if (height) push(facts, { key: 'building_height', label: 'Building height cleared', value: Number(height.match[1]), unit: 'm', display: `${height.match[1]} m`, page: height.page, quote: height.quote });
+  },
+
+  company_incorporation(pages, facts) {
+    const cin = find(pages, /\b([LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6})\b/);
+    if (cin) push(facts, { key: 'cin', label: 'Corporate identification number', value: cin.match[1]!, display: cin.match[1]!, page: cin.page, quote: cin.quote });
+    const renamed = find(pages, /\bname\s+of\s+the\s+company\s+has\s+been\s+changed\s+from\s+([A-Z][A-Z0-9 &.'-]+?)\s+to\s+([A-Z][A-Z0-9 &.'-]+?)(?=\s+with\s+effect|\s*[,.\n])/i);
+    if (renamed) {
+      push(facts, { key: 'company_name', label: 'Company', value: renamed.match[2]!.trim(), display: renamed.match[2]!.trim(), page: renamed.page, quote: renamed.quote });
+      push(facts, { key: 'former_name', label: 'Formerly', value: renamed.match[1]!.trim(), display: renamed.match[1]!.trim(), page: renamed.page, quote: renamed.quote });
+    } else {
+      const named = find(pages, /\bhereby\s+certify\s+that\s+([A-Z][A-Za-z0-9 &.'-]{3,80}?)\s+is\s+(?:this\s+day\s+)?incorporated\b/i);
+      if (named) push(facts, { key: 'company_name', label: 'Company', value: named.match[1]!.trim(), display: named.match[1]!.trim(), page: named.page, quote: named.quote });
+    }
+    const roc = find(pages, /\bRegistrar\s+of\s+Companies,?\s*([A-Z][a-z]+)/);
+    if (roc) push(facts, { key: 'registrar', label: 'Registered with', value: `Registrar of Companies, ${roc.match[1]}`, display: `Registrar of Companies, ${roc.match[1]}`, page: roc.page, quote: roc.quote });
+  },
 };
 
 /* ==================================================================== */
@@ -832,6 +1224,30 @@ function summarise(type: ReadDocumentType, label: string, facts: DocumentFact[],
       parts.push(label);
       if (get('extent_survey')) parts.push(`${get('extent_survey')} measured`);
       if (get('road_width_ft')) parts.push(`road ${get('road_width_ft')}`);
+      break;
+    case 'rera_registration':
+      parts.push(`${label}${get('rera_number') ? ` ${get('rera_number')}` : ''}`);
+      if (get('rera_approved_on')) parts.push(`approved ${get('rera_approved_on')}`);
+      if (get('rera_valid_until')) parts.push(`valid until ${get('rera_valid_until')}`);
+      if (get('survey_numbers')) parts.push(get('survey_numbers')!);
+      break;
+    case 'environmental_clearance':
+      parts.push(`${label}${get('clearance_number') ? ` ${get('clearance_number')}` : ''}${get('issued_on') ? ` of ${get('issued_on')}` : ''}`);
+      if (get('issued_to')) parts.push(`to ${get('issued_to')}`);
+      if (get('valid_until')) parts.push(`valid until ${get('valid_until')}`);
+      break;
+    case 'utility_noc':
+    case 'aviation_noc':
+    case 'fire_noc':
+      parts.push(`${label}${get('issued_by') ? ` from ${get('issued_by')}` : ''}${get('issued_on') ? `, ${get('issued_on')}` : ''}`);
+      if (get('permissible_top_elevation')) parts.push(`top elevation ${get('permissible_top_elevation')}`);
+      if (get('power_load')) parts.push(get('power_load')!);
+      if (get('valid_until')) parts.push(`valid until ${get('valid_until')}`);
+      break;
+    case 'company_incorporation':
+      parts.push(label);
+      if (get('company_name')) parts.push(get('company_name')!);
+      if (get('cin')) parts.push(`CIN ${get('cin')}`);
       break;
     default:
       parts.push(label);
