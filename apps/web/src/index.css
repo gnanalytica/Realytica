@@ -71,6 +71,19 @@
    */
   --status-warning-text: #936503;
 
+  /*
+   * Provenance and the marker.
+   *
+   * Ochre says one thing only: a reader proposed this and no person has
+   * accepted it yet. Green — the existing good tone — is what it turns once
+   * someone has. The marker is the highlighter laid over a page's own words,
+   * and it is the same in both themes because the page under it is paper in
+   * both themes.
+   */
+  --provenance-rgb: 176 112 24;
+  --provenance-text: #8a5711;
+  --mark-rgb: 255 213 0;
+
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
@@ -177,6 +190,8 @@
     --status-good-text: #0ca30c;
     /* Light-on-dark: the base amber already measures 10.59:1 here. */
     --status-warning-text: rgb(var(--status-warning-rgb));
+    --provenance-rgb: 222 166 76;
+    --provenance-text: #e2b46a;
 
     --series-1: #3987e5;
     --series-2: #d95926;
@@ -225,6 +240,8 @@
   --status-good-text: #0ca30c;
   /* Light-on-dark: the base amber already measures 10.59:1 here. */
   --status-warning-text: rgb(var(--status-warning-rgb));
+  --provenance-rgb: 222 166 76;
+  --provenance-text: #e2b46a;
 
   --series-1: #3987e5;
   --series-2: #d95926;

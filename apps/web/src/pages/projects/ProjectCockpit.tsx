@@ -24,9 +24,19 @@ import {
   type EvidenceItem,
   type ProjectChatResult,
   type ProjectCockpitPane,
+  type ReadingStreamEvent,
   type TalkSitting,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
+import {
+  applyReadingEvent,
+  finishReading,
+  newReadingSession,
+  readingFileFromProposal,
+  type ReadingSession,
+  type SourceFocus,
+} from '../../lib/reading';
+import { ReadingDesk } from '../../components/reading/ReadingDesk';
 import { CopilotPanel } from '../../components/CopilotPanel';
 import { Badge, Button, Spinner, cn, useToast } from '../../components/ui/kit';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
@@ -58,6 +68,9 @@ function ProposalCards({
   hideIds,
   onApprove,
   onSkip,
+  onApproveAll,
+  onPointFact,
+  onShowDocument,
 }: {
   project: DdProject;
   turn: CopilotTurn;
@@ -66,6 +79,10 @@ function ProposalCards({
   hideIds?: Set<string>;
   onApprove: (id: string, payload?: Record<string, unknown>) => void;
   onSkip: (id: string) => void;
+  /** Set only on the latest reply's cards, which is what "approve all" approves. */
+  onApproveAll?: () => void;
+  onPointFact?: (cards: ChatProposal[], card: ChatProposal, focus: SourceFocus | null) => void;
+  onShowDocument?: (cards: ChatProposal[], card: ChatProposal) => void;
 }) {
   const rows = (turn.proposalIds ?? [])
     .map((id) => proposals.find((row) => row.id === id))
@@ -74,10 +91,31 @@ function ProposalCards({
       return !hideIds?.has(row.id);
     });
   if (!rows.length) return null;
+  const pending = rows.filter((r) => r.status === 'proposed');
+  const documents = rows.filter((r) => r.kind === 'file_evidence');
   return (
     <div className="mt-2.5 flex flex-col gap-1">
+      {onApproveAll && pending.length > 1 ? (
+        <div className="flex items-center gap-2 px-0.5 pb-0.5">
+          <span className="min-w-0 flex-1 text-mini text-ink-muted">
+            {pending.length} cards waiting{documents.length ? ' — point at a fact to see it on the page' : ''}
+          </span>
+          <Button size="sm" variant="primary" disabled={busy} onClick={onApproveAll}>
+            Approve all {pending.length}
+          </Button>
+        </div>
+      ) : null}
       {rows.map((item) => (
-        <ProposalCard key={item.id} project={project} item={item} busy={busy} onApprove={onApprove} onSkip={onSkip} />
+        <ProposalCard
+          key={item.id}
+          project={project}
+          item={item}
+          busy={busy}
+          onApprove={onApprove}
+          onSkip={onSkip}
+          onPointFact={onPointFact ? (card, focus) => onPointFact(documents, card, focus) : undefined}
+          onShowDocument={onShowDocument ? (card) => onShowDocument(documents, card) : undefined}
+        />
       ))}
     </div>
   );
@@ -204,6 +242,21 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const [highlightIds, setHighlightIds] = useState<string[]>([]);
   const [liveLabel, setLiveLabel] = useState<string | null>(null);
   const [dockTalk, setDockTalk] = useState<TalkSitting | null>(null);
+  /*
+   * The reading desk: documents being read, drawn on the canvas.
+   *
+   * The chat says what happened and holds the cards; the canvas shows it —
+   * the page being scanned, each fact as it comes off it, its words marked
+   * when someone points at it, and the facts turning green as their card is
+   * approved. Open while a turn reads, and whenever a card's fact is pointed
+   * at or a document card is approved.
+   */
+  const [reading, setReading] = useState<ReadingSession | null>(null);
+  const [deskOpen, setDeskOpen] = useState(false);
+  const [deskPin, setDeskPin] = useState<string | null>(null);
+  const [sourceFocus, setSourceFocus] = useState<SourceFocus | null>(null);
+  const projectRef = useRef(project);
+  projectRef.current = project;
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() =>
     paneFromProjectPath(typeof window === 'undefined' ? '' : window.location.pathname) === 'overview' ? 'chat' : 'work',
   );
@@ -241,6 +294,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const goPane = useCallback(
     (next: ProjectCockpitPane, extra?: CockpitPathExtra) => {
       setFocusMode(false);
+      setDeskOpen(false);
       setMobileSurface('work');
       navigate(cockpitPath(project.id, next, extra));
     },
@@ -263,6 +317,28 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
 
   const applyResult = useCallback(
     (response: ProjectChatResult & { project: DdProject }) => {
+      /*
+       * Documents this response filed, shown being filed.
+       *
+       * Approving a document card writes its facts onto the register, and the
+       * register is where that ends up — but the moment of filing is worth
+       * seeing: the desk opens on the documents, their facts turn green, and
+       * then it hands back to the register with the rows lit.
+       */
+      const before = new Map((projectRef.current.chatProposals ?? []).map((p) => [p.id, p.status]));
+      const filedNow = (response.project.chatProposals ?? []).filter(
+        (p) => p.kind === 'file_evidence' && p.status === 'committed' && before.get(p.id) === 'proposed',
+      );
+      if (filedNow.length) {
+        setReading((prev) => {
+          const keys = new Set(filedNow.map((p) => String(p.payload.storageKey ?? '')));
+          if (prev && prev.files.some((f) => keys.has(f.key))) return prev;
+          const files = filedNow.map(readingFileFromProposal).filter((f): f is NonNullable<typeof f> => Boolean(f));
+          return files.length ? { ...newReadingSession('review'), files, finished: true, filing: true } : prev;
+        });
+        setSourceFocus(null);
+        setDeskOpen(true);
+      }
       setProject(response.project);
       const ids = response.highlightIds ?? [];
       setHighlightIds(ids);
@@ -369,16 +445,29 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             checkId: searchParams.get('check') ?? undefined,
           };
       const onStep = (step: AgentStep) => setChatSteps((prev) => [...prev, step]);
+      // This turn's first document starts a fresh reading; the rest add to it.
+      let fresh = true;
+      const onReading = (event: ReadingStreamEvent) => {
+        const isFresh = fresh;
+        fresh = false;
+        setReading((prev) => applyReadingEvent(isFresh || !prev ? newReadingSession('live') : prev, event, { localFiles: files }));
+        if (isFresh) {
+          setSourceFocus(null);
+          setDeskPin(null);
+          setDeskOpen(true);
+        }
+      };
       try {
         const response = files?.length
-          ? await api.projectChatFiles(project.id, { question, viewContext: pane, files, sitting, sessionId }, { onStep, signal: ac.signal })
-          : await api.projectChat(project.id, { question, viewContext: pane, sitting, sessionId }, { onStep, signal: ac.signal });
+          ? await api.projectChatFiles(project.id, { question, viewContext: pane, files, sitting, sessionId }, { onStep, onReading, signal: ac.signal })
+          : await api.projectChat(project.id, { question, viewContext: pane, sitting, sessionId }, { onStep, onReading, signal: ac.signal });
         applyResult(response);
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') return;
         if (e instanceof Error && e.name === 'AbortError') return;
         throw e;
       } finally {
+        if (!fresh) setReading((prev) => (prev && prev.mode === 'live' ? finishReading(prev) : prev));
         if (abortRef.current === ac) {
           abortRef.current = null;
           setAsking(false);
@@ -387,6 +476,39 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       }
     },
     [project.id, pane, params.ddId, params.scopeId, searchParams, applyResult, sessionId],
+  );
+
+  /** The desk, showing these document cards — unless it already holds the file being asked for. */
+  const openDeskOn = useCallback((cards: ChatProposal[], key: string) => {
+    setReading((prev) => {
+      if (prev && prev.files.some((f) => f.key === key)) return prev;
+      const files = cards.map(readingFileFromProposal).filter((f): f is NonNullable<typeof f> => Boolean(f));
+      return files.length ? { ...newReadingSession('review'), files, finished: true } : prev;
+    });
+    setDeskOpen(true);
+  }, []);
+
+  const pointFact = useCallback(
+    (cards: ChatProposal[], _card: ChatProposal, focus: SourceFocus | null) => {
+      if (!focus) {
+        setSourceFocus(null);
+        return;
+      }
+      openDeskOn(cards, focus.key);
+      setSourceFocus(focus);
+    },
+    [openDeskOn],
+  );
+
+  const showDocument = useCallback(
+    (cards: ChatProposal[], card: ChatProposal) => {
+      const key = typeof card.payload.storageKey === 'string' ? card.payload.storageKey : '';
+      if (!key) return;
+      openDeskOn(cards, key);
+      setSourceFocus(null);
+      setDeskPin(key);
+    },
+    [openDeskOn],
   );
 
   const handleProposal = useCallback(
@@ -431,6 +553,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const overdue = project.actions.filter((a) => a.status === 'overdue').length;
   const pendingDrafts = (project.aiDrafts ?? []).filter((d) => d.status === 'draft' || d.status === 'accepted' || d.status === 'in_review').length;
   const conversation = (project.conversation ?? []) as CopilotTurn[];
+  // "Approve all" approves the latest reply's cards, so only that reply offers the button.
+  const lastReplyId = [...conversation].reverse().find((t) => t.role === 'assistant')?.id;
   const spec = LAYOUTS[layout];
   const fillRight = pane === 'graph';
   const currentDd = params.ddId ? project.assessments.find((a) => a.id === params.ddId) : undefined;
@@ -586,6 +710,9 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               hideIds={dockCardIds}
               onApprove={(id, payload) => void handleProposal(id, 'commit', payload)}
               onSkip={(id) => void handleProposal(id, 'reject')}
+              onApproveAll={turn.id === lastReplyId ? () => void handleAsk('Approve all') : undefined}
+              onPointFact={pointFact}
+              onShowDocument={showDocument}
             />
           </>
         );
@@ -603,6 +730,28 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       }
     />
   );
+
+  const desk =
+    deskOpen && reading ? (
+      <ReadingDesk
+        // A new reading, or a filing, starts the desk afresh: its pacing and its filing steps are its own.
+        key={reading.id}
+        projectId={project.id}
+        session={reading}
+        proposals={project.chatProposals}
+        focus={sourceFocus}
+        pinKey={deskPin}
+        onFocus={setSourceFocus}
+        onClose={() => {
+          setDeskOpen(false);
+          setSourceFocus(null);
+        }}
+        onSettled={() => {
+          setDeskOpen(false);
+          setSourceFocus(null);
+        }}
+      />
+    ) : null;
 
   const workBody = (
     <>
@@ -821,17 +970,22 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               See the note above `MOBILE_WORK_SURFACE`.
             */
             <section aria-label="Work surface" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              <CockpitPaneStrip
-                pane={pane}
-                project={project}
-                ddId={params.ddId}
-                scopeId={params.scopeId}
-                overdue={overdue}
-                pendingDrafts={pendingDrafts}
-                onGo={goPane}
-                wrap
-              />
-              {workBody}
+              {/* The reading takes the whole canvas while it is open; closing it is the way back to the panes. */}
+              {desk ?? (
+                <>
+                  <CockpitPaneStrip
+                    pane={pane}
+                    project={project}
+                    ddId={params.ddId}
+                    scopeId={params.scopeId}
+                    overdue={overdue}
+                    pendingDrafts={pendingDrafts}
+                    onGo={goPane}
+                    wrap
+                  />
+                  {workBody}
+                </>
+              )}
             </section>
           ) : null}
         </div>
@@ -852,16 +1006,20 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               mobileSurface === 'work' ? 'flex flex-1' : 'hidden',
             )}
           >
-            <CockpitPaneStrip
-              pane={pane}
-              project={project}
-              ddId={params.ddId}
-              scopeId={params.scopeId}
-              overdue={overdue}
-              pendingDrafts={pendingDrafts}
-              onGo={goPane}
-            />
-            {workBody}
+            {desk ?? (
+              <>
+                <CockpitPaneStrip
+                  pane={pane}
+                  project={project}
+                  ddId={params.ddId}
+                  scopeId={params.scopeId}
+                  overdue={overdue}
+                  pendingDrafts={pendingDrafts}
+                  onGo={goPane}
+                />
+                {workBody}
+              </>
+            )}
           </section>
 
           <nav

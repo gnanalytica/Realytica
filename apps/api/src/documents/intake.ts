@@ -16,6 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentStep, ChatIngestFile } from '@realytica/shared';
 import { parseDocumentText } from '@realytica/shared';
+import { locateFacts } from './locate';
 import { readDocumentText } from './read-text';
 
 function step(label: string, kind: AgentStep['kind'] = 'plan'): AgentStep {
@@ -30,7 +31,7 @@ export async function readIngestLocally(
   file: ChatIngestFile,
   bytes: Buffer,
   onStep?: (step: AgentStep) => void,
-  opts: { deadline?: number } = {},
+  opts: { deadline?: number; onPage?: (page: number, of: number) => void } = {},
 ): Promise<ChatIngestFile> {
   onStep?.(step(`Reading ${file.fileName}`));
   let text: Awaited<ReturnType<typeof readDocumentText>>;
@@ -38,6 +39,7 @@ export async function readIngestLocally(
     text = await readDocumentText(new Uint8Array(bytes), file.mimeType, file.fileName, {
       deadline: opts.deadline,
       onProgress: (label) => onStep?.(step(label, 'tool_call')),
+      onPage: opts.onPage,
     });
   } catch {
     return { ...file, readFailure: 'The file could not be read.' };
@@ -69,7 +71,8 @@ export async function readIngestLocally(
       confidence: parsed.confidence,
       method: text.method,
       ocrConfidence: text.ocrConfidence,
-      facts: parsed.facts,
+      // With where on its page each fact's words are, so it can be shown.
+      facts: locateFacts(parsed.facts, text.layout),
       flags: parsed.flags,
       summary: parsed.summary,
       rowHints: parsed.rowHints,
@@ -136,4 +139,19 @@ function mergeFacts(local: ChatIngestFile, model: ChatIngestFile): ChatIngestFil
   });
   const known = new Set(facts.map((f) => f.key));
   return { ...local.read, facts: [...facts, ...extra.filter((f) => !known.has(f.key))] };
+}
+
+/**
+ * Which documents to ask a model about: the ones this server's reader did
+ * not understand.
+ *
+ * A document read here with its facts is filed with those facts, its
+ * summary and its quotes — a model's notes and unverified fields never reach
+ * its card — so asking a model about it again costs a call and, nine
+ * documents in, a minute of somebody waiting for their cards. A model is for
+ * what the reader could not do: a document it did not recognise, or one it
+ * read nothing from, like a Kannada scan.
+ */
+export function needsModelReading(file: ChatIngestFile): boolean {
+  return !file.read || file.read.type === 'other' || file.read.facts.length === 0;
 }

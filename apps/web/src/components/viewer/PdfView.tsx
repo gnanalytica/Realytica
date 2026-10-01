@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
+import type { FactMarks } from '@realytica/shared';
+import { MarksOverlay } from '../reading/MarksOverlay';
 
 /*
  * pdf.js is pinned to 4.x deliberately. 6.x calls
@@ -70,12 +72,15 @@ export function PdfView({
   url,
   citedPage,
   highlight,
+  marks,
   onPagesResolved,
 }: {
   url: string;
   /** 1-based page the caller wants shown first. */
   citedPage?: number;
   highlight?: PdfHighlight;
+  /** A fact's words where the reader found them: drawn on its page, and scrolled to. */
+  marks?: { page: number; id: string } & FactMarks;
   onPagesResolved?: (pages: number) => void;
 }) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
@@ -266,6 +271,7 @@ export function PdfView({
               container={scrollRef}
               cited={citedPage === n}
               highlights={matchByPage.get(n) ?? []}
+              marks={marks && marks.page === n ? marks : undefined}
               onVisible={() => setCurrent(n)}
               register={(el) => {
                 if (el) pageRefs.current.set(n, el);
@@ -287,6 +293,7 @@ function PdfPage({
   container,
   cited,
   highlights,
+  marks,
   onVisible,
   register,
 }: {
@@ -297,6 +304,7 @@ function PdfPage({
   container: React.RefObject<HTMLDivElement | null>;
   cited: boolean;
   highlights: Match['rects'];
+  marks?: { page: number; id: string } & FactMarks;
   onVisible: () => void;
   register: (el: HTMLDivElement | null) => void;
 }) {
@@ -343,6 +351,17 @@ function PdfPage({
     };
   }, [doc, pageNumber, scale, fitWidth, container]);
 
+  /* The marked words, brought to the middle of the viewer once the page has its size. */
+  useEffect(() => {
+    const first = marks?.quote[0];
+    const host = hostRef.current;
+    const scroller = container.current;
+    if (!first || !host || !scroller || !size) return;
+    const top = host.offsetTop + first.y * size.h - scroller.clientHeight / 2;
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    scroller.scrollTo({ top: Math.max(0, top), behavior: reduced ? 'auto' : 'smooth' });
+  }, [marks?.id, size, container, marks?.quote]);
+
   useEffect(() => {
     const el = hostRef.current;
     if (!el) return;
@@ -385,6 +404,11 @@ function PdfPage({
             />
           ))
         : null}
+      {size && marks?.quote.length ? (
+        <div className="pointer-events-none absolute left-0 top-0" style={{ width: size.w, height: size.h }}>
+          <MarksOverlay marks={marks} markId={marks.id} />
+        </div>
+      ) : null}
       <span className="tabular absolute -top-0.5 right-1 rounded-b bg-ink/60 px-1.5 text-micro text-white">
         {pageNumber}
       </span>

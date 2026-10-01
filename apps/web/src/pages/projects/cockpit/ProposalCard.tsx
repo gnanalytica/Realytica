@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { ArrowRight, ChevronRight } from 'lucide-react';
-import { proposalChanges, type ChatProposal, type DdProject } from '@realytica/shared';
+import { ArrowRight, ChevronRight, ScanLine, Sparkles } from 'lucide-react';
+import { proposalChanges, type ChatProposal, type DdProject, type DocumentFact } from '@realytica/shared';
+import type { SourceFocus } from '../../../lib/reading';
 import { Badge, Button, cn } from '../../../components/ui/kit';
 import { CreateWizard } from '../../../components/create/CreateWizard';
 import { specForProposal } from '../../../components/create/specs';
@@ -25,6 +26,8 @@ export function ProposalCard({
   busy,
   onApprove,
   onSkip,
+  onPointFact,
+  onShowDocument,
 }: {
   /** Read for the "before" side of an edit — never for anything the card says. */
   project: DdProject;
@@ -33,6 +36,10 @@ export function ProposalCard({
   /** `payload` is the card as the person confirmed it in the wizard. */
   onApprove: (id: string, payload?: Record<string, unknown>) => void;
   onSkip: (id: string) => void;
+  /** A fact on a document card pointed at — the canvas shows its words on the page. */
+  onPointFact?: (card: ChatProposal, focus: SourceFocus | null) => void;
+  /** Open the document on the canvas, with everything it states. */
+  onShowDocument?: (card: ChatProposal) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [reviewing, setReviewing] = useState(false);
@@ -63,6 +70,19 @@ export function ProposalCard({
   const reviewable = useMemo(() => specForProposal(item.kind), [item.kind]);
   // A card raised from a file the person dropped themselves.
   const uploaded = typeof item.payload.storageKey === 'string' && item.payload.storageKey.length > 0;
+  /*
+   * What a document card would file, shown on the card.
+   *
+   * A document card used to be a file name and an Approve button: whatever
+   * the reader had found on it was behind the approval, so a person approved
+   * a deed without seeing what it said. The facts are the decision, so they
+   * are on the card — and pointing at one shows its words on the page.
+   */
+  const facts = useMemo(
+    () => (item.kind === 'file_evidence' && Array.isArray(item.payload.facts) ? (item.payload.facts as DocumentFact[]) : []),
+    [item],
+  );
+  const storageKey = typeof item.payload.storageKey === 'string' ? item.payload.storageKey : '';
   return (
     <div className="rounded-lg bg-surface px-3 py-2 ring-1 ring-inset ring-[var(--ring)]">
       <div className="flex items-start gap-2">
@@ -108,6 +128,38 @@ export function ProposalCard({
             </div>
           ))}
         </dl>
+      ) : null}
+      {facts.length ? (
+        <ul className="mt-1.5 flex flex-col gap-px rounded-md bg-sunken px-1 py-1" onMouseLeave={() => onPointFact?.(item, null)}>
+          {facts.slice(0, 5).map((fact) => (
+            <li key={fact.key}>
+              <button
+                type="button"
+                onMouseEnter={() => onPointFact?.(item, { key: storageKey, fact })}
+                onFocus={() => onPointFact?.(item, { key: storageKey, fact })}
+                onClick={() => onPointFact?.(item, { key: storageKey, fact })}
+                className="flex w-full items-baseline gap-2 rounded px-1.5 py-1 text-left hover:bg-surface focus-visible:bg-surface"
+              >
+                <span className="w-[38%] shrink-0 truncate text-mini text-ink-secondary">{fact.label}</span>
+                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink">{fact.display}</span>
+                <span className="shrink-0 font-mono text-micro text-ink-muted">p.{fact.page}</span>
+                <Sparkles size={10} className="shrink-0 self-center text-provenance-ink" aria-label={fact.source === 'model' ? 'Read by the model' : 'Read from the page'} />
+              </button>
+            </li>
+          ))}
+          {onShowDocument ? (
+            <li>
+              <button
+                type="button"
+                onClick={() => onShowDocument(item)}
+                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-mini font-medium text-brand hover:bg-surface"
+              >
+                <ScanLine size={11} aria-hidden />
+                {facts.length > 5 ? `${facts.length - 5} more — show it on the page` : 'Show it on the page'}
+              </button>
+            </li>
+          ) : null}
+        </ul>
       ) : null}
       {open ? (
         <div className="mt-1.5 border-t border-[var(--ring)] pt-1.5">

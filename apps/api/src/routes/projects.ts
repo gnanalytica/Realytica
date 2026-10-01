@@ -120,6 +120,7 @@ import {
   withheldAnswer,
   withheldBriefing,
   type ChatIngestFile,
+  type ReadingStreamEvent,
   type DdProject,
   type ProjectChatResult,
   type ProjectChatTurn,
@@ -161,9 +162,9 @@ import { beginRun, listRuns } from '../runs/journal';
 import { startBackgroundRun } from '../runs/background';
 import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
-import { mergeModelReading, readIngestLocally } from '../documents/intake';
+import { mergeModelReading, needsModelReading, readIngestLocally } from '../documents/intake';
 import { readOntoRegister, type RegisterUpload } from '../documents/register-read';
-import { loadSampleDocuments, SAMPLE_REQUEST } from '../documents/samples';
+import { loadSampleDocuments, readSampleDocument, SAMPLE_REQUEST } from '../documents/samples';
 import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS } from '../documents/reread';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
@@ -1276,6 +1277,8 @@ interface IngestUpload {
   buffer: Buffer;
   /** Set for a file already in storage: it is read from there, not stored again. */
   storageKey?: string;
+  /** One of the bundled sample documents. */
+  sample?: boolean;
 }
 
 interface IngestFields {
@@ -1307,6 +1310,7 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
   let turnsBefore = project.conversation.length;
   const stream = beginNdjson(res);
   const { line, clientGone } = stream;
+  const reading = (event: ReadingStreamEvent) => line(event);
   const ingest: ChatIngestFile[] = [];
   const started = Date.now();
   let unread = 0;
@@ -1324,12 +1328,44 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
       storageKey,
       excerpt: extractReadableExcerpt(file.buffer, file.mimetype || '', file.originalname) || undefined,
     };
+    // A filed document read again is on a row already; saying which lets the
+    // reading be drawn over the file's own pages.
+    const holder = canvas.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey));
+    reading({
+      type: 'reading',
+      event: 'start',
+      key: storageKey,
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      sizeBytes: row.sizeBytes,
+      index,
+      total: files.length,
+      ...(file.sample ? { sample: true } : {}),
+      ...(holder
+        ? { evidenceId: holder.id, fileId: holder.attachments.find((a) => a.storageKey === storageKey)!.id }
+        : {}),
+    });
     // Read here first, with no model: text layer or OCR, then what the
     // document is and states. See `documents/intake`.
     // The file under way stops sending pages to OCR a minute past the budget,
     // so the turn ends inside the function's limit with what it has read.
     const deadline = fields.readBudgetMs ? started + fields.readBudgetMs + 60_000 : undefined;
-    ingest.push(await readIngestLocally(row, file.buffer, (step) => line({ type: 'step', step }), { deadline }));
+    const read = await readIngestLocally(row, file.buffer, (step) => line({ type: 'step', step }), {
+      deadline,
+      onPage: (page, of) => reading({ type: 'reading', event: 'page', key: storageKey, page, of }),
+    });
+    ingest.push(read);
+    reading({
+      type: 'reading',
+      event: 'read',
+      key: storageKey,
+      label: read.read?.label,
+      method: read.read?.method,
+      pages: read.pages,
+      facts: read.read?.facts ?? [],
+      summary: read.read?.summary,
+      failure: read.readFailure,
+    });
   }
   const sitting = sittingFromBody({
     ddId: fields.ddId,
@@ -1355,12 +1391,14 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
    * that was already read. Its reading is laid over the local one; its
    * failure never replaces it.
    */
-  if (agentCapability().available) {
+  // Only the documents this server's reader did not understand: see `needsModelReading`.
+  const forModel = ingest.map((f, i) => ({ f, i })).filter(({ f }) => needsModelReading(f));
+  if (agentCapability().available && forModel.length) {
     try {
       const modelRead = await enrichIngestWithDocumentIntelligence({
         project: canvas,
-        files: ingest.map((f) => ({ ...f, read: undefined })),
-        buffers: files.map((f) => f.buffer),
+        files: forModel.map(({ f }) => ({ ...f, read: undefined })),
+        buffers: forModel.map(({ i }) => files[i]!.buffer),
         // The local reading already announced each file. The model's own
         // "Reading …" would say it twice, and its failure is not news about a
         // document that was read — so only its progress passes through.
@@ -1373,8 +1411,27 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
           readCostUsd += spend.usd;
           readCostExact = readCostExact && spend.exact;
         },
+        onFile: (i, phase, file) => {
+          const key = forModel[i]?.f.storageKey;
+          if (!key) return;
+          reading(
+            phase === 'start' || !file
+              ? { type: 'reading', event: 'model', key, phase }
+              : {
+                  type: 'reading',
+                  event: 'model',
+                  key,
+                  phase,
+                  facts: file.modelFacts,
+                  notes: file.extractionNotes,
+                  kind: file.kindHint,
+                  failure: file.readFailure,
+                },
+          );
+        },
       });
-      enriched = ingest.map((local, i) => mergeModelReading(local, modelRead[i]));
+      const byIndex = new Map(forModel.map(({ i }, n) => [i, modelRead[n]]));
+      enriched = ingest.map((local, i) => mergeModelReading(local, byIndex.get(i)));
     } catch {
       enriched = ingest;
     }
@@ -1433,6 +1490,35 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
     scopeId: body.scopeId,
     checkId: body.checkId,
   });
+});
+
+/**
+ * The file a document card would file, so its pages can be shown beside the
+ * card before anybody approves it. Only a card this person can see, and only
+ * the file that card names.
+ */
+projectsRouter.get('/:projectId/chat/proposals/:proposalId/file', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const card = (viewFor(req, project).project.chatProposals ?? []).find((p) => p.id === req.params.proposalId);
+  const storageKey = typeof card?.payload.storageKey === 'string' ? card.payload.storageKey : '';
+  const fileName = typeof card?.payload.fileName === 'string' ? card.payload.fileName : 'document';
+  const bytes = storageKey ? await storageAdapter.getDocument(project.id, storageKey) : null;
+  if (!bytes) {
+    res.status(404).json({ error: 'File not found' });
+    return;
+  }
+  // Typed by its bytes, never by what the card or the uploader claimed.
+  const { contentType, inline } = resolveServedType(bytes, fileName, false);
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Disposition', documentDisposition(inline, fileName));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Length', String(bytes.length));
+  res.setHeader('Cache-Control', 'private, max-age=900, must-revalidate');
+  res.end(bytes);
 });
 
 projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req, res) => {
@@ -2102,6 +2188,28 @@ projectsRouter.post('/:projectId/evidence/files', evidenceUpload.array('files', 
   } catch (err) {
     fail(res, err);
   }
+});
+
+/**
+ * A bundled sample document, by name, so its pages can be drawn while the
+ * chat reads it — before it is filed anywhere. Invented documents only.
+ */
+projectsRouter.get('/:projectId/sample-documents/:name', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project?.sample) {
+    res.status(404).json({ error: 'Not a sample project' });
+    return;
+  }
+  const bytes = await readSampleDocument(req.params.name);
+  if (!bytes) {
+    res.status(404).json({ error: 'No such sample document' });
+    return;
+  }
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Length', String(bytes.length));
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.end(bytes);
 });
 
 projectsRouter.get('/:projectId/evidence/:evidenceId/files/:fileId', async (req, res) => {

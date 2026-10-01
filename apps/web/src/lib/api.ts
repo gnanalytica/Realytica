@@ -8,6 +8,7 @@ import type {
   AgentKind,
   AgentRun,
   AgentStep,
+  ReadingStreamEvent,
   CaseSummary,
   ComparisonResult,
   CopilotTurn,
@@ -310,9 +311,17 @@ async function askCopilotStreaming(
   return answer;
 }
 
+/** What a chat turn reports while it runs: its steps, and any document being read. */
+export interface ProjectChatListeners {
+  onStep?: (step: AgentStep) => void;
+  onReading?: (event: ReadingStreamEvent) => void;
+  signal?: AbortSignal;
+}
+
 async function readProjectChatStream(
   res: Response,
   onStep?: (step: AgentStep) => void,
+  onReading?: (event: ReadingStreamEvent) => void,
 ): Promise<ProjectChatResult & { project: DdProject }> {
   const ct = res.headers.get('content-type') ?? '';
   if (!ct.includes('ndjson')) {
@@ -335,6 +344,7 @@ async function readProjectChatStream(
       return;
     }
     if (parsed.type === 'step' && parsed.step) onStep?.(parsed.step);
+    else if (parsed.type === 'reading') onReading?.(parsed as unknown as ReadingStreamEvent);
     else if (parsed.type === 'error') failure = parsed.error ?? 'The copilot failed.';
     else if (parsed.type === 'result' && parsed.userTurn && parsed.assistantTurn && parsed.project) {
       answer = parsed as ProjectChatResult & { project: DdProject };
@@ -468,6 +478,16 @@ export interface PromptDraft {
   notes?: string;
   activate: boolean;
   invariants: PromptInvariantCheck[];
+}
+
+/** A bundled sample document's bytes, by file name — on a sample project only. */
+export function sampleDocumentUrl(projectId: string, name: string): string {
+  return `${BASE}/projects/${projectId}/sample-documents/${encodeURIComponent(name)}`;
+}
+
+/** The file a document card would file, before it is filed. */
+export function proposalFileUrl(projectId: string, proposalId: string): string {
+  return `${BASE}/projects/${projectId}/chat/proposals/${proposalId}/file`;
 }
 
 export function evidenceFileUrl(
@@ -969,7 +989,7 @@ export const api = {
       sessionId?: string;
       sitting?: { ddId?: string; scopeId?: string; checkId?: string };
     },
-    opts?: { onStep?: (step: AgentStep) => void; signal?: AbortSignal },
+    opts?: ProjectChatListeners,
   ) =>
     fetchWithAuth(`${BASE}/projects/${projectId}/chat`, {
       method: 'POST',
@@ -986,7 +1006,7 @@ export const api = {
         }
         throw new ApiRequestError(message, res.status);
       }
-      return readProjectChatStream(res, opts?.onStep);
+      return readProjectChatStream(res, opts?.onStep, opts?.onReading);
     }),
   projectChatFiles: (
     projectId: string,
@@ -998,7 +1018,7 @@ export const api = {
       sessionId?: string;
       sitting?: { ddId?: string; scopeId?: string; checkId?: string };
     },
-    opts?: { onStep?: (step: AgentStep) => void; signal?: AbortSignal },
+    opts?: ProjectChatListeners,
   ) => {
     const form = new FormData();
     body.files.forEach((f) => form.append('files', f));
@@ -1024,7 +1044,7 @@ export const api = {
         }
         throw new ApiRequestError(message, res.status);
       }
-      return readProjectChatStream(res, opts?.onStep);
+      return readProjectChatStream(res, opts?.onStep, opts?.onReading);
     });
   },
   /** `payload` is the card as the person confirmed it in the wizard. */

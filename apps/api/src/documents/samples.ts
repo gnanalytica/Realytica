@@ -47,6 +47,8 @@ export interface SampleFile {
   mimetype: string;
   size: number;
   buffer: Buffer;
+  /** Bundled with the app, so the browser can fetch its pages by name while it is read. */
+  sample: true;
 }
 
 export async function loadSampleDocuments(): Promise<SampleFile[]> {
@@ -57,7 +59,19 @@ export async function loadSampleDocuments(): Promise<SampleFile[]> {
   for (const name of ORDER) {
     if (!present.has(name)) continue;
     const buffer = await readFile(path.join(dir, name));
-    out.push({ originalname: name, mimetype: 'application/pdf', size: buffer.length, buffer });
+    out.push({ originalname: name, mimetype: 'application/pdf', size: buffer.length, buffer, sample: true });
   }
   return out;
+}
+
+/**
+ * One sample document's bytes, by its file name, for drawing its pages while
+ * it is read. Only a name in the bundled set: the name arrives from a browser
+ * and is never joined onto a path otherwise.
+ */
+export async function readSampleDocument(name: string): Promise<Buffer | null> {
+  if (!ORDER.includes(name)) return null;
+  const dir = await sampleDirectory();
+  if (!dir) return null;
+  return readFile(path.join(dir, name)).catch(() => null);
 }
