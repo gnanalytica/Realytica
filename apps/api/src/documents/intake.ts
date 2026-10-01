@@ -16,6 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentStep, ChatIngestFile } from '@realytica/shared';
 import { parseDocumentText } from '@realytica/shared';
+import { locateFacts } from './locate';
 import { readDocumentText } from './read-text';
 
 function step(label: string, kind: AgentStep['kind'] = 'plan'): AgentStep {
@@ -30,7 +31,7 @@ export async function readIngestLocally(
   file: ChatIngestFile,
   bytes: Buffer,
   onStep?: (step: AgentStep) => void,
-  opts: { deadline?: number } = {},
+  opts: { deadline?: number; onPage?: (page: number, of: number) => void } = {},
 ): Promise<ChatIngestFile> {
   onStep?.(step(`Reading ${file.fileName}`));
   let text: Awaited<ReturnType<typeof readDocumentText>>;
@@ -38,6 +39,7 @@ export async function readIngestLocally(
     text = await readDocumentText(new Uint8Array(bytes), file.mimeType, file.fileName, {
       deadline: opts.deadline,
       onProgress: (label) => onStep?.(step(label, 'tool_call')),
+      onPage: opts.onPage,
     });
   } catch {
     return { ...file, readFailure: 'The file could not be read.' };
@@ -69,7 +71,8 @@ export async function readIngestLocally(
       confidence: parsed.confidence,
       method: text.method,
       ocrConfidence: text.ocrConfidence,
-      facts: parsed.facts,
+      // With where on its page each fact's words are, so it can be shown.
+      facts: locateFacts(parsed.facts, text.layout),
       flags: parsed.flags,
       summary: parsed.summary,
       rowHints: parsed.rowHints,

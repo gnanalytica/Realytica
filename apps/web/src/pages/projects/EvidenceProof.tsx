@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Download, FileWarning } from 'lucide-react';
-import type { DocumentFact, EvidenceAttachment, EvidenceRecord } from '@realytica/shared';
+import type { DocumentFact, EvidenceAttachment, EvidenceRecord, FactMarks } from '@realytica/shared';
 import { Button, cn, useToast } from '../../components/ui/kit';
 import { fetchEvidenceFile, renderKindFor, saveEvidenceFile, type DocumentSourceState } from '../../components/viewer/source';
 
@@ -61,8 +61,13 @@ export function EvidenceProof({
    * words. Until one is picked, the citation the caller opened with stands.
    */
   const [picked, setPicked] = useState<DocumentFact | null>(null);
-  const page = picked?.page ?? citedPage ?? quotes?.find((q) => q.page)?.page ?? evidence.quotes?.find((q) => q.page)?.page;
-  const term = picked?.quote ?? highlightTerm ?? quotes?.[0]?.text ?? evidence.quotes?.[0]?.text;
+  /* Pointing at a fact shows it as picking it does, until the pointer moves off. */
+  const [pointed, setPointed] = useState<DocumentFact | null>(null);
+  const shown = pointed ?? picked;
+  const page = shown?.page ?? citedPage ?? quotes?.find((q) => q.page)?.page ?? evidence.quotes?.find((q) => q.page)?.page;
+  // Where the reader placed the fact's words, the marks are the highlight; the text search is for the rest.
+  const marks = shown?.marks?.quote.length ? { page: shown.page, id: `${evidence.id}:${shown.key}`, ...shown.marks } : undefined;
+  const term = marks ? undefined : shown?.quote ?? highlightTerm ?? quotes?.[0]?.text ?? evidence.quotes?.[0]?.text;
   const shownQuotes = quotes?.length ? quotes : evidence.quotes;
   const facts = evidence.facts ?? [];
 
@@ -116,7 +121,7 @@ export function EvidenceProof({
         ) : null}
         <div className={cn('flex min-h-0 flex-1 flex-col', facts.length && 'md:flex-row')}>
           <div className="min-h-[18rem] min-w-0 flex-1 overflow-hidden bg-sunken">
-            <ProofBody state={state} fileName={file?.fileName ?? evidence.title} citedPage={page} highlightTerm={term} />
+            <ProofBody state={state} fileName={file?.fileName ?? evidence.title} citedPage={page} highlightTerm={term} marks={marks} />
           </div>
           {facts.length ? (
             <aside
@@ -137,6 +142,10 @@ export function EvidenceProof({
                       <button
                         type="button"
                         onClick={() => setPicked(on ? null : fact)}
+                        onMouseEnter={() => setPointed(fact)}
+                        onMouseLeave={() => setPointed(null)}
+                        onFocus={() => setPointed(fact)}
+                        onBlur={() => setPointed(null)}
                         aria-pressed={on}
                         className={cn('block w-full px-4 py-2.5 text-left hover:bg-sunken', on && 'bg-brand-soft/60')}
                       >
@@ -178,11 +187,13 @@ function ProofBody({
   fileName,
   citedPage,
   highlightTerm,
+  marks,
 }: {
   state: DocumentSourceState;
   fileName: string;
   citedPage?: number;
   highlightTerm?: string;
+  marks?: { page: number; id: string } & FactMarks;
 }) {
   if (state.status === 'loading') {
     return <Shell>Loading the file…</Shell>;
@@ -209,6 +220,7 @@ function ProofBody({
           url={state.url}
           citedPage={citedPage}
           highlight={highlightTerm ? { page: citedPage ?? 1, term: highlightTerm } : undefined}
+          marks={marks}
         />
       </Suspense>
     );

@@ -44,6 +44,13 @@ export default {
         },
         grid: 'var(--gridline)',
         axis: 'var(--axis)',
+        /* A reader proposed this; nobody has accepted it yet. */
+        provenance: {
+          DEFAULT: 'rgb(var(--provenance-rgb) / <alpha-value>)',
+          ink: 'var(--provenance-text)',
+        },
+        /* The highlighter laid over a page's own words. */
+        mark: 'rgb(var(--mark-rgb) / <alpha-value>)',
       },
       /*
        * The small end of the type scale, as tokens rather than 459 hand-set
@@ -159,6 +166,27 @@ export default {
          */
         'draw-rule': { from: { transform: 'scaleX(0)' }, to: { transform: 'scaleX(1)' } },
         'set-line': { from: { transform: 'translateY(105%)' }, to: { transform: 'translateY(0)' } },
+        /*
+         * A page being read.
+         *
+         * The moving box is as tall as the page with the scan line along its
+         * bottom edge, so translating it by its own height carries the line
+         * from the top of the page to the foot. It fades in and out at the
+         * ends rather than jumping back to the top.
+         */
+        scan: {
+          '0%': { transform: 'translateY(-100%)', opacity: '0' },
+          '8%': { opacity: '1' },
+          '90%': { opacity: '1' },
+          '100%': { transform: 'translateY(0)', opacity: '0' },
+        },
+        /* A highlighter drawn across a line of the page, left to right. */
+        'mark-sweep': { from: { transform: 'scaleX(0)' }, to: { transform: 'scaleX(1)' } },
+        /* A ring drawn round a value, as a pen would: `pathLength=1` on the shape. */
+        'ring-draw': { from: { strokeDashoffset: '1' }, to: { strokeDashoffset: '0' } },
+        /* A field that has just been read, or just been filed. */
+        'flash-provenance': { from: { backgroundColor: 'rgb(var(--provenance-rgb) / 0.18)' }, to: { backgroundColor: 'transparent' } },
+        'flash-good': { from: { backgroundColor: 'rgb(var(--status-good-rgb) / 0.2)' }, to: { backgroundColor: 'transparent' } },
       },
       animation: {
         'fade-in': 'fade-in 180ms ease-out both',
@@ -167,6 +195,11 @@ export default {
         'scale-in': 'scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both',
         'draw-rule': 'draw-rule 640ms cubic-bezier(0.16, 1, 0.3, 1) both',
         'set-line': 'set-line 620ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        scan: 'scan 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite',
+        'mark-sweep': 'mark-sweep 420ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'ring-draw': 'ring-draw 560ms cubic-bezier(0.65, 0, 0.35, 1) both',
+        'flash-provenance': 'flash-provenance 1100ms ease-out both',
+        'flash-good': 'flash-good 1100ms ease-out both',
       },
     },
   },

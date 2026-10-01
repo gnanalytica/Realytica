@@ -28,6 +28,8 @@ export interface EnrichIngestParams {
    * reports what it spent before it did.
    */
   onSpend?: (spend: TurnSpend) => void;
+  /** Each file as the model starts on it, and its reading once it is done — for drawing the reading as it goes. */
+  onFile?: (index: number, phase: 'start' | 'done', file?: ChatIngestFile) => void;
 }
 
 /**
@@ -90,6 +92,22 @@ function factsFromFields(fields: ExtractedField[]): DocumentFact[] {
   return facts;
 }
 
+/**
+ * Notes cut to a length at a sentence, or failing that a word.
+ *
+ * Cut at a fixed length they ended mid-word on the file's card — "Page
+ * references are self-reported by the model rather th".
+ */
+export function clipNotes(notes: string, max: number): string {
+  const text = notes.replace(/\s+/g, ' ').trim();
+  if (text.length <= max) return text;
+  const head = text.slice(0, max);
+  const sentence = head.match(/^.*[.!?](?=\s|$)/);
+  if (sentence && sentence[0].length >= max * 0.5) return sentence[0];
+  const word = head.replace(/\s+\S*$/, '');
+  return `${word}…`;
+}
+
 function clipQuote(label: string, value: string, max = 140): string {
   const raw = `${label}: ${value}`.replace(/\s+/g, ' ').trim();
   return raw.length > max ? `${raw.slice(0, max - 1)}…` : raw;
@@ -149,6 +167,7 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
       out.push(file);
       continue;
     }
+    params.onFile?.(i, 'start');
     try {
       const result = await runDocumentIntelligence({
         caseId: params.project.id,
@@ -170,6 +189,7 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
             ? { ...file, readFailure: readFailureReason(result.notes) }
             : file,
         );
+        params.onFile?.(i, 'done', out[out.length - 1]);
         continue;
       }
       // The document's own words where the model gave them; its reading
@@ -183,7 +203,7 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
       out.push({
         ...file,
         kindHint: result.kind !== 'other' && result.kind !== 'unclassified' ? result.kind : file.kindHint,
-        extractionNotes: result.notes?.slice(0, 400) || undefined,
+        extractionNotes: result.notes ? clipNotes(result.notes, 400) || undefined : undefined,
         quotes,
         pages: pages || undefined,
         ...(modelFacts.length ? { modelFacts } : {}),
@@ -191,6 +211,7 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
     } catch {
       out.push(file);
     }
+    params.onFile?.(i, 'done', out[out.length - 1]);
   }
 
   return out;

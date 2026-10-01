@@ -41,6 +41,27 @@ export interface DocumentText {
   truncated: boolean;
   /** Why nothing could be read, in plain words — set only when method is `none`. */
   failure?: string;
+  /**
+   * Where each word was on its page, for the pages that had words. Kept so a
+   * quote can be found on the page again; never stored itself.
+   */
+  layout?: PageLayout[];
+}
+
+/** One word as read, and where it sits: fractions of the page's width and height from its top left. */
+export interface LayoutWord {
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface PageLayout {
+  /** 1-based. */
+  page: number;
+  /** In reading order — the order the page's text was built in. */
+  words: LayoutWord[];
 }
 
 export interface ReadOptions {
@@ -50,6 +71,8 @@ export interface ReadOptions {
   maxOcrPages?: number;
   /** Progress, for the chat's live steps. */
   onProgress?: (label: string) => void;
+  /** Each page as it is started, for anything drawing the reading as it goes. */
+  onPage?: (page: number, of: number) => void;
   /**
    * Epoch ms after which no further page is sent to OCR. The pages already
    * read stand and the reading says it was cut, so a turn that is running
@@ -139,6 +162,97 @@ function pageText(items: Array<{ str?: string; hasEOL?: boolean; transform?: num
     if (y !== null) lastY = y;
   }
   return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+type TextItem = { str?: string; transform?: number[]; width?: number; height?: number };
+
+/**
+ * The words of a text layer, where they sit on the page.
+ *
+ * pdf.js places a whole run of text, not each word, so a word's span is its
+ * share of the run's width by characters. That is an estimate in a
+ * proportional font, and close enough to put a mark over the right words.
+ * Taken in the same order `pageText` reads the runs, so the words line up
+ * with the text a quote was cut from.
+ */
+function textLayerWords(
+  pdfjs: typeof import('pdfjs-dist/legacy/build/pdf.mjs'),
+  items: TextItem[],
+  viewport: { width: number; height: number; transform: number[] },
+): LayoutWord[] {
+  const words: LayoutWord[] = [];
+  for (const item of items) {
+    const str = item.str;
+    if (typeof str !== 'string' || !str.trim() || !item.transform) continue;
+    // After the viewport transform, [4] and [5] are the start of the baseline
+    // in page pixels, measured from the top.
+    const t = pdfjs.Util.transform(viewport.transform, item.transform);
+    const height = Math.abs(item.height ?? 0) || Math.hypot(t[2]!, t[3]!) || 10;
+    const width = item.width ?? 0;
+    if (width <= 0) continue;
+    const top = t[5]! - height;
+    const clamp = (n: number) => Math.min(1, Math.max(0, n));
+    for (const m of str.matchAll(/\S+/g)) {
+      const at = m.index ?? 0;
+      // A heading's ascent can reach past the top of the page; the box stops at the edge.
+      const y = clamp(top / viewport.height);
+      words.push({
+        text: m[0],
+        x: clamp((t[4]! + (at / str.length) * width) / viewport.width),
+        y,
+        w: ((m[0].length / str.length) * width) / viewport.width,
+        // A little below the baseline, so a mark covers descenders too.
+        h: clamp((t[5]! + height * 0.25) / viewport.height) - y,
+      });
+    }
+  }
+  return words;
+}
+
+/** The words OCR found, from its block tree, as fractions of the image they were read from. */
+function ocrWords(blocks: import('tesseract.js').Block[] | null | undefined, size: { width: number; height: number }): LayoutWord[] {
+  const words: LayoutWord[] = [];
+  for (const block of blocks ?? []) {
+    for (const paragraph of block.paragraphs ?? []) {
+      for (const line of paragraph.lines ?? []) {
+        for (const word of line.words ?? []) {
+          const text = word.text?.trim();
+          if (!text) continue;
+          const { x0, y0, x1, y1 } = word.bbox;
+          words.push({ text, x: x0 / size.width, y: y0 / size.height, w: (x1 - x0) / size.width, h: (y1 - y0) / size.height });
+        }
+      }
+    }
+  }
+  return words;
+}
+
+/**
+ * A PNG's or JPEG's pixel size from its header, without decoding it. Enough
+ * to put OCR's word boxes on a photographed page; other formats go without.
+ */
+function imageSize(bytes: Uint8Array): { width: number; height: number } | null {
+  if (bytes.length > 24 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return { width: view.getUint32(16), height: view.getUint32(20) };
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < bytes.length) {
+      if (bytes[i] !== 0xff) {
+        i += 1;
+        continue;
+      }
+      const marker = bytes[i + 1]!;
+      const length = (bytes[i + 2]! << 8) | bytes[i + 3]!;
+      // Start-of-frame markers carry the size; DHT, JPG and DAC share the range and do not.
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { height: (bytes[i + 5]! << 8) | bytes[i + 6]!, width: (bytes[i + 7]! << 8) | bytes[i + 8]! };
+      }
+      i += 2 + length;
+    }
+  }
+  return null;
 }
 
 /** How long one page image may take to arrive from the PDF parser before the page is skipped. */
@@ -254,7 +368,7 @@ const MAX_OCR_EDGE = 3_600;
  * bitmap (1 MB), anything else as greyscale, and an oversized page at half
  * size.
  */
-function toPnm(img: { width: number; height: number; kind: number; data: Uint8Array | Uint8ClampedArray }): Buffer {
+function toPnm(img: { width: number; height: number; kind: number; data: Uint8Array | Uint8ClampedArray }): { pnm: Buffer; width: number; height: number } {
   const { width: w, height: h, kind, data } = img;
   const rowBytes = Math.ceil(w / 8);
   // 1 bit per pixel, rows padded to whole bytes. pdf.js has already applied
@@ -271,7 +385,7 @@ function toPnm(img: { width: number; height: number; kind: number; data: Uint8Ar
     // PBM, where a set bit is BLACK: the same rows with every bit flipped.
     const bits = Buffer.alloc(rowBytes * h);
     for (let i = 0; i < bits.length; i += 1) bits[i] = ~(data[i] ?? 0xff) & 0xff;
-    return Buffer.concat([Buffer.from(`P4\n${w} ${h}\n`), bits]);
+    return { pnm: Buffer.concat([Buffer.from(`P4\n${w} ${h}\n`), bits]), width: w, height: h };
   }
 
   const ow = Math.floor(w / scale);
@@ -284,7 +398,7 @@ function toPnm(img: { width: number; height: number; kind: number; data: Uint8Ar
       out[y * ow + x] = Math.round(sum / (scale * scale));
     }
   }
-  return Buffer.concat([Buffer.from(`P5\n${ow} ${oh}\n255\n`), out]);
+  return { pnm: Buffer.concat([Buffer.from(`P5\n${ow} ${oh}\n255\n`), out]), width: ow, height: oh };
 }
 
 /* -------------------------------------------------------------------- */
@@ -391,7 +505,8 @@ async function recognizeWithin(worker: Worker, image: Buffer): Promise<Awaited<R
     timer = setTimeout(() => reject(new Error('OCR took too long on this page')), PAGE_OCR_TIMEOUT_MS);
   });
   try {
-    return await Promise.race([worker.recognize(image), timeout]);
+    // The block tree as well as the text: it is where each word's box is.
+    return await Promise.race([worker.recognize(image, {}, { text: true, blocks: true }), timeout]);
   } catch (err) {
     await releaseOcr();
     throw err;
@@ -400,7 +515,16 @@ async function recognizeWithin(worker: Worker, image: Buffer): Promise<Awaited<R
   }
 }
 
-async function ocrImage(image: Buffer): Promise<{ text: string; confidence: number }> {
+/**
+ * Text, confidence and — given the image's size — where each word is. Without
+ * a size the words have nowhere to be measured against, and are left out.
+ */
+async function ocrImage(
+  image: Buffer,
+  size?: { width: number; height: number } | null,
+): Promise<{ text: string; confidence: number; words?: LayoutWord[] }> {
+  const placed = (blocks: import('tesseract.js').Block[] | null | undefined) =>
+    size && size.width > 0 && size.height > 0 ? ocrWords(blocks, size) : undefined;
   const eng = await ocrWorker(['eng']);
   const first = await recognizeWithin(eng, image);
   const text = first.data.text ?? '';
@@ -412,13 +536,13 @@ async function ocrImage(image: Buffer): Promise<{ text: string; confidence: numb
       const both = await ocrWorker(['kan', 'eng']);
       const second = await recognizeWithin(both, image);
       if ((second.data.confidence ?? 0) > confidence) {
-        return { text: second.data.text ?? '', confidence: second.data.confidence ?? 0 };
+        return { text: second.data.text ?? '', confidence: second.data.confidence ?? 0, words: placed(second.data.blocks) };
       }
     } catch {
       /* the English reading stands */
     }
   }
-  return { text, confidence };
+  return { text, confidence, words: placed(first.data.blocks) };
 }
 
 /* -------------------------------------------------------------------- */
@@ -475,11 +599,20 @@ export async function readDocumentText(
   if (IMAGE_TYPES.test(lower) || IMAGE_EXT.test(name)) {
     try {
       progress('Running OCR on the image');
-      const { text, confidence } = await ocrImage(Buffer.from(bytes));
+      options.onPage?.(1, 1);
+      const { text, confidence, words } = await ocrImage(Buffer.from(bytes), imageSize(bytes));
       if (text.replace(/\s/g, '').length < 12) {
         return { ...empty('No legible text was found in the image — it may be a photograph of the site rather than of a document.'), totalPages: 1 };
       }
-      return { pages: [text], method: 'ocr', ocrPages: [1], ocrConfidence: Math.round(confidence), totalPages: 1, truncated: false };
+      return {
+        pages: [text],
+        method: 'ocr',
+        ocrPages: [1],
+        ocrConfidence: Math.round(confidence),
+        totalPages: 1,
+        truncated: false,
+        ...(words?.length ? { layout: [{ page: 1, words }] } : {}),
+      };
     } catch {
       return empty('The image could not be read.');
     }
@@ -502,14 +635,23 @@ export async function readDocumentText(
   const pages: string[] = [];
   const ocrPages: number[] = [];
   const confidences: number[] = [];
+  const layout: PageLayout[] = [];
   let cut = false;
   try {
     for (let n = 1; n <= last; n += 1) {
+      options.onPage?.(n, totalPages);
       const page = await doc.getPage(n);
       let text = '';
+      let words: LayoutWord[] = [];
       try {
         const content = await page.getTextContent();
         text = pageText(content.items as Array<{ str?: string; hasEOL?: boolean; transform?: number[] }>);
+        try {
+          const viewport = page.getViewport({ scale: 1 });
+          words = textLayerWords(pdfjs, content.items as TextItem[], viewport as unknown as { width: number; height: number; transform: number[] });
+        } catch {
+          words = [];
+        }
       } catch {
         text = '';
       }
@@ -521,9 +663,11 @@ export async function readDocumentText(
           const image = await pageImage(pdfjs, page);
           if (image && image.width * image.height > 40_000) {
             progress(totalPages > 1 ? `Running OCR on page ${n} of ${totalPages}` : 'Running OCR on the scan');
-            const read = await ocrImage(toPnm(image));
+            const { pnm, width, height } = toPnm(image);
+            const read = await ocrImage(pnm, { width, height });
             if (read.text.replace(/\s/g, '').length > text.replace(/\s/g, '').length) {
               text = read.text.trim();
+              words = read.words ?? [];
               ocrPages.push(n);
               confidences.push(read.confidence);
             }
@@ -533,6 +677,7 @@ export async function readDocumentText(
         }
       }
       pages.push(text);
+      if (words.length) layout.push({ page: n, words });
       page.cleanup();
     }
   } finally {
@@ -560,5 +705,6 @@ export async function readDocumentText(
     ocrConfidence: confidences.length ? Math.round(confidences.reduce((a, b) => a + b, 0) / confidences.length) : undefined,
     totalPages,
     truncated: totalPages > last || cut,
+    ...(layout.length ? { layout } : {}),
   };
 }

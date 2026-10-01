@@ -69,11 +69,25 @@ Besides the land instruments, the reader now knows these approvals, and flags a 
 
 Kannada EC scans don't OCR well enough to read on the server. A model that reads PDFs reads them, if one is configured.
 
+## Reading on the canvas
+
+*Added 2026-10-01.* A document being read is drawn on the canvas, and approvals in the chat are carried out there:
+- **The reading.** When documents are dropped in, read again, or loaded as samples, the canvas shows the real page with a scan line going down it, page by page. Each fact then types in below it with its page.
+  - Ochre means a reader proposed the fact.
+  - Green means a person approved it and it is filed.
+  - A text-layer document reads in milliseconds, so each one is shown for a second or two in the order it was read. Nothing is shown before it was actually read.
+- **The source.** Pointing at a fact marks its words on the page: the quote is highlighted line by line and the value is ringed. This works on the canvas, on the facts listed on each document card in the chat, and in the Documents viewer.
+  - Scans are marked too. The reader keeps where every word sat, from the text layer or from OCR's word boxes, and stores each fact's position with the fact.
+- **Approving in the chat.** Approve on one card, or "Approve all N" on the latest reply. The canvas opens on the documents and turns each one's facts green, one document at a time. It then hands back to the register with the new rows lit.
+- **Older documents.** Facts filed before 1 October 2026 have no positions; reading a document again gives it them. A model's reading of a scan still adds notes and quotes only, not facts.
+
 ## A five-minute walkthrough
 
 1. **Portfolio:** the pipeline, what needs a decision, and what is overdue.
 2. **Case dashboard (Whitefield sample):** the lifecycle, the key facts and the map. Ask "Does the extent on the sale deed match the khata?"
 3. **Workspace:** the answer cites each document's page and opens the survey sketch at its fact. Documents shows the deed's 15 facts, each with its words on the page.
+   - *The reading, live:* on the Koramangala sample, which has no documents, press **Use the sample documents**. The nine documents are scanned on the canvas and their facts type in.
+   - Point at a fact on a card to see its words marked on the page, then press **Approve all** and watch them file.
 4. **Technical DD:** the three rulings, a check with document-filled values, and the computed extent mismatch. Read the revenue map for Sy. 118/2 on the Site tab.
 5. **People:** record a request with a due date. It appears on the dashboard and the portfolio.
 6. **Report:** approve a section, export to Word, and open the PDF view. Issue with a named sign-off.

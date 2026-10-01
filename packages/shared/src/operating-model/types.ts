@@ -1422,6 +1422,56 @@ export interface ChatProposal {
   committedRecordId?: string;
 }
 
+/**
+ * A document being read, as it happens, on the upload turn's stream.
+ *
+ * The turn's result says what was read once everything is; these say it file
+ * by file and page by page, so the reading can be shown while it runs — the
+ * page being scanned, and each fact as it comes off it. `key` is the file's
+ * storage key, the one thing every line about the same file shares.
+ */
+export type ReadingStreamEvent =
+  | {
+      type: 'reading';
+      event: 'start';
+      key: string;
+      fileName: string;
+      mimeType: string;
+      sizeBytes: number;
+      /** 0-based place in this turn's files, and how many there are. */
+      index: number;
+      total: number;
+      /** Set when the file is already on a row — a filed document read again — so its bytes can be fetched. */
+      evidenceId?: string;
+      fileId?: string;
+      /** One of the bundled sample documents, fetchable by its file name. */
+      sample?: boolean;
+    }
+  | { type: 'reading'; event: 'page'; key: string; page: number; of: number }
+  | {
+      type: 'reading';
+      event: 'read';
+      key: string;
+      /** "Sale deed", or absent when the file could not be read. */
+      label?: string;
+      method?: string;
+      pages?: number;
+      facts: import('./document-parse').DocumentFact[];
+      summary?: string;
+      failure?: string;
+    }
+  | {
+      type: 'reading';
+      event: 'model';
+      key: string;
+      phase: 'start' | 'done';
+      /** On `done`: what only the model read, which a page verified. */
+      facts?: import('./document-parse').DocumentFact[];
+      notes?: string;
+      kind?: string;
+      failure?: string;
+    };
+
 export interface ChatIngestFile {
   fileName: string;
   mimeType: string;

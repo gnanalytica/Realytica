@@ -79,6 +79,28 @@ export interface DocumentFact {
   originalScript?: import('../script').DocScript;
   /** Who read it: this server's parser, or a model whose page was verified. */
   source?: 'parser' | 'model';
+  /**
+   * Where the quote, and the value inside it, sit on `page` — found by
+   * matching the quote back to the words the page was read from, so a person
+   * can see the words themselves rather than take the quote's word for it.
+   * Absent where the match failed, and on facts read before positions were
+   * kept.
+   */
+  marks?: FactMarks;
+}
+
+/** A box on a page, each side a fraction of the page's width or height from its top left. */
+export interface MarkRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** One box per line the words run across. */
+export interface FactMarks {
+  quote: MarkRect[];
+  value?: MarkRect[];
 }
 
 /** Something a first read should raise, with the words that raise it. */
@@ -359,7 +381,16 @@ const OTHER: Omit<TypeProfile, 'title' | 'body' | 'file'> = {
 /* Text helpers                                                          */
 /* ==================================================================== */
 
-/** OCR and text layers both break words and spacing; read through that. */
+/**
+ * OCR and text layers both break words and spacing; read through that.
+ *
+ * Exported because a quote is cut from text in this form, and finding the
+ * quote's words on the page again means putting them in the same form.
+ */
+export function normaliseDocumentText(text: string): string {
+  return normalise(text);
+}
+
 function normalise(text: string): string {
   return text
     .replace(/\r/g, '')
