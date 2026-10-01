@@ -162,7 +162,7 @@ import { beginRun, listRuns } from '../runs/journal';
 import { startBackgroundRun } from '../runs/background';
 import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
-import { mergeModelReading, readIngestLocally } from '../documents/intake';
+import { mergeModelReading, needsModelReading, readIngestLocally } from '../documents/intake';
 import { readOntoRegister, type RegisterUpload } from '../documents/register-read';
 import { loadSampleDocuments, readSampleDocument, SAMPLE_REQUEST } from '../documents/samples';
 import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS } from '../documents/reread';
@@ -1391,12 +1391,14 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
    * that was already read. Its reading is laid over the local one; its
    * failure never replaces it.
    */
-  if (agentCapability().available) {
+  // Only the documents this server's reader did not understand: see `needsModelReading`.
+  const forModel = ingest.map((f, i) => ({ f, i })).filter(({ f }) => needsModelReading(f));
+  if (agentCapability().available && forModel.length) {
     try {
       const modelRead = await enrichIngestWithDocumentIntelligence({
         project: canvas,
-        files: ingest.map((f) => ({ ...f, read: undefined })),
-        buffers: files.map((f) => f.buffer),
+        files: forModel.map(({ f }) => ({ ...f, read: undefined })),
+        buffers: forModel.map(({ i }) => files[i]!.buffer),
         // The local reading already announced each file. The model's own
         // "Reading …" would say it twice, and its failure is not news about a
         // document that was read — so only its progress passes through.
@@ -1410,7 +1412,7 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
           readCostExact = readCostExact && spend.exact;
         },
         onFile: (i, phase, file) => {
-          const key = ingest[i]?.storageKey;
+          const key = forModel[i]?.f.storageKey;
           if (!key) return;
           reading(
             phase === 'start' || !file
@@ -1428,7 +1430,8 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
           );
         },
       });
-      enriched = ingest.map((local, i) => mergeModelReading(local, modelRead[i]));
+      const byIndex = new Map(forModel.map(({ i }, n) => [i, modelRead[n]]));
+      enriched = ingest.map((local, i) => mergeModelReading(local, byIndex.get(i)));
     } catch {
       enriched = ingest;
     }

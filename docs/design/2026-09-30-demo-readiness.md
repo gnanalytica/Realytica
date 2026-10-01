@@ -80,6 +80,7 @@ Kannada EC scans don't OCR well enough to read on the server. A model that reads
   - Scans are marked too. The reader keeps where every word sat, from the text layer or from OCR's word boxes, and stores each fact's position with the fact.
 - **Approving in the chat.** Approve on one card, or "Approve all N" on the latest reply. The canvas opens on the documents and turns each one's facts green, one document at a time. It then hands back to the register with the new rows lit.
 - **Older documents.** Facts filed before 1 October 2026 have no positions; reading a document again gives it them. A model's reading of a scan still adds notes and quotes only, not facts.
+- **When a model reads.** Only a document the app's own reader did not recognise, or read nothing from. A deed read with its facts is filed as read, so nine sample documents produce their cards in seconds rather than after nine model calls.
 
 ## A five-minute walkthrough
 

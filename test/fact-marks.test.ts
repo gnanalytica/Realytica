@@ -14,7 +14,7 @@ import path from 'node:path';
 import { after, describe, it } from 'node:test';
 import type { DocumentFact } from '@realytica/shared';
 import { locateFact, locateFacts } from '../apps/api/src/documents/locate';
-import { readIngestLocally } from '../apps/api/src/documents/intake';
+import { needsModelReading, readIngestLocally } from '../apps/api/src/documents/intake';
 import { readDocumentText, releaseOcr, type LayoutWord } from '../apps/api/src/documents/read-text';
 import { clipNotes } from '../packages/agents/src/project/ingest-intelligence';
 
@@ -113,5 +113,16 @@ describe("the model's notes on a card", () => {
     assert.equal(clipNotes(notes, 120), 'The file is a set of merged ECs covering 2015 to 2024. One transaction is recorded in 2021.');
     assert.equal(clipNotes('short', 120), 'short');
     assert.match(clipNotes('a'.repeat(30) + ' ' + 'word '.repeat(40), 60), /…$/);
+  });
+});
+
+describe('which documents a model is asked about', () => {
+  const file = (read?: { type: string; facts: unknown[] }) => ({ fileName: 'f.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k', ...(read ? { read } : {}) }) as never;
+
+  it('only the ones the reader did not understand', () => {
+    assert.equal(needsModelReading(file({ type: 'sale_deed', facts: [{}] })), false, 'a deed read with its facts is filed as read');
+    assert.equal(needsModelReading(file({ type: 'other', facts: [{}] })), true, 'not recognised');
+    assert.equal(needsModelReading(file({ type: 'encumbrance_certificate', facts: [] })), true, 'nothing read from it — a Kannada scan');
+    assert.equal(needsModelReading(file()), true, 'not read at all');
   });
 });

@@ -140,3 +140,18 @@ function mergeFacts(local: ChatIngestFile, model: ChatIngestFile): ChatIngestFil
   const known = new Set(facts.map((f) => f.key));
   return { ...local.read, facts: [...facts, ...extra.filter((f) => !known.has(f.key))] };
 }
+
+/**
+ * Which documents to ask a model about: the ones this server's reader did
+ * not understand.
+ *
+ * A document read here with its facts is filed with those facts, its
+ * summary and its quotes — a model's notes and unverified fields never reach
+ * its card — so asking a model about it again costs a call and, nine
+ * documents in, a minute of somebody waiting for their cards. A model is for
+ * what the reader could not do: a document it did not recognise, or one it
+ * read nothing from, like a Kannada scan.
+ */
+export function needsModelReading(file: ChatIngestFile): boolean {
+  return !file.read || file.read.type === 'other' || file.read.facts.length === 0;
+}
