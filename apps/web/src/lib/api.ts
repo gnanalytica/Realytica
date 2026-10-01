@@ -312,6 +312,9 @@ async function askCopilotStreaming(
 }
 
 /** What a chat turn reports while it runs: its steps, and any document being read. */
+/** A chat turn's result, and — when the person's instruction changed the file — how to take it back. */
+export type ProjectChatResponse = ProjectChatResult & { project: DdProject; undo?: { token: string; label: string } };
+
 export interface ProjectChatListeners {
   onStep?: (step: AgentStep) => void;
   onReading?: (event: ReadingStreamEvent) => void;
@@ -322,16 +325,16 @@ async function readProjectChatStream(
   res: Response,
   onStep?: (step: AgentStep) => void,
   onReading?: (event: ReadingStreamEvent) => void,
-): Promise<ProjectChatResult & { project: DdProject }> {
+): Promise<ProjectChatResponse> {
   const ct = res.headers.get('content-type') ?? '';
   if (!ct.includes('ndjson')) {
-    return (await res.json()) as ProjectChatResult & { project: DdProject };
+    return (await res.json()) as ProjectChatResponse;
   }
   const reader = res.body?.getReader();
   if (!reader) throw new ApiRequestError('The project chat response could not be read.', 502);
   const decoder = new TextDecoder();
   let buffer = '';
-  let answer: (ProjectChatResult & { project: DdProject }) | null = null;
+  let answer: ProjectChatResponse | null = null;
   let failure: string | null = null;
 
   const consume = (raw: string): void => {
@@ -347,7 +350,7 @@ async function readProjectChatStream(
     else if (parsed.type === 'reading') onReading?.(parsed as unknown as ReadingStreamEvent);
     else if (parsed.type === 'error') failure = parsed.error ?? 'The copilot failed.';
     else if (parsed.type === 'result' && parsed.userTurn && parsed.assistantTurn && parsed.project) {
-      answer = parsed as ProjectChatResult & { project: DdProject };
+      answer = parsed as ProjectChatResponse;
     }
   };
 
@@ -1059,6 +1062,40 @@ export const api = {
       body: JSON.stringify({}),
     }),
   clearProjectChat: (projectId: string) => request<void>(`/projects/${projectId}/chat`, { method: 'DELETE' }),
+  /*
+   * Deciding on the canvas. Each names what it decides by id, writes no chat
+   * turn, and answers with the project as it now stands.
+   */
+  /** Accept, set aside, correct or reopen values a document was read as stating. */
+  reviewFacts: (
+    projectId: string,
+    evidenceId: string,
+    body: { keys: string[] | 'all'; decision: 'accept' | 'reject' | 'reopen'; edit?: { value: string | number | boolean; display: string } },
+  ) =>
+    request<{ project: DdProject; changed: number }>(`/projects/${projectId}/evidence/${evidenceId}/facts/review`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** Accept or set aside values waiting on a check, a field at a time. */
+  decideCheckFields: (projectId: string, proposalId: string, body: { keys: string[]; decision: 'accept' | 'reject'; values?: Record<string, unknown> }) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/proposals/${proposalId}/fields`, { method: 'POST', body: JSON.stringify(body) }),
+  /** Carry one of the values the documents disagree on — or, with null, keep what the check holds. */
+  pickCheckValue: (projectId: string, checkId: string, key: string, proposalId: string | null) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/checks/${checkId}/fields/${encodeURIComponent(key)}/pick`, {
+      method: 'POST',
+      body: JSON.stringify({ proposalId }),
+    }),
+  /** Accept something waiting, as proposed or as the person corrected it in the form. */
+  acceptWaiting: (projectId: string, proposalId: string, payload?: Record<string, unknown>) =>
+    request<{ project: DdProject; recordId?: string; offered: number }>(`/projects/${projectId}/proposals/${proposalId}/accept`, {
+      method: 'POST',
+      body: JSON.stringify(payload ? { payload } : {}),
+    }),
+  setAsideWaiting: (projectId: string, proposalId: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/proposals/${proposalId}/set-aside`, { method: 'POST', body: JSON.stringify({}) }),
+  /** Take back the last instruction given in the chat. */
+  undoInstruction: (projectId: string, token: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/undo/${token}`, { method: 'POST', body: JSON.stringify({}) }),
   orchestrateProject: (projectId: string, actor?: string) =>
     request<{ run: OrchestratorRun; drafts: AiDraft[]; project: DdProject }>(`/projects/${projectId}/orchestrate`, {
       method: 'POST',

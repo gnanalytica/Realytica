@@ -65,6 +65,12 @@ function touch(project: DdProject, at = nowIso()): void {
   project.updatedAt = at;
 }
 
+/** An audit entry and the project touched, for decisions made outside this module. */
+export function recordAuditEvent(project: DdProject, event: Omit<AuditEvent, 'id' | 'at'> & { at?: string }): void {
+  audit(project, event);
+  touch(project, event.at);
+}
+
 function audit(
   project: DdProject,
   event: Omit<AuditEvent, 'id' | 'at'> & { at?: string },

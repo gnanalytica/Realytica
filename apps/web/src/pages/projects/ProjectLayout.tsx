@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom';
-import type { DdProject, ChatProposal } from '@realytica/shared';
+import type { DdProject } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { Callout, Skeleton } from '../../components/ui/kit';
@@ -9,10 +9,13 @@ export interface ProjectOutlet {
   project: DdProject;
   refresh: () => Promise<void>;
   setProject: (next: DdProject) => void;
-  pinnedProposals?: ChatProposal[];
-  onApproveProposal?: (id: string, payload?: Record<string, unknown>) => void;
-  onSkipProposal?: (id: string) => void;
-  proposalBusy?: boolean;
+  /** Accept something waiting where it sits — as proposed, or as corrected in its form. */
+  onAcceptWaiting?: (id: string, payload?: Record<string, unknown>) => void;
+  onSetAsideWaiting?: (id: string) => void;
+  /** A decision on the canvas is in flight. */
+  waitingBusy?: boolean;
+  /** Open a document on the desk, with the values waiting on it. */
+  onReviewDocument?: (evidenceId: string) => void;
   highlightIds?: string[];
   onOpenCited?: (id: string) => void;
 }

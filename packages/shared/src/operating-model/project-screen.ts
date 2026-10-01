@@ -8,6 +8,7 @@
  */
 
 import { classifyDocument, runScreen } from '../engine';
+import { acceptedFacts } from './fact-review';
 import { REFERENCE_DATA } from '../reference';
 import type {
   CaseDocument,
@@ -340,7 +341,7 @@ function khataClassification(value: string): string {
  */
 function factsToFields(row: EvidenceRecord): ExtractedField[] {
   const method = row.readMethod === 'ocr' ? 'ocr' : 'parser';
-  return (row.facts ?? []).map((fact) => {
+  return acceptedFacts(row).map((fact) => {
     const key = SCREEN_FIELD_KEY[fact.key] ?? fact.key;
     const raw = typeof fact.value === 'boolean' ? (fact.value ? 'yes' : 'no') : String(fact.value);
     return {

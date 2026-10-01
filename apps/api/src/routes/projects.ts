@@ -22,7 +22,7 @@ import {
 } from '../auth/access';
 import { actorOf as principalActor, reachesEveryProject } from '@realytica/shared';
 import multer from 'multer';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   runState,
   describeRun,
@@ -96,6 +96,12 @@ import {
   toProjectSummary,
   updateEvidenceStatus,
   applyProjectChat,
+  acceptWaiting,
+  decideCheckFields,
+  pickCheckValue,
+  recordAuditEvent,
+  reviewFacts,
+  setAsideWaiting,
   assignOwner,
   applyProjectAgentTurn,
   clearProjectConversation,
@@ -209,6 +215,10 @@ import {
   patchValuationBodySchema,
   projectChatBodySchema,
   projectChatProposalBodySchema,
+  factReviewBodySchema,
+  fieldDecisionBodySchema,
+  fieldPickBodySchema,
+  waitingAcceptBodySchema,
   projectOrchestrateBodySchema,
   proposeDraftsBodySchema,
   recordCheckBodySchema,
@@ -1201,6 +1211,8 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   } catch {
     sides = undefined;
   }
+  // The file as it stood, so an instruction that changes it can be undone.
+  const undoBefore = canvas === project ? fileState(project) : null;
   const result = applyProjectChat(canvas, question, {
     actor,
     viewContext: parsed.data.viewContext,
@@ -1258,10 +1270,233 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     if (last?.id === result.assistantTurn.id) last.unanswered = unanswered;
   }
   mergeConversation(project, canvas, actor, turnsBefore);
-  if (result.commands.some((c) => /approved/i.test(c))) await rememberProject(project);
+  if (result.commands.some((c) => /approved|accepted/i.test(c))) await rememberProject(project);
+  const undo = undoBefore ? await keepUndo(project, undoBefore, result.commands[0] ?? 'the last change') : undefined;
   await store.save();
-  line({ type: 'result', ...result, project: canvas });
+  line({ type: 'result', ...result, project: canvas, ...(undo ? { undo } : {}) });
   res.end();
+});
+
+/*
+ * Undo, for what a person told the chat to do.
+ *
+ * Their own instruction runs at once — it is their decision — so the canvas
+ * offers to take it back instead of asking first. The file as it stood is
+ * kept beside the project; undoing puts it back, but only if nothing else
+ * has changed the file since, and never the conversation, which records what
+ * was said either way. One instruction back, not a history: the snapshot an
+ * older instruction kept is dropped when a newer one is kept.
+ */
+function fileState(project: DdProject): string {
+  return JSON.stringify(project);
+}
+
+/**
+ * The file without what talking about it changes — the conversation, the
+ * audit trail, the clock — and, given `known`, only the cards that were
+ * already there: a reply that merely proposes something has changed nothing
+ * a person would want back.
+ */
+function substance(project: DdProject, known?: ReadonlySet<string>): string {
+  const { conversation: _c, updatedAt: _u, audit: _a, lastUndo: _l, chatProposals, ...rest } = project;
+  const cards = (chatProposals ?? []).filter((p) => !known || known.has(p.id)).map((p) => [p.id, p.status, p.payload]);
+  return JSON.stringify({ ...rest, cards });
+}
+
+const fingerprint = (text: string) => createHash('sha256').update(text).digest('hex');
+
+async function keepUndo(project: DdProject, before: string, label: string): Promise<{ token: string; label: string } | undefined> {
+  const was = JSON.parse(before) as DdProject;
+  const known = new Set((was.chatProposals ?? []).map((p) => p.id));
+  if (substance(was, known) === substance(project, known)) return undefined;
+  const token = randomUUID();
+  try {
+    await storageAdapter.putDocument(project.id, `undo-${token}.json`, Buffer.from(before), 'application/json');
+  } catch {
+    return undefined;
+  }
+  const previous = project.lastUndo?.token;
+  project.lastUndo = { token, label, state: fingerprint(substance(project)), at: new Date().toISOString() };
+  if (previous) void storageAdapter.deleteDocument(project.id, `undo-${previous}.json`).catch(() => undefined);
+  return { token, label };
+}
+
+projectsRouter.post('/:projectId/undo/:token', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    assertWorkspaceWork(req, project, 'Undoing an instruction');
+  } catch (err) {
+    fail(res, err);
+    return;
+  }
+  const last = project.lastUndo;
+  if (!last || last.token !== req.params.token) {
+    res.status(404).json({ error: 'There is nothing to undo.' });
+    return;
+  }
+  if (fingerprint(substance(project)) !== last.state) {
+    res.status(409).json({ error: 'The file has changed since, so this can no longer be undone in one step.' });
+    return;
+  }
+  const raw = await storageAdapter.getDocument(project.id, `undo-${last.token}.json`);
+  if (!raw) {
+    res.status(404).json({ error: 'There is nothing to undo.' });
+    return;
+  }
+  const actor = actorOf(req);
+  const before = JSON.parse(raw.toString('utf8')) as DdProject;
+  const conversation = project.conversation;
+  const audit = project.audit;
+  for (const key of Object.keys(project)) delete (project as unknown as Record<string, unknown>)[key];
+  Object.assign(project, before, { conversation, audit, lastUndo: undefined });
+  recordAuditEvent(project, { actor, action: 'undo', entityType: 'project', entityId: project.id, oldValue: last.label });
+  project.conversation.push({
+    id: `cht_${randomUUID()}`,
+    role: 'assistant',
+    text: `Undone: ${last.label.charAt(0).toLowerCase()}${last.label.slice(1)}.`,
+    at: new Date().toISOString(),
+    actor,
+    citedEvidenceIds: [],
+  } as ProjectChatTurn);
+  refreshProjectDerived(project);
+  await store.save();
+  await storageAdapter.deleteDocument(project.id, `undo-${last.token}.json`).catch(() => undefined);
+  res.json({ project });
+});
+
+/* ---------------------------------------------------------------------- */
+/* Deciding on the canvas                                                  */
+/* ---------------------------------------------------------------------- */
+
+/** Accept, set aside, correct or reopen the values a document was read as stating. */
+projectsRouter.post('/:projectId/evidence/:evidenceId/facts/review', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = factReviewBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const view = viewFor(req, project);
+    const { changed } = reviewFacts(project, req.params.evidenceId, parsed.data.keys, parsed.data.decision, actorOf(req), parsed.data.edit, {
+      checkWritable: view.complete ? undefined : (checkId) => view.writableCheckIds.has(checkId),
+    });
+    refreshProjectDerived(project);
+    await store.save();
+    res.json({ project, changed: changed.length });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** Accept or set aside a check's waiting values, a field at a time. */
+projectsRouter.post('/:projectId/proposals/:proposalId/fields', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = fieldDecisionBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    decideCheckFields(project, req.params.proposalId, parsed.data.keys, parsed.data.decision, actorOf(req), parsed.data.values);
+    refreshProjectDerived(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** Settle a field the documents disagree on: carry one waiting value, or keep what the check holds. */
+projectsRouter.post('/:projectId/checks/:checkId/fields/:key/pick', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = fieldPickBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    pickCheckValue(project, req.params.checkId, req.params.key, parsed.data.proposalId, actorOf(req));
+    refreshProjectDerived(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/**
+ * Accept something waiting on the canvas, by its id.
+ *
+ * Not through the chat: the chat's approve route re-reads the card's title as
+ * a sentence, which finds the wrong card when one title begins another and
+ * approves a whole batch when a title contains "all". The canvas names the
+ * card it means.
+ */
+projectsRouter.post('/:projectId/proposals/:proposalId/accept', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = waitingAcceptBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const item = project.chatProposals.find((p) => p.id === req.params.proposalId);
+  if (!item) {
+    res.status(404).json({ error: 'Nothing waiting by that id' });
+    return;
+  }
+  try {
+    applyReviewedPayload(item.payload, parsed.data.payload);
+    refreshProjectDerived(project);
+    const now = new Date().toISOString();
+    if (item.kind === 'run_screen') await ensureIdentitySiteContext(project, projectToIdentity(project), now);
+    const placeBefore = projectSiteQuery(project);
+    const accepted = acceptWaiting(project, item.id, actorOf(req));
+    await refreshSiteContextIfMoved(project, placeBefore, now);
+    refreshProjectDerived(project);
+    await rememberProject(project);
+    await store.save();
+    res.json({ project, recordId: accepted.recordId, offered: accepted.offered.length });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** Set something waiting aside. It stays on record as decided. */
+projectsRouter.post('/:projectId/proposals/:proposalId/set-aside', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    setAsideWaiting(project, req.params.proposalId, actorOf(req));
+    refreshProjectDerived(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    fail(res, err);
+  }
 });
 
 const chatUpload = multer({

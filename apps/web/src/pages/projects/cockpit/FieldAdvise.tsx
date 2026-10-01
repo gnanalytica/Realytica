@@ -90,33 +90,43 @@ export function FieldAdvise({
         )}
       >
         <p className="text-[12px] font-medium text-ink-muted">
-          {lean === 'tick' ? 'Lean tick' : lean === 'cross' ? 'Lean cross' : 'Advise'}
+          {lean === 'tick' ? 'Leans towards meeting it' : lean === 'cross' ? 'Leans towards proof missing' : 'Advise'}
         </p>
         <p className="mt-0.5 text-[12px] leading-relaxed text-ink">{advise.why}</p>
         <p className="mt-1 text-[11px] text-ink-muted">You close the check. This is not a model verdict.</p>
       </div>
       {pending && onTick && onCross ? (
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button
-            size="sm"
-            variant={lean === 'tick' ? 'primary' : 'secondary'}
+          {/* Icons, named for what they record: a verdict is two shapes, not two words. */}
+          <span className="mr-1 text-[12px] font-medium text-ink">Your call</span>
+          <button
+            type="button"
             disabled={busy}
-            icon={<Check size={13} />}
             onClick={onTick}
-            aria-label="Record compliant"
+            aria-label="Meets it — record compliant"
+            title="Meets it — record compliant"
+            className={cn(
+              'flex size-9 items-center justify-center rounded-lg ring-1 ring-inset disabled:opacity-50 coarse:size-11',
+              lean === 'tick'
+                ? 'bg-good/10 text-[var(--status-good-text)] ring-good/60'
+                : 'bg-surface text-[var(--status-good-text)] ring-good/35 hover:bg-good/10',
+            )}
           >
-            Tick
-          </Button>
-          <Button
-            size="sm"
-            variant={lean === 'cross' ? 'primary' : 'secondary'}
+            <Check size={17} strokeWidth={2.6} aria-hidden />
+          </button>
+          <button
+            type="button"
             disabled={busy}
-            icon={<X size={13} />}
             onClick={onCross}
-            aria-label="Record missing evidence"
+            aria-label="Proof missing — record missing evidence"
+            title="Proof missing — record missing evidence"
+            className={cn(
+              'flex size-9 items-center justify-center rounded-lg ring-1 ring-inset disabled:opacity-50 coarse:size-11',
+              lean === 'cross' ? 'bg-sunken text-ink ring-ink-muted' : 'bg-surface text-ink-secondary ring-[var(--ring)] hover:bg-sunken',
+            )}
           >
-            Cross
-          </Button>
+            <X size={17} strokeWidth={2.4} aria-hidden />
+          </button>
           {onDetails ? (
             <Button size="sm" variant="ghost" disabled={busy} onClick={onDetails}>
               More
@@ -148,7 +158,7 @@ export function TickCrossButtons({
       <button
         type="button"
         aria-label="Record compliant"
-        title="Tick — compliant"
+        title="Compliant"
         disabled={busy}
         onClick={onTick}
         className={cn(
@@ -161,7 +171,7 @@ export function TickCrossButtons({
       <button
         type="button"
         aria-label="Record missing evidence"
-        title="Cross — missing evidence"
+        title="Missing evidence"
         disabled={busy}
         onClick={onCross}
         className={cn(

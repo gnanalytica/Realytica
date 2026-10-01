@@ -228,7 +228,7 @@ describe('a DD card already waiting', () => {
     const file = await ingestOf('Sale_Deed_2019_Sy_118-2_Whitefield.pdf');
     const upload = applyProjectChat(project, '', { ingest: [file] });
     assert.ok(upload.proposals.some((p) => p.kind === 'start_dd'), 'the waiting DD card is in this turn');
-    assert.match(upload.assistantTurn.text, /also starts the Acquisition/);
+    assert.match(upload.assistantTurn.text, /Acquisition \/ Site DD is waiting to start/);
     const approved = applyProjectChat(project, 'approve all');
     assert.equal(project.assessments.length, 1, 'the DD started');
     assert.ok(approved.proposals.some((p) => p.kind === 'record_check_fields'), 'its values are offered at once');

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  ArrowRight,
   Building2,
   Camera,
   ChevronDown,
@@ -236,6 +237,21 @@ function Count({ n }: { n: number }) {
   return <span className="tabular rounded-full bg-warning/25 px-1.5 text-[10px] text-ink">{n}</span>;
 }
 
+/** Things waiting for a person's decision — the reader's ochre, not the warning amber of what is overdue. */
+function WaitingCount({ n, label }: { n: number; label: string }) {
+  return (
+    <span className="tabular rounded-full bg-provenance/15 px-1.5 text-[10px] font-medium text-provenance-ink" aria-label={`${n} ${label}`}>
+      {n}
+    </span>
+  );
+}
+
+type WaitingByPane = Partial<Record<ProjectCockpitPane, number>>;
+
+function waitingOnTab(tab: CockpitTab, byPane: WaitingByPane): number {
+  return [tab.pane, ...(tab.also ?? [])].reduce((n, p) => n + (byPane[p] ?? 0), 0);
+}
+
 export function CockpitPaneStrip({
   pane,
   project,
@@ -244,6 +260,8 @@ export function CockpitPaneStrip({
   overdue,
   pendingDrafts,
   onGo,
+  waiting,
+  onReview,
   wrap = false,
 }: {
   pane: ProjectCockpitPane;
@@ -253,6 +271,10 @@ export function CockpitPaneStrip({
   overdue: number;
   pendingDrafts: number;
   onGo: (pane: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string }) => void;
+  /** What waits for a decision, by pane: counted on its tab, and summed on the pill that walks them. */
+  waiting?: { total: number; byPane: WaitingByPane };
+  /** Go to the next thing waiting. */
+  onReview?: () => void;
   wrap?: boolean;
 }) {
   const badges = { overdue, pendingDrafts };
@@ -269,11 +291,13 @@ export function CockpitPaneStrip({
   return (
     <div className={cn('shrink-0 border-b border-hairline bg-surface', wrap ? 'px-4' : 'px-3')}>
       {/* The rule the tabs sit on. The active one joins it; the rest stop short. */}
-      <div className="border-b border-hairline pt-1">
+      <div className="flex items-center gap-2 border-b border-hairline pt-1">
+      <div className="min-w-0 flex-1">
       <ChipScroller wrap={wrap}>
         {sections.map((section) => {
           const on = section.key === here.key;
           const count = sectionBadge(section, badges);
+          const toDecide = waiting ? section.tabs.reduce((n, t) => n + waitingOnTab(t, waiting.byPane), 0) : 0;
           return (
             <button
               key={section.key}
@@ -301,11 +325,28 @@ export function CockpitPaneStrip({
               {/* Words only: eight icons beside eight words wrapped the row
                   onto two lines beside a wide conversation. */}
               {section.label}
+              {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
               {count != null ? <Count n={count} /> : null}
             </button>
           );
         })}
       </ChipScroller>
+      </div>
+      {/*
+        The way through what is waiting: documents first, then the checks
+        they answer, then the rest — one press at a time, wherever it is.
+      */}
+      {waiting && waiting.total > 0 && onReview ? (
+        <button
+          type="button"
+          onClick={onReview}
+          className="mb-1 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-provenance/10 px-2.5 py-1 text-[12px] font-medium text-provenance-ink ring-1 ring-inset ring-provenance/35 hover:bg-provenance/20 coarse:min-h-11"
+        >
+          <span className="size-1.5 rounded-full bg-provenance" aria-hidden />
+          <span className="tabular-nums">{waiting.total}</span> to review
+          <ArrowRight size={12} aria-hidden />
+        </button>
+      ) : null}
       </div>
 
       {tabs.length > 1 ? (
@@ -314,6 +355,7 @@ export function CockpitPaneStrip({
           {tabs.map((tab) => {
             const on = paneActive(pane, tab.pane);
             const count = badgeFor(tab.pane, badges);
+            const toDecide = waiting ? waitingOnTab(tab, waiting.byPane) : 0;
             return (
               <button
                 key={tab.pane}
@@ -326,6 +368,7 @@ export function CockpitPaneStrip({
                 )}
               >
                 {tab.label}
+                {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
                 {count != null ? <Count n={count} /> : null}
               </button>
             );

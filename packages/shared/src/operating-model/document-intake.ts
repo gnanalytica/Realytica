@@ -13,6 +13,7 @@
  */
 
 import { checkSchema } from './operations';
+import { acceptedFacts, liveFacts } from './fact-review';
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS } from './libraries';
 import { SCOPE_LABEL } from './catalogs';
 import { isBlank } from './check-fields';
@@ -93,7 +94,12 @@ function everyCheck(project: DdProject): SeatedCheck[] {
   return out;
 }
 
-function alreadyProposed(project: DdProject, checkId: string, key: string, pending: ChatProposal[]): boolean {
+/**
+ * The same value already waits for this field. A DIFFERENT value is offered
+ * beside it: two documents that disagree are a choice for a person, and
+ * offering only whichever was read first would make it for them.
+ */
+function alreadyProposed(project: DdProject, checkId: string, key: string, value: unknown, pending: ChatProposal[]): boolean {
   return [...project.chatProposals, ...pending].some(
     (p) =>
       p.kind === 'record_check_fields'
@@ -101,7 +107,9 @@ function alreadyProposed(project: DdProject, checkId: string, key: string, pendi
       && p.payload.checkId === checkId
       && typeof p.payload.values === 'object'
       && p.payload.values !== null
-      && key in (p.payload.values as Record<string, unknown>),
+      && key in (p.payload.values as Record<string, unknown>)
+      && !((p.payload.decided as Record<string, string> | undefined)?.[key])
+      && String((p.payload.values as Record<string, unknown>)[key]) === String(value),
   );
 }
 
@@ -132,7 +140,7 @@ export function factFillProposals(
       const def = fields.find((f) => f.key === fact.key);
       if (!def || def.kind === 'computed') continue;
       if (!isBlank(seated.check.fields?.[fact.key])) continue;
-      if (alreadyProposed(project, seated.check.id, fact.key, [...pending, ...out])) continue;
+      if (alreadyProposed(project, seated.check.id, fact.key, fact.value, [...pending, ...out])) continue;
       // An enum only takes one of its own options; a value the document
       // phrases differently is quoted, not forced.
       if (def.kind === 'enum' && def.options?.length && !def.options.some((o) => o.toLowerCase() === String(fact.value).toLowerCase())) continue;
@@ -233,8 +241,8 @@ function severityWord(severity: FindingSeverity): string {
  */
 export function factsOnFile(project: DdProject): Array<{ fact: DocumentFact; evidence: EvidenceRecord }> {
   const out: Array<{ fact: DocumentFact; evidence: EvidenceRecord }> = [];
-  const rows = [...project.evidence].filter((e) => (e.facts ?? []).length).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  for (const evidence of rows) for (const fact of evidence.facts ?? []) out.push({ fact, evidence });
+  const rows = [...project.evidence].filter((e) => liveFacts(e).length).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  for (const evidence of rows) for (const fact of liveFacts(evidence)) out.push({ fact, evidence });
   return out;
 }
 
@@ -246,12 +254,13 @@ export function factsOnFile(project: DdProject): Array<{ fact: DocumentFact; evi
  */
 export function pendingFactProposals(project: DdProject, actor = 'operator', pending: ChatProposal[] = []): ChatProposal[] {
   const out: ChatProposal[] = [];
-  const rows = project.evidence.filter((e) => (e.facts ?? []).length);
+  // Only what a person accepted the document as stating fills a check.
+  const rows = project.evidence.filter((e) => acceptedFacts(e).length);
   for (const evidence of rows) {
     out.push(
       ...factFillProposals(
         project,
-        evidence.facts ?? [],
+        acceptedFacts(evidence),
         {
           fileName: evidence.attachments[0]?.fileName ?? evidence.title,
           evidenceId: evidence.id,

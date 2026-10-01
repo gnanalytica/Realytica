@@ -18,6 +18,7 @@ import {
   observationIsUseful,
   iso19650Completeness,
   iso19650Name,
+  proposedFacts,
   quotesForEvidence,
   ricsConditionRating,
   type CapturePurpose,
@@ -57,7 +58,7 @@ type RegisterFilter = 'all' | 'gaps' | 'filed' | EvidenceStatus;
 const BULK_STATUSES = ['requested', 'received', 'validated', 'missing'] satisfies EvidenceStatus[];
 
 export function EvidenceRegister() {
-  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds, onReviewDocument } = useOutletContext<ProjectOutlet>();
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const assessmentId = searchParams.get('dd') ?? undefined;
@@ -452,6 +453,18 @@ export function EvidenceRegister() {
                 </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {/* What the document was read as stating, waiting to be accepted on it. */}
+                  {onReviewDocument && proposedFacts(e).length ? (
+                    <button
+                      type="button"
+                      onClick={() => onReviewDocument(e.id)}
+                      aria-label={`Review the ${proposedFacts(e).length} values waiting on ${e.title}`}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-provenance/10 px-2.5 py-1 text-[12px] font-medium text-provenance-ink ring-1 ring-inset ring-provenance/35 hover:bg-provenance/20 coarse:min-h-11"
+                    >
+                      <span className="size-1.5 rounded-full bg-provenance" aria-hidden />
+                      {proposedFacts(e).length} to review
+                    </button>
+                  ) : null}
                   {(e.attachments ?? []).length ? (
                     <Button size="sm" variant="ghost" aria-label={`Open the proof for ${e.title}`} onClick={() => setProofId(e.id)}>
                       Open proof

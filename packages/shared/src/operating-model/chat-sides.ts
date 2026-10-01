@@ -220,7 +220,7 @@ function proposalsFromPlaces(project: DdProject, pull: ChatPlacesPull | undefine
     } satisfies Partial<CreateEvidenceInput> & Record<string, unknown>,
     actor,
   );
-  return { cards: [card], text: `${body}\n\nApprove the card to file this as location evidence. It is not a survey.` };
+  return { cards: [card], text: `${body}\n\nIt is waiting on the right to be filed as location evidence. It is not a survey.` };
 }
 
 /**
@@ -272,7 +272,7 @@ function proposalsFromWeb(project: DdProject, pull: ChatWebPull | undefined, act
       `Public-web search for locality terms (“${pull.query}”). Address, owner and documents were not sent.`,
       'Government portals behind login/CAPTCHA were not fetched.',
       ...cards.map((c) => `• ${c.title}`),
-      'Approve a card to log it as a finding. It is web signal, not a Kaveri/Bhoomi extract.',
+      'Accept one where it waits, under Findings, to log it. It is web signal, not a Kaveri/Bhoomi extract.',
     ].join('\n'),
   };
 }
@@ -352,7 +352,7 @@ function proposalsFromConnectors(
     text:
       preface
       + (cards.length
-        ? `${plural(cards.length, 'place')} to get this. I can’t log in or scrape them — approve below and I’ll put it on the register for you to collect.`
+        ? `${plural(cards.length, 'place')} to get this. I can’t log in or scrape them — accept it on the right and I’ll put it on the register for you to collect.`
         : 'Nothing in the Karnataka catalogue covers that.'),
   };
 }
@@ -372,14 +372,14 @@ function proposalsFromCapabilities(project: DdProject, actor: string): { cards: 
     'snapshot_capabilities',
     'Store cost / schedule / market / benchmark snapshot',
     runs.map((r) => `${CAPABILITY_KIND_LABEL[r.kind]}: ${r.summary}`).join(' '),
-    'Computes from live registers (no model). Approve to persist the snapshot on the project.',
+    'Computes from live registers (no model). Accepting it keeps the snapshot on the project.',
     { kinds: runs.map((r) => r.kind) },
     actor,
     { citedNodeIds: [project.id] },
   );
   return {
     cards: [card],
-    text: `Capability read from project registers (no model, no web). Approve to store the snapshot.\n${runs.map((r) => `• ${CAPABILITY_KIND_LABEL[r.kind]} — ${r.summary}`).join('\n')}`,
+    text: `Capability read from project registers (no model, no web). It waits under Auto-run; accept it to store the snapshot.\n${runs.map((r) => `• ${CAPABILITY_KIND_LABEL[r.kind]} — ${r.summary}`).join('\n')}`,
   };
 }
 
@@ -395,7 +395,7 @@ function proposalsFromDrafts(project: DdProject, actor: string): { cards: ChatPr
     `Commit “${first.title}”`,
     more
       ? `${first.kind} draft. ${more} more stay in the drafts register — this card commits one.`
-      : `${first.title} (${first.kind}). Nothing writes until you approve.`,
+      : `${first.title} (${first.kind}). Nothing writes until you accept it.`,
     'Writes this draft into the matching register. Other drafts stay proposed.',
     { draftIds: [first.id] },
     actor,
@@ -403,7 +403,7 @@ function proposalsFromDrafts(project: DdProject, actor: string): { cards: ChatPr
   );
   return {
     cards: [card],
-    text: `Pending drafts:\n${pending.map((d) => `• ${d.title} [${d.kind}]`).join('\n')}\n\nApprove to commit the first. The rest stay in drafts.`,
+    text: `Pending drafts:\n${pending.map((d) => `• ${d.title} [${d.kind}]`).join('\n')}\n\nThey wait under AI drafts; accept the first to commit it. The rest stay in drafts.`,
   };
 }
 

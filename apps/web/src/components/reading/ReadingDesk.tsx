@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, FileText, Loader2, ScanLine, Sparkles, X } from 'lucide-react';
-import type { ChatProposal, DocumentFact } from '@realytica/shared';
+import { AlertTriangle, ArrowRight, Check, FileText, Loader2, ScanLine, Sparkles, X } from 'lucide-react';
+import { proposedFacts, type DdProject, type DocumentFact, type EvidenceRecord } from '@realytica/shared';
+import { api } from '../../lib/api';
 import { cardStateFor, type ReadingFile, type ReadingSession, type SourceFocus } from '../../lib/reading';
-import { cn } from '../ui/kit';
+import { Button, cn, useToast } from '../ui/kit';
 import { FactRow, type FactState } from './FactRow';
+import { FactReviewList, type FactDecision, type FactEdit } from './FactReview';
 import { PagePreview } from './PagePreview';
+
+/** The register row a file on the desk was filed as — found by the stored file, which is all the reading knows. */
+export function rowForFile(project: DdProject, key: string): EvidenceRecord | undefined {
+  return project.evidence.find((e) => e.attachments.some((a) => a.storageKey === key));
+}
 
 /**
  * How long a document is shown being scanned, at the least — a text layer
@@ -71,6 +78,11 @@ function usePace(session: ReadingSession): { paces: Map<string, Pace>; now: numb
   return { paces, now };
 }
 
+/** "Sale deed" reads as "the sale deed"; "DC conversion order" keeps its acronym. */
+function asNamed(label: string): string {
+  return /^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label;
+}
+
 function shortName(name: string): string {
   const bare = name.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ');
   return bare.length > 26 ? `${bare.slice(0, 25)}…` : bare;
@@ -93,37 +105,54 @@ function QuoteWithValue({ fact }: { fact: DocumentFact }) {
 }
 
 /**
- * The canvas while documents are read: the page being scanned, and what it
- * states coming off it.
+ * The canvas while documents are read, and where what they state is decided.
  *
- * The chat says what happened and holds the cards to approve. This is where
- * it is seen — the scan going down the real page, each fact typed in as it is
- * read, and its words marked on the page when a person points at it, here or
- * on the card in the chat. When a card is approved its facts turn from ochre,
- * proposed, to green, filed.
+ * The scan goes down the real page and each fact types in as it is read.
+ * Once the documents are filed — which the upload does itself — each value
+ * waits on its document, ochre, with the two decisions beside it: accept it
+ * onto the file, or set it aside. Pointing at a value marks its words on the
+ * page. The chat only talks; nothing here is approved there.
  */
 export function ReadingDesk({
-  projectId,
+  project,
   session,
-  proposals,
   focus,
   pinKey,
   onFocus,
   onClose,
-  onSettled,
+  onDecided,
+  next,
 }: {
-  projectId: string;
+  project: DdProject;
   session: ReadingSession;
-  proposals: ChatProposal[] | undefined;
   focus: SourceFocus | null;
-  /** A document asked for by name — "show it on the page" on its card. */
+  /** A document asked for by name — "review" on its row. */
   pinKey?: string | null;
   onFocus: (focus: SourceFocus | null) => void;
   onClose: () => void;
-  /** Every file's card has been decided — the desk can hand back to the registers. */
-  onSettled?: () => void;
+  /** A value was decided; this is the project as it now stands. */
+  onDecided: (project: DdProject) => void;
+  /** Where the review goes once these documents are settled, if anything else waits. */
+  next?: { label: string; onGo: () => void } | null;
 }) {
+  const projectId = project.id;
+  const proposals = project.chatProposals;
+  const toast = useToast();
   const { paces, now } = usePace(session);
+  /*
+   * Side by side when there is room, stacked when there is not — measured on
+   * the desk, which is whatever the conversation leaves of the window. At
+   * 1040px that is under 500px, and a page above a list put every value
+   * below the fold of a page that scrolled on its own.
+   */
+  const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null);
+  const [wide, setWide] = useState(true);
+  useEffect(() => {
+    if (!bodyEl) return;
+    const ro = new ResizeObserver(([entry]) => setWide((entry?.contentRect.width ?? 0) >= 620));
+    ro.observe(bodyEl);
+    return () => ro.disconnect();
+  }, [bodyEl]);
   const revealUntil = useRef(new Map<string, number>());
   const [pinned, setPinned] = useState<string | null>(pinKey ?? null);
   useEffect(() => {
@@ -183,23 +212,47 @@ export function ReadingDesk({
     ?? session.files[0];
 
   const readCount = session.files.filter((f) => factsShown(f) && f.phase !== 'reading').length;
-  const factTotal = session.files.reduce((n, f) => n + (factsShown(f) ? f.facts.length + f.modelFacts.length : 0), 0);
   const allShown = session.finished && session.files.every((f) => factsShown(f));
-  const decided = session.files.length > 0 && session.files.every((f) => states.get(f.key) !== 'proposed' || f.phase === 'failed');
-  const anyFiled = session.files.some((f) => states.get(f.key) === 'filed');
+  const rows = new Map(session.files.map((f) => [f.key, rowForFile(project, f.key)] as const));
+  // Filed, a document states what its row holds; still being read, what the stream has found.
+  const factTotal = session.files.reduce(
+    (n, f) => n + (factsShown(f) ? (rows.get(f.key)?.facts?.length ?? f.facts.length + f.modelFacts.length) : 0),
+    0,
+  );
+  const waitingOn = (f: ReadingFile) => proposedFacts(rows.get(f.key) ?? {}).length;
+  const waitingTotal = session.files.reduce((n, f) => n + (factsShown(f) ? waitingOn(f) : 0), 0);
+  const reviewed = session.files.some((f) => (rows.get(f.key)?.facts ?? []).length > 0);
+  const settled = allShown && reviewed && waitingTotal === 0;
 
-  /* Once every card is decided and something was filed, hand the canvas back to the registers. */
-  useEffect(() => {
-    if (!allShown || !decided || !anyFiled || !onSettled || filingQueue.length) return;
-    const t = window.setTimeout(onSettled, 2200);
-    return () => window.clearTimeout(t);
-  }, [allShown, decided, anyFiled, onSettled, filingQueue.length]);
+  /*
+   * Decisions go to the server one at a time, in the order they were made:
+   * two in flight at once could answer out of order and show the file as it
+   * stood before the later one.
+   */
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  function decide(row: EvidenceRecord, keys: string[] | 'all', decision: FactDecision, edit?: FactEdit): Promise<boolean> {
+    const run = queue.current.then(async () => {
+      try {
+        const { project: next } = await api.reviewFacts(projectId, row.id, { keys, decision, edit });
+        onDecided(next);
+        return true;
+      } catch (e) {
+        toast(e instanceof Error ? e.message : 'That value could not be decided', 'critical');
+        return false;
+      }
+    });
+    queue.current = run;
+    return run;
+  }
 
   if (!current) return null;
 
   const shown = factsShown(current);
   const scanning = !shown && current.phase !== 'failed';
   const facts = shown ? [...current.facts, ...current.modelFacts] : [];
+  /* Filed: what the row holds, each value with where it stands. Before that, what the stream read. */
+  const row = rows.get(current.key);
+  const rowFacts = shown && row ? row.facts ?? [] : [];
   const pointed = focus && focus.key === current.key ? focus.fact : null;
   /*
    * The page in front while scanning. While the server is still reading, the
@@ -234,14 +287,16 @@ export function ReadingDesk({
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-ink">
             {session.mode === 'review'
-              ? `${session.files.length === 1 ? 'The document' : `${session.files.length} documents`} and what they state`
+              ? session.files.length === 1
+                ? 'The document and what it states'
+                : `${session.files.length} documents and what they state`
               : session.finished && allShown
                 ? `Read ${session.files.length === 1 ? 'the document' : `${session.files.length} documents`}`
                 : `Reading ${session.files.length === 1 ? 'the document' : `${session.files.length} documents`}`}
           </p>
           <p className="text-micro text-ink-muted" aria-live="polite">
             {readCount} of {session.files.length} read · {factTotal} fact{factTotal === 1 ? '' : 's'}
-            {decided && anyFiled ? ' · filed' : allShown ? ' · approve in the chat to file them' : ''}
+            {settled ? ' · all settled' : waitingTotal ? ` · ${waitingTotal} waiting for you` : ''}
           </p>
         </div>
         <button
@@ -273,6 +328,9 @@ export function ReadingDesk({
               >
                 {f.phase === 'failed' ? (
                   <AlertTriangle size={12} className="text-[var(--status-warning-text)]" aria-hidden />
+                ) : done && waitingOn(f) > 0 ? (
+                  // Filed, but what it states is still waiting: not done yet.
+                  <Sparkles size={12} className="text-provenance-ink" aria-hidden />
                 ) : s === 'filed' ? (
                   <Check size={12} className="text-[var(--status-good-text)]" aria-hidden />
                 ) : done ? (
@@ -281,7 +339,13 @@ export function ReadingDesk({
                   <Loader2 size={12} className="animate-spin text-brand" aria-hidden />
                 )}
                 {shortName(f.fileName)}
-                {done && f.facts.length + f.modelFacts.length ? (
+                {done && rows.get(f.key) && (rows.get(f.key)!.facts ?? []).length ? (
+                  waitingOn(f) ? (
+                    <span className="rounded-full bg-provenance/15 px-1.5 font-mono text-micro text-provenance-ink">{waitingOn(f)}</span>
+                  ) : (
+                    <Check size={12} className="text-[var(--status-good-text)]" aria-label="settled" />
+                  )
+                ) : done && f.facts.length + f.modelFacts.length ? (
                   <span className="font-mono text-micro text-ink-muted">{f.facts.length + f.modelFacts.length}</span>
                 ) : null}
               </button>
@@ -290,9 +354,9 @@ export function ReadingDesk({
         </div>
       ) : null}
 
-      {/* Rows sized to what is in them: stretched rows let a column's content spill over the next. */}
-      <div className="grid min-h-0 flex-1 auto-rows-max grid-cols-[repeat(auto-fit,minmax(300px,1fr))] content-start gap-4 overflow-y-auto p-4">
-        <div className="flex flex-col gap-2">
+      {/* The page and what it states, each scrolling on its own so neither pushes the other off the screen. */}
+      <div ref={setBodyEl} className={cn('flex min-h-0 flex-1', wide ? 'flex-row gap-4 p-4' : 'flex-col gap-3 p-3')}>
+        <div className={cn('flex min-h-0 flex-col gap-2', wide ? 'min-w-0 flex-1' : 'h-[40%] min-h-[190px] shrink-0')}>
           <div className="flex items-center gap-2">
             <p className="min-w-0 flex-1 truncate font-mono text-micro uppercase tracking-[0.08em] text-ink-muted">
               {(current.label ?? shortName(current.fileName)).toUpperCase()} · page {page}
@@ -319,20 +383,27 @@ export function ReadingDesk({
             scanMs={scanDuration}
             marks={pointed?.marks ?? null}
             markId={pointed ? `${current.key}:${pointed.key}` : undefined}
-            className="max-h-[calc(100dvh-260px)] min-h-[320px]"
+            className="min-h-0 flex-1"
           />
           {pointed ? (
-            <p className="animate-fade-in rounded-lg bg-surface px-3 py-2 text-[13px] leading-relaxed text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+            <p
+              className={cn(
+                'shrink-0 animate-fade-in rounded-lg bg-surface px-3 py-2 text-[13px] leading-relaxed text-ink-secondary ring-1 ring-inset ring-[var(--ring)]',
+                !wide && 'line-clamp-2',
+              )}
+            >
               <span className="mr-1.5 font-mono text-micro uppercase tracking-[0.08em] text-ink-muted">p.{pointed.page}</span>
               <QuoteWithValue fact={pointed} />
             </p>
           ) : null}
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className={cn('flex min-h-0 flex-col gap-2 overflow-y-auto', wide ? 'w-[min(46%,440px)] shrink-0 pr-1' : 'flex-1')}>
+          {rowFacts.length ? null : (
           <p className="text-[12px] font-semibold text-ink">
             {scanning ? 'Reading…' : facts.length ? `What it states · ${facts.length}` : current.phase === 'failed' ? 'Could not be read' : 'Nothing stated that the reader knows'}
           </p>
+          )}
           {scanning ? (
             <div className="flex flex-col gap-1.5" aria-hidden>
               {[0, 1, 2, 3].map((i) => (
@@ -345,7 +416,18 @@ export function ReadingDesk({
           {current.phase === 'failed' && current.failure ? (
             <p className="rounded-lg bg-warning/10 px-3 py-2 text-[13px] text-ink">{current.failure}</p>
           ) : null}
-          {facts.length ? (
+          {rowFacts.length && row ? (
+            <FactReviewList
+              key={row.id}
+              documentName={asNamed(row.documentType ?? current.label ?? 'document')}
+              facts={rowFacts}
+              busy={false}
+              revealing={revealing}
+              activeKey={pointed?.key ?? null}
+              onPoint={(f) => onFocus(f ? { key: current.key, fact: f } : null)}
+              onDecide={(keys, decision, edit) => decide(row, keys, decision, edit)}
+            />
+          ) : facts.length ? (
             <div className="flex flex-col gap-1.5" onMouseLeave={() => onFocus(null)}>
               {facts.map((fact, i) => (
                 <FactRow
@@ -383,6 +465,31 @@ export function ReadingDesk({
           ) : null}
         </div>
       </div>
+
+      {/*
+        Settled: say so, and say where the work goes next — the checks these
+        values answer, usually — rather than leaving a finished desk to be
+        closed by hand.
+      */}
+      {settled ? (
+        <div className="flex shrink-0 animate-rise-in flex-wrap items-center gap-2 border-t border-hairline bg-surface px-4 py-2.5">
+          <span className="flex size-6 items-center justify-center rounded-full bg-good/15 text-[var(--status-good-text)]">
+            <Check size={13} strokeWidth={3} aria-hidden />
+          </span>
+          <p className="min-w-[12rem] flex-1 text-[13px] text-ink">
+            {session.files.length === 1 ? 'Every value on this document is settled.' : 'Every value on these documents is settled.'}
+          </p>
+          {next ? (
+            <Button size="sm" variant="primary" onClick={next.onGo}>
+              {next.label}
+              <ArrowRight size={13} aria-hidden />
+            </Button>
+          ) : null}
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Back to documents
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

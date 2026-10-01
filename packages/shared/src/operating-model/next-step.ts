@@ -202,7 +202,7 @@ export function oneDraftReviewCard(project: DdProject, actor = 'operator'): Chat
     `Commit “${first.title}”`,
     more
       ? `${first.kind} draft. ${more} more stay in the drafts register — this card commits one.`
-      : `${first.kind} draft awaiting review. Nothing writes until you approve.`,
+      : `${first.kind} draft awaiting review. Nothing writes until you accept it.`,
     'Writes this draft into the matching register. Other drafts stay proposed.',
     { draftIds: [first.id] },
     actor,
@@ -245,7 +245,7 @@ export function findingCriticSitting(
       `Critic on ${project.name} (${project.reference}).`,
       `${unproven.length} material finding(s) have no evidence id. That is an unevidenced judgement, not a register fact.`,
       unproven.map((f) => `• ${f.title} [${f.severity}] — no proof linked.`).join('\n'),
-      'Approve a card to open a collection action. Recording a check still happens in the check, by a person.',
+      'Accept one to open a collection action. Recording a check still happens in the check, by a person.',
     ].join('\n'),
     proposals: cards,
     pane: 'findings',
@@ -307,7 +307,7 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
       text: spoken(
                 `Start with the ${hint.name.toLowerCase()}.`,
         'Nothing on the file to diligence yet.',
-        'Approve below, or name it yourself — “add Tower A”.',
+        'It is waiting on the right, or name it yourself — “add Tower A”.',
       ),
       proposals: [card],
       pane: 'assets',
@@ -341,7 +341,7 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
         text: spoken(
                     `Start the ${rec.label}.`,
           `You’re at ${LIFECYCLE_STAGE_LABEL[project.currentStage]} with nothing running.`,
-          'Approve below. One at a time — the rest can wait.',
+          'They are waiting on the right. One at a time — the rest can wait.',
         ),
         proposals: [card],
         pane: 'dd',
@@ -390,7 +390,7 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
       );
     }
     const how = cards.length
-      ? 'It’s open on the right — tick or cross it, or approve below to chase the paper.'
+      ? 'It’s open on the right — decide it there, or accept the request waiting beside it to chase the paper.'
       : 'It’s open on the right. Tick or cross it, or drop the document in here.';
     return {
       kind: 'record_check',
@@ -421,7 +421,7 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
       text: spoken(
                 `“${f.title}” is ${f.severity} and has nothing behind it.`,
         '',
-        'Approve below, or drop the document in here.',
+        'Accept it on the right, or drop the document in here.',
       ),
       proposals: [card],
       pane: 'findings',
@@ -465,7 +465,7 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
       kind: 'report',
       title: card.title,
       why: 'There are material findings and no opinion on the file yet.',
-      text: spoken(card.title, card.rationale, 'Approve below. It cites the registers as they stand today.'),
+      text: spoken(card.title, card.rationale, 'It is waiting under Report. It cites the registers as they stand today.'),
       proposals: [card],
       pane: 'reports',
       citedEvidenceIds: [],
@@ -482,7 +482,7 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
     text: spoken(
             draft ? 'A draft is waiting on you.' : 'Nothing pending on a running assessment.',
       pack.missing ? `Still missing ${pack.missingTitles.slice(0, 4).join(', ')}.` : '',
-      draft ? 'Approve below to commit it.' : 'Ask me something, or drop a document in.',
+      draft ? 'It is waiting on the right.' : 'Ask me something, or drop a document in.',
     ),
     proposals: draft ? [draft] : [],
     pane: draft ? 'drafts' : 'overview',

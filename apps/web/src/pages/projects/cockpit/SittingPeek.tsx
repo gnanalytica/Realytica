@@ -1,13 +1,12 @@
-import { X } from 'lucide-react';
+import { ArrowRight, X } from 'lucide-react';
 import {
   CHECK_RESULT_LABEL,
   SCOPE_LABEL,
   checkAdvise,
   paneForTalk,
-  proposalsPinnedToCheck,
   quotesForCheck,
   sittingCheckOf,
-  type ChatProposal,
+  waitingOnCheck,
   type CockpitPathExtra,
   type DdProject,
   type ProjectCockpitPane,
@@ -17,7 +16,6 @@ import { api } from '../../../lib/api';
 import { Badge, Button, cn, useToast } from '../../../components/ui/kit';
 import { checkTone } from '../shared';
 import { FieldAdvise } from './FieldAdvise';
-import { ProposalCard } from './ProposalCard';
 
 export function SittingChip({
   talk,
@@ -50,19 +48,15 @@ export function SittingDock({
   compact,
   onClose,
   onOpen,
-  onApprove,
-  onSkip,
   onProject,
 }: {
   project: DdProject;
   talk: TalkSitting;
   busy?: boolean;
-  /** Desktop: cards + pointer. The field (tick/cross) lives on the right pane. */
+  /** Desktop: a pointer to the check, which is decided on the right pane. */
   compact?: boolean;
   onClose: () => void;
   onOpen: (pane: ProjectCockpitPane, extra?: CockpitPathExtra) => void;
-  onApprove: (id: string, payload?: Record<string, unknown>) => void;
-  onSkip: (id: string) => void;
   onProject: (next: DdProject) => void;
 }) {
   return (
@@ -82,8 +76,6 @@ export function SittingDock({
           busy={busy}
           compact={compact}
           onOpen={onOpen}
-          onApprove={onApprove}
-          onSkip={onSkip}
           onProject={onProject}
         />
       ) : talk.kind === 'scope' ? (
@@ -107,8 +99,6 @@ function CheckPeek({
   busy,
   compact,
   onOpen,
-  onApprove,
-  onSkip,
   onProject,
 }: {
   project: DdProject;
@@ -116,13 +106,30 @@ function CheckPeek({
   busy?: boolean;
   compact?: boolean;
   onOpen: (pane: ProjectCockpitPane, extra?: CockpitPathExtra) => void;
-  onApprove: (id: string, payload?: Record<string, unknown>) => void;
-  onSkip: (id: string) => void;
   onProject: (next: DdProject) => void;
 }) {
   const toast = useToast();
   const hit = sittingCheckOf(project, talk.extra);
-  const pinned = talk.extra.checkId ? proposalsPinnedToCheck(project, talk.extra.checkId) : [];
+  /*
+   * What waits on this check is decided on the check, on the canvas. The
+   * dock says how much, and takes you there — it does not hold a second set
+   * of buttons that can disagree with the first.
+   */
+  const waiting = talk.extra.checkId ? waitingOnCheck(project, talk.extra.checkId) : null;
+  const waitingCount = waiting ? waiting.fields.reduce((n, f) => n + f.values.length, 0) + waiting.results.length + waiting.other.length : 0;
+  const toCheck = waitingCount ? (
+    <button
+      type="button"
+      onClick={() => onOpen('scope', talk.extra)}
+      className="flex w-full items-center gap-2 rounded-lg bg-provenance/10 px-2.5 py-1.5 text-left text-[12px] text-provenance-ink ring-1 ring-inset ring-provenance/30 hover:bg-provenance/15"
+    >
+      <span className="size-1.5 shrink-0 rounded-full bg-provenance" aria-hidden />
+      <span className="min-w-0 flex-1">
+        {waitingCount} waiting on this check — decide {waitingCount === 1 ? 'it' : 'them'} on the right
+      </span>
+      <ArrowRight size={12} aria-hidden />
+    </button>
+  ) : null;
   const quotes = talk.extra.checkId ? quotesForCheck(project, talk.extra.checkId) : [];
 
   if (!hit) {
@@ -156,14 +163,7 @@ function CheckPeek({
           <p className="text-[12px] text-ink-muted">{SCOPE_LABEL[hit.scope.scopeKey]} · {hit.assessment.name}</p>
           <p className="mt-0.5 text-[14px] font-semibold leading-snug text-ink">{check.title}</p>
         </button>
-        {pinned.length ? (
-          <div className="space-y-1.5">
-            <p className="text-[11px] font-medium text-ink-muted">Cards for this field</p>
-            {pinned.slice(0, 3).map((item) => (
-              <ProposalCard key={item.id} project={project} item={item} busy={Boolean(busy)} onApprove={onApprove} onSkip={onSkip} />
-            ))}
-          </div>
-        ) : null}
+        {toCheck}
       </div>
     );
   }
@@ -182,14 +182,7 @@ function CheckPeek({
         onCross={() => void record('missing_evidence')}
         onDetails={() => onOpen('scope', talk.extra)}
       />
-      {pinned.length ? (
-        <div className="space-y-1.5">
-          <p className="text-[11px] font-medium text-ink-muted">Cards for this field</p>
-          {pinned.slice(0, 3).map((item) => (
-            <ProposalCard key={item.id} project={project} item={item} busy={Boolean(busy)} onApprove={onApprove} onSkip={onSkip} />
-          ))}
-        </div>
-      ) : null}
+      {toCheck}
     </div>
   );
 }

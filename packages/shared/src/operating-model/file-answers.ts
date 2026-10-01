@@ -168,7 +168,7 @@ function nothingYet(what: string, document: string): string {
 
 function answerHelp(): FileAnswer {
   return {
-    text: 'I read documents you drop in — deeds, EC, khata, scans too — and propose what to record. Ask me about the property, or tell me what to do. Nothing is written until you approve.',
+    text: 'I read documents you drop in — deeds, EC, khata, scans too — and propose what to record. Ask me about the property, or tell me what to do. Nothing is written until you accept it on the canvas.',
     summary: 'What I can do',
     citedEvidenceIds: [],
     citedNodeIds: [],
@@ -273,7 +273,7 @@ function answerEncumbrance(project: DdProject, facts: Sourced[]): FileAnswer | n
     lines.push(`It is NOT clean: ${first(facts, 'subsisting_charges')?.fact.display ?? 'at least one'} subsisting charge on record (${cite(nil)}).`);
     used.push(nil);
     for (const f of charges.slice(0, 2)) lines.push(`⚑ ${f.title} — ${f.severity}.`);
-    if (!charges.length) lines.push('It is not on the findings register yet — approve the finding card from the EC upload, or say “add a finding”.');
+    if (!charges.length) lines.push('It is not on the findings register yet — accept the finding waiting under Findings, or say “add a finding”.');
   } else if (nil && nil.fact.value === true) {
     lines.push(`Nil encumbrance for that period (${cite(nil)}).`);
     used.push(nil);

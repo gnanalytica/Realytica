@@ -22,6 +22,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   applyProjectChat,
+  createAssessment,
   createProject,
   extractClaims,
   type ChatIngestFile,
@@ -51,7 +52,7 @@ describe('an upload reply does not restate its own cards', () => {
     });
     const text = result.assistantTurn.text;
 
-    assert.equal(result.proposals?.length, 2, 'both files still produce a card');
+    assert.equal(result.proposals?.filter((c) => c.kind === 'file_evidence').length, 2, 'both files still produce a card');
     for (const card of result.proposals ?? []) {
       assert.ok(!text.includes(card.rationale), 'the reply must not reprint a card rationale');
       assert.ok(!text.includes(card.title), 'the reply must not reprint a card title');
@@ -87,17 +88,17 @@ describe('an upload reply does not restate its own cards', () => {
     assert.match(result.assistantTurn.text, /Read 1 file; 2 I couldn’t/);
   });
 
-  it('receipts an approval without relisting titles or record ids', () => {
+  it('files an upload at once, and says so without relisting titles or record ids', () => {
     const p = project();
-    applyProjectChat(p, '', { ingest: [file('RERA_Cert.pdf'), file('EC.pdf')] });
-    const approved = applyProjectChat(p, 'approve all');
-    const text = approved.assistantTurn.text;
+    const upload = applyProjectChat(p, '', { ingest: [file('RERA_Cert.pdf'), file('EC.pdf')] });
+    const text = upload.assistantTurn.text;
 
-    assert.equal(p.evidence.length, 2, 'both were filed');
+    // They are the person's own files. Approving the filing of what they just
+    // dropped in was a click that decided nothing.
+    assert.equal(p.evidence.length, 2, 'both were filed by the upload itself');
     assert.ok(!/ev_/.test(text), `no raw record ids in chat prose: ${text}`);
-    assert.ok(!text.includes('RERA_Cert.pdf'), 'the cards already carry the names');
-    // Says what approving did, not how many cards it took.
-    assert.match(text, /Filed 2 documents/);
+    assert.ok(!text.includes('RERA_Cert.pdf'), 'the register carries the names');
+    assert.match(text, /Filed on the register/);
   });
 });
 
@@ -159,9 +160,9 @@ describe('grounding flags do not fire on record ids', () => {
 describe('the receipt says whether the file actually moved', () => {
   it('reports evidence, linkage and the pack', () => {
     const p = project();
-    applyProjectChat(p, '', { ingest: [file('RERA.pdf'), file('EC.pdf')] });
-    const approved = applyProjectChat(p, 'approve all');
-    const metrics = approved.assistantTurn.metrics ?? [];
+    // Filing happens on upload, so the upload's own reply carries the figures.
+    const upload = applyProjectChat(p, '', { ingest: [file('RERA.pdf'), file('EC.pdf')] });
+    const metrics = upload.assistantTurn.metrics ?? [];
 
     const by = (label: string) => metrics.find((m) => m.label === label);
     assert.equal(by('Evidence')?.value, '2');
@@ -178,9 +179,8 @@ describe('the receipt says whether the file actually moved', () => {
     const p = project();
     // Nothing here answers a core pack item, which is exactly when a person
     // most needs telling — six filed documents can leave the pack where it was.
-    applyProjectChat(p, '', { ingest: [file('BSNL_height_NOC.pdf'), file('BESCOM_supply_NOC.pdf')] });
-    const approved = applyProjectChat(p, 'approve all');
-    const pack = (approved.assistantTurn.metrics ?? []).find((m) => m.label === 'Priority pack');
+    const upload = applyProjectChat(p, '', { ingest: [file('BSNL_height_NOC.pdf'), file('BESCOM_supply_NOC.pdf')] });
+    const pack = (upload.assistantTurn.metrics ?? []).find((m) => m.label === 'Priority pack');
     assert.equal(pack?.delta, 'unchanged');
   });
 
@@ -190,15 +190,42 @@ describe('the receipt says whether the file actually moved', () => {
     assert.equal(asked.assistantTurn.metrics, undefined);
   });
 
-  it('offers exactly one next step, as a card rather than a paragraph', () => {
+  it('offers exactly one next step when the upload leaves nothing to review', () => {
     const p = project();
-    applyProjectChat(p, '', { ingest: [file('RERA.pdf'), file('EC.pdf')] });
-    const approved = applyProjectChat(p, 'approve all');
+    const upload = applyProjectChat(p, '', { ingest: [file('RERA.pdf'), file('EC.pdf')] });
 
-    const fresh = (approved.proposals ?? []).filter((c) => c.status === 'proposed');
+    const fresh = (upload.proposals ?? []).filter((c) => c.status === 'proposed');
     assert.equal(fresh.length, 1, `one suggestion, not a menu — got ${fresh.map((c) => c.title).join(', ')}`);
-    assert.ok(!/\n/.test(approved.assistantTurn.text), 'the receipt stays one line');
-    assert.ok(approved.assistantTurn.text.length < 40, approved.assistantTurn.text);
+    // It waits in its register; the reply does not restate it.
+    assert.ok(!upload.assistantTurn.text.includes(fresh[0]!.title), upload.assistantTurn.text);
+    assert.ok(upload.assistantTurn.text.length < 80, upload.assistantTurn.text);
+  });
+
+  it('offers no next step on top of values still to review', () => {
+    const p = project();
+    createAssessment(p, { ddType: 'acquisition', name: 'Acquisition', owner: 'tester', targetType: 'project' });
+    const upload = applyProjectChat(p, '', {
+      ingest: [
+        file('Khata.pdf', {
+          read: {
+            type: 'khata',
+            label: 'Khata certificate',
+            confidence: 0.9,
+            method: 'text',
+            summary: 'Khata certificate for the parcel.',
+            facts: [{ key: 'extent_khata', label: 'Extent (khata)', value: 11850, display: '11,850 sq ft', page: 1, quote: 'Extent: 11,850 sq ft' }],
+            flags: [],
+            rowHints: [],
+            scopes: [],
+            evidenceKind: 'document',
+          },
+        }),
+      ],
+    });
+    assert.match(upload.assistantTurn.text, /1 value is waiting on the right, beside the words/);
+    // The check the khata answers waits for its value; "what next" can wait for that.
+    const proposed = (upload.proposals ?? []).filter((c) => c.status === 'proposed');
+    assert.deepEqual(proposed.map((c) => c.kind), ['record_check_fields']);
   });
 });
 
