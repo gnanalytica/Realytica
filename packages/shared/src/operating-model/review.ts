@@ -182,7 +182,15 @@ export function reviewFacts(
         const fields = fieldsCarrying(card, fact).filter((key) => decision !== 'accept' || !contested(project, card, key));
         if (!fields.length) continue;
         try {
-          decideCheckFields(project, card.id, fields, decision === 'accept' ? 'accept' : 'reject', actor, fact.edited ? Object.fromEntries(fields.map((k) => [k, fact.value])) : undefined);
+          decideCheckFields(
+            project,
+            card.id,
+            fields,
+            decision === 'accept' ? 'accept' : 'reject',
+            actor,
+            fact.edited ? Object.fromEntries(fields.map((k) => [k, fact.value])) : undefined,
+            { fromDocument: true },
+          );
         } catch {
           /* it stays waiting on its check, where it can be decided on its own */
         }
@@ -220,6 +228,10 @@ export function decideCheckFields(
   decision: FieldDecision,
   actor: string,
   overrides?: Record<string, unknown>,
+  options: {
+    /** Decided on the document already; the document need not be told. */
+    fromDocument?: boolean;
+  } = {},
 ): ChatProposal {
   const card = project.chatProposals.find((p) => p.id === proposalId);
   if (!card || card.kind !== 'record_check_fields') throw new Error('No check values waiting by that id');
@@ -250,6 +262,22 @@ export function decideCheckFields(
     const any = Object.values(decided).includes('accepted');
     card.status = any ? 'committed' : 'rejected';
     if (any) card.committedRecordId = checkId;
+  }
+  /*
+   * Accepted on the check as read off a document, so the document is
+   * accepted as stating it — the same value is not asked about twice. Only
+   * acceptance travels this way: setting a value aside on one check says
+   * nothing about whether the page says it.
+   */
+  if (decision === 'accept' && !options.fromDocument) {
+    const storageKey = typeof payload.sourceStorageKey === 'string' ? payload.sourceStorageKey : undefined;
+    const row =
+      (typeof payload.sourceEvidenceId === 'string' ? project.evidence.find((e) => e.id === payload.sourceEvidenceId) : undefined)
+      ?? (storageKey ? project.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey)) : undefined);
+    const stated = open.filter((k) =>
+      (row?.facts ?? []).some((f) => f.key === k && factReview(f) === 'proposed' && String(f.value) === String(overrides && k in overrides ? overrides[k] : values[k])),
+    );
+    if (row && stated.length) reviewFacts(project, row.id, stated, 'accept', actor);
   }
   return card;
 }

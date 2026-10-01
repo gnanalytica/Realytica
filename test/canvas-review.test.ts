@@ -163,6 +163,15 @@ describe('a check’s values', () => {
     assert.equal(parcel.fields?.extent_khata, undefined);
   });
 
+  it('accepted on the check, are accepted on the document they were read from', () => {
+    const { p, row, card } = uploaded(fact('extent_khata', 11850, '11,850 sq ft'), fact('survey_numbers', '118/2'));
+    decideCheckFields(p, card!.id, ['extent_khata'], 'accept', 'tester');
+    assert.deepEqual(acceptedFacts(row).map((f) => f.key), ['extent_khata'], 'the same value is not asked about twice');
+    decideCheckFields(p, card!.id, ['survey_numbers'], 'reject', 'tester');
+    assert.deepEqual(proposedFacts(row).map((f) => f.key), ['survey_numbers'], 'setting it aside on a check says nothing about the page');
+    assert.equal(waitingOnCanvas(p).byPane.evidence, 1);
+  });
+
   it('refuse a decision twice', () => {
     const { p, card } = uploaded(fact('extent_khata', 11850, '11,850 sq ft'));
     decideCheckFields(p, card!.id, ['extent_khata'], 'reject', 'tester');
