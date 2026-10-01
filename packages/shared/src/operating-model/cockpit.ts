@@ -342,7 +342,8 @@ function rewriteCheckCommand(question: string, title: string): string {
 }
 
 const NAV_RULES: Array<{ pane: ProjectCockpitPane; test: (q: string) => boolean }> = [
-  { pane: 'overview', test: (q) => /\bgis\b|\bmap overlay\b|\bosm overlay\b/.test(q) },
+  // The map is on the overview again, beside where the file stands.
+  { pane: 'overview', test: (q) => /\bgis\b|\bmaps?\b|\boverlay\b/.test(q) },
   { pane: 'graph', test: (q) => /\b(knowledge\s+)?graph\b|\bnodes?\b|\blinks?\b/.test(q) },
   { pane: 'actions', test: (q) => /\bactions?\b|\boverdue\b|\btodos?\b/.test(q) },
   { pane: 'drafts', test: (q) => /\bdrafts?\b|\bai drafts?\b|\bproposed drafts?\b/.test(q) },
@@ -355,6 +356,8 @@ const NAV_RULES: Array<{ pane: ProjectCockpitPane; test: (q: string) => boolean 
   { pane: 'reports', test: (q) => /\breports?\b/.test(q) },
   { pane: 'assets', test: (q) => /\bassets?\b|\btowers?\b/.test(q) },
   { pane: 'dd', test: (q) => /\bdue diligence\b|\bdd\b|\bchecks?\b|\bassessments?\b|\bscopes?\b/.test(q) },
+  // The site, with its place card, street view and visits. Late, so "the site's documents" still opens documents.
+  { pane: 'visits', test: (q) => /\bsite\b|\bstreet ?view\b|\bnearby\b|\bvisits?\b|\bphotos?\b/.test(q) },
   { pane: 'overview', test: (q) => /\boverview\b|\bwork\b|\bbriefing\b/.test(q) },
 ];
 
@@ -443,6 +446,10 @@ function paneLine(project: DdProject, pane: ProjectCockpitPane): string {
       return project.assessments.length ? `DDs are open — ${plural(project.assessments.length, 'DD')}.` : 'DDs are open. None started yet.';
     case 'decisions':
       return `Decisions are open — ${plural(project.decisions.length, 'decision')}.`;
+    case 'visits':
+      return 'The site is open — the map, what is nearby, and the visits.';
+    case 'overview':
+      return 'The overview is open — where the file stands, and the map.';
     default:
       return `${pane.charAt(0).toUpperCase()}${pane.slice(1)} is open.`;
   }

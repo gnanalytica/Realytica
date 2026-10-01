@@ -6,15 +6,14 @@ import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { Badge, Dot, cn, type Tone } from '../ui/kit';
 
-const PROJECT_TABS = new Set(['assets', 'dd', 'evidence', 'visits', 'findings', 'risks', 'decisions', 'reports', 'valuation', 'graph', 'ai', 'orchestrate', 'people', 'dashboard']);
+const PROJECT_TABS = new Set(['assets', 'dd', 'evidence', 'visits', 'findings', 'risks', 'decisions', 'reports', 'valuation', 'graph', 'ai', 'orchestrate', 'people']);
 
 export function projectSwitchPath(pathname: string, nextId: string): string {
   const parts = pathname.split('/').filter(Boolean);
   const tab = parts[0] === 'projects' && parts[1] && parts[2] ? parts[2] : undefined;
   if (tab && PROJECT_TABS.has(tab)) return `/projects/${nextId}/${tab}`;
-  // Inside a workspace, stay in one; anywhere else, open the case dashboard.
-  const inWorkspace = parts[0] === 'projects' && parts[1] && parts[1] !== 'new' && !tab;
-  return inWorkspace ? `/projects/${nextId}` : `/projects/${nextId}/dashboard`;
+  // Anywhere else, the project's workspace, on its overview.
+  return `/projects/${nextId}`;
 }
 
 function healthTone(health: ProjectHealth): Tone {

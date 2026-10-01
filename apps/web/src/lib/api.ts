@@ -934,6 +934,17 @@ export const api = {
       `/projects/${projectId}/gis-overlay/revenue/levels?${params.toString()}`,
     );
   },
+  /** Where the revenue-map picker starts: the last read, or the village the site address names. */
+  revenueSuggest: (projectId: string) =>
+    request<{
+      state?: 'TS' | 'KA';
+      district?: string;
+      mandal?: string;
+      village?: string;
+      surveyNo?: string;
+      from: 'last read' | 'address' | null;
+      note?: string;
+    }>(`/projects/${projectId}/gis-overlay/revenue/suggest`),
   readRevenueMap: (
     projectId: string,
     body: { state: 'TS' | 'KA'; district: string; mandal: string; village: string; surveyNo: string },

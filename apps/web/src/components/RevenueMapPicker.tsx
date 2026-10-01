@@ -29,6 +29,8 @@ function stateFromProject(project: DdProject): StateKey {
 
 type Levels = { district: string; mandal: string; village: string };
 
+type Suggestion = Awaited<ReturnType<typeof api.revenueSuggest>>;
+
 export function RevenueMapPicker({
   project,
   read,
@@ -52,6 +54,45 @@ export function RevenueMapPicker({
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadingLevel, setLoadingLevel] = useState(false);
+  /*
+   * Where to start: the last read, or the village the site address names.
+   * Applied a level at a time as each list arrives, and only into fields
+   * nobody has touched — a person's own pick is never overwritten.
+   */
+  const [suggested, setSuggested] = useState<Suggestion | null>(null);
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void api
+      .revenueSuggest(project.id)
+      .then((s) => {
+        if (!live) return;
+        setSuggested(s);
+        if (s.state && s.state !== state) setState(s.state);
+        if (s.surveyNo) setSurveyNo((now) => now || s.surveyNo!);
+      })
+      .catch(() => {
+        /* the picker starts empty, as it always did */
+      });
+    return () => {
+      live = false;
+    };
+    // Once per project and per read: a fresh read is the new place to start from.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, read?.readAt]);
+  useEffect(() => {
+    if (touched || !suggested?.district || district || !districts.includes(suggested.district)) return;
+    setDistrict(suggested.district);
+  }, [suggested, districts, district, touched]);
+  useEffect(() => {
+    if (touched || !suggested?.mandal || mandal || !mandals.includes(suggested.mandal)) return;
+    setMandal(suggested.mandal);
+  }, [suggested, mandals, mandal, touched]);
+  useEffect(() => {
+    if (touched || !suggested?.village || village || !villages.includes(suggested.village)) return;
+    setVillage(suggested.village);
+  }, [suggested, villages, village, touched]);
+  const prefilled = Boolean(!touched && suggested?.from && village && village === suggested.village);
 
   useEffect(() => {
     let live = true;
@@ -189,7 +230,13 @@ export function RevenueMapPicker({
       ) : null}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <Field label="State">
-          <Select value={state} onChange={(e) => setState(e.target.value as StateKey)}>
+          <Select
+            value={state}
+            onChange={(e) => {
+              setTouched(true);
+              setState(e.target.value as StateKey);
+            }}
+          >
             {STATE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
@@ -198,7 +245,14 @@ export function RevenueMapPicker({
           </Select>
         </Field>
         <Field label={labels.district}>
-          <Select value={district} onChange={(e) => setDistrict(e.target.value)} disabled={!districts.length}>
+          <Select
+            value={district}
+            onChange={(e) => {
+              setTouched(true);
+              setDistrict(e.target.value);
+            }}
+            disabled={!districts.length}
+          >
             <option value="">{districts.length ? `Select ${labels.district.toLowerCase()}` : loadingLevel ? 'Loading…' : '—'}</option>
             {districts.map((d) => (
               <option key={d} value={d}>
@@ -208,7 +262,14 @@ export function RevenueMapPicker({
           </Select>
         </Field>
         <Field label={labels.mandal}>
-          <Select value={mandal} onChange={(e) => setMandal(e.target.value)} disabled={!mandals.length}>
+          <Select
+            value={mandal}
+            onChange={(e) => {
+              setTouched(true);
+              setMandal(e.target.value);
+            }}
+            disabled={!mandals.length}
+          >
             <option value="">{mandals.length ? `Select ${labels.mandal.toLowerCase()}` : district && loadingLevel ? 'Loading…' : '—'}</option>
             {mandals.map((m) => (
               <option key={m} value={m}>
@@ -218,7 +279,14 @@ export function RevenueMapPicker({
           </Select>
         </Field>
         <Field label={labels.village}>
-          <Select value={village} onChange={(e) => setVillage(e.target.value)} disabled={!villages.length}>
+          <Select
+            value={village}
+            onChange={(e) => {
+              setTouched(true);
+              setVillage(e.target.value);
+            }}
+            disabled={!villages.length}
+          >
             <option value="">{villages.length ? 'Select village' : mandal && loadingLevel ? 'Loading…' : '—'}</option>
             {villages.map((v) => (
               <option key={v} value={v}>
@@ -231,6 +299,13 @@ export function RevenueMapPicker({
           <Input value={surveyNo} onChange={(e) => setSurveyNo(e.target.value)} placeholder="e.g. 12 or 12/1" inputMode="text" />
         </Field>
       </div>
+      {prefilled ? (
+        <p className="text-[12px] text-ink-secondary">
+          {suggested?.from === 'last read' ? 'Filled from the last read.' : suggested?.note ?? 'Filled from the site address. Check it before reading.'}
+        </p>
+      ) : !touched && suggested?.note && !suggested.from ? (
+        <p className="text-[12px] text-ink-muted">{suggested.note}</p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" size="sm" icon={<Landmark size={13} />} loading={busy} disabled={!canRead} onClick={() => void readNow()}>
           {read ? 'Read again' : 'Read the revenue map'}

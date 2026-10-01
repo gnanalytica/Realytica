@@ -105,8 +105,24 @@ function Avatar({ name, className }: { name: string; className?: string }) {
  * groups, read off the stage history; a stage nobody has reached has no date,
  * because a planned date is a claim this file does not hold.
  */
-export function LifecycleStepper({ project, className }: { project: DdProject; className?: string }) {
+export function LifecycleStepper({
+  project,
+  className,
+  picked,
+  onPick,
+}: {
+  project: DdProject;
+  className?: string;
+  /** The phase being looked back at. */
+  picked?: string | null;
+  /** Look back at a phase the project has been in. Without it the strip is a picture. */
+  onPick?: (phase: string) => void;
+}) {
   const current = lifecycleDisplayIndex(project.currentStage);
+  // A phase the project has been in, even one it later went back past, can be opened.
+  const visited = new Set(
+    project.stageHistory.filter((s) => s.subject === 'project').map((s) => LIFECYCLE_DISPLAY[lifecycleDisplayIndex(s.stage)]!.key),
+  );
   const reached = LIFECYCLE_DISPLAY.map((group) => {
     const dates = project.stageHistory
       .filter((s) => group.stages.includes(s.stage))
@@ -125,6 +141,8 @@ export function LifecycleStepper({ project, className }: { project: DdProject; c
           {LIFECYCLE_DISPLAY.map((group, i) => {
             const past = i < current;
             const now = i === current;
+            const open = Boolean(onPick) && (past || now || visited.has(group.key));
+            const on = picked === group.key;
             return (
               <li key={group.key} className="relative flex flex-col items-center gap-1.5 text-center">
                 <span className="h-4 font-mono text-[11px] text-ink-muted">{past || now ? monthYear(reached[i]) : ''}</span>
@@ -158,9 +176,25 @@ export function LifecycleStepper({ project, className }: { project: DdProject; c
                     )}
                   />
                 </div>
-                <span className={cn('text-[12px] leading-tight', now ? 'font-semibold text-ink' : past ? 'text-ink-secondary' : 'text-ink-muted')}>
-                  {group.label}
-                </span>
+                {open ? (
+                  <button
+                    type="button"
+                    onClick={() => onPick!(group.key)}
+                    aria-pressed={on}
+                    title={`What was done in ${group.label}`}
+                    className={cn(
+                      'rounded-md px-1.5 text-[12px] leading-tight underline-offset-2 hover:underline coarse:min-h-11',
+                      now ? 'font-semibold text-ink' : 'text-ink-secondary',
+                      on && 'bg-brand-soft text-brand',
+                    )}
+                  >
+                    {group.label}
+                  </button>
+                ) : (
+                  <span className={cn('text-[12px] leading-tight', now ? 'font-semibold text-ink' : past ? 'text-ink-secondary' : 'text-ink-muted')}>
+                    {group.label}
+                  </span>
+                )}
                 {now ? <span className="rounded bg-ink px-1.5 text-[10px] font-medium text-ink-inverse">Current</span> : null}
               </li>
             );

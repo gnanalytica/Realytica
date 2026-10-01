@@ -18,8 +18,8 @@
 **Row F in the app**
 - **Global rail:** Portfolio, Projects, Requests, People.
   - **Portfolio (F01):** a pipeline by engagement stage, with decisions waiting, requests outstanding, the next 14 days, and a "since your last visit" line.
-- **Case dashboard (F02):** full width, no chat, at `/projects/:id/dashboard`. It shows a nine-stage lifecycle, the map, key facts, "Ask Copilot" (opens the workspace with the question asked), view tiles, open items, waiting on others, and decisions waiting.
-- **Workspace:** eight tabs (Overview, Documents, Site, Value, Technical DD, People, Report, Graph), a Dashboard back link, and a narrow rail.
+- **Case dashboard (F02):** merged into the workspace's Overview on 2026-10-01 (see "One overview" below). `/projects/:id/dashboard` now opens the workspace.
+- **Workspace:** eight tabs (Overview, Documents, Site, Value, Technical DD, People, Report, Graph), a Portfolio back link, and a narrow rail.
   - **Documents:** the viewer lists what a document states, each fact with its page and its own words. Picking a fact jumps to its page, and a Kannada or Telugu original shows beside the reading. Check values filled from a document keep their page and quote.
   - **Site:** the map and revenue-map picker, "File as evidence" for a revenue-map read, the place card and visits.
   - **People:** requests, meaning who owes what and by when. A request closes itself when its document is filed. Grants carry a professional role (advocate, CA, architect and so on).
@@ -34,6 +34,8 @@ Checks run on 2026-09-30: typecheck, lint and the production build pass, and all
 1. Put the keys in `.env.local` or the shell:
    - `REALYTICA_API_KEY` (Anthropic) for model answers and model document reading.
    - `REALYTICA_GOOGLE_MAPS_API_KEY` for the place card.
+   - Optional: `VITE_GOOGLE_MAPS_BROWSER_KEY`, a second key restricted to the site's addresses and the Maps JavaScript API, for Google's map under the overlay.
+   - Optional: `REALYTICA_MODEL_BASIC`, a free or cheap model the chat tries before the senior model (see "Chat: a free model first").
 
    Without them, document reading, file answers, the revenue map and every register still work. Only model chat and the map pin do not.
 2. Run `pnpm dev` and open `http://localhost:5173/portfolio`.
@@ -59,7 +61,7 @@ A project filed before the reader existed has its documents on file and nothing 
    - Each turn says how many files are left.
    - What each document states waits on the row it is already on. Review it on the canvas, value by value.
 2. **Run the property screen** (⌘K, "Run property screen"). A re-screen closes what an earlier screen raised and no longer finds, and replaces untouched red flag drafts. Anything a person has taken up stays as they left it.
-3. **Set up the engagement** on the case dashboard: stage, client, scope, lead and due date.
+3. **Set up the engagement** on the workspace Overview ("Edit engagement"): stage, client, scope, lead and due date.
 
 Besides the land instruments, the reader now knows these approvals, and flags a term that has lapsed:
 - RERA registration certificates
@@ -96,15 +98,31 @@ Kannada EC scans don't OCR well enough to read on the server. A model that reads
 - **Instructions run at once, with Undo.** "Accept all", "close the drainage risk" and the like are carried out immediately. For fifteen seconds the canvas offers Undo, which puts the file back exactly as it was. It is refused once anything else has changed the file, and the conversation keeps a line saying it was undone.
   - "Accept all" never chooses between documents that disagree. Those values stay on the check for the person to pick.
 
+## One overview, phases, maps and a cheaper chat
+
+*Added 2026-10-01.*
+- **One overview.** The case dashboard and the workspace Overview showed the same six cards with the map on one and the stage history on the other. There is now one page: the workspace Overview, with the engagement editor, the lifecycle, the map, key facts, views, open items and the stage history. Old dashboard links land there, and the back link goes to the Portfolio.
+- **Looking back by phase.** Changing stage never hid anything; now you can also look back by it. Click a phase the project has been in, on the lifecycle or in the stage history, to see what was done during it: documents filed, DDs started, checks recorded, and the findings, risks, actions, decisions and reports raised. Each item opens where it lives. The phase is read from when each record happened and the stage history, so records made before this change are placed too.
+- **Completed and archived DDs stay reachable.** The DD list's filter shows as soon as any DD is closed, not only from four DDs up.
+- **The map is back on the Overview**, as well as on the Site tab. "Show the map" opens the Overview and "open the site" opens Site. The map redraws when the conversation is resized or a phone switches tabs, instead of going grey.
+- **Nearby places on the map.** The transit, schools, hospitals, markets and airport the place card already found are drawn on the map with their distances, as a layer you can turn off. This makes no extra calls.
+- **Google's map under the overlay.** With `VITE_GOOGLE_MAPS_BROWSER_KEY` set, Satellite shows Google's imagery with its road and place labels, and Streets shows Google's map with the places it marks. Every layer on top (wards, lakes, revenue map, survey outline, planning sheet, nearby places) draws the same. Without the key, or if Google refuses it, the map uses its own imagery as before. Google gives 10,000 interactive map loads a month free, then $7 per thousand.
+- **The revenue-map picker starts filled.** It uses the last read when there is one. Otherwise it matches the site address against the Karnataka village index, and says so ("Check it before reading"). The survey number comes from the project's parcel, else from a document accepted as stating one. A village name shared by several villages needs the hobli or taluk in the address before one is chosen, and a hobli's name is never read as the village.
+- **Chat: a free model first.** With `REALYTICA_MODEL_BASIC` set (for example an OpenRouter `:free` model that supports tools), the chat asks that model first, with the same tools.
+  - It hands the question to the senior model (the judgment tier) when it decides the question needs judgement. It also hands over when it fails or is rate limited, comes back empty, or states a figure the file does not support. Drafting goes straight to the senior model.
+  - The turn says which answered ("Free model" or "Senior model — why"), and free models are priced at $0.
+  - OpenRouter only serves most free models when "free endpoints that may train on inputs" is allowed in its privacy settings. Otherwise every question is handed over and answered by the senior model, as before.
+  - Answers read off the documents are no longer reworded by a model, which kept their page references and saved a call.
+
 ## A five-minute walkthrough
 
 1. **Portfolio:** the pipeline, what needs a decision, and what is overdue.
-2. **Case dashboard (Whitefield sample):** the lifecycle, the key facts and the map. Ask "Does the extent on the sale deed match the khata?"
+2. **Overview (Whitefield sample):** the lifecycle, the map and the key facts. Click Acquisition on the lifecycle to see what was done in that phase. Ask "Does the extent on the sale deed match the khata?"
 3. **Workspace:** the answer cites each document's page and opens the survey sketch at its fact. Documents shows the deed's 15 facts, each with its words on the page.
    - *The reading, live:* on the Koramangala sample, which has no documents, press **Use the sample documents**. The nine documents are scanned on the canvas and their facts type in.
    - Point at a value to see its words marked on the page. Accept a few with Enter, correct one with E, then follow **Next** to the checks they fill.
 4. **Technical DD:** the three rulings, a check with document-filled values, and the computed extent mismatch. Read the revenue map for Sy. 118/2 on the Site tab.
-5. **People:** record a request with a due date. It appears on the dashboard and the portfolio.
+5. **People:** record a request with a due date. It appears on the Overview and the portfolio.
 6. **Report:** approve a section, export to Word, and open the PDF view. Issue with a named sign-off.
 7. **Graph:** pick a finding, then "Why is this here?"
 

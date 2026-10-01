@@ -150,6 +150,8 @@ function rateFor(model: string): { rate: RateCard; confidence: PriceConfidence; 
   const overrides = overrideTable();
   const exact = overrides.get(model);
   if (exact) return { rate: exact, confidence: 'exact', source: 'operator_override' };
+  // OpenRouter's free variants cost nothing, whatever the wildcard says a call costs.
+  if (model.endsWith(':free')) return { rate: { input: 0, output: 0, cacheRead: 0 }, confidence: 'exact', source: 'operator_override' };
   const wildcard = overrides.get('*');
   if (wildcard) return { rate: wildcard, confidence: 'exact', source: 'operator_wildcard' };
 

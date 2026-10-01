@@ -60,3 +60,4 @@ export * from './portfolio';
 export * from './cleanup';
 export * from './fact-review';
 export * from './review';
+export * from './phases';

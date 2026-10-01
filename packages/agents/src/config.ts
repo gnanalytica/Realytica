@@ -61,6 +61,14 @@ export function apiKey(): string | undefined {
   return trimmed(readEnv('API_KEY'));
 }
 
+/**
+ * The free or cheap model the project chat tries first, handing anything that
+ * needs judgement to the copilot's own model. Unset, there is no ladder.
+ */
+export function basicChatModel(): string | undefined {
+  return trimmed(readEnv('MODEL_BASIC'));
+}
+
 /* ==================================================================== */
 /* Tiers                                                                 */
 /* ==================================================================== */

@@ -8,8 +8,10 @@
  */
 
 import type { AgentStep, ChatChoice, ChatProposal, CopilotTurn, DdProject, ProjectChatTurn, ScopeKey, SittingRef, TurnSpend, ChatWebPull } from '@realytica/shared';
-import { sittingChatHistory, talkSittingFromText } from '@realytica/shared';
+import { sittingChatHistory, talkSittingFromText, verifyAttribution } from '@realytica/shared';
+import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import { agentCapability, describeError } from '../client';
+import { basicChatModel } from '../config';
 import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute, textOf } from '../providers';
 import type { LlmClientTool, LlmContentBlock, LlmMessage } from '../providers';
 import { createProjectTools, type ProjectAgentCollectors } from '../tools/project-tools';
@@ -17,6 +19,8 @@ import { randomUUID } from 'node:crypto';
 import { priceTokens } from '../telemetry/pricing';
 
 const MAX_TOOL_ITERATIONS = 8;
+/** The free first rung looks things up and answers, or hands over; it does not get the senior model's room. */
+const BASIC_TOOL_ITERATIONS = 6;
 
 const SYSTEM = `You are Realytica's project due-diligence copilot. You sit in the project cockpit: chat on the left, live registers and DD on the right.
 
@@ -57,6 +61,10 @@ export interface RunProjectCopilotParams {
   /** Locality research. The API owns the capability gates; this only asks. */
   searchWeb?: (question: string) => Promise<ChatWebPull>;
   onStep?: (step: AgentStep) => void;
+  /** Run on this model rather than the copilot's own — the first rung of the ladder. */
+  model?: string;
+  /** Give the model a way to hand the question to the senior model instead of answering it. */
+  canHandOver?: boolean;
 }
 
 export interface RunProjectCopilotResult {
@@ -70,6 +78,8 @@ export interface RunProjectCopilotResult {
   citedNodeIds: string[];
   /** What the call cost, when one was made. Absent on every failure path. */
   spend?: TurnSpend;
+  /** Why the model handed the question over, when it did — the answer is then not its own. */
+  handedOver?: string;
 }
 
 /**
@@ -162,12 +172,35 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
   }
 
   const bag: ProjectAgentCollectors = { proposals: [], navigations: [], toolCalls: [], choices: [] };
-  const tools: LlmClientTool[] = createProjectTools(project, actor, bag, {
-    sitting: params.sitting,
-    graphRag: params.graphRag,
-    lookupShelf: params.lookupShelf,
-    searchWeb: params.searchWeb,
-  }).map(clientToolFromRunnable);
+  const model = params.model ?? route.model;
+  const handOver = { reason: '' };
+  const tools: LlmClientTool[] = [
+    ...createProjectTools(project, actor, bag, {
+      sitting: params.sitting,
+      graphRag: params.graphRag,
+      lookupShelf: params.lookupShelf,
+      searchWeb: params.searchWeb,
+    }),
+    ...(params.canHandOver
+      ? [
+          betaTool({
+            name: 'hand_over',
+            description:
+              'Hand this question to the senior analyst instead of answering it. Call it FIRST, before any other tool, when the question needs judgement rather than a lookup: why or should questions, comparing or reconciling documents, anything about title or legal standing, estimating money, drafting a finding or report text, or anything you are not sure you can answer exactly from the registers. Do not call it for a lookup the tools answer — who owns it, what a document says, what is open.',
+            inputSchema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['reason'],
+              properties: { reason: { type: 'string', description: 'One short line: why this needs the senior analyst.' } },
+            } as const,
+            run: async ({ reason }) => {
+              handOver.reason = String(reason ?? '').trim().slice(0, 160) || 'it needed judgement';
+              return 'Handed over. Stop now and write nothing else.';
+            },
+          }),
+        ]
+      : []),
+  ].map(clientToolFromRunnable);
 
   const emit = (step: Omit<AgentStep, 'id' | 'at'>): void => {
     params.onStep?.({ id: randomUUID(), at: new Date().toISOString(), ...step });
@@ -206,12 +239,12 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
     const result = await provider.runTools({
       agent: 'analyst_copilot',
       caseId: project.id,
-      model: route.model,
+      model,
       maxTokens: 4000,
       system: [{ text: SYSTEM, cacheBreakpoint: true }],
       tools,
       messages,
-      maxIterations: MAX_TOOL_ITERATIONS,
+      maxIterations: params.canHandOver ? BASIC_TOOL_ITERATIONS : MAX_TOOL_ITERATIONS,
       onMessage: (message) => {
         written.push(message.content);
         for (const block of message.content) {
@@ -232,7 +265,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
      * an unknown model at zero, and "$0.00" beside a call that cost real money
      * is worse than showing nothing at all.
      */
-    const price = priceTokens(route.provider, route.model, {
+    const price = priceTokens(route.provider, model, {
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
       cacheReadTokens: result.usage.cacheReadTokens,
@@ -246,6 +279,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
       citedEvidenceIds: cites.citedEvidenceIds,
       citedNodeIds: cites.citedNodeIds,
       spend: { usd: price.costUsd, exact: price.confidence === 'exact' },
+      ...(handOver.reason ? { handedOver: handOver.reason } : {}),
     };
   } catch (e) {
     /*
@@ -260,4 +294,69 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
      */
     throw e instanceof Error ? e : new Error(describeError(e));
   }
+}
+
+
+/* ==================================================================== */
+/* The ladder                                                            */
+/* ==================================================================== */
+
+const FALLBACK_ANSWER = 'I looked at the project. Anything I proposed is waiting on the right.';
+
+/** Questions that go straight to the senior model: writing that will be read as the firm's. */
+function needsSeniorOutright(question: string): string | undefined {
+  if (question.length > 600) return 'a long question';
+  if (/\b(draft|rewrite|reword|write (?:a|an|the|up))\b/i.test(question)) return 'it asked for writing';
+  return undefined;
+}
+
+function sumSpend(a?: TurnSpend, b?: TurnSpend): TurnSpend | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return { usd: a.usd + b.usd, exact: a.exact && b.exact };
+}
+
+export interface ProjectChatAnswer extends RunProjectCopilotResult {
+  /** The model whose answer this is. */
+  answeredBy: string;
+  /** Why the first rung handed over, when it did. */
+  handedOverBecause?: string;
+}
+
+/**
+ * The chat's ladder: a free model first, the senior model when it is needed.
+ *
+ * Most questions put to a file are lookups — who owns it, what the khata
+ * says, what is still open — and the registers answer them; paying the
+ * senior model to read them out is most of what chat cost. So when a basic
+ * model is configured (\`REALYTICA_MODEL_BASIC\`) it goes first, with the same
+ * tools, and a way out: it hands the question over when it needs judgement.
+ * It is also handed over without being asked when it errors or is rate
+ * limited, comes back with nothing, or states a figure the file does not
+ * support. Without a basic model, the senior model answers as it always did.
+ */
+export async function runProjectChat(params: RunProjectCopilotParams): Promise<ProjectChatAnswer> {
+  const senior = resolveRoute('analyst_copilot').route.model;
+  const basic = basicChatModel();
+  if (!basic || basic === senior) return { ...(await runProjectCopilot(params)), answeredBy: senior };
+
+  let because = needsSeniorOutright(params.question);
+  let firstSpend: TurnSpend | undefined;
+  if (!because) {
+    try {
+      const first = await runProjectCopilot({ ...params, model: basic, canHandOver: true });
+      firstSpend = first.spend;
+      const nothing = !first.text.trim() || (first.text === FALLBACK_ANSWER && !first.proposals.length && !first.choices.length);
+      because =
+        first.handedOver
+        ?? (nothing ? 'it had no answer' : undefined)
+        ?? (verifyAttribution(params.project, first.text).unsupported.length ? 'it stated figures the file does not support' : undefined);
+      if (!because) return { ...first, answeredBy: basic };
+    } catch {
+      because = 'the free model was unavailable';
+    }
+  }
+  params.onStep?.({ id: randomUUID(), at: new Date().toISOString(), kind: 'plan', label: `Handing over to the senior model — ${because}` });
+  const answer = await runProjectCopilot(params);
+  return { ...answer, answeredBy: senior, handedOverBecause: because, spend: sumSpend(firstSpend, answer.spend) };
 }
