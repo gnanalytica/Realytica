@@ -6,6 +6,7 @@
  */
 
 import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, snapshotCapabilities } from './capabilities';
+import { proposeFacts } from './fact-review';
 import { screenProject } from './project-screen';
 import { DD_TYPE_DEFINITIONS } from './libraries';
 import {
@@ -633,10 +634,10 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     if (notes) evidence.extractionNotes = notes;
     // What the document states travels with it onto the row, so a check
     // started later — and every chat answer — can read it with its page.
+    // Each value waits on the row for a person to accept it where it sits;
+    // one the row already accepts is not asked again.
     if (Array.isArray(payload.facts) && payload.facts.length) {
-      const incoming = payload.facts as DocumentFact[];
-      const kept = (evidence.facts ?? []).filter((f) => !incoming.some((n) => n.key === f.key));
-      evidence.facts = [...kept, ...incoming];
+      evidence.facts = proposeFacts(evidence.facts ?? [], payload.facts as DocumentFact[]);
     }
     if (typeof payload.documentType === 'string') evidence.documentType = payload.documentType;
     if (payload.readMethod === 'text' || payload.readMethod === 'ocr' || payload.readMethod === 'mixed') evidence.readMethod = payload.readMethod;

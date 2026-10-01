@@ -15,24 +15,24 @@ import {
   sittingFromCitedId,
   sittingFromTurn,
   sittingWithField,
-  proposalsPinnedToCheck,
+  waitingOnCanvas,
   type AgentStep,
-  type ChatProposal,
   type CockpitPathExtra,
   type CopilotTurn,
   type DdProject,
   type EvidenceItem,
-  type ProjectChatResult,
   type ProjectCockpitPane,
   type ReadingStreamEvent,
   type TalkSitting,
+  type WaitingEntry,
 } from '@realytica/shared';
-import { api } from '../../lib/api';
+import { api, type ProjectChatResponse } from '../../lib/api';
 import {
   applyReadingEvent,
   finishReading,
   newReadingSession,
   readingFileFromProposal,
+  type ReadingFile,
   type ReadingSession,
   type SourceFocus,
 } from '../../lib/reading';
@@ -48,7 +48,7 @@ import type { ProjectOutlet } from './ProjectLayout';
 import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
 import { CockpitPaneStrip, paneLabel } from './cockpit/rail';
 import { SittingChip, SittingDock } from './cockpit/SittingPeek';
-import { ProposalCard } from './cockpit/ProposalCard';
+import { TurnWaiting, UndoBar, WaitingHere } from './cockpit/Waiting';
 import { SampleBadge } from '../../components/project/ProjectPanels';
 
 function sameSitting(a: TalkSitting, b: TalkSitting): boolean {
@@ -57,67 +57,6 @@ function sameSitting(a: TalkSitting, b: TalkSitting): boolean {
     && a.extra.checkId === b.extra.checkId
     && a.extra.scopeId === b.extra.scopeId
     && a.extra.ddId === b.extra.ddId
-  );
-}
-
-function ProposalCards({
-  project,
-  turn,
-  proposals,
-  busy,
-  hideIds,
-  onApprove,
-  onSkip,
-  onApproveAll,
-  onPointFact,
-  onShowDocument,
-}: {
-  project: DdProject;
-  turn: CopilotTurn;
-  proposals: ChatProposal[];
-  busy: boolean;
-  hideIds?: Set<string>;
-  onApprove: (id: string, payload?: Record<string, unknown>) => void;
-  onSkip: (id: string) => void;
-  /** Set only on the latest reply's cards, which is what "approve all" approves. */
-  onApproveAll?: () => void;
-  onPointFact?: (cards: ChatProposal[], card: ChatProposal, focus: SourceFocus | null) => void;
-  onShowDocument?: (cards: ChatProposal[], card: ChatProposal) => void;
-}) {
-  const rows = (turn.proposalIds ?? [])
-    .map((id) => proposals.find((row) => row.id === id))
-    .filter((row): row is ChatProposal => {
-      if (!row) return false;
-      return !hideIds?.has(row.id);
-    });
-  if (!rows.length) return null;
-  const pending = rows.filter((r) => r.status === 'proposed');
-  const documents = rows.filter((r) => r.kind === 'file_evidence');
-  return (
-    <div className="mt-2.5 flex flex-col gap-1">
-      {onApproveAll && pending.length > 1 ? (
-        <div className="flex items-center gap-2 px-0.5 pb-0.5">
-          <span className="min-w-0 flex-1 text-mini text-ink-muted">
-            {pending.length} cards waiting{documents.length ? ' — point at a fact to see it on the page' : ''}
-          </span>
-          <Button size="sm" variant="primary" disabled={busy} onClick={onApproveAll}>
-            Approve all {pending.length}
-          </Button>
-        </div>
-      ) : null}
-      {rows.map((item) => (
-        <ProposalCard
-          key={item.id}
-          project={project}
-          item={item}
-          busy={busy}
-          onApprove={onApprove}
-          onSkip={onSkip}
-          onPointFact={onPointFact ? (card, focus) => onPointFact(documents, card, focus) : undefined}
-          onShowDocument={onShowDocument ? (card) => onShowDocument(documents, card) : undefined}
-        />
-      ))}
-    </div>
   );
 }
 
@@ -243,18 +182,22 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const [liveLabel, setLiveLabel] = useState<string | null>(null);
   const [dockTalk, setDockTalk] = useState<TalkSitting | null>(null);
   /*
-   * The reading desk: documents being read, drawn on the canvas.
+   * The reading desk: documents being read, and their values decided.
    *
-   * The chat says what happened and holds the cards; the canvas shows it —
-   * the page being scanned, each fact as it comes off it, its words marked
-   * when someone points at it, and the facts turning green as their card is
-   * approved. Open while a turn reads, and whenever a card's fact is pointed
-   * at or a document card is approved.
+   * The chat says what happened; the canvas shows it — the page being
+   * scanned, each fact as it comes off it, and then each value waiting on its
+   * document with the two decisions beside it. Open while a turn reads, and
+   * whenever a document is opened for review.
    */
   const [reading, setReading] = useState<ReadingSession | null>(null);
   const [deskOpen, setDeskOpen] = useState(false);
   const [deskPin, setDeskPin] = useState<string | null>(null);
   const [sourceFocus, setSourceFocus] = useState<SourceFocus | null>(null);
+  /* The last instruction the chat carried out, for a few seconds after: the way to take it back. */
+  const [undo, setUndo] = useState<{ token: string; label: string } | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  /* A decision on the canvas in flight. */
+  const [deciding, setDeciding] = useState(false);
   const projectRef = useRef(project);
   projectRef.current = project;
   const [mobileSurface, setMobileSurface] = useState<MobileSurface>(() =>
@@ -316,7 +259,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   );
 
   const applyResult = useCallback(
-    (response: ProjectChatResult & { project: DdProject }) => {
+    (response: ProjectChatResponse) => {
       /*
        * Documents this response filed, shown being filed.
        *
@@ -354,10 +297,9 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       setProject(response.project);
       const ids = response.highlightIds ?? [];
       setHighlightIds(ids);
-      setLiveLabel(
-        response.commands[0]
-          ?? (response.proposals.length ? `Proposed ${response.proposals.length} update(s) — approve to write` : null),
-      );
+      const waitingNow = response.proposals.filter((p) => p.status === 'proposed').length;
+      setLiveLabel(response.commands[0] ?? (waitingNow ? `${waitingNow} waiting on the canvas` : null));
+      setUndo(response.undo ?? null);
       const lastNav = response.navigations.at(-1);
       const targetRaw = lastNav?.target ?? null;
       const target = isProjectCockpitPane(targetRaw)
@@ -407,30 +349,30 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   }, [project.id]);
 
   /*
-   * Cards still waiting from an earlier sitting.
+   * What is still waiting from an earlier sitting.
    *
-   * Opening the file starts a fresh chat, which is right — and it used to
-   * mean that thirteen unapproved cards from yesterday were invisible while
-   * "Approve all" sat in the chips, ready to approve them sight unseen. They
-   * lead the new chat instead, as themselves, one approval away.
+   * Opening the file starts a fresh chat, which is right — and it must not
+   * hide that values read yesterday are still waiting for a decision. One
+   * line leads the new chat, pointing at where they wait; the decisions are
+   * made there, not here.
    */
+  const waiting = useMemo(() => waitingOnCanvas(project), [project]);
   const leadTurn = useMemo((): CopilotTurn | undefined => {
-    const shownHere = new Set(
-      (project.conversation ?? [])
-        .filter((t) => t.sessionId === sessionId || (!t.sessionId && t.at >= sessionStartedAt))
-        .flatMap((t) => t.proposalIds ?? []),
-    );
-    const waiting = (project.chatProposals ?? []).filter((p) => p.status === 'proposed' && !shownHere.has(p.id));
-    if (!waiting.length) return undefined;
+    const here = (project.conversation ?? []).filter((t) => t.sessionId === sessionId || (!t.sessionId && t.at >= sessionStartedAt));
+    const shownCards = new Set(here.flatMap((t) => t.proposalIds ?? []));
+    const shownDocs = new Set(here.flatMap((t) => t.citedEvidenceIds ?? []));
+    const earlier = waiting.entries.filter((e) => (e.proposalId ? !shownCards.has(e.proposalId) : e.evidenceId ? !shownDocs.has(e.evidenceId) : false));
+    const count = earlier.reduce((n, e) => n + e.count, 0);
+    if (!count) return undefined;
     return {
       id: 'waiting-from-earlier',
       role: 'assistant',
-      text: `${waiting.length === 1 ? 'One card is' : `${waiting.length} cards are`} still waiting from earlier. Approve ${waiting.length === 1 ? 'it' : 'them'} below, or say “approve every open card”.`,
+      text: `${count === 1 ? 'One thing is' : `${count} things are`} still waiting for you from earlier.`,
       at: sessionStartedAt,
-      citedEvidenceIds: [],
-      proposalIds: waiting.map((p) => p.id),
+      citedEvidenceIds: earlier.map((e) => e.evidenceId).filter((id): id is string => Boolean(id)),
+      proposalIds: earlier.map((e) => e.proposalId).filter((id): id is string => Boolean(id)),
     } as unknown as CopilotTurn;
-  }, [project.conversation, project.chatProposals, sessionId, sessionStartedAt]);
+  }, [project.conversation, waiting, sessionId, sessionStartedAt]);
   const handleAsk = useCallback(
     async (
       question: string,
@@ -490,54 +432,128 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     [project.id, pane, params.ddId, params.scopeId, searchParams, applyResult, sessionId],
   );
 
-  /** The desk, showing these document cards — unless it already holds the file being asked for. */
-  const openDeskOn = useCallback((cards: ChatProposal[], key: string) => {
-    setReading((prev) => {
-      if (prev && prev.files.some((f) => f.key === key)) return prev;
-      const files = cards.map(readingFileFromProposal).filter((f): f is NonNullable<typeof f> => Boolean(f));
-      return files.length ? { ...newReadingSession('review'), files, finished: true } : prev;
-    });
+  /**
+   * Documents opened for review: their pages, and the values waiting on them.
+   * Built from the register rows, so a document filed last week reviews
+   * exactly as one read a minute ago.
+   */
+  const openReview = useCallback((evidenceIds: string[], pin?: string) => {
+    const files: ReadingFile[] = [];
+    for (const id of evidenceIds) {
+      const row = projectRef.current.evidence.find((e) => e.id === id);
+      const file = row?.attachments.find((a) => a.storageKey) ?? row?.attachments[0];
+      if (!row || !file) continue;
+      files.push({
+        key: file.storageKey,
+        fileName: file.fileName,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+        source: { kind: 'evidence', evidenceId: row.id, fileId: file.id },
+        phase: 'done',
+        label: row.documentType,
+        method: row.readMethod,
+        facts: [],
+        modelFacts: [],
+      });
+    }
+    if (!files.length) return;
+    const pinned = pin ? projectRef.current.evidence.find((e) => e.id === pin)?.attachments[0]?.storageKey : undefined;
+    setReading({ ...newReadingSession('review'), files, finished: true });
+    setSourceFocus(null);
+    setDeskPin(pinned ?? files[0]!.key);
     setDeskOpen(true);
+    setMobileSurface('work');
   }, []);
 
-  const pointFact = useCallback(
-    (cards: ChatProposal[], _card: ChatProposal, focus: SourceFocus | null) => {
-      if (!focus) {
-        setSourceFocus(null);
+  /*
+   * Where a jump to something waiting lands: the work surface keeps its
+   * scroll from the pane before, so the list at the top of a register — or
+   * the values on a check — would open out of sight.
+   */
+  const workScrollRef = useRef<HTMLDivElement>(null);
+  const [landOn, setLandOn] = useState<{ kind: 'check' | 'pane'; at: number } | null>(null);
+  useEffect(() => {
+    if (!landOn) return;
+    const t = window.setTimeout(() => {
+      const root = workScrollRef.current;
+      const el = root?.querySelector<HTMLElement>(`[data-waiting-anchor="${landOn.kind}"]`) ?? root?.querySelector<HTMLElement>('[data-waiting-anchor]');
+      if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      else root?.scrollTo({ top: 0 });
+    }, 220);
+    return () => window.clearTimeout(t);
+  }, [landOn, location.pathname, location.search]);
+
+  /** Wherever the next thing waiting is: a document opens for review, anything else opens where it waits. */
+  const goWaiting = useCallback(
+    (entry?: WaitingEntry) => {
+      const next = entry ?? waiting.entries[0];
+      if (!next) return;
+      if (next.kind === 'facts' && next.evidenceId) {
+        const documents = waiting.entries.filter((e) => e.kind === 'facts' && e.evidenceId).map((e) => e.evidenceId!);
+        openReview(documents, next.evidenceId);
         return;
       }
-      openDeskOn(cards, focus.key);
-      setSourceFocus(focus);
+      goPane(next.pane, next.extra);
+      setLandOn({ kind: next.pane === 'scope' ? 'check' : 'pane', at: Date.now() });
     },
-    [openDeskOn],
+    [waiting, openReview, goPane],
   );
 
-  const showDocument = useCallback(
-    (cards: ChatProposal[], card: ChatProposal) => {
-      const key = typeof card.payload.storageKey === 'string' ? card.payload.storageKey : '';
-      if (!key) return;
-      openDeskOn(cards, key);
-      setSourceFocus(null);
-      setDeskPin(key);
-    },
-    [openDeskOn],
-  );
-
-  const handleProposal = useCallback(
-    // `payload` carries a card the person opened and corrected in the wizard;
-    // absent, the card files exactly as it was proposed.
-    async (id: string, action: 'commit' | 'reject', payload?: Record<string, unknown>) => {
-      setAsking(true);
+  /** Decided on the canvas: no chat turn, the project as it now stands. */
+  const acceptWaiting = useCallback(
+    async (id: string, payload?: Record<string, unknown>) => {
+      setDeciding(true);
       try {
-        const response =
-          action === 'commit' ? await api.commitChatProposal(project.id, id, payload) : await api.rejectChatProposal(project.id, id);
-        applyResult(response);
+        const { project: next, offered } = await api.acceptWaiting(project.id, id, payload);
+        setProject(next);
+        if (offered) toast(`Accepted — ${offered} check${offered === 1 ? '' : 's'} can take values from the documents`, 'good');
+      } catch (e) {
+        toast(e instanceof Error ? e.message : 'That could not be accepted', 'critical');
       } finally {
-        setAsking(false);
+        setDeciding(false);
       }
     },
-    [project.id, applyResult],
+    [project.id, setProject, toast],
   );
+
+  const setAsideWaiting = useCallback(
+    async (id: string) => {
+      setDeciding(true);
+      try {
+        const { project: next } = await api.setAsideWaiting(project.id, id);
+        setProject(next);
+      } catch (e) {
+        toast(e instanceof Error ? e.message : 'That could not be set aside', 'critical');
+      } finally {
+        setDeciding(false);
+      }
+    },
+    [project.id, setProject, toast],
+  );
+
+  /* The way back stays a few seconds, then goes: an old undo is a trap, not a convenience. */
+  useEffect(() => {
+    if (!undo) return;
+    const t = window.setTimeout(() => setUndo(null), 15000);
+    return () => window.clearTimeout(t);
+  }, [undo]);
+
+  const takeBack = useCallback(async () => {
+    if (!undo) return;
+    setUndoing(true);
+    try {
+      const { project: next } = await api.undoInstruction(project.id, undo.token);
+      setProject(next);
+      setHighlightIds([]);
+      setLiveLabel(null);
+      toast('Undone', 'good');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'That could not be undone', 'critical');
+    } finally {
+      setUndo(null);
+      setUndoing(false);
+    }
+  }, [undo, project.id, setProject, toast]);
 
   /*
    * A question asked from the case dashboard arrives as `?ask=`. It is asked
@@ -565,8 +581,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const overdue = project.actions.filter((a) => a.status === 'overdue').length;
   const pendingDrafts = (project.aiDrafts ?? []).filter((d) => d.status === 'draft' || d.status === 'accepted' || d.status === 'in_review').length;
   const conversation = (project.conversation ?? []) as CopilotTurn[];
-  // "Approve all" approves the latest reply's cards, so only that reply offers the button.
-  const lastReplyId = [...conversation].reverse().find((t) => t.role === 'assistant')?.id;
   const spec = LAYOUTS[layout];
   const fillRight = pane === 'graph';
   const currentDd = params.ddId ? project.assessments.find((a) => a.id === params.ddId) : undefined;
@@ -578,12 +592,12 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
    *
    * These used to end with "Set owner to Priya Shah" on every project — a
    * demo name offered as the thing to do next on a stranger's file. Each chip
-   * now follows from the state: cards waiting, documents missing, findings
-   * open, a report worth generating.
+   * now follows from the state: documents missing, findings open, a report
+   * worth generating. Nothing waiting is offered here: it is decided on the
+   * canvas, and the chips are things to ask.
    */
   const suggestions = useMemo(() => {
     const rows: string[] = [];
-    const waiting = (project.chatProposals ?? []).filter((p) => p.status === 'proposed').length;
     const filed = project.evidence.filter((e) => (e.attachments ?? []).length).length;
     // Filed before the reader existed, or that it could not read then: the
     // file is there, but nothing on the row says what it states.
@@ -593,7 +607,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     const material = project.findings.filter(
       (f) => (f.severity === 'critical' || f.severity === 'high') && !['closed', 'rejected', 'duplicate', 'superseded'].includes(f.status),
     ).length;
-    if (waiting) rows.push('Approve all');
     if (filed === 0) {
       // A sample project with nothing on it: the fastest way to see what this
       // does is the bundled sample set, read through the same path as a real
@@ -636,18 +649,13 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   );
   const dockIsEcho = onScreenAlready(dockTalk);
 
-  const dockCardIds = useMemo(() => {
-    if (dockTalk?.kind !== 'check' || !dockTalk.extra.checkId) return new Set<string>();
-    return new Set(proposalsPinnedToCheck(project, dockTalk.extra.checkId).map((p) => p.id));
-  }, [dockTalk, project]);
-
   const workOutlet: ProjectOutlet = {
     ...outlet,
     highlightIds,
-    pinnedProposals: project.chatProposals ?? [],
-    onApproveProposal: (id, payload) => void handleProposal(id, 'commit', payload),
-    onSkipProposal: (id) => void handleProposal(id, 'reject'),
-    proposalBusy: asking,
+    onAcceptWaiting: (id, payload) => void acceptWaiting(id, payload),
+    onSetAsideWaiting: (id) => void setAsideWaiting(id),
+    waitingBusy: deciding || asking,
+    onReviewDocument: (evidenceId) => openReview([evidenceId], evidenceId),
     onOpenCited: openCited,
   };
 
@@ -699,8 +707,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             compact={isDesktop}
             onClose={() => setDockTalk(null)}
             onOpen={goPane}
-            onApprove={(id, payload) => void handleProposal(id, 'commit', payload)}
-            onSkip={(id) => void handleProposal(id, 'reject')}
             onProject={setProject}
           />
         ) : null
@@ -714,18 +720,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         return (
           <>
             {field && !docked ? <SittingChip talk={field} onOpen={() => setDockTalk(field)} /> : null}
-            <ProposalCards
-              project={project}
-              turn={turn}
-              proposals={project.chatProposals ?? []}
-              busy={asking}
-              hideIds={dockCardIds}
-              onApprove={(id, payload) => void handleProposal(id, 'commit', payload)}
-              onSkip={(id) => void handleProposal(id, 'reject')}
-              onApproveAll={turn.id === lastReplyId ? () => void handleAsk('Approve all') : undefined}
-              onPointFact={pointFact}
-              onShowDocument={showDocument}
-            />
+            <TurnWaiting turn={turn} waiting={waiting} onGo={goWaiting} />
           </>
         );
       }}
@@ -743,22 +738,36 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     />
   );
 
+  /* Once the desk's documents are settled, the next thing waiting that is not on them. */
+  const deskNext = useMemo(() => {
+    if (!reading) return null;
+    const onDesk = new Set(reading.files.map((f) => f.key));
+    const after = waiting.entries.find(
+      (e) => !(e.kind === 'facts' && project.evidence.some((row) => row.id === e.evidenceId && row.attachments.some((a) => onDesk.has(a.storageKey)))),
+    );
+    if (!after) return null;
+    return {
+      label: after.kind === 'facts' ? `Next document: ${after.title}` : after.pane === 'scope' ? 'Values on the checks' : `Next: ${paneLabel(after.pane)}`,
+      onGo: () => {
+        setDeskOpen(false);
+        goWaiting(after);
+      },
+    };
+  }, [reading, waiting, project.evidence, goWaiting]);
+
   const desk =
     deskOpen && reading ? (
       <ReadingDesk
-        // A new reading, or a filing, starts the desk afresh: its pacing and its filing steps are its own.
+        // A new reading, or a review, starts the desk afresh: its pacing is its own.
         key={reading.id}
-        projectId={project.id}
+        project={project}
         session={reading}
-        proposals={project.chatProposals}
         focus={sourceFocus}
         pinKey={deskPin}
         onFocus={setSourceFocus}
+        onDecided={setProject}
+        next={deskNext}
         onClose={() => {
-          setDeskOpen(false);
-          setSourceFocus(null);
-        }}
-        onSettled={() => {
           setDeskOpen(false);
           setSourceFocus(null);
         }}
@@ -799,7 +808,17 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           </RouteErrorBoundary>
         </div>
       ) : (
-        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 [container-type:inline-size] sm:p-4">
+        <div ref={workScrollRef} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 [container-type:inline-size] sm:p-4">
+          <WaitingHere
+            project={project}
+            pane={pane}
+            waiting={waiting}
+            sittingCheckId={searchParams.get('check')}
+            busy={deciding || asking}
+            onAccept={(id, payload) => void acceptWaiting(id, payload)}
+            onSetAside={(id) => void setAsideWaiting(id)}
+            onGo={goWaiting}
+          />
           {/* One broken pane must not take the project tabs with it, and the
               two lazily-loaded tabs need somewhere to wait. */}
           <RouteErrorBoundary>
@@ -809,6 +828,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           </RouteErrorBoundary>
         </div>
       )}
+      {undo ? <UndoBar label={undo.label} busy={undoing} onUndo={() => void takeBack()} onDismiss={() => setUndo(null)} /> : null}
     </>
   );
 
@@ -981,7 +1001,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               no token and painted nothing — is gone rather than repaired.
               See the note above `MOBILE_WORK_SURFACE`.
             */
-            <section aria-label="Work surface" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <section aria-label="Work surface" className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {/* The reading takes the whole canvas while it is open; closing it is the way back to the panes. */}
               {desk ?? (
                 <>
@@ -993,6 +1013,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
                     overdue={overdue}
                     pendingDrafts={pendingDrafts}
                     onGo={goPane}
+                    waiting={waiting}
+                    onReview={() => goWaiting()}
                     wrap
                   />
                   {workBody}
@@ -1015,6 +1037,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             hidden={mobileSurface !== 'work'}
             className={cn(
               MOBILE_WORK_SURFACE,
+              'relative',
               mobileSurface === 'work' ? 'flex flex-1' : 'hidden',
             )}
           >
@@ -1028,6 +1051,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
                   overdue={overdue}
                   pendingDrafts={pendingDrafts}
                   onGo={goPane}
+                  waiting={waiting}
+                  onReview={() => goWaiting()}
                 />
                 {workBody}
               </>

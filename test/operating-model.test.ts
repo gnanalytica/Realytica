@@ -494,7 +494,10 @@ describe('project chat wizard', () => {
     assert.ok(nav?.ddId && nav?.scopeId && nav?.checkId);
     // It names ONE check and what to do with it, rather than listing the scope.
     assert.match(result.assistantTurn.text, /^Next up: /);
-    assert.match(result.assistantTurn.text, /tick or cross/i);
+    // It is decided on the canvas, where the check is open. The chat holds no
+    // buttons, and names none: no glyph names, no "approve below".
+    assert.match(result.assistantTurn.text, /open on the right/i);
+    assert.doesNotMatch(result.assistantTurn.text, /\btick\b|\bcross\b|approve below/i);
   });
 
   it('recommends remaining construction DD types on Harohalli', () => {

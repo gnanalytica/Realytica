@@ -623,3 +623,32 @@ export const linkFindingBodySchema = z.object({
   evidenceIds: z.array(z.string()).optional(),
   actor: actorSchema,
 });
+
+/** A decision on values a document was read as stating. */
+export const factReviewBodySchema = z.object({
+  keys: z.union([z.literal('all'), z.array(z.string().min(1).max(120)).min(1).max(200)]),
+  decision: z.enum(['accept', 'reject', 'reopen']),
+  edit: z
+    .object({
+      value: z.union([z.string().max(2000), z.number(), z.boolean()]),
+      display: z.string().min(1).max(2000),
+    })
+    .optional(),
+});
+
+/** A decision on a check's waiting values, a field at a time. */
+export const fieldDecisionBodySchema = z.object({
+  keys: z.array(z.string().min(1).max(120)).min(1).max(100),
+  decision: z.enum(['accept', 'reject']),
+  values: z.record(z.unknown()).optional(),
+});
+
+/** Which waiting value a check carries for one field; null keeps what it holds. */
+export const fieldPickBodySchema = z.object({
+  proposalId: z.string().min(1).max(200).nullable(),
+});
+
+/** Accepting something waiting, as the person confirmed it if they opened it first. */
+export const waitingAcceptBodySchema = z.object({
+  payload: z.record(z.unknown()).optional(),
+});

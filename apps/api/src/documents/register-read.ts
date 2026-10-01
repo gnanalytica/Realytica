@@ -23,6 +23,8 @@ import {
   flagFindingProposals,
   placeProposalsFromIngest,
   plural,
+  proposeFacts,
+  liveFacts,
 } from '@realytica/shared';
 import { readIngestLocally } from './intake';
 
@@ -67,8 +69,8 @@ export async function readOntoRegister(project: DdProject, uploads: RegisterUplo
 
     const evidence = project.evidence.find((e) => e.id === upload.evidenceId);
     if (!evidence) continue;
-    const kept = (evidence.facts ?? []).filter((f) => !doc.facts.some((n) => n.key === f.key));
-    evidence.facts = [...kept, ...doc.facts];
+    // What it states waits on the row, value by value, for a person to accept.
+    evidence.facts = proposeFacts(evidence.facts ?? [], doc.facts);
     evidence.documentType = doc.label;
     evidence.readMethod = doc.method;
     evidence.quotes = doc.facts
@@ -90,17 +92,17 @@ export async function readOntoRegister(project: DdProject, uploads: RegisterUplo
 
   if (!labels.length) return { read: 0 };
 
-  const startDd = ddForDocumentsProposal(project, project.evidence.flatMap((e) => e.facts ?? []), actor, cards);
+  const startDd = ddForDocumentsProposal(project, project.evidence.flatMap((e) => liveFacts(e)), actor, cards);
   if (startDd) cards.push(startDd);
 
   project.chatProposals.push(...cards);
-  const fills = cards.filter((c) => c.kind === 'record_check_fields').length;
+  const fills = new Set(cards.filter((c) => c.kind === 'record_check_fields').map((c) => String(c.payload.checkId))).size;
   const text = [
     `Read the ${labels.length === 1 ? labels[0] : labels.join(', ')} you filed on the register.`,
     fills ? `${plural(fills, 'check')} can take values from ${labels.length === 1 ? 'it' : 'them'}.` : '',
     startDd ? `They answer checks in the ${startDd.title.replace(/^Start /, '')}.` : '',
     flagged.length ? `\n⚑ ${[...new Set(flagged)].join('; ')}.` : '',
-    cards.length ? '\nApprove below, or say “approve all”.' : '',
+    '\nWhat it states is waiting on the row, value by value. Accept each where it sits.',
   ]
     .filter(Boolean)
     .join(' ')

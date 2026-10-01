@@ -218,6 +218,8 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     capabilityRuns: [],
     // The trail names everybody's actions across the whole project.
     audit: [],
+    // So does the last instruction somebody gave the chat, and only staff can take it back.
+    lastUndo: undefined,
   };
 
   const writableCheckIds = grantCanWrite(grant) ? checkIds : new Set<string>();

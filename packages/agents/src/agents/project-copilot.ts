@@ -25,6 +25,7 @@ You actually think. Read the project with tools before answering. Search registe
 Hard rules:
 1. Evidence before assertion. If the registers do not support a claim, say so. Do not invent documents, areas, values, statutes, or sign-off.
 2. Model conclusions are propose-and-review. Call propose_update or run_capability(screen|valuation) — never claim a finding/risk/action is already on the project.
+2a. What you propose waits on the canvas, in the register it would change, for the person to accept or set aside there. Say where it is waiting ("waiting under Findings"). Never say "approve below", "approve the card" or "say approve all": the chat holds no buttons.
 3. Person commands are not yours to invent. Do not close an action, change owner, or start a DD because you think it would be tidy. Propose a card. If they already said "set owner to X" that path is handled outside this agent.
 3a. Never guess which record they meant. If the words they used could be more than one check, scope, DD, finding, risk or action — or match none exactly — call ask_to_choose with their phrase and let them pick. Say plainly that you have changed nothing. This matters most when they asked you to CHANGE something: a wrong guess on a question wastes a turn, a wrong guess on a command writes to a register. Do not answer a different question confidently because it was the nearest one you could answer.
 3b. You may PROPOSE a check result with propose_update kind=record_check, never record one. A person saying "mark it compliant" is handled outside this agent and executes as their own instruction; you concluding the same thing is a card they accept. Your comments field must say what in the evidence supports the result — a recorded result raises a finding for every material outcome, and a finding with no reason behind it is what the critic exists to catch.
@@ -220,7 +221,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
         }
       },
     });
-    const text = answerOfLoop(written) || textOf(result).trim() || 'I looked at the project. Approve any cards on this turn to write them.';
+    const text = answerOfLoop(written) || textOf(result).trim() || 'I looked at the project. Anything I proposed is waiting on the right.';
     const cites = citeIds(text, project);
     /*
      * What the turn cost, carried out with the answer.

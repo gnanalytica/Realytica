@@ -8,6 +8,9 @@
  */
 
 import { CHECK_RESULT_LABEL, LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL } from './catalogs';
+import { factsAwaitingReview, proposedFacts } from './fact-review';
+import { lastAssistantTurn } from './sitting';
+import { contestedKeys, decideCheckFields, reviewFacts, waitingFieldKeys } from './review';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
 import {
@@ -135,6 +138,72 @@ export function paneForProposalKind(kind: ChatProposalKind): ProjectCockpitPane 
   if (kind === 'add_decision') return 'decisions';
   if (kind === 'generate_report' || kind === 'edit_report') return 'reports';
   return 'overview';
+}
+
+/** One thing waiting for a person on the canvas, and where it waits. */
+export interface WaitingEntry {
+  /** A document's values, or a card of this kind. */
+  kind: 'facts' | ChatProposalKind;
+  pane: ProjectCockpitPane;
+  /** Decisions it holds: the values on a document, the fields on a check card, otherwise one. */
+  count: number;
+  title: string;
+  evidenceId?: string;
+  proposalId?: string;
+  extra?: CockpitPathExtra;
+}
+
+/** The order a review moves through the file: documents first, then what they answer, then everything else. */
+const REVIEW_ORDER: ProjectCockpitPane[] = [
+  'evidence', 'scope', 'dd', 'findings', 'risks', 'actions', 'decisions', 'assets', 'overview', 'visits', 'valuation', 'reports', 'drafts', 'orchestrate', 'people', 'graph',
+];
+
+function extraForCard(project: DdProject, card: ChatProposal): CockpitPathExtra | undefined {
+  const p = card.payload as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  const checkId = str(p.checkId) ?? (Array.isArray(p.checkIds) ? str(p.checkIds[0]) : undefined);
+  // A check opens inside its scope; the address needs both to get there.
+  const seat = checkId
+    ? project.assessments.flatMap((a) => a.scopes.map((s) => ({ a, s }))).find(({ s }) => s.checks.some((c) => c.id === checkId))
+    : undefined;
+  const extra: CockpitPathExtra = {
+    ...(str(p.assessmentId) ? { ddId: str(p.assessmentId) } : seat ? { ddId: seat.a.id } : {}),
+    ...(seat ? { scopeId: seat.s.id } : {}),
+    ...(checkId ? { checkId } : {}),
+    ...(str(p.evidenceId) ? { evidenceId: str(p.evidenceId) } : {}),
+    ...(str(p.assetId) ? { assetId: str(p.assetId) } : {}),
+  };
+  return Object.keys(extra).length ? extra : undefined;
+}
+
+/**
+ * Everything waiting for a person, by the pane it waits in.
+ *
+ * The chat no longer carries a card to approve: what a reader or the model
+ * proposed waits where it would land. This is the count the canvas shows on
+ * each tab and in its review pill, and the order its "next" walks — the
+ * values on documents first, because everything else is read from them.
+ */
+export function waitingOnCanvas(project: DdProject): { total: number; byPane: Partial<Record<ProjectCockpitPane, number>>; entries: WaitingEntry[] } {
+  const entries: WaitingEntry[] = [];
+  for (const { evidence, facts } of factsAwaitingReview(project)) {
+    entries.push({ kind: 'facts', pane: 'evidence', count: facts.length, title: evidence.title, evidenceId: evidence.id, extra: { evidenceId: evidence.id } });
+  }
+  for (const card of project.chatProposals ?? []) {
+    if (card.status !== 'proposed') continue;
+    const count = card.kind === 'record_check_fields' ? waitingFieldKeys(card).length : 1;
+    if (!count) continue;
+    const pane = card.kind === 'change_stage' && card.payload.subject === 'asset' ? 'assets' : paneForProposalKind(card.kind);
+    entries.push({ kind: card.kind, pane, count, title: card.title, proposalId: card.id, extra: extraForCard(project, card) });
+  }
+  entries.sort((a, b) => REVIEW_ORDER.indexOf(a.pane) - REVIEW_ORDER.indexOf(b.pane));
+  const byPane: Partial<Record<ProjectCockpitPane, number>> = {};
+  let total = 0;
+  for (const e of entries) {
+    byPane[e.pane] = (byPane[e.pane] ?? 0) + e.count;
+    total += e.count;
+  }
+  return { total, byPane, entries };
 }
 
 function withQuery(path: string, pairs: Array<[string, string | undefined]>): string {
@@ -339,7 +408,7 @@ function approvalReceipt(cards: ChatProposal[]): string {
   const known = new Set<ChatProposalKind>(['file_evidence', 'start_dd', 'record_check_fields', 'record_check', 'add_finding', 'add_risk', 'add_action', 'request_evidence', 'patch_project', 'add_asset', 'generate_report', 'run_screen', 'run_valuation']);
   const other = cards.filter((c) => !known.has(c.kind)).length;
   if (other) parts.push(`applied ${plural(other, 'other change')}`);
-  if (!parts.length) return `Done — ${plural(cards.length, 'card')} approved.`;
+  if (!parts.length) return `Done — ${plural(cards.length, 'suggestion')} accepted.`;
   const sentence = parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
   return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
 }
@@ -787,9 +856,18 @@ export function applyProjectChat(
     return extra;
   };
 
+  /*
+   * The same card is not offered twice. Check values are the same card when
+   * they carry the same values for the same check — not when their titles
+   * match: two deeds stating different extents both read "Record extent per
+   * title on …", and offering only the first would settle the disagreement
+   * for the person.
+   */
+  const sameAs = (p: ChatProposal) =>
+    p.kind === 'record_check_fields' ? `${p.kind}:${String(p.payload.checkId)}:${JSON.stringify(p.payload.values ?? {})}` : p.title;
   const offer = (rows: ChatProposal[]) => {
-    const openTitles = new Set(project.chatProposals.filter((p) => p.status === 'proposed').map((p) => p.title));
-    const fresh = rows.filter((p) => !openTitles.has(p.title));
+    const openTitles = new Set(project.chatProposals.filter((p) => p.status === 'proposed').map(sameAs));
+    const fresh = rows.filter((p) => !openTitles.has(sameAs(p)));
     for (const p of fresh) project.chatProposals.push(p);
     offered = fresh;
     return fresh;
@@ -893,6 +971,36 @@ export function applyProjectChat(
     }
     const ddCard = startDd ?? waitingDd;
     /*
+     * The documents are filed now. They are the person's own files — asking
+     * them to approve filing what they just dropped in was a click that
+     * decided nothing. What each document STATES waits on its row, value by
+     * value, for them to accept where it sits; what it would CHANGE — a
+     * check's values, a finding, a DD to start — waits in the register it
+     * would change.
+     */
+    const before = fileStanding(project);
+    const filedIds: string[] = [];
+    for (const card of rows.filter((r) => r.kind === 'file_evidence')) {
+      const filed = commitChatProposal(project, card.id, actor);
+      if (filed.recordId) filedIds.push(filed.recordId);
+    }
+    const valuesWaiting = filedIds.reduce((n, evId) => n + proposedFacts(project.evidence.find((e) => e.id === evId) ?? {}).length, 0);
+    // Filing is the change now, so the upload's own reply says whether the file moved.
+    metrics = standingDelta(before, fileStanding(project));
+    /*
+     * Nothing in these documents to review — unread, or nothing they state
+     * that a check asks for. The approval that used to follow an upload is
+     * gone, and with it the moment the next step was offered, so it is
+     * offered here: one card, waiting in its register.
+     */
+    if (!valuesWaiting && !rows.some((r) => r.status === 'proposed')) {
+      const next = projectNextStep(project, actor);
+      if (next.kind !== 'idle' && next.proposals.length) {
+        const filedCards = offered;
+        offered = [...filedCards, ...offer([next.proposals[0]!])];
+      }
+    }
+    /*
      * One line, and the cards carry the rest.
      *
      * This used to reprint every card's title and full rationale immediately
@@ -924,13 +1032,14 @@ export function applyProjectChat(
       const label = /^[A-Z][a-z]/.test(raw) ? raw.charAt(0).toLowerCase() + raw.slice(1) : raw;
       return f.read!.method === 'text' ? label : `${label} (scan, read by OCR)`;
     });
-    const fills = rows.filter((p) => p.kind === 'record_check_fields').length;
+    // Checks, not cards: two documents offering values to one check are one check.
+    const fills = new Set(rows.filter((p) => p.kind === 'record_check_fields').map((p) => String(p.payload.checkId))).size;
     const redFlags = rows.filter((p) => p.kind === 'add_finding');
     const patches = rows.filter((p) => p.kind === 'patch_project').length;
     const extras = [
       fills ? `${plural(fills, 'check')} can take values from ${ingest.length === 1 ? 'it' : 'them'}` : '',
       patches ? `${plural(patches, 'project detail')} to fill` : '',
-      ddCard ? `approving also starts the ${String(ddCard.payload.name ?? ddCard.title.replace(/^Start /, ''))}, whose checks ${ingest.length === 1 ? 'it answers' : 'they answer'}` : '',
+      ddCard ? `the ${String(ddCard.payload.name ?? ddCard.title.replace(/^Start /, ''))} is waiting to start under Technical DD, since ${ingest.length === 1 ? 'it answers' : 'they answer'} its checks` : '',
     ].filter(Boolean);
     const flagLine = redFlags.length ? `\n⚑ ${redFlags.map((p) => p.title).join('; ')}.` : '';
     const heading =
@@ -943,17 +1052,23 @@ export function applyProjectChat(
           : unread === ingest.length
             ? `${oneCause ?? failures[0]!} Approving still files ${ingest.length === 1 ? 'it' : `all ${ingest.length}`} on the register, unread.`
             : `Read ${plural(ingest.length - unread, 'file')}; ${unread} I couldn’t.`;
-    assistantText = `${heading}${extras.length ? ` ${extras.join('; ')}.` : ''}${flagLine}${read.length || unread < ingest.length ? '\nApprove to file, or say “approve all”.' : ''}`;
-    citedEvidenceIds = rows.flatMap((p) => p.citedEvidenceIds ?? []);
+    const waitingLine = valuesWaiting
+      ? `\n${valuesWaiting === 1 ? '1 value is waiting on the right, beside the words it came from' : `${valuesWaiting} values are waiting on the right, each beside the words it came from`}. Nothing is on the file until you accept it there.`
+      : filedIds.length
+        ? `\nFiled on the register${unread ? ', unread' : ''}.`
+        : '';
+    const extraLine = extras.join('; ');
+    assistantText = `${heading}${extraLine ? ` ${extraLine.charAt(0).toUpperCase()}${extraLine.slice(1)}.` : ''}${flagLine}${waitingLine}`;
+    citedEvidenceIds = [...new Set([...filedIds, ...rows.flatMap((p) => p.citedEvidenceIds ?? [])])];
     citedNodeIds = rows.flatMap((p) => p.citedNodeIds ?? []);
     highlightIds.push(...citedEvidenceIds);
-    toolCalls = [{ name: 'ingest', summary: `Classified ${plural(ingest.length, 'file')}` }];
-    const sitting = sittingCheckOf(project, prefer) ?? sittingCheckOf(project, extrasFromPayload(rows[0]?.payload as Record<string, unknown>));
-    if (sitting) {
-      navigate('scope', 'Opened check', { ddId: sitting.assessment.id, scopeId: sitting.scope.id, checkId: sitting.check.id });
-    } else {
-      navigate('evidence', 'Opened evidence', extrasFromPayload(rows[0]?.payload as Record<string, unknown>));
-    }
+    toolCalls = [{ name: 'ingest', summary: `Filed ${plural(filedIds.length || ingest.length, 'file')}` }];
+    /*
+     * The canvas opens where the documents went: the register, its new rows
+     * lit. Not at the first of them — that opens its viewer, a modal, over
+     * the values waiting to be reviewed on the desk.
+     */
+    navigate('evidence', 'Opened documents');
   } else if (wantsApprove(ql) && !registerRecordCommand) {
     const everyOpen = approveAllMeansEveryOpen(q);
     const targets =
@@ -965,7 +1080,16 @@ export function applyProjectChat(
     if (targets.length === 0 && project.chatProposals.filter((p) => p.status === 'proposed').length === 1) {
       targets.push(project.chatProposals.find((p) => p.status === 'proposed')!);
     }
-    if (targets.length === 0) {
+    /*
+     * "Approve all" is an instruction, and it covers what a document states
+     * as well as the cards: the values waiting on the documents the last
+     * reply filed, or on every document when they said every or all open.
+     */
+    const lastFiled = new Set(lastAssistantTurn(project)?.citedEvidenceIds ?? []);
+    const factRows = /\ball\b/.test(ql) || everyOpen
+      ? project.evidence.filter((e) => proposedFacts(e).length && (everyOpen || lastFiled.has(e.id)))
+      : [];
+    if (targets.length === 0 && factRows.length === 0) {
       /*
        * "Accept" is two verbs. It approves a card, and it is also what you do
        * to a risk you have decided to live with — so "accept the flood risk"
@@ -985,7 +1109,7 @@ export function applyProjectChat(
         const rows = kind === 'risk' ? openRisks() : kind === 'finding' ? openFindings() : openActions();
         const verb = kind === 'risk' ? (/\baccept/.test(ql) ? 'Accept' : 'Mitigate') : 'Close';
         const asked = clarifyRecordCommand(project, q, kind, rows, verb);
-        assistantText = `Nothing waiting to approve.\n${asked.text}`;
+        assistantText = `Nothing waiting to accept.\n${asked.text}`;
         choices = asked.choices;
         toolCalls = [{ name: 'clarify', summary: asked.summary }];
         navigate(kind === 'risk' ? 'risks' : kind === 'finding' ? 'findings' : 'actions', '');
@@ -994,13 +1118,40 @@ export function applyProjectChat(
       }
     } else {
       const before = fileStanding(project);
+      let valuesAccepted = 0;
+      for (const row of factRows) {
+        valuesAccepted += reviewFacts(project, row.id, 'all', 'accept', actor).changed.length;
+        highlightIds.push(row.id);
+      }
       const done: string[] = [];
+      /*
+       * "All" is not a choice between documents that disagree. A check value
+       * two documents state differently stays waiting on its check, where
+       * the person picks one; everything else is accepted.
+       */
+      let toPick = 0;
       for (const item of targets) {
+        if (item.status !== 'proposed') continue;
+        if (item.kind === 'record_check_fields') {
+          const left = contestedKeys(project, item);
+          const open = waitingFieldKeys(item).filter((key) => !left.includes(key));
+          toPick += left.length;
+          if (!open.length) continue;
+          try {
+            decideCheckFields(project, item.id, open, 'accept', actor);
+          } catch {
+            continue;
+          }
+          done.push(item.title);
+          highlightIds.push(String(item.payload.checkId));
+          continue;
+        }
         const result = commitChatProposal(project, item.id, actor);
         done.push(`${item.title}${result.recordId ? ` → ${result.recordId}` : ''}`);
         if (result.recordId) highlightIds.push(result.recordId);
       }
-      commands.push(`Approved ${plural(done.length, 'proposal')}`);
+      const accepted = [valuesAccepted ? plural(valuesAccepted, 'value') : '', done.length ? plural(done.length, 'suggestion') : ''].filter(Boolean).join(' and ');
+      commands.push(accepted ? `Accepted ${accepted}` : 'Nothing left to accept');
       /*
        * A receipt, not a re-listing. The cards above have just flipped to
        * their committed state in place, so repeating their titles — and the
@@ -1012,7 +1163,11 @@ export function applyProjectChat(
        * assessment leaves the pack at 0/16, and that is the fact worth putting
        * in front of somebody who has just spent a minute approving cards.
        */
-      assistantText = approvalReceipt(targets);
+      assistantText = [
+        valuesAccepted ? `Accepted ${plural(valuesAccepted, 'value')} on ${plural(factRows.length, 'document')}.` : '',
+        done.length ? approvalReceipt(targets.filter((t) => t.status === 'committed')) : '',
+        toPick ? `${toPick === 1 ? 'One value the documents disagree on waits' : `${toPick} values the documents disagree on wait`} on the checks for you to pick.` : '',
+      ].filter(Boolean).join(' ');
       metrics = standingDelta(before, fileStanding(project));
       toolCalls = [{ name: 'approve', summary: `${done.length} committed` }];
       /*
@@ -1021,9 +1176,10 @@ export function applyProjectChat(
        * more: auto-opening the first document's viewer over a batch put a
        * modal over the chat just as it offered the next step.
        */
-      const lead = targets[0]!;
-      const extra = targets.length === 1 ? extrasFromPayload(lead.payload as Record<string, unknown>) : undefined;
-      const pane = extra?.checkId ? 'scope' : paneForProposalKind(mostCommonKind(targets));
+      const lead = targets[0];
+      const extra = targets.length === 1 && lead ? extrasFromPayload(lead.payload as Record<string, unknown>) : undefined;
+      // Only document values accepted: the register they are on.
+      const pane = !targets.length ? 'evidence' : extra?.checkId ? 'scope' : paneForProposalKind(mostCommonKind(targets));
       navigate(pane, `Opened ${pane}`, extra);
       /*
        * One suggestion, and only one.
@@ -1044,12 +1200,12 @@ export function applyProjectChat(
       const fills = pendingFactProposals(project, actor);
       if (fills.length) {
         offer(fills);
-        assistantText += ` ${plural(fills.length, 'check')} can take values from documents already on file — say “approve all” to record them.`;
+        assistantText += ` ${plural(fills.length, 'check')} can take values from documents already on file; they are waiting on the checks.`;
       }
       const startDd = fills.length ? undefined : ddForDocumentsProposal(project, factsOnFile(project).map((row) => row.fact), actor);
       if (startDd) {
         offer([startDd]);
-        assistantText += ` Your documents answer checks in the ${startDd.title.replace(/^Start /, '')} — approve to start it.`;
+        assistantText += ` Your documents answer checks in the ${startDd.title.replace(/^Start /, '')}; it is waiting to start under Technical DD.`;
       }
       const next = projectNextStep(project, actor);
       if (next.kind !== 'idle' && next.proposals.length && !fills.length && !startDd) offer([next.proposals[0]!]);
@@ -1105,7 +1261,7 @@ export function applyProjectChat(
         actor,
       ),
     ]);
-    assistantText = `Ready to generate the ${label} — ${reportSummaryLine(project)} Approve below.`;
+    assistantText = `Ready to generate the ${label} — ${reportSummaryLine(project)} It is waiting under Report.`;
     toolCalls = [{ name: 'generate_report', summary: REPORT_KIND_LABEL[reportToGenerate] }];
   } else if (severityChange) {
     const hit = matchTitle(openFindings(), q) as FindingRecord | undefined;
@@ -1328,7 +1484,7 @@ export function applyProjectChat(
       toolCalls = [{ name: 'start_dd', summary: startDd.title }];
       // The new checks can take what the documents on file already state.
       const fills = offer(pendingFactProposals(project, actor));
-      if (fills.length) assistantText += `\n${plural(fills.length, 'check')} can take values from documents already on file — say “approve all” to record them.`;
+      if (fills.length) assistantText += `\n${plural(fills.length, 'check')} can take values from documents already on file; they are waiting on the checks.`;
     } else {
       const named = asksForPane(ql) ? undefined : sittingWithField(project, talkSittingFromText(project, q));
       const namedSitting = named && (named.kind === 'check' || named.kind === 'scope' || named.kind === 'dd');
@@ -1383,13 +1539,12 @@ export function applyProjectChat(
         } else {
           const cards = offer(interpreted.proposals);
           if (!cards.length) {
-            assistantText = 'That update is already sitting on an open card. Approve it, or skip it and say the value again.';
+            assistantText = 'That update is already waiting on the right. Accept it there, or set it aside and say the value again.';
             toolCalls = [{ name: 'advise', summary: 'Already proposed' }];
           } else {
           assistantText = [
-            'I can apply these updates from what you just said. Approve a card to write them.',
+            'I can apply these updates from what you just said. They are waiting on the right; nothing is written until you accept them there.',
             cards.map((p) => `• ${p.title}\n  ${p.rationale}`).join('\n'),
-            'Or say “approve all”. Nothing is written until then.',
           ].join('\n\n');
           toolCalls = [{ name: 'advise', summary: `${cards.length} update(s)` }];
           navigate(paneForProposalKind(cards[0]?.kind ?? interpreted.proposals[0]!.kind), `Opened ${paneForProposalKind(cards[0]?.kind ?? 'patch_project')}`);
@@ -1414,7 +1569,7 @@ export function applyProjectChat(
          * two lines later. Replace it rather than appending to it.
          */
         if (!cards.length && side.proposals.length) {
-          assistantText = `Already asked for. ${plural(side.proposals.length, 'card')} waiting further up — approve or skip.`;
+          assistantText = `Already asked for. ${side.proposals.length === 1 ? 'It is' : `${side.proposals.length} are`} waiting on the right.`;
         }
       } else if (proposeDrafts) {
     const drafts = proposeAiDrafts(project, actor, 'rule');
@@ -1427,8 +1582,8 @@ export function applyProjectChat(
     // The card carries the detail; this says what approving it does, once.
     // It used to reprint the card's own title and rationale beneath itself.
     assistantText = cards.length
-      ? 'Ready to screen the property against the evidence on file. Approve to write findings, risks, gaps and an indicative value — nothing is a certified valuation.'
-      : 'A property-screen card is already open — approve or skip it.';
+      ? 'Ready to screen the property against the evidence on file. It waits on the Overview: accepting it writes findings, risks, gaps and an indicative value — nothing is a certified valuation.'
+      : 'A property screen is already waiting on the Overview.';
     toolCalls = [{ name: 'screen', summary: 'Proposed property screen' }];
     navigate('overview', 'Opened overview');
   } else if (runValuation) {
@@ -1554,7 +1709,7 @@ export function applyProjectChat(
          * and then again as three collapsed rows with buttons. The same
          * duplication the upload path carried, in the branch next door.
          */
-        cards.length ? `${plural(cards.length, 'card')} below — approve what you want.` : next.text,
+        cards.length ? `${plural(cards.length, 'suggestion')} waiting on the right.` : next.text,
       ]
         .filter(Boolean)
         .join('\n\n');

@@ -58,3 +58,5 @@ export * from './revenue-map';
 export * from './project-requests';
 export * from './portfolio';
 export * from './cleanup';
+export * from './fact-review';
+export * from './review';

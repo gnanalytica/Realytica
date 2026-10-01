@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Download, FileWarning } from 'lucide-react';
-import type { DocumentFact, EvidenceAttachment, EvidenceRecord, FactMarks } from '@realytica/shared';
+import { factReview, type DocumentFact, type EvidenceAttachment, type EvidenceRecord, type FactMarks } from '@realytica/shared';
 import { Button, cn, useToast } from '../../components/ui/kit';
 import { fetchEvidenceFile, renderKindFor, saveEvidenceFile, type DocumentSourceState } from '../../components/viewer/source';
 
@@ -135,10 +135,12 @@ export function EvidenceProof({
                 </p>
               </div>
               <ul className="divide-y divide-hairline">
-                {facts.map((fact) => {
+                {facts.map((fact, i) => {
                   const on = picked?.key === fact.key;
+                  // Where it stands: the viewer shows what the document says, not only what was accepted.
+                  const review = factReview(fact);
                   return (
-                    <li key={fact.key}>
+                    <li key={`${fact.key}:${i}`}>
                       <button
                         type="button"
                         onClick={() => setPicked(on ? null : fact)}
@@ -154,9 +156,12 @@ export function EvidenceProof({
                           <span className="shrink-0 font-mono text-[10px] text-ink-muted">
                             p.{fact.page}
                             {fact.source === 'model' ? ' · AI read' : ''}
+                            {review === 'proposed' ? <span className="text-provenance-ink"> · waiting</span> : review === 'rejected' ? ' · set aside' : ''}
                           </span>
                         </span>
-                        <span className="mt-0.5 block text-[13px] font-medium text-ink">{fact.display}</span>
+                        <span className={cn('mt-0.5 block text-[13px] font-medium', review === 'rejected' ? 'text-ink-muted line-through' : 'text-ink')}>
+                          {fact.display}
+                        </span>
                         {fact.originalValue ? (
                           <span
                             lang={fact.originalScript === 'kannada' ? 'kn' : fact.originalScript === 'telugu' ? 'te' : undefined}

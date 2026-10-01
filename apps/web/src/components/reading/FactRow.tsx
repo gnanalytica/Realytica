@@ -11,7 +11,7 @@ const reducedMotion = (): boolean =>
  * than appearing. Whole at once for anyone who has asked for less motion, and
  * for anything long enough that typing it would be a wait.
  */
-function useTyped(text: string, delayMs: number, enabled: boolean): string {
+export function useTyped(text: string, delayMs: number, enabled: boolean): string {
   const [shown, setShown] = useState(enabled && !reducedMotion() && text.length <= 80 ? '' : text);
   useEffect(() => {
     if (!enabled || reducedMotion() || text.length > 80) {

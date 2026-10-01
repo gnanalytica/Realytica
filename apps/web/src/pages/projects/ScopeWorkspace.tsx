@@ -8,16 +8,15 @@ import {
   EVIDENCE_STATUS_LABEL,
   SCOPE_LABEL,
   checkAdvise,
-  proposalExtractionNotes,
-  proposalQuotes,
-  proposalsPinnedToCheck,
   quotesForCheck,
   type CheckInstance,
   type CheckResult,
   type FindingSeverity,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
+import { Check, X } from 'lucide-react';
 import { CheckFields } from '../../components/CheckFields';
+import { CheckWaiting, checkWaitingCount } from '../../components/review/CheckWaiting';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Field, Modal, Select, Textarea, cn, useToast } from '../../components/ui/kit';
 import { AssignCell } from '../../components/AssignCell';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -38,7 +37,7 @@ const RESULTS: CheckResult[] = [
 export default function ScopeWorkspace() {
   const { ddId, scopeId } = useParams<{ ddId: string; scopeId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { project, setProject, onApproveProposal, onSkipProposal, proposalBusy, highlightIds, onOpenCited } =
+  const { project, setProject, onAcceptWaiting, onSetAsideWaiting, waitingBusy, onReviewDocument, highlightIds, onOpenCited } =
     useOutletContext<ProjectOutlet>();
   const toast = useToast();
   const assessment = project.assessments.find((a) => a.id === ddId);
@@ -123,7 +122,6 @@ export default function ScopeWorkspace() {
   const sittingCheck = requestedCheck ? scope.checks.find((c) => c.id === requestedCheck) : undefined;
   const check = scope.checks.find((c) => c.id === checkId);
   const evidence = project.evidence.filter((e) => e.scopeInstanceIds.includes(scope.id) || e.assessmentIds.includes(assessment.id));
-  const pinned = check ? proposalsPinnedToCheck(project, check.id) : [];
   const quotes = check ? quotesForCheck(project, check.id) : [];
   const sittingQuotes = sittingCheck ? quotesForCheck(project, sittingCheck.id) : [];
   const liveIds = [...(highlightIds ?? []), ...(requestedCheck ? [requestedCheck] : [])];
@@ -257,6 +255,17 @@ export default function ScopeWorkspace() {
               onCross={() => void recordLean(sittingCheck, 'missing_evidence')}
               onDetails={() => openCheck(sittingCheck)}
             />
+            <div className="mt-3">
+              <CheckWaiting
+                project={project}
+                check={sittingCheck}
+                busy={busy || waitingBusy}
+                onProject={setProject}
+                onAccept={onAcceptWaiting}
+                onSetAside={onSetAsideWaiting}
+                onShowSource={onReviewDocument}
+              />
+            </div>
           </CardBody>
         </Card>
       ) : null}
@@ -265,9 +274,10 @@ export default function ScopeWorkspace() {
         <CardHeader
           title="Checks"
           action={
-            <p className="hidden text-[11px] text-ink-muted sm:block">
-              <kbd className="font-mono">↑↓</kbd> move · <kbd className="font-mono">↵</kbd> tick ·{' '}
-              <kbd className="font-mono">X</kbd> cross
+            <p className="hidden items-center gap-1 text-[11px] text-ink-muted sm:flex">
+              <kbd className="font-mono">↑↓</kbd> move · <kbd className="font-mono">↵</kbd>
+              <Check size={11} aria-label="compliant" /> · <kbd className="font-mono">X</kbd>
+              <X size={11} aria-label="missing evidence" />
             </p>
           }
         />
@@ -280,6 +290,7 @@ export default function ScopeWorkspace() {
               highlightIds={liveIds}
               pending={ch.result === 'pending'}
               lean={ch.result === 'pending' ? checkAdvise(project, ch).lean : undefined}
+              waiting={checkWaitingCount(project, ch.id)}
               busy={busy}
               onOpen={() => selectField(ch)}
               onTick={() => void recordLean(ch, 'compliant')}
@@ -374,40 +385,16 @@ export default function ScopeWorkspace() {
                 </Select>
               </Field>
             ) : null}
-            {pinned.length ? (
-              <div className="space-y-2 rounded-lg bg-sunken px-3 py-2 ring-1 ring-inset ring-[var(--ring)]">
-                <p className="text-[12px] font-medium text-ink">Cards for this check</p>
-                {pinned.map((item) => (
-                  <div key={item.id}>
-                    <p className="text-[13px] font-medium text-ink">{item.title}</p>
-                    <p className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">{item.rationale}</p>
-                    {proposalQuotes(item.payload).length ? (
-                      <div className="mt-1.5 space-y-1 rounded-md bg-surface px-2 py-1.5">
-                        {proposalQuotes(item.payload).slice(0, 3).map((q, i) => (
-                          <p key={i} className="text-[12px] leading-relaxed text-ink">
-                            “{q.text}”{q.page ? <span className="text-ink-muted"> · p.{q.page}</span> : null}
-                          </p>
-                        ))}
-                        {proposalExtractionNotes(item.payload) ? (
-                          <p className="text-[11px] text-ink-muted">{proposalExtractionNotes(item.payload)}</p>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {onApproveProposal && onSkipProposal ? (
-                      <div className="mt-2 flex gap-1.5">
-                        <Button size="sm" variant="primary" disabled={proposalBusy} onClick={() => onApproveProposal(item.id)}>
-                          Approve
-                        </Button>
-                        <Button size="sm" variant="ghost" disabled={proposalBusy} onClick={() => onSkipProposal(item.id)}>
-                          Skip
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            {quotes.length > 0 && !pinned.length ? (
+            <CheckWaiting
+              project={project}
+              check={check}
+              busy={busy || waitingBusy}
+              onProject={setProject}
+              onAccept={onAcceptWaiting}
+              onSetAside={onSetAsideWaiting}
+              onShowSource={onReviewDocument}
+            />
+            {quotes.length > 0 && !checkWaitingCount(project, check.id) ? (
               <div className="space-y-1 rounded-lg bg-sunken px-3 py-2">
                 <p className="text-[12px] font-medium text-ink">Quoted from the file</p>
                 {quotes.slice(0, 4).map((q, i) => (
@@ -430,6 +417,7 @@ function CheckRow({
   highlightIds,
   pending,
   lean,
+  waiting = 0,
   busy,
   onOpen,
   onTick,
@@ -440,6 +428,8 @@ function CheckRow({
   highlightIds?: string[];
   pending: boolean;
   lean?: 'tick' | 'cross' | 'none';
+  /** Values or suggestions waiting on this check for a person. */
+  waiting?: number;
   busy?: boolean;
   onOpen: () => void;
   onTick: () => void;
@@ -463,6 +453,14 @@ function CheckRow({
         </p>
       </button>
       <div className="flex items-center gap-2">
+        {waiting > 0 ? (
+          <span
+            className="rounded-full bg-provenance/15 px-1.5 font-mono text-micro text-provenance-ink"
+            title={`${waiting} waiting for you on this check`}
+          >
+            {waiting}
+          </span>
+        ) : null}
         {pending && sitting ? <TickCrossButtons lean={lean} busy={busy} onTick={onTick} onCross={onCross} /> : null}
         <Badge tone={checkTone(check.result)}>{CHECK_RESULT_LABEL[check.result]}</Badge>
       </div>

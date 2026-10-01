@@ -1716,6 +1716,13 @@ export interface DdProject {
   orchestratorRuns: OrchestratorRun[];
   audit: AuditEvent[];
   /**
+   * The last instruction given in the chat that changed the file, and how to
+   * take it back. The file as it stood is kept beside the project under
+   * `token`; `state` fingerprints the file just after, so an undo is refused
+   * once anything else has changed it.
+   */
+  lastUndo?: { token: string; label: string; state: string; at: string };
+  /**
    * Survey / parcel identifier for the site.
    *
    * Recorded rather than scraped. The screen used to recover this with a

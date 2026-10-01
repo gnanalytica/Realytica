@@ -87,7 +87,24 @@ export interface DocumentFact {
    * kept.
    */
   marks?: FactMarks;
+  /**
+   * Where a person stands on it. A document filed from an upload carries what
+   * it states as `proposed` until somebody accepts each value where it sits,
+   * or sets it aside. Absent means accepted: a fact on file before values
+   * were reviewed one by one was accepted with its whole card.
+   */
+  review?: FactReview;
+  decidedBy?: string;
+  decidedAt?: string;
+  /** The person corrected the value before accepting it; the quote is still the page's. */
+  edited?: boolean;
+  /** What the page was read as before the correction, so reopening the value puts it back. */
+  readAs?: { value: string | number | boolean; display: string };
+  /** The value this one replaced when accepted — kept so the decision can be undone. */
+  replaced?: DocumentFact;
 }
+
+export type FactReview = 'proposed' | 'accepted' | 'rejected';
 
 /** A box on a page, each side a fraction of the page's width or height from its top left. */
 export interface MarkRect {
