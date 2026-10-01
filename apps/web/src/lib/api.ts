@@ -980,6 +980,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ actor }),
     }),
+  /** Check the property, and start its valuation DD if it has none. The inputs are offered on read. */
+  valueProperty: (projectId: string) =>
+    request<{ project: DdProject; verdict: string; startedAssessmentId?: string }>(`/projects/${projectId}/value`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  acceptValueOffers: (projectId: string, ids: string[], record?: boolean) =>
+    request<{ project: DdProject; applied: string[]; refused: { id: string; error: string }[]; runId?: string }>(`/projects/${projectId}/value/accept`, {
+      method: 'POST',
+      body: JSON.stringify({ ids, record }),
+    }),
+  setAsideValueOffers: (projectId: string, ids: string[]) =>
+    request<{ project: DdProject; setAside: number }>(`/projects/${projectId}/value/set-aside`, {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
   patchValuation: (projectId: string, runId: string, signOff: ValuationSignOff) =>
     request<ValuationRun>(`/projects/${projectId}/valuation/${runId}`, { method: 'PATCH', body: JSON.stringify({ signOff }) }),
   snapshotCapabilities: (projectId: string) =>

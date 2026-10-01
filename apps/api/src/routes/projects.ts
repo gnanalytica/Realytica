@@ -111,6 +111,9 @@ import {
   projectToIdentity,
   renderProjectGuide,
   screenProject,
+  acceptValueOffers,
+  ensureValueChecks,
+  setAsideValueOffers,
   wantsDeterministicProjectChat,
   plural,
   linkRecordIds,
@@ -214,6 +217,7 @@ import {
   assignBodySchema,
   patchStatusBodySchema,
   patchValuationBodySchema,
+  valueOffersBodySchema,
   projectChatBodySchema,
   projectChatProposalBodySchema,
   factReviewBodySchema,
@@ -377,6 +381,7 @@ projectsRouter.use('/:projectId', gateWrites);
 
 projectsRouter.use('/:projectId/valuation', requireArea('valuation'));
 projectsRouter.use('/:projectId/screen', requireArea('valuation'));
+projectsRouter.use('/:projectId/value', requireArea('valuation'));
 projectsRouter.use('/:projectId/reports', requireArea('reports'));
 projectsRouter.use('/:projectId/decisions', requireArea('decisions'));
 projectsRouter.use('/:projectId/visits', requireArea('site_record'));
@@ -783,6 +788,77 @@ projectsRouter.post('/:projectId/valuation', async (req, res) => {
   const run = createValuationRun(project, actor);
   await persistPaneWrite(req, project, 'Created a valuation run.');
   res.status(201).json(run);
+});
+
+/**
+ * Value this property.
+ *
+ * Checks it against the state's title rules — the screen, minus the red flag
+ * report it writes when run on its own — and makes sure there is a valuation
+ * DD to record inputs on. The inputs themselves are offered on read, from
+ * the file as it stands, so this hands the file back and the page fills them.
+ */
+projectsRouter.post('/:projectId/value', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const actor = actorOf(req);
+  const now = new Date().toISOString();
+  const journal = await beginRun(project.id, 'screen', { actor });
+  try {
+    const site = await ensureIdentitySiteContext(project, projectToIdentity(project), now);
+    await journal.step('site_context', site ? 'Site context resolved.' : 'No mapping provider; screening without a pin.');
+    const applied = screenProject(project, actor, now, site, { report: false });
+    const started = ensureValueChecks(project, actor);
+    await persistPaneWrite(req, project, started ? 'Checked the property and started its valuation DD.' : 'Checked the property for its valuation.');
+    await journal.finish(`Verdict ${applied.snapshot.verdict}.`);
+    res.status(201).json({ project, verdict: applied.snapshot.verdict, ...(started ? { startedAssessmentId: started.id } : {}) });
+  } catch (err) {
+    await journal.fail(err instanceof Error ? err.message : String(err));
+    throw err;
+  }
+});
+
+/** Record the inputs a person accepted, and the valuation they give when asked to. */
+projectsRouter.post('/:projectId/value/accept', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = valueOffersBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const actor = actorOf(req);
+  const out = acceptValueOffers(project, parsed.data.ids, actor);
+  const run = parsed.data.record && (out.applied.length > 0 || out.refused.length === 0) ? createValuationRun(project, actor) : undefined;
+  const said = [
+    out.applied.length ? `Recorded ${out.applied.length} value input${out.applied.length === 1 ? '' : 's'} from the file` : '',
+    run ? 'recorded the valuation' : '',
+  ].filter(Boolean);
+  if (said.length) await persistPaneWrite(req, project, `${said.join(' and ')}.`, run ? { citedNodeIds: [run.id] } : undefined);
+  res.json({ project, applied: out.applied.map((o) => o.id), refused: out.refused, ...(run ? { runId: run.id } : {}) });
+});
+
+/** Set offered inputs aside; they stay out until the file says something new. */
+projectsRouter.post('/:projectId/value/set-aside', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = valueOffersBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const n = setAsideValueOffers(project, parsed.data.ids, actorOf(req));
+  if (n) await persistPaneWrite(req, project, `Set aside ${n} offered value input${n === 1 ? '' : 's'}.`);
+  res.json({ project, setAside: n });
 });
 
 projectsRouter.patch('/:projectId/valuation/:runId', async (req, res) => {

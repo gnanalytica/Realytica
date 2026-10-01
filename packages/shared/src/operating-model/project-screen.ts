@@ -740,7 +740,16 @@ export interface AppliedScreen {
   reportId?: string;
 }
 
-export function applyScreenToProject(project: DdProject, result: ScreenResult, actor = 'operator'): AppliedScreen {
+export interface ApplyScreenOptions {
+  /**
+   * Write a red flag report as well. On by default — the screen button always
+   * has — and off when the screen runs as part of valuing the property, where a
+   * report on every press would bury the Reports tab in copies of one another.
+   */
+  report?: boolean;
+}
+
+export function applyScreenToProject(project: DdProject, result: ScreenResult, actor = 'operator', options: ApplyScreenOptions = {}): AppliedScreen {
   ensureProjectShape(project);
   retireWhatIsNoLongerRaised(project, result, `verdict:${result.recommendation.verdict}`, actor, nowIso());
   const findingIds: string[] = [];
@@ -879,7 +888,7 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
     decisionId = decision.id;
   }
 
-  const report = generateReport(project, { kind: 'red_flag', generatedBy: actor }, actor);
+  const report = options.report === false ? undefined : generateReport(project, { kind: 'red_flag', generatedBy: actor }, actor);
 
   return {
     result,
@@ -889,15 +898,15 @@ export function applyScreenToProject(project: DdProject, result: ScreenResult, a
     actionIds,
     evidenceIds,
     decisionId,
-    reportId: report.id,
+    reportId: report?.id,
   };
 }
 
 /** Compute the screen and write it onto the project registers. */
-export function screenProject(project: DdProject, actor = 'operator', now = nowIso(), siteContext?: SiteContext): AppliedScreen {
+export function screenProject(project: DdProject, actor = 'operator', now = nowIso(), siteContext?: SiteContext, options: ApplyScreenOptions = {}): AppliedScreen {
   if (siteContext) project.siteContext = siteContext;
   const result = runProjectScreen(project, now, siteContext ?? project.siteContext);
-  return applyScreenToProject(project, result, actor);
+  return applyScreenToProject(project, result, actor, options);
 }
 
 export function proposeProjectScreen(project: DdProject, actor = 'operator'): ChatProposal {

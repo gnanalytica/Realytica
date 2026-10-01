@@ -127,7 +127,8 @@ export function paneForProposalKind(kind: ChatProposalKind): ProjectCockpitPane 
   if (kind === 'file_evidence') return 'evidence';
   if (kind === 'request_evidence' || kind === 'add_action' || kind === 'open_connector') return 'actions';
   if (kind === 'run_valuation') return 'valuation';
-  if (kind === 'run_screen') return 'overview';
+  // The screen is the Value tab's compliance half now, so it waits there.
+  if (kind === 'run_screen') return 'valuation';
   if (kind === 'commit_draft') return 'drafts';
   if (kind === 'snapshot_capabilities') return 'orchestrate';
   if (kind === 'start_dd' || kind === 'add_scope') return 'dd';
@@ -439,7 +440,7 @@ function paneLine(project: DdProject, pane: ProjectCockpitPane): string {
     case 'graph':
       return 'The knowledge graph is open — click a node to see what it touches.';
     case 'valuation':
-      return 'Valuation is open. Record rates on the input sheet, then say “run the valuation” for an indicative figure.';
+      return 'Value is open. “Value this property” fills every input the file holds, checks it the way a lender would, and shows the figure.';
     case 'assets':
       return `Assets are open — ${plural(project.assets.length, 'asset')}.`;
     case 'dd':
@@ -1589,10 +1590,10 @@ export function applyProjectChat(
     // The card carries the detail; this says what approving it does, once.
     // It used to reprint the card's own title and rationale beneath itself.
     assistantText = cards.length
-      ? 'Ready to screen the property against the evidence on file. It waits on the Overview: accepting it writes findings, risks, gaps and an indicative value — nothing is a certified valuation.'
-      : 'A property screen is already waiting on the Overview.';
+      ? 'Ready to screen the property against the evidence on file. It waits on the Value tab: accepting it checks the title against the state rules and writes findings, risks and gaps. The value itself comes from the inputs — nothing is a certified valuation.'
+      : 'A property screen is already waiting on the Value tab.';
     toolCalls = [{ name: 'screen', summary: 'Proposed property screen' }];
-    navigate('overview', 'Opened overview');
+    navigate('valuation', 'Opened Value');
   } else if (runValuation) {
     const val = createValuationRun(project, actor);
     navigate('valuation', 'Ran indicative valuation');
