@@ -331,10 +331,22 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       );
       if (filedNow.length) {
         setReading((prev) => {
-          const keys = new Set(filedNow.map((p) => String(p.payload.storageKey ?? '')));
-          if (prev && prev.files.some((f) => keys.has(f.key))) return prev;
-          const files = filedNow.map(readingFileFromProposal).filter((f): f is NonNullable<typeof f> => Boolean(f));
-          return files.length ? { ...newReadingSession('review'), files, finished: true, filing: true } : prev;
+          const keys = filedNow.map((p) => String(p.payload.storageKey ?? '')).filter(Boolean);
+          // One document filed while the desk holds it turns green where it stands.
+          if (keys.length === 1 && prev?.files.some((f) => f.key === keys[0])) return prev;
+          /*
+           * Several are stepped through, so the filing is a desk of its own: a
+           * fresh one keyed by its own id, carrying which documents to step
+           * through. It keeps what the desk already held — its pages and its
+           * facts — and adds any filed document it did not.
+           */
+          const held = prev?.files ?? [];
+          const added = filedNow
+            .filter((p) => !held.some((f) => f.key === p.payload.storageKey))
+            .map(readingFileFromProposal)
+            .filter((f): f is NonNullable<typeof f> => Boolean(f));
+          const files = [...held, ...added];
+          return files.length ? { ...newReadingSession('review'), files, finished: true, filingKeys: keys } : prev;
         });
         setSourceFocus(null);
         setDeskOpen(true);

@@ -49,8 +49,8 @@ export interface ReadingSession {
   mode: 'live' | 'review';
   files: ReadingFile[];
   finished: boolean;
-  /** Opened because these documents were just filed — the desk shows each one being filed. */
-  filing?: boolean;
+  /** Documents just filed — the desk steps through each one being filed, then hands back to the register. */
+  filingKeys?: string[];
 }
 
 export function newReadingSession(mode: ReadingSession['mode'] = 'live'): ReadingSession {

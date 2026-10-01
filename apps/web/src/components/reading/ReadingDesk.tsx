@@ -124,6 +124,7 @@ export function ReadingDesk({
   onSettled?: () => void;
 }) {
   const { paces, now } = usePace(session);
+  const revealUntil = useRef(new Map<string, number>());
   const [pinned, setPinned] = useState<string | null>(pinKey ?? null);
   useEffect(() => {
     if (pinKey) setPinned(pinKey);
@@ -151,7 +152,7 @@ export function ReadingDesk({
    */
   const lastStates = useRef<Map<string, FactState> | null>(null);
   const [filingQueue, setFilingQueue] = useState<string[]>(() =>
-    session.filing ? session.files.filter((f) => f.facts.length + f.modelFacts.length > 0).map((f) => f.key) : [],
+    (session.filingKeys ?? []).filter((key) => session.files.some((f) => f.key === key && f.facts.length + f.modelFacts.length > 0)),
   );
   useEffect(() => {
     const before = lastStates.current;
@@ -213,7 +214,16 @@ export function ReadingDesk({
   const page = pointed?.page ?? (scanning ? (stillReading ? current.page ?? 1 : replayPage) : facts[0]?.page ?? 1);
   const scanDuration = stillReading ? undefined : perPage;
   const state = states.get(current.key) ?? 'proposed';
-  const revealing = session.mode === 'live' && shown && now - (paces.get(current.key)?.showFacts ?? 0) < 4000;
+  /*
+   * A document's facts type in once: the first time they are shown, for long
+   * enough to finish. Coming back to it later shows them as they are. Timed
+   * on the clock rather than on the pacing's `now`, which stops once there is
+   * nothing left to pace — and kept every document typing in afresh.
+   */
+  if (session.mode === 'live' && shown && !revealUntil.current.has(current.key)) {
+    revealUntil.current.set(current.key, Date.now() + 3600);
+  }
+  const revealing = (revealUntil.current.get(current.key) ?? 0) > Date.now();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col animate-fade-in" aria-label="Reading the documents">
