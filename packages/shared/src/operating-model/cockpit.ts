@@ -626,6 +626,34 @@ export function projectRegisterBriefing(project: DdProject, viewContext?: string
   return lines.filter(Boolean).join('\n');
 }
 
+/**
+ * What each material finding rests on: the documents it cites and what it says
+ * they state, page and words included.
+ *
+ * The briefing names a finding and whether it has evidence, which is all a
+ * person reading it needs. A model asked "which documents say so" needs the
+ * rest — given the briefing alone, it answered that it could not see the
+ * source of two lapsed NOCs that were filed with their page and wording. Kept
+ * out of the briefing itself, which is also what chat shows with no model.
+ */
+export function findingEvidenceBriefing(project: DdProject): string {
+  ensureProjectShape(project);
+  const byId = new Map(project.evidence.map((e) => [e.id, e]));
+  return materialOpenFindings(project)
+    .slice(0, 6)
+    .filter((f) => f.evidenceIds.length > 0)
+    .map((f) => {
+      const documents = f.evidenceIds
+        .map((id) => byId.get(id))
+        .filter((e): e is NonNullable<typeof e> => Boolean(e))
+        .map((e) => (e.documentType ? `${e.title} (${e.documentType})` : e.title));
+      const said = f.description.replace(/\s+/g, ' ').trim();
+      const clipped = said.length > 400 ? `${said.slice(0, 399)}…` : said;
+      return `- ${f.title}. Evidence: ${documents.join('; ') || 'on file'}.${clipped ? ` ${clipped}` : ''}`;
+    })
+    .join('\n');
+}
+
 export function runProjectOrchestrator(project: DdProject, actor = 'operator'): OrchestratorRun {
   ensureProjectShape(project);
   const drafts = proposeAiDrafts(project, actor, 'rule');

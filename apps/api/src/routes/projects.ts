@@ -100,6 +100,7 @@ import {
   applyProjectAgentTurn,
   clearProjectConversation,
   extractReadableExcerpt,
+  findingEvidenceBriefing,
   projectRegisterBriefing,
   projectToIdentity,
   renderProjectGuide,
@@ -1210,6 +1211,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     try {
       const { provider, route } = resolveRoute('analyst_copilot');
       const guide = renderProjectGuide(canvas);
+      const restsOn = findingEvidenceBriefing(canvas);
       const llm = await provider.complete({
         agent: 'analyst_copilot',
         model: route.model,
@@ -1217,12 +1219,13 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         system: [
           {
             text:
-              'You are the project DD copilot. Answer only from the register briefing and today\'s next step. Name one move. If they do not support an answer, say so. Do not invent findings, values, evidence, or sign-off. Do not list the evidence library. Do not file documents or start DDs — those are person-approved cards. Keep under 280 words. Cite titles, not truncated ids.',
+              'You are the project DD copilot. Answer only from the register briefing, what the findings rest on, and today\'s next step. Name one move. If they do not support an answer, say so. Do not invent findings, values, evidence, or sign-off. Do not list the evidence library. Do not file documents or start DDs — those are person-approved cards. Keep under 280 words. Cite titles, not truncated ids. When asked which document says something, name it and quote its words with the page exactly as given.',
           },
           ...(unseen ? [{ text: unseen }] : []),
         ],
         messages: [
           { role: 'user', content: `Register briefing:\n${projectRegisterBriefing(canvas, parsed.data.viewContext)}` },
+          ...(restsOn ? [{ role: 'user' as const, content: `What the material findings rest on:\n${restsOn}` }] : []),
           { role: 'user', content: `Today's next step:\n${guide.text}` },
           { role: 'user', content: question },
         ],

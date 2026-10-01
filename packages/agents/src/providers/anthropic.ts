@@ -409,6 +409,33 @@ export function citationGap(req: LlmRequest, content: LlmContentBlock[]): Capabi
   return got ? [] : ['citations_unavailable'];
 }
 
+/**
+ * A tool loop's last message, with the answer the model already wrote put back
+ * on it.
+ *
+ * Only the last message of a loop was read. Measured on Claude Sonnet 5.5
+ * through OpenRouter: the project copilot wrote its answer — 587 tokens — in
+ * the same message as its last tool call (`navigate_pane`, which its prompt
+ * asks for whenever it names a DD), and after that tool's result it ended the
+ * turn with one empty token. The person got the fallback "I looked at the
+ * project" and the answer they paid for was dropped.
+ *
+ * So a loop that ends with no words of its own carries the words of the latest
+ * message that had any. A last message that does say something is left as it
+ * is: earlier text in a loop is usually "let me check", and must not be glued
+ * onto a real answer.
+ */
+export function carryLastWords<B extends { type: string }>(last: B[], messages: { content: B[] }[]): B[] {
+  const words = (blocks: B[]): B[] =>
+    blocks.filter(block => block.type === 'text' && Boolean((block as { text?: string }).text?.trim()));
+  if (words(last).length) return last;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const said = words(messages[i]!.content);
+    if (said.length) return [...said, ...last];
+  }
+  return last;
+}
+
 class AnthropicProvider implements LlmProvider {
   readonly id = 'anthropic' as const;
 
@@ -464,8 +491,10 @@ class AnthropicProvider implements LlmProvider {
     const startedAt = Date.now();
 
     const runner = client.beta.messages.toolRunner(params as unknown as ToolRunnerParams);
+    const messages: { content: Anthropic.Beta.BetaContentBlock[] }[] = [];
 
     for await (const message of runner) {
+      messages.push(message);
       // A server-side tool (web search, web fetch) can end a turn with
       // `pause_turn` once the server's own iteration limit is hit. The runner
       // does not auto-resume it, and leaving it unhandled silently truncates
@@ -487,7 +516,7 @@ class AnthropicProvider implements LlmProvider {
     return {
       provider: 'anthropic',
       model: req.model,
-      content: toContentBlocks(final.content),
+      content: toContentBlocks(carryLastWords(final.content, messages)),
       stopReason: toStopReason(final.stop_reason),
       usage: estimateUsage(req.model, final.usage),
       // A tool-runner turn can span several messages; the last one carries the
