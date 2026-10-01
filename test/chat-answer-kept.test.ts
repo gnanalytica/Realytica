@@ -13,6 +13,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { answerOfLoop } from '../packages/agents/src/agents/project-copilot';
 import { carryLastWords } from '../packages/agents/src/providers/anthropic';
 import { addFinding, createProject, findingEvidenceBriefing, type DdProject } from '../packages/shared/src';
 
@@ -47,6 +48,29 @@ describe('the end of a tool loop', () => {
   it('ignores whitespace as words, and returns the last message when nothing was said', () => {
     const blank: Block[] = [{ type: 'text', text: '  \n ' }];
     assert.deepEqual(carryLastWords(blank, [{ content: [look] }, { content: blank }]), blank);
+  });
+});
+
+describe("the copilot's answer", () => {
+  const getFinding: Block = { type: 'tool_use', id: 'tu_3', name: 'get_finding', input: {} };
+  const answer: Block = { type: 'text', text: 'Two NOCs have lapsed. BSNL NOC, page 1: “valid for a period of Five Years”.' };
+
+  it('is everything written after the last lookup, not only the closing line', () => {
+    const loop = [[look], [getFinding], [answer, open], [{ type: 'text', text: "I've opened the BSNL NOC finding on the right." } as Block]];
+    assert.equal(answerOfLoop(loop), `${answer.text}\n\nI've opened the BSNL NOC finding on the right.`);
+  });
+
+  it('is the answer written beside the last pane opened when the loop ends empty', () => {
+    assert.equal(answerOfLoop([[look], [answer, open], []]), answer.text);
+  });
+
+  it('leaves out what was said before a lookup returned', () => {
+    const loop = [[{ type: 'text', text: 'Let me check the findings.' } as Block, getFinding], [answer]];
+    assert.equal(answerOfLoop(loop), answer.text);
+  });
+
+  it('is empty when the loop stopped on a lookup, so the caller falls back', () => {
+    assert.equal(answerOfLoop([[look], [{ type: 'text', text: 'Checking.' } as Block, getFinding]]), '');
   });
 });
 
