@@ -11,7 +11,7 @@ import type { AgentStep, ChatChoice, ChatProposal, CopilotTurn, DdProject, Proje
 import { sittingChatHistory, talkSittingFromText } from '@realytica/shared';
 import { agentCapability, describeError } from '../client';
 import { capabilityBlocksRoute, clientToolFromRunnable, missingCredentialsReason, resolveRoute, textOf } from '../providers';
-import type { LlmClientTool, LlmMessage } from '../providers';
+import type { LlmClientTool, LlmContentBlock, LlmMessage } from '../providers';
 import { createProjectTools, type ProjectAgentCollectors } from '../tools/project-tools';
 import { randomUUID } from 'node:crypto';
 import { priceTokens } from '../telemetry/pricing';
@@ -69,6 +69,42 @@ export interface RunProjectCopilotResult {
   citedNodeIds: string[];
   /** What the call cost, when one was made. Absent on every failure path. */
   spend?: TurnSpend;
+}
+
+/**
+ * Tools that show or offer something and hand back nothing the answer needs.
+ * Words written beside one of these are the answer, not a note on the way to it.
+ */
+const ANSWERING_TOOLS = new Set(['navigate_pane', 'ask_to_choose', 'propose_update', 'propose_drafts']);
+
+/**
+ * The answer a loop wrote: every word from its last lookup onwards.
+ *
+ * Reading only the last message lost answers. Measured on Claude Sonnet 5.5
+ * through OpenRouter: the copilot wrote its answer beside `navigate_pane`
+ * (which rule 5 asks for whenever it names a DD), then closed with "I've
+ * opened the BSNL NOC finding on the right" — and that one line was all the
+ * person saw.
+ *
+ * So the answer runs back from the end through every message that only
+ * showed, offered or proposed something, and stops at the last one that
+ * looked something up. That message's own words came before what the lookup
+ * returned — "let me check" — so they are not part of it.
+ */
+export function answerOfLoop(messages: LlmContentBlock[][]): string {
+  const parts: string[] = [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const blocks = messages[i]!;
+    const looked = blocks.some((b) => b.type === 'tool_use' && !ANSWERING_TOOLS.has(b.name));
+    if (looked) break;
+    const words = blocks
+      .filter((b): b is Extract<LlmContentBlock, { type: 'text' }> => b.type === 'text')
+      .map((b) => b.text.trim())
+      .filter(Boolean)
+      .join('\n\n');
+    if (words) parts.unshift(words);
+  }
+  return parts.join('\n\n');
 }
 
 function citeIds(text: string, project: DdProject): { citedEvidenceIds: string[]; citedNodeIds: string[] } {
@@ -165,6 +201,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
 
   try {
     emit({ kind: 'plan', label: 'Reading the sitting' });
+    const written: LlmContentBlock[][] = [];
     const result = await provider.runTools({
       agent: 'analyst_copilot',
       caseId: project.id,
@@ -175,6 +212,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
       messages,
       maxIterations: MAX_TOOL_ITERATIONS,
       onMessage: (message) => {
+        written.push(message.content);
         for (const block of message.content) {
           if (block.type === 'tool_use') {
             emit({ kind: 'tool_call', label: `Looking up ${block.name.replace(/_/g, ' ')}`, toolName: block.name });
@@ -182,7 +220,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
         }
       },
     });
-    const text = textOf(result).trim() || 'I looked at the project. Approve any cards on this turn to write them.';
+    const text = answerOfLoop(written) || textOf(result).trim() || 'I looked at the project. Approve any cards on this turn to write them.';
     const cites = citeIds(text, project);
     /*
      * What the turn cost, carried out with the answer.
