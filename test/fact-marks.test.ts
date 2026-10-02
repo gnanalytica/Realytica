@@ -14,7 +14,7 @@ import path from 'node:path';
 import { after, describe, it } from 'node:test';
 import type { DocumentFact } from '@realytica/shared';
 import { locateFact, locateFacts } from '../apps/api/src/documents/locate';
-import { needsModelReading, readIngestLocally } from '../apps/api/src/documents/intake';
+import { mergeModelReading, needsModelReading, readIngestLocally } from '../apps/api/src/documents/intake';
 import { readDocumentText, releaseOcr, type LayoutWord } from '../apps/api/src/documents/read-text';
 import { clipNotes } from '../packages/agents/src/project/ingest-intelligence';
 
@@ -126,5 +126,24 @@ describe('which documents a model is asked about', () => {
     assert.equal(needsModelReading(file({ type: 'other', facts: [{}] })), true, 'not recognised');
     assert.equal(needsModelReading(file({ type: 'encumbrance_certificate', facts: [] })), true, 'nothing read from it — a Kannada scan');
     assert.equal(needsModelReading(file()), true, 'not read at all');
+  });
+});
+
+describe('a model reading laid over a local one', () => {
+  it('keeps what the model read where the reader found no legible text', () => {
+    const base = { fileName: 'ec.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k' };
+    const fact = { key: 'ec_from', label: 'Period from', value: '2015-04-01', display: '1 Apr 2015', page: 2, quote: '01-04-2015' };
+    const merged = mergeModelReading(
+      { ...base, readFailure: 'No legible text was found — the scan may be too faint, or the pages may be drawings.' } as never,
+      { ...base, modelFacts: [fact], kindHint: 'encumbrance_certificate' } as never,
+    );
+    assert.equal(merged.readFailure, undefined, 'the reader’s failure is not the news once the model read it');
+    assert.deepEqual(merged.read?.facts.map((f) => f.key), ['ec_from']);
+  });
+
+  it('leaves the reader’s failure where the model read nothing either', () => {
+    const base = { fileName: 'blank.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k' };
+    const merged = mergeModelReading({ ...base, readFailure: 'No legible text.' } as never, { ...base } as never);
+    assert.equal(merged.readFailure, 'No legible text.');
   });
 });

@@ -93,8 +93,12 @@ export async function readIngestLocally(
 export function mergeModelReading(local: ChatIngestFile, model: ChatIngestFile | undefined): ChatIngestFile {
   if (!model) return local;
   if (model.readFailure) return local.read ? local : { ...local, readFailure: model.readFailure };
+  // The model read what the reader could not: the reader's failure is no
+  // longer the news about this document, and keeping it threw the reading away.
+  const { readFailure: _localFailure, ...rest } = local;
+  const base = model.modelFacts?.length ? rest : local;
   return {
-    ...local,
+    ...base,
     extractionNotes: model.extractionNotes ?? local.extractionNotes,
     quotes: [...(model.quotes ?? []), ...(local.quotes ?? [])].slice(0, 8),
     kindHint: model.kindHint ?? local.kindHint,
