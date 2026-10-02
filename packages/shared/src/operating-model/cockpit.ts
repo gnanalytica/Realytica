@@ -119,6 +119,8 @@ export const PROJECT_COCKPIT_PANES = [
   'drafts',
   'orchestrate',
   'people',
+  'department',
+  'workstream',
 ] as const;
 
 export type ProjectCockpitPane = (typeof PROJECT_COCKPIT_PANES)[number];
@@ -270,6 +272,14 @@ export function cockpitPath(
       return `${base}/orchestrate`;
     case 'people':
       return `${base}/people`;
+    case 'department':
+      return extra?.department ? `${base}/d/${extra.department}` : base;
+    case 'workstream': {
+      // The two workstreams with a page of their own keep it.
+      if (extra?.workstream === 'finance.valuation') return `${base}/valuation`;
+      if (extra?.workstream === 'construction.site') return `${base}/visits`;
+      return extra?.workstream ? `${base}/w/${extra.workstream}` : base;
+    }
   }
 }
 
@@ -282,6 +292,8 @@ export function paneFromProjectPath(pathname: string): ProjectCockpitPane {
   if (tab === 'dd' && rest[2] === 'scopes') return 'scope';
   if (tab === 'dd') return 'dd';
   if (tab === 'ai') return 'drafts';
+  if (tab === 'd') return 'department';
+  if (tab === 'w') return 'workstream';
   if ((PROJECT_COCKPIT_PANES as readonly string[]).includes(tab)) return tab as ProjectCockpitPane;
   return 'overview';
 }

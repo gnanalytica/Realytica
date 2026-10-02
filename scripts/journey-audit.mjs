@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 
 const API = process.env.REALYTICA_API ?? 'http://localhost:5174/api';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DOCS = path.resolve(HERE, '../apps/api/sample-documents');
+const DOCS = path.resolve(HERE, '../test/fixtures/documents');
 const VERBOSE = process.argv.includes('--verbose');
 
 const LEAK = /hit an error|Error \d{3}|\b(?:4|5)\d\d\b [A-Z]|https?:\/\/(?:localhost|openrouter|api\.)|model endpoint|stack trace|\bundefined\b|\[object Object\]|\bNaN\b|TypeError|ReferenceError/i;

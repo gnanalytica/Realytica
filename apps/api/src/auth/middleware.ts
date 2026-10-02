@@ -5,6 +5,7 @@ import { withPrincipal } from './current';
 import { readAuthSettings, type AuthSettings } from './config';
 import { resolvePrincipal } from './principal';
 import { TokenRejected, verifyIdToken } from './verify';
+import { DEVICE_TOKEN_PREFIX, deviceForToken, devicePrincipal, touchDevice, type DeviceRecord } from '../devices';
 
 /**
  * The gate every API request goes through.
@@ -25,6 +26,8 @@ declare global {
   namespace Express {
     interface Request {
       principal?: Principal;
+      /** Set when the caller is a paired phone rather than a browser session. */
+      device?: DeviceRecord;
     }
   }
 }
@@ -121,6 +124,25 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     return;
   }
 
+  // A paired phone. Its token is its own, and reaches only the site routes.
+  if (token.startsWith(DEVICE_TOKEN_PREFIX)) {
+    const device = deviceForToken(token);
+    const principal = device ? devicePrincipal(device) : undefined;
+    if (!device || !principal) {
+      res.status(401).json({ error: 'This phone is no longer paired. Pair it again from the web app.' });
+      return;
+    }
+    if (!deviceMayReach(req)) {
+      res.status(403).json({ error: 'The site app cannot do that. Use the web app.' });
+      return;
+    }
+    req.principal = principal;
+    req.device = device;
+    if (touchDevice(device)) await store.save();
+    withPrincipal(principal, next);
+    return;
+  }
+
   try {
     const verified = await verifyIdToken(token, config.verifier!);
     const resolved = resolvePrincipal(workspace(), verified, config);
@@ -145,6 +167,29 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     }
     next(err);
   }
+}
+
+/**
+ * What a paired phone may reach: its own pairing, the projects list, and a
+ * project's site record — milestones, the site log and its photographs. Paths
+ * are matched under `/api`, as Express sees them after the mount.
+ */
+const DEVICE_ROUTES: ReadonlyArray<[string, RegExp]> = [
+  ['GET', /^\/devices\/me$/],
+  ['DELETE', /^\/devices\/me$/],
+  ['POST', /^\/devices\/push-token$/],
+  ['GET', /^\/projects$/],
+  ['GET', /^\/projects\/[\w-]+\/site$/],
+  ['POST', /^\/projects\/[\w-]+\/site-log$/],
+  ['POST', /^\/projects\/[\w-]+\/site-log\/photos$/],
+  ['GET', /^\/projects\/[\w-]+\/site-log\/[\w-]+\/photos\/\d+$/],
+  ['PATCH', /^\/projects\/[\w-]+\/milestones\/[\w-]+$/],
+  ['POST', /^\/projects\/[\w-]+\/alerts\/read$/],
+];
+
+function deviceMayReach(req: Request): boolean {
+  const path = req.path.replace(/\/+$/, '');
+  return DEVICE_ROUTES.some(([method, re]) => method === req.method && re.test(path));
 }
 
 /** The principal, or a throw. Routes past `authenticate` always have one. */

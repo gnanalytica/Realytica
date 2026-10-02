@@ -9,9 +9,10 @@ import type {
   DdProject,
   Tenant,
 } from '@realytica/shared';
-import { migrateWorkspaceRole } from '@realytica/shared';
+import { evaluateRevisits, migrateWorkspaceRole, syncAlerts, type ProjectAlert } from '@realytica/shared';
 import type { PromptStoreData } from '@realytica/agents';
 import { storageAdapter } from './storage';
+import type { DeviceRecord, PairCode } from './devices';
 
 /**
  * The in-memory case store, durably backed by whichever `StorageAdapter` is
@@ -127,6 +128,13 @@ export interface StoreData {
    * touches a project, and small.
    */
   grants?: ProjectGrant[];
+  /**
+   * Phones paired for the site app, and the short-lived codes that pair them.
+   * Beside the memberships because every request from a phone resolves its
+   * person through them.
+   */
+  devices?: DeviceRecord[];
+  pairCodes?: PairCode[];
 }
 
 // Re-exported for the routes that still build upload paths directly against
@@ -203,6 +211,13 @@ function normalizeStoreData(loaded: StoreData | null): StoreData {
           (g): g is ProjectGrant =>
             Boolean(g && typeof g.tenantId === 'string' && typeof g.projectId === 'string' && typeof g.email === 'string'),
         )
+      : undefined,
+    devices: Array.isArray(loaded.devices)
+      ? loaded.devices.filter((d): d is DeviceRecord => Boolean(d && typeof d.id === 'string' && typeof d.tokenHash === 'string' && typeof d.tenantId === 'string'))
+      : undefined,
+    // Only codes still worth keeping: an expired code is noise in the core document.
+    pairCodes: Array.isArray(loaded.pairCodes)
+      ? loaded.pairCodes.filter((c): c is PairCode => Boolean(c && typeof c.code === 'string' && typeof c.expiresAt === 'string' && Date.parse(c.expiresAt) > Date.now() - 86_400_000))
       : undefined,
   };
 }
@@ -524,6 +539,19 @@ export class Store {
      * needs a compare-and-swap the storage adapters do not offer today.
      */
     const changed = projects.filter(project => this.persistedAt.get(project.id) !== project.updatedAt);
+    // What a change means for people — alerts raised or cleared, certified
+    // reports to revisit — is worked out before the write, so it is saved
+    // with the change that caused it.
+    const raised = new Map<string, ProjectAlert[]>();
+    for (const project of changed) {
+      try {
+        evaluateRevisits(project);
+        const fresh = syncAlerts(project);
+        if (fresh.length) raised.set(project.id, fresh);
+      } catch (err) {
+        console.warn(`[store] could not refresh alerts on ${project.id}: ${(err as Error).message}`);
+      }
+    }
     for (const project of changed) {
       await storageAdapter.putDocument(
         project.id,
@@ -548,6 +576,15 @@ export class Store {
     // dependency on the graph layer, which imports it back.
     const { syncGraph } = await import('./graph/sync');
     await syncGraph(projects);
+
+    // Then tell people. Sent after the write, so an alert nobody can open is never mailed.
+    if (raised.size) {
+      const { notifyRaised } = await import('./notify');
+      for (const project of changed) {
+        const fresh = raised.get(project.id);
+        if (fresh) await notifyRaised(project, fresh);
+      }
+    }
   }
 
   /**

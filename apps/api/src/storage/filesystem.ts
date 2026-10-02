@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { StoreData } from '../store';
 import type { StorageAdapter } from './types';
 import { readEnv } from '@realytica/agents';
+import { STORAGE_NAMESPACE } from './namespace';
 
 /**
  * The filesystem-backed `StorageAdapter` — exactly the layout and semantics
@@ -70,7 +71,8 @@ function resolveDataDir(): string {
   return fallback;
 }
 
-export const DATA_DIR = resolveDataDir();
+/** This generation's folder inside the data directory; see `namespace.ts`. */
+export const DATA_DIR = path.join(resolveDataDir(), STORAGE_NAMESPACE);
 
 export const DATA_FILE = path.join(DATA_DIR, 'realytica.json');
 export const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');

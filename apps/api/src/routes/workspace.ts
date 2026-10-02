@@ -1,0 +1,769 @@
+/**
+ * The departments: how a project is organised and the work inside it.
+ *
+ * Reads are mostly done in the browser — the stage timeline, the quick
+ * assessments, the approvals register and progress are pure functions of the
+ * project the web app already holds. These are the writes, the site app's
+ * own read, and the questions only the graph can answer.
+ *
+ * PUT    /departments                     which departments this project uses
+ * PUT    /team/:email                     a person's role in each department
+ * DELETE /team/:email
+ * POST   /engagements                     a piece of work a client commissioned
+ * PATCH  /engagements/:engagementId
+ * POST   /certified/read                  propose a certified report from a document in the vault
+ * POST   /certified                       file it: the figure of record
+ * POST   /certified/:reportId/acknowledge the signer has seen the revisit flag
+ * POST   /milestones                      add milestones, or the usual set
+ * PATCH  /milestones/:milestoneId
+ * DELETE /milestones/:milestoneId
+ * GET    /site                            the site app's view of the project
+ * POST   /site-log                        a day's entry from site (idempotent on the phone's id)
+ * POST   /site-log/photos                 photographs for an entry, before it is filed
+ * GET    /site-log/:entryId/photos/:index
+ * POST   /alerts/read
+ * POST   /links                           a link a person draws between two records
+ * DELETE /links/:linkId
+ * GET    /graph/impact?node=              what a change to one record reaches
+ * PUT    /evidence/:evidenceId/workstream which workstream owns a document
+ * POST   /uploads                         a document too large for one request, in parts
+ * PUT    /uploads/:uploadId/parts/:n
+ * POST   /uploads/:uploadId/complete
+ */
+
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import express, { Router, type Request, type Response } from 'express';
+import multer from 'multer';
+import { z } from 'zod';
+import {
+  acknowledgeRevisit,
+  actorOf,
+  addEvidence,
+  addLink,
+  addMilestones,
+  attachEvidenceFile,
+  buildProjectGraph,
+  certifiedReadout,
+  constructionGate,
+  createEngagement,
+  createProjectGrant,
+  departmentReach,
+  departmentRole,
+  fileCertifiedReport,
+  graphImpact,
+  logSiteEntry,
+  markAlertsRead,
+  MILESTONE_TEMPLATE,
+  noteProjectEdit,
+  openAlerts,
+  patchProjectGrant,
+  progressSummary,
+  removeLink,
+  removeTeamMember,
+  roleCanDecide,
+  roleCanEdit,
+  sameEmail,
+  setDocumentWorkstream,
+  setMilestonePercent,
+  setProjectDepartments,
+  setTeamMember,
+  stageTimeline,
+  updateEngagement,
+  workstreamDefinition,
+  type DdProject,
+  type DepartmentKey,
+  type DepartmentRole,
+} from '@realytica/shared';
+import { needs, principalOf } from '../auth/middleware';
+import { store } from '../store';
+import { storageAdapter } from '../storage';
+import { documentKey } from '../storage/types';
+import { graphAdapter } from '../graph';
+import { readOntoRegister } from '../documents/register-read';
+import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
+
+type Params = { projectId: string };
+
+export const projectWorkspaceRouter = Router({ mergeParams: true });
+
+function findProject(id: string | undefined): DdProject | undefined {
+  return id ? store.data.projects?.find((p) => p.id === id) : undefined;
+}
+
+function roleIn(req: Request, project: DdProject, department: DepartmentKey): DepartmentRole | undefined {
+  const me = principalOf(req);
+  return departmentRole(project, { email: me.email, workspaceRole: me.role }, department);
+}
+
+/**
+ * The department gate. Edits need a lead, contributor or signer; deciding —
+ * filing a certified report, removing a milestone — needs a lead or signer.
+ * A refusal says which department, because "not allowed" alone sends people
+ * hunting.
+ */
+function allowed(req: Request, res: Response, project: DdProject, department: DepartmentKey, need: 'edit' | 'decide'): boolean {
+  const role = roleIn(req, project, department);
+  const ok = need === 'edit' ? roleCanEdit(role) : roleCanDecide(role);
+  if (!ok) res.status(403).json({ error: `That needs a ${need === 'edit' ? 'lead, contributor or signer' : 'lead or signer'} in ${department}.` });
+  return ok;
+}
+
+function staffOnly(req: Request, res: Response): boolean {
+  if (principalOf(req).role === 'collaborator') {
+    res.status(403).json({ error: 'Only the firm’s own people can do that.' });
+    return false;
+  }
+  return true;
+}
+
+function load(req: Request<Params>, res: Response): DdProject | undefined {
+  const project = findProject(req.params.projectId);
+  if (!project) res.status(404).json({ error: 'Project not found' });
+  return project;
+}
+
+function touch(project: DdProject): void {
+  project.updatedAt = new Date().toISOString();
+}
+
+function failed(res: Response, err: unknown, fallback: string): void {
+  res.status(400).json({ error: err instanceof Error ? err.message : fallback });
+}
+
+/* ==================================================================== */
+/* Departments and the team                                              */
+/* ==================================================================== */
+
+const departmentsSchema = z.object({ departments: z.array(departmentKeySchema).min(1).max(6) });
+
+projectWorkspaceRouter.put<Params>('/departments', needs('admin'), async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = departmentsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Choose at least one department.' });
+    return;
+  }
+  try {
+    const departments = setProjectDepartments(project, parsed.data.departments, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, departments });
+  } catch (err) {
+    failed(res, err, 'Could not change the departments');
+  }
+});
+
+const roleSchema = z.enum(['lead', 'contributor', 'signer', 'viewer']);
+const teamSchema = z.object({
+  name: z.string().trim().max(120).optional(),
+  departments: z.record(departmentKeySchema, roleSchema),
+  signer: z
+    .object({ profession: z.string().trim().min(2).max(80), registration: z.string().trim().max(80).optional(), firm: z.string().trim().max(120).optional() })
+    .optional(),
+});
+
+/**
+ * Put a person on the project with a role in each department.
+ *
+ * Somebody outside the firm is invited as a collaborator in the same motion,
+ * and their grant — what the redaction lets them see — is written from the
+ * departments they were given, so the two can never disagree.
+ */
+projectWorkspaceRouter.put<Params & { email: string }>('/team/:email', needs('admin'), async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = teamSchema.safeParse(req.body);
+  const email = decodeURIComponent(req.params.email).trim().toLowerCase();
+  if (!parsed.success || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    res.status(400).json({ error: 'Give an email address and a role in at least one department.' });
+    return;
+  }
+  const me = principalOf(req);
+  try {
+    const member = setTeamMember(project, { email, ...parsed.data }, actorOf(me));
+    const memberships = (store.data.memberships ??= []);
+    let membership = memberships.find((m) => m.tenantId === me.tenantId && sameEmail(m.email, email));
+    if (!membership) {
+      membership = { tenantId: me.tenantId, email, role: 'collaborator', invitedBy: me.email, createdAt: new Date().toISOString(), ...(parsed.data.name ? { name: parsed.data.name } : {}) };
+      memberships.push(membership);
+    }
+    if (membership.role === 'collaborator') {
+      const reach = departmentReach(member.departments);
+      const grants = (store.data.grants ??= []);
+      const held = grants.find((g) => g.tenantId === me.tenantId && g.projectId === project.id && sameEmail(g.email, email));
+      const professionalRole = parsed.data.signer?.profession;
+      if (held) patchProjectGrant(held, { role: reach.role, allAssessments: true, allScopes: false, scopeKeys: reach.scopeKeys, areas: reach.areas, ...(professionalRole ? { professionalRole } : {}) });
+      else {
+        grants.push(
+          createProjectGrant(
+            { email, role: reach.role, allAssessments: true, allScopes: false, scopeKeys: reach.scopeKeys, areas: reach.areas, ...(professionalRole ? { professionalRole } : {}) },
+            { id: `grn_${randomUUID()}`, tenantId: me.tenantId, projectId: project.id, createdBy: me.email },
+          ),
+        );
+      }
+    }
+    touch(project);
+    await store.save();
+    res.json({ project, member });
+  } catch (err) {
+    failed(res, err, 'Could not put them on the project');
+  }
+});
+
+projectWorkspaceRouter.delete<Params & { email: string }>('/team/:email', needs('admin'), async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const me = principalOf(req);
+  const email = decodeURIComponent(req.params.email).trim().toLowerCase();
+  removeTeamMember(project, email, actorOf(me));
+  // A collaborator's reach goes with them; their workspace membership stays,
+  // because they may be on other projects.
+  store.data.grants = (store.data.grants ?? []).filter((g) => !(g.tenantId === me.tenantId && g.projectId === project.id && sameEmail(g.email, email)));
+  touch(project);
+  await store.save();
+  res.json({ project });
+});
+
+/* ==================================================================== */
+/* Engagements                                                           */
+/* ==================================================================== */
+
+projectWorkspaceRouter.post<Params>('/engagements', async (req, res) => {
+  const project = load(req, res);
+  if (!project || !staffOnly(req, res)) return;
+  const parsed = engagementSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Say what kind of engagement it is.', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const engagement = createEngagement(project, parsed.data, actorOf(principalOf(req)));
+    noteProjectEdit(project, `Opened an engagement: ${engagement.title}${engagement.client ? ` for ${engagement.client}` : ''}.`);
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, engagement });
+  } catch (err) {
+    failed(res, err, 'Could not open the engagement');
+  }
+});
+
+projectWorkspaceRouter.patch<Params & { engagementId: string }>('/engagements/:engagementId', async (req, res) => {
+  const project = load(req, res);
+  if (!project || !staffOnly(req, res)) return;
+  const parsed = engagementPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const engagement = updateEngagement(project, req.params.engagementId, parsed.data, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, engagement });
+  } catch (err) {
+    failed(res, err, 'Could not change the engagement');
+  }
+});
+
+/* ==================================================================== */
+/* Certified reports                                                     */
+/* ==================================================================== */
+
+const readSchema = z.object({ evidenceId: z.string().min(1).max(80) });
+
+projectWorkspaceRouter.post<Params>('/certified/read', (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = readSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Say which document to read.' });
+    return;
+  }
+  try {
+    res.json({ readout: certifiedReadout(project, parsed.data.evidenceId) });
+  } catch (err) {
+    failed(res, err, 'Could not read the report');
+  }
+});
+
+const certifiedSchema = z
+  .object({
+    workstream: z.string().regex(/^[a-z]+\.[a-z_]+$/),
+    title: z.string().trim().min(2).max(200),
+    evidenceId: z.string().min(1).max(80),
+    signer: z.object({
+      name: z.string().trim().min(2).max(120),
+      profession: z.string().trim().min(2).max(80),
+      registration: z.string().trim().max(80).optional(),
+      firm: z.string().trim().max(120).optional(),
+    }),
+    issuedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    scope: z.string().trim().max(600).optional(),
+    figure: z.object({ value: z.number().nonnegative(), unit: z.enum(['INR', '%']) }).optional(),
+    verdict: z.enum(['clear', 'conditions', 'blockers']).optional(),
+    conditions: z.array(z.string().trim().min(1).max(400)).max(20).optional(),
+  })
+  .refine((b) => b.figure || b.verdict, { message: 'A certified report states a figure or a conclusion.' });
+
+projectWorkspaceRouter.post<Params>('/certified', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = certifiedSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const ws = workstreamDefinition(parsed.data.workstream);
+  if (!ws) {
+    res.status(400).json({ error: 'Unknown workstream.' });
+    return;
+  }
+  if (!allowed(req, res, project, ws.department, 'decide')) return;
+  try {
+    const report = fileCertifiedReport(project, parsed.data, actorOf(principalOf(req)));
+    noteProjectEdit(project, `Filed ${report.title} by ${report.signer.name} as the figure of record for ${ws.label}.`, { citedEvidenceIds: [report.evidenceId] });
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, report });
+  } catch (err) {
+    failed(res, err, 'Could not file the report');
+  }
+});
+
+projectWorkspaceRouter.post<Params & { reportId: string }>('/certified/:reportId/acknowledge', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const report = (project.certifiedReports ?? []).find((r) => r.id === req.params.reportId);
+  const ws = report ? workstreamDefinition(report.workstream) : undefined;
+  if (!report || !ws) {
+    res.status(404).json({ error: 'No such certified report.' });
+    return;
+  }
+  if (!allowed(req, res, project, ws.department, 'decide')) return;
+  try {
+    acknowledgeRevisit(project, report.id, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not acknowledge it');
+  }
+});
+
+/* ==================================================================== */
+/* Milestones and the site log                                           */
+/* ==================================================================== */
+
+const milestoneRows = z.array(
+  z.object({
+    name: z.string().trim().min(1).max(120),
+    weight: z.number().positive().max(1000),
+    assetId: z.string().max(80).optional(),
+    plannedFinish: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  }),
+);
+const milestonesSchema = z.object({ template: z.boolean().optional(), rows: milestoneRows.max(60).optional() });
+
+projectWorkspaceRouter.post<Params>('/milestones', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  const parsed = milestonesSchema.safeParse(req.body);
+  if (!parsed.success || (!parsed.data.template && !parsed.data.rows?.length)) {
+    res.status(400).json({ error: 'Give the milestones, or ask for the usual set.' });
+    return;
+  }
+  const rows = parsed.data.template ? MILESTONE_TEMPLATE.map((m) => ({ ...m })) : parsed.data.rows!;
+  const added = addMilestones(project, rows, actorOf(principalOf(req)));
+  touch(project);
+  await store.save();
+  res.status(201).json({ project, milestones: added });
+});
+
+const milestonePatch = z.object({
+  percent: z.number().min(0).max(100).optional(),
+  name: z.string().trim().min(1).max(120).optional(),
+  weight: z.number().positive().max(1000).optional(),
+  plannedFinish: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+});
+
+projectWorkspaceRouter.patch<Params & { milestoneId: string }>('/milestones/:milestoneId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  const parsed = milestonePatch.safeParse(req.body);
+  const milestone = (project.milestones ?? []).find((m) => m.id === req.params.milestoneId);
+  if (!parsed.success || !milestone) {
+    res.status(milestone ? 400 : 404).json({ error: milestone ? 'Validation failed' : 'No such milestone.' });
+    return;
+  }
+  try {
+    const actor = actorOf(principalOf(req));
+    if (parsed.data.percent !== undefined) setMilestonePercent(project, milestone.id, parsed.data.percent, actor);
+    if (parsed.data.name) milestone.name = parsed.data.name;
+    if (parsed.data.weight) milestone.weight = parsed.data.weight;
+    if (parsed.data.plannedFinish === null) delete milestone.plannedFinish;
+    else if (parsed.data.plannedFinish) milestone.plannedFinish = parsed.data.plannedFinish;
+    milestone.updatedAt = new Date().toISOString();
+    milestone.updatedBy = actor;
+    touch(project);
+    await store.save();
+    res.json({ project, milestone });
+  } catch (err) {
+    failed(res, err, 'Could not change the milestone');
+  }
+});
+
+projectWorkspaceRouter.delete<Params & { milestoneId: string }>('/milestones/:milestoneId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'decide')) return;
+  const before = (project.milestones ?? []).length;
+  project.milestones = (project.milestones ?? []).filter((m) => m.id !== req.params.milestoneId);
+  if (project.milestones.length === before) {
+    res.status(404).json({ error: 'No such milestone.' });
+    return;
+  }
+  touch(project);
+  await store.save();
+  res.json({ project });
+});
+
+/** The site app's whole view of a project, in one small answer. */
+projectWorkspaceRouter.get<Params>('/site', (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const role = roleIn(req, project, 'construction');
+  const log = [...(project.siteLog ?? [])].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  const timeline = stageTimeline(project);
+  res.json({
+    project: { id: project.id, name: project.name, reference: project.reference, location: project.location, city: project.city, stage: timeline.current, stageLabel: timeline.stages.find((s) => s.key === timeline.currentStage)?.label, siteCoordinate: project.siteCoordinate ?? null },
+    role: role ?? null,
+    canLog: roleCanEdit(role),
+    milestones: project.milestones ?? [],
+    progress: progressSummary(project),
+    gate: constructionGate(project),
+    log: log.slice(0, 30).map((e) => ({ ...e, photos: e.photos.map((p, i) => ({ index: i, fileName: p.fileName, caption: p.caption, takenAt: p.takenAt, point: p.point })) })),
+    alerts: openAlerts(project).filter((a) => a.department === 'construction').slice(0, 20),
+  });
+});
+
+const point = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });
+const siteLogSchema = z.object({
+  clientId: z.string().trim().min(6).max(80),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  weather: z.string().trim().max(80).optional(),
+  manpower: z.array(z.object({ trade: z.string().trim().min(1).max(60), count: z.number().int().min(0).max(5000) })).max(40).optional(),
+  workDone: z.string().trim().max(4000).optional(),
+  milestoneUpdates: z.array(z.object({ milestoneId: z.string().max(80), percent: z.number().min(0).max(100) })).max(60).optional(),
+  issues: z.array(z.object({ title: z.string().trim().min(1).max(200), severity: z.enum(['low', 'medium', 'high']).optional(), note: z.string().trim().max(1000).optional() })).max(40).optional(),
+  photos: z
+    .array(z.object({ storageKey: z.string().max(200), fileName: z.string().max(200), mimeType: z.string().max(80), takenAt: z.string().max(40).optional(), point: point.optional(), caption: z.string().max(400).optional() }))
+    .max(40)
+    .optional(),
+  point: point.optional(),
+});
+
+projectWorkspaceRouter.post<Params>('/site-log', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  const parsed = siteLogSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  // A photograph has to be one this project stored: the phone cannot name another file.
+  const prefix = `site_${project.id}_`;
+  if ((parsed.data.photos ?? []).some((p) => !p.storageKey.startsWith(prefix))) {
+    res.status(400).json({ error: 'Upload the photographs first.' });
+    return;
+  }
+  try {
+    const me = principalOf(req);
+    const { entry, duplicate } = logSiteEntry(project, parsed.data, me.name ? `${me.name} (${me.email})` : me.email);
+    if (!duplicate) {
+      noteProjectEdit(project, `Site log for ${entry.date}: ${entry.workDone.slice(0, 120) || 'entry filed'}${entry.issues.length ? ` · ${entry.issues.length} issue${entry.issues.length === 1 ? '' : 's'}` : ''}.`);
+      touch(project);
+      await store.save();
+    }
+    res.status(duplicate ? 200 : 201).json({ entry, duplicate, progress: progressSummary(project), gate: constructionGate(project) });
+  } catch (err) {
+    failed(res, err, 'Could not file the entry');
+  }
+});
+
+const PHOTO_MAX_BYTES = 4 * 1024 * 1024;
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: PHOTO_MAX_BYTES, files: 6 },
+  fileFilter: (_req, file, cb) => cb(null, /^image\/(jpeg|png|webp|heic|heif)$/.test(file.mimetype)),
+});
+
+projectWorkspaceRouter.post<Params>('/site-log/photos', photoUpload.array('photos', 6), async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (!files.length) {
+    res.status(400).json({ error: 'Attach the photographs as JPEG, PNG or WebP, up to 4 MB each.' });
+    return;
+  }
+  const photos = [];
+  for (const file of files) {
+    const ext = path.extname(file.originalname).toLowerCase() || (file.mimetype === 'image/png' ? '.png' : '.jpg');
+    const storageKey = `site_${project.id}_${randomUUID()}${ext}`;
+    await storageAdapter.putDocument(project.id, storageKey, file.buffer, file.mimetype);
+    photos.push({ storageKey, fileName: file.originalname, mimeType: file.mimetype });
+  }
+  res.status(201).json({ photos });
+});
+
+projectWorkspaceRouter.get<Params & { entryId: string; index: string }>('/site-log/:entryId/photos/:index', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const entry = (project.siteLog ?? []).find((e) => e.id === req.params.entryId);
+  const photo = entry?.photos[Number(req.params.index)];
+  if (!photo) {
+    res.status(404).json({ error: 'No such photograph.' });
+    return;
+  }
+  const bytes = await storageAdapter.getDocument(project.id, photo.storageKey);
+  if (!bytes) {
+    res.status(404).json({ error: 'The photograph is missing from storage.' });
+    return;
+  }
+  res.setHeader('Content-Type', photo.mimeType);
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.end(bytes);
+});
+
+/* ==================================================================== */
+/* Alerts, links, ownership, impact                                      */
+/* ==================================================================== */
+
+const readAlertsSchema = z.object({ ids: z.union([z.literal('all'), z.array(z.string().max(80)).max(500)]) });
+
+projectWorkspaceRouter.post<Params>('/alerts/read', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const parsed = readAlertsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Say which alerts.' });
+    return;
+  }
+  const n = markAlertsRead(project, parsed.data.ids, principalOf(req).email.toLowerCase());
+  if (n) {
+    touch(project);
+    await store.save();
+  }
+  res.json({ read: n, alerts: openAlerts(project) });
+});
+
+const linkEnd = z.object({
+  kind: z.enum(['workstream', 'check', 'document', 'certified', 'milestone', 'approval', 'engagement', 'finding', 'site_entry']),
+  id: z.string().min(1).max(120),
+});
+const linkSchema = z.object({ from: linkEnd, to: linkEnd, type: z.enum(['gates', 'feeds', 'cites', 'certifies', 'draws_on', 'relates']), note: z.string().trim().max(400).optional() });
+
+projectWorkspaceRouter.post<Params>('/links', async (req, res) => {
+  const project = load(req, res);
+  if (!project || !staffOnly(req, res)) return;
+  const parsed = linkSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'A link joins two records with a kind of link.' });
+    return;
+  }
+  try {
+    const link = addLink(project, parsed.data, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, link });
+  } catch (err) {
+    failed(res, err, 'Could not draw the link');
+  }
+});
+
+projectWorkspaceRouter.delete<Params & { linkId: string }>('/links/:linkId', async (req, res) => {
+  const project = load(req, res);
+  if (!project || !staffOnly(req, res)) return;
+  removeLink(project, req.params.linkId, actorOf(principalOf(req)));
+  touch(project);
+  await store.save();
+  res.json({ project });
+});
+
+const ownerSchema = z.object({ workstream: z.string().regex(/^[a-z]+\.[a-z_]+$/).nullable() });
+
+projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidenceId/workstream', async (req, res) => {
+  const project = load(req, res);
+  if (!project || !staffOnly(req, res)) return;
+  const parsed = ownerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Name the workstream, or null to read it from the document.' });
+    return;
+  }
+  try {
+    setDocumentWorkstream(project, req.params.evidenceId, parsed.data.workstream);
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not move the document');
+  }
+});
+
+/**
+ * What a change reaches. Neo4j walks it when it is the store; if that fails
+ * the same walk runs over the projection, so the answer never depends on the
+ * graph store being up.
+ */
+projectWorkspaceRouter.get<Params>('/graph/impact', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const node = typeof req.query.node === 'string' ? req.query.node.slice(0, 200) : '';
+  if (!node) {
+    res.status(400).json({ error: 'Name the record: ?node=' });
+    return;
+  }
+  let impact = null;
+  let source: 'neo4j' | 'journal' | 'projection' = graphAdapter.kind;
+  try {
+    impact = await graphAdapter.impact(project.id, node);
+  } catch (err) {
+    console.warn(`[graph] impact fell back to the projection: ${(err as Error).message}`);
+  }
+  if (!impact) {
+    impact = graphImpact(buildProjectGraph(project), node);
+    source = 'projection';
+  }
+  if (!impact) {
+    res.status(404).json({ error: 'That record is not in the graph.' });
+    return;
+  }
+  res.json({ impact, source });
+});
+
+/* ==================================================================== */
+/* Large documents, in parts                                             */
+/* ==================================================================== */
+
+/** Under the 4.5 MB a serverless request may carry, with room for headers. */
+export const UPLOAD_PART_BYTES = 4 * 1024 * 1024;
+/** The largest single document the vault takes. A merged title bundle runs to 70 MB. */
+export const UPLOAD_MAX_BYTES = 300 * 1024 * 1024;
+
+const uploadSchema = z.object({
+  fileName: z.string().trim().min(1).max(200),
+  contentType: z.string().trim().min(3).max(120),
+  size: z.number().int().positive().max(UPLOAD_MAX_BYTES),
+});
+
+interface PendingUpload {
+  id: string;
+  projectId: string;
+  fileName: string;
+  contentType: string;
+  size: number;
+  parts: number;
+  by: string;
+  startedAt: string;
+}
+
+const partKey = (uploadId: string, n: number) => `part_${uploadId}_${String(n).padStart(4, '0')}`;
+const manifestKey = (uploadId: string) => `part_${uploadId}_manifest.json`;
+
+projectWorkspaceRouter.post<Params>('/uploads', async (req, res) => {
+  const project = load(req, res);
+  if (!project || !staffOnly(req, res)) return;
+  const parsed = uploadSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: `Give the file's name, type and size; up to ${Math.round(UPLOAD_MAX_BYTES / 1048576)} MB.` });
+    return;
+  }
+  const upload: PendingUpload = {
+    id: randomUUID(),
+    projectId: project.id,
+    ...parsed.data,
+    parts: Math.ceil(parsed.data.size / UPLOAD_PART_BYTES),
+    by: actorOf(principalOf(req)),
+    startedAt: new Date().toISOString(),
+  };
+  // The manifest rides in storage, not memory: each part may land on a different instance.
+  await storageAdapter.putDocument(project.id, manifestKey(upload.id), Buffer.from(JSON.stringify(upload)), 'application/json');
+  res.status(201).json({ uploadId: upload.id, partBytes: UPLOAD_PART_BYTES, parts: upload.parts });
+});
+
+projectWorkspaceRouter.put<Params & { uploadId: string; n: string }>(
+  '/uploads/:uploadId/parts/:n',
+  express.raw({ type: () => true, limit: UPLOAD_PART_BYTES + 1024 }),
+  async (req, res) => {
+    const project = load(req, res);
+    if (!project || !staffOnly(req, res)) return;
+    const n = Number(req.params.n);
+    const uploadId = req.params.uploadId;
+    if (!/^[0-9a-f-]{36}$/.test(uploadId) || !Number.isInteger(n) || n < 0 || n > 10_000 || !Buffer.isBuffer(req.body) || !req.body.length) {
+      res.status(400).json({ error: 'Send the part’s bytes as the request body.' });
+      return;
+    }
+    const manifest = await storageAdapter.getDocument(project.id, manifestKey(uploadId));
+    if (!manifest) {
+      res.status(404).json({ error: 'No such upload. Start it again.' });
+      return;
+    }
+    await storageAdapter.putDocument(project.id, partKey(uploadId, n), req.body, 'application/octet-stream');
+    res.json({ received: n, bytes: req.body.length });
+  },
+);
+
+const completeSchema = z.object({ evidenceId: z.string().max(80).optional(), title: z.string().trim().max(200).optional() });
+
+projectWorkspaceRouter.post<Params & { uploadId: string }>('/uploads/:uploadId/complete', async (req, res) => {
+  const project = load(req, res);
+  if (!project || !staffOnly(req, res)) return;
+  const parsed = completeSchema.safeParse(req.body ?? {});
+  const uploadId = req.params.uploadId;
+  const raw = /^[0-9a-f-]{36}$/.test(uploadId) ? await storageAdapter.getDocument(project.id, manifestKey(uploadId)) : null;
+  if (!parsed.success || !raw) {
+    res.status(404).json({ error: 'No such upload. Start it again.' });
+    return;
+  }
+  const upload = JSON.parse(raw.toString('utf8')) as PendingUpload;
+  const chunks: Buffer[] = [];
+  for (let n = 0; n < upload.parts; n += 1) {
+    const part = await storageAdapter.getDocument(project.id, partKey(uploadId, n));
+    if (!part) {
+      res.status(409).json({ error: `Part ${n + 1} of ${upload.parts} has not arrived. Send it, then finish again.` });
+      return;
+    }
+    chunks.push(part);
+  }
+  const bytes = Buffer.concat(chunks);
+  if (bytes.length !== upload.size) {
+    res.status(409).json({ error: `Received ${bytes.length} bytes of ${upload.size}. Send the missing parts again.` });
+    return;
+  }
+  const actor = actorOf(principalOf(req));
+  let evidenceId = parsed.data.evidenceId;
+  if (evidenceId && !project.evidence.some((e) => e.id === evidenceId)) {
+    res.status(404).json({ error: 'No such document row.' });
+    return;
+  }
+  if (!evidenceId) {
+    const title = parsed.data.title || upload.fileName.replace(/\.[a-z0-9]{2,5}$/i, '');
+    evidenceId = addEvidence(project, { title, kind: upload.contentType.startsWith('image/') ? 'photograph' : 'document', fileName: upload.fileName, status: 'received' }, actor).id;
+  }
+  const storageKey = documentKey({ id: randomUUID(), fileName: upload.fileName });
+  await storageAdapter.putDocument(project.id, storageKey, bytes, upload.contentType);
+  attachEvidenceFile(project, evidenceId, { fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey, capture: {} }, actor);
+  await readOntoRegister(project, [{ evidenceId, buffer: bytes, fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey }], actor).catch(() => ({ read: 0 }));
+  noteProjectEdit(project, `Filed ${upload.fileName} (${(bytes.length / 1048576).toFixed(1)} MB) in the vault.`, { citedEvidenceIds: [evidenceId] });
+  touch(project);
+  await store.save();
+  // The parts and the manifest have done their job.
+  await Promise.all([...Array.from({ length: upload.parts }, (_, n) => storageAdapter.deleteDocument(project.id, partKey(uploadId, n))), storageAdapter.deleteDocument(project.id, manifestKey(uploadId))].map((p) => Promise.resolve(p).catch(() => undefined)));
+  res.status(201).json({ project, evidenceId });
+});

@@ -18,7 +18,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ProjectGraphEdge, ProjectGraphNode } from '@realytica/shared';
-import { clampGraphHops, extractProjectSubgraph } from '@realytica/shared';
+import { clampGraphHops, extractProjectSubgraph, graphImpact } from '@realytica/shared';
 import type { GraphAdapter, ProjectGraphSnapshot } from './types';
 import { DATA_DIR } from '../storage/filesystem';
 
@@ -154,6 +154,11 @@ export const journalAdapter: GraphAdapter = {
     if (!stored) return null;
     const sub = extractProjectSubgraph(stored, seedIds, clampGraphHops(hops));
     return { projectId, builtAt: stored.builtAt, nodes: sub.nodes, edges: sub.edges };
+  },
+
+  async impact(projectId, nodeId) {
+    const snapshot = await journalAdapter.readProject(projectId);
+    return snapshot ? graphImpact(snapshot, nodeId) : null;
   },
 
   async purgeProject(projectId): Promise<void> {

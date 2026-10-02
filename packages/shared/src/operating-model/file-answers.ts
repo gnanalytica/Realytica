@@ -173,7 +173,6 @@ function answerHelp(): FileAnswer {
     citedEvidenceIds: [],
     citedNodeIds: [],
     choices: [
-      { id: 'help-samples', label: 'Use the sample documents', detail: 'A synthetic Bengaluru file, read end to end', send: 'Use the sample documents', kind: 'action' },
       { id: 'help-missing', label: 'What documents do I need?', detail: 'The priority pack', send: 'What documents do I need?', kind: 'action' },
       { id: 'help-summary', label: 'Summarise this file', detail: 'Where it stands', send: 'Summarise this file', kind: 'action' },
     ],
@@ -483,7 +482,7 @@ function answerMissing(project: DdProject): FileAnswer {
 
 function answerDocuments(project: DdProject): FileAnswer {
   const filed = project.evidence.filter((e) => e.attachments.length);
-  if (!filed.length) return { text: 'No documents filed yet. Drop them into the chat — PDFs, scans or photos — or say “use the sample documents”.', summary: 'Documents', citedEvidenceIds: [], citedNodeIds: [], navigate: { pane: 'evidence' } };
+  if (!filed.length) return { text: 'No documents filed yet. Drop them into the chat — PDFs, scans or photos.', summary: 'Documents', citedEvidenceIds: [], citedNodeIds: [], navigate: { pane: 'evidence' } };
   return {
     text: `${plural(filed.length, 'document')} on file: ${joinTitles(filed.map((e) => `${e.documentType ?? e.title}${e.readMethod === 'ocr' ? ' (scan)' : ''}`))}.`,
     summary: 'Documents on file',

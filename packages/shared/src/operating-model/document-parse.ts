@@ -50,6 +50,7 @@ export type ReadDocumentType =
   | 'aviation_noc'
   | 'fire_noc'
   | 'company_incorporation'
+  | 'legal_opinion'
   | 'other';
 
 /** One thing a document states, with where it states it. */
@@ -383,6 +384,28 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     title: [/\blease\s+(?:deed|agreement)\b/i, /\bleave\s+and\s+licen[cs]e\b/i],
     body: [/\blessor\b/i, /\blessee\b/i, /\bmonthly\s+rent\b/i],
     file: [/lease/i, /rental/i],
+  },
+  /*
+   * An advocate's opinion on title: the certified report Legal's title work
+   * ends in. What matters is who signed it, when, what it covers, and whether
+   * it calls the title clear and marketable or clear subject to something.
+   */
+  legal_opinion: {
+    label: 'Legal opinion on title',
+    documentKind: 'other',
+    evidenceKind: 'certificate',
+    rowHints: ['legal opinion', 'title opinion', 'title search report', 'title clearance', 'title certificate'],
+    scopes: ['legal'],
+    title: [/\blegal\s+opinion\b/i, /\btitle\s+(?:opinion|search\s+report|clearance\s+certificate|certificate)\b/i, /\breport\s+on\s+title\b/i],
+    body: [
+      /\bmarketable\s+title\b/i,
+      /\bclear(?:,)?\s+(?:valid\s+and\s+)?(?:marketable\s+)?title\b/i,
+      /\b(?:we|I)\s+have\s+(?:perused|examined|scrutini[sz]ed|verified)\b/i,
+      /\bdocuments?\s+(?:perused|scrutini[sz]ed|examined)\b/i,
+      /\bAdvocates?\b/,
+      /\bflow\s+of\s+title\b/i,
+    ],
+    file: [/legal[\s_-]*opinion/i, /title[\s_-]*(?:opinion|report)/i],
   },
 };
 
@@ -1221,6 +1244,40 @@ const BUILDERS: Partial<Record<ReadDocumentType, Builder>> = {
     if (height) push(facts, { key: 'building_height', label: 'Building height cleared', value: Number(height.match[1]), unit: 'm', display: `${height.match[1]} m`, page: height.page, quote: height.quote });
   },
 
+  legal_opinion(pages, facts, flags) {
+    const on = letterDate(pages);
+    if (on) push(facts, { key: 'issued_on', label: 'Dated', value: on.iso, display: displayDate(on.iso), page: on.page, quote: on.quote });
+    const to = addressee(pages);
+    if (to) push(facts, { key: 'issued_to', label: 'Addressed to', value: to.value, display: to.value, page: to.page, quote: to.quote });
+    const sub = subject(pages);
+    if (sub) push(facts, { key: 'subject', label: 'Subject', value: sub.value, display: sub.value, page: sub.page, quote: sub.quote });
+    const covered = surveyList(pages);
+    if (covered) push(facts, { key: 'covered_survey_numbers', label: 'Survey numbers covered', value: covered.values.join(', '), display: listDisplay(covered.values), page: covered.page, quote: covered.quote });
+    // The enrolment the opinion is signed under: KAR/1234/2005 and its variants.
+    const enrolment = find(pages, /\b(?:Enrol(?:l)?ment|Enrl\.?|Regn\.?)\s*No\.?\s*[:.]?\s*((?:KAR|KA|MAH|MH|TN|AP|TS|D)\s*[/.-]?\s*\d{1,6}\s*[/.-]\s*\d{2,4})/i);
+    if (enrolment) {
+      const value = enrolment.match[1]!.replace(/\s+/g, '');
+      push(facts, { key: 'enrolment_number', label: 'Enrolment number', value, display: value, page: enrolment.page, quote: enrolment.quote });
+    }
+    // Who signed: the name over "Advocate" at the foot of the opinion.
+    const signed = find(pages, /\n\s*\(?\s*([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,4})\s*\)?\s*,?\s*\n\s*Advocates?\b/);
+    if (signed) {
+      const value = signed.match[1]!.trim();
+      push(facts, { key: 'advocate', label: 'Advocate', value, display: value, page: signed.page, quote: signed.quote });
+    }
+    const clear = find(pages, /\b(clear(?:,)?\s+(?:valid\s+(?:and|&)\s+)?(?:legal\s+(?:and|&)\s+)?marketable)\s+title\b/i);
+    const subjectTo = find(pages, /\b(?:title|opinion)\b[^.\n]{0,120}\bsubject\s+to\b([^.\n]{4,200})/i);
+    const notClear = find(pages, /\b(?:not|no)\s+(?:a\s+)?(?:clear|marketable)\s+title\b|\btitle\s+is\s+(?:defective|not\s+clear)\b/i);
+    if (notClear) {
+      push(facts, { key: 'title_conclusion', label: 'Opinion', value: 'not clear', display: 'Title not clear', page: notClear.page, quote: notClear.quote });
+      flags.push({ severity: 'critical', title: 'The opinion does not call the title clear', description: 'The advocate’s opinion says the title is not clear or not marketable.', page: notClear.page, quote: notClear.quote });
+    } else if (clear) {
+      const conditioned = Boolean(subjectTo);
+      push(facts, { key: 'title_conclusion', label: 'Opinion', value: conditioned ? 'clear subject to conditions' : 'clear and marketable', display: conditioned ? 'Clear and marketable, subject to conditions' : 'Clear and marketable', page: clear.page, quote: clear.quote });
+      if (subjectTo) push(facts, { key: 'opinion_conditions', label: 'Subject to', value: subjectTo.match[1]!.trim(), display: subjectTo.match[1]!.trim(), page: subjectTo.page, quote: subjectTo.quote });
+    }
+  },
+
   company_incorporation(pages, facts) {
     const cin = find(pages, /\b([LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6})\b/);
     if (cin) push(facts, { key: 'cin', label: 'Corporate identification number', value: cin.match[1]!, display: cin.match[1]!, page: cin.page, quote: cin.quote });
@@ -1314,6 +1371,11 @@ function summarise(type: ReadDocumentType, label: string, facts: DocumentFact[],
       if (get('permissible_top_elevation')) parts.push(`top elevation ${get('permissible_top_elevation')}`);
       if (get('power_load')) parts.push(get('power_load')!);
       if (get('valid_until')) parts.push(`valid until ${get('valid_until')}`);
+      break;
+    case 'legal_opinion':
+      parts.push(`${label}${get('issued_on') ? ` dated ${get('issued_on')}` : ''}`);
+      if (get('advocate')) parts.push(`by ${get('advocate')}`);
+      if (get('title_conclusion')) parts.push(get('title_conclusion')!);
       break;
     case 'company_incorporation':
       parts.push(label);

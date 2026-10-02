@@ -40,16 +40,36 @@
 /* ==================================================================== */
 
 /**
- * The same five layers as the case graph, and deliberately not a sixth.
+ * The case graph's five layers, and a sixth for how the work is organised.
+ *
+ * `structure` holds the stages a project moves through, its departments and
+ * their workstreams, the engagements clients commission, the people on it and
+ * the milestones it is built to. None of these is evidence or a conclusion;
+ * they are the frame every record sits in, and the graph is where the frame
+ * and the records meet: "everything Legal holds", "what an expired approval
+ * stops", "who signs for what this touches" are walks across the two.
  *
  * `report` sits in `judgement` rather than getting a `deliverable` layer of
  * its own: a report is the assembled conclusion, and everything the layer is
  * used for — ordering, colour, the one-way deliberation rule — treats it
  * exactly as it treats a finding.
  */
-export type ProjectGraphLayer = 'entity' | 'evidence' | 'claim' | 'judgement' | 'deliberation';
+export type ProjectGraphLayer = 'structure' | 'entity' | 'evidence' | 'claim' | 'judgement' | 'deliberation';
 
 export type ProjectGraphNodeKind =
+  /* --- structure: how the work is organised ---------------------- */
+  /** One of the twelve lifecycle stages, inside one of the four macro stages. */
+  | 'stage'
+  /** Finance, Legal, Design, Construction, Procurement or Commercial. */
+  | 'department'
+  /** One ongoing piece of work inside a department: Title, Approvals, Valuation… */
+  | 'workstream'
+  /** A piece of work a client commissioned, drawing on workstreams. */
+  | 'engagement'
+  /** A person on the project, with a role in each department they reach. */
+  | 'member'
+  /** A planned piece of the build, with how far along it is. */
+  | 'milestone'
   /* --- entities: what exists ------------------------------------- */
   | 'project'
   | 'asset'
@@ -79,6 +99,8 @@ export type ProjectGraphNodeKind =
   | 'site_visit'
   /** A plan sheet placed on the ground from control points. */
   | 'sheet'
+  /** A day's entry in the site log: manpower, work done, photographs, issues. */
+  | 'site_entry'
   /* --- claims: what the evidence says ---------------------------- */
   /** Two sources disagreeing about the same subject, kept as its own node. */
   | 'contradiction'
@@ -91,12 +113,22 @@ export type ProjectGraphNodeKind =
   | 'action'
   | 'decision'
   | 'report'
+  /** A workstream's living estimate, re-read whenever the file changes. */
+  | 'quick_assessment'
+  /** A report a named professional signed: the figure of record. */
+  | 'certified_report'
   /* --- deliberation: how we got there ---------------------------- */
   | 'question'
   | 'thought'
   | 'proposal';
 
 export const PROJECT_NODE_KINDS: readonly ProjectGraphNodeKind[] = [
+  'stage',
+  'department',
+  'workstream',
+  'engagement',
+  'member',
+  'milestone',
   'project',
   'asset',
   'parcel',
@@ -108,6 +140,7 @@ export const PROJECT_NODE_KINDS: readonly ProjectGraphNodeKind[] = [
   'evidence',
   'site_visit',
   'sheet',
+  'site_entry',
   'contradiction',
   'assessment',
   'scope',
@@ -117,12 +150,20 @@ export const PROJECT_NODE_KINDS: readonly ProjectGraphNodeKind[] = [
   'action',
   'decision',
   'report',
+  'quick_assessment',
+  'certified_report',
   'question',
   'thought',
   'proposal',
 ] as const;
 
 const LAYER_BY_KIND: Record<ProjectGraphNodeKind, ProjectGraphLayer> = {
+  stage: 'structure',
+  department: 'structure',
+  workstream: 'structure',
+  engagement: 'structure',
+  member: 'structure',
+  milestone: 'structure',
   project: 'entity',
   asset: 'entity',
   parcel: 'entity',
@@ -134,6 +175,9 @@ const LAYER_BY_KIND: Record<ProjectGraphNodeKind, ProjectGraphLayer> = {
   evidence: 'evidence',
   site_visit: 'evidence',
   sheet: 'evidence',
+  // An entry is an occasion of looking, like a visit: what it could not see
+  // bounds what rests on it.
+  site_entry: 'evidence',
   contradiction: 'claim',
   // An assessment and a scope are containers for judgement rather than
   // judgements themselves, but they carry a status that IS a conclusion
@@ -147,6 +191,8 @@ const LAYER_BY_KIND: Record<ProjectGraphNodeKind, ProjectGraphLayer> = {
   action: 'judgement',
   decision: 'judgement',
   report: 'judgement',
+  quick_assessment: 'judgement',
+  certified_report: 'judgement',
   question: 'deliberation',
   thought: 'deliberation',
   proposal: 'deliberation',
@@ -183,7 +229,44 @@ export function isProjectNodeKind(value: unknown): value is ProjectGraphNodeKind
  *   `requires`, the same edge a finding requiring work already drew.
  */
 export type ProjectGraphEdgeKind =
-  /* --- structure ------------------------------------------------- */
+  /* --- how the work is organised --------------------------------- */
+  /** project -> the lifecycle stage it is at now. */
+  | 'at_stage'
+  /** stage -> the stage after it. */
+  | 'precedes'
+  /** a record -> the stage the project was at when it happened. */
+  | 'in_stage'
+  /** project -> a department switched on for it. */
+  | 'has_department'
+  /** department -> one of its workstreams. */
+  | 'has_workstream'
+  /** workstream -> a record it holds: a check, a document, an approval, a milestone. */
+  | 'holds'
+  /** quick assessment -> the workstream it estimates. */
+  | 'assesses'
+  /** certified report -> the workstream it is the figure of record for. */
+  | 'certifies'
+  /** engagement -> a workstream its deliverable draws on. */
+  | 'draws_on'
+  /** engagement -> the report it delivers. */
+  | 'delivers'
+  /** approval | workstream -> the workstream that may not go ahead without it. */
+  | 'gates'
+  /** workstream -> a workstream whose estimate it moves. */
+  | 'feeds'
+  /** member -> a department they run. */
+  | 'leads'
+  /** member -> a department they add to. */
+  | 'contributes_to'
+  /** member -> a department whose reports they certify. */
+  | 'signs_for'
+  /** member -> a department they may read. */
+  | 'views'
+  /** site entry -> a milestone it moved. */
+  | 'advances'
+  /** Two records a person said belong together. */
+  | 'relates'
+  /* --- the registers --------------------------------------------- */
   | 'has_asset'
   | 'contains'
   | 'assessed_by'
@@ -251,6 +334,24 @@ export type ProjectGraphEdgeKind =
   | 'became';
 
 export const PROJECT_EDGE_KINDS: readonly ProjectGraphEdgeKind[] = [
+  'at_stage',
+  'precedes',
+  'in_stage',
+  'has_department',
+  'has_workstream',
+  'holds',
+  'assesses',
+  'certifies',
+  'draws_on',
+  'delivers',
+  'gates',
+  'feeds',
+  'leads',
+  'contributes_to',
+  'signs_for',
+  'views',
+  'advances',
+  'relates',
   'has_asset',
   'contains',
   'assessed_by',
@@ -299,6 +400,27 @@ export const PROJECT_EDGE_ENDPOINT_RULES: Record<
   ProjectGraphEdgeKind,
   { from?: readonly ProjectGraphNodeKind[]; to?: readonly ProjectGraphNodeKind[] }
 > = {
+  at_stage: { from: ['project'], to: ['stage'] },
+  precedes: { from: ['stage'], to: ['stage'] },
+  in_stage: {
+    from: ['evidence', 'check', 'finding', 'risk', 'decision', 'report', 'site_visit', 'site_entry', 'certified_report', 'engagement'],
+    to: ['stage'],
+  },
+  has_department: { from: ['project'], to: ['department'] },
+  has_workstream: { from: ['department'], to: ['workstream'] },
+  holds: { from: ['workstream'], to: ['check', 'evidence', 'approval', 'milestone', 'site_visit', 'site_entry', 'finding', 'encumbrance', 'instrument'] },
+  assesses: { from: ['quick_assessment'], to: ['workstream'] },
+  certifies: { from: ['certified_report'], to: ['workstream'] },
+  draws_on: { from: ['engagement'], to: ['workstream'] },
+  delivers: { from: ['engagement'], to: ['report'] },
+  gates: { from: ['approval', 'workstream'], to: ['workstream'] },
+  feeds: { from: ['workstream'], to: ['workstream'] },
+  leads: { from: ['member'], to: ['department'] },
+  contributes_to: { from: ['member'], to: ['department'] },
+  signs_for: { from: ['member'], to: ['department'] },
+  views: { from: ['member'], to: ['department'] },
+  advances: { from: ['site_entry'], to: ['milestone'] },
+  relates: {},
   has_asset: { from: ['project'], to: ['asset'] },
   contains: { from: ['asset'], to: ['asset'] },
   assessed_by: { from: ['project'], to: ['assessment'] },
@@ -309,7 +431,7 @@ export const PROJECT_EDGE_ENDPOINT_RULES: Record<
   has_risk: { from: ['project'], to: ['risk'] },
   has_visit: { from: ['project'], to: ['site_visit'] },
   has_sheet: { from: ['project'], to: ['sheet'] },
-  observed_on: { from: ['evidence', 'finding'], to: ['site_visit'] },
+  observed_on: { from: ['evidence', 'finding'], to: ['site_visit', 'site_entry'] },
 
   sited_at: { from: ['project', 'asset'], to: ['parcel'] },
   engaged_on: { from: ['project'], to: ['party'] },
@@ -323,7 +445,7 @@ export const PROJECT_EDGE_ENDPOINT_RULES: Record<
   issued_by: { from: ['approval', 'encumbrance', 'instrument'], to: ['authority'] },
   governed_by: { from: ['parcel', 'project'], to: ['authority'] },
 
-  supported_by: { from: ['check', 'finding', 'risk', 'action', 'report', 'assessment'], to: ['evidence'] },
+  supported_by: { from: ['check', 'finding', 'risk', 'action', 'report', 'assessment', 'quick_assessment', 'certified_report', 'approval'], to: ['evidence'] },
   contradicts: { from: ['contradiction'] },
   about: { from: ['check', 'finding', 'risk', 'action'], to: ['parcel', 'asset'] },
 

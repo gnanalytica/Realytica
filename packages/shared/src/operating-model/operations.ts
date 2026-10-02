@@ -1,4 +1,5 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
+import { createEngagement, currentEngagement } from './engagements';
 import { reconcileRequests } from './project-requests';
 import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { looksLikeProviderError } from './provider-failure';
@@ -206,8 +207,7 @@ export function toProjectSummary(project: DdProject): ProjectSummary {
     overdueActions: project.actions.filter((a) => a.status === 'overdue' || (a.status !== 'closed' && a.dueDate && a.dueDate < today)).length,
     evidenceMissing: project.evidence.filter((e) => e.status === 'missing' || e.status === 'expected' || e.status === 'requested').length,
     portfolio: project.portfolio,
-    sample: project.sample,
-    engagement: project.engagement,
+    engagement: currentEngagement(project),
     waitingOn: (project.requests ?? []).filter((r) => r.status === 'sent').length,
     pendingDecisions:
       project.chatProposals.filter((p) => p.status === 'proposed').length
@@ -246,9 +246,8 @@ export function createProject(input: CreateProjectInput, reference: string, acto
     tenure: input.tenure,
     plot: input.plot,
     karnataka: input.karnataka,
-    // Every new project starts an engagement at intake, so it has a place in
-    // the pipeline from the moment it exists.
-    engagement: input.engagement ?? { stage: 'intake' },
+    engagements: [],
+    ...(input.departments ? { departments: input.departments } : {}),
     stakeholders: [],
     assets: [],
     assessments: [],
@@ -281,6 +280,8 @@ export function createProject(input: CreateProjectInput, reference: string, acto
   };
   project.stageHistory.push(opening);
   audit(project, { actor, action: 'create', entityType: 'project', entityId: project.id, newValue: project.name, at });
+  // One record of every check, grouped by workstream, for every engagement to draw on.
+  if (input.engagement) createEngagement(project, input.engagement, actor);
   return project;
 }
 

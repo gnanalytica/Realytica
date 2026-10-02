@@ -20,6 +20,8 @@ export interface Tenant {
   name: string;
   /** The email domain that may join without an invite, when the firm wants one. */
   autoJoinDomain?: string;
+  /** The departments a new project uses unless it says otherwise. */
+  departments?: import('./departments').DepartmentKey[];
   createdAt: string;
 }
 

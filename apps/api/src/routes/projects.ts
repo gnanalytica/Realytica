@@ -175,7 +175,6 @@ import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
 import { mergeModelReading, needsModelReading, readIngestLocally } from '../documents/intake';
 import { readOntoRegister, type RegisterUpload } from '../documents/register-read';
-import { loadSampleDocuments, readSampleDocument, SAMPLE_REQUEST } from '../documents/samples';
 import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS } from '../documents/reread';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
@@ -184,6 +183,7 @@ import { projectSiteContextRouter } from './site-context';
 import { projectPeopleRouter } from './project-people';
 import { projectGisOverlayRouter } from './gis-overlay';
 import { projectComparablesRouter } from './comparables';
+import { projectWorkspaceRouter } from './workspace';
 import { unblockerConfigured } from '../comparables/search';
 import { graphAdapter } from '../graph';
 import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
@@ -413,6 +413,8 @@ projectsRouter.use('/:projectId/people', workspaceOnly, projectPeopleRouter);
 projectsRouter.use('/:projectId/site-context', projectSiteContextRouter);
 projectsRouter.use('/:projectId/gis-overlay', projectGisOverlayRouter);
 projectsRouter.use('/:projectId/comparables', projectComparablesRouter);
+// The departments: their writes, the site app's read, and the graph's answers.
+projectsRouter.use('/:projectId', projectWorkspaceRouter);
 
 projectsRouter.get('/', (req, res) => {
   const me = principalOf(req);
@@ -1128,26 +1130,6 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
       return;
     }
   }
-  /*
-   * "Use the sample documents": load the synthetic set and send it down the
-   * upload path, exactly as if the person had dropped the files in. Only on a
-   * labelled sample project: on a client file it would put invented deeds
-   * beside real ones.
-   */
-  if (project.sample && SAMPLE_REQUEST.test(question)) {
-    const samples = await loadSampleDocuments();
-    if (samples.length) {
-      await ingestTurn(req, res, project, samples, {
-        question,
-        viewContext: parsed.data.viewContext,
-        sessionId: parsed.data.sessionId,
-        ddId: sitting?.ddId,
-        scopeId: sitting?.scopeId,
-        checkId: sitting?.checkId,
-      });
-      return;
-    }
-  }
   refreshProjectDerived(project);
   const actor = actorOf(req);
   /*
@@ -1620,8 +1602,6 @@ interface IngestUpload {
   buffer: Buffer;
   /** Set for a file already in storage: it is read from there, not stored again. */
   storageKey?: string;
-  /** One of the bundled sample documents. */
-  sample?: boolean;
 }
 
 interface IngestFields {
@@ -1642,9 +1622,8 @@ interface IngestFields {
 /**
  * The upload turn: store, read, understand, and answer with cards.
  *
- * Shared by the chat's file upload and by "use the sample documents", so a
- * sample goes down exactly the path a real deed does — nothing about trying
- * the product is a separate, friendlier code path.
+ * Shared by the chat's file upload and by re-reading filed documents, so a
+ * document goes down one path however it arrived.
  */
 async function ingestTurn(req: Request, res: Response, project: DdProject, files: IngestUpload[], fields: IngestFields): Promise<void> {
   refreshProjectDerived(project);
@@ -1683,7 +1662,6 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
       sizeBytes: row.sizeBytes,
       index,
       total: files.length,
-      ...(file.sample ? { sample: true } : {}),
       ...(holder
         ? { evidenceId: holder.id, fileId: holder.attachments.find((a) => a.storageKey === storageKey)!.id }
         : {}),
@@ -2531,28 +2509,6 @@ projectsRouter.post('/:projectId/evidence/files', evidenceUpload.array('files', 
   } catch (err) {
     fail(res, err);
   }
-});
-
-/**
- * A bundled sample document, by name, so its pages can be drawn while the
- * chat reads it — before it is filed anywhere. Invented documents only.
- */
-projectsRouter.get('/:projectId/sample-documents/:name', async (req, res) => {
-  const project = findProject(req.params.projectId);
-  if (!project?.sample) {
-    res.status(404).json({ error: 'Not a sample project' });
-    return;
-  }
-  const bytes = await readSampleDocument(req.params.name);
-  if (!bytes) {
-    res.status(404).json({ error: 'No such sample document' });
-    return;
-  }
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Content-Length', String(bytes.length));
-  res.setHeader('Cache-Control', 'private, max-age=3600');
-  res.end(bytes);
 });
 
 projectsRouter.get('/:projectId/evidence/:evidenceId/files/:fileId', async (req, res) => {

@@ -14,13 +14,24 @@
  * more than one span.
  */
 
-import { LIFECYCLE_DISPLAY, lifecycleDisplayIndex } from './catalogs';
-import type { CheckResult, DdProject } from './types';
+import type { CheckResult, DdProject, LifecycleStage } from './types';
+import { STAGES, SUB_STAGE_LABEL, stageAt, stageOf, type StageKey } from './departments';
 
 export interface PhaseSpan {
   from: string;
   /** Absent while the project is still in it. */
   to?: string;
+}
+
+/** A whole stage — Construction — or one step inside it — Testing & commissioning. */
+export type PhaseRef = { kind: 'stage'; key: StageKey } | { kind: 'step'; key: LifecycleStage };
+
+function within(ref: PhaseRef, stage: LifecycleStage): boolean {
+  return ref.kind === 'step' ? stage === ref.key : stageOf(stage) === ref.key;
+}
+
+export function phaseLabel(ref: PhaseRef): string {
+  return ref.kind === 'step' ? SUB_STAGE_LABEL[ref.key] : STAGES.find((s) => s.key === ref.key)?.label ?? ref.key;
 }
 
 /** The project's own stage changes, oldest first. */
@@ -31,26 +42,18 @@ function projectStages(project: DdProject) {
     .sort((a, b) => a.effectiveAt.localeCompare(b.effectiveAt));
 }
 
-const groupOf = (stage: Parameters<typeof lifecycleDisplayIndex>[0]) => LIFECYCLE_DISPLAY[lifecycleDisplayIndex(stage)]!.key;
-
-/** The displayed phase the project was in at a moment. Before its first recorded stage, the first one. */
-export function phaseAt(project: DdProject, at: string): string {
-  const history = projectStages(project);
-  let stage = history[0]?.stage ?? project.currentStage;
-  for (const entry of history) {
-    if (entry.effectiveAt <= at) stage = entry.stage;
-    else break;
-  }
-  return groupOf(stage);
+/** The lifecycle step the project was at at a moment. Before its first recorded stage, the first one. */
+export function phaseAt(project: DdProject, at: string): LifecycleStage {
+  return stageAt(project, at);
 }
 
-/** When the project was in a displayed phase. Empty for a phase it never reached. */
-export function phaseSpans(project: DdProject, phase: string): PhaseSpan[] {
+/** When the project was in a stage or step. Empty for one it never reached. */
+export function phaseSpans(project: DdProject, ref: PhaseRef): PhaseSpan[] {
   const history = projectStages(project);
   const spans: PhaseSpan[] = [];
   let open: PhaseSpan | null = null;
   for (const entry of history) {
-    const inPhase = groupOf(entry.stage) === phase;
+    const inPhase = within(ref, entry.stage);
     if (inPhase && !open) {
       open = { from: entry.effectiveAt };
       spans.push(open);
@@ -59,7 +62,7 @@ export function phaseSpans(project: DdProject, phase: string): PhaseSpan[] {
       open = null;
     }
   }
-  if (!history.length && groupOf(project.currentStage) === phase) spans.push({ from: project.createdAt });
+  if (!history.length && within(ref, project.currentStage)) spans.push({ from: project.createdAt });
   return spans;
 }
 
@@ -72,7 +75,7 @@ export interface PhaseItem {
 }
 
 export interface PhaseRecord {
-  phase: string;
+  phase: PhaseRef;
   label: string;
   spans: PhaseSpan[];
   documents: PhaseItem[];
@@ -92,9 +95,9 @@ const newestFirst = <T extends { at: string }>(rows: T[]) => rows.sort((a, b) =>
  * started, checks recorded, and what they raised. A document counts in the
  * phase its file arrived, a check in the phase its result was last recorded.
  */
-export function phaseRecord(project: DdProject, phase: string): PhaseRecord {
-  const label = LIFECYCLE_DISPLAY.find((g) => g.key === phase)?.label ?? phase;
-  const inPhase = (at: string | undefined) => Boolean(at) && phaseAt(project, at!) === phase;
+export function phaseRecord(project: DdProject, phase: PhaseRef): PhaseRecord {
+  const label = phaseLabel(phase);
+  const inPhase = (at: string | undefined) => Boolean(at) && within(phase, phaseAt(project, at!));
 
   const documents: PhaseItem[] = [];
   for (const e of project.evidence) {

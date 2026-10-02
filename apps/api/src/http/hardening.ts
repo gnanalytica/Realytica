@@ -268,5 +268,7 @@ export function rateLimits(env: NodeJS.ProcessEnv = process.env) {
     expensive: rateLimit({ name: 'model', limit: num('RATE_LIMIT_MODEL', 30), windowMs: minute }),
     /** Uploads. Tight for a different reason: bytes and parse time. */
     upload: rateLimit({ name: 'upload', limit: num('RATE_LIMIT_UPLOAD', 60), windowMs: minute }),
+    /** Pairing a phone, before any sign-in: by address, and few. A code is guessed or it is not. */
+    pairing: rateLimit({ name: 'pairing', limit: num('RATE_LIMIT_PAIRING', 10), windowMs: minute }),
   };
 }

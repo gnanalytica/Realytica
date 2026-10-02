@@ -57,6 +57,12 @@ import {
   type ProjectGraphNodeKind,
 } from './project-ontology';
 import type { DdProject, ProjectGraphEdge, ProjectGraphNode } from './types';
+import { DEPARTMENTS, DEPARTMENT_ROLE_LABEL, STAGES, SUB_STAGES, SUB_STAGE_LABEL, stageAt, workstreamOfCheck, type DepartmentRole } from './departments';
+import { projectDepartments } from './team';
+import { quickAssessment, QUICK_VERDICT_LABEL } from './quick-assessments';
+import { approvalsRegister, APPROVAL_STATUS_LABEL } from './approvals';
+import { projectLinks, type LinkEnd } from './links';
+import { documentWorkstream } from './vault';
 import type { TitleEdgeKind, TitleGraph, TitleGraphSummary, TitleNodeKind } from '../types';
 
 /** Turns `bda_approved` into `Bda approved` for a node label. Enum keys have no label map. */
@@ -66,8 +72,9 @@ function titleCase(value: string): string {
 }
 
 interface Builder {
-  node(kind: ProjectGraphNodeKind, id: string, label: string, detail?: string): string;
+  node(kind: ProjectGraphNodeKind, id: string, label: string, detail?: string, tags?: { key?: string; status?: string }): string;
   edge(from: string, to: string, rel: ProjectGraphEdgeKind): void;
+  has(id: string): boolean;
 }
 
 export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] } {
@@ -79,12 +86,17 @@ export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode
   const seenEdges = new Set<string>();
 
   const b: Builder = {
-    node(kind, id, label, detail) {
+    node(kind, id, label, detail, tags) {
       const existing = byId.get(id);
       // First writer wins. The title fold can name a party the stakeholder
       // register already introduced; keeping the first keeps the label a
-      // person recognises rather than the one an OCR pass produced.
-      if (existing) return id;
+      // person recognises rather than the one an OCR pass produced. A later
+      // writer may still add the key and status the first one did not know.
+      if (existing) {
+        if (tags?.key && !existing.key) existing.key = tags.key;
+        if (tags?.status && !existing.status) existing.status = tags.status;
+        return id;
+      }
       const node: ProjectGraphNode = {
         id,
         kind,
@@ -92,6 +104,8 @@ export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode
         origin: 'derived',
         label,
         ...(detail ? { detail } : {}),
+        ...(tags?.key ? { key: tags.key } : {}),
+        ...(tags?.status ? { status: tags.status } : {}),
       };
       nodes.push(node);
       byId.set(id, node);
@@ -104,12 +118,16 @@ export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode
       seenEdges.add(id);
       pending.push({ id, from, to, rel });
     },
+    has(id) {
+      return byId.has(id);
+    },
   };
 
   b.node('project', project.id, project.name, project.reference);
 
   addRegisters(project, b);
   addProperty(project, b);
+  addStructure(project, b);
   addDeliberation(project, b);
 
   // The dangling guard. Buffered to here rather than checked at each call
@@ -325,14 +343,14 @@ function addProperty(project: DdProject, b: Builder): void {
     }
 
     if (karnataka.landConversionStatus === 'converted') {
-      const convId = `${project.id}::approval::dc-conversion`;
+      const convId = `${project.id}::approval::conversion`;
       b.node('approval', convId, 'DC conversion', 'Land converted to non-agricultural use');
       if (hasParticulars) b.edge(convId, parcelId, 'affects');
       b.edge(convId, authorityId, 'issued_by');
     }
 
     if (karnataka.kreraNumber) {
-      const reraId = `${project.id}::approval::krera`;
+      const reraId = `${project.id}::approval::rera`;
       const reraAuthority = `${project.id}::authority::krera`;
       b.node('approval', reraId, `K-RERA ${karnataka.kreraNumber}`, 'Project registration');
       b.node('authority', reraAuthority, 'K-RERA', 'Karnataka Real Estate Regulatory Authority');
@@ -442,6 +460,182 @@ function addTitleChain(
  * walking out of a thought, so no traversal that gathers what a conclusion
  * rests on can pick up a model's musing on the way.
  */
+/* ==================================================================== */
+/* How the work is organised                                             */
+/* ==================================================================== */
+
+/** The node id each kind of link end is drawn as. */
+function linkEndId(project: DdProject, end: LinkEnd): string {
+  switch (end.kind) {
+    case 'workstream':
+      return `${project.id}::ws::${end.id}`;
+    case 'approval':
+      return `${project.id}::approval::${end.id}`;
+    default:
+      return end.id;
+  }
+}
+
+const ROLE_EDGE: Record<DepartmentRole, ProjectGraphEdgeKind> = {
+  lead: 'leads',
+  contributor: 'contributes_to',
+  signer: 'signs_for',
+  viewer: 'views',
+};
+
+/**
+ * Stages, departments, workstreams, engagements, people, milestones, the
+ * site log, quick assessments and certified reports, and every record placed
+ * in its workstream and in the stage it happened in.
+ *
+ * This is the frame the departments share. The registers above say what the
+ * file holds; this says whose work each record is, when it happened, and how
+ * one department's work reaches another's.
+ */
+function addStructure(project: DdProject, b: Builder): void {
+  const pid = project.id;
+  const stageId = (key: string) => `${pid}::stage::${key}`;
+  const wsId = (key: string) => `${pid}::ws::${key}`;
+  const deptId = (key: string) => `${pid}::dept::${key}`;
+
+  // Stages: the twelve steps in order, each inside its macro stage.
+  const currentIndex = SUB_STAGES.indexOf(project.currentStage);
+  for (const stage of STAGES) {
+    for (const sub of stage.subStages) {
+      const i = SUB_STAGES.indexOf(sub);
+      b.node('stage', stageId(sub), SUB_STAGE_LABEL[sub], stage.label, {
+        key: sub,
+        status: i < currentIndex ? 'done' : i === currentIndex ? 'current' : 'ahead',
+      });
+    }
+  }
+  SUB_STAGES.forEach((sub, i) => {
+    const next = SUB_STAGES[i + 1];
+    if (next) b.edge(stageId(sub), stageId(next), 'precedes');
+  });
+  b.edge(pid, stageId(project.currentStage), 'at_stage');
+  const inStage = (id: string, at: string | undefined) => {
+    if (at) b.edge(id, stageId(stageAt(project, at)), 'in_stage');
+  };
+
+  // Departments and their workstreams, as switched on for this project.
+  const enabled = new Set(projectDepartments(project));
+  const live = new Set<string>();
+  for (const dept of DEPARTMENTS) {
+    if (!enabled.has(dept.key)) continue;
+    b.node('department', deptId(dept.key), dept.label, dept.purpose, { key: dept.key, status: dept.status });
+    b.edge(pid, deptId(dept.key), 'has_department');
+    for (const ws of dept.workstreams) {
+      b.node('workstream', wsId(ws.key), ws.label, ws.purpose, { key: ws.key, status: ws.status });
+      b.edge(deptId(dept.key), wsId(ws.key), 'has_workstream');
+      if (ws.status === 'live') live.add(ws.key);
+    }
+  }
+  const holds = (workstream: string | undefined, id: string) => {
+    if (workstream && b.has(wsId(workstream))) b.edge(wsId(workstream), id, 'holds');
+  };
+
+  // Every check sits in exactly one workstream.
+  for (const assessment of project.assessments) {
+    for (const scope of assessment.scopes) {
+      for (const check of scope.checks) {
+        holds(workstreamOfCheck(check.definitionId), check.id);
+        if (check.result !== 'pending') inStage(check.id, check.updatedAt);
+      }
+    }
+  }
+
+  // Every document belongs to the workstream that owns it, and to the stage it arrived in.
+  for (const evidence of project.evidence) {
+    holds(documentWorkstream(project, evidence), evidence.id);
+    inStage(evidence.id, evidence.attachments[0]?.uploadedAt);
+  }
+  for (const finding of project.findings) inStage(finding.id, finding.createdAt);
+  for (const risk of project.risks) inStage(risk.id, risk.createdAt);
+  for (const decision of project.decisions) inStage(decision.id, decision.decidedAt ?? decision.createdAt);
+  for (const report of project.reports) inStage(report.id, report.generatedAt);
+  for (const visit of project.siteVisits ?? []) {
+    holds('construction.site', visit.id);
+    inStage(visit.id, visit.visitedOn ?? visit.createdAt);
+  }
+
+  // The approvals register: what the project holds, and what it still needs.
+  for (const line of approvalsRegister(project)) {
+    if (!line.held.length && (line.status === 'if_applicable' || line.status === 'not_yet_due')) continue;
+    const id = `${pid}::approval::${line.kind.key}`;
+    b.node('approval', id, line.kind.label, APPROVAL_STATUS_LABEL[line.status], { key: line.kind.key, status: line.status });
+    holds('legal.approvals', id);
+    for (const held of line.held) b.edge(id, held.evidenceId, 'supported_by');
+  }
+
+  // Milestones and the site log.
+  for (const milestone of project.milestones ?? []) {
+    b.node('milestone', milestone.id, milestone.name, `${milestone.percent}% complete`, { status: milestone.percent >= 100 ? 'complete' : milestone.percent > 0 ? 'under_way' : 'not_started' });
+    holds('construction.progress', milestone.id);
+  }
+  for (const entry of project.siteLog ?? []) {
+    const issues = entry.issues.length ? ` · ${entry.issues.length} issue${entry.issues.length === 1 ? '' : 's'}` : '';
+    b.node('site_entry', entry.id, `Site log ${entry.date}`, `${entry.workDone.slice(0, 140)}${issues}`, { status: entry.issues.some((i) => i.severity === 'high') ? 'serious_issue' : 'logged' });
+    holds('construction.progress', entry.id);
+    inStage(entry.id, `${entry.date}T12:00:00.000Z`);
+    for (const update of entry.milestoneUpdates) b.edge(entry.id, update.milestoneId, 'advances');
+  }
+
+  // A living estimate on every live workstream, and the certified reports beside it.
+  for (const key of live) {
+    const qa = quickAssessment(project, key);
+    const id = `${pid}::qa::${key}`;
+    b.node('quick_assessment', id, qa.headline, `${QUICK_VERDICT_LABEL[qa.verdict]}${qa.rough ? ' · rough' : ''}`, { key, status: qa.verdict });
+    b.edge(id, wsId(key), 'assesses');
+  }
+  for (const report of project.certifiedReports ?? []) {
+    const status = report.status === 'superseded' ? 'superseded' : report.revisit && !report.revisit.acknowledgedAt ? 'revisit' : 'current';
+    b.node('certified_report', report.id, report.title, `${report.signer.name}, ${report.signer.profession}`, { key: report.workstream, status });
+    b.edge(report.id, report.evidenceId, 'supported_by');
+    inStage(report.id, report.issuedOn ? `${report.issuedOn}T12:00:00.000Z` : report.createdAt);
+  }
+
+  // Engagements draw on workstreams and deliver reports.
+  for (const engagement of project.engagements ?? []) {
+    b.node('engagement', engagement.id, engagement.title, engagement.client ? `For ${engagement.client}` : undefined, { key: engagement.kind, status: engagement.stage });
+    inStage(engagement.id, engagement.createdAt);
+    for (const reportId of engagement.reportIds) b.edge(engagement.id, reportId, 'delivers');
+  }
+
+  // People, by the role they hold in each department.
+  for (const member of project.team ?? []) {
+    const id = `${pid}::member::${member.email.toLowerCase()}`;
+    const roles = Object.entries(member.departments) as Array<[string, DepartmentRole]>;
+    b.node('member', id, member.name || member.email, roles.map(([d, r]) => `${DEPARTMENT_ROLE_LABEL[r]}, ${d}`).join(' · ') || undefined, member.signer ? { status: 'signer' } : undefined);
+    for (const [dept, role] of roles) {
+      if (b.has(deptId(dept))) b.edge(id, deptId(dept), ROLE_EDGE[role]);
+    }
+  }
+
+  // The links between departments: the system's own and those people drew.
+  for (const link of projectLinks(project)) {
+    const from = linkEndId(project, link.from);
+    const to = linkEndId(project, link.to);
+    switch (link.type) {
+      case 'gates':
+      case 'feeds':
+      case 'certifies':
+      case 'draws_on':
+      case 'relates':
+        if (link.type === 'certifies' && link.from.kind === 'document') {
+          // A document certifying an approval is the approval resting on it.
+          b.edge(to, from, 'supported_by');
+        } else b.edge(from, to, link.type);
+        break;
+      case 'cites':
+        // Evidence is cited by what rests on it: drawn from the conclusion to the paper.
+        if (link.from.kind === 'document') b.edge(to, from, 'supported_by');
+        else b.edge(from, to, 'supported_by');
+        break;
+    }
+  }
+}
+
 function addDeliberation(project: DdProject, b: Builder): void {
   for (const turn of project.conversation.slice(-24)) {
     const nodeId = `chat:${turn.id}`;

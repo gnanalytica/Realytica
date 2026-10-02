@@ -2,7 +2,7 @@
  * Reading property documents with no model: text layers, OCR, and what the
  * reading proposes.
  *
- * Runs against the synthetic sample set in `apps/api/sample-documents` —
+ * Runs against the synthetic sample set in `test/fixtures/documents` —
  * Ghostscript-written PDFs with compressed text layers, and two scans with no
  * text layer at all — so the reader is tested on the shapes it will actually
  * meet. Every document there is invented and carries a DEMO banner.
@@ -31,7 +31,7 @@ import {
 import { readDocumentText, releaseOcr } from '../apps/api/src/documents/read-text';
 import { readIngestLocally } from '../apps/api/src/documents/intake';
 
-const DOCS = path.resolve('apps/api/sample-documents');
+const DOCS = path.resolve('test/fixtures/documents');
 
 async function read(name: string) {
   const bytes = new Uint8Array(readFileSync(path.join(DOCS, name)));

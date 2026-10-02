@@ -20,7 +20,7 @@ What they are built to exercise:
         sqm), which the extent check computes as a divergence;
       - the encumbrance certificate carries a subsisting mortgage.
 
-Regenerate:  python3 scripts/sample-documents/make.py
+Regenerate:  python3 test/fixtures/documents/make.py
 Needs Ghostscript (`gs`) and Pillow. The outputs are committed, so trying the
 product never needs either.
 """
@@ -36,7 +36,7 @@ import textwrap
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "..", "..", "apps", "api", "sample-documents")
+OUT = HERE
 
 BANNER = "DEMO DOCUMENT - SYNTHETIC - NOT A REAL INSTRUMENT"
 

@@ -8,6 +8,7 @@
  */
 
 import { toProjectSummary } from './operations';
+import { currentEngagement } from './engagements';
 import { requestAgeDays, waitingOn } from './project-requests';
 import type { ChatProposalKind, DdProject, ProjectRequest, ProjectSummary } from './types';
 
@@ -131,8 +132,9 @@ export function portfolioView(
       upcoming.push({ projectId: project.id, projectName: project.name, date: v.visitedOn.slice(0, 10), label: 'Site visit', kind: 'visit', refId: v.id });
     }
 
-    const due = project.engagement?.dueDate;
-    if (project.engagement?.stage !== 'issued' && inWindow(due)) {
+    const current = currentEngagement(project);
+    const due = current?.dueDate;
+    if (current && current.stage !== 'issued' && inWindow(due)) {
       upcoming.push({ projectId: project.id, projectName: project.name, date: due, label: 'Report due', kind: 'report', refId: project.id });
     }
   }

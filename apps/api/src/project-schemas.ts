@@ -77,15 +77,31 @@ const tenureSchema = z.enum(['freehold', 'leasehold', 'unknown']);
  */
 const parcelIdSchema = z.string().trim().max(200);
 
-/** The firm's engagement on a project. Every field but the stage is optional. */
+/** A piece of work a client commissions on the project. Only its kind is required. */
 export const engagementSchema = z.object({
-  stage: z.enum(['intake', 'documents', 'site_visit', 'analysis', 'review', 'issued']),
+  kind: z.enum(['acquisition_screening', 'title_dd', 'technical_dd', 'lender_monitoring', 'valuation', 'custom']),
+  title: z.string().trim().min(1).max(200).optional(),
   client: z.string().trim().max(200).optional(),
   fee: z.number().nonnegative().optional(),
   lead: z.string().trim().max(120).optional(),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  scope: z.string().trim().max(300).optional(),
+  scope: z.string().trim().max(600).optional(),
+  workstreams: z.array(z.string().regex(/^[a-z]+\.[a-z_]+$/)).max(40).optional(),
 });
+
+/** A change to an engagement: where it stands, who it is for, what it draws on. */
+export const engagementPatchSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  stage: z.enum(['intake', 'documents', 'site_visit', 'analysis', 'review', 'issued']).optional(),
+  client: z.string().trim().max(200).optional(),
+  fee: z.number().nonnegative().optional(),
+  lead: z.string().trim().max(120).optional(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  scope: z.string().trim().max(600).optional(),
+  workstreams: z.array(z.string().regex(/^[a-z]+\.[a-z_]+$/)).min(1).max(40).optional(),
+});
+
+export const departmentKeySchema = z.enum(['finance', 'legal', 'design', 'construction', 'procurement', 'commercial']);
 
 export const createProjectBodySchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -117,6 +133,7 @@ export const createProjectBodySchema = z.object({
   parcelId: parcelIdSchema.optional(),
   tenure: tenureSchema.optional(),
   engagement: engagementSchema.optional(),
+  departments: z.array(departmentKeySchema).min(1).max(6).optional(),
   actor: actorSchema,
 });
 
@@ -422,7 +439,6 @@ export const patchProjectBodySchema = z.object({
    */
   parcelId: parcelIdSchema.optional(),
   tenure: tenureSchema.optional(),
-  engagement: engagementSchema.optional(),
   actor: actorSchema,
 });
 

@@ -201,7 +201,7 @@ export async function fetchWithAuth(url: string, init?: RequestInit): Promise<Re
   return second;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetchWithAuth(`${BASE}${path}`, init);
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;

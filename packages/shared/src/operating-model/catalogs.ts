@@ -57,32 +57,6 @@ export const LIFECYCLE_STAGES: { key: LifecycleStage; label: string; meaning: st
   { key: 'operations', label: 'Operations', meaning: 'Asset is operational or post-completion.' },
 ];
 
-/**
- * The lifecycle as a reader is shown it: nine stages, not twelve.
- *
- * The model keeps all twelve, because procurement, pre-construction and
- * testing are real states a DD can be scoped against. On a stepper they are
- * three near-identical steps inside what everybody calls construction, so
- * they are drawn as one.
- */
-export const LIFECYCLE_DISPLAY: { key: string; label: string; stages: LifecycleStage[] }[] = [
-  { key: 'opportunity', label: 'Opportunity', stages: ['opportunity_site'] },
-  { key: 'feasibility', label: 'Feasibility', stages: ['feasibility'] },
-  { key: 'acquisition', label: 'Acquisition', stages: ['acquisition'] },
-  { key: 'design', label: 'Design', stages: ['design'] },
-  { key: 'approvals', label: 'Approvals', stages: ['approvals'] },
-  { key: 'construction', label: 'Construction', stages: ['procurement', 'pre_construction', 'construction', 'testing_commissioning'] },
-  { key: 'completion', label: 'Completion', stages: ['completion'] },
-  { key: 'handover', label: 'Handover', stages: ['handover'] },
-  { key: 'operations', label: 'Operations', stages: ['operations'] },
-];
-
-/** Which of the nine displayed stages a model stage belongs to. */
-export function lifecycleDisplayIndex(stage: LifecycleStage): number {
-  const index = LIFECYCLE_DISPLAY.findIndex((group) => group.stages.includes(stage));
-  return index < 0 ? 0 : index;
-}
-
 export const SCOPE_KEYS: ScopeKey[] = [
   'land_site',
   'legal',

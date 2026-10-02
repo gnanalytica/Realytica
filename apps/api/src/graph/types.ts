@@ -42,7 +42,7 @@
  * is gone is the claim that anybody was storing it.
  */
 
-import type { ProjectGraphEdge, ProjectGraphNode } from '@realytica/shared';
+import type { GraphImpact, ProjectGraphEdge, ProjectGraphNode } from '@realytica/shared';
 
 /**
  * The project graph, persisted as an index of the registers plus whatever a
@@ -93,6 +93,14 @@ export interface GraphAdapter {
    * of truth.
    */
   neighbourhood(projectId: string, seedIds: string[], hops: number): Promise<ProjectGraphSnapshot | null>;
+
+  /**
+   * What a change to one record reaches: the workstreams it sits in, those
+   * downstream of them through gates and feeds, and the engagements,
+   * certified reports, estimates and people standing on any of them. Null
+   * when the record is not in the graph.
+   */
+  impact(projectId: string, nodeId: string): Promise<GraphImpact | null>;
 
   /** Drop everything for a project. Used when the project itself is deleted. */
   purgeProject(projectId: string): Promise<void>;

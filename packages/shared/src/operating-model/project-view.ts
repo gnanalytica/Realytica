@@ -201,7 +201,7 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     conversation,
     ...(commercial ? {} : { budget: undefined }),
     // The fee is a commercial term between the firm and its client.
-    ...(commercial || !project.engagement ? {} : { engagement: { ...project.engagement, fee: undefined } }),
+    ...(commercial ? {} : { engagements: (project.engagements ?? []).map(({ fee: _fee, ...e }) => e) }),
     // Requests name who else the firm is chasing. A collaborator sees the ones
     // addressed to them and nothing else.
     requests: (project.requests ?? []).filter(

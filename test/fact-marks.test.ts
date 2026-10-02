@@ -4,7 +4,7 @@
  * A fact carries its page and quote; the reader also keeps where each word it
  * read sits, and matches the quote back to those words so the page can be
  * marked — the quote highlighted, the value ringed. Checked on made-up pages
- * for the matching rules, and on the sample documents through the real
+ * for the matching rules, and on the fixture documents through the real
  * reader: a text-layer deed and a scanned EC read by OCR.
  */
 
@@ -73,8 +73,8 @@ describe('placing a fact on its page', () => {
   });
 });
 
-describe('the sample documents, read for real', () => {
-  const sample = (name: string) => readFileSync(path.resolve('apps/api/sample-documents', name));
+describe('the fixture documents, read for real', () => {
+  const sample = (name: string) => readFileSync(path.resolve('test/fixtures/documents', name));
 
   it('places every fact of a text-layer deed, and keeps the words in reading order', async () => {
     const bytes = sample('Sale_Deed_2019_Sy_118-2_Whitefield.pdf');
