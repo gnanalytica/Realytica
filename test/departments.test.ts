@@ -23,6 +23,7 @@ import {
   createEngagement,
   createProject,
   departmentReach,
+  deriveHealth,
   departmentRole,
   documentWorkstream,
   ensureWorkstreamChecks,
@@ -34,6 +35,7 @@ import {
   progressSummary,
   quickAssessment,
   scopesOfWorkstreams,
+  stageAndStep,
   setTeamMember,
   stageTimeline,
   syncAlerts,
@@ -62,6 +64,11 @@ describe('the frame', () => {
     assert.equal(workstreamOfCheck('indicative_valuation.market_value'), 'finance.valuation');
     assert.ok(keys.has(workstreamOfCheck('legal.title_chain')));
     assert.deepEqual(scopesOfWorkstreams(['legal.title']).includes('legal'), true);
+  });
+
+  it('names the stage once where the step is named for it', () => {
+    assert.equal(stageAndStep('construction'), 'Construction');
+    assert.equal(stageAndStep('approvals'), 'Design & Tender · Approvals');
   });
 
   it('reads the timeline from the project and its phases', () => {
@@ -108,6 +115,20 @@ describe('approvals and the construction gate', () => {
     const p = project('construction');
     approval(p, 'Environmental clearance', [['issued_on', '2015-01-01'], ['valid_until', '2020-01-01']]);
     assert.equal(approvalsRegister(p).find((l) => l.kind.key === 'environment')!.status, 'expired');
+  });
+
+  it('counts each approval once, and a lapsed one puts the project at risk', () => {
+    const p = project('construction');
+    approval(p, 'Environmental clearance', [['issued_on', '2015-01-01'], ['valid_until', '2020-01-01']]);
+    approval(p, 'Sanctioned building plan', [['sanction_date', '2024-01-10']]);
+    const qa = quickAssessment(p, 'legal.approvals');
+    const [inForce, due] = qa.headline.match(/^(\d+) of (\d+) in force/)!.slice(1).map(Number);
+    const lapsed = Number(qa.headline.match(/(\d+) lapsed/)?.[1] ?? 0);
+    const missing = Number(qa.headline.match(/(\d+) missing/)?.[1] ?? 0);
+    assert.equal(lapsed, 1);
+    assert.equal(inForce! + lapsed + missing, due, qa.headline);
+    syncAlerts(p);
+    assert.equal(deriveHealth(p), 'red', 'a lapsed clearance is an open critical alert');
   });
 });
 

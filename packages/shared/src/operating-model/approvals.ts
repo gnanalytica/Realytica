@@ -11,7 +11,7 @@
 import type { DdProject, EvidenceRecord, LifecycleStage } from './types';
 import type { DocumentFact } from './document-parse';
 import { liveFacts } from './fact-review';
-import { SUB_STAGES } from './departments';
+import { SUB_STAGES, SUB_STAGE_LABEL } from './departments';
 
 export interface ApprovalKind {
   key: string;
@@ -119,6 +119,14 @@ function daysBetween(fromIso: string, toIso: string): number {
   return Math.floor((Date.parse(toIso) - Date.parse(fromIso)) / 86_400_000);
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** 2020-03-10 → 10 Mar 2020, as the documents themselves write it. */
+function onDay(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  return y && m && d ? `${d} ${MONTHS[m - 1]} ${y}` : iso;
+}
+
 /** The approvals register: each approval the project needs, and where it stands. */
 export function approvalsRegister(project: DdProject, now = new Date()): ApprovalLine[] {
   const today = now.toISOString().slice(0, 10);
@@ -138,23 +146,23 @@ export function approvalsRegister(project: DdProject, now = new Date()): Approva
     if (held.length) {
       if (daysLeft !== null && daysLeft < 0) {
         status = 'expired';
-        say = `Lapsed on ${earliest}.`;
+        say = `Lapsed on ${onDay(earliest!)}.`;
       } else if (daysLeft !== null && daysLeft <= EXPIRING_WITHIN_DAYS) {
         status = 'expiring';
-        say = `Valid until ${earliest} — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left.`;
+        say = `Valid until ${onDay(earliest!)} — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left.`;
       } else {
         status = 'in_force';
-        say = earliest ? `Valid until ${earliest}.` : held[0]!.issuedOn ? `Issued ${held[0]!.issuedOn}; no expiry stated.` : 'On file; no dates read yet.';
+        say = earliest ? `Valid until ${onDay(earliest)}.` : held[0]!.issuedOn ? `Issued ${onDay(held[0]!.issuedOn)}; no expiry stated.` : 'On file; no dates read yet.';
       }
     } else if (kind.conditional) {
       status = 'if_applicable';
       say = 'Needed only for some sites. Nothing on file says it applies.';
     } else if (due) {
       status = 'missing';
-      say = `Needed by ${kind.neededBy.replace(/_/g, ' ')} and not on file.`;
+      say = `Needed from the ${SUB_STAGE_LABEL[kind.neededBy]} step and not on file.`;
     } else {
       status = 'not_yet_due';
-      say = `Needed by ${kind.neededBy.replace(/_/g, ' ')}.`;
+      say = `Needed from the ${SUB_STAGE_LABEL[kind.neededBy]} step.`;
     }
     return { kind, status, held, daysLeft, say };
   });

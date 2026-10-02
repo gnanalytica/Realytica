@@ -61,6 +61,13 @@ export function stageOf(subStage: LifecycleStage): StageKey {
   return STAGE_OF[subStage] ?? 'pre_development';
 }
 
+/** "Design & Tender · Approvals", or just "Construction" where the step is named for its stage. */
+export function stageAndStep(subStage: LifecycleStage): string {
+  const stage = stageDefinition(stageOf(subStage)).label;
+  const step = SUB_STAGE_LABEL[subStage];
+  return stage === step ? stage : `${stage} · ${step}`;
+}
+
 export function stageDefinition(key: StageKey): StageDefinition {
   return STAGES.find((s) => s.key === key)!;
 }

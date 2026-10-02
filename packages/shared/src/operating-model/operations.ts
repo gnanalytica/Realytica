@@ -90,12 +90,15 @@ function audit(
 }
 
 export function deriveHealth(project: DdProject): ProjectHealth {
-  const openCritical = project.findings.filter((f) => f.status === 'open' && f.severity === 'critical').length;
+  // An alert is a condition the file itself shows (a lapsed NOC, work logged
+  // before it is allowed), so it counts as a finding does.
+  const alerts = (project.alerts ?? []).filter((a) => !a.resolvedAt);
+  const openCritical = project.findings.filter((f) => f.status === 'open' && f.severity === 'critical').length + alerts.filter((a) => a.severity === 'critical').length;
   const openHighRisks = project.risks.filter((r) => r.status !== 'closed' && r.status !== 'accepted' && (r.materiality === 'critical' || r.materiality === 'high')).length;
   if (openCritical > 0 || openHighRisks >= 3) return 'red';
-  const openFindings = project.findings.filter((f) => f.status === 'open' || f.status === 'under_review').length;
+  const openFindings = project.findings.filter((f) => f.status === 'open' || f.status === 'under_review').length + alerts.filter((a) => a.severity === 'warning').length;
   if (openFindings > 0 || openHighRisks > 0) return 'amber';
-  if (project.assessments.length === 0) return 'unknown';
+  if (project.assessments.length === 0 && !project.evidence.some((e) => e.attachments.length)) return 'unknown';
   return 'green';
 }
 

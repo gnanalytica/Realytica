@@ -84,6 +84,19 @@ function ComingSoon({ project, workstream }: { project: DdProject; workstream: s
 function TitleBody({ project }: { project: DdProject }) {
   const graph = useMemo(() => titleGraphFromProject(project), [project]);
   if (!graph.nodes.length) return null;
+  // Approvals alone are context, not a chain: say what draws one instead.
+  if (!graph.nodes.some((n) => n.kind === 'party' || n.kind === 'instrument' || n.kind === 'parcel')) {
+    return (
+      <Card>
+        <CardHeader title="Title chain" subtitle="Owners, the instruments between them, and what charges the land" />
+        <CardBody>
+          <p className="text-[13px] text-ink-secondary">
+            Not drawn yet. The chain is built when the deeds and encumbrance certificates on file are checked against the state&rsquo;s title rules — run <span className="font-medium text-ink">Value this property</span> from Finance › Valuation, and each sale, its parties and the charges on the land appear here with the page they were read from.
+          </p>
+        </CardBody>
+      </Card>
+    );
+  }
   return (
     <Card>
       <CardHeader title="Title chain" subtitle="Owners, the instruments between them, and what charges the land — read from the deeds and encumbrance certificates" />

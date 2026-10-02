@@ -55,6 +55,18 @@ const KIND_FILL: Record<TitleNodeKind, string> = {
 /** Edges that carry the chain of title, drawn solid; everything else is context. */
 const STRUCTURAL = new Set(['conveyed_to', 'conveyed_by', 'derives_from', 'supersedes']);
 
+/**
+ * The node's second line: how many documents assert it, where that is known;
+ * otherwise what the record says about it. A node projected from the file
+ * carries no citations of its own, and "0 sources" read as though nothing
+ * stood behind an approval the register holds.
+ */
+function subline(node: TitleNode): string {
+  if (node.assertedBy.length) return `${node.assertedBy.length} source${node.assertedBy.length === 1 ? '' : 's'}`;
+  const detail = String(node.attributes.detail ?? '');
+  return detail.length > 26 ? `${detail.slice(0, 25)}…` : detail;
+}
+
 interface Placed {
   node: TitleNode;
   x: number;
@@ -212,9 +224,9 @@ export default function TitleChainDiagram({ graph, summary, height }: TitleChain
                   {p.node.label.length > 21 ? `${p.node.label.slice(0, 20)}…` : p.node.label}
                 </text>
                 <text x={p.x + 10} y={p.y + 32} className="fill-[var(--text-muted)] text-micro">
-                  {p.node.assertedBy.length} source{p.node.assertedBy.length === 1 ? '' : 's'}
+                  {subline(p.node)}
                 </text>
-                <title>{`${p.node.label} — ${p.node.kind}, asserted by ${p.node.assertedBy.length} source(s)`}</title>
+                <title>{`${p.node.label} — ${p.node.kind}${p.node.assertedBy.length ? `, asserted by ${p.node.assertedBy.length} source(s)` : p.node.attributes.detail ? `: ${p.node.attributes.detail}` : ''}`}</title>
               </g>
             );
           })}

@@ -9,7 +9,7 @@ import type {
   DdProject,
   Tenant,
 } from '@realytica/shared';
-import { evaluateRevisits, migrateWorkspaceRole, syncAlerts, type ProjectAlert } from '@realytica/shared';
+import { deriveHealth, evaluateRevisits, migrateWorkspaceRole, syncAlerts, type ProjectAlert } from '@realytica/shared';
 import type { PromptStoreData } from '@realytica/agents';
 import { storageAdapter } from './storage';
 import type { DeviceRecord, PairCode } from './devices';
@@ -548,6 +548,8 @@ export class Store {
         evaluateRevisits(project);
         const fresh = syncAlerts(project);
         if (fresh.length) raised.set(project.id, fresh);
+        // Health reads the alerts, so it is read again once they are settled.
+        project.health = deriveHealth(project);
       } catch (err) {
         console.warn(`[store] could not refresh alerts on ${project.id}: ${(err as Error).message}`);
       }

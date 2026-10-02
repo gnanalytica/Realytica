@@ -284,11 +284,16 @@ function approvals(project: DdProject, at: string): QuickAssessment {
   }
   const held = register.filter((l) => l.held.length).length;
   const verdict: QuickVerdict = held === 0 ? 'insufficient' : blockers ? 'blockers' : attention ? 'conditions' : 'clear';
+  const count = (...statuses: string[]) => register.filter((l) => statuses.includes(l.status)).length;
+  const inForce = count('in_force', 'expiring');
+  // Each approval counted once: in force (expiring ones included), lapsed or
+  // missing. Those not yet due at this stage are left out of the sum.
+  const standing = [count('expired') && `${count('expired')} lapsed`, count('missing') && `${count('missing')} missing`, attention && `${attention} expiring`].filter(Boolean);
   return {
     workstream: 'legal.approvals',
     department: 'legal',
     kind: 'verdict',
-    headline: verdict === 'insufficient' ? QUICK_VERDICT_LABEL.insufficient : `${held} of ${register.filter((l) => l.status !== 'if_applicable' || l.held.length).length} in hand${blockers ? ` · ${blockers} missing or lapsed` : attention ? ` · ${attention} expiring` : ''}`,
+    headline: verdict === 'insufficient' ? QUICK_VERDICT_LABEL.insufficient : `${inForce} of ${inForce + count('expired', 'missing')} in force${standing.map((s) => ` · ${s}`).join('')}`,
     verdict,
     points: points.sort((a, b) => rank(a.tone) - rank(b.tone)),
     inputs,
