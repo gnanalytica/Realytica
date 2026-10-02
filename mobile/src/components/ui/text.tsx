@@ -19,7 +19,27 @@ const DEFAULT_TONE: Partial<Record<TypeVariant, keyof Palette>> = {
   eyebrow: 'textMuted',
 };
 
-export function Text({ variant = 'body', tone, center, tabular, mono, style, ...rest }: TextProps) {
+/**
+ * How far each step follows the phone's text-size setting.
+ *
+ * Reading text doubles; the headings, which start large, grow less. With no
+ * limit, the largest accessibility sizes put a 40pt figure at 120pt and a
+ * screen title wider than the phone, and rows built for a word or two broke
+ * apart. A control with a fixed box (a stepper, a tab, a preset) sets a lower
+ * limit of its own.
+ */
+const MAX_SCALE: Record<TypeVariant, number> = {
+  display: 1.3,
+  title: 1.4,
+  heading: 1.6,
+  body: 2,
+  bodyStrong: 2,
+  label: 2,
+  caption: 2,
+  eyebrow: 1.6,
+};
+
+export function Text({ variant = 'body', tone, center, tabular, mono, style, maxFontSizeMultiplier, ...rest }: TextProps) {
   const { colors } = useTheme();
   const color = colors[tone ?? DEFAULT_TONE[variant] ?? 'text'];
   const flat: TextStyle =
@@ -32,5 +52,11 @@ export function Text({ variant = 'body', tone, center, tabular, mono, style, ...
     ]) ?? {};
   // The weight, wherever it was set (the variant or a style override), picks the face.
   // A fontFamily set on purpose wins.
-  return <RNText {...rest} style={[flat, flat.fontFamily ? null : face(flat.fontWeight, mono)]} />;
+  return (
+    <RNText
+      {...rest}
+      maxFontSizeMultiplier={maxFontSizeMultiplier ?? MAX_SCALE[variant]}
+      style={[flat, flat.fontFamily ? null : face(flat.fontWeight, mono)]}
+    />
+  );
 }

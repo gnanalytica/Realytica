@@ -51,6 +51,8 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field(
           ref={ref}
           multiline={multiline}
           placeholderTextColor={colors.textMuted}
+          // As far as body text goes (see MAX_SCALE in text.tsx); the box grows with it.
+          maxFontSizeMultiplier={2}
           selectionColor={colors.brand}
           cursorColor={colors.brand}
           onFocus={(e) => {

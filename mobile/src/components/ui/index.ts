@@ -4,7 +4,7 @@ export { Touchable, type TouchableProps } from './touchable';
 export { Button, ButtonRow, IconButton, type ButtonVariant } from './button';
 export { Card, Section, Divider } from './card';
 export { Appear } from './appear';
-export { Screen, useSafePadding } from './screen';
+export { Screen, column, useSafePadding } from './screen';
 export { Field } from './field';
 export { Chip, ChipRow, Segmented } from './chip';
 export { Stepper } from './stepper';

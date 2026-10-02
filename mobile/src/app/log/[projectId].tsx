@@ -10,7 +10,7 @@ import { ManpowerEditor } from '@/components/log/manpower';
 import { MilestoneUpdatesEditor } from '@/components/log/milestone-updates';
 import { PhotosEditor } from '@/components/log/photos';
 import { OfflineStrip } from '@/components/site/freshness';
-import { Banner, Button, Chip, ChipRow, Field, IconButton, Loading, Screen, Section, Text, useSafePadding, useToast, WeatherIcon } from '@/components/ui';
+import { Banner, Button, Chip, ChipRow, column, Field, IconButton, Loading, Screen, Section, Text, useSafePadding, useToast, WeatherIcon } from '@/components/ui';
 import { useOnline } from '@/hooks/use-online';
 import { ask } from '@/lib/confirm';
 import { clearDraft, discardDraft, isEmptyDraft, loadDraft, saveDraft, type LogDraft } from '@/lib/drafts';
@@ -201,7 +201,8 @@ export default function LogScreen() {
       edges={['left', 'right']}
       header={
         <View style={[{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.hairline }, underStatusBar]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, paddingVertical: space.xs, gap: space.sm }}>
+          {/* The bar runs edge to edge; its close button and title line up with the column below. */}
+          <View style={[column, { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, paddingVertical: space.xs, gap: space.sm }]}>
             <IconButton icon="close" label="Close" onPress={close} size={52} filled />
             <View style={{ flex: 1 }}>
               <Text variant="heading" numberOfLines={1} accessibilityRole="header">

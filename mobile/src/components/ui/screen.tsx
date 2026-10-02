@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Platform, RefreshControl, ScrollView, View, type 
 import { useSafeAreaInsets, type Edge } from 'react-native-safe-area-context';
 
 import { haptics } from '@/lib/haptics';
-import { space, useTheme } from '@/theme';
+import { CONTENT_MAX, space, useTheme } from '@/theme';
 
 interface ScreenProps {
   children: ReactNode;
@@ -19,6 +19,12 @@ interface ScreenProps {
   edges?: Edge[];
   contentStyle?: StyleProp<ViewStyle>;
 }
+
+/**
+ * The column a screen's content sits in: the whole width of a phone, and no
+ * wider than CONTENT_MAX, centred, on a tablet or a phone held sideways.
+ */
+export const column: ViewStyle = { width: '100%', maxWidth: CONTENT_MAX, alignSelf: 'center' };
 
 /**
  * Padding for the given safe-area edges, from the insets the root provider measures for the window.
@@ -55,7 +61,7 @@ export function Screen({
   const body = scroll ? (
     <ScrollView
       style={{ flex: 1 }}
-      contentContainerStyle={[pad, contentStyle]}
+      contentContainerStyle={[pad, column, contentStyle]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       refreshControl={
@@ -77,7 +83,7 @@ export function Screen({
       {children}
     </ScrollView>
   ) : (
-    <View style={[{ flex: 1 }, pad, contentStyle]}>{children}</View>
+    <View style={[{ flex: 1 }, pad, column, contentStyle]}>{children}</View>
   );
 
   return (
@@ -98,7 +104,8 @@ export function Screen({
               paddingBottom: space.sm + insets.bottom,
             }}
           >
-            {footer}
+            {/* The bar runs edge to edge; what is on it lines up with the column above. */}
+            <View style={column}>{footer}</View>
           </View>
         ) : null}
       </KeyboardAvoidingView>

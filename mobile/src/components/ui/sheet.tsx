@@ -5,7 +5,7 @@ import Animated, { Easing, interpolate, ReduceMotion, useAnimatedStyle, useShare
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { radius, space, useTheme } from '@/theme';
+import { PANEL_MAX, radius, space, useTheme } from '@/theme';
 import { SETTLE_SPRING } from '@/theme/motion';
 import { IconButton } from './button';
 import { Text } from './text';
@@ -91,6 +91,10 @@ export function Sheet({ visible, title, onClose, children, footer }: SheetProps)
               style={[
                 {
                   maxHeight: '90%',
+                  // Full width on a phone; on a tablet a phone-sized panel, centred over the shade.
+                  width: '100%',
+                  maxWidth: PANEL_MAX,
+                  alignSelf: 'center',
                   backgroundColor: colors.surfaceRaised,
                   borderTopLeftRadius: radius.xl,
                   borderTopRightRadius: radius.xl,

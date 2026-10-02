@@ -25,6 +25,7 @@ import {
   useToast,
   type IconName,
 } from '@/components/ui';
+import { useLayout } from '@/hooks/use-layout';
 import { useOnline } from '@/hooks/use-online';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { ago, authorName, dayLabel, plural } from '@/lib/format';
@@ -51,7 +52,15 @@ export default function SiteHome() {
   const markRead = useMarkAlertsRead(projectId);
   const [editing, setEditing] = useState<Milestone | null>(null);
   const { colors } = useTheme();
+  const layout = useLayout();
   const pull = usePullRefresh(useCallback(() => Promise.all([refetch(), syncNow()]), [refetch]));
+  /*
+   * The ring takes about a third of the card and never more than 128: beside
+   * it, on a 320-point phone, the words had a hundred points and set one to a
+   * line. The words also keep a width that grows with the text-size setting;
+   * when the card cannot give them that, they go under the ring instead.
+   */
+  const ring = Math.round(Math.min(128, Math.max(92, (layout.column - space.lg * 2) * 0.38)));
 
   const site = data?.value;
   const title = <Stack.Screen options={{ title: site?.project.name ?? '' }} />;
@@ -153,9 +162,9 @@ export default function SiteHome() {
 
       <Appear index={0}>
         <Card>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
-            <ProgressRing percent={progress.percent} size={128} stroke={12} />
-            <View style={{ flex: 1, gap: space.sm }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.lg }}>
+            <ProgressRing percent={progress.percent} size={ring} stroke={ring >= 120 ? 12 : 10} />
+            <View style={{ flex: 1, minWidth: Math.round(132 * Math.min(layout.fontScale, 2)), gap: space.sm }}>
               {progress.milestones > 0 ? (
                 <View accessible accessibilityLabel={`${progress.complete} of ${plural(progress.milestones, 'milestone')} done`}>
                   <Text variant="heading" style={{ fontSize: 24, lineHeight: 30 }}>

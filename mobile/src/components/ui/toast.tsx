@@ -4,7 +4,7 @@ import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { haptics } from '@/lib/haptics';
-import { radius, space, useTheme, type Palette } from '@/theme';
+import { PANEL_MAX, radius, space, useTheme, type Palette } from '@/theme';
 import { dropIn, liftOut } from '@/theme/motion';
 import { Icon, type IconName } from './icon';
 import { Text } from './text';
@@ -63,7 +63,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <SafeAreaView edges={['top']} style={{ pointerEvents: 'none', position: 'absolute', top: 0, left: 0, right: 0 }}>
         {toast && look ? (
           // Keyed, so a new message replaces the last one with its own arrival.
-          <Animated.View key={toast.id} entering={dropIn} exiting={liftOut} style={{ paddingHorizontal: space.lg, paddingTop: space.sm }}>
+          <Animated.View key={toast.id} entering={dropIn} exiting={liftOut} style={{ paddingHorizontal: space.lg, paddingTop: space.sm, width: '100%', maxWidth: PANEL_MAX + space.lg * 2, alignSelf: 'center' }}>
             <View
               style={{
                 flexDirection: 'row',

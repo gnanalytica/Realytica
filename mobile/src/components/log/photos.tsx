@@ -4,6 +4,7 @@ import Animated from 'react-native-reanimated';
 
 import { LocalPhotoThumb } from '@/components/site/photo-thumb';
 import { Button, ButtonRow, Field, Icon, IconButton, Text, useToast } from '@/components/ui';
+import { useLayout } from '@/hooks/use-layout';
 import { dateTime } from '@/lib/format';
 import type { LocalPhoto } from '@/lib/outbox/engine';
 import { choosePhotos, deletePhotoFiles, takePhoto, type PickResult } from '@/lib/photos';
@@ -24,6 +25,8 @@ interface Props {
 export function PhotosEditor({ photos, onChange }: Props) {
   const { colors, shadow } = useTheme();
   const toast = useToast();
+  // On a small phone the thumbnail gives up a little, so the caption beside it keeps room to be typed in.
+  const { compact } = useLayout();
   const [busy, setBusy] = useState<'camera' | 'library' | null>(null);
   const room = MAX_PHOTOS - photos.length;
 
@@ -105,7 +108,7 @@ export function PhotosEditor({ photos, onChange }: Props) {
           }}
         >
           <Animated.View entering={pop(1)}>
-            <LocalPhotoThumb uri={p.uri} size={92} onPress={() => viewLocalPhoto(p)} />
+            <LocalPhotoThumb uri={p.uri} size={compact ? 72 : 92} onPress={() => viewLocalPhoto(p)} />
           </Animated.View>
           <View style={{ flex: 1, gap: space.xs }}>
             <Field

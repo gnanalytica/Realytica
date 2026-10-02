@@ -88,7 +88,12 @@ export function Button({
       ) : (
         <>
           {icon ? <Icon name={icon} size={FONT[size] + 4} tone={v.fg} /> : null}
-          <Text style={{ fontSize: FONT[size], lineHeight: FONT[size] + 6, fontWeight: '600', color: colors[v.fg] }} numberOfLines={1}>
+          {/* One line in a button of fixed height: it grows with the text setting, but not past what the button holds. */}
+          <Text
+            style={{ fontSize: FONT[size], lineHeight: FONT[size] + 6, fontWeight: '600', color: colors[v.fg], flexShrink: 1 }}
+            numberOfLines={1}
+            maxFontSizeMultiplier={1.5}
+          >
             {title}
           </Text>
         </>

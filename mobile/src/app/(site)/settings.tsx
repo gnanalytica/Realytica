@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { Switch, View } from 'react-native';
 
 import { Appear, Banner, Button, Card, Divider, Pill, Screen, Section, Text, useToast } from '@/components/ui';
+import { useLayout } from '@/hooks/use-layout';
 import { ask } from '@/lib/confirm';
 import { ago, dateTime, plural } from '@/lib/format';
 import { haptics } from '@/lib/haptics';
@@ -190,12 +191,14 @@ export default function SettingsScreen() {
 }
 
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  // Side by side while the label fits its column; at a large text size the label goes above its value.
+  const stacked = useLayout().fontScale >= 1.4;
   return (
-    <View style={{ flexDirection: 'row', gap: space.md, minHeight: 28, alignItems: 'center' }}>
-      <Text variant="label" style={{ width: 110 }}>
+    <View style={stacked ? { gap: 2 } : { flexDirection: 'row', gap: space.md, minHeight: 28, alignItems: 'center' }}>
+      <Text variant="label" style={stacked ? null : { width: 110 }}>
         {label}
       </Text>
-      <Text variant="body" mono={mono} style={[{ flex: 1 }, mono ? { fontSize: 15 } : null]} numberOfLines={2}>
+      <Text variant="body" mono={mono} style={[stacked ? null : { flex: 1 }, mono ? { fontSize: 15 } : null]} numberOfLines={2}>
         {value}
       </Text>
     </View>

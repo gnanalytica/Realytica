@@ -130,7 +130,8 @@ export function Segmented<T extends string>({ value, options, onChange }: Segmen
             style={{ flex: 1, minHeight: TOUCH, flexDirection: 'row', gap: space.sm, alignItems: 'center', justifyContent: 'center' }}
           >
             {o.tone ? <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors[o.tone] }} /> : null}
-            <Text variant="bodyStrong" tone={on ? 'text' : 'textSecondary'} style={{ fontSize: 16 }}>
+            {/* Equal shares of one row: the word grows only as far as its share holds. */}
+            <Text variant="bodyStrong" tone={on ? 'text' : 'textSecondary'} maxFontSizeMultiplier={1.4} numberOfLines={1} style={{ fontSize: 16, flexShrink: 1 }}>
               {o.label}
             </Text>
           </Touchable>
