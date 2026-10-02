@@ -216,6 +216,7 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
         extractionNotes: result.notes ? clipNotes(result.notes, 400) || undefined : undefined,
         quotes,
         pages: pages || undefined,
+        modelRead: true,
         ...(modelFacts.length ? { modelFacts } : {}),
       });
     } catch {

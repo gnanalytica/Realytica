@@ -61,6 +61,7 @@ import type {
 import { connectorEvidenceInput } from './chat-sides';
 import { absorbAnsweredGaps, factFillProposals, flagFindingProposals, matchReadToRow } from './document-intake';
 import type { DocumentFact } from './document-parse';
+import { documentTypeOfKind } from './vault';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -531,8 +532,9 @@ export function proposalsFromIngest(
           extractionNotes: read ? read.summary : file.extractionNotes,
           readFailure: read ? undefined : file.readFailure,
           facts: read?.facts,
-          documentType: read?.label,
+          documentType: read?.label ?? documentTypeOfKind(file.kindHint),
           readMethod: read?.method,
+          ...(file.modelRead ? { modelRead: true } : {}),
         },
         actor,
         {
@@ -641,6 +643,7 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     }
     if (typeof payload.documentType === 'string') evidence.documentType = payload.documentType;
     if (payload.readMethod === 'text' || payload.readMethod === 'ocr' || payload.readMethod === 'mixed') evidence.readMethod = payload.readMethod;
+    if (payload.modelRead === true) evidence.modelReadAt = nowIso();
     // A document read again is already on its row; attaching it a second
     // time would list the same file twice.
     const held = evidence.attachments.some((a) => a.storageKey === payload.storageKey);

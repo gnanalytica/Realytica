@@ -35,6 +35,33 @@ export interface StoredUpload {
   storageKey: string;
 }
 
+/**
+ * The filed rows a reading turn would take, in order.
+ *
+ * Unread means nothing stated is on the row AND no model has read it. A model
+ * on a route without verified citations can say what a document is and
+ * describe it while placing no value on a page; counting that as unread put
+ * the same ten documents back into every turn, at a model's price each time,
+ * and the ones after them were never reached.
+ */
+export function rowsToRead(project: DdProject, again: boolean): DdProject['evidence'] {
+  // Only a card that carries a reading counts: one from a reading that failed
+  // or ran out of time is no reason not to try again.
+  const waiting = new Set(
+    (project.chatProposals ?? [])
+      .filter((card) => card.kind === 'file_evidence' && card.status === 'proposed')
+      .filter((card) => Array.isArray((card.payload as { facts?: unknown }).facts) && ((card.payload as { facts: unknown[] }).facts.length > 0))
+      .map((card) => String((card.payload as { storageKey?: unknown }).storageKey ?? '')),
+  );
+  return project.evidence.filter(
+    (e) =>
+      e.attachments.length > 0
+      && !NOT_RELIED_ON.has(e.status)
+      && (again || (!(e.facts ?? []).length && !e.modelReadAt))
+      && !waiting.has(e.attachments[e.attachments.length - 1]!.storageKey),
+  );
+}
+
 /** A reading turn stops starting new files after this long, and says how many are left. */
 export const REREAD_BUDGET_MS = 300_000;
 
@@ -45,21 +72,7 @@ export const REREAD_BUDGET_MS = 300_000;
  * asking again carries on with the rest instead of reading it twice.
  */
 export async function filedDocumentsToRead(project: DdProject, again: boolean): Promise<StoredUpload[]> {
-  // Only a card that carries a reading counts: one from a reading that failed
-  // or ran out of time is no reason not to try again.
-  const waiting = new Set(
-    (project.chatProposals ?? [])
-      .filter((card) => card.kind === 'file_evidence' && card.status === 'proposed')
-      .filter((card) => Array.isArray((card.payload as { facts?: unknown }).facts) && ((card.payload as { facts: unknown[] }).facts.length > 0))
-      .map((card) => String((card.payload as { storageKey?: unknown }).storageKey ?? '')),
-  );
-  const rows = project.evidence.filter(
-    (e) =>
-      e.attachments.length > 0
-      && !NOT_RELIED_ON.has(e.status)
-      && (again || !(e.facts ?? []).length)
-      && !waiting.has(e.attachments[e.attachments.length - 1]!.storageKey),
-  );
+  const rows = rowsToRead(project, again);
   const out: StoredUpload[] = [];
   for (const row of rows) {
     if (out.length >= REREAD_LIMIT) break;

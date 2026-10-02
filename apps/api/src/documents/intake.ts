@@ -103,6 +103,7 @@ export function mergeModelReading(local: ChatIngestFile, model: ChatIngestFile |
     quotes: [...(model.quotes ?? []), ...(local.quotes ?? [])].slice(0, 8),
     kindHint: model.kindHint ?? local.kindHint,
     pages: model.pages ?? local.pages,
+    ...(model.modelRead ? { modelRead: true } : {}),
     read: mergeFacts(local, model),
   };
 }

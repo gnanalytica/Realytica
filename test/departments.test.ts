@@ -15,6 +15,7 @@ import {
   WORKSTREAMS,
   addEvidence,
   addMilestones,
+  applyProjectChat,
   approvalsRegister,
   buildProjectGraph,
   certifiedReadout,
@@ -25,6 +26,7 @@ import {
   departmentReach,
   deriveHealth,
   departmentRole,
+  documentTypeOfKind,
   documentWorkstream,
   ensureWorkstreamChecks,
   evaluateRevisits,
@@ -129,6 +131,24 @@ describe('approvals and the construction gate', () => {
     assert.equal(inForce! + lapsed + missing, due, qa.headline);
     syncAlerts(p);
     assert.equal(deriveHealth(p), 'red', 'a lapsed clearance is an open critical alert');
+  });
+});
+
+describe('the vault', () => {
+  it('files a document the model classified under the register’s own type', () => {
+    assert.equal(documentTypeOfKind('encumbrance_certificate'), 'Encumbrance certificate');
+    assert.equal(documentTypeOfKind('sanctioned_plan_bbmp'), 'Sanctioned building plan');
+    assert.equal(documentTypeOfKind('other'), undefined);
+    const p = project('construction');
+    // Read by the model, with nothing it could place on a page: no facts, but
+    // the model said what the document is.
+    applyProjectChat(p, '', {
+      ingest: [{ fileName: 'ECs part 1.pdf', mimeType: 'application/pdf', sizeBytes: 10, storageKey: 'k-ec-1', kindHint: 'encumbrance_certificate', extractionNotes: 'Form 15 and Form 16 encumbrance certificates.' }],
+    });
+    const row = p.evidence.find((e) => e.attachments.some((a) => a.storageKey === 'k-ec-1'))!;
+    assert.equal(row.documentType, 'Encumbrance certificate');
+    assert.equal(documentWorkstream(p, row), 'legal.title');
+    assert.deepEqual(row.facts ?? [], [], 'a type is filed; no fact is invented for it');
   });
 });
 

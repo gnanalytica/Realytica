@@ -642,6 +642,12 @@ export interface EvidenceRecord {
   workstream?: string;
   /** How its words were obtained: its own text layer, or OCR of a scan. */
   readMethod?: 'text' | 'ocr' | 'mixed';
+  /**
+   * When a model last read it. A reading can describe a document without
+   * placing a single value on a page — a route with no verified citations
+   * cannot — and such a document is read, not waiting to be.
+   */
+  modelReadAt?: string;
   createdAt: string;
   updatedAt: string;
   /**
@@ -1518,6 +1524,12 @@ export interface ChatIngestFile {
    * is approved.
    */
   modelFacts?: import('./document-parse').DocumentFact[];
+  /**
+   * A model read the document and said what it is, whether or not it could
+   * place anything on a page. Filed onto the row as `modelReadAt`, so asking
+   * to read the filed documents moves on to the ones not yet read.
+   */
+  modelRead?: boolean;
   /**
    * What reading the document on this server found — see `document-parse`.
    *
