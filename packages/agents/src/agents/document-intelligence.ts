@@ -46,9 +46,16 @@
  *                          and a scan with no text layer fails the call
  *                          outright rather than being sent as an empty
  *                          document for the model to fill in from imagination.
- *   citations_unavailable  there is no server-verified quotation, so there is
- *                          no page to attach to anything. `sourcePage` is
- *                          `undefined` on every field — never a guess, never
+ *   citations_unavailable  there is no server-verified quotation, which is
+ *                          every route but Claude called directly: OpenRouter
+ *                          strips the citations even from Claude. The page the
+ *                          model names is then CHECKED instead (`./page-check`):
+ *                          against the page's own text where this server read
+ *                          it, else by cutting that one page out and asking a
+ *                          reader whether the words are printed on it. Only a
+ *                          page the words were found on becomes `sourcePage`;
+ *                          a quote not on its page is dropped; one nothing
+ *                          could check keeps no page — never a guess, never
  *                          the model's own claim promoted to a fact.
  *
  * A field extracted this way is not the same evidence as one whose quote the
@@ -65,6 +72,7 @@ import type {
   AgentRun,
   AgentRunStatus,
   AgentStep,
+  AgentUsage,
   CaseDocument,
   CapabilityGap,
   DocumentKind,
@@ -79,6 +87,8 @@ import { describeError } from '../client';
 import { PROMPT_KEYS, resolvePrompt, type ResolvedPrompt } from '../prompts';
 import { describeGap } from '../routing';
 import { loadPdfForExtraction, MAX_PDF_BYTES } from '../pdf';
+import { pageCheckModel } from '../config';
+import { modelPageChecker, pdfPageCount, placeQuotes, type Placement } from './page-check';
 import { missingCredentialsReason, resolveRoute, toolUseOf } from '../providers';
 import type { LlmContentBlock, LlmContentPart, LlmSchemaTool } from '../providers';
 
@@ -89,6 +99,12 @@ export interface DocumentIntelligenceResult {
   fields: ExtractedField[];
   evidence: EvidenceItem[];
   notes: string;
+  /**
+   * What checking quotes against their pages cost, call by call. Kept apart
+   * from `run.usage` because the checks may run on a different model, priced
+   * at its own rate.
+   */
+  pageCheckUsage?: { model: string; usage: AgentUsage }[];
 }
 
 export interface RunDocumentIntelligenceInput {
@@ -105,6 +121,14 @@ export interface RunDocumentIntelligenceInput {
   /** Case-reference timestamp (see engine.ts) — used to date evidence, not wall-clock. */
   now: string;
   onStep?: (step: AgentStep) => void;
+  /**
+   * The document's text page by page (`[0]` is page 1), as this server read
+   * it from a text layer or by OCR, when it did. A quote found in a page's own
+   * words is placed there without a model call; see `./page-check`.
+   */
+  pageTexts?: readonly string[];
+  /** Check no page against a model after this instant; what is left stays unchecked. */
+  checkDeadline?: number;
 }
 
 /* ==================================================================== */
@@ -220,7 +244,7 @@ function buildExtractionTool(): LlmSchemaTool {
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['key', 'label', 'value', 'unit', 'confidence', 'quote', 'originalValue'],
+            required: ['key', 'label', 'value', 'unit', 'confidence', 'quote', 'originalValue', 'page'],
             properties: {
               key: { type: 'string', description: 'Short camelCase identifier, e.g. "registrationNumber".' },
               label: { type: 'string', description: 'Human-readable label, e.g. "Registration number".' },
@@ -238,6 +262,12 @@ function buildExtractionTool(): LlmSchemaTool {
                 description:
                   'When the document is not in English: the value exactly as written on the page, in its own script. Null when the ' +
                   'page is already in English and `value` is a copy rather than a reading.',
+              },
+              page: {
+                type: ['integer', 'null'],
+                description:
+                  'The page the quote is printed on, counting from 1 in the document as you were given it. It is only where the ' +
+                  'quote will be checked: the page is cut out and the quote looked for on it. Null when you cannot tell.',
               },
             },
           },
@@ -609,6 +639,9 @@ const FieldSchema = z.object({
   // is behaving correctly, and rejecting the whole extraction over an absent
   // optional would lose every other field on the document with it.
   originalValue: z.string().nullish(),
+  // Nullish for the same reason: a page hint the model could not give costs
+  // that one field its check, not the extraction its every field.
+  page: z.number().int().nullish(),
 });
 
 const ExtractionOutputSchema = z.object({
@@ -737,6 +770,10 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   let documentPart: LlmContentPart;
   /** The pages actually sent, when only some were: a cited page is mapped back through it. */
   let pdfWindow: { pages: number[]; of: number } | undefined;
+  /** How many pages the document itself has, as best the loader could count; see `pdfPageCount` for better. */
+  let documentPages = 1;
+  /** The image as sent, so a page check can be shown the same sheet. */
+  let imageBase64: string | undefined;
   if (isPdf) {
     const loaded = await loadPdfForExtraction(fileBytes);
     if (!loaded.ok) {
@@ -744,6 +781,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       return finishFailure('failed', loaded.message);
     }
     pdfWindow = loaded.pdf.window;
+    documentPages = loaded.pdf.window?.of ?? loaded.pdf.pageCount;
     emit({
       kind: 'tool_result',
       label: loaded.pdf.window
@@ -777,6 +815,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       return finishFailure('failed', loaded.message);
     }
     emit({ kind: 'tool_result', label: 'Loaded image' });
+    imageBase64 = loaded.base64;
     documentPart = { type: 'image', image: { base64: loaded.base64, mediaType: document.mimeType } };
     // Note: an image content block has no `citations` option on any provider —
     // citations are a document (PDF/text)-only feature. Fields extracted from
@@ -901,12 +940,47 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     label: `record_document_extraction returned: kind=${kind} (${Math.round(kindConfidence * 100)}%), ${parsed.data.fields.length} field(s)`,
   });
 
+  /*
+   * Where no citation can place a quote, the page is checked here instead:
+   * against the page's own text, or by showing a reader that page alone. See
+   * `./page-check`. A page the model named is only where to look; the page a
+   * field ends up with is one its words were found on.
+   */
+  let placements: Placement[] | undefined;
+  let pagesChecked = 0;
+  const pageCheckUsage: { model: string; usage: AgentUsage }[] = [];
+  if (!pageVerificationAvailable && parsed.data.fields.length > 0) {
+    const checker = modelPageChecker({
+      provider,
+      model: pageCheckModel() ?? model,
+      caseId,
+      source: isPdf ? { kind: 'pdf', bytes: fileBytes } : { kind: 'image', base64: imageBase64 ?? '', mediaType: document.mimeType },
+      onUsage: (usage, checkModel) => pageCheckUsage.push({ model: checkModel, usage }),
+    });
+    const deadline = input.checkDeadline;
+    const pageCount = isPdf ? ((await pdfPageCount(fileBytes)) ?? documentPages) : 1;
+    const placed = await placeQuotes({
+      quotes: parsed.data.fields.map((f) => ({ quote: f.quote, hint: originalPage(f.page, isPdf, pdfWindow) })),
+      pageTexts: input.pageTexts,
+      pageCount,
+      checkPage: deadline === undefined ? checker : (page, quotes) => (Date.now() > deadline ? Promise.resolve(null) : checker(page, quotes)),
+    });
+    placements = placed.placements;
+    pagesChecked = placed.pagesChecked;
+    const tally = tallyPlacements(placements);
+    emit({
+      kind: 'tool_result',
+      label: `Checked the quotes against their pages: ${tally.placed} found${tally.refuted ? `, ${tally.refuted} not on the page named` : ''}${tally.unchecked ? `, ${tally.unchecked} not checked` : ''}`,
+      ...(pagesChecked ? { detail: `${pagesChecked} page(s) read on their own.` } : {}),
+    });
+  }
+
   const fields: ExtractedField[] = [];
   const evidence: EvidenceItem[] = [];
   const disagreementNotes: string[] = [];
   let evidenceSeq = 0;
 
-  for (const raw of parsed.data.fields) {
+  for (const [index, raw] of parsed.data.fields.entries()) {
     // `sourcePage` is undefined unless a verified citation actually placed
     // this field's quote on a page. There is no other way for a number to get
     // here — not from the tool input, not from the model's prose, not from a
@@ -914,8 +988,20 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     // this is undefined for every field, which is the required outcome.
     const citedPage = pageVerificationAvailable ? matchPageForQuote(raw.quote, citationSpans) : undefined;
     // A page of the window is a page of the original only once mapped back.
-    const sourcePage = citedPage !== undefined && pdfWindow ? (pdfWindow.pages[citedPage - 1] ?? citedPage - 1) + 1 : citedPage;
-    const outcome = fieldOutcome({ pageVerificationAvailable, citationsAvailable, sourcePage, confidence: raw.confidence });
+    const citedSourcePage = citedPage !== undefined && pdfWindow ? (pdfWindow.pages[citedPage - 1] ?? citedPage - 1) + 1 : citedPage;
+    // Or a page checked here, which stands exactly where a citation would: a
+    // quote looked for on its page and not found there is dropped like one
+    // the citation engine could not place.
+    const placement = placements?.[index];
+    const checkedHere = placement !== undefined && placement.status !== 'unchecked';
+    const sourcePage = placement?.status === 'placed' ? placement.page : citedSourcePage;
+    const pageCheck = placement?.status === 'placed' ? placement.method : citedSourcePage !== undefined ? 'citation' : undefined;
+    const outcome = fieldOutcome({
+      pageVerificationAvailable: pageVerificationAvailable || checkedHere,
+      citationsAvailable,
+      sourcePage,
+      confidence: raw.confidence,
+    });
     if (!outcome.keep) continue;
     let confidence = outcome.confidence;
 
@@ -956,6 +1042,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
       confidence,
       sourceDocumentId: document.id,
       sourcePage,
+      ...(sourcePage !== undefined && pageCheck ? { pageCheck } : {}),
       quote: raw.quote.slice(0, 220),
       method: 'ocr',
     });
@@ -978,11 +1065,16 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
 
   // The gap consequences go into the notes a person reads, not only into the
   // telemetry a person might read. `describeGap` states them in this
-  // product's terms ("page references are self-reported...") rather than
-  // naming a feature flag at someone who never chose the route.
+  // product's terms rather than naming a feature flag at someone who never
+  // chose the route.
   const groundingGaps = capabilityGaps.filter(gap => GROUNDING_GAPS.includes(gap));
-  const degradationNotes = groundingGaps.map(describeGap);
-  const notes = [parsed.data.notes, ...disagreementNotes, ...degradationNotes].filter(s => s.trim().length > 0).join(' ');
+  // Where the pages were checked here, the general sentence about a missing
+  // citation gives way to what was actually done and found.
+  const degradationNotes = groundingGaps
+    .filter(gap => !(placements && gap === 'citations_unavailable'))
+    .map(describeGap);
+  const checkNote = placements ? describeChecks(tallyPlacements(placements)) : '';
+  const notes = [parsed.data.notes, ...disagreementNotes, ...degradationNotes, checkNote].filter(s => s.trim().length > 0).join(' ');
 
   emit({
     kind: 'message',
@@ -993,7 +1085,8 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   const summary =
     `Classified as ${kind} (${Math.round(kindConfidence * 100)}% confidence); extracted ${fields.length} field(s)` +
     `${disagreementNotes.length > 0 ? `; ${disagreementNotes.length} disagreement(s) flagged` : ''}` +
-    `${groundingGaps.length > 0 ? `; run degraded on the ${route.provider} route (${groundingGaps.join(', ')}) so no page reference is verified` : ''}.`;
+    `${groundingGaps.length > 0 ? `; run degraded on the ${route.provider} route (${groundingGaps.join(', ')})` : ''}` +
+    `${placements ? `; pages checked here (${summarizeTally(tallyPlacements(placements))})` : groundingGaps.length > 0 ? ' so no page reference is verified' : ''}.`;
 
   const run: AgentRun = {
     id: runId,
@@ -1013,5 +1106,55 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     producedEvidenceIds: evidence.map(e => e.id),
   };
 
-  return { run, kind, kindConfidence, fields, evidence, notes };
+  return { run, kind, kindConfidence, fields, evidence, notes, ...(pageCheckUsage.length ? { pageCheckUsage } : {}) };
+}
+
+/**
+ * A page the model named, as a page of the original document.
+ *
+ * An image is one page. A PDF sent whole is numbered as it is; one sent as a
+ * window of its two ends is numbered as the window, and mapped back through it.
+ * A page outside what was sent is no page.
+ */
+export function originalPage(
+  page: number | null | undefined,
+  isPdf: boolean,
+  window: { pages: number[]; of: number } | undefined,
+): number | undefined {
+  if (!isPdf) return 1;
+  if (!page || page < 1) return undefined;
+  if (!window) return page;
+  const original = window.pages[page - 1];
+  return original === undefined ? undefined : original + 1;
+}
+
+interface PlacementTally {
+  placed: number;
+  refuted: number;
+  unchecked: number;
+}
+
+function tallyPlacements(placements: Placement[]): PlacementTally {
+  const tally: PlacementTally = { placed: 0, refuted: 0, unchecked: 0 };
+  for (const p of placements) {
+    if (p.status === 'placed') tally.placed += 1;
+    else if (p.status === 'refuted') tally.refuted += 1;
+    else tally.unchecked += 1;
+  }
+  return tally;
+}
+
+function summarizeTally(t: PlacementTally): string {
+  return [`${t.placed} placed`, ...(t.refuted ? [`${t.refuted} not on their page`] : []), ...(t.unchecked ? [`${t.unchecked} unchecked`] : [])].join(', ');
+}
+
+/** The sentence a person reads about how the pages were checked. */
+export function describeChecks(t: PlacementTally): string {
+  const total = t.placed + t.refuted + t.unchecked;
+  if (total === 0) return '';
+  const head = `Each quote was looked for on its page here: ${t.placed} of ${total} found.`;
+  const tail = t.unchecked
+    ? ` ${t.unchecked} could not be checked, so ${t.unchecked === 1 ? 'it stays a reading' : 'they stay readings'} with no page.`
+    : '';
+  return head + tail;
 }

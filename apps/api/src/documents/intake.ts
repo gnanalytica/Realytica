@@ -31,7 +31,12 @@ export async function readIngestLocally(
   file: ChatIngestFile,
   bytes: Buffer,
   onStep?: (step: AgentStep) => void,
-  opts: { deadline?: number; onPage?: (page: number, of: number) => void } = {},
+  opts: {
+    deadline?: number;
+    onPage?: (page: number, of: number) => void;
+    /** The text read, page by page, for a model reading to check its quotes against. */
+    onPages?: (pages: string[]) => void;
+  } = {},
 ): Promise<ChatIngestFile> {
   onStep?.(step(`Reading ${file.fileName}`));
   let text: Awaited<ReturnType<typeof readDocumentText>>;
@@ -47,6 +52,7 @@ export async function readIngestLocally(
   if (text.method === 'none') {
     return { ...file, readFailure: text.failure ?? 'No legible text was found in the file.' };
   }
+  opts.onPages?.(text.pages);
   const parsed = parseDocumentText(text.pages, file.fileName);
   const joined = text.pages.map((p, i) => (text.pages.length > 1 ? `[page ${i + 1}]\n${p}` : p)).join('\n\n');
   const noun = parsed.type === 'other' ? 'document' : /^[A-Z][a-z]/.test(parsed.label) ? parsed.label.toLowerCase() : parsed.label;

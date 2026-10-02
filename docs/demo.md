@@ -22,12 +22,14 @@ From the web app the same happens by dropping the folder on **Documents**, or in
 
 Say **Read the filed documents** in the chat. Each turn takes up to ten documents nobody has read, sends them straight to the model (no second OCR pass), and stops starting new ones after eight minutes; it ends by saying how many are left, and saying it again carries on. **Read the filed documents again** reads everything from the start.
 
-What a model's reading adds depends on the route it goes through:
+A value the model reads is kept only with the page it is printed on, and that page is checked, never taken on the model's word:
 
-- **Claude, directly** (`REALYTICA_BASE_URL` unset, an Anthropic key): every value comes back with the page it was found on, verified by the API's citations. The values wait on the document for a person to accept, and the title chain, approvals and valuation read them once accepted.
-- **A gateway** (OpenRouter with another vendor's model): the model says what each document is and describes it, and the document is filed under that type and workstream, but no citation comes back, so no value is placed on a page and none is kept. The description shows on the document as *the model's reading*.
+- **Claude, directly** (`REALYTICA_BASE_URL` unset, an Anthropic key): the API's own citations say which page each value came from.
+- **Any model through a gateway** (OpenRouter, any vendor): no citation survives the gateway, so the page the model names is checked here. A quote found in the page's own text (its text layer, or this server's OCR) is placed there. Otherwise that one page is cut out and shown to a checking model (`REALYTICA_MODEL_PAGE_CHECK`, another vendor's for an independent check), which must find the words printed on it. A quote not on the page it was said to be on is dropped.
 
-The Kannada encumbrance certificates are the case that needs the first: their text layer is unreadable and they carry no images to OCR.
+Either way the values wait on the document for a person to accept, and the title chain, approvals and valuation read them once accepted. A value nothing could check stays in *the model's reading*, with no page.
+
+The Kannada encumbrance certificates are read by the model alone: their text layer is unreadable and they carry no images for this server to OCR, so each of their pages is checked by the checking model.
 
 ## The walk-through
 

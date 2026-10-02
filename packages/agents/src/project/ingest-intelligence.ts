@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { AgentRun, AgentStep, CaseDocument, ChatIngestFile, DdProject, DocumentFact, ExtractedField, TurnSpend } from '@realytica/shared';
+import type { AgentRun, AgentStep, AgentUsage, CaseDocument, ChatIngestFile, DdProject, DocumentFact, ExtractedField, TurnSpend } from '@realytica/shared';
 import { failureCause, projectToIdentity } from '@realytica/shared';
 import { runDocumentIntelligence } from '../agents/document-intelligence';
 import { priceTokens } from '../telemetry/pricing';
@@ -13,6 +13,12 @@ export interface EnrichIngestParams {
   project: DdProject;
   files: ChatIngestFile[];
   buffers: Buffer[];
+  /**
+   * Each file's text page by page, as this server already read it, aligned
+   * with `files`. A model's quote found in its page's own words is placed
+   * there without another call.
+   */
+  pageTexts?: (readonly string[] | undefined)[];
   now?: string;
   onStep?: (step: AgentStep) => void;
   /**
@@ -45,15 +51,26 @@ export interface EnrichIngestParams {
  * pricing module returns zero for a model it has no rate for, and a zero that
  * means "not priced" must never render as a call that was free.
  */
-function reportSpend(onSpend: ((spend: TurnSpend) => void) | undefined, run: AgentRun): void {
-  if (!onSpend || !run.usage) return;
-  const price = priceTokens(run.provider ?? 'anthropic', run.model, {
-    inputTokens: run.usage.inputTokens,
-    outputTokens: run.usage.outputTokens,
-    cacheReadTokens: run.usage.cacheReadTokens,
-  });
-  onSpend({ usd: price.costUsd, exact: price.confidence === 'exact' });
+function reportSpend(
+  onSpend: ((spend: TurnSpend) => void) | undefined,
+  run: AgentRun,
+  pageChecks: { model: string; usage: AgentUsage }[] = [],
+): void {
+  if (!onSpend) return;
+  const calls = [...(run.usage ? [{ model: run.model, usage: run.usage }] : []), ...pageChecks];
+  for (const call of calls) {
+    // Each call at its own model's rate: the page checks may run on another one.
+    const price = priceTokens(run.provider ?? 'anthropic', call.model, {
+      inputTokens: call.usage.inputTokens,
+      outputTokens: call.usage.outputTokens,
+      cacheReadTokens: call.usage.cacheReadTokens,
+    });
+    onSpend({ usd: price.costUsd, exact: price.confidence === 'exact' });
+  }
 }
+
+/** How long past the last new document its page checks may still run. */
+const PAGE_CHECK_GRACE_MS = 120_000;
 
 function stubDocument(projectId: string, file: ChatIngestFile, now: string): CaseDocument {
   return {
@@ -73,10 +90,11 @@ function stubDocument(projectId: string, file: ChatIngestFile, now: string): Cas
 }
 
 /**
- * A model's fields as document facts, only where a verified citation placed
- * the field's own quote on a page. A field with no page is a reading nobody
- * can check against the document, so it stays in the notes and out of the
- * facts that can fill a check.
+ * A model's fields as document facts, only where the field's own quote was
+ * verified on a page: by a citation, or by the page check in
+ * `agents/page-check`. A field with no page is a reading nobody can check
+ * against the document, so it stays in the notes and out of the facts that
+ * can fill a check.
  */
 function factsFromFields(fields: ExtractedField[]): DocumentFact[] {
   const facts: DocumentFact[] = [];
@@ -93,6 +111,7 @@ function factsFromFields(fields: ExtractedField[]): DocumentFact[] {
       quote: f.quote,
       ...(f.originalValue ? { originalValue: f.originalValue, originalScript: f.originalScript } : {}),
       source: 'model',
+      ...(f.pageCheck ? { pageCheck: f.pageCheck } : {}),
     });
   }
   return facts;
@@ -179,6 +198,7 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
     }
     params.onFile?.(i, 'start');
     try {
+      const pageTexts = params.pageTexts?.[i];
       const result = await runDocumentIntelligence({
         caseId: params.project.id,
         document: stubDocument(params.project.id, file, now),
@@ -186,8 +206,10 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
         identity,
         now,
         onStep: params.onStep,
+        ...(pageTexts?.length ? { pageTexts } : {}),
+        ...(params.deadline !== undefined ? { checkDeadline: params.deadline + PAGE_CHECK_GRACE_MS } : {}),
       });
-      reportSpend(params.onSpend, result.run);
+      reportSpend(params.onSpend, result.run, result.pageCheckUsage);
       if (result.run.status !== 'succeeded' || result.fields.length === 0) {
         /*
          * Nothing was read, so nothing may be said about the contents. The

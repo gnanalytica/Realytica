@@ -508,11 +508,25 @@ export interface ExtractedField {
   /**
    * The words on the page the value was read from, in the page's own script.
    * Set by a model reading, whose page is only kept when this quote was found
-   * in a verified citation.
+   * on it: by a verified citation, or by a check of that page.
    */
   quote?: string;
+  /** How `sourcePage` was verified, when there is one. See `PageCheck`. */
+  pageCheck?: PageCheck;
   method: ExtractionMethod;
 }
+
+/**
+ * How a model's page for a value was verified, never the model's word for it.
+ *
+ * - `citation`: Anthropic's citations, attached by the API to the text the
+ *   model drew on.
+ * - `text`: the quote was found in the page's own words, from its text layer
+ *   or this server's OCR of it.
+ * - `page`: the page was cut out and shown to a reader alone, which found the
+ *   quote printed on it and copied the same words out.
+ */
+export type PageCheck = 'citation' | 'text' | 'page';
 
 export interface CaseDocument {
   id: string;

@@ -57,8 +57,11 @@ Check one before trusting a tier to it: `pnpm probe:model --model <name>`.
 **Free models can read a document.** Measured against a live key: OpenRouter
 extracts a PDF server-side before dispatch, so `minimax/minimax-m3:free`
 answered with the value planted in a one-page deed even though it advertises
-no file input. What free models do NOT return is a verified citation — the
-per-call gap catches that and the page reference becomes the model's own word.
+no file input. What free models do NOT return is a verified citation, and
+nor does Claude through OpenRouter: the gateway strips them. The per-call gap
+records that, and each value's page is then checked against the page itself,
+from its own text or by showing that page alone to the checking model (below),
+so a page on file is never the model's own word.
 They also share an upstream rate-limit pool, so a run can 429 or hit a
 "provider overloaded" from the vendor behind them. Fine for evaluating the
 product; not what a signed report should rest on.
@@ -179,6 +182,10 @@ REALYTICA_API_KEY=sk-or-v1-...
 REALYTICA_MODEL_EXTRACTION=anthropic/claude-haiku-4.5
 REALYTICA_MODEL_REASONING=google/gemini-2.5-flash
 REALYTICA_MODEL_JUDGMENT=anthropic/claude-sonnet-4.5
+# Optional: the model that checks a value's page when no citation can, shown
+# that one page alone. Another vendor's makes the check independent of the
+# reading; unset, the extraction model checks its own reading.
+REALYTICA_MODEL_PAGE_CHECK=google/gemini-3.8-flash
 
 # 4. Neo4j Aura, if you want the graph to persist across instances
 REALYTICA_NEO4J_URL=neo4j+s://xxxxxxxx.databases.neo4j.io

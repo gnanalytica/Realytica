@@ -62,6 +62,20 @@ export function apiKey(): string | undefined {
 }
 
 /**
+ * The model that checks a quote against its page, when it should not be the
+ * model that wrote the quote.
+ *
+ * A model without verified citations says which page a value is on, and that
+ * claim is checked by cutting the page out and asking a reader whether the
+ * words are printed there. Any model that reads PDFs can do it; a different
+ * vendor's makes the check independent of the reading. Unset, the extraction
+ * model checks its own reading, page by page.
+ */
+export function pageCheckModel(): string | undefined {
+  return trimmed(readEnv('MODEL_PAGE_CHECK'));
+}
+
+/**
  * The free or cheap model the project chat tries first, handing anything that
  * needs judgement to the copilot's own model. Unset, there is no ladder.
  */
