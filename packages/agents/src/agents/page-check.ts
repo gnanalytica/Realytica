@@ -90,6 +90,12 @@ export function findQuoteInPages(quote: string, pageTexts: readonly string[], hi
 /** What a one-page reader answered for one passage. */
 export interface PageAnswer {
   present: boolean;
+  /**
+   * False when the reader could not make out the part of the page where the
+   * words would be: a faint or cut scan, or a script it cannot read. Absent
+   * means it could.
+   */
+  legible?: boolean;
   /** The words as printed, copied by the reader. */
   text?: string;
 }
@@ -212,8 +218,9 @@ export async function placeQuotes(input: PlaceQuotesInput): Promise<PlaceQuotesR
     if (!answers) return;
     indexes.forEach((quoteIndex, n) => {
       const answer = answers![n];
-      // No answer is not "absent": the quote stays unchecked rather than refuted.
-      if (answer === undefined) return;
+      // No answer, or a page the reader could not make out, is not "absent":
+      // the quote stays unchecked rather than refuted.
+      if (answer === undefined || answer.legible === false) return;
       placements[quoteIndex] = answerConfirms(input.quotes[quoteIndex]!.quote, answer)
         ? { status: 'placed', page, method: 'page' }
         : { status: 'refuted', page };
@@ -288,10 +295,14 @@ function pageCheckTool(): LlmSchemaTool {
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['n', 'present', 'text'],
+            required: ['n', 'present', 'legible', 'text'],
             properties: {
               n: { type: 'integer', description: 'The passage number, as given.' },
               present: { type: 'boolean', description: 'True only if these words are printed on this page.' },
+              legible: {
+                type: 'boolean',
+                description: 'False when you cannot make out the part of the page where these words would be, so cannot say either way.',
+              },
               text: {
                 type: ['string', 'null'],
                 description: 'The words exactly as printed on this page, in its own script. Null when not present.',
@@ -305,7 +316,9 @@ function pageCheckTool(): LlmSchemaTool {
 }
 
 const PageCheckOutput = z.object({
-  passages: z.array(z.object({ n: z.number().int(), present: z.boolean(), text: z.string().nullish() })),
+  passages: z.array(
+    z.object({ n: z.number().int(), present: z.boolean(), legible: z.boolean().nullish(), text: z.string().nullish() }),
+  ),
 });
 
 /** What the one-page reader is shown the page as. */
@@ -370,7 +383,13 @@ export function modelPageChecker(input: ModelPageCheckerInput): CheckPage {
     const byNumber = new Map(parsed.data.passages.map((p) => [p.n, p]));
     return quotes.map((_, i) => {
       const answer = byNumber.get(i + 1);
-      return answer ? { present: answer.present, ...(answer.text ? { text: answer.text } : {}) } : undefined;
+      return answer
+        ? {
+            present: answer.present,
+            ...(answer.legible === false ? { legible: false } : {}),
+            ...(answer.text ? { text: answer.text } : {}),
+          }
+        : undefined;
     });
   };
 }

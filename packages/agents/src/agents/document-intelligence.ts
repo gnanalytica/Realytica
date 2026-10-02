@@ -213,6 +213,20 @@ const FIELD_GUIDANCE: Partial<Record<DocumentKind, string>> = {
 const EXTRACTION_TOOL_NAME = 'record_document_extraction';
 
 /**
+ * Room for one reading's answer.
+ *
+ * A merged encumbrance certificate lists dozens of transactions, and each one
+ * is a field with its value, its quote, its original script and its page, all
+ * restated as a sentence first. At 8,000 the answer to such a bundle was cut
+ * off mid-field and nothing of it was kept. Only what is written is billed.
+ */
+const EXTRACTION_MAX_TOKENS = 16_000;
+
+/** Said of a reading whose answer hit `EXTRACTION_MAX_TOKENS`; matched by the ingest's failure wording. */
+export const CUT_OFF_REASON =
+  'The reading was cut off at its length limit before it finished: the document states more than one answer holds.';
+
+/**
  * A single non-streaming `messages.create`/`.stream()` call with a strict
  * tool is the whole shape of this agent's work — classify one document,
  * extract its fields, done. There's no multi-turn back-and-forth for the
@@ -839,7 +853,7 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
   const request = {
     agent: 'document_intelligence' as const,
     model,
-    maxTokens: 8000,
+    maxTokens: EXTRACTION_MAX_TOKENS,
     system: [{ text: systemPrompt.content, cacheBreakpoint: true }],
     tools: [tool],
     messages: [{ role: 'user' as const, content: [documentPart, { type: 'text' as const, text: userPrompt }] }],
@@ -898,16 +912,18 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
 
   const usage = result.usage;
 
+  // An answer stopped by the length limit is a long document, not a broken model.
+  const cutOff = result.stopReason === 'max_tokens';
   const toolUse = toolUseOf(result, EXTRACTION_TOOL_NAME);
   if (!toolUse) {
-    const reason = `The model did not return structured extraction output (stop_reason=${result.stopReason ?? 'unknown'}).`;
+    const reason = cutOff ? CUT_OFF_REASON : `The model did not return structured extraction output (stop_reason=${result.stopReason ?? 'unknown'}).`;
     emit({ kind: 'error', label: 'No extraction returned', detail: reason });
     return finishFailure('failed', reason, usage);
   }
 
   const parsed = ExtractionOutputSchema.safeParse(toolUse.input);
   if (!parsed.success) {
-    const reason = `Model output failed schema validation: ${parsed.error.message}`;
+    const reason = cutOff ? CUT_OFF_REASON : `Model output failed schema validation: ${parsed.error.message}`;
     emit({ kind: 'error', label: 'Invalid extraction output', detail: reason });
     return finishFailure('failed', reason, usage);
   }

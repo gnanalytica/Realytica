@@ -387,13 +387,15 @@ Call the {{toolName}} tool once, with one answer per passage, in order:
   differences of spacing, line breaks, punctuation and letter case. The words
   must be in the same script as the passage: a translation or a
   transliteration of them is not the same words.
+- "legible": false when you cannot make out the part of the page where the
+  words would be (a faint or cut scan, or a script you cannot read), so you
+  cannot say either way. Then "present" is false too.
 - "text": when present, the words exactly as they are printed on this page,
   in the page's own script. Copy them; never complete, correct or translate
   them. Null when not present.
 
-If the part of the page where the words would be is illegible, the passage is
-not present. Answer only from what this page shows, never from what a document
-of this kind usually says.`;
+Answer only from what this page shows, never from what a document of this
+kind usually says.`;
 
 const DOCUMENT_INTELLIGENCE_SYSTEM_CONTENT_V1 = `{{grounding}}
 
