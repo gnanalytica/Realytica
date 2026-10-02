@@ -55,7 +55,7 @@ export default function ProjectList() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold tracking-tight text-ink">Projects</h1>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink">Projects</h1>
           {all.length >= SEARCH_FROM ? (
             <Input
               value={query}

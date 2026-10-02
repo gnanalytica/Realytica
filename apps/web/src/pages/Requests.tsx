@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
-import { Button, Callout, Card, CardBody, CardHeader, Skeleton } from '../components/ui/kit';
+import { Button, Callout, Card, CardBody, CardHeader, PageHeader, Skeleton } from '../components/ui/kit';
 import { NewRequestModal, RequestList } from '../components/project/RequestsPanel';
 
 /**
@@ -29,15 +29,16 @@ export default function Requests() {
 
   return (
     <div className="space-y-4 pb-10">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-[20px] font-semibold tracking-tight text-ink">Requests</h1>
-          <p className="text-[13px] text-ink-secondary">What the firm is waiting on from others, across every engagement</p>
-        </div>
-        <Button variant="primary" icon={<Plus size={15} />} onClick={() => setCreating(true)} disabled={projects.length === 0}>
-          New request
-        </Button>
-      </header>
+      <PageHeader
+        eyebrow="Workspace"
+        title="Requests"
+        subtitle="What the firm is waiting on from others, across every engagement"
+        actions={
+          <Button variant="primary" icon={<Plus size={15} />} onClick={() => setCreating(true)} disabled={projects.length === 0}>
+            New request
+          </Button>
+        }
+      />
 
       {error ? <Callout tone="critical" title="Could not load requests">{error}</Callout> : null}
       {loading && !data ? <Skeleton className="h-64 w-full rounded-xl" /> : null}

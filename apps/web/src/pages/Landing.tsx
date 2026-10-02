@@ -18,6 +18,10 @@ import { DEPARTMENT_ICON } from '../components/departments/icons';
  * real project's data, and nothing pretends to be.
  */
 
+/** Small counts in words, the way the rest of the sentence is written. */
+const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+const inWords = (n: number) => WORDS[n] ?? String(n);
+
 const CTA =
   'group inline-flex items-center gap-2 rounded-xl bg-action px-5 py-3 text-[14px] font-medium text-action-ink shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_8px_24px_-8px_rgb(var(--shadow-tint)/0.5)] transition-[transform,background-color] duration-quick ease-state hover:bg-action-hover active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2';
 
@@ -251,7 +255,7 @@ function HeroCanvas() {
           />
         </div>
       </motion.div>
-      <div className="absolute -bottom-10 right-2 sm:-right-6">
+      <div className="absolute -bottom-20 right-2 sm:-right-8">
         <ProposalSketch />
       </div>
     </div>
@@ -584,7 +588,7 @@ export default function Landing() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, ease: EASE_ENTER, delay: 0.35 }}
             >
-              Every project moves through four stages, and its work through {DEPARTMENTS.length} departments. Realytica gives each its place — title and approvals, progress and the site, the valuation — reads the documents for you, Kannada included, with the page behind every value, and keeps a copilot beside every view.
+              Every project moves through {inWords(STAGES.length)} stages, and its work through {inWords(DEPARTMENTS.length)} departments. Realytica gives each its place — title and approvals, progress and the site, the valuation — reads the documents for you, Kannada included, with the page behind every value, and keeps a copilot beside every view.
             </motion.p>
             <motion.div
               className="mt-8 flex flex-wrap items-center gap-3"
@@ -624,7 +628,7 @@ export default function Landing() {
             title="Organised the way the work is."
             note={
               <>
-                Four stages, {DEPARTMENTS.length} departments and the workstreams inside them. {live.map((d) => d.label.split(' ')[0]).join(', ')} are live; the rest are listed with what they will hold. Point at a department to follow its work across the life of the project.
+                {inWords(STAGES.length).replace(/^./, (c) => c.toUpperCase())} stages, {inWords(DEPARTMENTS.length)} departments and the workstreams inside them. {live.map((d) => d.label.split(' ')[0]).join(', ')} are live; the rest are listed with what they will hold. Point at a department to follow its work across the life of the project.
               </>
             }
           />
