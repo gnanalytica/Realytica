@@ -157,8 +157,11 @@ const FILE_HINTS: FileHint[] = [
  * 2. Pages checked against the page itself: its own text, or the page shown
  *    to a reader alone (`agents/page-check`). Rows version 1 read and could
  *    not place anything on are read again.
+ * 3. A model's facts file with the document even when this server's reader
+ *    did not recognise it. Version 2 checked them and then left them off the
+ *    row of every scan read by the model alone.
  */
-export const MODEL_READER_VERSION = 2;
+export const MODEL_READER_VERSION = 3;
 
 export function createChatProposal(
   kind: ChatProposalKind,
@@ -503,6 +506,16 @@ export function proposalsFromIngest(
      * change is about.
      */
     const read = file.read && file.read.type !== 'other' ? file.read : undefined;
+    /*
+     * What a model read off a document this server's reader did not
+     * recognise: a scan read by the model alone has no other reading. Each
+     * of these values was found on its page, by a citation or by checking
+     * the page itself, so it files with the document whatever type the
+     * reader gave it. The type guards a classification made from a filename,
+     * not values a page was checked for.
+     */
+    const modelFacts = read ? [] : (file.read?.facts ?? []).filter((f) => f.source === 'model');
+    const facts = read ? read.facts : modelFacts.length ? modelFacts : undefined;
     const kind = classified.evidence?.title ?? classified.hint.titles[0] ?? 'new evidence';
     /*
      * A read document is named for what it is; a new row gets the document's
@@ -510,12 +523,10 @@ export function proposalsFromIngest(
      * spaces. Quotes come from the facts, so the row carries the words its
      * values were read from.
      */
-    const factQuotes = read
-      ? read.facts
-          .filter((f) => !f.key.startsWith('boundary_'))
-          .slice(0, 6)
-          .map((f) => ({ text: `${f.label}: ${f.quote}`.slice(0, 240), page: f.page }))
-      : [];
+    const factQuotes = (facts ?? [])
+      .filter((f) => !f.key.startsWith('boundary_'))
+      .slice(0, 6)
+      .map((f) => ({ text: `${f.label}: ${f.quote}`.slice(0, 240), page: f.page }));
     out.push(
       proposal(
         'file_evidence',
@@ -541,8 +552,8 @@ export function proposalsFromIngest(
           checkId: classified.checkIds[0],
           quotes: factQuotes.length ? factQuotes : file.quotes,
           extractionNotes: read ? read.summary : file.extractionNotes,
-          readFailure: read ? undefined : file.readFailure,
-          facts: read?.facts,
+          readFailure: read || modelFacts.length ? undefined : file.readFailure,
+          facts,
           documentType: read?.label ?? documentTypeOfKind(file.kindHint),
           readMethod: read?.method,
           ...(file.modelRead ? { modelRead: true } : {}),
