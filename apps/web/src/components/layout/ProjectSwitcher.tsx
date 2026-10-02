@@ -75,29 +75,32 @@ export default function ProjectSwitcher() {
   const reference = current?.reference;
 
   return (
-    <div ref={rootRef} className="relative min-w-0 max-w-full">
+    <div ref={rootRef} className="relative inline-flex min-w-0 max-w-full">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label="Switch project"
-        className="flex w-full min-w-0 max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left hover:bg-sunken coarse:min-h-11 coarse:py-2.5 sm:px-2"
+        className="flex min-w-0 max-w-full items-center gap-2.5 rounded-xl px-1 py-1 text-left transition-colors duration-quick hover:bg-sunken coarse:min-h-11 coarse:py-2.5 sm:px-2"
       >
-        <FolderTree size={15} className="shrink-0 text-ink-muted" />
-        <span className="min-w-0 flex-1 overflow-hidden">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sunken text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+          <FolderTree size={15} />
+        </span>
+        {/* The chevron sits against the name it opens, not at the far end of the bar. */}
+        <span className="min-w-0 overflow-hidden">
           {reference ? (
             <span className="block font-mono text-[10px] leading-none text-ink-muted">{reference}</span>
           ) : null}
           <span className="block truncate text-[14px] font-semibold tracking-tight text-ink">{label}</span>
         </span>
-        <ChevronDown size={14} className={cn('shrink-0 text-ink-muted transition-transform', open && 'rotate-180')} />
+        <ChevronDown size={14} className={cn('shrink-0 text-ink-muted transition-transform duration-base ease-enter', open && 'rotate-180')} />
       </button>
       {open ? (
         <div
           role="listbox"
           aria-label="Projects"
-          className="absolute left-0 top-full z-40 mt-1 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-hairline bg-surface shadow-pop"
+          className="absolute left-0 top-full z-40 mt-1.5 w-[22rem] max-w-[calc(100vw-2rem)] origin-top-left animate-scale-in overflow-hidden rounded-xl border border-hairline bg-surface shadow-pop"
         >
           <div className="max-h-80 overflow-y-auto py-1">
             {loading && list.length === 0 ? (
