@@ -83,12 +83,14 @@ function NavGroup({
               isActive
                 ? 'bg-brand-soft text-brand before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-r before:bg-brand'
                 : 'text-ink-secondary hover:bg-sunken hover:text-ink',
-              collapsed && 'lg:justify-center lg:px-0',
+              // The narrow rail keeps its words, small, under each mark — an
+              // eight-icon rail with no words is a memory test.
+              collapsed && 'lg:flex-col lg:justify-center lg:gap-1 lg:px-0 lg:py-2 lg:before:inset-y-2',
             )
           }
         >
-          <item.icon size={16} className="shrink-0" />
-          <span className={cn(collapsed && 'lg:hidden')}>{item.label}</span>
+          <item.icon size={collapsed ? 18 : 16} className="shrink-0" />
+          <span className={cn(collapsed && 'lg:text-[10px] lg:font-medium lg:leading-none')}>{item.label}</span>
           {/*
             An eight-icon rail with no words is a memory test, and the browser's
             own `title` is the wrong answer to it: it waits about a second, which
@@ -98,19 +100,7 @@ function NavGroup({
             `aria-hidden` because the link is already named above — a screen
             reader that read both would say every item twice.
           */}
-          {collapsed ? (
-            <span
-              aria-hidden="true"
-              className={cn(
-                'pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 whitespace-nowrap',
-                'rounded-md bg-ink px-2 py-1 text-[12px] font-medium text-ink-inverse opacity-0 shadow-pop',
-                'transition-opacity duration-quick ease-state',
-                'lg:block group-hover:opacity-100 group-focus-visible:opacity-100',
-              )}
-            >
-              {item.label}
-            </span>
-          ) : null}
+
         </NavLink>
       ))}
     </>
@@ -177,7 +167,7 @@ export default function Sidebar({ collapsed: preferred, forceCollapsed = false, 
         className={cn(
           'fixed inset-y-0 left-0 z-50 flex w-[220px] shrink-0 flex-col border-r border-hairline bg-surface transition-transform duration-200 ease-out',
           'lg:static lg:z-auto lg:translate-x-0',
-          collapsed && 'lg:w-[64px]',
+          collapsed && 'lg:w-[72px]',
           mobileOpen ? 'translate-x-0 shadow-pop' : '-translate-x-full lg:translate-x-0',
         )}
         aria-label="Primary"
