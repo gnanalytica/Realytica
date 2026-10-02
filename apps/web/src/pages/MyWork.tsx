@@ -178,7 +178,7 @@ export default function MyWork() {
                     <p className="mt-0.5 line-clamp-1 text-[12px] text-ink-secondary">{item.detail}</p>
                   ) : null}
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
                   {item.overdue ? <Badge tone="critical">Late</Badge> : null}
                   {item.severity ? (
                     <Badge tone={severityTone(item.severity)}>{SEVERITY_LABEL[item.severity]}</Badge>

@@ -126,7 +126,7 @@ export default function Members() {
                       : `invited${m.invitedBy ? ` by ${m.invitedBy}` : ''}, not yet signed in`}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
                   {mayAdmin && !(m.role === 'owner' && !mayOwn) ? (
                     <Select
                       value={m.role}

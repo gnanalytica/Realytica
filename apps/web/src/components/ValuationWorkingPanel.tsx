@@ -291,7 +291,7 @@ function ApproachCard({
         </p>
       ) : null}
 
-      <div className="mt-2 grid gap-3 sm:grid-cols-2">
+      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <p className="text-[12px] font-medium text-ink-muted">Inputs</p>
           <ul className="mt-1 space-y-1">

@@ -866,6 +866,20 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     </>
   );
 
+  /* What a phone switches between: the conversation, and the pane it is about. */
+  const surfaces = [
+    { key: 'chat', label: 'Chat', icon: MessageCircle, go: () => setMobileSurface('chat') },
+    {
+      key: 'work',
+      label: paneLabel(pane, params),
+      icon: LayoutDashboard,
+      go: () => {
+        setFocusMode(false);
+        setMobileSurface('work');
+      },
+    },
+  ] as const;
+
   return (
     <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden lg:h-[calc(100dvh-56px)]">
       {isDesktop ? (
@@ -928,15 +942,43 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           </button>
         </div>
       ) : (
-        <div className="flex h-14 shrink-0 items-center gap-1.5 border-b border-hairline bg-surface px-2 pt-[env(safe-area-inset-top)]">
+        <div className="flex h-14 shrink-0 items-center gap-1 border-b border-hairline bg-surface px-1.5 pt-[env(safe-area-inset-top)] min-[400px]:gap-1.5 min-[400px]:px-2">
           <Link to="/portfolio" aria-label="Back to the portfolio" className="grid size-9 shrink-0 place-items-center rounded-lg text-ink-secondary hover:bg-sunken hover:text-ink coarse:size-11">
             <ChevronLeft size={18} />
           </Link>
-          <div className="min-w-0 flex-1 leading-tight">
+          {/* The page's name keeps a few words however narrow the phone: the
+              stage pill beside it truncates first. */}
+          <div className="min-w-[4.5rem] flex-1 leading-tight">
             <p className="truncate text-[11px] font-medium text-ink-muted">{project.name}</p>
             <p className="truncate text-[14px] font-semibold tracking-tight text-ink">
               {mobileSurface === 'chat' ? 'Chat' : paneLabel(pane, params)}
             </p>
+          </div>
+          {/*
+            Held sideways a phone has width to spare and almost no height, so
+            the switch between the chat and the canvas moves up here and the
+            bar at the foot goes: sixty pixels back for the work itself.
+          */}
+          <div role="group" aria-label="Show" className="hidden shrink-0 items-center gap-0.5 rounded-xl bg-sunken p-0.5 ring-1 ring-inset ring-[var(--ring)] short:flex">
+            {surfaces.map((item) => {
+              const on = mobileSurface === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={item.go}
+                  aria-pressed={on}
+                  className={cn(
+                    'relative flex h-9 max-w-[11rem] items-center gap-1.5 rounded-[10px] px-3 text-[13px] transition-colors duration-quick coarse:h-10',
+                    on ? 'font-semibold text-ink' : 'text-ink-muted hover:text-ink',
+                  )}
+                >
+                  {on ? <motion.span layoutId="cockpit-surface-short" aria-hidden className="absolute inset-0 rounded-[10px] bg-surface shadow-card ring-1 ring-[var(--ring)]" transition={SPRING.snappy} /> : null}
+                  <item.icon size={15} className="relative shrink-0" />
+                  <span className="relative truncate">{item.label}</span>
+                </button>
+              );
+            })}
           </div>
           <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} compact />
           <AlertsBell project={project} onChanged={setProject} onOpenWorkstream={(key) => goPane(WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })} />
@@ -1107,22 +1149,9 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
 
           <nav
             aria-label="Cockpit"
-            className="flex shrink-0 gap-1 border-t border-hairline bg-surface/95 px-2 pt-1.5 backdrop-blur pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+            className="flex shrink-0 gap-1 border-t border-hairline bg-surface/95 px-2 pt-1.5 backdrop-blur pb-[max(0.5rem,env(safe-area-inset-bottom))] short:hidden"
           >
-            {(
-              [
-                { key: 'chat', label: 'Chat', icon: MessageCircle, go: () => setMobileSurface('chat') },
-                {
-                  key: 'work',
-                  label: paneLabel(pane, params),
-                  icon: LayoutDashboard,
-                  go: () => {
-                    setFocusMode(false);
-                    setMobileSurface('work');
-                  },
-                },
-              ] as const
-            ).map((item) => {
+            {surfaces.map((item) => {
               const on = mobileSurface === item.key;
               return (
                 <button

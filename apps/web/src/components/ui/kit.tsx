@@ -121,7 +121,10 @@ export function CardHeader({
           {subtitle ? <p className="mt-0.5 text-xs leading-snug text-ink-secondary">{subtitle}</p> : null}
         </div>
       </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
+      {/* Beside the title when there is room. When it wraps under it, it is
+          held to the card's width so its own contents wrap rather than run
+          past the card's edge on a phone. */}
+      {action ? <div className="max-w-full shrink-0">{action}</div> : null}
     </header>
   );
 }

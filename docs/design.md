@@ -55,8 +55,12 @@ Department marks are in `components/departments/icons.ts`.
 ## Layout
 
 - **Inside a project on desktop:** one project bar (back to Portfolio, the stage timeline, the review walk, health, alerts, the command bar, focus), then a single row of tabs, then the conversation on the left and the canvas on the right.
-- **Inside a project on a phone:** the cockpit is the only header, a bottom bar switches between chat and the canvas, and the stage, the alerts and the stage record open as sheets.
-- **Breakpoints:** panes lay themselves out with container queries (`[@container(min-width:…)]`), because a pane's width is whatever the chat leaves rather than the window's.
+- **Inside a project on a phone:** the cockpit is the only header, a bottom bar switches between chat and the canvas, and the stage, the alerts and the stage record open as sheets. In the header the page's name keeps a few words and the stage pill, showing only the step below `sm`, truncates first.
+- **A phone held sideways:** `short:` (under 30rem tall and over 34rem wide) moves the chat and canvas switch into the header and drops the bottom bar. The width floor keeps it from firing on an upright phone whose keyboard has shrunk the page.
+- **Breakpoints:** panes lay themselves out with container queries (`[@container(min-width:…)]`), because a pane's width is whatever the chat leaves rather than the window's. Anything sized to its card rather than the window (the portfolio's fortnight, the roles table) measures the card the same way.
+- **Grids:** a grid that only gets its columns at a breakpoint starts from `grid-cols-1`. Without it the one implicit column is as wide as the longest line that cannot wrap (a truncated title, a timeline's labels), and the page runs past the edge of a phone.
+- **Wide content on a narrow screen** changes shape rather than scrolling sideways out of sight: the roles table becomes a person a block, the landing's stages × departments grid becomes a stage at a time. A card header's actions and a header's button row wrap at the card's width.
+- **Translucent colours:** `page`, `surface`, `sunken` and `ink` are plain variables, so an opacity modifier on them (`bg-page/80`) compiles to nothing. Use the opaque token, or `var(--axis)` for a rule.
 - **Touch targets:** they grow to 44 px under `coarse:`, a pointer media query rather than a width breakpoint.
 
 ## Checking a change
@@ -65,4 +69,4 @@ Department marks are in `components/departments/icons.ts`.
 pnpm check
 ```
 
-This runs typecheck, eslint, the dead-class check, the type-scale check and the tests. For anything visual, also look at the screen at 1440 × 900 and at 390 × 844 with touch, in both themes.
+This runs typecheck, eslint, the dead-class check, the type-scale check and the tests. For anything visual, also look at the screen at 1440 × 900, 1024 × 768, 768 × 1024 with touch, and at 390 × 844, 320 × 568 and 844 × 390 with touch, in both themes.

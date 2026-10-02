@@ -419,7 +419,7 @@ export function ScreenResultPanel({
       ) : null}
 
       {show('evidence') || show('compliance') ? (
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {show('evidence') ? (
         <Card>
           <CardHeader title="Confidence" info="What the score is made of, factor by factor." />
@@ -714,7 +714,7 @@ export function ScreenResultPanel({
           subtitle={`${result.completeness.items.filter((i) => i.present).length} / ${result.completeness.items.length} on file`}
         />
         <CardBody>
-          <ul className="grid gap-1.5 sm:grid-cols-2">
+          <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {/*
               A mark, not a word, twelve times over.
               Every row carried a full-text badge — "On file", "Missing",

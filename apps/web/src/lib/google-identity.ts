@@ -142,7 +142,9 @@ export async function renderSignInButton(
     size: 'large',
     text: 'signin_with',
     shape: 'rectangular',
-    width: 280,
+    // 280px where there is room; the box it is drawn in on a 320px phone is
+    // 240px, and a fixed width ran past the card. Google accepts 200 to 400.
+    width: Math.max(200, Math.min(280, Math.floor(parent.clientWidth || 280))),
   });
 }
 

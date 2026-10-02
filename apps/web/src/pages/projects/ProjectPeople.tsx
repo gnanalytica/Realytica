@@ -362,7 +362,7 @@ export default function ProjectPeople() {
                       </p>
                     </div>
                     {mayStaff ? (
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
                         <Button
                           size="sm"
                           variant="ghost"
@@ -435,7 +435,7 @@ export default function ProjectPeople() {
             info="They get in by signing in with this address. No email is sent, and nothing is ticked until you tick it."
           />
           <CardBody className="space-y-3">
-            <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 max-w-2xl gap-3 sm:grid-cols-2">
               <Field label="Email">
                 <Input
                   type="email"

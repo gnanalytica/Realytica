@@ -248,6 +248,16 @@ export default {
     ({ addVariant }) => {
       addVariant('coarse', '@media (pointer: coarse)');
       addVariant('fine', '@media (pointer: fine)');
+      /*
+       * `short:` — a phone held sideways: room across, very little down.
+       *
+       * Height alone is not enough. The app asks the browser to shrink the
+       * page when the keyboard opens (`interactive-widget=resizes-content`),
+       * so a phone held upright while typing is short too, and moving
+       * controls into its 390px header then would crowd it. The width floor
+       * keeps this to the sideways case.
+       */
+      addVariant('short', '@media (max-height: 30rem) and (min-width: 34rem)');
     },
   ],
 };

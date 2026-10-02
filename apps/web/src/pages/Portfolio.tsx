@@ -124,35 +124,44 @@ function FortnightStrip({ view }: { view: PortfolioView }) {
   });
   const byDay = new Map<string, PortfolioDue[]>();
   for (const item of view.upcoming) byDay.set(item.date, [...(byDay.get(item.date) ?? []), item]);
+  /*
+   * A week a row until the card itself has room for the fortnight in one.
+   *
+   * This used to ask the window (`sm:`), and the card is not the window: on a
+   * laptop it is a third of the page, and fourteen columns in it ran the
+   * two-digit dates into each other ("101112131415").
+   */
   return (
-    <div className="grid grid-cols-7 gap-1 sm:grid-cols-[repeat(14,minmax(0,1fr))]">
-      {days.map((d, i) => {
-        const date = new Date(`${d}T00:00:00Z`);
-        const items = byDay.get(d) ?? [];
-        const urgent = items.some((it) => it.kind === 'request' || it.kind === 'report');
-        const cell = (
-          <div
-            className={cn(
-              'flex w-full flex-col items-center gap-0.5 rounded-lg py-1.5 text-center transition-colors duration-quick',
-              i === 0 ? 'bg-ink text-ink-inverse shadow-card' : items.length ? 'bg-sunken text-ink hover:bg-[var(--hairline)]' : 'text-ink-secondary',
-            )}
-          >
-            <span className="text-[10px] uppercase">{date.toLocaleDateString('en-GB', { weekday: 'narrow', timeZone: 'UTC' })}</span>
-            <span className="font-mono text-[12px] font-semibold">{date.getUTCDate()}</span>
-            <span
-              aria-hidden
-              className={cn('h-1.5 w-1.5 rounded-full', items.length ? (urgent ? 'bg-critical' : i === 0 ? 'bg-ink-inverse' : 'bg-ink') : 'bg-transparent')}
-            />
-          </div>
-        );
-        return items.length ? (
-          <Tooltip key={d} className="w-full" label={items.map((it) => `${it.label} · ${it.projectName}`).join(' — ')}>
-            {cell}
-          </Tooltip>
-        ) : (
-          <div key={d}>{cell}</div>
-        );
-      })}
+    <div className="[container-type:inline-size]">
+      <div className="grid grid-cols-7 gap-1 [@container(min-width:34rem)]:grid-cols-[repeat(14,minmax(0,1fr))]">
+        {days.map((d, i) => {
+          const date = new Date(`${d}T00:00:00Z`);
+          const items = byDay.get(d) ?? [];
+          const urgent = items.some((it) => it.kind === 'request' || it.kind === 'report');
+          const cell = (
+            <div
+              className={cn(
+                'flex w-full flex-col items-center gap-0.5 rounded-lg py-1.5 text-center transition-colors duration-quick',
+                i === 0 ? 'bg-ink text-ink-inverse shadow-card' : items.length ? 'bg-sunken text-ink hover:bg-[var(--hairline)]' : 'text-ink-secondary',
+              )}
+            >
+              <span className="text-[10px] uppercase">{date.toLocaleDateString('en-GB', { weekday: 'narrow', timeZone: 'UTC' })}</span>
+              <span className="font-mono text-[12px] font-semibold">{date.getUTCDate()}</span>
+              <span
+                aria-hidden
+                className={cn('h-1.5 w-1.5 rounded-full', items.length ? (urgent ? 'bg-critical' : i === 0 ? 'bg-ink-inverse' : 'bg-ink') : 'bg-transparent')}
+              />
+            </div>
+          );
+          return items.length ? (
+            <Tooltip key={d} className="w-full" label={items.map((it) => `${it.label} · ${it.projectName}`).join(' — ')}>
+              {cell}
+            </Tooltip>
+          ) : (
+            <div key={d}>{cell}</div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -174,9 +183,11 @@ function PortfolioFigure({
 }) {
   return (
     <div className="min-w-0 px-4 py-3">
-      <p className="flex items-center gap-1.5 truncate text-[12px] text-ink-muted">
-        {ai ? <AiMark size="xs" /> : Icon ? <Icon size={13} aria-hidden /> : null}
-        {label}
+      {/* The label is its own box so a narrow tile ends it with an ellipsis
+          rather than cutting a word in half at the edge. */}
+      <p className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-muted" title={label}>
+        {ai ? <AiMark size="xs" /> : Icon ? <Icon size={13} aria-hidden className="shrink-0" /> : null}
+        <span className="truncate">{label}</span>
       </p>
       <p className={cn('mt-1.5 text-[24px] font-semibold leading-none tracking-tight tabular-nums', tone === 'critical' && value > 0 ? 'text-critical' : 'text-ink')}>
         <AnimatedNumber value={value} />
@@ -324,7 +335,7 @@ export default function Portfolio() {
       </div>
 
       {loading && !data ? (
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
           {Array.from({ length: 6 }, (_, i) => (
             <Skeleton key={i} className="h-48 w-full rounded-xl" />
           ))}
@@ -374,7 +385,11 @@ export default function Portfolio() {
       )}
 
       {data && all.length > 0 ? (
-        <div className="grid gap-4 lg:grid-cols-3">
+        /* Two across from a tablet, three only once each card has room for a
+           title and its project: at a laptop's width beside the sidebar a third
+           of the page truncated every proposal to a few words. The fortnight
+           takes the whole row while there are two. */
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           <Card className={cn(data.decisions.length > 0 && 'ring-[1.5px] ring-ai/45')}>
             <CardHeader
               title="Needs your decision"
@@ -437,7 +452,7 @@ export default function Portfolio() {
             </CardBody>
           </Card>
 
-          <Card>
+          <Card className="md:col-span-2 xl:col-span-1">
             <CardHeader title="Next 14 days" subtitle={`${dayMonth(data.today)} to ${dayMonth(new Date(Date.parse(`${data.today}T00:00:00Z`) + 13 * 86_400_000).toISOString().slice(0, 10))}`} />
             <CardBody className="space-y-3">
               <FortnightStrip view={data} />

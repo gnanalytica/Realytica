@@ -85,9 +85,11 @@ function DepartmentCard({ project, dept }: { project: DdProject; dept: Departmen
               <button
                 type="button"
                 onClick={() => open(ws.key)}
-                className="group/row flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-quick hover:bg-sunken/70 coarse:min-h-11"
+                /* On a narrow card the verdict drops under the headline rather
+                   than squeezing it to a word a line. */
+                className="group/row flex w-full flex-wrap items-start gap-x-3 gap-y-1.5 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-quick hover:bg-sunken/70 coarse:min-h-11"
               >
-                <span className="min-w-0 flex-1">
+                <span className="min-w-[9rem] flex-1">
                   <span className="block text-[12px] font-medium text-ink-muted">{ws.label}</span>
                   <span className={cn('block text-[14px] font-medium', qa.verdict === 'insufficient' ? 'text-ink-secondary' : 'text-ink')}>{qa.headline}</span>
                   {certified ? (
@@ -98,7 +100,7 @@ function DepartmentCard({ project, dept }: { project: DdProject; dept: Departmen
                   ) : null}
                 </span>
                 <Badge tone={VERDICT_TONE[qa.verdict]}>{QUICK_VERDICT_LABEL[qa.verdict]}</Badge>
-                <ChevronRight size={14} className="mt-0.5 shrink-0 text-ink-muted opacity-0 transition-[opacity,transform] duration-quick ease-state group-hover/row:translate-x-0.5 group-hover/row:opacity-100" aria-hidden />
+                <ChevronRight size={14} className="mt-0.5 shrink-0 text-ink-muted opacity-0 transition-[opacity,transform] duration-quick ease-state group-hover/row:translate-x-0.5 group-hover/row:opacity-100 coarse:hidden" aria-hidden />
               </button>
             </li>
           ))}
@@ -173,7 +175,7 @@ export default function Overview() {
         <StandingFigures project={project} />
       </Reveal>
 
-      <Stagger className="grid items-stretch gap-4 [@container(min-width:52rem)]:grid-cols-2 [@container(min-width:84rem)]:grid-cols-3">
+      <Stagger className="grid grid-cols-1 items-stretch gap-4 [@container(min-width:52rem)]:grid-cols-2 [@container(min-width:84rem)]:grid-cols-3">
         {departments.filter((d) => d.status === 'live').map((d) => (
           <StaggerItem key={d.key} className="h-full">
             <DepartmentCard project={project} dept={d} />
@@ -197,7 +199,7 @@ export default function Overview() {
 
       <EngagementsCard project={project} onSaved={setProject} />
 
-      <div className="grid gap-4 [@container(min-width:52rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+      <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <div className="min-w-0">
           <Suspense fallback={<Skeleton className="h-72 w-full rounded-xl" />}>
             <GisOverlayCard project={project} onChanged={async () => setProject(await api.getProject(project.id))} />
@@ -206,7 +208,7 @@ export default function Overview() {
         <KeyFacts project={project} />
       </div>
 
-      <div className="grid gap-4 [@container(min-width:52rem)]:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-2">
         <OpenItemsCard project={project} />
         <NeedsDecisionCard project={project} />
         <WaitingOnCard project={project} />

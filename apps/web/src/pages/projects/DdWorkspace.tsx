@@ -110,7 +110,7 @@ export default function DdWorkspace() {
             {target} · {assessment.owner} · {progress.checkDone}/{progress.checkTotal} checks · {findings.length} findings
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
           <Badge>{ASSESSMENT_STATUS_LABEL[assessment.status]}</Badge>
           <Select
             value={assessment.status}
@@ -131,7 +131,7 @@ export default function DdWorkspace() {
         </Callout>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {assessment.scopes.map((scope) => {
           const c = scopeCompleteness(scope);
           return (

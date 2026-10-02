@@ -71,7 +71,7 @@ export default function SignIn({ notice, onSignedIn }: { notice?: string; onSign
   }, [clientId, onSignedIn]);
 
   return (
-    <div className="grid min-h-dvh bg-page lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 min-h-dvh bg-page lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       {/* The promise, on the wide screen only: a phone goes straight to the door. */}
       <aside className="relative hidden overflow-hidden bg-ink p-12 text-[var(--text-inverse)] lg:flex lg:flex-col">
         <div aria-hidden className="pointer-events-none absolute -left-24 -top-24 size-96 rounded-full bg-brand/45 blur-3xl" />
