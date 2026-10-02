@@ -275,6 +275,26 @@ Before merging, `pnpm check` passes locally and in CI. After it is live:
 To roll back, promote the previous deployment in Vercel (instant), and if the
 release changed the data generation, the previous generation is still there.
 
+### Going back to v1
+
+Two tags mark where the product stood:
+
+| Tag | Commit | What it is |
+|---|---|---|
+| `v1-final` | `7628f5a` (#55) | The due-diligence workspace before the v2 revamp |
+| `v2-demo` | `3cfae52` (#61) | v2, demo-ready with the Sobha pack in production |
+
+v1 predates data generations: it reads the store and uploads at the storage
+root, where its projects still are, and never reads `v2/`. So going back is a
+code change only:
+
+```bash
+git revert --no-edit v1-final..main   # one revert commit per v2 change, on a branch
+```
+
+Open it as a pull request; merging deploys v1 against its own data. The v2
+data stays under `v2/` for the way forward again.
+
 ## Verify after deploying
 
 ```bash
