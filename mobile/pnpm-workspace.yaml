@@ -1,0 +1,16 @@
+# Marks mobile/ as its own pnpm workspace root.
+#
+# The repository root has a pnpm-workspace.yaml that covers apps/* and
+# packages/*. Without this file pnpm walks up from mobile/, finds that one, and
+# installs there instead: mobile/'s dependencies never land, the install still
+# exits 0, and the failure surfaces much later as "expo/tsconfig.base not
+# found" from tsc or "The `expo` package was not found" from EAS Build.
+#
+# This file stops the upward walk, so a plain `pnpm install` inside mobile/
+# does the right thing everywhere — locally, in CI, and on EAS Build (which
+# runs its own install we cannot pass flags to).
+#
+# Empty on purpose: the site app is one standalone project, not a workspace
+# with members, and it is deliberately not part of the root workspace. Do not
+# delete this file.
+packages: []

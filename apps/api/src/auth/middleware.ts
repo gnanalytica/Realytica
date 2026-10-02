@@ -110,23 +110,12 @@ function localPrincipal(): { principal: Principal; changed: boolean } {
 export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
   const config = authSettings();
 
-  if (config.mode === 'off') {
-    const { principal, changed } = localPrincipal();
-    req.principal = principal;
-    if (changed) await store.save();
-    withPrincipal(principal, next);
-    return;
-  }
-
-  const token = bearer(req);
-  if (!token) {
-    res.status(401).json({ error: 'Sign in to continue.' });
-    return;
-  }
-
-  // A paired phone. Its token is its own, and reaches only the site routes.
-  if (token.startsWith(DEVICE_TOKEN_PREFIX)) {
-    const device = deviceForToken(token);
+  // A paired phone. Its token is its own, and reaches only the site routes —
+  // with sign-in off too, so the site app is developed against the same rules
+  // it runs under.
+  const presented = bearer(req);
+  if (presented?.startsWith(DEVICE_TOKEN_PREFIX)) {
+    const device = deviceForToken(presented);
     const principal = device ? devicePrincipal(device) : undefined;
     if (!device || !principal) {
       res.status(401).json({ error: 'This phone is no longer paired. Pair it again from the web app.' });
@@ -140,6 +129,20 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     req.device = device;
     if (touchDevice(device)) await store.save();
     withPrincipal(principal, next);
+    return;
+  }
+
+  if (config.mode === 'off') {
+    const { principal, changed } = localPrincipal();
+    req.principal = principal;
+    if (changed) await store.save();
+    withPrincipal(principal, next);
+    return;
+  }
+
+  const token = bearer(req);
+  if (!token) {
+    res.status(401).json({ error: 'Sign in to continue.' });
     return;
   }
 
