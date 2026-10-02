@@ -77,10 +77,19 @@ export default function Diligence() {
   // Search covers the assessment's name, its type and the scopes inside it,
   // because "where is the flood check" is a likelier question than "what was
   // that assessment called".
+  /*
+   * The filter shows from four DDs up, or as soon as one is closed. A
+   * completed or archived DD has to be reachable: with the lens stuck on
+   * "Open" and no buttons to change it, a closed DD on a small file could
+   * only be found by its address.
+   */
+  const showFilters = project.assessments.length >= FILTER_FROM || counts.done > 0;
+  const view: Lens = showFilters ? lens : 'all';
+
   const q = query.trim().toLowerCase();
   const rows = project.assessments.filter((a) => {
-    if (lens === 'open' && closed(a)) return false;
-    if (lens === 'done' && !closed(a)) return false;
+    if (view === 'open' && closed(a)) return false;
+    if (view === 'done' && !closed(a)) return false;
     if (!q) return true;
     const hay = [
       a.name,
@@ -91,8 +100,6 @@ export default function Diligence() {
       .toLowerCase();
     return hay.includes(q);
   });
-
-  const showFilters = project.assessments.length >= FILTER_FROM;
 
   return (
     <div className="space-y-4">

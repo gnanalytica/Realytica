@@ -22,7 +22,10 @@
  * captured offline and dated, so the portal policy in `portals.ts` holds.
  */
 
+import { acceptedFacts, surveyNoFromParcelId, type DdProject } from '@realytica/shared';
 import type { RevenueMapFactor, RevenueMapFeature, RevenueMapFeatureKind, RevenueMapRead } from '@realytica/shared';
+import { kaVillageByCode } from '@realytica/site-intel/karnataka/village-index';
+import { kaPickerLabel, kaVillageFromAddress } from '@realytica/site-intel/karnataka/place-match';
 import { listDistricts, listMandals, listVillages, searchParcels } from '@realytica/site-intel/parcels';
 import { runSiteIntel } from '@realytica/site-intel';
 import { STATES, isStateKey, type StateKey } from '@realytica/site-intel/states';
@@ -243,5 +246,72 @@ export function toRevenueMapRead(report: SiteIntelReport, readAt = new Date().to
       : null,
     emptyLayers: report.areaMap.emptyLayers,
     unreadLayers: report.gaps,
+  };
+}
+
+
+/* -------------------------------------------------------------------- */
+/* Where to start the picker                                              */
+/* -------------------------------------------------------------------- */
+
+export interface RevenuePlaceSuggestion {
+  state?: StateKey;
+  district?: string;
+  mandal?: string;
+  village?: string;
+  surveyNo?: string;
+  /** Where the place came from, said beside the picker so a person checks a guess before reading. */
+  from: 'last read' | 'address' | null;
+  note?: string;
+}
+
+/** The first survey number a document was accepted as stating, when the project records none. */
+function surveyNoFromDocuments(project: DdProject): string {
+  for (const e of project.evidence) {
+    const fact = acceptedFacts(e).find((f) => f.key === 'survey_numbers');
+    const first = fact ? String(fact.value).split(/\s*(?:,|&|\band\b)\s*/i)[0] : '';
+    if (first?.trim()) return first.trim().replace(/\s+/g, '');
+  }
+  return '';
+}
+
+/**
+ * The picker's starting place: the last read when there is one — its parcel
+ * reference names the exact village — otherwise the village the site address
+ * names, matched against the Karnataka index. The survey number comes from
+ * the project's parcel, else from a document accepted as stating one.
+ */
+export function suggestRevenuePlace(project: DdProject): RevenuePlaceSuggestion {
+  const surveyNo = surveyNoFromParcelId(project.parcelId) || surveyNoFromDocuments(project) || undefined;
+  const last = project.revenueMap;
+  if (last) {
+    const code = last.state === 'KA' ? /^kgis:(\d+):/.exec(last.parcelRef)?.[1] : undefined;
+    const v = code ? kaVillageByCode(code) : null;
+    if (v) return { state: 'KA', district: v.district, mandal: v.taluk, village: kaPickerLabel(v), surveyNo: last.surveyNo || surveyNo, from: 'last read' };
+    if (last.district && last.mandal && last.village) {
+      return { state: last.state, district: last.district, mandal: last.mandal, village: last.village, surveyNo: last.surveyNo || surveyNo, from: 'last read' };
+    }
+  }
+  const address = [project.siteAddress, project.location, project.city].filter(Boolean).join(', ');
+  const hit = kaVillageFromAddress(address);
+  if (hit.kind === 'match') {
+    const agreed = hit.agrees.length ? `, and its ${hit.agrees.join(' and ')} ${hit.agrees.length === 1 ? 'agrees' : 'agree'}` : '';
+    return {
+      state: 'KA',
+      district: hit.village.district,
+      mandal: hit.village.taluk,
+      village: hit.label,
+      surveyNo,
+      from: 'address',
+      note: `The address names ${hit.village.village}${agreed}. Check it before reading.`,
+    };
+  }
+  return {
+    surveyNo,
+    from: null,
+    note:
+      hit.kind === 'ambiguous'
+        ? `${hit.candidates} villages share the name in the address. Add the hobli or taluk to the site address and the picker can choose.`
+        : undefined,
   };
 }

@@ -144,8 +144,9 @@ import {
   extractFactsFromProject,
   recallForProject,
   renderMemoryForPrompt,
+  basicChatModel,
   resolveRoute,
-  runProjectCopilot,
+  runProjectChat,
   runProjectOrchestratorAgent,
   textOf,
 } from '@realytica/agents';
@@ -909,6 +910,15 @@ function skipLlmForChat(result: ProjectChatResult): boolean {
     || names.has('orchestrate')
     || names.has('project_copilot')
     || names.has('critic')
+    /*
+     * Answers already exact: read off the documents with their pages, a
+     * question asked back, a pane opened. Rewriting them paid a model to lose
+     * the page references the answer was built from.
+     */
+    || names.has('answer_from_file')
+    || names.has('clarify')
+    || names.has('navigate')
+    || names.has('open_sitting')
   );
 }
 
@@ -1117,7 +1127,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
       } catch {
         memoryText = '';
       }
-      const agent = await runProjectCopilot({
+      const agent = await runProjectChat({
         project: canvas,
         question,
         actor,
@@ -1169,6 +1179,19 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
          * of those surfaces is a fix missing from the others.
          */
         agent.text = linkRecordIds(canvas, agent.text);
+        /*
+         * Which rung answered, said beside the answer: a free model's reply
+         * and the senior model's read the same, and while the ladder is being
+         * tried out a person should be able to tell them apart.
+         */
+        agent.toolCalls = [
+          ...agent.toolCalls,
+          agent.handedOverBecause
+            ? { name: 'senior_model', summary: `Senior model — ${agent.handedOverBecause}` }
+            : basicChatModel()
+              ? { name: 'basic_model', summary: 'Free model' }
+              : null,
+        ].filter((t): t is { name: string; summary: string } => Boolean(t));
         const result = applyProjectAgentTurn(canvas, question, agent);
         sayWhatIsMissing(seen, question, result);
         stampSession(result, parsed.data.sessionId);
@@ -1227,7 +1250,8 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
       const restsOn = findingEvidenceBriefing(canvas);
       const llm = await provider.complete({
         agent: 'analyst_copilot',
-        model: route.model,
+        // Rewording a briefing is the free model's work when there is one.
+        model: basicChatModel() ?? route.model,
         maxTokens: 1800,
         system: [
           {

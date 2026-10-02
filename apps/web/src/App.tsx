@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import AppShell from './components/layout/AppShell';
 import { AuthGate } from './components/layout/AuthGate';
 import { ToastHost } from './components/ui/kit';
@@ -41,7 +41,6 @@ const Members = lazy(() => import('./pages/Members'));
 const Libraries = lazy(() => import('./pages/projects/Libraries'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
 const Requests = lazy(() => import('./pages/Requests'));
-const ProjectDashboard = lazy(() => import('./pages/projects/ProjectDashboard'));
 const ReportPrint = lazy(() => import('./pages/projects/ReportPrint'));
 
 /*
@@ -56,6 +55,13 @@ const CockpitGraph = lazy(() => import('./pages/projects/cockpit/embed').then((m
 const CockpitOrchestrate = lazy(() =>
   import('./pages/projects/cockpit/embed').then((m) => ({ default: m.CockpitOrchestrate })),
 );
+
+/** An old dashboard address: the same project's workspace, keeping any `?ask=`. */
+function ToWorkspace() {
+  const { projectId } = useParams<{ projectId: string }>();
+  const { search } = useLocation();
+  return <Navigate to={`/projects/${projectId}${search}`} replace />;
+}
 
 export default function App() {
   return (
@@ -91,8 +97,9 @@ export default function App() {
           <Route path="flows/*" element={<Navigate to="/portfolio" replace />} />
           <Route path="projects" element={<ProjectList />} />
           <Route path="projects/new" element={<NewProject />} />
-          {/* Outside the workspace: the whole file, full width, no chat. */}
-          <Route path="projects/:projectId/dashboard" element={<ProjectDashboard />} />
+          {/* The case dashboard is now the workspace's Overview. Old links, and a
+              question asked from them, land there. */}
+          <Route path="projects/:projectId/dashboard" element={<ToWorkspace />} />
           <Route path="projects/:projectId" element={<ProjectLayout />}>
             <Route index element={<Overview />} />
             <Route path="cockpit" element={<Navigate to=".." replace />} />

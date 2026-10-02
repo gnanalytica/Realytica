@@ -24,7 +24,7 @@ import { ensureIdentitySiteContext } from '../site-context';
 import { pullPinForProject } from '../project-chat-sides';
 import { fetchOsmContext } from '../gis/overpass';
 import { loadCivicLayers, loadWithdrawnRmpSheets } from '../gis/civic-cache';
-import { isStateKey, readRevenueMap, revenueLevelLabels, revenueLevels } from '../gis/revenue-map';
+import { isStateKey, readRevenueMap, revenueLevelLabels, revenueLevels, suggestRevenuePlace } from '../gis/revenue-map';
 
 function findProject(id: string | undefined) {
   if (!id) return undefined;
@@ -105,6 +105,16 @@ projectGisOverlayRouter.get<ProjectParams>('/revenue/levels', async (req, res) =
     return;
   }
   res.json({ ...result, labels: revenueLevelLabels(state) });
+});
+
+/** Where the revenue-map picker starts: the last read, or the village the address names. */
+projectGisOverlayRouter.get<ProjectParams>('/revenue/suggest', (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  res.json(suggestRevenuePlace(project));
 });
 
 projectGisOverlayRouter.post<ProjectParams>('/revenue', async (req, res) => {

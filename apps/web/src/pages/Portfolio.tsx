@@ -21,8 +21,8 @@ const LAST_SEEN_KEY = 'portfolioLastSeen';
 
 type Filter = 'all' | 'active' | 'issued';
 
-function dashboardHref(projectId: string): string {
-  return `/projects/${projectId}/dashboard`;
+function projectHref(projectId: string): string {
+  return `/projects/${projectId}`;
 }
 
 function healthChip(p: ProjectSummary) {
@@ -36,7 +36,7 @@ function EngagementCard({ project, next }: { project: ProjectSummary; next?: Por
   const e = project.engagement;
   return (
     <Link
-      to={dashboardHref(project.id)}
+      to={projectHref(project.id)}
       className="block rounded-xl bg-surface p-3 ring-1 ring-[var(--ring)] shadow-card transition-colors hover:bg-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
     >
       <p className="text-[13px] font-semibold leading-snug text-ink">{project.name}</p>
@@ -266,7 +266,7 @@ export default function Portfolio() {
                   .join(' · ')}
               </p>
             </div>
-            <Link to={dashboardHref(digest[0]!.project.id)} className="text-[12px] font-medium text-brand">
+            <Link to={projectHref(digest[0]!.project.id)} className="text-[12px] font-medium text-brand">
               Open {digest[0]!.project.name}
             </Link>
           </CardBody>
@@ -315,7 +315,7 @@ export default function Portfolio() {
         <Card>
           <EmptyState
             title="No engagements yet"
-            description="Start an engagement for a client's property. Each one gets a case dashboard and a workspace with the copilot beside it."
+            description="Start an engagement for a client's property. Each one gets a workspace: where it stands, with the copilot beside it."
             action={
               <div className="flex flex-wrap justify-center gap-2">
                 <Button variant="primary" onClick={() => navigate('/projects/new')}>New engagement</Button>
@@ -424,7 +424,7 @@ export default function Portfolio() {
                 <ul className="divide-y divide-hairline">
                   {data.upcoming.slice(0, 7).map((item) => (
                     <li key={`${item.kind}:${item.refId}`}>
-                      <Link to={dashboardHref(item.projectId)} className="grid grid-cols-[3.5rem_1fr_auto] items-baseline gap-2 py-1.5 text-[12px]">
+                      <Link to={projectHref(item.projectId)} className="grid grid-cols-[3.5rem_1fr_auto] items-baseline gap-2 py-1.5 text-[12px]">
                         <span className="font-mono text-ink-muted">{dayMonth(item.date)}</span>
                         <span className="min-w-0 truncate text-ink">{item.label}</span>
                         <span className="max-w-[9rem] truncate text-right text-ink-secondary">{item.projectName}</span>

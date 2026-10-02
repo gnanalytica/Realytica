@@ -87,6 +87,11 @@ export function kaVillageByCode(code: string): KaVillage | null {
   return byCode.get(code) ?? null;
 }
 
+/** Every village in the index, for matching a written address against. */
+export function kaVillages(): readonly KaVillage[] {
+  return ALL;
+}
+
 export function kaVillageCount(): number {
   return ALL.length;
 }

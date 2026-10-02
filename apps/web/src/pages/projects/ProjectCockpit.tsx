@@ -556,7 +556,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   }, [undo, project.id, setProject, toast]);
 
   /*
-   * A question asked from the case dashboard arrives as `?ask=`. It is asked
+   * A question asked from outside the workspace arrives as `?ask=`. It is asked
    * once, and the parameter is dropped so a reload does not ask it again.
    */
   const [, setSearchParams] = useSearchParams();
@@ -845,11 +845,11 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             health of the file; the switcher says which file it is.
           */}
           <Link
-            to={`/projects/${project.id}/dashboard`}
+            to="/portfolio"
             className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken"
           >
             <ChevronLeft size={14} />
-            Dashboard
+            Portfolio
           </Link>
           {/* The name is the top bar's switcher, forty pixels up; this row
               carries the way back and the state of the file. */}
@@ -893,6 +893,9 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         </div>
       ) : (
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline px-3">
+          <Link to="/portfolio" aria-label="Back to the portfolio" className="-ml-1 rounded-lg p-1.5 text-ink-secondary hover:bg-sunken hover:text-ink coarse:min-h-11 coarse:min-w-11">
+            <ChevronLeft size={16} />
+          </Link>
           <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">
             {mobileSurface === 'chat' ? 'Chat' : paneLabel(pane)}
           </p>

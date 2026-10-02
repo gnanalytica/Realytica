@@ -121,6 +121,9 @@ importers:
       leaflet:
         specifier: ^1.9.4
         version: 1.9.4
+      leaflet.gridlayer.googlemutant:
+        specifier: 0.16.0
+        version: 0.16.0
       lucide-react:
         specifier: ^0.469.0
         version: 0.469.0(react@18.3.1)
@@ -1727,6 +1730,9 @@ packages:
 
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
+
+  leaflet.gridlayer.googlemutant@0.16.0:
+    resolution: {integrity: sha512-wN8DxR5zplhZA6a5998AOluCL97H5lkr1yCLOT7siaQyc+hT6E8kcGqjAuSsEUSoaf/U3H25x8Avkp9OpgJpng==}
 
   leaflet@1.9.4:
     resolution: {integrity: sha512-nxS1ynzJOmOlHp+iL3FyWqK89GtNL8U8rvlMOsQdTTssxZwCXh8N2NB3GDQOL+YR3XnWyZAxwQixURb+FA74PA==}
@@ -3943,6 +3949,8 @@ snapshots:
   keyv@4.5.4:
     dependencies:
       json-buffer: 3.0.1
+
+  leaflet.gridlayer.googlemutant@0.16.0: {}
 
   leaflet@1.9.4: {}
 

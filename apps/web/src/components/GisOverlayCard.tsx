@@ -3,10 +3,19 @@ import type { ReactNode } from 'react';
 import { Check, Layers, MapPinned, RefreshCw, Upload } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { sheetIsPlaceable, type DdProject, type GisContextFeature, type GisOverlayHit, type GisOverlayRead, type SheetPlacement } from '@realytica/shared';
+import {
+  sheetIsPlaceable,
+  type AmenityKind,
+  type DdProject,
+  type GisContextFeature,
+  type GisOverlayHit,
+  type GisOverlayRead,
+  type SheetPlacement,
+} from '@realytica/shared';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Disclosure, cn } from './ui/kit';
 import { api } from '../lib/api';
 import { useAuthedUrl } from '../lib/useAuthedUrl';
+import { googleMapsKey, loadGoogleMaps } from '../lib/google-maps';
 import { RevenueMapPicker } from './RevenueMapPicker';
 import { RevenueMapBrief } from './RevenueMapBrief';
 
@@ -19,6 +28,30 @@ import { RevenueMapBrief } from './RevenueMapBrief';
  */
 
 type Basemap = 'satellite' | 'streets';
+
+/* Nearby places, drawn from what the site reading already fetched — no new calls. */
+const PLACE_LABEL: Record<AmenityKind, string> = {
+  transit: 'Transit',
+  school: 'School',
+  hospital: 'Hospital',
+  market: 'Market',
+  employment: 'Employment',
+  airport: 'Airport',
+};
+const PLACE_COLOUR: Record<AmenityKind, string> = {
+  transit: '#7c3aed',
+  school: '#0e9f6e',
+  hospital: '#dc2626',
+  market: '#d97706',
+  employment: '#2563eb',
+  airport: '#475569',
+};
+
+function placeDistance(metres: number, driving?: number): string {
+  const m = driving ?? metres;
+  const text = m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
+  return driving ? `${text} by road` : `${text} away`;
+}
 
 const WATER_STYLE: L.PathOptions = { color: '#1d4ed8', weight: 2, fillColor: '#3b82c4', fillOpacity: 0.38 };
 const WATER_FLAG_STYLE: L.PathOptions = { color: '#b91c1c', weight: 3, fillColor: '#ef4444', fillOpacity: 0.28 };
@@ -138,8 +171,11 @@ export function GisOverlayCard({
     lakes?: L.LayerGroup;
     wards?: L.LayerGroup;
     revenue?: L.LayerGroup;
+    places?: L.LayerGroup;
   }>({});
-  const tilesRef = useRef<{ satellite?: L.TileLayer; streets?: L.TileLayer }>({});
+  /* The basemaps in use, and — once Google's are drawn — the imagery they replaced, to go back to. */
+  const tilesRef = useRef<{ satellite?: L.GridLayer; streets?: L.GridLayer; fallback?: { satellite?: L.GridLayer; streets?: L.GridLayer } }>({});
+  const [googleTiles, setGoogleTiles] = useState(false);
   const wmsRef = useRef<L.TileLayer.WMS | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -157,6 +193,7 @@ export function GisOverlayCard({
   const [showLakes, setShowLakes] = useState(true);
   const [showWards, setShowWards] = useState(true);
   const [showRevenue, setShowRevenue] = useState(true);
+  const [showPlaces, setShowPlaces] = useState(true);
   const [sheets, setSheets] = useState<SheetPlacement[]>([]);
   const [showSheet, setShowSheet] = useState(true);
   const [sheetOpacity, setSheetOpacity] = useState(0.6);
@@ -195,11 +232,56 @@ export function GisOverlayCard({
     });
     tilesRef.current.satellite.addTo(map);
     map.setView([20, 0], 2);
+
+    /*
+     * The map measures its box when it is made, and the box changes after:
+     * the conversation is dragged wider, a phone's work tab is shown. An
+     * unmeasured map paints grey or blank until somebody zooms. It measures
+     * again whenever the box does.
+     */
+    const ro = new ResizeObserver(() => map.invalidateSize());
+    ro.observe(el);
+
+    /*
+     * Google's map, when a browser key is set: satellite with its road and
+     * place labels, and its street map with the places it marks. Only the
+     * imagery underneath changes — every layer above is drawn the same. If
+     * Google turns the key away, the imagery goes back to what it was.
+     */
+    let cancelled = false;
+    const backToOwn = () => {
+      const own = tilesRef.current.fallback;
+      if (!own || mapRef.current !== map) return;
+      for (const layer of [tilesRef.current.satellite, tilesRef.current.streets]) if (layer && map.hasLayer(layer)) map.removeLayer(layer);
+      tilesRef.current = { satellite: own.satellite, streets: own.streets };
+      setGoogleTiles(false);
+    };
+    if (googleMapsKey()) {
+      void loadGoogleMaps(backToOwn)
+        .then(() => import('leaflet.gridlayer.googlemutant'))
+        .then(({ default: GoogleMutant }) => {
+          if (cancelled || mapRef.current !== map) return;
+          const own = { satellite: tilesRef.current.satellite, streets: tilesRef.current.streets };
+          for (const layer of [own.satellite, own.streets]) if (layer && map.hasLayer(layer)) map.removeLayer(layer);
+          tilesRef.current = {
+            satellite: new GoogleMutant({ type: 'hybrid', maxZoom: 21 }),
+            streets: new GoogleMutant({ type: 'roadmap', maxZoom: 21 }),
+            fallback: own,
+          };
+          setGoogleTiles(true);
+        })
+        .catch(() => {
+          /* the map keeps its own imagery */
+        });
+    }
     return () => {
+      cancelled = true;
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
       layersRef.current = {};
       tilesRef.current = {};
+      setGoogleTiles(false);
     };
     // Re-runs when the canvas appears, because a project with no pin and no
     // survey does not render one — see the map block below.
@@ -217,7 +299,37 @@ export function GisOverlayCard({
       if (!map.hasLayer(streets)) streets.addTo(map);
       if (map.hasLayer(sat)) map.removeLayer(sat);
     }
-  }, [basemap]);
+    // The imagery sits under everything drawn on it.
+    if ('bringToBack' in sat) sat.bringToBack();
+    if ('bringToBack' in streets) streets.bringToBack();
+  }, [basemap, googleTiles]);
+
+  /* Nearby places from the site reading, each with what it is and how far. */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const old = layersRef.current.places;
+    if (old) map.removeLayer(old);
+    layersRef.current.places = undefined;
+    const amenities = (project.siteContext?.amenities ?? []).filter((a) => a.point);
+    if (!amenities.length) return;
+    const group = L.layerGroup();
+    for (const a of amenities) {
+      L.circleMarker([a.point.lat, a.point.lng], {
+        radius: 6,
+        color: '#ffffff',
+        weight: 2,
+        fillColor: PLACE_COLOUR[a.kind] ?? '#64748b',
+        fillOpacity: 1,
+      })
+        .bindTooltip(`${PLACE_LABEL[a.kind] ?? a.kind}: ${a.name} · ${placeDistance(a.straightLineMetres, a.drivingMetres)}`)
+        .addTo(group);
+    }
+    layersRef.current.places = group;
+    if (showPlaces) group.addTo(map);
+    // Rebuilt when the reading changes or the canvas is made; shown or hidden below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.siteContext?.builtAt, canMap]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -276,7 +388,8 @@ export function GisOverlayCard({
       bounds.push([read.pin.lat, read.pin.lng]);
     }
 
-    layersRef.current = { water, landuse, lakes, wards, survey, revenue, pin: pinLayer };
+    // Nearby places are drawn from the project, not the overlay; they stay as they are.
+    layersRef.current = { places: layersRef.current.places, water, landuse, lakes, wards, survey, revenue, pin: pinLayer };
     if (bounds.length) {
       map.fitBounds(L.latLngBounds(bounds), { padding: [28, 28], maxZoom: 16 });
     }
@@ -296,7 +409,8 @@ export function GisOverlayCard({
     sync(layersRef.current.wards, showWards);
     sync(layersRef.current.survey, showSurvey);
     sync(layersRef.current.revenue, showRevenue);
-  }, [read, showWater, showLanduse, showLakes, showWards, showSurvey, showRevenue]);
+    sync(layersRef.current.places, showPlaces);
+  }, [read, showWater, showLanduse, showLakes, showWards, showSurvey, showRevenue, showPlaces]);
 
   useEffect(() => {
     let live = true;
@@ -427,6 +541,7 @@ export function GisOverlayCard({
   const lakeCount = read?.features.filter((f) => f.kind === 'civic_lake').length ?? 0;
   const wardCount = read?.features.filter((f) => f.kind === 'civic_ward').length ?? 0;
   const revenueCount = read?.features.filter(isRevenue).length ?? 0;
+  const placeCount = (project.siteContext?.amenities ?? []).filter((a) => a.point).length;
   // The reference shelf — where to get the real sheet, and what must never be
   // filed as one. It belongs on the file, but it is reading for the land-use
   // sitting, not for the dashboard, so it folds away until asked for.
@@ -508,6 +623,10 @@ export function GisOverlayCard({
           </LayerToggle>
           {revenueCount > 0 ? (
             <LayerToggle on={showRevenue} onClick={() => setShowRevenue((v) => !v)}>State layers {revenueCount}
+            </LayerToggle>
+          ) : null}
+          {placeCount > 0 ? (
+            <LayerToggle on={showPlaces} onClick={() => setShowPlaces((v) => !v)}>Nearby places {placeCount}
             </LayerToggle>
           ) : null}
           {liveBbmp ? (
