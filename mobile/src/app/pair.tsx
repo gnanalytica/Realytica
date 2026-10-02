@@ -1,9 +1,11 @@
 import { Redirect, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Platform, Pressable, TextInput, View } from 'react-native';
+import { Platform, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
 import { BrandMark } from '@/components/brand-mark';
-import { Banner, Button, Card, Chip, ChipRow, Field, Icon, Screen, Text, useToast } from '@/components/ui';
+import { PairCodeInput } from '@/components/pair-code-input';
+import { Appear, Banner, Button, Card, Chip, ChipRow, Field, Icon, Pill, Screen, Text, Touchable, useToast } from '@/components/ui';
 import {
   DEFAULT_SERVER,
   LOCAL_DEV_SERVER,
@@ -14,10 +16,12 @@ import {
   strayCodeCharacters,
 } from '@/lib/config';
 import { api } from '@/lib/api';
+import { haptics } from '@/lib/haptics';
 import { ApiError, hostOf } from '@/lib/http';
 import { takeScanned } from '@/lib/pair-link';
 import { defaultPhoneName, lastServer, pairPhone, useSession } from '@/lib/session';
-import { monoFont, radius, space, useTheme } from '@/theme';
+import { radius, space, useTheme } from '@/theme';
+import { arrive, leave, reflow } from '@/theme/motion';
 
 /**
  * First run: pair this phone with a person's account.
@@ -69,6 +73,7 @@ export default function PairScreen() {
         toast.show(`Paired with ${pairing.workspace.name} as ${who}.`, 'success');
         router.replace('/projects');
       } catch (err) {
+        haptics.error();
         setError(err instanceof ApiError ? err.message : 'Pairing failed. Try again.');
       } finally {
         setBusy(false);
@@ -96,6 +101,7 @@ export default function PairScreen() {
 
   const stray = strayCodeCharacters(code);
   const complete = code.length === PAIR_CODE_LENGTH && stray.length === 0;
+  const native = Platform.OS !== 'web';
 
   const applyServer = (value: string) => {
     const next = normaliseServer(value);
@@ -117,121 +123,114 @@ export default function PairScreen() {
 
   return (
     <Screen>
-      <View style={{ alignItems: 'center', gap: space.md, paddingTop: space.lg }}>
-        <BrandMark size={72} />
-        <Text variant="title" center>
-          Pair this phone
-        </Text>
-        <Text variant="body" tone="textSecondary" center style={{ maxWidth: 360 }}>
-          On a computer, open Realytica and go to <Text variant="bodyStrong">People › Pair a phone</Text>. It shows a code that works for 10 minutes.
-        </Text>
+      <View style={{ alignItems: 'center', gap: space.lg, paddingTop: space.xl }}>
+        <BrandMark size={76} animated />
+        <Animated.View entering={arrive(4)} style={{ alignItems: 'center', gap: space.sm }}>
+          <Text variant="eyebrow" tone="brandStrong">
+            Realytica Site
+          </Text>
+          <Text variant="title" center accessibilityRole="header">
+            Pair this phone
+          </Text>
+          <Text variant="body" tone="textSecondary" center style={{ maxWidth: 360 }}>
+            On a computer, open Realytica and go to <Text variant="bodyStrong">People › Pair a phone</Text>. It shows a code that works for 10 minutes.
+          </Text>
+        </Animated.View>
       </View>
 
       {session.status === 'unpaired' && session.notice ? <Banner tone="warning" title={session.notice} /> : null}
       {error ? <Banner tone="critical" title={error} /> : null}
 
-      {Platform.OS !== 'web' ? (
-        <Button title="Scan the code" icon="qr-code-outline" size="xl" onPress={() => router.push('/scan')} disabled={busy} />
+      {native ? (
+        <Appear index={5}>
+          <Button title="Scan the code" icon="qr-code-outline" size="xl" onPress={() => router.push('/scan')} disabled={busy} />
+        </Appear>
       ) : null}
 
-      <Card>
-        <Text variant="bodyStrong">{Platform.OS !== 'web' ? 'Or type the code' : 'Type the code'}</Text>
-        <TextInput
-          value={code}
-          onChangeText={(t) => setCode(normaliseCode(t).slice(0, PAIR_CODE_LENGTH))}
-          // Dots rather than a sample code, so an empty box never looks filled in.
-          placeholder="••••••••"
-          placeholderTextColor={colors.textMuted}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          autoComplete="off"
-          spellCheck={false}
-          // Android's password keyboard has no suggestions bar to fight with.
-          keyboardType={Platform.OS === 'android' ? 'visible-password' : 'default'}
-          returnKeyType="go"
-          onSubmitEditing={() => complete && !busy && pair(code, server)}
-          accessibilityLabel="Pairing code, 8 characters"
-          maxLength={PAIR_CODE_LENGTH + 4}
-          style={{
-            fontFamily: monoFont,
-            fontSize: 34,
-            letterSpacing: 6,
-            textAlign: 'center',
-            color: colors.text,
-            backgroundColor: colors.surfaceRaised,
-            borderWidth: 2,
-            borderColor: complete ? colors.brand : colors.hairline,
-            borderRadius: radius.md,
-            minHeight: 72,
-            paddingHorizontal: space.md,
-          }}
-        />
-        {stray.length ? (
-          <Text variant="label" tone="criticalText">
-            Codes never contain {stray.join(' or ')}. Look at the code on the computer again — that character is probably a different letter.
-          </Text>
-        ) : (
-          <Text variant="caption">
-            {code.length}/{PAIR_CODE_LENGTH} characters · letters and numbers, never I, O, 0 or 1
-          </Text>
-        )}
-        <Field label="Name for this phone" value={name} onChangeText={setName} maxLength={80} hint="Shown on the People page, so you can tell your phones apart." />
-        <Button title="Pair phone" onPress={() => pair(code, server)} disabled={!complete} loading={busy} size="lg" />
-      </Card>
+      <Appear index={6}>
+        <Card style={{ gap: space.lg }}>
+          <View style={{ gap: space.md }}>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: space.md }}>
+              <Text variant="bodyStrong">{native ? 'Or type the code' : 'Type the code'}</Text>
+              <Text variant="caption" mono tone={complete ? 'brandStrong' : 'textMuted'} accessibilityLabel={`${code.length} of ${PAIR_CODE_LENGTH} characters`}>
+                {code.length}/{PAIR_CODE_LENGTH}
+              </Text>
+            </View>
+            <PairCodeInput
+              value={code}
+              onChangeText={(t) => setCode(normaliseCode(t).slice(0, PAIR_CODE_LENGTH))}
+              length={PAIR_CODE_LENGTH}
+              stray={stray}
+              complete={complete}
+              onSubmitEditing={() => complete && !busy && pair(code, server)}
+            />
+            {stray.length ? (
+              <Text variant="label" tone="criticalText">
+                Codes never contain {stray.join(' or ')}. Look at the code on the computer again — that character is probably a different letter.
+              </Text>
+            ) : (
+              <Text variant="caption">Letters and numbers, never I, O, 0 or 1</Text>
+            )}
+          </View>
+          <Field label="Name for this phone" value={name} onChangeText={setName} maxLength={80} hint="Shown on the People page, so you can tell your phones apart." />
+          <Button title="Pair phone" icon="link-outline" onPress={() => pair(code, server)} disabled={!complete} loading={busy} size="lg" />
+        </Card>
+      </Appear>
 
-      <View style={{ gap: space.sm }}>
-        <Pressable
+      <Appear index={7} style={{ gap: space.sm }}>
+        <Touchable
           accessibilityRole="button"
           accessibilityLabel={`Server ${hostOf(server)}. ${serverOpen ? 'Close' : 'Use a different server'}`}
           accessibilityState={{ expanded: serverOpen }}
           onPress={() => setServerOpen((o) => !o)}
-          style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+          pressScale={0.98}
+          style={{ minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.xs }}
         >
-          <Icon name="server-outline" size={20} tone="textSecondary" />
+          <View style={{ width: 36, height: 36, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.sunken }}>
+            <Icon name="server-outline" size={18} tone="textSecondary" />
+          </View>
           <View style={{ flex: 1 }}>
             <Text variant="caption">Server</Text>
-            <Text variant="label" tone="text" numberOfLines={1}>
+            <Text variant="label" mono tone="text" numberOfLines={1} style={{ fontSize: 14 }}>
               {hostOf(server)}
             </Text>
           </View>
           <Text variant="label" tone="brandStrong" style={{ fontWeight: '600' }}>
             {serverOpen ? 'Close' : 'Change'}
           </Text>
-        </Pressable>
-        {serverCheck === 'checking' ? <Text variant="caption">Checking the server…</Text> : null}
-        {serverCheck === 'ok' ? (
-          <Text variant="caption" tone="goodText">
-            The server answered. Type or scan the code to pair.
-          </Text>
-        ) : null}
+        </Touchable>
+        {serverCheck === 'checking' ? <Pill label="Checking the server…" tone="info" live /> : null}
+        {serverCheck === 'ok' ? <Pill label="The server answered. Type or scan the code to pair." tone="good" icon="checkmark-circle" /> : null}
         {serverCheck === 'failed' ? (
           <Text variant="label" tone="criticalText">
             Could not reach {hostOf(server)}. Check the address, and that this phone can reach it.
           </Text>
         ) : null}
         {serverOpen ? (
-          <Card>
-            <Field
-              label="Server address"
-              value={serverText}
-              onChangeText={setServerText}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              placeholder="https://realytica.example.com"
-              onSubmitEditing={() => applyServer(serverText)}
-            />
-            <ChipRow>
-              <Chip label="Realytica" selected={server === PRODUCTION_SERVER} onPress={() => applyServer(PRODUCTION_SERVER)} />
-              <Chip label="Local development" selected={server === LOCAL_DEV_SERVER} onPress={() => applyServer(LOCAL_DEV_SERVER)} />
-            </ChipRow>
-            <Text variant="caption">
-              For a development API on this computer use {LOCAL_DEV_SERVER}. An Android emulator reaches it at http://10.0.2.2:5174, and a phone on Wi-Fi at your computer’s address.
-            </Text>
-            <Button title="Use this server" variant="outline" onPress={() => applyServer(serverText)} />
-          </Card>
+          <Animated.View entering={arrive()} exiting={leave} layout={reflow}>
+            <Card>
+              <Field
+                label="Server address"
+                value={serverText}
+                onChangeText={setServerText}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                placeholder="https://realytica.example.com"
+                onSubmitEditing={() => applyServer(serverText)}
+              />
+              <ChipRow>
+                <Chip label="Realytica" selected={server === PRODUCTION_SERVER} onPress={() => applyServer(PRODUCTION_SERVER)} />
+                <Chip label="Local development" selected={server === LOCAL_DEV_SERVER} onPress={() => applyServer(LOCAL_DEV_SERVER)} />
+              </ChipRow>
+              <Text variant="caption">
+                For a development API on this computer use {LOCAL_DEV_SERVER}. An Android emulator reaches it at http://10.0.2.2:5174, and a phone on Wi-Fi at your computer’s address.
+              </Text>
+              <Button title="Use this server" variant="outline" onPress={() => applyServer(serverText)} />
+            </Card>
+          </Animated.View>
         ) : null}
-      </View>
+      </Appear>
     </Screen>
   );
 }

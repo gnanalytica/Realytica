@@ -1,24 +1,46 @@
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { Platform, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
-import { Button, Icon, Text } from '@/components/ui';
+import { Button, Icon, StatusDot, Text } from '@/components/ui';
 import { describeDistance, distanceMetres, type Fix } from '@/lib/location';
 import { openPhoneSettings } from '@/lib/push';
 import type { GeoPoint } from '@/lib/types';
-import { radius, space, useTheme } from '@/theme';
+import { radius, space, useTheme, type Palette } from '@/theme';
+import { appear, pop } from '@/theme/motion';
 
-/** Where the phone is, recorded with the entry — or why it is not. */
+/** Where the phone is, recorded with the entry — or why it is not. A pulse while it looks; a pin that drops in when it has a fix. */
 export function LocationRow({ fix, site, onRetry }: { fix: Fix | 'finding'; site: GeoPoint | null; onRetry: () => void }) {
-  const { colors } = useTheme();
-  const box = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: space.md, padding: space.md, borderRadius: radius.md, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.hairline };
+  const { colors, shadow } = useTheme();
+  const box = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: space.md,
+    padding: space.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.hairline,
+    boxShadow: shadow.card,
+  };
+  const tile = (fill: keyof Palette) => ({
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: colors[fill],
+  });
 
   if (fix === 'finding') {
     return (
-      <View style={box}>
-        <ActivityIndicator color={colors.brand} />
+      <Animated.View entering={appear} style={box}>
+        <View style={tile('brandSoft')}>
+          <StatusDot color={colors.brand} size={12} pulse />
+        </View>
         <Text variant="body" style={{ flex: 1 }}>
           Finding your location…
         </Text>
-      </View>
+      </Animated.View>
     );
   }
 
@@ -26,12 +48,25 @@ export function LocationRow({ fix, site, onRetry }: { fix: Fix | 'finding'; site
     const away = site ? distanceMetres(site, fix.point) : null;
     const far = away != null && away > 1000;
     return (
-      <View style={box}>
-        <Icon name="location" size={26} tone={far ? 'warningText' : 'goodText'} />
+      <Animated.View entering={appear} style={box}>
+        <Animated.View entering={pop()} style={tile(far ? 'warningSoft' : 'goodSoft')}>
+          <Icon name="location" size={24} tone={far ? 'warningText' : 'goodText'} />
+        </Animated.View>
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="bodyStrong">Location recorded</Text>
           <Text variant="caption">
-            {fix.accuracy != null ? `Within about ${Math.max(5, Math.round(fix.accuracy))} m` : 'Accuracy unknown'}
+            {fix.accuracy != null ? (
+              <>
+                Within about{' '}
+                {/* The figure alone is mono: a mono space before the unit reads as a gap. */}
+                <Text variant="caption" mono>
+                  {Math.max(5, Math.round(fix.accuracy))}
+                </Text>
+                {' m'}
+              </>
+            ) : (
+              'Accuracy unknown'
+            )}
             {away != null ? ` · ${describeDistance(away)} from the site` : ''}
           </Text>
           {far ? (
@@ -41,7 +76,7 @@ export function LocationRow({ fix, site, onRetry }: { fix: Fix | 'finding'; site
           ) : null}
         </View>
         <Button title="Again" variant="ghost" block={false} onPress={onRetry} />
-      </View>
+      </Animated.View>
     );
   }
 
@@ -52,9 +87,11 @@ export function LocationRow({ fix, site, onRetry }: { fix: Fix | 'finding'; site
         ? 'Location is switched off on this phone. The entry will save without it.'
         : 'Could not get a location fix. The entry will save without it.';
   return (
-    <View style={{ gap: space.sm }}>
+    <Animated.View entering={appear} style={{ gap: space.sm }}>
       <View style={box}>
-        <Icon name="location-outline" size={26} tone="textMuted" />
+        <View style={tile('sunken')}>
+          <Icon name="location-outline" size={24} tone="textMuted" />
+        </View>
         <Text variant="label" tone="text" style={{ flex: 1 }}>
           {message}
         </Text>
@@ -65,6 +102,6 @@ export function LocationRow({ fix, site, onRetry }: { fix: Fix | 'finding'; site
           <Button title="Open Settings" variant="ghost" block={false} onPress={openPhoneSettings} />
         ) : null}
       </View>
-    </View>
+    </Animated.View>
   );
 }

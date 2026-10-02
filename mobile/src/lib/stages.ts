@@ -18,9 +18,28 @@ const LABEL: Record<string, string> = {
   operations: 'Operations',
 };
 
+/**
+ * The lifecycle in order, in its four phases. Mirrors STAGES in the same
+ * shared file: pre-development, design & tender, construction, operations.
+ */
+export const STAGE_PHASES: readonly (readonly string[])[] = [
+  ['opportunity_site', 'feasibility', 'acquisition'],
+  ['design', 'approvals', 'procurement'],
+  ['pre_construction', 'construction', 'testing_commissioning', 'completion'],
+  ['handover', 'operations'],
+];
+
+const ORDER = STAGE_PHASES.flat();
+
 export function stageLabel(key: string | undefined | null): string {
   if (!key) return '';
   return LABEL[key] ?? key.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+}
+
+/** Where a stage falls in the lifecycle: the 8th of 12, say. Null for a stage this app does not know. */
+export function stagePosition(key: string | undefined | null): { index: number; of: number } | null {
+  const index = key ? ORDER.indexOf(key) : -1;
+  return index < 0 ? null : { index, of: ORDER.length };
 }
 
 /** The stages where people are actually on site building. */

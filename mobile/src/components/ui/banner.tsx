@@ -1,17 +1,27 @@
 import type { ReactNode } from 'react';
-import { Pressable, View } from 'react-native';
+import { View, type ViewStyle } from 'react-native';
+import Animated from 'react-native-reanimated';
 
 import { radius, space, useTheme, type Palette } from '@/theme';
+import { arrive, leave } from '@/theme/motion';
 import { Icon, type IconName } from './icon';
+import { Spin, StatusDot } from './status';
 import { Text } from './text';
+import { Touchable } from './touchable';
 
-export type Tone = 'info' | 'good' | 'warning' | 'critical';
+/**
+ * `info` is teal; `ai` (rose) marks something waiting on the person's own
+ * decision — an item the server refused, which only they can retry or drop.
+ */
+export type Tone = 'info' | 'good' | 'warning' | 'serious' | 'critical' | 'ai';
 
-const LOOK: Record<Tone, { icon: IconName; fill: keyof Palette; edge: keyof Palette; ink: keyof Palette }> = {
-  info: { icon: 'information-circle', fill: 'brandSoft', edge: 'brand', ink: 'brandStrong' },
-  good: { icon: 'checkmark-circle', fill: 'goodSoft', edge: 'good', ink: 'goodText' },
-  warning: { icon: 'warning', fill: 'warningSoft', edge: 'warning', ink: 'warningText' },
-  critical: { icon: 'alert-circle', fill: 'criticalSoft', edge: 'critical', ink: 'criticalText' },
+const LOOK: Record<Tone, { icon: IconName; fill: keyof Palette; ink: keyof Palette; dot: keyof Palette }> = {
+  info: { icon: 'information-circle', fill: 'brandSoft', ink: 'brandStrong', dot: 'brand' },
+  good: { icon: 'checkmark-circle', fill: 'goodSoft', ink: 'goodText', dot: 'good' },
+  warning: { icon: 'warning', fill: 'warningSoft', ink: 'warningText', dot: 'warning' },
+  serious: { icon: 'alert-circle', fill: 'seriousSoft', ink: 'seriousText', dot: 'serious' },
+  critical: { icon: 'alert-circle', fill: 'criticalSoft', ink: 'criticalText', dot: 'critical' },
+  ai: { icon: 'hand-left', fill: 'aiSoft', ink: 'aiText', dot: 'ai' },
 };
 
 interface BannerProps {
@@ -22,53 +32,71 @@ interface BannerProps {
   onPress?: () => void;
 }
 
-/** A coloured strip that says one thing that matters now. Colour is never the only signal: there is always an icon and words. */
+/** A tinted panel that says one thing that matters now. Colour is never the only signal: there is always an icon and words. */
 export function Banner({ tone, title, children, icon, onPress }: BannerProps) {
   const { colors } = useTheme();
   const look = LOOK[tone];
-  const body = (
-    <View
-      style={{
-        flexDirection: 'row',
-        gap: space.md,
-        padding: space.lg,
-        borderRadius: radius.lg,
-        backgroundColor: colors[look.fill],
-        borderLeftWidth: 5,
-        borderLeftColor: colors[look.edge],
-      }}
-    >
-      <Icon name={icon ?? look.icon} size={26} tone={look.ink} />
+  const box: ViewStyle = {
+    flexDirection: 'row',
+    gap: space.md,
+    padding: space.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors[look.fill],
+  };
+  const content = (
+    <>
+      <Icon name={icon ?? look.icon} size={24} tone={look.ink} />
       <View style={{ flex: 1, gap: 2 }}>
         <Text variant="bodyStrong" tone={tone === 'info' ? 'text' : look.ink}>
           {title}
         </Text>
-        {typeof children === 'string' ? <Text variant="label" tone="text">{children}</Text> : children}
+        {typeof children === 'string' ? (
+          <Text variant="label" tone="text">
+            {children}
+          </Text>
+        ) : (
+          children
+        )}
       </View>
-      {onPress ? <Icon name="chevron-forward" size={22} tone="textMuted" /> : null}
-    </View>
+      {onPress ? <Icon name="chevron-forward" size={20} tone="textMuted" /> : null}
+    </>
   );
-  if (!onPress) return body;
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
-      {body}
-    </Pressable>
+    <Animated.View entering={arrive()} exiting={leave}>
+      {onPress ? (
+        <Touchable accessibilityRole="button" onPress={onPress} pressScale={0.98} style={box}>
+          {content}
+        </Touchable>
+      ) : (
+        <View style={box}>{content}</View>
+      )}
+    </Animated.View>
   );
 }
 
-/** A small status tag: "Waiting to send", "High". */
-export function Pill({ label, tone = 'info', icon }: { label: string; tone?: Tone | 'neutral'; icon?: IconName }) {
+interface PillProps {
+  label: string;
+  tone?: Tone | 'neutral';
+  icon?: IconName;
+  /** A breathing dot before the label: this is happening now. */
+  live?: boolean;
+  /** Turn the icon: something is on its way. */
+  spin?: boolean;
+}
+
+/** A small status chip on a soft fill: "Waiting to send", "On track", "High". */
+export function Pill({ label, tone = 'info', icon, live, spin }: PillProps) {
   const { colors } = useTheme();
   const look =
     tone === 'neutral'
-      ? { fill: colors.sunken, ink: 'textSecondary' as const }
-      : { fill: colors[LOOK[tone].fill], ink: LOOK[tone].ink };
+      ? { fill: colors.sunken, ink: 'textSecondary' as const, dot: colors.textMuted }
+      : { fill: colors[LOOK[tone].fill], ink: LOOK[tone].ink, dot: colors[LOOK[tone].dot] };
   return (
     <View
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
+        gap: 6,
         alignSelf: 'flex-start',
         paddingHorizontal: space.sm + 2,
         paddingVertical: 4,
@@ -76,8 +104,14 @@ export function Pill({ label, tone = 'info', icon }: { label: string; tone?: Ton
         backgroundColor: look.fill,
       }}
     >
-      {icon ? <Icon name={icon} size={14} tone={look.ink} /> : null}
-      <Text variant="caption" tone={look.ink} style={{ fontWeight: '700' }}>
+      {icon ? (
+        <Spin active={!!spin}>
+          <Icon name={icon} size={14} tone={look.ink} />
+        </Spin>
+      ) : live != null ? (
+        <StatusDot color={look.dot} size={7} pulse={live} />
+      ) : null}
+      <Text variant="caption" tone={look.ink} style={{ fontWeight: '600' }}>
         {label}
       </Text>
     </View>

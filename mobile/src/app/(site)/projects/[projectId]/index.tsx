@@ -1,23 +1,27 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
 import { EntryCard, PendingEntryCard } from '@/components/site/entry-card';
 import { Freshness, OfflineStrip } from '@/components/site/freshness';
 import { MilestoneRow, MilestoneSheet } from '@/components/site/milestones';
+import { SiteSkeleton } from '@/components/site/skeletons';
 import {
+  Appear,
   Banner,
   Button,
   Card,
   Divider,
   EmptyState,
   Icon,
-  Loading,
   Pill,
   ProgressRing,
   Screen,
   Section,
+  StatusDot,
   Text,
+  Ticker,
   useToast,
   type IconName,
 } from '@/components/ui';
@@ -31,9 +35,10 @@ import { pendingFor, queueMilestone, useOutbox } from '@/lib/outbox/store';
 import { syncNow, syncStatus } from '@/lib/outbox/sync';
 import { useMarkAlertsRead, useSite } from '@/lib/queries';
 import { usePairing } from '@/lib/session';
-import { stageLabel } from '@/lib/stages';
+import { isBuildStage, stageLabel } from '@/lib/stages';
 import type { Milestone, SiteAlert } from '@/lib/types';
-import { space, useTheme } from '@/theme';
+import { radius, space, useTheme, type Palette } from '@/theme';
+import { leave } from '@/theme/motion';
 
 /** One project as the site sees it: how far along, what is wrong, and the button to log today. */
 export default function SiteHome() {
@@ -53,10 +58,10 @@ export default function SiteHome() {
 
   if (isPending) {
     return (
-      <>
+      <Screen edges={['left', 'right']} header={<OfflineStrip online={online} />}>
         {title}
-        <Loading label="Loading the site…" />
-      </>
+        <SiteSkeleton />
+      </Screen>
     );
   }
 
@@ -112,22 +117,27 @@ export default function SiteHome() {
   };
 
   return (
-    <Screen
-      edges={['left', 'right']}
-      header={<OfflineStrip online={online} />}
-      refreshing={pull.refreshing}
-      onRefresh={pull.onRefresh}
-    >
+    <Screen edges={['left', 'right']} header={<OfflineStrip online={online} />} refreshing={pull.refreshing} onRefresh={pull.onRefresh}>
       {title}
       {/* The name is in the navigation bar above; this is what sits under it. */}
-      <View style={{ gap: 2 }}>
-        <Text variant="bodyStrong" tone="textSecondary">
-          {project.reference} · {project.stageLabel || stageLabel(project.stage)}
-        </Text>
-        {place ? <Text variant="label">{place}</Text> : null}
+      <View style={{ gap: space.sm }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space.sm }}>
+          <Text variant="label" mono tone="textSecondary" style={{ fontSize: 14 }}>
+            {project.reference}
+          </Text>
+          <Pill label={project.stageLabel || stageLabel(project.stage)} tone={isBuildStage(project.stage) ? 'info' : 'neutral'} />
+        </View>
+        {place ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Icon name="location-outline" size={16} tone="textMuted" />
+            <Text variant="label" style={{ flex: 1 }} numberOfLines={1}>
+              {place}
+            </Text>
+          </View>
+        ) : null}
+        <Freshness data={data} fetching={isFetching} online={online} />
       </View>
 
-      <Freshness data={data} fetching={isFetching} online={online} />
       {/* No signal falls back to the saved copy quietly; a refusal from the server (403, 404, 5xx) is said out loud. */}
       {error ? (
         <Banner tone="critical" title="Could not refresh this project">
@@ -141,100 +151,128 @@ export default function SiteHome() {
         </Banner>
       ) : null}
 
-      <Card>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
-          <ProgressRing percent={progress.percent} size={132} stroke={13} />
-          <View style={{ flex: 1, gap: space.sm }}>
-            {progress.milestones > 0 ? (
-              <Text variant="bodyStrong">
-                {progress.complete} of {plural(progress.milestones, 'milestone')} done
-              </Text>
-            ) : (
-              <Text variant="body" tone="textSecondary">
-                No milestones yet. The project lead sets them up in the web app.
-              </Text>
-            )}
-            {progress.lastEntry ? (
-              <Text variant="label">
-                Last entry: {dayLabel(progress.lastEntry.date)}, by {authorName(progress.lastEntry.author)}
-                {progress.lastEntry.manpower ? ` · ${plural(progress.lastEntry.manpower, 'person', 'people')} on site` : ''}
-              </Text>
-            ) : (
-              <Text variant="label">Nothing logged yet.</Text>
-            )}
-            {progress.openIssues > 0 ? <Text variant="label">{plural(progress.openIssues, 'problem')} reported from site</Text> : null}
+      <Appear index={0}>
+        <Card>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg }}>
+            <ProgressRing percent={progress.percent} size={128} stroke={12} />
+            <View style={{ flex: 1, gap: space.sm }}>
+              {progress.milestones > 0 ? (
+                <View accessible accessibilityLabel={`${progress.complete} of ${plural(progress.milestones, 'milestone')} done`}>
+                  <Text variant="heading" style={{ fontSize: 24, lineHeight: 30 }}>
+                    <Ticker value={progress.complete} from={0} variant="heading" mono style={{ fontSize: 24, lineHeight: 30 }} />
+                    <Text variant="heading" tone="textMuted" style={{ fontSize: 20, lineHeight: 30 }}>
+                      {' of '}
+                    </Text>
+                    <Text variant="heading" mono tone="textMuted" style={{ fontSize: 24, lineHeight: 30 }}>
+                      {progress.milestones}
+                    </Text>
+                  </Text>
+                  <Text variant="label">{progress.milestones === 1 ? 'milestone done' : 'milestones done'}</Text>
+                </View>
+              ) : (
+                <Text variant="body" tone="textSecondary">
+                  No milestones yet. The project lead sets them up in the web app.
+                </Text>
+              )}
+              <Divider />
+              {progress.lastEntry ? (
+                <Text variant="label">
+                  Last entry: {dayLabel(progress.lastEntry.date)}, by {authorName(progress.lastEntry.author)}
+                  {progress.lastEntry.manpower ? ` · ${plural(progress.lastEntry.manpower, 'person', 'people')} on site` : ''}
+                </Text>
+              ) : (
+                <Text variant="label">Nothing logged yet.</Text>
+              )}
+              {progress.openIssues > 0 ? <Pill label={`${plural(progress.openIssues, 'problem')} reported from site`} tone="warning" icon="warning-outline" /> : null}
+            </View>
           </View>
-        </View>
-      </Card>
+        </Card>
+      </Appear>
 
-      {site.canLog ? (
-        <View style={{ gap: space.sm }}>
-          <Button title="Log today" icon="create-outline" size="xl" onPress={() => router.push(`/log/${projectId}`)} />
-          {pending.entries.length ? (
-            <Text variant="label" center>
-              {plural(pending.entries.length, 'entry', 'entries')} on this phone waiting to send
-            </Text>
-          ) : null}
-        </View>
-      ) : (
-        <Banner tone="info" title="You can see this project but not log work on it">
-          {`Your role in Construction is ${site.role ?? 'not set'}. Ask the project lead to make you a contributor.`}
-        </Banner>
-      )}
+      <Appear index={1}>
+        {site.canLog ? (
+          <View style={{ gap: space.sm }}>
+            <Button title="Log today" icon="create-outline" size="xl" onPress={() => router.push(`/log/${projectId}`)} />
+            {pending.entries.length ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm }}>
+                <StatusDot color={colors.warning} pulse />
+                <Text variant="label" center>
+                  {plural(pending.entries.length, 'entry', 'entries')} on this phone waiting to send
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : (
+          <Banner tone="info" title="You can see this project but not log work on it">
+            {`Your role in Construction is ${site.role ?? 'not set'}. Ask the project lead to make you a contributor.`}
+          </Banner>
+        )}
+      </Appear>
 
       {progress.late.length ? (
-        <Card style={{ borderLeftWidth: 5, borderLeftColor: colors.warning }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-            <Icon name="time-outline" size={22} tone="warningText" />
-            <Text variant="bodyStrong" tone="warningText">
-              {plural(progress.late.length, 'milestone')} behind schedule
-            </Text>
+        <Appear index={2}>
+          <View style={{ gap: space.sm, padding: space.lg, borderRadius: radius.lg, backgroundColor: colors.warningSoft }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+              <Icon name="time-outline" size={22} tone="warningText" />
+              <Text variant="bodyStrong" tone="warningText">
+                {plural(progress.late.length, 'milestone')} behind schedule
+              </Text>
+            </View>
+            {progress.late.map((l) => (
+              <View key={`${l.name}-${l.plannedFinish}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                <Text variant="label" tone="text" style={{ flex: 1 }} numberOfLines={2}>
+                  {l.name} — due {dayLabel(l.plannedFinish)}
+                </Text>
+                <Text variant="label" mono tone="warningText">
+                  {l.percent}%
+                </Text>
+              </View>
+            ))}
           </View>
-          {progress.late.map((l) => (
-            <Text key={`${l.name}-${l.plannedFinish}`} variant="label" tone="text">
-              {l.name} — due {dayLabel(l.plannedFinish)}, at {l.percent}%
-            </Text>
-          ))}
-        </Card>
+        </Appear>
       ) : null}
 
       {site.alerts.length ? (
-        <Section
-          title="Alerts"
-          hint={unread.length ? `${unread.length} new` : 'All read'}
-          action={unread.length ? <Button title="Mark all read" variant="ghost" block={false} onPress={markAllRead} loading={markRead.isPending} /> : null}
-        >
-          <Card padded={false}>
-            {site.alerts.map((a, i) => (
-              <View key={a.id}>
-                {i > 0 ? <Divider /> : null}
-                <AlertRow alert={a} unread={!a.readBy.includes(myEmail)} />
-              </View>
-            ))}
-          </Card>
-        </Section>
+        <Appear index={3}>
+          <Section
+            title="Alerts"
+            hint={unread.length ? `${unread.length} new` : 'All read'}
+            action={unread.length ? <Button title="Mark all read" variant="ghost" block={false} onPress={markAllRead} loading={markRead.isPending} /> : null}
+          >
+            <Card padded={false} style={{ gap: 0 }}>
+              {site.alerts.map((a, i) => (
+                <View key={a.id}>
+                  {i > 0 ? <Divider inset={space.lg + 40} /> : null}
+                  <AlertRow alert={a} unread={!a.readBy.includes(myEmail)} />
+                </View>
+              ))}
+            </Card>
+          </Section>
+        </Appear>
       ) : null}
 
-      <Section title="Milestones" hint={site.milestones.length && site.canLog ? 'Tap one to update how far along it is' : undefined}>
-        {site.milestones.length ? (
-          <Card style={{ paddingVertical: space.xs, gap: 0 }}>
-            {site.milestones.map((m, i) => (
-              <View key={m.id}>
-                {i > 0 ? <Divider /> : null}
-                <MilestoneRow
-                  milestone={m}
-                  pendingPercent={pending.milestones.get(m.id)?.payload.percent}
-                  onPress={site.canLog ? () => setEditing(m) : undefined}
-                />
-              </View>
-            ))}
-          </Card>
-        ) : (
-          <Text variant="body" tone="textSecondary">
-            This project has no milestones yet.
-          </Text>
-        )}
-      </Section>
+      <Appear index={4}>
+        <Section title="Milestones" hint={site.milestones.length && site.canLog ? 'Tap one to update how far along it is' : undefined}>
+          {site.milestones.length ? (
+            <Card style={{ paddingVertical: space.xs, gap: 0 }}>
+              {site.milestones.map((m, i) => (
+                <View key={m.id}>
+                  {i > 0 ? <Divider /> : null}
+                  <MilestoneRow
+                    milestone={m}
+                    pendingPercent={pending.milestones.get(m.id)?.payload.percent}
+                    onPress={site.canLog ? () => setEditing(m) : undefined}
+                  />
+                </View>
+              ))}
+            </Card>
+          ) : (
+            <Text variant="body" tone="textSecondary">
+              This project has no milestones yet.
+            </Text>
+          )}
+        </Section>
+      </Appear>
 
       <Section title="Recent entries">
         {pending.entries.length === 0 && site.log.length === 0 ? (
@@ -242,11 +280,15 @@ export default function SiteHome() {
             No entries yet. The first one starts the project’s site diary.
           </Text>
         ) : null}
-        {[...pending.entries].reverse().map((item) => (
-          <PendingEntryCard key={item.id} item={item} milestones={site.milestones} />
+        {[...pending.entries].reverse().map((item, i) => (
+          <Appear key={item.id} index={5 + i}>
+            <PendingEntryCard item={item} milestones={site.milestones} />
+          </Appear>
         ))}
-        {site.log.map((entry) => (
-          <EntryCard key={entry.id} projectId={projectId} entry={entry} milestones={site.milestones} />
+        {site.log.map((entry, i) => (
+          <Appear key={entry.id} index={5 + pending.entries.length + i}>
+            <EntryCard projectId={projectId} entry={entry} milestones={site.milestones} />
+          </Appear>
         ))}
       </Section>
 
@@ -260,23 +302,30 @@ export default function SiteHome() {
   );
 }
 
-const ALERT_ICON: Record<SiteAlert['severity'], { icon: IconName; tone: 'criticalText' | 'warningText' | 'brandStrong' }> = {
-  critical: { icon: 'alert-circle', tone: 'criticalText' },
-  warning: { icon: 'warning', tone: 'warningText' },
-  info: { icon: 'information-circle', tone: 'brandStrong' },
+const ALERT_LOOK: Record<SiteAlert['severity'], { icon: IconName; tone: keyof Palette; fill: keyof Palette }> = {
+  critical: { icon: 'alert-circle', tone: 'criticalText', fill: 'criticalSoft' },
+  warning: { icon: 'warning', tone: 'warningText', fill: 'warningSoft' },
+  info: { icon: 'information-circle', tone: 'brandStrong', fill: 'brandSoft' },
 };
 
 function AlertRow({ alert, unread }: { alert: SiteAlert; unread: boolean }) {
-  const look = ALERT_ICON[alert.severity] ?? ALERT_ICON.info;
+  const { colors } = useTheme();
+  const look = ALERT_LOOK[alert.severity] ?? ALERT_LOOK.info;
   return (
     <View style={{ flexDirection: 'row', gap: space.md, padding: space.lg }}>
-      <Icon name={look.icon} size={24} tone={look.tone} />
+      <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors[look.fill] }}>
+        <Icon name={look.icon} size={22} tone={look.tone} />
+      </View>
       <View style={{ flex: 1, gap: 2 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
           <Text variant={unread ? 'bodyStrong' : 'body'} style={{ flex: 1 }}>
             {alert.title}
           </Text>
-          {unread ? <Pill label="New" tone="info" /> : null}
+          {unread ? (
+            <Animated.View exiting={leave}>
+              <Pill label="New" tone="info" live={false} />
+            </Animated.View>
+          ) : null}
         </View>
         <Text variant="label">{alert.detail}</Text>
         <Text variant="caption">{ago(alert.raisedAt)}</Text>

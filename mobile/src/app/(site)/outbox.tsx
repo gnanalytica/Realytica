@@ -1,9 +1,25 @@
 import { useCallback } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
 import { OfflineStrip } from '@/components/site/freshness';
 import { LocalPhotoThumb } from '@/components/site/photo-thumb';
-import { Banner, Button, ButtonRow, Card, EmptyState, Icon, Pill, Screen, Text, useToast, type IconName } from '@/components/ui';
+import {
+  Appear,
+  Banner,
+  Button,
+  ButtonRow,
+  Card,
+  EmptyState,
+  Icon,
+  Pill,
+  ProgressBar,
+  Screen,
+  Spin,
+  Text,
+  useToast,
+  type IconName,
+} from '@/components/ui';
 import { useOnline } from '@/hooks/use-online';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { ask } from '@/lib/confirm';
@@ -12,7 +28,8 @@ import { belongsTo, type OutboxItem } from '@/lib/outbox/engine';
 import { clearAttention, dropUnsentPhotos, photosToDrop, removeItem, useOutbox } from '@/lib/outbox/store';
 import { syncNow, useSyncStatus } from '@/lib/outbox/sync';
 import { usePairing } from '@/lib/session';
-import { space, useTheme } from '@/theme';
+import { radius, space, useTheme, type Palette } from '@/theme';
+import { appear, pop } from '@/theme/motion';
 
 /** What is waiting to send, what the server refused and why, and a button to send now. */
 export default function OutboxScreen() {
@@ -37,41 +54,54 @@ export default function OutboxScreen() {
     else if (report.lastError) toast.show(report.lastError, 'error');
   };
 
+  const summary = sync.running
+    ? 'Sending…'
+    : mine.length === 0
+      ? 'Everything is sent'
+      : [waiting ? `${plural(waiting, 'item')} waiting to send` : '', held.length ? `${held.length} need${held.length === 1 ? 's' : ''} your attention` : '']
+          .filter(Boolean)
+          .join(' · ');
+  const state: StatusState = sync.running ? 'sending' : mine.length === 0 ? 'clear' : held.length ? 'held' : 'waiting';
+
   return (
     <Screen header={<OfflineStrip online={online} />} onRefresh={pull.onRefresh} refreshing={pull.refreshing}>
       <Text variant="title" accessibilityRole="header">
         Outbox
       </Text>
 
-      <Card>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-          <StatusIcon running={sync.running} empty={mine.length === 0} held={held.length > 0} />
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text variant="bodyStrong" style={{ fontSize: 18 }}>
-              {sync.running
-                ? 'Sending…'
-                : mine.length === 0
-                  ? 'Everything is sent'
-                  : [waiting ? `${plural(waiting, 'item')} waiting to send` : '', held.length ? `${held.length} need${held.length === 1 ? 's' : ''} your attention` : '']
-                      .filter(Boolean)
-                      .join(' · ')}
-            </Text>
-            <Text variant="label">
-              {online === false ? 'No signal right now.' : 'Connected.'}
-              {sync.lastSentAt ? ` Last sent ${ago(sync.lastSentAt)}.` : ''}
-            </Text>
+      <Appear index={0}>
+        <Card>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+            <StatusBadge state={state} />
+            <View style={{ flex: 1, gap: 2 }}>
+              {/* Keyed by what it says, so a new state fades in rather than snapping. */}
+              <Animated.View key={summary} entering={appear}>
+                <Text variant="bodyStrong" style={{ fontSize: 18 }} accessibilityLiveRegion="polite">
+                  {summary}
+                </Text>
+              </Animated.View>
+              <Text variant="label">
+                {online === false ? 'No signal right now.' : 'Connected.'}
+                {sync.lastSentAt ? ` Last sent ${ago(sync.lastSentAt)}.` : ''}
+              </Text>
+            </View>
           </View>
-        </View>
-        {mine.length ? <Button title={sync.running ? 'Sending…' : 'Send now'} icon="cloud-upload-outline" size="lg" onPress={() => void sendNow()} disabled={sync.running} /> : null}
-        <Text variant="caption">Saved work sends itself when the app opens, when signal comes back, and every minute while the app is open.</Text>
-      </Card>
+          {mine.length ? (
+            <Button title={sync.running ? 'Sending…' : 'Send now'} icon="cloud-upload-outline" size="lg" onPress={() => void sendNow()} disabled={sync.running} />
+          ) : null}
+          <Text variant="caption">Saved work sends itself when the app opens, when signal comes back, and every minute while the app is open.</Text>
+        </Card>
+      </Appear>
 
       {mine.length === 0 && others.length === 0 ? (
         <EmptyState icon="checkmark-done-outline" title="Nothing waiting" body="Entries and milestone changes you save appear here until they reach the server." />
       ) : null}
 
-      {mine.map((item) => (
-        <ItemCard key={item.id} item={item} sending={sync.sendingId === item.id} />
+      {mine.map((item, i) => (
+        // Sent items leave the list, and the rest close up behind them.
+        <Appear key={item.id} index={i + 1}>
+          <ItemCard item={item} sending={sync.sendingId === item.id} />
+        </Appear>
       ))}
 
       {others.length ? (
@@ -79,22 +109,37 @@ export default function OutboxScreen() {
           {`Saved while ${[...new Set(others.map((o) => o.owner.email))].join(', ')} was signed in. They send when that person pairs this phone again.`}
         </Banner>
       ) : null}
-      {others.map((item) => (
-        <ItemCard key={item.id} item={item} sending={false} foreign />
+      {others.map((item, i) => (
+        <Appear key={item.id} index={mine.length + i + 1}>
+          <ItemCard item={item} sending={false} foreign />
+        </Appear>
       ))}
     </Screen>
   );
 }
 
-function StatusIcon({ running, empty, held }: { running: boolean; empty: boolean; held: boolean }) {
+type StatusState = 'sending' | 'clear' | 'held' | 'waiting';
+
+const BADGE: Record<StatusState, { icon: IconName; tone: keyof Palette; fill: keyof Palette }> = {
+  sending: { icon: 'sync', tone: 'brandStrong', fill: 'brandSoft' },
+  clear: { icon: 'checkmark-done', tone: 'goodText', fill: 'goodSoft' },
+  held: { icon: 'hand-left', tone: 'aiText', fill: 'aiSoft' },
+  waiting: { icon: 'cloud-upload', tone: 'warningText', fill: 'warningSoft' },
+};
+
+/** The outbox at a glance: a turning arrow while sending, a tick when clear, a hand when something waits on you. */
+function StatusBadge({ state }: { state: StatusState }) {
   const { colors } = useTheme();
-  if (running) return <ActivityIndicator color={colors.brand} size="large" />;
-  const look: { icon: IconName; tone: 'goodText' | 'criticalText' | 'warningText' } = empty
-    ? { icon: 'checkmark-circle', tone: 'goodText' }
-    : held
-      ? { icon: 'alert-circle', tone: 'criticalText' }
-      : { icon: 'cloud-upload', tone: 'warningText' };
-  return <Icon name={look.icon} size={36} tone={look.tone} />;
+  const look = BADGE[state];
+  return (
+    <View style={{ width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: colors[look.fill] }}>
+      <Animated.View key={state} entering={pop()}>
+        <Spin active={state === 'sending'}>
+          <Icon name={look.icon} size={28} tone={look.tone} />
+        </Spin>
+      </Animated.View>
+    </View>
+  );
 }
 
 function describe(item: OutboxItem): { title: string; detail: string; icon: IconName } {
@@ -109,17 +154,18 @@ function describe(item: OutboxItem): { title: string; detail: string; icon: Icon
     item.localPhotos.length ? plural(item.localPhotos.length, 'photo') : '',
     p.milestoneUpdates?.length ? plural(p.milestoneUpdates.length, 'milestone') : '',
   ].filter(Boolean);
-  const uploaded = item.localPhotos.filter((ph) => ph.uploaded).length;
-  if (item.localPhotos.length && uploaded) bits.push(`${uploaded} of ${item.localPhotos.length} photos uploaded`);
   return { title: `Site log · ${dayLabel(p.date)}`, detail: bits.join(' · ') || 'Site log', icon: 'clipboard-outline' };
 }
 
 function ItemCard({ item, sending, foreign }: { item: OutboxItem; sending: boolean; foreign?: boolean }) {
   const toast = useToast();
+  const { colors } = useTheme();
   const { title, detail, icon } = describe(item);
   const failedPhotos = photosToDrop(item).length;
   // Offered only when the photos themselves were the problem — not when the person lacks permission altogether.
   const photosRefused = !!item.needsAttention && item.failedStep === 'photos' && item.lastStatus !== 403 && item.lastStatus !== 404 && failedPhotos > 0;
+  const photos = item.kind === 'site-log' ? item.localPhotos : [];
+  const uploaded = photos.filter((ph) => ph.uploaded).length;
 
   const retry = async () => {
     await clearAttention(item.id);
@@ -144,38 +190,55 @@ function ItemCard({ item, sending, foreign }: { item: OutboxItem; sending: boole
   return (
     <Card>
       <View style={{ flexDirection: 'row', gap: space.md, alignItems: 'flex-start' }}>
-        <Icon name={icon} size={26} tone="textSecondary" />
+        <View style={{ width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.sunken }}>
+          <Icon name={icon} size={22} tone="textSecondary" />
+        </View>
         <View style={{ flex: 1, gap: space.xs }}>
           <Text variant="bodyStrong">{title}</Text>
           <Text variant="label">{item.projectName}</Text>
           <Text variant="caption">{detail}</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, alignItems: 'center', marginTop: 2 }}>
             {sending ? (
-              <Pill label="Sending now" tone="info" icon="cloud-upload-outline" />
+              <Pill label="Sending now" tone="info" icon="sync" spin />
             ) : foreign ? (
               <Pill label={`Waiting for ${item.owner.email}`} tone="neutral" />
             ) : item.needsAttention ? (
-              <Pill label="Needs attention" tone="critical" icon="alert-circle" />
+              <Pill label="Needs attention" tone="ai" icon="hand-left" />
             ) : item.attempts > 0 ? (
-              <Pill label="Could not send yet" tone="warning" />
+              <Pill label="Could not send yet" tone="warning" live={false} />
             ) : (
-              <Pill label="Waiting to send" tone="warning" />
+              <Pill label="Waiting to send" tone="warning" live={false} />
             )}
             <Text variant="caption">Saved {ago(item.createdAt)}</Text>
           </View>
         </View>
       </View>
 
-      {item.kind === 'site-log' && item.localPhotos.length ? (
+      {photos.length ? (
         <View style={{ flexDirection: 'row', gap: space.xs, flexWrap: 'wrap' }}>
-          {item.localPhotos.slice(0, 6).map((p) => (
-            <LocalPhotoThumb key={p.id} uri={p.uri} size={52} />
+          {photos.slice(0, 6).map((p, i) => (
+            <Animated.View key={p.id} entering={pop(i)}>
+              <LocalPhotoThumb uri={p.uri} size={52} />
+            </Animated.View>
           ))}
         </View>
       ) : null}
 
+      {/* Photos go up first; once any are on the server, show how far the entry has got. */}
+      {photos.length && (uploaded > 0 || sending) ? (
+        <View style={{ gap: space.xs }}>
+          <ProgressBar percent={(uploaded / photos.length) * 100} height={6} />
+          <Text variant="caption">
+            <Text variant="caption" mono>
+              {uploaded} of {photos.length}
+            </Text>{' '}
+            photos uploaded
+          </Text>
+        </View>
+      ) : null}
+
       {item.lastError ? (
-        <Text variant="label" tone={item.needsAttention ? 'criticalText' : 'textSecondary'}>
+        <Text variant="label" tone={item.needsAttention ? 'aiText' : 'textSecondary'}>
           {item.needsAttention ? item.lastError : `Last try ${ago(item.lastTriedAt)}: ${item.lastError}`}
         </Text>
       ) : null}

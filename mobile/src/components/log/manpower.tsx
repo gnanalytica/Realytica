@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
-import { Button, Chip, ChipRow, Field, Icon, IconButton, Stepper, Text } from '@/components/ui';
+import { Button, Chip, ChipRow, Field, Icon, IconButton, Stepper, Text, Ticker } from '@/components/ui';
 import type { DraftManpower } from '@/lib/drafts';
-import { plural } from '@/lib/format';
 import { newId } from '@/lib/ids';
 import { TRADES } from '@/lib/site-options';
 import { radius, space, useTheme } from '@/theme';
+import { arrive, leave, reflow } from '@/theme/motion';
 
 /** The API keeps at most 40 trades per entry. */
 const MAX_ROWS = 40;
@@ -19,10 +20,11 @@ interface Props {
 /**
  * Who was on site, by trade. Tap a trade to add it with one person, then use
  * the big minus and plus (or type the number). Any trade not in the list can
- * be typed in.
+ * be typed in. A tapped trade leaves the chips and lands as a row; the total
+ * counts up as people are added.
  */
 export function ManpowerEditor({ rows, onChange }: Props) {
-  const { colors } = useTheme();
+  const { colors, shadow } = useTheme();
   const [other, setOther] = useState('');
   const total = rows.reduce((n, r) => n + r.count, 0);
   const has = (trade: string) => rows.some((r) => r.trade.toLowerCase() === trade.toLowerCase());
@@ -39,17 +41,21 @@ export function ManpowerEditor({ rows, onChange }: Props) {
   return (
     <View style={{ gap: space.md }}>
       {rows.map((r) => (
-        <View
+        <Animated.View
           key={r.key}
+          entering={arrive()}
+          exiting={leave}
+          layout={reflow}
           style={{
             gap: space.xs,
             paddingLeft: space.md,
             paddingRight: space.xs,
             paddingBottom: space.md,
-            borderRadius: radius.md,
-            backgroundColor: colors.surfaceRaised,
+            borderRadius: radius.lg,
+            backgroundColor: colors.surface,
             borderWidth: 1,
             borderColor: colors.hairline,
+            boxShadow: shadow.card,
           }}
         >
           {/* Two lines rather than one, so "Electrician" never has to share a narrow phone with the stepper. */}
@@ -63,30 +69,36 @@ export function ManpowerEditor({ rows, onChange }: Props) {
             <Stepper value={r.count} onChange={(n) => setCount(r.key, n)} label={r.trade} />
             <Text variant="label">{r.count === 1 ? 'person' : 'people'}</Text>
           </View>
-        </View>
+        </Animated.View>
       ))}
 
       {rows.length ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+        <Animated.View
+          entering={arrive()}
+          layout={reflow}
+          accessible
+          accessibilityLabel={`${total} ${total === 1 ? 'person' : 'people'} on site`}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+        >
           <Icon name="people" size={20} tone="brandStrong" />
           <Text variant="bodyStrong" tone="brandStrong">
-            {plural(total, 'person', 'people')} on site
+            <Ticker value={total} variant="bodyStrong" mono tone="brandStrong" /> {total === 1 ? 'person' : 'people'} on site
           </Text>
-        </View>
+        </Animated.View>
       ) : null}
 
       {available.length ? (
-        <View style={{ gap: space.sm }}>
+        <Animated.View layout={reflow} style={{ gap: space.sm }}>
           <Text variant="label">{rows.length ? 'Add another trade' : 'Tap a trade to add it'}</Text>
           <ChipRow>
             {available.map((t) => (
               <Chip key={t} label={t} onPress={() => add(t)} leading={<Icon name="add" size={20} tone="textSecondary" />} />
             ))}
           </ChipRow>
-        </View>
+        </Animated.View>
       ) : null}
 
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.sm }}>
+      <Animated.View layout={reflow} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.sm }}>
         <Field
           containerStyle={{ flex: 1 }}
           label="Another trade"
@@ -104,13 +116,15 @@ export function ManpowerEditor({ rows, onChange }: Props) {
           title="Add"
           variant="secondary"
           block={false}
+          // Level with the text box beside it, not with its label.
+          style={{ alignSelf: 'flex-end' }}
           disabled={!other.trim() || has(other.trim())}
           onPress={() => {
             add(other);
             setOther('');
           }}
         />
-      </View>
+      </Animated.View>
     </View>
   );
 }

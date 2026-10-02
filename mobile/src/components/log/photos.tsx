@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
 import { LocalPhotoThumb } from '@/components/site/photo-thumb';
 import { Button, ButtonRow, Field, Icon, IconButton, Text, useToast } from '@/components/ui';
@@ -9,6 +10,7 @@ import { choosePhotos, deletePhotoFiles, takePhoto, type PickResult } from '@/li
 import { openPhoneSettings } from '@/lib/push';
 import { viewLocalPhoto } from '@/lib/viewer';
 import { radius, space, useTheme } from '@/theme';
+import { appear, arrive, leave, pop, reflow } from '@/theme/motion';
 
 /** The API keeps at most 40 photos per entry. */
 export const MAX_PHOTOS = 40;
@@ -18,8 +20,9 @@ interface Props {
   onChange: (change: (photos: LocalPhoto[]) => LocalPhoto[]) => void;
 }
 
+/** Photos for the day: each new one arrives as a row whose thumbnail pops in; removed ones fade and the rest close up. */
 export function PhotosEditor({ photos, onChange }: Props) {
-  const { colors } = useTheme();
+  const { colors, shadow } = useTheme();
   const toast = useToast();
   const [busy, setBusy] = useState<'camera' | 'library' | null>(null);
   const room = MAX_PHOTOS - photos.length;
@@ -78,30 +81,32 @@ export function PhotosEditor({ photos, onChange }: Props) {
         />
       </ButtonRow>
       {busy ? (
-        <View style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center' }}>
+        <Animated.View entering={appear} exiting={leave} style={{ flexDirection: 'row', gap: space.sm, alignItems: 'center' }}>
           <ActivityIndicator color={colors.brand} />
           <Text variant="label">Making the photo smaller to send…</Text>
-        </View>
+        </Animated.View>
       ) : null}
 
       {photos.map((p, i) => (
-        <View
+        <Animated.View
           key={p.id}
+          entering={arrive()}
+          exiting={leave}
+          layout={reflow}
           style={{
             flexDirection: 'row',
             gap: space.md,
             padding: space.sm,
-            borderRadius: radius.md,
-            backgroundColor: colors.surfaceRaised,
+            borderRadius: radius.lg,
+            backgroundColor: colors.surface,
             borderWidth: 1,
             borderColor: colors.hairline,
+            boxShadow: shadow.card,
           }}
         >
-          <LocalPhotoThumb
-            uri={p.uri}
-            size={92}
-            onPress={() => viewLocalPhoto(p)}
-          />
+          <Animated.View entering={pop(1)}>
+            <LocalPhotoThumb uri={p.uri} size={92} onPress={() => viewLocalPhoto(p)} />
+          </Animated.View>
           <View style={{ flex: 1, gap: space.xs }}>
             <Field
               value={p.caption ?? ''}
@@ -120,12 +125,17 @@ export function PhotosEditor({ photos, onChange }: Props) {
             </View>
           </View>
           <IconButton icon="trash-outline" label={`Remove photo ${i + 1}`} tone="textMuted" onPress={() => remove(p)} />
-        </View>
+        </Animated.View>
       ))}
       {photos.length ? (
-        <Text variant="caption">
-          {photos.length} of {MAX_PHOTOS} photos. Each is shrunk on the phone before it is sent.
-        </Text>
+        <Animated.View layout={reflow}>
+          <Text variant="caption">
+            <Text variant="caption" mono>
+              {photos.length} of {MAX_PHOTOS}
+            </Text>{' '}
+            photos. Each is shrunk on the phone before it is sent.
+          </Text>
+        </Animated.View>
       ) : null}
     </View>
   );

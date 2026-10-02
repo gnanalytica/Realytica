@@ -1,21 +1,40 @@
 import { router } from 'expo-router';
 import type { ReactNode } from 'react';
 import { ScrollView, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
 import { Button, Card, Icon, Pill, Text, WeatherIcon, type IconName } from '@/components/ui';
-import { authorName, dayLabel, plural } from '@/lib/format';
+import { authorName, dayLabel } from '@/lib/format';
 import type { SiteLogItem } from '@/lib/outbox/engine';
 import { severityLabel, severityTone, weatherIcon } from '@/lib/site-options';
 import type { Milestone, SiteIssue, SiteLogEntry } from '@/lib/types';
 import { viewFiledPhoto, viewLocalPhoto } from '@/lib/viewer';
-import { space } from '@/theme';
+import { radius, space, useTheme } from '@/theme';
+import { pop } from '@/theme/motion';
 import { LocalPhotoThumb, RemotePhoto } from './photo-thumb';
 
-function Stat({ icon, label }: { icon: IconName; label: string }) {
+/** A small figure with its icon on a grey tile: "24 people on site". */
+function Stat({ icon, count, label }: { icon: IconName; count: number; label: string }) {
+  const { colors } = useTheme();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-      <Icon name={icon} size={18} tone="textSecondary" />
-      <Text variant="label">{label}</Text>
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: space.sm + 2,
+        paddingVertical: 5,
+        borderRadius: radius.pill,
+        backgroundColor: colors.sunken,
+      }}
+    >
+      <Icon name={icon} size={16} tone="textSecondary" />
+      <Text variant="label" tone="text">
+        <Text variant="label" mono tone="text">
+          {count}
+        </Text>{' '}
+        {label}
+      </Text>
     </View>
   );
 }
@@ -40,8 +59,9 @@ function Body({ entry, milestones, byline, badge }: { entry: Shape; milestones: 
             {dayLabel(entry.date)}
           </Text>
           {byline ? <Text variant="caption">{byline}</Text> : null}
+          {/* Its own line under the byline, so the date, byline and weather never have to squeeze round it. */}
+          {badge ? <View style={{ marginTop: space.xs }}>{badge}</View> : null}
         </View>
-        {badge}
         {entry.weather ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <WeatherIcon name={weatherIcon(entry.weather)} size={20} tone="textSecondary" />
@@ -50,9 +70,9 @@ function Body({ entry, milestones, byline, badge }: { entry: Shape; milestones: 
         ) : null}
       </View>
       {people > 0 || entry.issues.length > 0 ? (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.lg }}>
-          {people > 0 ? <Stat icon="people-outline" label={`${plural(people, 'person', 'people')} on site`} /> : null}
-          {entry.issues.length > 0 ? <Stat icon="warning-outline" label={plural(entry.issues.length, 'problem')} /> : null}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+          {people > 0 ? <Stat icon="people-outline" count={people} label={people === 1 ? 'person on site' : 'people on site'} /> : null}
+          {entry.issues.length > 0 ? <Stat icon="warning-outline" count={entry.issues.length} label={entry.issues.length === 1 ? 'problem' : 'problems'} /> : null}
         </View>
       ) : null}
       {entry.workDone ? (
@@ -61,11 +81,17 @@ function Body({ entry, milestones, byline, badge }: { entry: Shape; milestones: 
         </Text>
       ) : null}
       {entry.milestoneUpdates.length ? (
-        <View style={{ gap: 2 }}>
+        <View style={{ gap: 4 }}>
           {entry.milestoneUpdates.map((u) => (
-            <Text key={u.milestoneId} variant="label">
-              {names.get(u.milestoneId) ?? 'A milestone'} → {u.percent}%
-            </Text>
+            <View key={u.milestoneId} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+              <Icon name="flag-outline" size={16} tone="brandStrong" />
+              <Text variant="label" tone="text" style={{ flex: 1 }} numberOfLines={1}>
+                {names.get(u.milestoneId) ?? 'A milestone'}
+              </Text>
+              <Text variant="label" mono tone="brandStrong">
+                → {u.percent}%
+              </Text>
+            </View>
           ))}
         </View>
       ) : null}
@@ -85,21 +111,22 @@ function Body({ entry, milestones, byline, badge }: { entry: Shape; milestones: 
   );
 }
 
-/** An entry the server has filed. */
+/** An entry the server has filed. Its photos pop in one after another. */
 export function EntryCard({ projectId, entry, milestones }: { projectId: string; entry: SiteLogEntry; milestones: Milestone[] }) {
   return (
     <Card>
       <Body entry={entry} milestones={milestones} byline={authorName(entry.author)} />
       {entry.photos.length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
-          {entry.photos.map((p) => (
-            <RemotePhoto
-              key={p.index}
-              projectId={projectId}
-              entryId={entry.id}
-              index={p.index}
-              onPress={() => viewFiledPhoto({ projectId, entryId: entry.id, index: p.index, caption: p.caption, takenAt: p.takenAt, point: p.point })}
-            />
+          {entry.photos.map((p, i) => (
+            <Animated.View key={p.index} entering={pop(i)}>
+              <RemotePhoto
+                projectId={projectId}
+                entryId={entry.id}
+                index={p.index}
+                onPress={() => viewFiledPhoto({ projectId, entryId: entry.id, index: p.index, caption: p.caption, takenAt: p.takenAt, point: p.point })}
+              />
+            </Animated.View>
           ))}
         </ScrollView>
       ) : null}
@@ -119,26 +146,24 @@ export function PendingEntryCard({ item, milestones }: { item: SiteLogItem; mile
     milestoneUpdates: p.milestoneUpdates ?? [],
   };
   const badge = item.needsAttention ? (
-    <Pill label="Needs attention" tone="critical" icon="alert-circle" />
+    <Pill label="Needs attention" tone="ai" icon="alert-circle" />
   ) : (
-    <Pill label="Waiting to send" tone="warning" icon="cloud-upload-outline" />
+    <Pill label="Waiting to send" tone="warning" live />
   );
   return (
     <Card>
       <Body entry={shape} milestones={milestones} byline="You · on this phone" badge={badge} />
       {item.localPhotos.length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.sm }}>
-          {item.localPhotos.map((photo) => (
-            <LocalPhotoThumb
-              key={photo.id}
-              uri={photo.uri}
-              onPress={() => viewLocalPhoto(photo)}
-            />
+          {item.localPhotos.map((photo, i) => (
+            <Animated.View key={photo.id} entering={pop(i)}>
+              <LocalPhotoThumb uri={photo.uri} onPress={() => viewLocalPhoto(photo)} />
+            </Animated.View>
           ))}
         </ScrollView>
       ) : null}
       {item.lastError ? (
-        <Text variant="label" tone={item.needsAttention ? 'criticalText' : 'textSecondary'}>
+        <Text variant="label" tone={item.needsAttention ? 'aiText' : 'textSecondary'}>
           {item.lastError}
         </Text>
       ) : null}

@@ -1,8 +1,8 @@
 import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
-import { Platform, Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { Icon } from '@/components/ui';
+import { Icon, Touchable } from '@/components/ui';
 import { photoSource } from '@/lib/api';
 import { radius, useTheme } from '@/theme';
 
@@ -20,14 +20,16 @@ interface RemoteProps {
 /**
  * A photo already filed on the server. Its bytes are behind the device token,
  * so the request carries the Authorization header; expo-image keeps a copy on
- * disk, so photos seen once still show with no signal.
+ * disk, so photos seen once still show with no signal. It fades in as it
+ * arrives, over a grey tile, rather than snapping in.
  */
 export function RemotePhoto({ projectId, entryId, index, size = 76, onPress, style, contain }: RemoteProps) {
   const { colors } = useTheme();
   const source = photoSource(projectId, entryId, index);
   const box: ViewStyle = contain
     ? { flex: 1, alignSelf: 'stretch' }
-    : { width: size, height: size, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.sunken };
+    : // A hairline edge, so a photo of a white wall or sky does not vanish into a white card.
+      { width: size, height: size, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.sunken, borderWidth: 1, borderColor: colors.hairline };
   const image = !source ? null : Platform.OS === 'web' ? (
     <WebAuthImage uri={source.uri} headers={source.headers} contain={contain} />
   ) : (
@@ -38,19 +40,21 @@ export function RemotePhoto({ projectId, entryId, index, size = 76, onPress, sty
       contentFit={contain ? 'contain' : 'cover'}
       cachePolicy="disk"
       recyclingKey={`${entryId}:${index}`}
-      transition={120}
+      transition={200}
     />
   );
   return (
-    <Pressable
+    <Touchable
       accessibilityRole={onPress ? 'imagebutton' : 'image'}
       accessibilityLabel="Site photo"
       disabled={!onPress}
+      dimmed={false}
       onPress={onPress}
+      pressScale={contain ? 1 : 0.94}
       style={[box, style]}
     >
       {image}
-    </Pressable>
+    </Touchable>
   );
 }
 
@@ -77,7 +81,7 @@ function WebAuthImage({ uri, headers, contain }: { uri: string; headers: Record<
   }, [uri, authorization]);
   if (failed) return <Missing />;
   if (!blobUrl) return null;
-  return <Image source={{ uri: blobUrl }} style={{ width: '100%', height: '100%' }} contentFit={contain ? 'contain' : 'cover'} />;
+  return <Image source={{ uri: blobUrl }} style={{ width: '100%', height: '100%' }} contentFit={contain ? 'contain' : 'cover'} transition={200} />;
 }
 
 function Missing() {
@@ -92,14 +96,16 @@ function Missing() {
 export function LocalPhotoThumb({ uri, size = 76, onPress }: { uri: string; size?: number; onPress?: () => void }) {
   const { colors } = useTheme();
   return (
-    <Pressable
+    <Touchable
       accessibilityRole={onPress ? 'imagebutton' : 'image'}
       accessibilityLabel="Site photo, not sent yet"
       disabled={!onPress}
+      dimmed={false}
       onPress={onPress}
-      style={{ width: size, height: size, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.sunken }}
+      pressScale={0.94}
+      style={{ width: size, height: size, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.sunken, borderWidth: 1, borderColor: colors.hairline }}
     >
-      <Image source={{ uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
-    </Pressable>
+      <Image source={{ uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" transition={150} />
+    </Touchable>
   );
 }

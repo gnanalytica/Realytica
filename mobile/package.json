@@ -15,6 +15,8 @@
     "build:ios": "eas build --platform ios --profile production"
   },
   "dependencies": {
+    "@expo-google-fonts/dm-mono": "^0.4.2",
+    "@expo-google-fonts/schibsted-grotesk": "^0.4.2",
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "12.0.1",
@@ -26,6 +28,8 @@
     "expo-crypto": "~56.0.4",
     "expo-device": "~56.0.4",
     "expo-file-system": "~56.0.7",
+    "expo-font": "~56.0.7",
+    "expo-haptics": "~56.0.3",
     "expo-image": "~56.0.9",
     "expo-image-manipulator": "~56.0.16",
     "expo-image-picker": "~56.0.15",

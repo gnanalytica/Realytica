@@ -3,9 +3,10 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Switch, View } from 'react-native';
 
-import { Banner, Button, Card, Divider, Screen, Section, Text, useToast } from '@/components/ui';
+import { Appear, Banner, Button, Card, Divider, Pill, Screen, Section, Text, useToast } from '@/components/ui';
 import { ask } from '@/lib/confirm';
 import { ago, dateTime, plural } from '@/lib/format';
+import { haptics } from '@/lib/haptics';
 import { hostOf } from '@/lib/http';
 import { belongsTo } from '@/lib/outbox/engine';
 import { useOutbox } from '@/lib/outbox/store';
@@ -20,6 +21,13 @@ const ROLE: Record<string, string> = {
   viewer: 'Viewer',
   collaborator: 'Outside collaborator',
 };
+
+/** Up to two initials from the person's name, or the first letter of their email. */
+function initials(name: string | null, email: string): string {
+  const words = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  const letters = words.length ? words.slice(0, 2).map((w) => Array.from(w)[0]!) : [email[0] ?? '?'];
+  return letters.join('').toUpperCase();
+}
 
 export default function SettingsScreen() {
   const { colors } = useTheme();
@@ -45,6 +53,7 @@ export default function SettingsScreen() {
   const unsent = outbox.filter((i) => belongsTo(i, { server: pairing.server, email: pairing.person.email })).length;
 
   const togglePush = async (on: boolean) => {
+    haptics.tick();
     setPushBusy(true);
     setPushProblem(null);
     const result = on ? await enablePush() : await disablePush();
@@ -87,6 +96,7 @@ export default function SettingsScreen() {
   };
 
   const version = Constants.expoConfig?.version ?? '1.0.0';
+  const role = pairing.person.role ? (ROLE[pairing.person.role] ?? pairing.person.role) : null;
 
   return (
     <Screen>
@@ -94,75 +104,98 @@ export default function SettingsScreen() {
         Settings
       </Text>
 
-      <Section title="Signed in as">
-        <Card>
-          <View style={{ gap: 2 }}>
-            <Text variant="bodyStrong" style={{ fontSize: 19 }}>
-              {pairing.person.name || pairing.person.email}
-            </Text>
-            {pairing.person.name ? <Text variant="label">{pairing.person.email}</Text> : null}
-            <Text variant="label">
-              {pairing.workspace.name}
-              {pairing.person.role ? ` · ${ROLE[pairing.person.role] ?? pairing.person.role}` : ''}
-            </Text>
-          </View>
-          <Divider />
-          <Row label="This phone" value={pairing.device?.name ?? '—'} />
-          <Row label="Paired" value={dateTime(pairing.pairedAt)} />
-          <Row label="Server" value={hostOf(pairing.server)} />
-          {pairing.checkedAt ? <Row label="Last checked" value={ago(pairing.checkedAt)} /> : null}
-          <Button title="Check the pairing" variant="outline" onPress={() => void check()} loading={checking} />
-        </Card>
-      </Section>
+      <Appear index={0}>
+        <Section title="Signed in as">
+          <Card>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+              <View style={{ width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.brandSoft }}>
+                <Text variant="heading" tone="brandStrong">
+                  {initials(pairing.person.name, pairing.person.email)}
+                </Text>
+              </View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text variant="bodyStrong" style={{ fontSize: 19 }} numberOfLines={2}>
+                  {pairing.person.name || pairing.person.email}
+                </Text>
+                {pairing.person.name ? (
+                  <Text variant="label" numberOfLines={1}>
+                    {pairing.person.email}
+                  </Text>
+                ) : null}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, marginTop: 2 }}>
+                  <Text variant="label" tone="text">
+                    {pairing.workspace.name}
+                  </Text>
+                  {role ? <Pill label={role} tone="neutral" /> : null}
+                </View>
+              </View>
+            </View>
+            <Divider />
+            <Row label="This phone" value={pairing.device?.name ?? '—'} />
+            <Row label="Paired" value={dateTime(pairing.pairedAt)} />
+            <Row label="Server" value={hostOf(pairing.server)} mono />
+            {pairing.checkedAt ? <Row label="Last checked" value={ago(pairing.checkedAt)} /> : null}
+            <Button title="Check the pairing" variant="outline" icon="shield-checkmark-outline" onPress={() => void check()} loading={checking} />
+          </Card>
+        </Section>
+      </Appear>
 
-      <Section title="Notifications" hint="Serious problems from site, work logged before approvals, late milestones">
-        <Card>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 48 }}>
-            <Text variant="bodyStrong" style={{ flex: 1 }}>
-              Alerts on this phone
-            </Text>
-            <Switch
-              accessibilityLabel="Alerts on this phone"
-              value={push}
-              onValueChange={(v) => void togglePush(v)}
-              disabled={pushBusy || !available.ok}
-              trackColor={{ true: colors.brand, false: colors.hairline }}
-              thumbColor="#ffffff"
-              style={{ transform: [{ scale: 1.15 }] }}
-            />
-          </View>
-          {!available.ok ? <Text variant="label">{available.reason}</Text> : null}
-          {pushProblem ? (
-            <Banner tone="warning" title={pushProblem.message}>
-              {pushProblem.openSettings ? <Button title="Open Settings" variant="ghost" block={false} onPress={openPhoneSettings} /> : undefined}
-            </Banner>
-          ) : null}
-        </Card>
-      </Section>
+      <Appear index={1}>
+        <Section title="Notifications" hint="Serious problems from site, work logged before approvals, late milestones">
+          <Card>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 48 }}>
+              <Text variant="bodyStrong" style={{ flex: 1 }}>
+                Alerts on this phone
+              </Text>
+              <Switch
+                accessibilityLabel="Alerts on this phone"
+                value={push}
+                onValueChange={(v) => void togglePush(v)}
+                disabled={pushBusy || !available.ok}
+                trackColor={{ true: colors.brand, false: colors.hairline }}
+                thumbColor="#ffffff"
+                ios_backgroundColor={colors.hairline}
+                style={{ transform: [{ scale: 1.15 }] }}
+              />
+            </View>
+            {!available.ok ? <Text variant="label">{available.reason}</Text> : null}
+            {pushProblem ? (
+              <Banner tone="warning" title={pushProblem.message}>
+                {pushProblem.openSettings ? <Button title="Open Settings" variant="ghost" block={false} onPress={openPhoneSettings} /> : undefined}
+              </Banner>
+            ) : null}
+          </Card>
+        </Section>
+      </Appear>
 
-      <Section title="Sign out">
-        <Card>
-          <Text variant="label" tone="text">
-            Signing out removes this phone’s access. Anything not yet sent stays on the phone until the same person pairs it again.
-          </Text>
-          <Button title="Sign out of this phone" variant="danger" icon="log-out-outline" onPress={doSignOut} />
-        </Card>
-      </Section>
+      <Appear index={2}>
+        <Section title="Sign out">
+          <Card>
+            <Text variant="label" tone="text">
+              Signing out removes this phone’s access. Anything not yet sent stays on the phone until the same person pairs it again.
+            </Text>
+            <Button title="Sign out of this phone" variant="danger" icon="log-out-outline" onPress={doSignOut} />
+          </Card>
+        </Section>
+      </Appear>
 
       <Text variant="caption" center>
-        Realytica Site {version}
+        Realytica Site{' '}
+        <Text variant="caption" mono>
+          {version}
+        </Text>
       </Text>
     </Screen>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <View style={{ flexDirection: 'row', gap: space.md, minHeight: 28, alignItems: 'center' }}>
       <Text variant="label" style={{ width: 110 }}>
         {label}
       </Text>
-      <Text variant="body" style={{ flex: 1 }} numberOfLines={2}>
+      <Text variant="body" mono={mono} style={[{ flex: 1 }, mono ? { fontSize: 15 } : null]} numberOfLines={2}>
         {value}
       </Text>
     </View>

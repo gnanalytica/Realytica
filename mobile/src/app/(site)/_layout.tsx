@@ -1,6 +1,7 @@
 import { Redirect, Tabs } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useReducedMotion } from 'react-native-reanimated';
 
+import { SiteTabBar } from '@/components/site/tab-bar';
 import { Icon, Loading } from '@/components/ui';
 import { belongsTo } from '@/lib/outbox/engine';
 import { useOutbox } from '@/lib/outbox/store';
@@ -10,7 +11,7 @@ import { useTheme } from '@/theme';
 /** Everything behind pairing: Projects, Outbox and Settings, as big bottom tabs. */
 export default function SiteLayout() {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
+  const reduced = useReducedMotion();
   const session = useSession();
   const outbox = useOutbox();
 
@@ -22,25 +23,20 @@ export default function SiteLayout() {
 
   return (
     <Tabs
+      tabBar={(props) => <SiteTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.brand,
-        tabBarInactiveTintColor: colors.textSecondary,
-        tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.hairline,
-          // Taller than the default so a gloved thumb finds the tab.
-          height: 66 + insets.bottom,
-          paddingTop: 6,
-          paddingBottom: Math.max(insets.bottom, 8),
-        },
-        tabBarLabelStyle: { fontSize: 13, fontWeight: '600' },
-        tabBarBadgeStyle: { backgroundColor: colors.warning, color: '#0b0b0b', fontWeight: '700' },
+        sceneStyle: { backgroundColor: colors.page },
+        // Tabs shift a little sideways as they change, so it is clear which way you went.
+        animation: reduced ? 'none' : 'shift',
       }}
     >
       <Tabs.Screen
         name="projects"
-        options={{ title: 'Projects', tabBarIcon: ({ color }) => <Icon name="business-outline" size={26} tone={String(color)} /> }}
+        options={{
+          title: 'Projects',
+          tabBarIcon: ({ color, focused }) => <Icon name={focused ? 'business' : 'business-outline'} size={26} tone={String(color)} />,
+        }}
       />
       <Tabs.Screen
         name="outbox"
@@ -48,12 +44,15 @@ export default function SiteLayout() {
           title: 'Outbox',
           tabBarBadge: waiting > 0 ? waiting : undefined,
           tabBarAccessibilityLabel: waiting > 0 ? `Outbox, ${waiting} waiting to send` : 'Outbox',
-          tabBarIcon: ({ color }) => <Icon name="cloud-upload-outline" size={26} tone={String(color)} />,
+          tabBarIcon: ({ color, focused }) => <Icon name={focused ? 'cloud-upload' : 'cloud-upload-outline'} size={26} tone={String(color)} />,
         }}
       />
       <Tabs.Screen
         name="settings"
-        options={{ title: 'Settings', tabBarIcon: ({ color }) => <Icon name="person-circle-outline" size={26} tone={String(color)} /> }}
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ color, focused }) => <Icon name={focused ? 'person-circle' : 'person-circle-outline'} size={26} tone={String(color)} />,
+        }}
       />
     </Tabs>
   );
