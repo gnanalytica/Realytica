@@ -12,7 +12,7 @@ A project moves through **four stages** (Pre-development, Design & Tender, Const
 | Domain | `packages/shared` — the model and every rule that is a pure function of a project |
 | Models | `packages/agents` — document reading, the chat, the planners |
 
-Read next: [what the product does](docs/product.md) · [how it is built](docs/architecture.md) · [the API](docs/api.md) · [the site app](docs/mobile.md) · [the demo](docs/demo.md) · [deploying](docs/runbooks/deployment.md) · [sign-in](docs/auth.md)
+Read next: [what the product does](docs/product.md) · [how it is built](docs/architecture.md) · [how it looks and moves](docs/design.md) · [the API](docs/api.md) · [the site app](docs/mobile.md) · [the demo](docs/demo.md) · [deploying](docs/runbooks/deployment.md) · [sign-in](docs/auth.md)
 
 ## Run it
 
@@ -62,5 +62,5 @@ packages/shared     The domain: projects, stages, departments, workstreams, chec
 packages/agents     Model calls: document intelligence, the chat, planners and critics
 packages/site-intel Public map layers and place lookups
 test/               Every test, run by `pnpm test`; test/fixtures holds synthetic documents
-docs/               Product, architecture, API, site app, demo, runbooks
+docs/               Product, architecture, design, API, site app, demo, runbooks
 ```
