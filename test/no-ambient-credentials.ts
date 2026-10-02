@@ -41,6 +41,13 @@ const AMBIENT = [
   'REALYTICA_NEO4J_URL',
   'REALYTICA_RECORDS_PROVIDER',
   'REALYTICA_PRICING',
+  // The scraping vendor behind portal comparables: every request is paid.
+  'UNBLOCKER_PROVIDER',
+  'UNBLOCKER_API_KEY',
+  'UNBLOCKER_FALLBACK_PROVIDER',
+  'UNBLOCKER_ZYTE_API_KEY',
+  'UNBLOCKER_BRIGHTDATA_API_KEY',
+  'UNBLOCKER_OXYLABS_API_KEY',
 ];
 
 for (const name of AMBIENT) delete process.env[name];

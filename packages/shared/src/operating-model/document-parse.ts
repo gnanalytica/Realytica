@@ -914,6 +914,21 @@ const BUILDERS: Partial<Record<ReadDocumentType, Builder>> = {
     }
   },
 
+  /*
+   * A lease reserves a rent on an area from a date — the three facts an income
+   * approach is built on, and the only rent on most files. Read as the lease
+   * states them: the passing rent, not a market rent anybody inferred.
+   */
+  lease(pages, facts) {
+    commonParcel(pages, facts);
+    const rent = money(pages, /\b(?:monthly\s+(?:rent|licen[cs]e\s+fee)|rent\s+of|rental\s+of)\b/);
+    if (rent) push(facts, { key: 'monthly_rent', label: 'Monthly rent', value: rent.amount, unit: 'INR', display: displayInr(rent.amount), page: rent.page, quote: rent.quote });
+    const area = extent(pages, /\b(?:admeasuring|measuring|leased\s+area|area\s+let|carpet\s+area|chargeable\s+area|super\s+built[\s-]?up\s+area)\b/);
+    if (area) push(facts, { key: 'leased_area', label: 'Area let', value: area.sqm, unit: 'sqm', display: fmtSqm(area.sqm), page: area.page, quote: area.quote });
+    const from = firstDateNear(pages, /\b(?:commenc(?:ing|ement)(?:\s+date)?|with\s+effect\s+from)\b/);
+    if (from) push(facts, { key: 'lease_start', label: 'Lease starts', value: from.iso, display: displayDate(from.iso), page: from.page, quote: from.quote });
+  },
+
   mother_deed(pages, facts) {
     commonParcel(pages, facts);
     const dated =

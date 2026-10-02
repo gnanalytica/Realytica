@@ -36,6 +36,7 @@ Checks run on 2026-09-30: typecheck, lint and the production build pass, and all
    - `REALYTICA_GOOGLE_MAPS_API_KEY` for the place card.
    - Optional: `VITE_GOOGLE_MAPS_BROWSER_KEY`, a second key restricted to the site's addresses and the Maps JavaScript API, for Google's map under the overlay.
    - Optional: `REALYTICA_MODEL_BASIC`, a free or cheap model the chat tries before the senior model (see "Chat: a free model first").
+   - Optional: `UNBLOCKER_PROVIDER` (`zyte`, `brightdata` or `oxylabs`) and `UNBLOCKER_API_KEY`, a scraping service account for portal comparables. `UNBLOCKER_FALLBACK_PROVIDER` with that provider's own `UNBLOCKER_<PROVIDER>_API_KEY` adds a fallback. Bright Data also takes `UNBLOCKER_BRIGHTDATA_ZONE`, and Oxylabs `UNBLOCKER_OXYLABS_USER`. These are the same settings Valytica uses, so its account can serve both.
 
    Without them, document reading, file answers, the revenue map and every register still work. Only model chat and the map pin do not.
 2. Run `pnpm dev` and open `http://localhost:5173/portfolio`.
@@ -114,6 +115,55 @@ Kannada EC scans don't OCR well enough to read on the server. A model that reads
   - OpenRouter only serves most free models when "free endpoints that may train on inputs" is allowed in its privacy settings. Otherwise every question is handed over and answered by the senior model, as before.
   - Answers read off the documents are no longer reworded by a model, which kept their page references and saved a call.
 
+## One Value tab: compliance, value and what moves it
+
+*Added 2026-10-01.*
+- **One tab, one action.** The property screen and the indicative valuation were two buttons on one tab, answering two halves of one question. The tab now opens on a single view. **Value this property** checks the title against the state's rules (the screen, without writing a red flag report each time) and starts the valuation DD when the file has none. It then fills every input the file holds.
+- **The inputs fill themselves, one at a time, with their source.**
+  - The plot area comes off the title deed, the survey sketch, the khata, the sanctioned layout or the surveyor's outline, with the page and the words.
+  - The built-up area comes off the sanctioned plan, but only where a building stands. On a site bought to develop, the plan is what may be built and the site is valued on its extent.
+  - The land rate is the guidance value the state's revenue map publishes, per square metre.
+  - The building's age comes from its occupancy certificate. The expected life is the RCC convention of 60 years.
+  - The rent and the area let come off a lease. Leases are now read for those, and for the date the lease starts.
+  - A sale of the parcel itself registered in the last three years is offered as the comparable rate. An older one is shown as price history, not offered.
+  - Each value is proposed (ochre) until accepted. "Accept all and record" records them, citing their documents, and records the valuation. A value can be set aside, or typed by hand with a document cited where the field needs one.
+- **The figure moves as the inputs land**, and the page says where it stands: provisional, not recorded, or recorded with its sign-off. When the only rate on the file is the guidance value, the page says the figure is the guideline value, not yet a market value.
+- **Summary of values, as panel valuations open.**
+  - Fair market value, realisable (90%) and distress (75%), stated as the conventions they are.
+  - The guideline value of the land beside them, with how far the figure sits above or below it.
+  - The blend of approaches and what each one is still waiting on.
+- **Compliance.**
+  - The state's title checks from the screen.
+  - A lender's own checks: the extent across the documents, the built-up area against the sanction, FAR against the permitted, charges on the EC, the prohibited register, the value against the guideline, and whether the approaches cross-check.
+  - IBBI Rule 8(3), N of 12, item by item.
+  - What needs a person is listed; what is not established and what is clear fold into a line each.
+- **What moves the value.** What the figure already carries (externalities, depreciation) is kept apart from what the file records that the market prices: the revenue map's own factors with their bands, B-khata, Gram Panchayat, no OC, tenure, the plot's road, facing, shape and layout, and nearby transit. Each shows its rate and where it came from.
+- **Not used:** no locality medians or invented rates. A cap rate or a replacement cost the file does not hold waits for a valuer, and the page says so.
+
+## Comparables, and searching the portals for them
+
+*Added 2026-10-02.*
+- **A comparables register on the Value tab.** It sits in the Comparables card. Each comparable carries:
+  - its source: a 99acres or MagicBricks listing with its link, a registered sale with its document, or one added by hand;
+  - its distance, its area and what the area is measured on (carpet, built-up, super built-up or plot);
+  - the price, asking or paid, and the rate per sqm;
+  - the five CMA adjustments: time, size, location, condition and listing discount;
+  - a weight.
+
+  The weighted adjusted rate is proposed as the comparable rate, with the net adjustment beside it. Accepting it files a comparable schedule on the evidence register (every comparable, its link and its adjustments), records the rate citing that schedule, and accepts the comparables.
+- **Portal search.** With a scraping service configured, **Value this property** also searches 99acres and MagicBricks near the site, at most once a week, and **Search again** runs it on demand. The pipeline is Valytica's, ported:
+  - the portal's own name for the locality, from MagicBricks' autosuggest;
+  - each (locality, city) page both portals answer, including Bangalore's zone pages on 99acres;
+  - builder adverts and the same property listed twice dropped, and a mistyped area kept out of the rate;
+  - a ranking by distance, size, type, area basis and recency, within 3 km for land and 4 km for buildings, widened only when results are thin;
+  - automatic failover when a vendor is out of credit or down.
+
+  Found listings land as proposed. Only a locality name and a city leave for the vendor, never an owner, survey number or address line, and a poster's name is never read. A search costs about twenty vendor requests (around ₹2 at Zyte's rate).
+- **Asking prices are said to be asking prices.** A schedule of listings with no listing discount is flagged on the comparable, in the offer and as a lender check, and one field applies a discount to every listing. Nothing guesses the discount.
+- **An empty search says why.** It distinguishes the vendor failing, the portals not knowing the locality, listings that were all too far away (with the nearest distance), and a market with nothing listed.
+- **Not configured:** without a scraping service the search button is off and says what it needs. Comparables added by hand count the same.
+
+
 ## A five-minute walkthrough
 
 1. **Portfolio:** the pipeline, what needs a decision, and what is overdue.
@@ -122,6 +172,7 @@ Kannada EC scans don't OCR well enough to read on the server. A model that reads
    - *The reading, live:* on the Koramangala sample, which has no documents, press **Use the sample documents**. The nine documents are scanned on the canvas and their facts type in.
    - Point at a value to see its words marked on the page. Accept a few with Enter, correct one with E, then follow **Next** to the checks they fill.
 4. **Technical DD:** the three rulings, a check with document-filled values, and the computed extent mismatch. Read the revenue map for Sy. 118/2 on the Site tab.
+   - *The value, live:* on Value, press **Value this property**. The plot area types in from the sale deed, then the guidance rate from the revenue map, and the figure moves with each. Accept all and record.
 5. **People:** record a request with a due date. It appears on the Overview and the portfolio.
 6. **Report:** approve a section, export to Word, and open the PDF view. Issue with a named sign-off.
 7. **Graph:** pick a finding, then "Why is this here?"
@@ -132,6 +183,6 @@ Kannada EC scans don't OCR well enough to read on the server. A model that reads
 - **One proposal model** merging chat cards and AI drafts, with a source recorded on each. AI drafts are still their own tab under Report.
 - **A true as-of graph:** nodes carry no created time.
 - **Revenue map into valuation externalities and the graph.**
-- **A firm comparables register:** rates are recorded on the valuation input sheet.
+- **Registered sale data as comparables.** Kaveri and IGRS transaction records are not searched yet; a registered sale is added by hand with its document.
 - **Firm report template:** The client firm's Word template is not yet in hand, so export uses a generic one.
 - **Email invites and access changes as proposals.**

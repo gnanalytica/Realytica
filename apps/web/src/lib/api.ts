@@ -93,6 +93,11 @@ import type {
   ProjectGraphEdge,
   ValuationRun,
   ValuationSignOff,
+  AddComparableInput,
+  ComparablePatch,
+  ComparableRecord,
+  ComparableSchedule,
+  ComparableSearchRecord,
   CapabilityRun,
   AiDraft,
   AiDraftStatus,
@@ -979,6 +984,32 @@ export const api = {
     request<{ snapshot: ProjectScreenSnapshot; reportId?: string; project: DdProject }>(`/projects/${projectId}/screen`, {
       method: 'POST',
       body: JSON.stringify({ actor }),
+    }),
+  /** Check the property, and start its valuation DD if it has none. The inputs are offered on read. */
+  valueProperty: (projectId: string) =>
+    request<{ project: DdProject; verdict: string; comparableSearch: 'due' | 'fresh' | 'not_configured'; startedAssessmentId?: string }>(`/projects/${projectId}/value`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  acceptValueOffers: (projectId: string, ids: string[], record?: boolean) =>
+    request<{ project: DdProject; applied: string[]; refused: { id: string; error: string }[]; runId?: string }>(`/projects/${projectId}/value/accept`, {
+      method: 'POST',
+      body: JSON.stringify({ ids, record }),
+    }),
+  comparables: (projectId: string) =>
+    request<{ configured: boolean; comparables: ComparableRecord[]; search: ComparableSearchRecord | null; schedule: ComparableSchedule | null }>(`/projects/${projectId}/comparables`),
+  searchComparables: (projectId: string) =>
+    request<{ project: DdProject; found: number; added: string[]; empty?: string }>(`/projects/${projectId}/comparables/search`, { method: 'POST', body: JSON.stringify({}) }),
+  addComparable: (projectId: string, input: AddComparableInput) =>
+    request<{ project: DdProject; comparable: ComparableRecord }>(`/projects/${projectId}/comparables`, { method: 'POST', body: JSON.stringify(input) }),
+  updateComparable: (projectId: string, comparableId: string, patch: ComparablePatch) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/comparables/${comparableId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  decideComparables: (projectId: string, ids: string[], decision: 'accept' | 'reject') =>
+    request<{ project: DdProject; changed: number }>(`/projects/${projectId}/comparables/decide`, { method: 'POST', body: JSON.stringify({ ids, decision }) }),
+  setAsideValueOffers: (projectId: string, ids: string[]) =>
+    request<{ project: DdProject; setAside: number }>(`/projects/${projectId}/value/set-aside`, {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
     }),
   patchValuation: (projectId: string, runId: string, signOff: ValuationSignOff) =>
     request<ValuationRun>(`/projects/${projectId}/valuation/${runId}`, { method: 'PATCH', body: JSON.stringify({ signOff }) }),

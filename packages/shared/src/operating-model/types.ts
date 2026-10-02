@@ -1811,6 +1811,28 @@ export interface DdProject {
    * the extract. See `revenue-map.ts`.
    */
   revenueMap?: RevenueMapRead;
+  /**
+   * Value inputs the file offered that a person set aside, by offer id. An
+   * offer's id carries its value and source, so a new document or a corrected
+   * reading is a new offer and comes back. See `value-inputs.ts`.
+   */
+  valueSetAside?: Array<{ offerId: string; input: string; at: string; by: string }>;
+  /**
+   * Where the areas the valuation reads were taken from, when they were taken
+   * from the file. A project particular has no citation of its own, so an
+   * area accepted off a deed would otherwise read as somebody's typing; kept
+   * against the value, so a later edit by hand does not inherit the deed.
+   */
+  valueSources?: Partial<Record<'landAreaSqm' | 'builtUpAreaSqm' | 'saleableAreaSqm', { value: number; label: string; evidenceId?: string; page?: number; at: string; by: string }>>;
+  /**
+   * The comparables a market rate is drawn from: portal listings a search
+   * found, registered sales, and figures a valuer added — each with its
+   * source, its adjustments and whether a person has accepted it. See
+   * `comparables.ts`.
+   */
+  comparables?: import('./comparables').ComparableRecord[];
+  /** The last portal search: when, for what, and what it found or why it found nothing. */
+  comparableSearch?: import('./comparables').ComparableSearchRecord;
   createdAt: string;
   updatedAt: string;
 }

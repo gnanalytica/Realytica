@@ -685,7 +685,7 @@ function subjectComparisonAreaSqm(identity: PropertyIdentity): number {
  * Bands follow common Bengaluru layout-road categories rather than a
  * continuous formula, since that is how the market actually steps.
  */
-function roadWidthAdjustmentPct(roadWidthFt: number | undefined): number {
+export function roadWidthAdjustmentPct(roadWidthFt: number | undefined): number {
   if (roadWidthFt === undefined) return 0;
   if (roadWidthFt < 20) return -6;
   if (roadWidthFt < 30) return -3;
@@ -695,7 +695,7 @@ function roadWidthAdjustmentPct(roadWidthFt: number | undefined): number {
 }
 
 /** A genuine premium for dual road frontage and easier access — not decorative. */
-function cornerSiteAdjustmentPct(cornerSite: boolean | undefined): number {
+export function cornerSiteAdjustmentPct(cornerSite: boolean | undefined): number {
   return cornerSite === true ? 5 : 0;
 }
 
@@ -705,7 +705,7 @@ function cornerSiteAdjustmentPct(cornerSite: boolean | undefined): number {
  * (a handful of percent either way) — this is a real, priceable preference,
  * not the dominant driver of a site's value.
  */
-const FACING_ADJUSTMENT_PCT: Record<PlotFacing, number> = {
+export const FACING_ADJUSTMENT_PCT: Record<PlotFacing, number> = {
   east: 4,
   north: 3,
   north_east: 5,
@@ -723,7 +723,7 @@ const FACING_ADJUSTMENT_PCT: Record<PlotFacing, number> = {
  * build on efficiently and harder to resell, so a high depth-to-width ratio
  * is penalised on a step scale.
  */
-function dimensionStandardnessAdjustmentPct(dims: PlotAttributes['dimensionsFt']): number {
+export function dimensionStandardnessAdjustmentPct(dims: PlotAttributes['dimensionsFt']): number {
   if (!dims || dims.width <= 0 || dims.depth <= 0) return 0;
   const longer = Math.max(dims.width, dims.depth);
   const shorter = Math.min(dims.width, dims.depth);
@@ -742,7 +742,7 @@ function dimensionStandardnessAdjustmentPct(dims: PlotAttributes['dimensionsFt']
  * plot adjustment — matching how the market (and `buildStateCompliance`'s
  * own layout-approval-status check) actually treats the finding.
  */
-const LAYOUT_APPROVAL_ADJUSTMENT_PCT: Record<LayoutApproval, number> = {
+export const LAYOUT_APPROVAL_ADJUSTMENT_PCT: Record<LayoutApproval, number> = {
   bda_approved: 6,
   bmrda_approved: 3,
   panchayat_approved: 0,

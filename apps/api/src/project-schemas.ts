@@ -433,6 +433,14 @@ export const patchValuationBodySchema = z.object({
   actor: actorSchema,
 });
 
+/** Value inputs the file offered, named by the ids the page was shown. */
+export const valueOffersBodySchema = z.object({
+  ids: z.array(z.string().min(1).max(400)).min(1).max(60),
+  /** Record a valuation run once they are on the file. */
+  record: z.boolean().optional(),
+  actor: actorSchema,
+});
+
 export const reviewDraftBodySchema = z.object({
   status: z.enum(['in_review', 'accepted', 'rejected']),
   reviewNote: z.string().max(4000).optional(),
