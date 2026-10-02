@@ -105,7 +105,14 @@ export function syncAlerts(project: DdProject, now = new Date()): ProjectAlert[]
   const raised: ProjectAlert[] = [];
   for (const c of conditions) {
     const open = held.find((a) => a.key === c.key && !a.resolvedAt);
-    if (open) continue;
+    if (open) {
+      // The words follow the condition: an alert raised before its wording
+      // changed reads the way the register says it now. Who has read it, and
+      // when it was raised, stay as they were.
+      open.title = c.title;
+      open.detail = c.detail;
+      continue;
+    }
     const alert: ProjectAlert = { id: `alr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`, ...c, raisedAt: at, readBy: [] };
     held.push(alert);
     raised.push(alert);

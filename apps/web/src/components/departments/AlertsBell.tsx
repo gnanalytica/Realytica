@@ -87,8 +87,9 @@ export function AlertsBell({ project, onChanged, onOpenWorkstream }: { project: 
 
   const header = (
     <div className="flex items-center gap-2 px-2 pb-1.5 pt-1">
+      {/* A sheet names itself in its own header; only the dropdown needs the word here. */}
       <p className="flex-1 text-[13px] font-semibold text-ink">
-        Alerts {alerts.length ? <span className="ml-1 font-mono text-[11px] font-medium text-ink-muted">{alerts.length}</span> : null}
+        {sheet ? null : 'Alerts'} {alerts.length ? <span className={cn('font-mono text-[11px] font-medium text-ink-muted', !sheet && 'ml-1')}>{alerts.length} open</span> : null}
       </p>
       {unread.length ? (
         <button type="button" onClick={() => void markRead('all')} className="rounded-md px-1.5 py-0.5 text-[12px] font-medium text-brand hover:bg-brand-soft coarse:min-h-11">
