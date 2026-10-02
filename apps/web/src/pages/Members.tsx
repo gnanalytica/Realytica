@@ -55,7 +55,8 @@ export default function Members() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-ink">{data?.tenant?.name ?? 'Workspace'}</h1>
+          <p className="text-[12px] font-medium text-ink-muted">People</p>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink">{data?.tenant?.name ?? 'Workspace'}</h1>
           {me ? (
             <p className="mt-0.5 text-[13px] text-ink-secondary">
               Signed in as {me.email} · {WORKSPACE_ROLE_LABEL[me.role]}

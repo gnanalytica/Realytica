@@ -1,12 +1,10 @@
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, SCOPE_LABEL } from '@realytica/shared';
-import { Card, CardBody, CardHeader } from '../../components/ui/kit';
+import { Card, CardBody, CardHeader, PageHeader } from '../../components/ui/kit';
 
 export default function Libraries() {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">Libraries</h1>
-      </div>
+      <PageHeader eyebrow="Reference" title="Libraries" subtitle="The templates, scopes and checks every project draws on." />
       <Card>
         <CardHeader title="DD types" subtitle={`${DD_TYPE_DEFINITIONS.length} templates`} />
         <CardBody className="divide-y divide-hairline p-0">

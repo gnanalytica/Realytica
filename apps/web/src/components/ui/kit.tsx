@@ -246,6 +246,34 @@ export function SectionTitle({ children, hint }: { children: ReactNode; hint?: R
   );
 }
 
+/**
+ * The top of a page outside a project: where you are, what this is, and the
+ * one or two things to do here. One component so every page opens the same
+ * way — the size of a title is not something each page decides.
+ */
+export function PageHeader({
+  eyebrow,
+  title,
+  subtitle,
+  actions,
+}: {
+  eyebrow?: ReactNode;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="flex flex-wrap items-end justify-between gap-3">
+      <div className="min-w-0">
+        {eyebrow ? <p className="text-[12px] font-medium text-ink-muted">{eyebrow}</p> : null}
+        <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink">{title}</h1>
+        {subtitle ? <p className="mt-1 text-[13px] text-ink-secondary">{subtitle}</p> : null}
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+    </header>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Buttons                                                             */
 /* ------------------------------------------------------------------ */

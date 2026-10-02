@@ -23,7 +23,7 @@ import {
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { useMe } from '../lib/useMe';
-import { Badge, Callout, Card, CardBody, EmptyState, Skeleton, cn } from '../components/ui/kit';
+import { Badge, Callout, Card, CardBody, EmptyState, PageHeader, Skeleton, cn } from '../components/ui/kit';
 import { severityTone } from './projects/shared';
 
 /**
@@ -98,14 +98,15 @@ export default function MyWork() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">My work</h1>
-        <p className="mt-0.5 text-[13px] text-ink-secondary">
-          {items.length === 0
+      <PageHeader
+        eyebrow="Workspace"
+        title="My work"
+        subtitle={
+          items.length === 0
             ? 'Everything across every project with your name on it.'
-            : `${items.length} open across every project${overdue > 0 ? ` · ${overdue} late` : ''}`}
-        </p>
-      </div>
+            : `${items.length} open across every project${overdue > 0 ? ` · ${overdue} late` : ''}`
+        }
+      />
 
       {error ? <Callout tone="critical" title="Could not load your work">{error}</Callout> : null}
       {loading && !data ? <Skeleton className="h-40 w-full" /> : null}
