@@ -630,7 +630,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     // Filed before the reader existed, or that it could not read then: the
     // file is there, but nothing on the row says what it states.
     const unread = project.evidence.filter(
-      (e) => (e.attachments ?? []).length && !(e.facts ?? []).length && e.status !== 'rejected' && e.status !== 'superseded',
+      (e) => (e.attachments ?? []).length && !(e.facts ?? []).length && !e.modelReadAt && e.status !== 'rejected' && e.status !== 'superseded',
     ).length;
     const material = project.findings.filter(
       (f) => (f.severity === 'critical' || f.severity === 'high') && !['closed', 'rejected', 'duplicate', 'superseded'].includes(f.status),

@@ -12,6 +12,39 @@ import type { DdProject, EvidenceRecord } from './types';
 import { workstreamOfCheck, workstreamDefinition, type DepartmentKey } from './departments';
 import { allChecks } from './engagements';
 
+/**
+ * The model's classification in the register's own words.
+ *
+ * The document reader names what it read from the model's list of kinds;
+ * the register, the vault and the approvals all speak the parser's labels.
+ * Where both name the same document, the model's reading files it under the
+ * parser's label, so a merged bundle the parser could not read still lands
+ * in the workstream it belongs to. A type says what a document is; it is no
+ * claim about any page, so it needs no citation to stand.
+ */
+const MODEL_KIND_TYPE: Readonly<Record<string, string>> = {
+  title_deed: 'Sale deed',
+  sale_agreement: 'Agreement to sell',
+  encumbrance_certificate: 'Encumbrance certificate',
+  property_tax_receipt: 'Property tax receipt',
+  approved_building_plan: 'Sanctioned building plan',
+  sanctioned_plan_bbmp: 'Sanctioned building plan',
+  occupancy_certificate: 'Occupancy certificate',
+  khata_extract: 'Khata certificate and extract',
+  rera_registration: 'RERA registration certificate',
+  mother_deed: 'Mother deed',
+  conversion_certificate: 'DC conversion order',
+  commencement_certificate: 'Commencement certificate',
+  joint_development_agreement: 'Joint development agreement',
+  valuation_report: 'Valuation report',
+  lease_agreement: 'Lease deed',
+};
+
+/** The register's label for a kind the model read, if the register knows it. */
+export function documentTypeOfKind(kind: string | undefined): string | undefined {
+  return kind ? MODEL_KIND_TYPE[kind] : undefined;
+}
+
 /** What each kind of document the reader recognises belongs to. */
 export const DOCUMENT_WORKSTREAM: Readonly<Record<string, string>> = {
   'Sale deed': 'legal.title',

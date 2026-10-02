@@ -143,6 +143,20 @@ describe('reading a filed document again', () => {
     assert.equal(project.evidence.filter((e) => e.attachments.some((a) => a.storageKey === storageKey)).length, 1);
   });
 
+  it('moves on past a document a model has read, even with nothing placed on a page', async () => {
+    const { rowsToRead } = await import('../apps/api/src/documents/reread');
+    const { project, storageKey } = filedProject();
+    assert.equal(rowsToRead(project, false).length, 1, 'filed and unread');
+    // Read by a model that could say what it is but place nothing on a page.
+    const file = { fileName: 'Environment_clearance.pdf', mimeType: 'application/pdf', sizeBytes: 1000, storageKey, kindHint: 'other', extractionNotes: 'An environmental clearance.', modelRead: true } as ChatIngestFile;
+    const filing = proposalsFromIngest(project, [file]).find((c) => c.kind === 'file_evidence')!;
+    project.chatProposals.push(filing);
+    commitChatProposal(project, filing.id);
+    assert.ok(project.evidence[0]!.modelReadAt, 'the row says a model read it');
+    assert.equal(rowsToRead(project, false).length, 0, 'read, not waiting to be');
+    assert.equal(rowsToRead(project, true).length, 1, 'asking again reads it again');
+  });
+
   it('is asked for in plain words, and not by a question about the documents', async () => {
     // Dynamic: the module reaches storage, whose adapter is chosen with a top-level await.
     const { READ_FILED_REQUEST, asksAgain } = await import('../apps/api/src/documents/reread');

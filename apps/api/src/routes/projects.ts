@@ -175,7 +175,7 @@ import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
 import { mergeModelReading, needsModelReading, readIngestLocally } from '../documents/intake';
 import { readOntoRegister, type RegisterUpload } from '../documents/register-read';
-import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS } from '../documents/reread';
+import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS, rowsToRead } from '../documents/reread';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { UPLOAD_LIMITS } from '../uploads';
@@ -1118,6 +1118,8 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   if (READ_FILED_REQUEST.test(question)) {
     const again = asksAgain(question);
     const filed = await filedDocumentsToRead(viewFor(req, project).project, again);
+    // Past this turn's ten: said at the end, so the next turn is asked for.
+    const beyond = Math.max(0, rowsToRead(viewFor(req, project).project, again).length - filed.length);
     if (filed.length) {
       // Documents the reader already had a turn at, and got little from, go
       // straight to the model; asking "again" reads everything from the start.
@@ -1131,6 +1133,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
       await ingestTurn(req, res, project, filed, {
         question,
         readBudgetMs: REREAD_BUDGET_MS,
+        unreadBeyond: beyond,
         modelOnly: readHere,
         viewContext: parsed.data.viewContext,
         sessionId: parsed.data.sessionId,
@@ -1636,6 +1639,8 @@ interface IngestFields {
    * the minutes the model needs.
    */
   modelOnly?: ReadonlySet<string>;
+  /** Filed documents past this turn's share, still to be read after it. */
+  unreadBeyond?: number;
   viewContext?: string;
   sessionId?: string;
   ddId?: unknown;
@@ -1806,6 +1811,7 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
     spend: readAnything ? { usd: readCostUsd, exact: readCostExact } : undefined,
   });
   sayWhatIsMissing(seen, question, result);
+  unread += fields.unreadBeyond ?? 0;
   if (unread) {
     const more = `${unread} more filed document${unread === 1 ? ' is' : 's are'} still to be read. Say "Read the filed documents" again to carry on.`;
     result.assistantTurn.text = `${result.assistantTurn.text}\n\n${more}`;
