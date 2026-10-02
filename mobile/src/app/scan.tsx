@@ -2,7 +2,7 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'ex
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, type ViewStyle } from 'react-native';
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Appear, Button, Icon, Loading, Screen, Text } from '@/components/ui';
 import { haptics } from '@/lib/haptics';
@@ -15,6 +15,7 @@ import { arrive, leave } from '@/theme/motion';
 /** Point the camera at the QR code the web app shows; on a good read, go back and pair. */
 export default function ScanScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [problem, setProblem] = useState<string | null>(null);
   // The camera reports the same code many times a second; act on the first good one only.
@@ -67,7 +68,16 @@ export default function ScanScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onScan} />
-      <SafeAreaView style={{ flex: 1, justifyContent: 'space-between', padding: space.lg }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'space-between',
+          paddingTop: insets.top + space.lg,
+          paddingBottom: insets.bottom + space.lg,
+          paddingLeft: insets.left + space.lg,
+          paddingRight: insets.right + space.lg,
+        }}
+      >
         <Animated.View entering={arrive()} style={{ backgroundColor: 'rgba(14,15,18,0.72)', borderRadius: radius.lg, padding: space.lg, gap: space.xs }}>
           <Text variant="heading" style={{ color: '#fff' }}>
             Scan the pairing code
@@ -87,7 +97,7 @@ export default function ScanScreen() {
           ) : null}
           <Button title="Close" variant="outline" size="lg" onPress={() => goBack('/pair')} />
         </View>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

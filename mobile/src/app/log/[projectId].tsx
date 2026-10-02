@@ -2,7 +2,6 @@ import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import Animated from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DayPicker } from '@/components/log/day-picker';
 import { IssuesEditor } from '@/components/log/issues';
@@ -11,7 +10,7 @@ import { ManpowerEditor } from '@/components/log/manpower';
 import { MilestoneUpdatesEditor } from '@/components/log/milestone-updates';
 import { PhotosEditor } from '@/components/log/photos';
 import { OfflineStrip } from '@/components/site/freshness';
-import { Banner, Button, Chip, ChipRow, Field, IconButton, Loading, Screen, Section, Text, useToast, WeatherIcon } from '@/components/ui';
+import { Banner, Button, Chip, ChipRow, Field, IconButton, Loading, Screen, Section, Text, useSafePadding, useToast, WeatherIcon } from '@/components/ui';
 import { useOnline } from '@/hooks/use-online';
 import { ask } from '@/lib/confirm';
 import { clearDraft, discardDraft, isEmptyDraft, loadDraft, saveDraft, type LogDraft } from '@/lib/drafts';
@@ -39,6 +38,7 @@ import { appear, leave } from '@/theme/motion';
 export default function LogScreen() {
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
   const { colors } = useTheme();
+  const underStatusBar = useSafePadding(['top']);
   const toast = useToast();
   const online = useOnline();
   const session = useSession();
@@ -200,7 +200,7 @@ export default function LogScreen() {
     <Screen
       edges={['left', 'right']}
       header={
-        <SafeAreaView edges={['top']} style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.hairline }}>
+        <View style={[{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.hairline }, underStatusBar]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, paddingVertical: space.xs, gap: space.sm }}>
             <IconButton icon="close" label="Close" onPress={close} size={52} filled />
             <View style={{ flex: 1 }}>
@@ -213,7 +213,7 @@ export default function LogScreen() {
             </View>
           </View>
           <OfflineStrip online={online} />
-        </SafeAreaView>
+        </View>
       }
       footer={
         <View style={{ gap: space.xs }}>

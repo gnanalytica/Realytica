@@ -3,11 +3,10 @@ import { useLocalSearchParams } from 'expo-router';
 import { Linking, Platform, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { interpolate, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { RemotePhoto } from '@/components/site/photo-thumb';
-import { Button, IconButton, Text } from '@/components/ui';
+import { Button, IconButton, Text, useSafePadding } from '@/components/ui';
 import { dateTime } from '@/lib/format';
 import { goBack } from '@/lib/navigation';
 import { localPhotoInView } from '@/lib/viewer';
@@ -48,6 +47,7 @@ export default function PhotoScreen() {
     void Linking.openURL(url);
   };
 
+  const safe = useSafePadding(['top', 'right', 'bottom', 'left']);
   const drag = useSharedValue(0);
   const pan = Gesture.Pan()
     .activeOffsetY([-12, 12])
@@ -63,7 +63,7 @@ export default function PhotoScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
-      <SafeAreaView style={{ flex: 1 }}>
+      <View style={[{ flex: 1 }, safe]}>
         <Animated.View style={[{ flexDirection: 'row', justifyContent: 'flex-end', padding: space.sm }, infoStyle]}>
           <IconButton icon="close" label="Close" tone="#ffffff" onPress={close} size={56} />
         </Animated.View>
@@ -99,7 +99,7 @@ export default function PhotoScreen() {
           </Text>
           {hasPoint ? <Button title="Show on a map" icon="map-outline" variant="outline" onPress={openMap} /> : null}
         </Animated.View>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

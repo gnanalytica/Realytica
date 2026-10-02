@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, RefreshControl, ScrollView, View, type StyleProp, type ViewStyle } from 'react-native';
-import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
+import { useSafeAreaInsets, type Edge } from 'react-native-safe-area-context';
 
 import { haptics } from '@/lib/haptics';
 import { space, useTheme } from '@/theme';
@@ -20,6 +20,23 @@ interface ScreenProps {
   contentStyle?: StyleProp<ViewStyle>;
 }
 
+/**
+ * Padding for the given safe-area edges, from the insets the root provider measures for the window.
+ *
+ * Use this rather than the native SafeAreaView: that one measures where its own view sits, and in
+ * a full-screen modal that slides up (the log, the scanner, the photo) it measures before the slide
+ * has finished, reads zero, and leaves the header under the status bar.
+ */
+export function useSafePadding(edges: readonly Edge[]): ViewStyle {
+  const insets = useSafeAreaInsets();
+  return {
+    paddingTop: edges.includes('top') ? insets.top : 0,
+    paddingRight: edges.includes('right') ? insets.right : 0,
+    paddingBottom: edges.includes('bottom') ? insets.bottom : 0,
+    paddingLeft: edges.includes('left') ? insets.left : 0,
+  };
+}
+
 export function Screen({
   children,
   scroll = true,
@@ -31,6 +48,8 @@ export function Screen({
   contentStyle,
 }: ScreenProps) {
   const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
+  const safe = useSafePadding(edges);
   const pad: ViewStyle = { padding: space.lg, gap: space.xl, paddingBottom: space.xxxl };
 
   const body = scroll ? (
@@ -62,13 +81,12 @@ export function Screen({
   );
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.page }} edges={edges}>
+    <View style={[{ flex: 1, backgroundColor: colors.page }, safe]}>
       {header}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {body}
         {footer ? (
-          <SafeAreaView
-            edges={['bottom']}
+          <View
             style={{
               borderTopWidth: 1,
               borderTopColor: colors.hairline,
@@ -77,13 +95,13 @@ export function Screen({
               boxShadow: isDark ? undefined : '0px -4px 16px rgba(21, 23, 26, 0.05)',
               paddingHorizontal: space.lg,
               paddingTop: space.md,
-              paddingBottom: space.sm,
+              paddingBottom: space.sm + insets.bottom,
             }}
           >
             {footer}
-          </SafeAreaView>
+          </View>
         ) : null}
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }

@@ -58,9 +58,11 @@ export function LocationRow({ fix, site, onRetry }: { fix: Fix | 'finding'; site
             {fix.accuracy != null ? (
               <>
                 Within about{' '}
+                {/* The figure alone is mono: a mono space before the unit reads as a gap. */}
                 <Text variant="caption" mono>
-                  {Math.max(5, Math.round(fix.accuracy))} m
+                  {Math.max(5, Math.round(fix.accuracy))}
                 </Text>
+                {' m'}
               </>
             ) : (
               'Accuracy unknown'

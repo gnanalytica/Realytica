@@ -43,6 +43,12 @@ on the person's own decision, Schibsted Grotesk for words and DM Mono for
 figures, codes and percentages. The fonts are bundled and loaded before the
 splash screen goes.
 
+Screens keep clear of the status bar and the home indicator with
+`useSafePadding` (`src/components/ui/screen.tsx`), which pads from the insets
+measured once at the root. The native `SafeAreaView` measures where its own view
+sits, and in a full-screen modal that slides up it reads zero, which put the
+log's header under the status bar.
+
 ### Motion and touch
 
 Motion is feedback, not decoration, and comes from one small vocabulary
