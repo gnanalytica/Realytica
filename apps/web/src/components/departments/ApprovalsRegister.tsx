@@ -73,7 +73,7 @@ function ValidityTrack({ line }: { line: ApprovalLine }) {
           transition={{ duration: 0.7, ease: EASE_ENTER }}
         />
       </div>
-      <div className="mt-1 flex justify-between gap-2 font-mono text-[10.5px] text-ink-muted">
+      <div className="mt-1 flex justify-between gap-2 font-mono text-[11px] text-ink-muted">
         <span>{new Date(start).getFullYear()}</span>
         <span className={cn(lapsed && 'font-medium text-critical')}>{day(held.validUntil)}</span>
       </div>
@@ -106,7 +106,7 @@ function ConstructionGate({ lines }: { lines: ApprovalLine[] }) {
         </motion.span>
         <div className="min-w-[12rem] flex-1">
           <p className="text-[15px] font-semibold tracking-tight text-ink">{open ? 'Construction may proceed' : 'Construction is not cleared to start'}</p>
-          <p className="text-[12.5px] text-ink-secondary">
+          <p className="text-[13px] text-ink-secondary">
             {open ? 'The plan sanction and the commencement certificate are on file.' : 'Work logged from site before both are in hand is flagged.'}
           </p>
         </div>

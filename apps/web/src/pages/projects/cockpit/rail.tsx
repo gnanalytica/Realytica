@@ -284,7 +284,7 @@ export function ReviewPill({ n, onClick, compact = false }: { n: number; onClick
       className={cn(
         'group relative inline-flex shrink-0 items-center gap-1.5 rounded-full bg-ai/10 font-medium text-ai-ink ring-1 ring-inset ring-ai/30',
         'transition-[background-color,transform] duration-quick ease-state hover:bg-ai/15 active:scale-[0.97]',
-        compact ? 'h-7 px-2 text-[12px] before:absolute before:-inset-2' : 'h-8 px-3 text-[12.5px]',
+        compact ? 'h-7 px-2 text-[12px] before:absolute before:-inset-2' : 'h-8 px-3 text-[13px]',
       )}
     >
       <span className="relative flex size-2" aria-hidden>

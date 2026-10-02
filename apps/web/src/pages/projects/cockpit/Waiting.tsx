@@ -217,7 +217,7 @@ export function WaitingHere({
         className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors duration-quick hover:bg-ai-soft/40 coarse:min-h-11"
       >
         <AiMark size="xs" />
-        <span className="flex-1 text-[12.5px] font-semibold text-ink">
+        <span className="flex-1 text-[13px] font-semibold text-ink">
           Waiting for you
           <span className="ml-1.5 rounded-full bg-ai/12 px-1.5 font-mono text-micro font-medium text-ai-ink">{shown}</span>
         </span>

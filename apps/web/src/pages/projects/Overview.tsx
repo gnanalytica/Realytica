@@ -89,7 +89,7 @@ function DepartmentCard({ project, dept }: { project: DdProject; dept: Departmen
               >
                 <span className="min-w-0 flex-1">
                   <span className="block text-[12px] font-medium text-ink-muted">{ws.label}</span>
-                  <span className={cn('block text-[13.5px] font-medium', qa.verdict === 'insufficient' ? 'text-ink-secondary' : 'text-ink')}>{qa.headline}</span>
+                  <span className={cn('block text-[14px] font-medium', qa.verdict === 'insufficient' ? 'text-ink-secondary' : 'text-ink')}>{qa.headline}</span>
                   {certified ? (
                     <span className={cn('mt-0.5 block text-micro', certified.revisit && !certified.revisit.acknowledgedAt ? 'font-medium text-[var(--status-warning-text)]' : 'text-ink-muted')}>
                       Certified by {certified.signer.name}

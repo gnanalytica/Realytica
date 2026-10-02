@@ -115,7 +115,7 @@ export function CardHeader({
         {icon ? <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-sunken text-ink-secondary ring-1 ring-inset ring-[var(--ring)] [&_svg]:size-[15px]">{icon}</span> : null}
         <div className="min-w-0 self-center">
           <div className="flex min-w-0 items-center gap-1.5">
-            <h2 className="truncate text-[13.5px] font-semibold tracking-tight text-ink">{title}</h2>
+            <h2 className="truncate text-[14px] font-semibold tracking-tight text-ink">{title}</h2>
             {info ? <InfoTip label={info} /> : null}
           </div>
           {subtitle ? <p className="mt-0.5 text-xs leading-snug text-ink-secondary">{subtitle}</p> : null}
@@ -1501,7 +1501,7 @@ export function ToastHost({ children }: { children: ReactNode }) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, x: 28, transition: { duration: 0.18 } }}
                 transition={SPRING.layer}
-                className="pointer-events-auto relative flex items-start gap-2.5 overflow-hidden rounded-xl bg-surface p-3 text-[12.5px] shadow-pop ring-1 ring-[var(--ring)]"
+                className="pointer-events-auto relative flex items-start gap-2.5 overflow-hidden rounded-xl bg-surface p-3 text-[13px] shadow-pop ring-1 ring-[var(--ring)]"
               >
                 <span className={cn('mt-px grid size-5 shrink-0 place-items-center rounded-full', TONE_CHIP[i.tone])}>
                   <Icon size={11} />

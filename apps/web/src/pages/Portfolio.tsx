@@ -67,7 +67,7 @@ function ProjectCard({ project, next }: { project: ProjectSummary; next?: Portfo
       {/* The file's health, as an edge: read down a column without reading a word. */}
       <span aria-hidden className={cn('absolute inset-y-0 left-0 w-[3px]', HEALTH_RAIL[project.health])} />
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[13.5px] font-semibold leading-snug text-ink">{project.name}</p>
+        <p className="text-[14px] font-semibold leading-snug text-ink">{project.name}</p>
         <ArrowRight size={14} className="mt-0.5 shrink-0 -translate-x-1 text-ink-muted opacity-0 transition-[opacity,transform] duration-quick ease-state group-hover:translate-x-0 group-hover:opacity-100" aria-hidden />
       </div>
       <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-muted">
@@ -348,7 +348,7 @@ export default function Portfolio() {
               const column = projects.filter((p) => stageOf(p.currentStage) === stage.key);
               return (
                 <section key={stage.key} aria-label={stage.label} className="flex snap-start flex-col gap-2 rounded-2xl bg-sunken/70 p-2 ring-1 ring-inset ring-[var(--ring)]">
-                  <h2 className="flex items-center gap-2 px-1.5 pt-1 text-[12.5px] font-semibold text-ink">
+                  <h2 className="flex items-center gap-2 px-1.5 pt-1 text-[13px] font-semibold text-ink">
                     <span className="font-mono text-[10px] text-ink-muted">0{index + 1}</span>
                     {stage.label}
                     <span className="ml-auto rounded-full bg-surface px-1.5 font-mono text-[10px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">

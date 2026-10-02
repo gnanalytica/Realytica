@@ -874,7 +874,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           */}
           <Link
             to="/portfolio"
-            className="group inline-flex h-8 shrink-0 items-center gap-1 rounded-lg pl-1.5 pr-2.5 text-[12.5px] font-medium text-ink-secondary ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick hover:bg-sunken hover:text-ink"
+            className="group inline-flex h-8 shrink-0 items-center gap-1 rounded-lg pl-1.5 pr-2.5 text-[13px] font-medium text-ink-secondary ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick hover:bg-sunken hover:text-ink"
           >
             <ChevronLeft size={15} className="transition-transform duration-quick ease-state group-hover:-translate-x-0.5" />
             Portfolio

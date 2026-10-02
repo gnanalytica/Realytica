@@ -365,7 +365,7 @@ function TypingIndicator({ steps }: { steps: AgentStep[] }) {
               />
             ))}
           </span>
-          {current ? <span className="text-shimmer min-w-0 truncate text-[12.5px]">{current.label}</span> : <span className="text-shimmer text-[12.5px]">Thinking</span>}
+          {current ? <span className="text-shimmer min-w-0 truncate text-[13px]">{current.label}</span> : <span className="text-shimmer text-[13px]">Thinking</span>}
         </div>
         {done > 0 ? (
           <span className="text-mini text-ink-muted">

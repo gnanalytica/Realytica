@@ -49,7 +49,7 @@ function SectionHead({ n, title, note }: { n: string; title: string; note?: Reac
     <InView className="mb-10 max-w-[44rem]">
       <p className="font-mono text-[12px] text-brand">{n}</p>
       <h2 className="mt-2 text-[30px] font-semibold leading-[1.1] tracking-[-0.02em] text-ink sm:text-[40px]">{title}</h2>
-      {note ? <p className="mt-4 text-[15.5px] leading-relaxed text-ink-secondary">{note}</p> : null}
+      {note ? <p className="mt-4 text-[16px] leading-relaxed text-ink-secondary">{note}</p> : null}
     </InView>
   );
 }
@@ -66,7 +66,7 @@ function TimelineSketch() {
         const current = i === 2;
         return (
           <div key={stage.key} className="min-w-0 flex-1">
-            <p className={cn('truncate text-[10.5px] font-semibold', i > 2 ? 'text-ink-muted' : 'text-ink')}>{stage.label}</p>
+            <p className={cn('truncate text-[11px] font-semibold', i > 2 ? 'text-ink-muted' : 'text-ink')}>{stage.label}</p>
             <div className="relative mt-1.5 flex h-3 items-center justify-between">
               <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t-[1.5px] border-dashed border-[var(--axis)]" />
               {done || current ? (
@@ -107,7 +107,7 @@ function WorkRow({ label, verdict, tone, fill, delay }: { label: string; verdict
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-[11.5px] font-medium text-ink">{label}</span>
+        <span className="truncate text-[12px] font-medium text-ink">{label}</span>
         <span className={cn('shrink-0 rounded-md px-1.5 py-px text-[10px] font-medium ring-1 ring-inset', chip)}>{verdict}</span>
       </div>
       <div className="h-1 overflow-hidden rounded-full bg-sunken">
@@ -136,7 +136,7 @@ function DeptSketch({ dept, rows, delay }: { dept: DepartmentKey; rows: Array<Pa
         <span className="grid size-6 place-items-center rounded-md bg-sunken text-ink ring-1 ring-inset ring-[var(--ring)]">
           <Icon size={12} />
         </span>
-        <span className="truncate text-[11.5px] font-semibold text-ink">{label}</span>
+        <span className="truncate text-[12px] font-semibold text-ink">{label}</span>
       </div>
       <div className="space-y-2.5">
         {rows.map((r) => (
@@ -171,7 +171,7 @@ function ProposalSketch() {
           {accepted ? 'Accepted by a person' : 'Proposed by AI · needs your decision'}
         </span>
       </div>
-      <p className="mt-2 text-[12.5px] font-medium leading-snug text-ink">File the commencement certificate under Legal › Approvals</p>
+      <p className="mt-2 text-[13px] font-medium leading-snug text-ink">File the commencement certificate under Legal › Approvals</p>
       <p className="mt-1 flex items-center gap-1 text-[11px] text-ink-muted">
         <FileText size={11} />
         Read from the document, with its page
@@ -179,7 +179,7 @@ function ProposalSketch() {
       <div className="mt-3 flex items-center gap-1.5">
         {accepted ? (
           <motion.span
-            className="inline-flex items-center gap-1.5 rounded-lg bg-good/10 px-2.5 py-1.5 text-[11.5px] font-medium text-[var(--status-good-text)] ring-1 ring-inset ring-good/25"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-good/10 px-2.5 py-1.5 text-[12px] font-medium text-[var(--status-good-text)] ring-1 ring-inset ring-good/25"
             initial={{ scale: 0.85, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: 'spring', stiffness: 500, damping: 22 }}
@@ -190,14 +190,14 @@ function ProposalSketch() {
         ) : (
           <>
             <motion.span
-              className="rounded-lg bg-action px-2.5 py-1.5 text-[11.5px] font-medium text-action-ink"
+              className="rounded-lg bg-action px-2.5 py-1.5 text-[12px] font-medium text-action-ink"
               animate={{ scale: [1, 1, 0.94, 1] }}
               transition={{ duration: 0.5, delay: 3.1, times: [0, 0.4, 0.7, 1] }}
             >
               Accept
             </motion.span>
-            <span className="rounded-lg px-2.5 py-1.5 text-[11.5px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">Edit</span>
-            <span className="rounded-lg px-2.5 py-1.5 text-[11.5px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">Reject</span>
+            <span className="rounded-lg px-2.5 py-1.5 text-[12px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">Edit</span>
+            <span className="rounded-lg px-2.5 py-1.5 text-[12px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">Reject</span>
           </>
         )}
       </div>
@@ -281,7 +281,7 @@ function StageMatrix() {
           {STAGES.map((s, i) => (
             <div key={s.key} className="border-l border-hairline px-4 py-3">
               <p className="font-mono text-[10px] text-ink-muted">0{i + 1}</p>
-              <p className="text-[12.5px] font-semibold text-ink">{s.label}</p>
+              <p className="text-[13px] font-semibold text-ink">{s.label}</p>
               <p className="truncate text-[11px] text-ink-muted">{s.subStages.map((x) => SUB_STAGE_LABEL[x]).join(' · ')}</p>
             </div>
           ))}
@@ -380,7 +380,7 @@ function CitationSpecimen() {
           >
             <div className="min-w-0 flex-1">
               <p className="text-[13px] font-medium text-ink">{row.label}</p>
-              <p className={cn('text-[11.5px]', row.tone === 'good' ? 'text-[var(--status-good-text)]' : 'text-ai-ink')}>{row.state}</p>
+              <p className={cn('text-[12px]', row.tone === 'good' ? 'text-[var(--status-good-text)]' : 'text-ai-ink')}>{row.state}</p>
             </div>
             <span className="rounded-md bg-brand-soft px-2 py-1 font-mono text-[11px] text-brand ring-1 ring-inset ring-brand/20">deed · p. 4</span>
           </motion.div>
@@ -416,7 +416,7 @@ function ImpactWalk() {
             viewport={{ once: true }}
             transition={{ ...SPRING.settle, delay: 0.15 + i * 0.28 }}
           >
-            <p className={cn('text-[10.5px] font-medium', node.tone === 'critical' ? 'text-critical' : 'text-ink-muted')}>{i === 0 ? 'Missing' : node.kind}</p>
+            <p className={cn('text-[11px] font-medium', node.tone === 'critical' ? 'text-critical' : 'text-ink-muted')}>{i === 0 ? 'Missing' : node.kind}</p>
             <p className="text-[13px] font-semibold leading-snug text-ink">{node.label}</p>
           </motion.div>
           {i < IMPACT.length - 1 ? (
@@ -507,7 +507,7 @@ function PhoneSketch() {
                 />
               ))}
             </div>
-            <p className="flex items-center justify-center gap-1.5 rounded-full bg-sunken py-1.5 text-[10.5px] text-ink-secondary">
+            <p className="flex items-center justify-center gap-1.5 rounded-full bg-sunken py-1.5 text-[11px] text-ink-secondary">
               <CloudOff size={11} />
               Saved on the phone · sends when there is signal
             </p>
@@ -601,7 +601,7 @@ export default function Landing() {
               </a>
             </motion.div>
             <motion.p
-              className="mt-6 flex items-center gap-2 text-[12.5px] text-ink-muted"
+              className="mt-6 flex items-center gap-2 text-[13px] text-ink-muted"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.6, delay: 0.6 }}
@@ -709,7 +709,7 @@ export default function Landing() {
           <div>
             <SectionHead n="05" title="The site, from a phone." note="Realytica Site, for Android and iOS, does one job: the day on site. Manpower, work done, progress against milestones, weather, photographs and issues — logged with no signal and sent when there is. Pair it with a code; it never sees a password." />
             <InView>
-              <p className="inline-flex items-center gap-2 rounded-full bg-page px-3 py-1.5 text-[12.5px] text-ink-secondary ring-1 ring-[var(--ring)]">
+              <p className="inline-flex items-center gap-2 rounded-full bg-page px-3 py-1.5 text-[13px] text-ink-secondary ring-1 ring-[var(--ring)]">
                 <Smartphone size={14} />
                 Work logged before the approvals that allow it is flagged at once.
               </p>
@@ -724,7 +724,7 @@ export default function Landing() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <SectionHead n="06" title="Scope and limitations." />
           <InView className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
-            <div className="max-w-[62ch] space-y-4 text-[15.5px] leading-[1.7] text-ink-secondary">
+            <div className="max-w-[62ch] space-y-4 text-[16px] leading-[1.7] text-ink-secondary">
               <p>
                 A portfolio by stage, a workspace per project with its departments and their workstreams, one chat across all of it, a graph of how the work connects, and a site app for Android and iOS. Reports are built from the records and export to Word or PDF.
               </p>
@@ -734,12 +734,12 @@ export default function Landing() {
             </div>
             <div className="space-y-4">
               <div className="rounded-xl bg-surface p-4 shadow-card ring-1 ring-[var(--ring)]">
-                <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-ink-muted">Coverage</p>
-                <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-secondary">Karnataka’s rules and revenue maps, with Telangana’s maps. India only in this build.</p>
+                <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">Coverage</p>
+                <p className="mt-1.5 text-[14px] leading-relaxed text-ink-secondary">Karnataka’s rules and revenue maps, with Telangana’s maps. India only in this build.</p>
               </div>
               <div className="rounded-xl bg-surface p-4 shadow-card ring-1 ring-[var(--ring)]">
-                <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-ink-muted">Access</p>
-                <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-secondary">The workspace owner invites the team and outside professionals, each to the departments of a file they need.</p>
+                <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted">Access</p>
+                <p className="mt-1.5 text-[14px] leading-relaxed text-ink-secondary">The workspace owner invites the team and outside professionals, each to the departments of a file they need.</p>
               </div>
             </div>
           </InView>
@@ -753,7 +753,7 @@ export default function Landing() {
           <div aria-hidden className="pointer-events-none absolute -bottom-32 left-10 size-72 rounded-full bg-ai/30 blur-3xl" />
           <div className="relative max-w-xl">
             <h2 className="text-[32px] font-semibold leading-tight tracking-[-0.02em] sm:text-[40px]">Start with a project.</h2>
-            <p className="mt-4 text-[15.5px] leading-relaxed opacity-75">Create one for a property and drop in its documents. They are read and given to the department they belong to while you bring the team in.</p>
+            <p className="mt-4 text-[16px] leading-relaxed opacity-75">Create one for a property and drop in its documents. They are read and given to the department they belong to while you bring the team in.</p>
             <Link
               to="/portfolio"
               className="group mt-8 inline-flex items-center gap-2 rounded-xl bg-[var(--text-inverse)] px-5 py-3 text-[14px] font-medium text-ink transition-transform duration-quick ease-state active:scale-[0.98]"
@@ -783,11 +783,11 @@ function ProposalSketchStatic() {
         <AiMark size="xs" />
         <span className="text-[11px] font-medium text-ai-ink">Proposed by AI · needs your decision</span>
       </div>
-      <p className="mt-1.5 text-[12.5px] font-medium text-ink">Accept the values read off the sale deed</p>
+      <p className="mt-1.5 text-[13px] font-medium text-ink">Accept the values read off the sale deed</p>
       <div className="mt-2.5 flex gap-1.5">
-        <span className="rounded-lg bg-action px-2.5 py-1 text-[11.5px] font-medium text-action-ink">Accept</span>
-        <span className="rounded-lg px-2.5 py-1 text-[11.5px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">Edit</span>
-        <span className="rounded-lg px-2.5 py-1 text-[11.5px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">Reject</span>
+        <span className="rounded-lg bg-action px-2.5 py-1 text-[12px] font-medium text-action-ink">Accept</span>
+        <span className="rounded-lg px-2.5 py-1 text-[12px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">Edit</span>
+        <span className="rounded-lg px-2.5 py-1 text-[12px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">Reject</span>
       </div>
     </div>
   );
