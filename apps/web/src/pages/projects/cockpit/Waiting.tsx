@@ -9,7 +9,8 @@ import {
   type WaitingEntry,
   type waitingOnCanvas,
 } from '@realytica/shared';
-import { cn } from '../../../components/ui/kit';
+import { AiMark, cn } from '../../../components/ui/kit';
+import { AnimatePresence, EASE_ENTER, Stagger, StaggerItem, motion } from '../../../lib/motion';
 import { CreateWizard } from '../../../components/create/CreateWizard';
 import { specForProposal } from '../../../components/create/specs';
 import { DecideButtons } from '../../../components/review/Decide';
@@ -208,24 +209,34 @@ export function WaitingHere({
   const shown = documents.length + byCheck.size + cards.length;
 
   return (
-    <section aria-label="Waiting for you" data-waiting-anchor="pane" className="mb-3 scroll-mt-3 overflow-hidden rounded-xl bg-surface ring-1 ring-inset ring-provenance/30">
+    <section aria-label="Waiting for you" data-waiting-anchor="pane" className="mb-3 scroll-mt-3 overflow-hidden rounded-2xl bg-surface shadow-card ring-1 ring-inset ring-ai/25">
       <button
         type="button"
         onClick={() => setFolded((v) => !v)}
         aria-expanded={!folded}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-sunken/60"
+        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors duration-quick hover:bg-ai-soft/40 coarse:min-h-11"
       >
-        <ChevronRight size={13} className={cn('shrink-0 text-ink-muted transition-transform duration-quick', !folded && 'rotate-90')} aria-hidden />
-        <span className="flex-1 text-[12px] font-semibold text-ink">
+        <AiMark size="xs" />
+        <span className="flex-1 text-[12.5px] font-semibold text-ink">
           Waiting for you
-          <span className="ml-1.5 rounded-full bg-provenance/15 px-1.5 font-mono text-micro text-provenance-ink">{shown}</span>
+          <span className="ml-1.5 rounded-full bg-ai/12 px-1.5 font-mono text-micro font-medium text-ai-ink">{shown}</span>
         </span>
-        <span className="text-micro text-ink-muted">{folded ? 'Show' : 'Accept or set aside each where it sits'}</span>
+        <span className="hidden text-micro text-ink-muted sm:inline">{folded ? 'Show' : 'Accept or set aside each where it sits'}</span>
+        <ChevronRight size={14} className={cn('shrink-0 text-ink-muted transition-transform duration-base ease-enter', !folded && 'rotate-90')} aria-hidden />
       </button>
+      <AnimatePresence initial={false}>
       {folded ? null : (
-        <ul className="divide-y divide-hairline border-t border-hairline">
+        <motion.div
+          key="list"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.26, ease: EASE_ENTER }}
+          className="overflow-hidden"
+        >
+        <Stagger as="ul" className="divide-y divide-hairline border-t border-hairline">
           {documents.map((e) => (
-            <li key={e.evidenceId} className="flex items-center gap-2.5 px-3 py-2">
+            <StaggerItem as="li" key={e.evidenceId} className="flex items-center gap-2.5 px-3 py-2 transition-colors duration-quick hover:bg-sunken/50">
               <FileText size={14} className="shrink-0 text-ink-muted" aria-hidden />
               <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{e.title}</span>
               <span className="shrink-0 text-[12px] text-ink-muted">
@@ -234,15 +245,15 @@ export function WaitingHere({
               <button
                 type="button"
                 onClick={() => onGo(e)}
-                className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-brand hover:bg-brand-soft coarse:min-h-11"
+                className="group inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-brand hover:bg-brand-soft coarse:min-h-11"
               >
                 Review
-                <ArrowRight size={12} aria-hidden />
+                <ArrowRight size={12} aria-hidden className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
               </button>
-            </li>
+            </StaggerItem>
           ))}
           {[...byCheck.values()].map((g) => (
-            <li key={g.entry.proposalId ?? g.title} className="flex items-center gap-2.5 px-3 py-2">
+            <StaggerItem as="li" key={g.entry.proposalId ?? g.title} className="flex items-center gap-2.5 px-3 py-2 transition-colors duration-quick hover:bg-sunken/50">
               <span className="size-1.5 shrink-0 rounded-full bg-provenance" aria-hidden />
               <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{g.title}</span>
               <span className="shrink-0 text-[12px] text-ink-muted">
@@ -251,18 +262,20 @@ export function WaitingHere({
               <button
                 type="button"
                 onClick={() => onGo(g.entry)}
-                className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-brand hover:bg-brand-soft coarse:min-h-11"
+                className="group inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-brand hover:bg-brand-soft coarse:min-h-11"
               >
                 Open
-                <ArrowRight size={12} aria-hidden />
+                <ArrowRight size={12} aria-hidden className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
               </button>
-            </li>
+            </StaggerItem>
           ))}
           {cards.map((item) => (
             <WaitingCard key={item.id} project={project} item={item} busy={busy} onAccept={onAccept} onSetAside={onSetAside} />
           ))}
-        </ul>
+        </Stagger>
+        </motion.div>
       )}
+      </AnimatePresence>
     </section>
   );
 }

@@ -3,6 +3,8 @@ import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAt
 import { createContext, forwardRef, useContext, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, Check, ChevronDown, Info, Loader2, ShieldAlert, X, XCircle } from 'lucide-react';
+import { AnimatePresence, AnimatedNumber, EASE_ENTER, SPRING, motion, useDragControls } from '../../lib/motion';
+import { useMediaQuery } from '../../lib/useMediaQuery';
 
 export const cn = clsx;
 
@@ -12,13 +14,17 @@ export const cn = clsx;
 
 export type Tone = 'neutral' | 'brand' | 'info' | 'good' | 'warning' | 'serious' | 'critical';
 
+/*
+ * Amber and orange are fills, not text: each has a darkened counterpart in the
+ * token layer that clears 4.5:1 on paper, and that is what a tone's words use.
+ */
 const TONE_TEXT: Record<Tone, string> = {
   neutral: 'text-ink-secondary',
   brand: 'text-brand',
   info: 'text-brand',
   good: 'text-[var(--status-good-text)]',
-  warning: 'text-ink',
-  serious: 'text-ink',
+  warning: 'text-[var(--status-warning-text)]',
+  serious: 'text-[var(--status-serious-text)]',
   critical: 'text-critical',
 };
 
@@ -35,12 +41,12 @@ export const TONE_FILL: Record<Tone, string> = {
 
 const TONE_CHIP: Record<Tone, string> = {
   neutral: 'bg-sunken text-ink-secondary ring-1 ring-inset ring-[var(--ring)]',
-  brand: 'bg-brand-soft text-brand ring-1 ring-inset ring-brand/25',
-  info: 'bg-brand-soft text-brand ring-1 ring-inset ring-brand/25',
-  good: 'bg-good/10 text-[var(--status-good-text)] ring-1 ring-inset ring-good/35',
-  warning: 'bg-warning/15 text-ink ring-1 ring-inset ring-warning/45',
-  serious: 'bg-serious/15 text-ink ring-1 ring-inset ring-serious/45',
-  critical: 'bg-critical/10 text-critical ring-1 ring-inset ring-critical/40',
+  brand: 'bg-brand-soft text-brand ring-1 ring-inset ring-brand/20',
+  info: 'bg-brand-soft text-brand ring-1 ring-inset ring-brand/20',
+  good: 'bg-good/10 text-[var(--status-good-text)] ring-1 ring-inset ring-good/25',
+  warning: 'bg-warning/15 text-[var(--status-warning-text)] ring-1 ring-inset ring-warning/35',
+  serious: 'bg-serious/12 text-[var(--status-serious-text)] ring-1 ring-inset ring-serious/35',
+  critical: 'bg-critical/10 text-critical ring-1 ring-inset ring-critical/30',
 };
 
 export const TONE_ICON: Record<Tone, typeof Info> = {
@@ -297,7 +303,7 @@ export function Button({ variant = 'secondary', size = 'md', icon, loading, clas
         // area instead. See the `coarse:` note in tailwind.config.js.
         'coarse:min-h-11',
         size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-9 px-3.5 text-[13px]',
-        variant === 'primary' && 'bg-brand text-[var(--brand-ink)] hover:bg-brand-strong',
+        variant === 'primary' && 'bg-action text-action-ink shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_1px_2px_rgb(var(--shadow-tint)/0.18)] hover:bg-action-hover',
         variant === 'secondary' &&
           'bg-surface text-ink ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken',
         variant === 'ghost' && 'text-ink-secondary hover:bg-sunken hover:text-ink',
@@ -401,6 +407,33 @@ export function Badge({
   );
 }
 
+/**
+ * The mark on anything a model wrote.
+ *
+ * Rose, square, and the two letters, the same everywhere: beside a copilot
+ * answer, on a proposal that waits for a person, on a value read off a page.
+ * A reader learns it once and can then tell, at a glance and at any size,
+ * which parts of a screen are the file and which are a machine's suggestion
+ * about it.
+ */
+export function AiMark({ size = 'sm', busy = false, className }: { size?: 'xs' | 'sm' | 'md'; busy?: boolean; className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        'relative inline-grid shrink-0 place-items-center rounded-md bg-ai font-semibold tracking-[0.02em] text-white',
+        size === 'xs' && 'size-4 text-[8px]',
+        size === 'sm' && 'size-5 text-[9px]',
+        size === 'md' && 'size-7 rounded-lg text-[11px]',
+        className,
+      )}
+    >
+      {busy ? <span className="absolute inset-0 animate-ping rounded-md bg-ai/40" /> : null}
+      <span className="relative">AI</span>
+    </span>
+  );
+}
+
 export function Dot({ tone = 'neutral', className }: { tone?: Tone; className?: string }) {
   return <span className={cn('inline-block h-2 w-2 shrink-0 rounded-full', TONE_FILL[tone], className)} />;
 }
@@ -424,10 +457,10 @@ export function Stat({
     <div className={cn('min-w-0', className)} title={hint}>
       <div className="text-[12px] font-medium text-ink-muted">{label}</div>
       <div
-        className={cn('mt-1 truncate font-semibold leading-tight tracking-tight', valueSizeClass(value, 'stat'), TONE_TEXT[tone])}
+        className={cn('mt-1 truncate font-semibold leading-tight tracking-tight tabular-nums', valueSizeClass(value, 'stat'), TONE_TEXT[tone])}
         title={hint ?? (typeof value === 'string' ? value : undefined)}
       >
-        {value}
+        {typeof value === 'number' ? <AnimatedNumber value={value} /> : value}
       </div>
       {sub ? <div className="mt-0.5 text-xs text-ink-secondary">{sub}</div> : null}
     </div>
@@ -690,10 +723,10 @@ export function StatTile({
         * would fit, with the full text on the element for hover.
         */}
       <div
-        className={cn('mt-1.5 truncate font-semibold leading-none tracking-tight', valueSizeClass(value), TONE_TEXT[tone])}
+        className={cn('mt-1.5 truncate font-semibold leading-none tracking-tight tabular-nums', valueSizeClass(value), TONE_TEXT[tone])}
         title={typeof value === 'string' ? value : undefined}
       >
-        {value}
+        {typeof value === 'number' ? <AnimatedNumber value={value} /> : value}
       </div>
       {hint ? <div className="mt-1.5 text-[12px] leading-snug text-ink-secondary">{hint}</div> : null}
     </Tile>
@@ -805,7 +838,13 @@ export function ProgressBar({
         </div>
       )}
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-sunken ring-1 ring-inset ring-[var(--ring)]">
-        <div className={cn('h-full rounded-full transition-[width] duration-500', TONE_FILL[tone])} style={{ width: `${v}%` }} />
+        {/* Fills from nothing the first time, then travels to each new value. */}
+        <motion.div
+          className={cn('h-full rounded-full', TONE_FILL[tone])}
+          initial={{ width: 0 }}
+          animate={{ width: `${v}%` }}
+          transition={{ duration: 0.7, ease: EASE_ENTER }}
+        />
       </div>
     </div>
   );
@@ -899,7 +938,7 @@ const CONTROL =
   'w-full rounded-lg bg-surface px-2.5 text-[13px] coarse:text-base coarse:min-h-11 text-ink ring-1 ring-inset ring-[var(--ring)] ' +
   'transition-[box-shadow,border-color] duration-quick ease-state ' +
   'hover:ring-[var(--text-muted)] ' +
-  'placeholder:text-ink-muted focus:ring-2 focus:ring-brand disabled:opacity-60 disabled:hover:ring-[var(--ring)]';
+  'placeholder:text-ink-muted focus:ring-2 focus:ring-brand focus:shadow-[0_0_0_4px_rgb(var(--brand-rgb)/0.12)] disabled:opacity-60 disabled:hover:ring-[var(--ring)]';
 
 export function Input({ className, id, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...rest} id={useFieldId(id, rest['aria-label'])} className={cn(CONTROL, 'h-9', className)} />;
@@ -963,7 +1002,7 @@ export function Toggle({
       >
         <span
           className={cn(
-            'absolute rounded-full bg-white transition-transform',
+            'absolute rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.25)] transition-transform duration-base ease-enter',
             size === 'sm' ? 'h-3 w-3 translate-x-0.5' : 'h-4 w-4 translate-x-0.5',
             checked && (size === 'sm' ? 'translate-x-[14px]' : 'translate-x-[18px]'),
           )}
@@ -1010,9 +1049,23 @@ export interface TabDef {
   badge?: ReactNode;
 }
 
+/**
+ * One underline, and it travels.
+ *
+ * The selection moves from the old tab to the new one instead of vanishing
+ * from one and appearing under the other, so the eye follows it to where the
+ * reader now is. The row scrolls sideways when it does not fit and the chosen
+ * tab is brought into view.
+ */
 export function Tabs({ tabs, active, onChange, className }: { tabs: TabDef[]; active: string; onChange: (key: string) => void; className?: string }) {
+  const group = useId();
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const on = row.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    on?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  }, [active]);
   return (
-    <div className={cn('flex gap-0.5 overflow-x-auto border-b border-hairline', className)} role="tablist">
+    <div ref={row} className={cn('no-scrollbar flex gap-0.5 overflow-x-auto border-b border-hairline', className)} role="tablist">
       {tabs.map((t) => {
         const on = t.key === active;
         return (
@@ -1022,17 +1075,25 @@ export function Tabs({ tabs, active, onChange, className }: { tabs: TabDef[]; ac
             aria-selected={on}
             onClick={() => onChange(t.key)}
             className={cn(
-              '-mb-px flex shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium coarse:min-h-11',
+              'relative flex shrink-0 cursor-pointer items-center gap-1.5 px-3 py-2.5 text-[13px] font-medium coarse:min-h-11',
               // No `active:scale` on a tab: the underline is the feedback, and
               // a shrinking tab in a fixed row nudges its neighbours.
-              'transition-[color,border-color] duration-quick ease-state',
+              'transition-[color] duration-quick ease-state',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset',
-              on ? 'border-brand text-ink' : 'border-transparent text-ink-secondary hover:border-[var(--axis)] hover:text-ink',
+              on ? 'text-ink' : 'text-ink-secondary hover:text-ink',
             )}
           >
             {t.icon}
             {t.label}
             {t.badge}
+            {on ? (
+              <motion.span
+                layoutId={`tab-${group}`}
+                aria-hidden="true"
+                className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-ink"
+                transition={SPRING.snappy}
+              />
+            ) : null}
           </button>
         );
       })}
@@ -1048,8 +1109,13 @@ export function Spinner({ size = 16, className }: { size?: number; className?: s
   return <Loader2 size={size} className={cn('animate-spin text-ink-muted', className)} />;
 }
 
+/** A shape holding a place, with a sheen crossing it so it reads as on its way rather than empty. */
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('relative overflow-hidden rounded-md bg-sunken', className)} />;
+  return (
+    <div className={cn('relative overflow-hidden rounded-md bg-sunken', className)} aria-hidden="true">
+      <span className="absolute inset-0 animate-sweep bg-gradient-to-r from-transparent via-[var(--sheen-soft)] to-transparent" />
+    </div>
+  );
 }
 
 export function EmptyState({
@@ -1066,8 +1132,8 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <div className={cn('flex flex-col items-center justify-center gap-2 px-6 py-12 text-center', className)}>
-      {icon ? <div className="text-ink-muted">{icon}</div> : null}
+    <div className={cn('flex animate-fade-in flex-col items-center justify-center gap-2 px-6 py-12 text-center', className)}>
+      {icon ? <div className="mb-1 grid size-11 place-items-center rounded-full bg-sunken text-ink-muted ring-1 ring-inset ring-[var(--ring)]">{icon}</div> : null}
       <p className="text-[13px] font-semibold text-ink">{title}</p>
       {description ? <p className="max-w-md text-xs leading-relaxed text-ink-secondary">{description}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}
@@ -1121,7 +1187,20 @@ export function Callout({
         <span className="min-w-0 flex-1 font-semibold">{title}</span>
         <ChevronDown size={13} className={cn('shrink-0 text-ink-muted transition-transform', open && 'rotate-180')} />
       </button>
-      {open && <div className="px-3 pb-3 pl-[34px] text-ink-secondary">{children}</div>}
+      <AnimatePresence initial={false}>
+        {open ? (
+          <motion.div
+            key="body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.24, ease: EASE_ENTER }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 pb-3 pl-[34px] text-ink-secondary">{children}</div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1199,10 +1278,13 @@ export function Modal(props: {
 }) {
   // The frame is a separate component so its effects run on open and clean up
   // on close. A hook inside `Modal` itself would live for as long as the page
-  // that declares the dialog, which is not the same lifetime at all.
-  if (!props.open) return null;
-  return <ModalFrame {...props} />;
+  // that declares the dialog, which is not the same lifetime at all. The
+  // presence wrapper holds it a moment longer on close, for its way out.
+  return <AnimatePresence>{props.open ? <ModalFrame key="dialog" {...props} /> : null}</AnimatePresence>;
 }
+
+/** Below this the dialog is a sheet from the bottom edge, where a thumb is. */
+const SHEET_QUERY = '(max-width: 639px)';
 
 function ModalFrame({
   onClose,
@@ -1221,6 +1303,11 @@ function ModalFrame({
   const host = useLayer('modal');
   const panel = useRef<HTMLDivElement>(null);
   const labelId = useId();
+  const sheet = useMediaQuery(SHEET_QUERY);
+  // The sheet is dragged by its handle and header only: a drag anywhere would
+  // take the gesture from a long form that needs to scroll.
+  const drag = useDragControls();
+  const grab = sheet ? (e: React.PointerEvent) => drag.start(e) : undefined;
   useInertBackground();
 
   // Focus goes in on open and comes back out on close. Coming back matters
@@ -1264,23 +1351,52 @@ function ModalFrame({
   }, [onClose]);
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+      <motion.div
+        className="absolute inset-0 bg-[rgb(var(--shadow-tint)/0.42)] backdrop-blur-[2px]"
+        onClick={onClose}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
+      />
+      <motion.div
         ref={panel}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelId}
         tabIndex={-1}
+        /*
+         * On a phone it is a sheet: it rises from the bottom edge and goes back
+         * down when dragged there, the way every sheet on the phone does. On
+         * anything wider it is a dialog that settles into the middle.
+         */
+        initial={sheet ? { y: '100%' } : { opacity: 0, scale: 0.96, y: 10 }}
+        animate={sheet ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
+        exit={sheet ? { y: '100%' } : { opacity: 0, scale: 0.98, y: 6, transition: { duration: 0.16 } }}
+        transition={SPRING.layer}
+        drag={sheet ? 'y' : false}
+        dragControls={drag}
+        dragListener={false}
+        dragConstraints={{ top: 0, bottom: 0 }}
+        dragElastic={{ top: 0, bottom: 0.6 }}
+        onDragEnd={(_, info) => {
+          if (info.offset.y > 120 || info.velocity.y > 600) onClose();
+        }}
         className={cn(
-          'relative z-10 flex max-h-[min(92dvh,40rem)] w-full flex-col overflow-hidden animate-fade-in rounded-xl bg-surface shadow-pop outline-none ring-1 ring-[var(--ring)]',
-          'mb-[env(safe-area-inset-bottom)] sm:mb-0',
-          width === 'sm' && 'max-w-sm',
-          width === 'md' && 'max-w-lg',
-          width === 'lg' && 'max-w-3xl',
+          'relative z-10 flex w-full flex-col overflow-hidden bg-surface shadow-pop outline-none ring-1 ring-[var(--ring)]',
+          'max-h-[92dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)] sm:max-h-[min(92dvh,40rem)] sm:rounded-2xl sm:pb-0',
+          width === 'sm' && 'sm:max-w-sm',
+          width === 'md' && 'sm:max-w-lg',
+          width === 'lg' && 'sm:max-w-3xl',
         )}
       >
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline px-4 py-3">
+        {sheet ? (
+          <div onPointerDown={grab} className="flex shrink-0 touch-none justify-center pb-1 pt-2" aria-hidden="true">
+            <span className="h-1 w-10 rounded-full bg-[var(--axis)]" />
+          </div>
+        ) : null}
+        <header onPointerDown={grab} className={cn('flex shrink-0 items-center justify-between gap-3 border-b border-hairline px-4 py-3', sheet && 'touch-none')}>
           <h2 id={labelId} className="min-w-0 truncate text-[13px] font-semibold text-ink">{title}</h2>
           <button onClick={onClose} className="shrink-0 rounded p-1 coarse:p-3 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Close">
             <X size={15} />
@@ -1290,7 +1406,7 @@ function ModalFrame({
         {footer ? (
           <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-hairline px-4 py-3">{footer}</footer>
         ) : null}
-      </div>
+      </motion.div>
     </div>,
     host,
   );
@@ -1300,25 +1416,44 @@ function ModalFrame({
 export function Tooltip({ label, children, className }: { label: ReactNode; children: ReactNode; className?: string }) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  // A pointer passing over on its way somewhere else should not set off a
+  // tooltip; a pointer that stops should get one at once. Focus is immediate.
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const show = (delay: number) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setOpen(true), delay);
+  };
+  const hide = () => {
+    clearTimeout(timer.current);
+    setOpen(false);
+  };
+  useEffect(() => () => clearTimeout(timer.current), []);
   return (
     <span
       className={cn('relative inline-flex', className)}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onBlur={() => setOpen(false)}
+      onMouseEnter={() => show(140)}
+      onMouseLeave={hide}
+      onFocus={() => show(0)}
+      onBlur={hide}
       aria-describedby={open ? id : undefined}
     >
       {children}
-      {open ? (
-        <span
-          id={id}
-          role="tooltip"
-          className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-1.5 w-max max-w-[16rem] -translate-x-1/2 rounded-md bg-[var(--text-primary)] px-2 py-1 text-mini leading-snug text-[var(--text-inverse)] shadow-pop"
-        >
-          {label}
-        </span>
-      ) : null}
+      <AnimatePresence>
+        {open ? (
+          <motion.span
+            id={id}
+            role="tooltip"
+            initial={{ opacity: 0, y: 3, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.08 } }}
+            transition={{ duration: 0.14, ease: EASE_ENTER }}
+            style={{ x: '-50%' }}
+            className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-1.5 w-max max-w-[16rem] origin-bottom rounded-md bg-[var(--text-primary)] px-2 py-1 text-mini leading-snug text-[var(--text-inverse)] shadow-pop"
+          >
+            {label}
+          </motion.span>
+        ) : null}
+      </AnimatePresence>
     </span>
   );
 }
@@ -1353,18 +1488,38 @@ export function ToastHost({ children }: { children: ReactNode }) {
           to say so over the form the reader is still looking at. */}
       {createPortal(
       <div className="no-print pointer-events-none fixed bottom-[max(4.75rem,env(safe-area-inset-bottom))] left-3 right-3 z-[70] flex max-w-sm flex-col gap-2 lg:bottom-4 lg:left-auto lg:right-4 lg:w-80">
-        {items.map((i) => {
-          const Icon = TONE_ICON[i.tone];
-          return (
-            <div key={i.id} className="pointer-events-auto flex animate-fade-in items-start gap-2 rounded-lg bg-surface p-3 text-xs shadow-pop ring-1 ring-[var(--ring)]">
-              <Icon size={14} className={cn('mt-0.5 shrink-0', TONE_TEXT[i.tone])} />
-              <span className="min-w-0 flex-1 text-ink">{i.text}</span>
-              <button onClick={() => setItems((p) => p.filter((x) => x.id !== i.id))} className="text-ink-muted hover:text-ink" aria-label="Dismiss">
-                <X size={12} />
-              </button>
-            </div>
-          );
-        })}
+        <AnimatePresence initial={false}>
+          {items.map((i) => {
+            const Icon = TONE_ICON[i.tone];
+            return (
+              <motion.div
+                key={i.id}
+                layout
+                initial={{ opacity: 0, y: 16, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, x: 28, transition: { duration: 0.18 } }}
+                transition={SPRING.layer}
+                className="pointer-events-auto relative flex items-start gap-2.5 overflow-hidden rounded-xl bg-surface p-3 text-[12.5px] shadow-pop ring-1 ring-[var(--ring)]"
+              >
+                <span className={cn('mt-px grid size-5 shrink-0 place-items-center rounded-full', TONE_CHIP[i.tone])}>
+                  <Icon size={11} />
+                </span>
+                <span className="min-w-0 flex-1 leading-snug text-ink">{i.text}</span>
+                <button onClick={() => setItems((p) => p.filter((x) => x.id !== i.id))} className="rounded p-0.5 text-ink-muted hover:bg-sunken hover:text-ink coarse:p-2" aria-label="Dismiss">
+                  <X size={12} />
+                </button>
+                {/* How long it will stay, drawn rather than guessed at. */}
+                <motion.span
+                  aria-hidden="true"
+                  className={cn('absolute bottom-0 left-0 h-0.5', TONE_FILL[i.tone])}
+                  initial={{ width: '100%' }}
+                  animate={{ width: '0%' }}
+                  transition={{ duration: 4.2, ease: 'linear' }}
+                />
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
       </div>,
       host,
       )}

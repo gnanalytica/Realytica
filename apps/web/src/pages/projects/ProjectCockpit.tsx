@@ -42,6 +42,7 @@ import {
 import { ReadingDesk } from '../../components/reading/ReadingDesk';
 import { CopilotPanel } from '../../components/CopilotPanel';
 import { Badge, Button, Spinner, cn, useToast } from '../../components/ui/kit';
+import { SPRING, motion } from '../../lib/motion';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { EMPTY_CHAT_WIDTH, LAYOUTS, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
 import type { CockpitLayout } from './cockpit/layout';
@@ -49,7 +50,7 @@ import { healthTone } from './shared';
 import { RouteErrorBoundary } from '../../components/layout/ErrorBoundary';
 import type { ProjectOutlet } from './ProjectLayout';
 import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
-import { CockpitPaneStrip, WORKSTREAM_PANE, paneLabel } from './cockpit/rail';
+import { CockpitPaneStrip, ReviewPill, WORKSTREAM_PANE, paneLabel } from './cockpit/rail';
 import { StageTimeline } from '../../components/departments/StageTimeline';
 import { AlertsBell } from '../../components/departments/AlertsBell';
 import type { PhaseOpen } from '../../components/project/PhaseRecord';
@@ -860,9 +861,9 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   );
 
   return (
-    <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col overflow-hidden">
+    <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden lg:h-[calc(100dvh-56px)]">
       {isDesktop ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-hairline px-5 py-2.5">
+        <div className="flex shrink-0 items-center gap-3 border-b border-hairline bg-surface px-4 py-2">
           {/*
             The reference and the name are NOT repeated here.
             The top bar's project switcher carries both, permanently, forty
@@ -873,22 +874,27 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           */}
           <Link
             to="/portfolio"
-            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] hover:bg-sunken"
+            className="group inline-flex h-8 shrink-0 items-center gap-1 rounded-lg pl-1.5 pr-2.5 text-[12.5px] font-medium text-ink-secondary ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick hover:bg-sunken hover:text-ink"
           >
-            <ChevronLeft size={14} />
+            <ChevronLeft size={15} className="transition-transform duration-quick ease-state group-hover:-translate-x-0.5" />
             Portfolio
           </Link>
           {/* The name is the top bar's switcher, forty pixels up; this row
               carries the way back and the state of the file. */}
-          <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} />
+          <div className="min-w-0 flex-1 px-2">
+            <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} />
+          </div>
+          {waiting.total > 0 ? <ReviewPill n={waiting.total} onClick={() => goWaiting()} /> : null}
           <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
           <AlertsBell project={project} onChanged={setProject} onOpenWorkstream={(key) => goPane(WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })} />
           <button
             type="button"
             onClick={() => setCommandOpen(true)}
-            className="rounded-lg border border-[var(--ring)] bg-surface px-2.5 py-1 text-[12px] text-ink-muted hover:text-ink"
+            className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg bg-sunken pl-2.5 pr-1.5 text-[12px] text-ink-muted ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick hover:text-ink"
           >
-            Run a command <span className="font-mono">⌘K</span>
+            <Search size={13} aria-hidden />
+            Command
+            <kbd className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-[10px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">⌘K</kbd>
           </button>
           <button
             type="button"
@@ -896,8 +902,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             title={focusMode ? 'Leave focus' : 'Focus the conversation (⌘.)'}
             aria-pressed={focusMode}
             className={cn(
-              'flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px]',
-              focusMode ? 'border-brand bg-brand-soft text-brand' : 'border-[var(--ring)] bg-surface text-ink-secondary hover:text-ink',
+              'flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12px] ring-1 ring-inset transition-colors duration-quick',
+              focusMode ? 'bg-ink text-[var(--text-inverse)] ring-ink' : 'bg-surface text-ink-secondary ring-[var(--ring)] hover:text-ink',
             )}
           >
             {focusMode ? <PanelRight size={13} /> : <Maximize2 size={13} />}
@@ -916,22 +922,25 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           </button>
         </div>
       ) : (
-        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline px-3">
-          <Link to="/portfolio" aria-label="Back to the portfolio" className="-ml-1 rounded-lg p-1.5 text-ink-secondary hover:bg-sunken hover:text-ink coarse:min-h-11 coarse:min-w-11">
-            <ChevronLeft size={16} />
+        <div className="flex h-14 shrink-0 items-center gap-1.5 border-b border-hairline bg-surface px-2 pt-[env(safe-area-inset-top)]">
+          <Link to="/portfolio" aria-label="Back to the portfolio" className="grid size-9 shrink-0 place-items-center rounded-lg text-ink-secondary hover:bg-sunken hover:text-ink coarse:size-11">
+            <ChevronLeft size={18} />
           </Link>
-          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">
-            {mobileSurface === 'chat' ? 'Chat' : paneLabel(pane, params)}
-          </p>
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="truncate text-[11px] font-medium text-ink-muted">{project.name}</p>
+            <p className="truncate text-[14px] font-semibold tracking-tight text-ink">
+              {mobileSurface === 'chat' ? 'Chat' : paneLabel(pane, params)}
+            </p>
+          </div>
           <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} compact />
           <AlertsBell project={project} onChanged={setProject} onOpenWorkstream={(key) => goPane(WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })} />
           <button
             type="button"
             onClick={() => setCommandOpen(true)}
             aria-label="Run a command"
-            className="rounded-lg p-2 text-ink-secondary hover:bg-sunken hover:text-ink coarse:min-h-11 coarse:min-w-11"
+            className="grid size-9 shrink-0 place-items-center rounded-lg text-ink-secondary hover:bg-sunken hover:text-ink coarse:size-11"
           >
-            <Search size={16} />
+            <Search size={17} />
           </button>
         </div>
       )}
@@ -951,7 +960,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
              * already driving lags behind the cursor.
              */
             className={cn(
-              'flex min-h-0 min-w-0 flex-col border-r border-hairline',
+              'flex min-h-0 min-w-0 flex-col border-r border-hairline bg-surface',
               !dragging && 'transition-[width] duration-base ease-state motion-reduce:transition-none',
             )}
             style={spec.chat === null ? { flexGrow: 1 } : { width: chatWidth, flexShrink: 0 }}
@@ -1044,7 +1053,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
                     pendingDrafts={pendingDrafts}
                     onGo={goPane}
                     waiting={waiting}
-                    onReview={() => goWaiting()}
                     wrap
                   />
                   {workBody}
@@ -1058,7 +1066,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           <section
             aria-label="Conversation"
             hidden={mobileSurface !== 'chat'}
-            className={cn('min-h-0 flex-col', mobileSurface === 'chat' ? 'flex flex-1' : 'hidden')}
+            className={cn('min-h-0 flex-col bg-surface', mobileSurface === 'chat' ? 'flex flex-1' : 'hidden')}
           >
             <div className="flex min-h-0 flex-1 flex-col p-3">{chat}</div>
           </section>
@@ -1093,35 +1101,41 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
 
           <nav
             aria-label="Cockpit"
-            className="flex shrink-0 border-t border-hairline bg-surface pb-[max(0.35rem,env(safe-area-inset-bottom))]"
+            className="flex shrink-0 gap-1 border-t border-hairline bg-surface/95 px-2 pt-1.5 backdrop-blur pb-[max(0.5rem,env(safe-area-inset-bottom))]"
           >
-            <button
-              type="button"
-              onClick={() => setMobileSurface('chat')}
-              aria-current={mobileSurface === 'chat' ? 'page' : undefined}
-              className={cn(
-                'flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px]',
-                mobileSurface === 'chat' ? 'font-semibold text-brand' : 'text-ink-muted',
-              )}
-            >
-              <MessageCircle size={18} />
-              Chat
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setFocusMode(false);
-                setMobileSurface('work');
-              }}
-              aria-current={mobileSurface === 'work' ? 'page' : undefined}
-              className={cn(
-                'flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px]',
-                mobileSurface === 'work' ? 'font-semibold text-brand' : 'text-ink-muted',
-              )}
-            >
-              <LayoutDashboard size={18} />
-              {paneLabel(pane, params)}
-            </button>
+            {(
+              [
+                { key: 'chat', label: 'Chat', icon: MessageCircle, go: () => setMobileSurface('chat') },
+                {
+                  key: 'work',
+                  label: paneLabel(pane, params),
+                  icon: LayoutDashboard,
+                  go: () => {
+                    setFocusMode(false);
+                    setMobileSurface('work');
+                  },
+                },
+              ] as const
+            ).map((item) => {
+              const on = mobileSurface === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={item.go}
+                  aria-current={on ? 'page' : undefined}
+                  className={cn(
+                    'relative flex min-h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-3 text-[13px] transition-colors duration-quick active:scale-[0.98]',
+                    on ? 'font-semibold text-ink' : 'text-ink-muted',
+                  )}
+                >
+                  {/* The surface you are on wears the pill, and it slides when you switch. */}
+                  {on ? <motion.span layoutId="cockpit-surface" aria-hidden className="absolute inset-0 rounded-xl bg-sunken ring-1 ring-inset ring-[var(--ring)]" transition={SPRING.snappy} /> : null}
+                  <item.icon size={18} className="relative shrink-0" />
+                  <span className="relative truncate">{item.label}</span>
+                </button>
+              );
+            })}
           </nav>
         </div>
       )}

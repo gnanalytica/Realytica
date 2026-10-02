@@ -1,5 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { MotionRoot } from './lib/motion';
 import AppShell from './components/layout/AppShell';
 import { AuthGate } from './components/layout/AuthGate';
 import { ToastHost } from './components/ui/kit';
@@ -67,6 +68,7 @@ function ToWorkspace() {
 
 export default function App() {
   return (
+    <MotionRoot>
     <ToastHost>
       <Routes>
         {/* The landing page is the one thing outside the gate: somebody has to
@@ -138,5 +140,6 @@ export default function App() {
         </Route>
       </Routes>
     </ToastHost>
+    </MotionRoot>
   );
 }

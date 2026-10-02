@@ -4,6 +4,7 @@ import { readPref, writePref } from '../../lib/prefs';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { Outlet, useLocation } from 'react-router-dom';
 import { RouteErrorBoundary } from './ErrorBoundary';
+import { ScreenEnter } from '../../lib/motion';
 import { Spinner } from '../ui/kit';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
@@ -72,7 +73,10 @@ export default function AppShell() {
         onCloseMobile={() => setMobileOpen(false)}
       />
       <div className="flex min-h-full min-w-0 flex-1 flex-col">
-        <TopBar onOpenMobile={() => setMobileOpen(true)} />
+        {/* Inside a project on a phone the cockpit carries its own header,
+            with the project's name in it; two headers stacked cost a sixth of
+            the screen before anything about the project. */}
+        <TopBar onOpenMobile={() => setMobileOpen(true)} desktopOnly={projectWorkspace} />
         <main className={projectWorkspace ? 'min-h-0 min-w-0 flex-1 overflow-hidden p-0' : 'min-w-0 flex-1 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8'}>
           <div className={projectWorkspace ? 'h-full min-h-0 w-full' : 'mx-auto w-full max-w-[1400px]'}>
             {/* Inside the shell, not around it: a pane that throws leaves the
@@ -83,7 +87,15 @@ export default function AppShell() {
                 answer to that. */}
             <RouteErrorBoundary>
               <Suspense fallback={<PaneLoading />}>
-                <Outlet />
+                {/* A project keeps its own frame and moves inside it; anywhere
+                    else, each screen arrives as one piece. */}
+                {projectWorkspace ? (
+                  <Outlet />
+                ) : (
+                  <ScreenEnter id={location.pathname}>
+                    <Outlet />
+                  </ScreenEnter>
+                )}
               </Suspense>
             </RouteErrorBoundary>
           </div>
