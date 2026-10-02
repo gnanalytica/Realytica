@@ -209,18 +209,19 @@ export default function Landing() {
           }
         >
           <h1 className="m-0 font-display text-[32px] font-normal leading-[1.06] tracking-[-0.015em] text-ink sm:text-[40px] lg:text-[58px]">
-            <SetLine delay={40}>Every engagement,</SetLine>
+            <SetLine delay={40}>A property's whole life,</SetLine>
             <SetLine delay={130}>from the first deed</SetLine>
             <SetLine delay={220}>
-              <span className="text-ink-secondary">to the signed report.</span>
+              <span className="text-ink-secondary">to the building in use.</span>
             </SetLine>
           </h1>
 
           <p className="m-0 mt-8 max-w-[58ch] animate-fade-in text-[16px] leading-[1.65] text-ink-secondary" style={{ animationDelay: '340ms' }}>
-            For engineering firms and developers in Karnataka. Drop in the sale deed, the EC and the khata: the copilot
-            reads them, Kannada included, and cites the page behind every value. The state's map layers, value drivers
-            from inputs you record, technical DD checks and the report sit on one file, with your team and outside
-            professionals working in it together.
+            For engineering firms, developers and the professionals around them. Every project moves through four
+            stages and its work through six departments — Finance, Legal, Design, Construction, Procurement and
+            Commercial — each with a living estimate, the reports professionals certify, and the documents read for
+            you, Kannada included, with the page behind every value. The site team logs the day from a phone, with
+            or without signal.
           </p>
 
           <div className="mt-9 flex animate-fade-in flex-wrap items-center gap-6" style={{ animationDelay: '420ms' }}>
@@ -337,9 +338,10 @@ export default function Landing() {
         >
           <div className="max-w-[62ch] space-y-4 text-[15px] leading-[1.7] text-ink-secondary">
             <p className="m-0">
-              A portfolio of engagements, a dashboard per property, and a workspace where the copilot sits beside eight
-              views: overview, documents, site, value, technical DD, people, report and the evidence graph. Reports are
-              built from the records and export to Word or PDF.
+              A portfolio by stage, a workspace per project with its departments and their workstreams, one chat across
+              all of it, a graph of how the work connects, and a site app for Android and iOS. Reports are built from
+              the records and export to Word or PDF. Legal, Construction and Finance are live; Design, Procurement and
+              Commercial are listed with what they will hold.
             </p>
             <p className="m-0">
               It is <span className="text-ink">not</span> a certified valuation, a legal title certificate or a
@@ -360,11 +362,11 @@ export default function Landing() {
           }
         >
           <h2 className="m-0 max-w-[24ch] font-display text-[30px] font-normal leading-tight tracking-tight text-ink sm:text-[38px]">
-            Start with an engagement.
+            Start with a project.
           </h2>
           <p className="m-0 mt-4 max-w-[56ch] text-[15px] leading-relaxed text-ink-secondary">
-            Create one for a client's property and upload its documents. The copilot starts reading while you bring the
-            team in.
+            Create one for a property and drop in its documents. They are read and given to the department they belong
+            to while you bring the team in.
           </p>
           <Link to="/portfolio" className={cn(CTA_CLASSES, 'mt-8')}>
             Open the application

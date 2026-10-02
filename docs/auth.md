@@ -240,14 +240,41 @@ which is the fact somebody probing is looking for.
 
 ---
 
+## Phones: the site app
+
+The site app never sees a Google sign-in. A signed-in person opens **People ›
+The site app › Pair a phone**, which shows an 8-character code (and the same
+code as a QR) valid for ten minutes and one use. The phone trades it at
+`POST /api/devices/claim` for a token of its own, `rdt_…`, kept on the phone in
+its secure store and on the server only as a SHA-256 hash.
+
+Every call from the phone resolves the token to the person who paired it, as
+the workspace knows them *now*: remove the person, or revoke the phone from
+People, and the next call is a 401. A phone's token reaches only the site
+routes — the projects list, a project's site view, the site log and its
+photographs, milestone progress and alert reads — and anything else is a 403.
+Department roles apply as they do on the web: logging from site needs a lead,
+contributor or signer in Construction.
+
+## Departments
+
+Inside a project, what a person may do is decided per department. Their firm
+role sets the default — owners and managers lead every department, staff
+contribute, viewers read — and the project's team list says otherwise where it
+needs to. Someone from outside the firm reaches only the departments given to
+them; that is written as a project grant (the scopes whose checks those
+departments hold, and the matching areas), so the response redaction described
+above applies to them unchanged.
+
 ## Deploying behind this
 
 - Serve over HTTPS. A bearer token on plain HTTP is a bearer token anybody on
   the path can copy.
 - Set `REALYTICA_AUTH_BOOTSTRAP_EMAILS` **before** the first deploy, not after.
-- `/api/health` is the only unauthenticated route. It reports the auth mode so
-  the web app knows whether to show the door, and nothing else about the
-  deployment.
+- `/api/health` and `POST /api/devices/claim` are the only unauthenticated
+  routes. Health reports the auth mode so the web app knows whether to show the
+  door, and nothing else about the deployment; claim trades a pairing code for
+  a phone's token, ten tries a minute per address.
 - The token lives in `localStorage`, which is the accepted trade for a
   single-page app with no server session. It is short-lived — Google issues an
   hour — and a 401 anywhere drops it and returns you to sign-in.

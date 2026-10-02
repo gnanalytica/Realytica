@@ -735,15 +735,20 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
 
 
   let documentPart: LlmContentPart;
+  /** The pages actually sent, when only some were: a cited page is mapped back through it. */
+  let pdfWindow: { pages: number[]; of: number } | undefined;
   if (isPdf) {
     const loaded = await loadPdfForExtraction(fileBytes);
     if (!loaded.ok) {
       emit({ kind: 'error', label: 'PDF rejected before sending', detail: loaded.message });
       return finishFailure('failed', loaded.message);
     }
+    pdfWindow = loaded.pdf.window;
     emit({
       kind: 'tool_result',
-      label: `Loaded PDF — ${loaded.pdf.pageCount} page(s), ${(loaded.pdf.sizeBytes / 1024).toFixed(0)}KB`,
+      label: loaded.pdf.window
+        ? `Loaded ${loaded.pdf.pageCount} of ${loaded.pdf.window.of} pages — the first and the last, ${(loaded.pdf.sizeBytes / 1048576).toFixed(1)}MB`
+        : `Loaded PDF — ${loaded.pdf.pageCount} page(s), ${(loaded.pdf.sizeBytes / 1024).toFixed(0)}KB`,
     });
     documentPart = {
       type: 'document',
@@ -907,7 +912,9 @@ export async function runDocumentIntelligence(input: RunDocumentIntelligenceInpu
     // here — not from the tool input, not from the model's prose, not from a
     // heuristic. On a route without citations `citationSpans` is empty, so
     // this is undefined for every field, which is the required outcome.
-    const sourcePage = pageVerificationAvailable ? matchPageForQuote(raw.quote, citationSpans) : undefined;
+    const citedPage = pageVerificationAvailable ? matchPageForQuote(raw.quote, citationSpans) : undefined;
+    // A page of the window is a page of the original only once mapped back.
+    const sourcePage = citedPage !== undefined && pdfWindow ? (pdfWindow.pages[citedPage - 1] ?? citedPage - 1) + 1 : citedPage;
     const outcome = fieldOutcome({ pageVerificationAvailable, citationsAvailable, sourcePage, confidence: raw.confidence });
     if (!outcome.keep) continue;
     let confidence = outcome.confidence;

@@ -1,4 +1,4 @@
-# Querying the reasoning graph from Claude
+# Querying the project graph from Claude
 
 `.mcp.json` at the repo root wires the [Neo4j MCP server](https://neo4j.com/docs/mcp/current/quickstart/)
 to the same graph the app writes. It is **project scope**: committed, so it
@@ -30,11 +30,28 @@ RETURN p.label, i.label, i.detail ORDER BY i.detail
 MATCH (:Ryt { projectId: $projectId })-[r:RYT_EDGE]->(m:Ryt)
 WHERE r.closedAt IS NULL OR r.closedAt > '2026-03-31'
 RETURN r.kind, m.kind, m.label
+
+// Every workstream, its quick assessment and its certified report, on one project
+MATCH (d:Ryt:department { projectId: $projectId })-[:RYT_EDGE { kind: 'has_workstream' }]->(w:workstream)
+OPTIONAL MATCH (q:quick_assessment)-[:RYT_EDGE { kind: 'assesses' }]->(w)
+OPTIONAL MATCH (c:certified_report)-[:RYT_EDGE { kind: 'certifies' }]->(w)
+RETURN d.label, w.label, w.status, q.status AS estimate, c.label AS certified, c.status
+
+// Approvals that gate work, and whether they are in force
+MATCH (a:Ryt:approval { projectId: $projectId })-[:RYT_EDGE { kind: 'gates' }]->(w:workstream)
+RETURN a.label, a.status, w.label
+
+// Projects with a certified report flagged for revisiting
+MATCH (c:Ryt:certified_report { status: 'revisit' }) RETURN c.projectId, c.label, c.detail
 ```
 
+The structural half — stages, departments, workstreams, engagements, people,
+milestones, site entries, quick assessments and certified reports — is
+described in [architecture.md](../architecture.md#the-graph).
+
 One node label family: `:Ryt`, the project graph. Every node also carries a
-label for its **kind** (`:parcel`, `:check`, `:finding` …), its **layer**
-(`:entity`, `:evidence`, `:claim`, `:judgement`, `:deliberation`) and its
+label for its **kind** (`:workstream`, `:parcel`, `:check`, `:finding` …), its **layer**
+(`:structure`, `:entity`, `:evidence`, `:claim`, `:judgement`, `:deliberation`) and its
 **origin** (`:derived`, `:authored`), so those three filters need no property
 read. Relationships are all `:RYT_EDGE` with the semantic relation on
 `r.kind`, and a relation the registers no longer assert carries `r.closedAt`
@@ -49,7 +66,7 @@ docker compose up -d neo4j          # the graph itself
 ```
 
 Then point the API at Neo4j so there is something to query — **without these
-the app uses the append-only journal beside the case store and the database
+the app uses the append-only journal beside the project store and the database
 stays empty**:
 
 ```bash

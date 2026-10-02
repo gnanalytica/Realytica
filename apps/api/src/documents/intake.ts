@@ -153,5 +153,7 @@ function mergeFacts(local: ChatIngestFile, model: ChatIngestFile): ChatIngestFil
  * read nothing from, like a Kannada scan.
  */
 export function needsModelReading(file: ChatIngestFile): boolean {
-  return !file.read || file.read.type === 'other' || file.read.facts.length === 0;
+  // A scan the reader only half made out — two facts off eight OCR'd pages of
+  // a hundred — is as much a job for the model as one it could not read.
+  return !file.read || file.read.type === 'other' || file.read.facts.length < 3 || file.read.confidence < 0.5;
 }

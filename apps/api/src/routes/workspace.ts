@@ -675,6 +675,9 @@ projectWorkspaceRouter.get<Params>('/graph/impact', async (req, res) => {
 
 /** Under the 4.5 MB a serverless request may carry, with room for headers. */
 export const UPLOAD_PART_BYTES = 4 * 1024 * 1024;
+/** How long finishing an upload spends reading it before answering. */
+const READ_BUDGET_MS = 90_000;
+
 /** The largest single document the vault takes. A merged title bundle runs to 70 MB. */
 export const UPLOAD_MAX_BYTES = 300 * 1024 * 1024;
 
@@ -781,7 +784,9 @@ projectWorkspaceRouter.post<Params & { uploadId: string }>('/uploads/:uploadId/c
   const storageKey = documentKey({ id: randomUUID(), fileName: upload.fileName });
   await storageAdapter.putDocument(project.id, storageKey, bytes, upload.contentType);
   attachEvidenceFile(project, evidenceId, { fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey, capture: {} }, actor);
-  await readOntoRegister(project, [{ evidenceId, buffer: bytes, fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey }], actor).catch(() => ({ read: 0 }));
+  // A large scan is read for as long as a request can wait; asking the chat to
+  // read the filed documents carries on from there, with a model if one is set.
+  await readOntoRegister(project, [{ evidenceId, buffer: bytes, fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey }], actor, { deadline: Date.now() + READ_BUDGET_MS }).catch(() => ({ read: 0 }));
   noteProjectEdit(project, `Filed ${upload.fileName} (${(bytes.length / 1048576).toFixed(1)} MB) in the vault.`, { citedEvidenceIds: [evidenceId] });
   touch(project);
   await store.save();

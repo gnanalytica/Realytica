@@ -38,6 +38,7 @@ export const DOCUMENT_WORKSTREAM: Readonly<Record<string, string>> = {
   'Fire NOC': 'legal.approvals',
   'Valuation report': 'finance.valuation',
   'Progress certificate': 'construction.progress',
+  'TDS certificate': 'finance.tax',
 };
 
 /** The workstream a document belongs to, or undefined while nothing says. */

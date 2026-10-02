@@ -117,10 +117,12 @@ describe("the model's notes on a card", () => {
 });
 
 describe('which documents a model is asked about', () => {
-  const file = (read?: { type: string; facts: unknown[] }) => ({ fileName: 'f.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k', ...(read ? { read } : {}) }) as never;
+  const file = (read?: { type: string; facts: unknown[]; confidence?: number }) => ({ fileName: 'f.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k', ...(read ? { read: { confidence: 0.9, ...read } } : {}) }) as never;
 
-  it('only the ones the reader did not understand', () => {
-    assert.equal(needsModelReading(file({ type: 'sale_deed', facts: [{}] })), false, 'a deed read with its facts is filed as read');
+  it('only the ones the reader did not understand, or only half made out', () => {
+    assert.equal(needsModelReading(file({ type: 'sale_deed', facts: [{}, {}, {}, {}] })), false, 'a deed read with its facts is filed as read');
+    assert.equal(needsModelReading(file({ type: 'sale_deed', facts: [{}] })), true, 'one fact off a long scan is a thin reading');
+    assert.equal(needsModelReading(file({ type: 'sale_deed', facts: [{}, {}, {}, {}], confidence: 0.3 })), true, 'a guess at what it is');
     assert.equal(needsModelReading(file({ type: 'other', facts: [{}] })), true, 'not recognised');
     assert.equal(needsModelReading(file({ type: 'encumbrance_certificate', facts: [] })), true, 'nothing read from it — a Kannada scan');
     assert.equal(needsModelReading(file()), true, 'not read at all');

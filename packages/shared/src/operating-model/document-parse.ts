@@ -51,6 +51,7 @@ export type ReadDocumentType =
   | 'fire_noc'
   | 'company_incorporation'
   | 'legal_opinion'
+  | 'tds_certificate'
   | 'other';
 
 /** One thing a document states, with where it states it. */
@@ -161,6 +162,13 @@ interface TypeProfile {
   scopes: ScopeKey[];
   /** Phrases that name the document — weighted heavily near the top. */
   title: RegExp[];
+  /**
+   * How much a matching file name counts. Two by default: a name says what a
+   * person thought the file was. More where the name is the surest thing
+   * about it — an opinion on title is named as one, and its first pages list
+   * every deed and order it read, which look like those documents.
+   */
+  fileWeight?: number;
   /** Phrases that only this kind of document tends to use. */
   body: RegExp[];
   file: RegExp[];
@@ -175,7 +183,7 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     scopes: ['legal', 'land_site'],
     title: [/\b(?:absolute\s+)?sale\s+deed\b/i, /\bdeed\s+of\s+(?:absolute\s+)?sale\b/i, /\bconveyance\s+deed\b/i],
     body: [/\bvendor\b/i, /\bpurchaser\b/i, /\bschedule\s+property\b/i, /\bsale\s+consideration\b/i, /\bhereby\s+(?:conveys|sells|transfers)\b/i],
-    file: [/sale[\s_-]*deed/i, /conveyance/i],
+    file: [/sale[\s_-]*deed/i, /conveyance/i, /title[\s_-]*doc/i],
   },
   mother_deed: {
     label: 'Mother deed',
@@ -193,9 +201,10 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     evidenceKind: 'certificate',
     rowHints: ['encumbrance certificate', 'encumbrance', 'form 15', 'form 16'],
     scopes: ['legal'],
-    title: [/\bencumbrance\s+certificate\b/i, /\bform\s*(?:no\.?)?\s*1[56]\b/i],
+    title: [/\bencumbrance\s+certificate\b/i, /\bform\s*(?:no\.?)?\s*1[56]\b/i, /ಋಣ\s*ಭಾರ/, /ಋಣಭಾರ\s*ಪ್ರಮಾಣ\s*ಪತ್ರ/],
     body: [/\bperiod\s+of\s+search\b/i, /\bacts\s+and\s+encumbrances\b/i, /\bno\s+encumbrances?\b/i, /\bnil\s+encumbrance\b/i],
-    file: [/encumbrance/i, /\bEC[\s_-]/i, /form[\s_-]*1[56]/i],
+    file: [/encumbrance/i, /\bECs?(?:[\s_-]|$)/i, /form[\s_-]*1[56]/i],
+    fileWeight: 4,
   },
   khata: {
     label: 'Khata certificate and extract',
@@ -245,7 +254,7 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
     scopes: ['regulatory', 'technical'],
     title: [/\bbuilding\s+plan\s+sanction\b/i, /\bplan\s+sanction\b/i, /\bsanctioned\s+plan\b/i, /\bbuilding\s+licen[cs]e\b/i],
     body: [/\bLP\s+No\b/i, /\bsanctioned\s+built[\s-]?up\b/i, /\bdate\s+of\s+sanction\b/i, /\bFAR\s+sanctioned\b/i, /\bground\s+coverage\b/i],
-    file: [/sanction/i, /building[\s_-]*plan/i, /\bLP[\s_-]/i],
+    file: [/sanction/i, /building[\s_-]*plan/i, /\bLP[\s_-]/i, /(?:^|[^a-z])plans?(?:[^a-z]|$)/i],
   },
   survey_sketch: {
     label: 'Survey sketch',
@@ -406,6 +415,22 @@ const PROFILES: Record<Exclude<ReadDocumentType, 'other'>, TypeProfile> = {
       /\bflow\s+of\s+title\b/i,
     ],
     file: [/legal[\s_-]*opinion/i, /title[\s_-]*(?:opinion|report)/i],
+    fileWeight: 8,
+  },
+  /*
+   * A certificate of tax deducted at source on a property purchase: the buyer
+   * withholds part of the price and the department certifies it. Finance's
+   * tax work, and evidence a sale happened at a price.
+   */
+  tds_certificate: {
+    label: 'TDS certificate',
+    documentKind: 'other',
+    evidenceKind: 'certificate',
+    rowHints: ['tds certificate', 'form 16b', 'form 132', 'tax deducted at source'],
+    scopes: ['financial_appraisal'],
+    title: [/\bcertificate\s+under\s+section\s+\d+[A-Z]?(?:\(\d+\))?\s+of\s+the\s+(?:income[\s-]*tax\s+)?act\s+for\s+tax\s+deducted\s+at\s+source\b/i, /\bform\s*(?:no\.?)?\s*(?:16B|132)\b/i],
+    body: [/\btax\s+deducted\s+at\s+source\b/i, /\bdeductor\b/i, /\bdeductee\b/i, /\bTDS\b/],
+    file: [/tds|form[\s_-]*(?:16b|132)/i],
   },
 };
 
@@ -598,7 +623,7 @@ function classify(pages: string[], fileName: string): { type: ReadDocumentType; 
       else if (re.test(full)) score += 2;
     }
     for (const re of profile.body) if (re.test(full)) score += 1.5;
-    for (const re of profile.file) if (re.test(fileName)) score += 2;
+    for (const re of profile.file) if (re.test(fileName)) score += profile.fileWeight ?? 2;
     scores.push([type, score]);
   }
 

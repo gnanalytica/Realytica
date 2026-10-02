@@ -71,7 +71,7 @@ export default function ProjectList() {
             Refresh
           </Button>
           <Button icon={<Plus size={14} />} onClick={() => navigate('/projects/new')}>
-            New engagement
+            New project
           </Button>
         </div>
       </div>

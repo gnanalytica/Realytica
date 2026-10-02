@@ -1,15 +1,16 @@
 # Deploying Realytica
 
 Every variable named here is one the code actually reads — collected by
-grepping for it, not from memory. Nothing is required except a model key:
-the screening engine is deterministic and runs with no accounts at all.
+grepping for it, not from memory. Production runs on Vercel (one function in
+`bom1`, Mumbai, beside the static web build), with a private Blob store, Neo4j
+Aura, Google sign-in and a model gateway.
 
 ## Accounts to create
 
 | # | Account | What it buys | Free tier |
 |---|---|---|---|
 | 1 | **Vercel** | Hosting. You have this. | Hobby |
-| 2 | **Vercel Blob** | Durable case store and uploaded documents. **Required in production** — without it every cold start reports an empty database and re-seeds the demo. | included |
+| 2 | **Vercel Blob** | Durable project store and uploaded documents. **Required in production** — without it every cold start starts from nothing. | included |
 | 3 | **OpenRouter** | Every model, one key, Anthropic wire format. | yes, plus `:free` models |
 | 4 | **Neo4j Aura** | The reasoning graph. **Required in production** — the app refuses to boot without it. | yes, pauses after 72h idle |
 | 5 | **Google Maps Platform** | Geocoding, Street View, nearby amenities. Optional: without it the site context reports named gaps rather than empty results. | monthly credit |
@@ -166,7 +167,6 @@ site looks up. Check `/api/health`, not `/`.
 
 Adding a custom domain later means revisiting both — a new origin for the
 allowlist and a new authorised origin at the identity provider.
-[custom-domain.md](custom-domain.md) is the whole cutover.
 
 ### The rest
 
@@ -211,8 +211,8 @@ structurally cannot.
 | Store | Holds | Why not one of the others |
 |---|---|---|
 | **Vercel Blob** | the document BYTES — the scanned deed, the site photo | a graph database is not a file store |
-| **Case store** (JSON, in Blob) | the record: what was uploaded, extracted, screened, concluded | a nested aggregate read whole; the graph is a projection OF this, so it cannot also be derived from it |
-| **Neo4j** | the reasoning graph: relationships, traversal, and the annotations | the only store that answers "what is connected to what" and "what did we believe in March" |
+| **Project store** (JSON, in Blob) | the record: every document, check, approval, milestone, site entry, certified report and alert | a nested aggregate read whole; the graph is a projection OF this, so it cannot also be derived from it |
+| **Neo4j** | the project graph: stages, departments, workstreams, people and every record placed in them, and the links between departments | the only store that answers "what does this lapse reach", "who answers for it" and "what did we believe in March" |
 
 So Blob does not compete with Neo4j. It holds the files, and the record the
 graph is built from.
@@ -232,6 +232,48 @@ derived half rebuilds when the store returns, and annotations attempted during
 the outage are refused with a 503 rather than accepted.
 
 Locally the journal is the default and needs no account.
+
+### Alerts by email and push — optional
+
+```bash
+REALYTICA_RESEND_API_KEY=re_...          # a Resend key; without it alerts stay in the app
+REALYTICA_ALERT_FROM="Realytica <alerts@yourfirm.in>"   # a sender Resend has verified
+REALYTICA_APP_URL=https://your-app.example.com          # the link in the email
+REALYTICA_EXPO_ACCESS_TOKEN=...          # optional; authenticates push sends
+```
+
+Alerts go only to a department's lead and signer, and only for what is worth
+interrupting someone over: an approval expiring or lapsed, a certified report
+to revisit, work logged before it is allowed, a late milestone, a serious issue
+from site. Phones receive pushes once paired and allowed.
+
+## Data generations
+
+Everything the app stores sits under a generation folder: `v2/store/…` and
+`v2/uploads/…` on Blob, `<data dir>/v2/…` on disk (`REALYTICA_STORAGE_NAMESPACE`,
+default `v2`). To start clean, deploy with a new generation; the previous one
+is left where it was, so rolling the code back finds its own data again.
+Nothing is deleted by changing it.
+
+The graph keeps nodes by project id, so a new generation's projects never meet
+an old one's. To remove an old generation's nodes from Neo4j once you are sure:
+
+```cypher
+MATCH (n:Ryt) WHERE NOT n.projectId IN $liveProjectIds DETACH DELETE n
+```
+
+## Releasing
+
+Merging to `main` deploys: Vercel builds `pnpm build:vercel` and promotes it.
+Before merging, `pnpm check` passes locally and in CI. After it is live:
+
+1. `GET /api/health` answers `ok`, names the auth mode, and `graph: "neo4j"`.
+2. Sign in, open a project, and open a workstream's Connections panel: the
+   badge says **Neo4j** when the walk was answered by the graph store.
+3. Pair a phone from People and file one site entry.
+
+To roll back, promote the previous deployment in Vercel (instant), and if the
+release changed the data generation, the previous generation is still there.
 
 ## Verify after deploying
 

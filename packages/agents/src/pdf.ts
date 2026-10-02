@@ -35,6 +35,50 @@ export interface LoadedPdf {
   sizeBytes: number;
   /** Best-effort page count — see file header comment for how this is derived. */
   pageCount: number;
+  /**
+   * Set when only some pages were sent: which pages of the original, 0-based,
+   * in the order they appear in what was sent, and how many it has.
+   */
+  window?: { pages: number[]; of: number };
+}
+
+/** What a window may weigh, raw: base64 of it stays under the request ceiling with room for the prompt. */
+const WINDOW_BYTES = 22 * 1024 * 1024;
+
+function range(from: number, to: number): number[] {
+  return Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i);
+}
+
+/**
+ * The first pages of a long document and its last, as one smaller PDF.
+ *
+ * A merged title bundle runs to eight hundred scanned pages and an opinion on
+ * title to a hundred and thirty; neither can be sent whole. What a reader
+ * needs most sits at the two ends — the schedule, the parties and the
+ * documents perused at the front, the conclusion and the signature at the
+ * back — so the window takes the head and the tail, as many pages as fit the
+ * size and page ceilings, and says which pages they were.
+ */
+export async function windowPdf(buffer: Buffer): Promise<LoadedPdf | null> {
+  try {
+    const { PDFDocument } = await import('pdf-lib');
+    const source = await PDFDocument.load(buffer, { ignoreEncryption: true, updateMetadata: false });
+    const total = source.getPageCount();
+    for (const span of [80, 60, 40, 24, 12, 6, 2]) {
+      const head = Math.min(span, total);
+      const tail = Math.min(Math.round(span / 4), total - head);
+      const pages = [...range(0, head), ...range(total - tail, total)];
+      const out = await PDFDocument.create();
+      for (const page of await out.copyPages(source, pages)) out.addPage(page);
+      const bytes = Buffer.from(await out.save());
+      if (bytes.byteLength <= WINDOW_BYTES && pages.length <= MAX_PDF_PAGES) {
+        return { base64: bytes.toString('base64'), sizeBytes: bytes.byteLength, pageCount: pages.length, window: { pages, of: total } };
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export type PdfLoadFailureReason = 'empty' | 'too_large' | 'too_many_pages';
@@ -55,6 +99,11 @@ export async function loadPdfForExtraction(buffer: Buffer): Promise<PdfLoadResul
   }
 
   const pageCount = countPdfPages(buffer);
+  // Too long or too heavy to send whole: send its two ends instead.
+  if (pageCount > MAX_PDF_PAGES || (buffer.byteLength * 4) / 3 > MAX_PDF_BYTES) {
+    const windowed = await windowPdf(buffer);
+    if (windowed) return { ok: true, pdf: windowed };
+  }
   if (pageCount > MAX_PDF_PAGES) {
     return {
       ok: false,

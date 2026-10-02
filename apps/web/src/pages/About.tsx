@@ -22,11 +22,11 @@ import {
 } from '@realytica/shared';
 import { Callout, Card, CardBody, CardHeader, SectionTitle, cn } from '../components/ui/kit';
 
-/** Static product-page copy quoted directly from docs/SOURCE_SPEC.md — not part of the shared package. */
-const VISION = 'The project workspace for engineering firms and developers.';
+/** Static product-page copy; docs/product.md is the longer version. */
+const VISION = 'One workspace for a property’s whole life, and every profession on it.';
 const POSITIONING = 'A copilot beside every view. People decide what goes on the record.';
 const NORTH_STAR =
-  'Realytica succeeds when a firm runs an engagement from the first document to the signed report in one place, with its engineers and the outside professionals on the file working together, and every figure traceable to the page it came from.';
+  'Realytica succeeds when a project runs from the first document to the building in use in one place — its departments working from one record, its professionals certifying from it, its site logging into it — and every figure traceable to the page it came from.';
 
 export default function About() {
   return (
