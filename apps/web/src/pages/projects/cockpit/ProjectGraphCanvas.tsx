@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, GitBranch, Maximize2, Minus, Plus, X } from 'lucide-react';
-import { buildProjectGraph, extractProjectSubgraph, findProjectNodes, traceProjectNode, type DdProject, type ProjectGraphEdge, type ProjectGraphNode } from '@realytica/shared';
+import { buildProjectGraph, extractProjectSubgraph, findProjectNodes, projectDepartments, traceProjectNode, type DdProject, type ProjectGraphEdge, type ProjectGraphNode } from '@realytica/shared';
 import { Badge, cn } from '../../../components/ui/kit';
 import { computeFit, zoomAbout, MAX_ZOOM, MIN_ZOOM } from '../../../components/canvas/Canvas';
 import type { Transform } from '../../../components/canvas/Canvas';
@@ -46,6 +46,15 @@ const KIND_ORDER: ProjectGraphNode['kind'][] = [
   'thought',
   'proposal',
 ];
+
+/**
+ * Where the graph opens: the project and each of its departments, so the
+ * first view is the structure — stages, departments, their workstreams — with
+ * the records placed in it one click away.
+ */
+function openingSeeds(project: DdProject): string[] {
+  return [project.id, ...projectDepartments(project).map((key) => `${project.id}::dept::${key}`)];
+}
 
 const KIND_LABEL: Record<ProjectGraphNode['kind'], string> = {
   stage: 'Stages',
@@ -293,7 +302,7 @@ export function ProjectGraphCanvas({
    * branch, because the one thing a pruned view of a diligence file must never
    * do is prune the problems.
    */
-  const [expanded, setExpanded] = useState<string[]>(() => [focusId ?? project.id]);
+  const [expanded, setExpanded] = useState<string[]>(() => (focusId ? [focusId] : openingSeeds(project)));
 
   /*
    * Opening a node writes `?node=<id>`, which arrives straight back here as
@@ -305,8 +314,10 @@ export function ProjectGraphCanvas({
    * Only a different project starts over.
    */
   useEffect(() => {
-    setExpanded([project.id]);
+    setExpanded(openingSeeds(project));
     setSelectedId(null);
+    // Only a different project starts over; a change on this one keeps the walk.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
   useEffect(() => {
@@ -322,10 +333,19 @@ export function ProjectGraphCanvas({
 
   /* A search reaches past what has been opened — otherwise it can only find
      what is already on screen, which is not a search. */
-  const visible = useMemo(
-    () => trace ?? extractProjectSubgraph(graph, [...expanded, ...matches], 1),
-    [graph, expanded, matches, trace],
-  );
+  const visible = useMemo(() => {
+    if (trace) return trace;
+    const sub = extractProjectSubgraph(graph, [...expanded, ...matches], 1);
+    // The opening view is the work, not the talk about it: questions, the
+    // model's thinking and its proposals appear once somebody opens one.
+    const opening = !matches.length && expanded.length === openingSeeds(project).length;
+    if (!opening) return sub;
+    const shown = sub.nodes.filter((n) => n.layer !== 'deliberation');
+    const ids = new Set(shown.map((n) => n.id));
+    return { nodes: shown, edges: sub.edges.filter((e) => ids.has(e.from) && ids.has(e.to)) };
+    // `project` only for its id and departments, which `graph` already follows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, expanded, matches, trace]);
 
   const layout = useMemo(() => layoutGraph(visible.nodes), [visible.nodes]);
   const placedById = useMemo(() => new Map(layout.placed.map((p) => [p.node.id, p])), [layout.placed]);

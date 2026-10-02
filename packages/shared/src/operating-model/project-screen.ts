@@ -317,6 +317,7 @@ const SCREEN_FIELD_KEY: Record<string, string> = {
   khata_number: 'khataNumber',
   sas_number: 'sasApplicationNumber',
   sanctioned_far: 'approvedFar',
+  rera_number: 'reraNumber',
   oc_date: 'ocIssueDate',
   order_number: 'conversionOrderNumber',
   conversion_date: 'conversionOrderDate',

@@ -135,12 +135,13 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
                       {mayStaff ? (
                         <Select
                           aria-label={`${row.name ?? row.email} in ${d.label}`}
+                          title={explicit ? undefined : 'Their firm role'}
                           value={explicit ?? ''}
                           disabled={busy !== null}
                           onChange={(e) => void save(row, d.key, e.target.value as DepartmentRole | '')}
                           className={cn('h-8 min-w-[7.5rem]', !explicit && 'text-ink-muted')}
                         >
-                          <option value="">{effective ? `${DEPARTMENT_ROLE_LABEL[effective]} (firm role)` : '—'}</option>
+                          <option value="">{effective ? DEPARTMENT_ROLE_LABEL[effective] : '—'}</option>
                           {DEPARTMENT_ROLES.map((r) => (
                             <option key={r} value={r} title={DEPARTMENT_ROLE_HINT[r]}>
                               {DEPARTMENT_ROLE_LABEL[r]}
@@ -159,6 +160,7 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
             ))}
           </tbody>
         </table>
+        {mayStaff ? <p className="px-4 pb-3 pt-1 text-micro text-ink-muted">A grey role is the person&rsquo;s firm role. Pick another to change it on this project only.</p> : null}
       </CardBody>
       {mayStaff ? (
         <div className="space-y-3 border-t border-hairline p-4">

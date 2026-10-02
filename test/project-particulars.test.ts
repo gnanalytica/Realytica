@@ -17,6 +17,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  addEvidence,
   createProject,
   patchProject,
   projectToIdentity,
@@ -140,5 +141,45 @@ describe('project particulars reaching the engine', () => {
     assert.ok(full.evidence.length > 0);
     assert.ok(full.stateCompliance, 'the compliance checks are the reason to keep it');
     assert.equal(full.recommendation.verdict, project.lastScreen?.verdict);
+  });
+});
+
+describe('a development under way, as the title rules see it', () => {
+  function developing() {
+    const project = bareProject({ jurisdiction: 'Karnataka / BBMP', currentStage: 'construction' });
+    const file = (title: string, documentType: string, facts: Array<[string, string]> = []) => {
+      const row = addEvidence(project, { title, kind: 'document', status: 'received' }, 'tester');
+      row.documentType = documentType;
+      row.attachments.push({ id: `a_${row.id}`, fileName: `${title}.pdf`, mimeType: 'application/pdf', sizeBytes: 1, storageKey: `${row.id}.pdf`, uploadedAt: '2026-10-01T00:00:00.000Z' });
+      row.facts = facts.map(([key, value]) => ({ key, label: key, value, display: value, page: 1, quote: value }));
+    };
+    const check = (key: string) => runProjectScreen(project).stateCompliance!.checks.find((row) => row.key === key)!;
+    return { project, file, check };
+  }
+
+  it('takes a K-RERA certificate on file as a registration, whatever the subject is called', () => {
+    const { file, check } = developing();
+    file('RERA certificate', 'RERA registration certificate', [['rera_number', 'PRM/KA/RERA/1251/446/PR/030824/006958']]);
+    const rera = check('krera_registration');
+    assert.equal(rera.verdict, 'clear');
+    assert.match(rera.finding, /PRM\/KA\/RERA\/1251/);
+  });
+
+  it('says an occupancy certificate is not yet due on a building going up, not that the land is bare', () => {
+    const { file, check } = developing();
+    file('Plans', 'Sanctioned building plan');
+    assert.equal(check('occupancy_certificate_compliance').headline, 'Not yet due — under construction');
+  });
+
+  it('states the EC period the file shows, and does not call nine years thirty', () => {
+    const { file, check } = developing();
+    file('EC', 'Encumbrance certificate');
+    assert.equal(check('encumbrance_continuity').verdict, 'unknown', 'an EC whose period was never read');
+    file('EC 2015-2024', 'Encumbrance certificate', [['ec_from', '2015-04-01'], ['ec_to', '2024-05-13']]);
+    const short = check('encumbrance_continuity');
+    assert.equal(short.verdict, 'attention');
+    assert.match(short.headline, /9 years \(2015–2024\)/);
+    file('EC 1990-2015', 'Encumbrance certificate', [['ec_from', '1990-04-01'], ['ec_to', '2015-03-31']]);
+    assert.equal(check('encumbrance_continuity').verdict, 'clear');
   });
 });

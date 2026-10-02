@@ -3116,6 +3116,10 @@ export function buildStateCompliance(
   {
     const ocDoc = findDoc('occupancy_certificate');
     const isLandType = identity.propertyType === 'residential_plot' || identity.propertyType === 'land_parcel';
+    // A sanctioned plan or a K-RERA registration on file means a building is
+    // going up on the land being valued: not a bare plot, and not yet a
+    // building that could hold an OC.
+    const building = Boolean(findDoc('sanctioned_plan_bbmp') || findDoc('approved_building_plan') || findDoc('commencement_certificate') || findDoc('rera_registration') || ka?.kreraNumber);
     let verdict: ComplianceVerdict;
     let headline: string;
     let finding: string;
@@ -3124,7 +3128,13 @@ export function buildStateCompliance(
     const evIds: string[] = [];
     let relatedRiskIds: string[] = [];
 
-    if (isLandType) {
+    if (isLandType && building && !ocDoc) {
+      verdict = 'clear';
+      headline = 'Not yet due — under construction';
+      finding = 'A building is going up under a sanctioned plan; an occupancy certificate is issued only once it is complete.';
+      consequence = 'Nothing turns on the OC yet. Units cannot lawfully be occupied, or handed over, until it is issued.';
+      nextStep = 'Ask for the occupancy certificate at completion, before handover or any lending against a finished unit.';
+    } else if (isLandType && !building) {
       verdict = 'clear';
       headline = 'Not applicable — bare plot';
       finding = 'Occupancy certificate is not applicable — this is a bare plot with no structure to have been occupied.';
@@ -3153,7 +3163,15 @@ export function buildStateCompliance(
 
   // 7. Encumbrance continuity — reuses the existing country-level risk (if any) rather than duplicating it.
   {
-    const ecDoc = findDoc('encumbrance_certificate');
+    const ecDocs = documents.filter(d => d.kind === 'encumbrance_certificate');
+    const ecDoc = ecDocs[0];
+    // The span the file's ECs actually search, from the dates read off them.
+    // An EC whose period was never read says nothing about how far back it
+    // goes, whatever its file is called.
+    const ecDates = (key: string) => ecDocs.flatMap(d => d.extracted.filter(f => f.key === key).map(f => f.value)).filter(v => /^\d{4}-\d{2}-\d{2}/.test(v)).sort();
+    const ecFrom = ecDates('ec_from')[0];
+    const ecTo = ecDates('ec_to').at(-1);
+    const ecYears = ecFrom && ecTo ? (Date.parse(ecTo) - Date.parse(ecFrom)) / (365.25 * 86_400_000) : undefined;
     let verdict: ComplianceVerdict;
     let headline: string;
     let finding: string;
@@ -3162,13 +3180,27 @@ export function buildStateCompliance(
     let evIds: string[] = [];
     let relatedRiskIds: string[] = [];
 
-    if (ecDoc) {
+    if (ecDoc && ecYears !== undefined && ecYears >= 29.5) {
       verdict = 'clear';
-      headline = '30-year EC on file';
-      finding = 'A 30-year encumbrance certificate is on file, evidencing continuity of the recorded chain of title.';
+      headline = `30-year EC on file (${ecFrom!.slice(0, 4)}–${ecTo!.slice(0, 4)})`;
+      finding = `The encumbrance certificates on file search ${ecFrom} to ${ecTo}, evidencing continuity of the recorded chain of title.`;
       consequence = 'Supports a clean-title basis for lending and registration.';
-      nextStep = 'Confirm the EC period actually spans the full 30 years and shows no unresolved entries.';
-      evIds.push(evidence.add({ statement: `Encumbrance certificate on file (${ecDoc.fileName}).`, sourceType: 'document', sourceRef: ecDoc.id, sourceLabel: ecDoc.fileName, confidence: ecDoc.classificationConfidence }));
+      nextStep = 'Confirm the entries in that period show no unresolved charge.';
+      for (const d of ecDocs) evIds.push(evidence.add({ statement: `Encumbrance certificate on file (${d.fileName}).`, sourceType: 'document', sourceRef: d.id, sourceLabel: d.fileName, confidence: d.classificationConfidence }));
+    } else if (ecDoc && ecYears !== undefined) {
+      verdict = 'attention';
+      headline = `EC covers ${Math.round(ecYears)} years (${ecFrom!.slice(0, 4)}–${ecTo!.slice(0, 4)})`;
+      finding = `The encumbrance certificates on file search ${ecFrom} to ${ecTo} — short of the 30 years a title search needs.`;
+      consequence = 'A mortgage, lien or attachment registered before the period searched would not be visible.';
+      nextStep = `Obtain ECs from Kaveri Online Services back to ${Number(ecTo!.slice(0, 4)) - 30} to complete 30 years.`;
+      for (const d of ecDocs) evIds.push(evidence.add({ statement: `Encumbrance certificate on file (${d.fileName}).`, sourceType: 'document', sourceRef: d.id, sourceLabel: d.fileName, confidence: d.classificationConfidence }));
+    } else if (ecDoc) {
+      verdict = 'unknown';
+      headline = 'EC on file; its period not read yet';
+      finding = `${ecDocs.length === 1 ? 'An encumbrance certificate is' : `${ecDocs.length} encumbrance certificates are`} on file, but the period searched has not been read off ${ecDocs.length === 1 ? 'it' : 'them'}.`;
+      consequence = 'Until the period is known, whether the search reaches back 30 years is not established.';
+      nextStep = 'Accept the EC period read off the certificate, or read it off the first page.';
+      for (const d of ecDocs) evIds.push(evidence.add({ statement: `Encumbrance certificate on file (${d.fileName}).`, sourceType: 'document', sourceRef: d.id, sourceLabel: d.fileName, confidence: d.classificationConfidence }));
     } else {
       verdict = 'attention';
       headline = 'No EC on file';
@@ -3186,7 +3218,10 @@ export function buildStateCompliance(
 
   // 8. K-RERA registration — only for projects that require it.
   {
-    const reraApplicable = identity.propertyType === 'residential_apartment' || identity.propertyType === 'residential_villa';
+    const reraDocOnFile = findDoc('rera_registration');
+    // A development registered with K-RERA is one the Act applies to, whatever
+    // the subject being valued is called.
+    const reraApplicable = identity.propertyType === 'residential_apartment' || identity.propertyType === 'residential_villa' || Boolean(reraDocOnFile || ka?.kreraNumber);
     let verdict: ComplianceVerdict;
     let headline: string;
     let finding: string;
@@ -3219,6 +3254,13 @@ export function buildStateCompliance(
             confidence: 0.85,
           }),
         );
+      } else if (reraDoc) {
+        verdict = 'clear';
+        headline = 'Registration certificate on file';
+        finding = `A K-RERA registration certificate is on file (${reraDoc.fileName}); its number has not been accepted onto the record yet.`;
+        consequence = 'Supports buyer protections (receivables escrow, delivery timeline, defect liability) under the RERA Act, 2016.';
+        nextStep = 'Accept the registration number read off the certificate, then verify it is active on rera.karnataka.gov.in.';
+        evIds.push(evidence.add({ statement: `K-RERA registration certificate on file (${reraDoc.fileName}).`, sourceType: 'document', sourceRef: reraDoc.id, sourceLabel: reraDoc.fileName, confidence: reraDoc.classificationConfidence }));
       } else {
         verdict = 'attention';
         headline = 'No registration number on record';
