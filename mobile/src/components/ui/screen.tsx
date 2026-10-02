@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, RefreshControl, ScrollView, View, type StyleProp, type ViewStyle } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 
+import { haptics } from '@/lib/haptics';
 import { space, useTheme } from '@/theme';
 
 interface ScreenProps {
@@ -29,7 +30,7 @@ export function Screen({
   edges = ['top', 'left', 'right'],
   contentStyle,
 }: ScreenProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const pad: ViewStyle = { padding: space.lg, gap: space.xl, paddingBottom: space.xxxl };
 
   const body = scroll ? (
@@ -40,7 +41,17 @@ export function Screen({
       keyboardDismissMode="on-drag"
       refreshControl={
         onRefresh ? (
-          <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
+          // The pull is teal, and felt once when it lets go and starts checking.
+          <RefreshControl
+            refreshing={!!refreshing}
+            onRefresh={() => {
+              haptics.tap();
+              onRefresh();
+            }}
+            tintColor={colors.brand}
+            colors={[colors.brand]}
+            progressBackgroundColor={colors.surface}
+          />
         ) : undefined
       }
     >
@@ -62,6 +73,8 @@ export function Screen({
               borderTopWidth: 1,
               borderTopColor: colors.hairline,
               backgroundColor: colors.surface,
+              // A faint lift off the content scrolling under it; dark mode has the hairline alone.
+              boxShadow: isDark ? undefined : '0px -4px 16px rgba(21, 23, 26, 0.05)',
               paddingHorizontal: space.lg,
               paddingTop: space.md,
               paddingBottom: space.sm,

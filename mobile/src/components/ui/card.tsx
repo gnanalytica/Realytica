@@ -1,38 +1,46 @@
 import type { ReactNode } from 'react';
-import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { radius, space, useTheme } from '@/theme';
 import { Text } from './text';
+import { Touchable } from './touchable';
 
 interface CardProps {
   children: ReactNode;
   onPress?: () => void;
   accessibilityLabel?: string;
+  accessibilityHint?: string;
   /** Inner padding (default true). */
   padded?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
-export function Card({ children, onPress, accessibilityLabel, padded = true, style }: CardProps) {
-  const { colors } = useTheme();
+/** White on the grey page, a hairline edge and the softest shadow. A pressable card gives a little under the thumb. */
+export function Card({ children, onPress, accessibilityLabel, accessibilityHint, padded = true, style }: CardProps) {
+  const { colors, shadow } = useTheme();
   const look: ViewStyle = {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.hairline,
+    boxShadow: shadow.card,
     padding: padded ? space.lg : 0,
     gap: space.md,
   };
   if (onPress) {
     return (
-      <Pressable
+      <Touchable
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
+        accessibilityHint={accessibilityHint}
         onPress={onPress}
-        style={({ pressed }) => [look, { opacity: pressed ? 0.85 : 1 }, style]}
+        // A whole card moving 3% is a lot of pixels; it gives less than a button.
+        pressScale={0.985}
+        pressOpacity={0.92}
+        style={[look, style]}
       >
         {children}
-      </Pressable>
+      </Touchable>
     );
   }
   return <View style={[look, style]}>{children}</View>;
@@ -66,7 +74,7 @@ export function Section({
   );
 }
 
-export function Divider() {
+export function Divider({ inset = 0 }: { inset?: number }) {
   const { colors } = useTheme();
-  return <View style={{ height: 1, backgroundColor: colors.hairline }} />;
+  return <View style={{ height: 1, marginLeft: inset, backgroundColor: colors.hairline }} />;
 }
