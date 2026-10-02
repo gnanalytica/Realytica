@@ -42,7 +42,7 @@ import {
 import { ReadingDesk } from '../../components/reading/ReadingDesk';
 import { CopilotPanel } from '../../components/CopilotPanel';
 import { Badge, Button, Spinner, cn, useToast } from '../../components/ui/kit';
-import { SPRING, motion } from '../../lib/motion';
+import { SPRING, ScreenEnter, motion } from '../../lib/motion';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { EMPTY_CHAT_WIDTH, LAYOUTS, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
 import type { CockpitLayout } from './cockpit/layout';
@@ -831,7 +831,10 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               two lazily-loaded tabs need somewhere to wait. */}
           <RouteErrorBoundary>
             <Suspense fallback={<PaneWaiting />}>
-              <Outlet context={workOutlet} />
+              {/* Each pane arrives when it is switched to, rather than swapping in place. */}
+              <ScreenEnter id={location.pathname} className="h-full">
+                <Outlet context={workOutlet} />
+              </ScreenEnter>
             </Suspense>
           </RouteErrorBoundary>
         </div>
@@ -851,7 +854,10 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               two lazily-loaded tabs need somewhere to wait. */}
           <RouteErrorBoundary>
             <Suspense fallback={<PaneWaiting />}>
-              <Outlet context={workOutlet} />
+              {/* Each pane arrives when it is switched to, rather than swapping in place. */}
+              <ScreenEnter id={location.pathname}>
+                <Outlet context={workOutlet} />
+              </ScreenEnter>
             </Suspense>
           </RouteErrorBoundary>
         </div>
