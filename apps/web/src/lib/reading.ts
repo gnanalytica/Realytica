@@ -14,7 +14,6 @@ import type { ChatProposal, DocumentFact, ReadingStreamEvent } from '@realytica/
 export type ReadingSource =
   | { kind: 'local'; file: File }
   | { kind: 'evidence'; evidenceId: string; fileId: string }
-  | { kind: 'sample'; name: string }
   | { kind: 'proposal'; proposalId: string };
 
 export type ReadingPhase = 'queued' | 'reading' | 'read' | 'model' | 'done' | 'failed';
@@ -78,9 +77,7 @@ export function applyReadingEvent(
         ? { kind: 'local', file: local }
         : event.evidenceId && event.fileId
           ? { kind: 'evidence', evidenceId: event.evidenceId, fileId: event.fileId }
-          : event.sample
-            ? { kind: 'sample', name: event.fileName }
-            : null;
+          : null;
       const file: ReadingFile = {
         key: event.key,
         fileName: event.fileName,

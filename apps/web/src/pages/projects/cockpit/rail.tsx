@@ -2,9 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowRight,
   Building2,
-  Camera,
   ChevronDown,
-  CircleDollarSign,
   ClipboardList,
   FileStack,
   FileText,
@@ -18,29 +16,32 @@ import {
   Workflow,
 } from 'lucide-react';
 import {
+  DEPARTMENTS,
   SCOPE_LABEL,
+  departmentDefinition,
+  projectDepartments,
   reachesEveryProject,
   scopeCompleteness,
+  workstreamDefinition,
   type DdProject,
+  type DepartmentKey,
   type ProjectCockpitPane,
 } from '@realytica/shared';
 import { cn } from '../../../components/ui/kit';
 import { useMe } from '../../../lib/useMe';
 
 /**
- * Eight views, one row.
+ * How a person moves around a project: Overview, then the departments the
+ * project uses, then the shared places — the document vault, the registers,
+ * reports, people and the graph.
  *
- * The workspace is a conversation beside a canvas, and the canvas has eight
- * views: what the file is, its documents, the site, its value, the technical
- * DD, the people on it, the report, and the graph behind all of them. Only
- * Technical DD and Report carry a second row, for the registers and drafts
- * that belong to them.
- *
- * Every pane keeps its route. Auto-run is still reachable by address and from
- * the command bar; it is not a view a firm opens during an engagement.
+ * Inside a department the second row is its workstreams. A workstream that is
+ * not built yet is still listed, marked as coming, because knowing it will be
+ * there is part of knowing what the department is for. Every pane keeps its
+ * route, so the chat can still take a person anywhere by name.
  */
 
-export type CockpitSectionKey = 'overview' | 'documents' | 'site' | 'value' | 'tdd' | 'people' | 'report' | 'graph';
+export type CockpitSectionKey = 'overview' | DepartmentKey | 'documents' | 'registers' | 'reports' | 'people' | 'graph';
 
 export interface CockpitTab {
   pane: ProjectCockpitPane;
@@ -61,14 +62,13 @@ export interface CockpitSection {
   staffOnly?: boolean;
 }
 
+/** The shared places, after the departments. */
 export const SECTIONS: CockpitSection[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard, home: 'overview', tabs: [{ pane: 'overview', label: 'Overview', icon: LayoutDashboard }] },
   { key: 'documents', label: 'Documents', icon: FileStack, home: 'evidence', tabs: [{ pane: 'evidence', label: 'Documents', icon: FileStack }] },
-  { key: 'site', label: 'Site', icon: Camera, home: 'visits', tabs: [{ pane: 'visits', label: 'Site', icon: Camera }] },
-  { key: 'value', label: 'Value', icon: CircleDollarSign, home: 'valuation', tabs: [{ pane: 'valuation', label: 'Value', icon: CircleDollarSign }] },
   {
-    key: 'tdd',
-    label: 'Technical DD',
+    key: 'registers',
+    label: 'Registers',
     icon: ClipboardList,
     home: 'dd',
     tabs: [
@@ -76,13 +76,12 @@ export const SECTIONS: CockpitSection[] = [
       { pane: 'findings', label: 'Findings', icon: Search },
       { pane: 'risks', label: 'Risks and actions', icon: GitBranch, also: ['actions'] },
       { pane: 'decisions', label: 'Decisions', icon: Scale },
-      { pane: 'assets', label: 'Assets', icon: Building2 },
+      { pane: 'assets', label: 'Phases and assets', icon: Building2 },
     ],
   },
-  { key: 'people', label: 'People', icon: Users, home: 'people', staffOnly: true, tabs: [{ pane: 'people', label: 'People', icon: Users }] },
   {
-    key: 'report',
-    label: 'Report',
+    key: 'reports',
+    label: 'Reports',
     icon: FileText,
     home: 'reports',
     tabs: [
@@ -91,14 +90,45 @@ export const SECTIONS: CockpitSection[] = [
       { pane: 'orchestrate', label: 'Auto-run', icon: Workflow },
     ],
   },
+  { key: 'people', label: 'People', icon: Users, home: 'people', staffOnly: true, tabs: [{ pane: 'people', label: 'People', icon: Users }] },
   { key: 'graph', label: 'Graph', icon: Waypoints, home: 'graph', tabs: [{ pane: 'graph', label: 'Graph', icon: Waypoints }] },
 ];
+
+/** A department's name in the tab row: one word. */
+export const DEPARTMENT_SHORT: Record<DepartmentKey, string> = {
+  finance: 'Finance',
+  legal: 'Legal',
+  design: 'Design',
+  construction: 'Construction',
+  procurement: 'Procurement',
+  commercial: 'Commercial',
+};
+
+/** The two workstreams whose page is an existing pane rather than the workstream page. */
+export const WORKSTREAM_PANE: Record<string, ProjectCockpitPane> = {
+  'finance.valuation': 'valuation',
+  'construction.site': 'visits',
+};
+
+/** Which workstream a pane is, when it is one. */
+export function workstreamOfPane(pane: ProjectCockpitPane, workstream?: string): string | undefined {
+  if (pane === 'workstream') return workstream;
+  return Object.entries(WORKSTREAM_PANE).find(([, p]) => p === pane)?.[0];
+}
+
+/** Which department a pane belongs to, when it belongs to one. */
+export function departmentOfPane(pane: ProjectCockpitPane, at: { department?: string; workstream?: string }): DepartmentKey | undefined {
+  if (pane === 'department') return at.department as DepartmentKey | undefined;
+  const ws = workstreamOfPane(pane, at.workstream);
+  return ws ? workstreamDefinition(ws)?.department : undefined;
+}
 
 /** Tabs a section shows in its second row: Auto-run is reachable, not listed. */
 const HIDDEN_TABS: ReadonlySet<ProjectCockpitPane> = new Set(['orchestrate']);
 
 const TABS = SECTIONS.flatMap((s) => s.tabs.map((t) => ({ section: s, tab: t })));
 
+/** The section and tab a pane sits under, for the shared places. Department panes sit under Overview here. */
 export function tabHolding(pane: ProjectCockpitPane): { section: CockpitSection; tab: CockpitTab } {
   return (
     TABS.find((r) => r.tab.pane === pane || r.tab.also?.includes(pane)) ??
@@ -106,17 +136,15 @@ export function tabHolding(pane: ProjectCockpitPane): { section: CockpitSection;
   );
 }
 
-export function sectionOf(pane: ProjectCockpitPane): CockpitSectionKey {
-  return tabHolding(pane).section.key;
-}
-
-export function paneLabel(pane: ProjectCockpitPane): string {
-  // Where a tab label only makes sense next to its siblings ("Summary" under
-  // Overview), the standalone name is the section's.
+export function paneLabel(pane: ProjectCockpitPane, at: { department?: string; workstream?: string } = {}): string {
   if (pane === 'overview') return 'Overview';
   if (pane === 'scope') return 'Scope';
   if (pane === 'actions') return 'Risks and actions';
-  if (pane === 'dd') return 'Technical DD';
+  if (pane === 'dd') return 'Checks';
+  if (pane === 'valuation') return 'Valuation';
+  if (pane === 'visits') return 'Site record';
+  if (pane === 'department') return at.department ? departmentDefinition(at.department as DepartmentKey)?.label ?? 'Department' : 'Department';
+  if (pane === 'workstream') return (at.workstream && workstreamDefinition(at.workstream)?.label) || 'Workstream';
   return tabHolding(pane).tab.label;
 }
 
@@ -252,11 +280,19 @@ function waitingOnTab(tab: CockpitTab, byPane: WaitingByPane): number {
   return [tab.pane, ...(tab.also ?? [])].reduce((n, p) => n + (byPane[p] ?? 0), 0);
 }
 
+type Go = (pane: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string; department?: string; workstream?: string }) => void;
+
+function SoonTag() {
+  return <span className="rounded-full bg-sunken px-1.5 text-[10px] font-medium uppercase tracking-wide text-ink-muted">Soon</span>;
+}
+
 export function CockpitPaneStrip({
   pane,
   project,
   ddId,
   scopeId,
+  department,
+  workstream,
   overdue,
   pendingDrafts,
   onGo,
@@ -268,9 +304,12 @@ export function CockpitPaneStrip({
   project: DdProject;
   ddId?: string;
   scopeId?: string;
+  /** From the route, on a department or workstream page. */
+  department?: string;
+  workstream?: string;
   overdue: number;
   pendingDrafts: number;
-  onGo: (pane: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string }) => void;
+  onGo: Go;
   /** What waits for a decision, by pane: counted on its tab, and summed on the pill that walks them. */
   waiting?: { total: number; byPane: WaitingByPane };
   /** Go to the next thing waiting. */
@@ -279,105 +318,146 @@ export function CockpitPaneStrip({
 }) {
   const badges = { overdue, pendingDrafts };
   const me = useMe();
-  const here = tabHolding(pane).section;
-
   // Who else is on a file is the workspace's business. A collaborator asking
   // for it gets a 404, so showing them the tab would only be an invitation to
   // find that out.
   const staff = me ? reachesEveryProject(me.role) : false;
-  const sections = SECTIONS.filter((section) => !section.staffOnly || staff);
-  const tabs = here.tabs.filter((t) => !HIDDEN_TABS.has(t.pane) || t.pane === pane);
+  const enabled = projectDepartments(project);
+  const departments = DEPARTMENTS.filter((d) => enabled.includes(d.key));
+  const activeDepartment = departmentOfPane(pane, { department, workstream });
+  const activeWorkstream = workstreamOfPane(pane, workstream);
+  const shared = SECTIONS.filter((section) => section.key !== 'overview' && (!section.staffOnly || staff));
+  const here = activeDepartment ? null : tabHolding(pane).section;
+  const tabs = here ? here.tabs.filter((t) => !HIDDEN_TABS.has(t.pane) || t.pane === pane) : [];
+
+  const tab = (key: string, label: ReactNode, on: boolean, go: () => void, extra?: ReactNode, muted = false) => (
+    <button
+      key={key}
+      type="button"
+      onClick={go}
+      aria-current={on ? 'true' : undefined}
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2 text-[13px] -mb-px coarse:min-h-11',
+        on ? 'border-brand font-semibold text-brand' : muted ? 'border-transparent text-ink-muted hover:text-ink-secondary' : 'border-transparent text-ink-secondary hover:border-hairline hover:text-ink',
+      )}
+    >
+      {label}
+      {extra}
+    </button>
+  );
 
   return (
     <div className={cn('shrink-0 border-b border-hairline bg-surface', wrap ? 'px-4' : 'px-3')}>
       {/* The rule the tabs sit on. The active one joins it; the rest stop short. */}
       <div className="flex items-center gap-2 border-b border-hairline pt-1">
-      <div className="min-w-0 flex-1">
-      <ChipScroller wrap={wrap}>
-        {sections.map((section) => {
-          const on = section.key === here.key;
-          const count = sectionBadge(section, badges);
-          const toDecide = waiting ? section.tabs.reduce((n, t) => n + waitingOnTab(t, waiting.byPane), 0) : 0;
-          return (
-            <button
-              key={section.key}
-              type="button"
-              onClick={() => onGo(section.home)}
-              aria-current={on ? 'true' : undefined}
-              /*
-                Sections are tabs; the row under them is not.
-
-                Both rows were pills, at two sizes, so the primary divisions of
-                a file and the panes inside one of them read as a single blurry
-                mass of the same control. A tab is the right shape for "which
-                part of this am I in" — it sits on a rule, it marks the current
-                one by joining it, and nothing else in the product looks like
-                it. The row beneath can then be plain text, because it no
-                longer has to compete for a shape.
-              */
-              className={cn(
-                'inline-flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2 text-[13px] -mb-px coarse:min-h-11',
-                on
-                  ? 'border-brand font-semibold text-brand'
-                  : 'border-transparent text-ink-secondary hover:border-hairline hover:text-ink',
-              )}
-            >
-              {/* Words only: eight icons beside eight words wrapped the row
-                  onto two lines beside a wide conversation. */}
-              {section.label}
-              {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
-              {count != null ? <Count n={count} /> : null}
-            </button>
-          );
-        })}
-      </ChipScroller>
-      </div>
-      {/*
-        The way through what is waiting: documents first, then the checks
-        they answer, then the rest — one press at a time, wherever it is.
-      */}
-      {waiting && waiting.total > 0 && onReview ? (
-        <button
-          type="button"
-          onClick={onReview}
-          className="mb-1 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-provenance/10 px-2.5 py-1 text-[12px] font-medium text-provenance-ink ring-1 ring-inset ring-provenance/35 hover:bg-provenance/20 coarse:min-h-11"
-        >
-          <span className="size-1.5 rounded-full bg-provenance" aria-hidden />
-          <span className="tabular-nums">{waiting.total}</span> to review
-          <ArrowRight size={12} aria-hidden />
-        </button>
-      ) : null}
+        <div className="min-w-0 flex-1">
+          <ChipScroller wrap={wrap}>
+            {tab('overview', 'Overview', pane === 'overview', () => onGo('overview'))}
+            {departments.map((d) =>
+              tab(
+                d.key,
+                DEPARTMENT_SHORT[d.key],
+                activeDepartment === d.key,
+                () => onGo('department', { department: d.key }),
+                d.status === 'coming_soon' ? <SoonTag /> : null,
+                d.status === 'coming_soon',
+              ),
+            )}
+            <span aria-hidden className="mx-1 my-2 w-px shrink-0 self-stretch bg-hairline" />
+            {shared.map((section) => {
+              const on = here?.key === section.key;
+              const count = sectionBadge(section, badges);
+              const toDecide = waiting ? section.tabs.reduce((n, t) => n + waitingOnTab(t, waiting.byPane), 0) : 0;
+              return tab(
+                section.key,
+                section.label,
+                on,
+                () => onGo(section.home),
+                <>
+                  {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
+                  {count != null ? <Count n={count} /> : null}
+                </>,
+              );
+            })}
+          </ChipScroller>
+        </div>
+        {/*
+          The way through what is waiting: documents first, then the checks
+          they answer, then the rest — one press at a time, wherever it is.
+        */}
+        {waiting && waiting.total > 0 && onReview ? (
+          <button
+            type="button"
+            onClick={onReview}
+            className="mb-1 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-provenance/10 px-2.5 py-1 text-[12px] font-medium text-provenance-ink ring-1 ring-inset ring-provenance/35 hover:bg-provenance/20 coarse:min-h-11"
+          >
+            <span className="size-1.5 rounded-full bg-provenance" aria-hidden />
+            <span className="tabular-nums">{waiting.total}</span> to review
+            <ArrowRight size={12} aria-hidden />
+          </button>
+        ) : null}
       </div>
 
-      {tabs.length > 1 ? (
+      {activeDepartment ? (
         <div className="py-1.5">
-        <ChipScroller wrap={wrap}>
-          {tabs.map((tab) => {
-            const on = paneActive(pane, tab.pane);
-            const count = badgeFor(tab.pane, badges);
-            const toDecide = waiting ? waitingOnTab(tab, waiting.byPane) : 0;
-            return (
-              <button
-                key={tab.pane}
-                type="button"
-                onClick={() => onGo(tab.pane)}
-                aria-current={on ? 'true' : undefined}
-                className={cn(
-                  'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] coarse:min-h-11',
-                  on ? 'font-semibold text-ink' : 'text-ink-muted hover:text-ink-secondary',
-                )}
-              >
-                {tab.label}
-                {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
-                {count != null ? <Count n={count} /> : null}
-              </button>
-            );
-          })}
-        </ChipScroller>
+          <ChipScroller wrap={wrap}>
+            <button
+              type="button"
+              onClick={() => onGo('department', { department: activeDepartment })}
+              aria-current={pane === 'department' ? 'true' : undefined}
+              className={cn('inline-flex shrink-0 items-center rounded-md px-2 py-1 text-[12px] coarse:min-h-11', pane === 'department' ? 'font-semibold text-ink' : 'text-ink-muted hover:text-ink-secondary')}
+            >
+              All work
+            </button>
+            {departmentDefinition(activeDepartment).workstreams.map((w) => {
+              const on = activeWorkstream === w.key;
+              return (
+                <button
+                  key={w.key}
+                  type="button"
+                  onClick={() => onGo(WORKSTREAM_PANE[w.key] ?? 'workstream', { workstream: w.key })}
+                  aria-current={on ? 'true' : undefined}
+                  className={cn(
+                    'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] coarse:min-h-11',
+                    on ? 'font-semibold text-ink' : w.status === 'live' ? 'text-ink-secondary hover:text-ink' : 'text-ink-muted hover:text-ink-secondary',
+                  )}
+                >
+                  {w.label}
+                  {w.status === 'coming_soon' ? <SoonTag /> : null}
+                </button>
+              );
+            })}
+          </ChipScroller>
+        </div>
+      ) : tabs.length > 1 ? (
+        <div className="py-1.5">
+          <ChipScroller wrap={wrap}>
+            {tabs.map((t) => {
+              const on = paneActive(pane, t.pane);
+              const count = badgeFor(t.pane, badges);
+              const toDecide = waiting ? waitingOnTab(t, waiting.byPane) : 0;
+              return (
+                <button
+                  key={t.pane}
+                  type="button"
+                  onClick={() => onGo(t.pane)}
+                  aria-current={on ? 'true' : undefined}
+                  className={cn(
+                    'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] coarse:min-h-11',
+                    on ? 'font-semibold text-ink' : 'text-ink-muted hover:text-ink-secondary',
+                  )}
+                >
+                  {t.label}
+                  {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
+                  {count != null ? <Count n={count} /> : null}
+                </button>
+              );
+            })}
+          </ChipScroller>
         </div>
       ) : null}
       {/* Inside Checks, which assessment and which scope. */}
-      {here.key === 'tdd' && (pane === 'dd' || pane === 'scope') && project.assessments.length > 0 ? (
+      {here?.key === 'registers' && (pane === 'dd' || pane === 'scope') && project.assessments.length > 0 ? (
         <div className="border-t border-hairline py-1.5">
           <AssessNav project={project} ddId={ddId} scopeId={scopeId} onGo={onGo} wrap={wrap} />
         </div>

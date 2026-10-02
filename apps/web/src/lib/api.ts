@@ -488,11 +488,6 @@ export interface PromptDraft {
   invariants: PromptInvariantCheck[];
 }
 
-/** A bundled sample document's bytes, by file name — on a sample project only. */
-export function sampleDocumentUrl(projectId: string, name: string): string {
-  return `${BASE}/projects/${projectId}/sample-documents/${encodeURIComponent(name)}`;
-}
-
 /** The file a document card would file, before it is filed. */
 export function proposalFileUrl(projectId: string, proposalId: string): string {
   return `${BASE}/projects/${projectId}/chat/proposals/${proposalId}/file`;
@@ -603,8 +598,6 @@ export const api = {
     }),
 
   reference: () => request<ReferenceData>('/reference'),
-  seedDemo: () => request<{ created: number }>('/demo/seed', { method: 'POST' }),
-  refreshSamples: () => request<{ removed: number; created: number }>('/demo/samples/refresh', { method: 'POST' }),
 
 
   agentCapability: () => request<AgentCapability>('/agents/capability'),

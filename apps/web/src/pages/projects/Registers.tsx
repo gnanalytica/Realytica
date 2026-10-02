@@ -13,6 +13,9 @@ import {
   FINDING_STATUS_LABEL,
   RICS_RATING_LABEL,
   SCOPE_LABEL,
+  departmentDefinition,
+  documentWorkstream,
+  workstreamDefinition,
   SEVERITY_LABEL,
   describeCapture,
   observationIsUseful,
@@ -132,24 +135,19 @@ export function EvidenceRegister() {
     ...(mineOnly ? ['yours'] : []),
   ];
 
+  /*
+   * Grouped by the workstream each document belongs to — Legal › Title,
+   * Legal › Approvals, Construction › Site — because that is how the work is
+   * divided now, and it is the same place the document shows from inside its
+   * department. A document nothing has claimed yet keeps a group of its own.
+   */
   const groups = useMemo(() => {
-    const scopeName = new Map<string, string>();
-    for (const assessment of project.assessments) {
-      for (const scope of assessment.scopes) {
-        scopeName.set(
-          scope.id,
-          project.assessments.length > 1
-            ? `${SCOPE_LABEL[scope.scopeKey]} · ${assessment.name}`
-            : SCOPE_LABEL[scope.scopeKey],
-        );
-      }
-    }
-    const UNFILED = 'Not tied to a scope';
+    const UNFILED = 'Not yet given to a workstream';
     const byName = new Map<string, typeof rows>();
     for (const row of rows) {
-      // A document can serve several scopes; it is filed under the first so
-      // the counts across the groups still add up to the number shown.
-      const name = row.scopeInstanceIds.map((id) => scopeName.get(id)).find(Boolean) ?? UNFILED;
+      const ws = documentWorkstream(project, row);
+      const def = ws ? workstreamDefinition(ws) : undefined;
+      const name = def ? `${departmentDefinition(def.department).label.split(' ')[0]} › ${def.label}` : UNFILED;
       const bucket = byName.get(name);
       if (bucket) bucket.push(row);
       else byName.set(name, [row]);
@@ -160,10 +158,8 @@ export function EvidenceRegister() {
         items,
         gaps: items.filter((e) => GAP_STATUSES.includes(e.status)).length,
       }))
-      // Unfiled last; everything else alphabetical, which is stable as the
-      // register grows rather than reordering itself on every upload.
       .sort((a, b) => (a.name === UNFILED ? 1 : b.name === UNFILED ? -1 : a.name.localeCompare(b.name)));
-  }, [rows, project.assessments]);
+  }, [rows, project]);
 
   /*
    * Open when the answer fits on a screen, shut when it does not.

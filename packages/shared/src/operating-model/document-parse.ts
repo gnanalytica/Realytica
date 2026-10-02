@@ -1265,7 +1265,9 @@ const BUILDERS: Partial<Record<ReadDocumentType, Builder>> = {
       const value = signed.match[1]!.trim();
       push(facts, { key: 'advocate', label: 'Advocate', value, display: value, page: signed.page, quote: signed.quote });
     }
-    const clear = find(pages, /\b(clear(?:,)?\s+(?:valid\s+(?:and|&)\s+)?(?:legal\s+(?:and|&)\s+)?marketable)\s+title\b/i);
+    const clear =
+      find(pages, /\b(clear(?:,)?\s+(?:(?:valid|legal|absolute|good)(?:,)?\s+)*(?:(?:and|&)\s+)?marketable)\s+title\b/i)
+      ?? find(pages, /\btitle\b[^.\n]{0,80}?\bis\s+(clear(?:,?\s+(?:valid\s+)?(?:and|&)\s+marketable)?)\b/i);
     const subjectTo = find(pages, /\b(?:title|opinion)\b[^.\n]{0,120}\bsubject\s+to\b([^.\n]{4,200})/i);
     const notClear = find(pages, /\b(?:not|no)\s+(?:a\s+)?(?:clear|marketable)\s+title\b|\btitle\s+is\s+(?:defective|not\s+clear)\b/i);
     if (notClear) {

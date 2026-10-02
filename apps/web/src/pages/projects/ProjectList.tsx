@@ -19,21 +19,7 @@ export default function ProjectList() {
   const navigate = useNavigate();
   const toast = useToast();
   const { data, error, loading, refresh } = useAsync(() => api.listProjects(), []);
-  const [seeding, setSeeding] = useState(false);
   const [query, setQuery] = useState('');
-
-  async function seed() {
-    setSeeding(true);
-    try {
-      await api.seedDemo();
-      await refresh();
-      toast('Loaded the labelled sample engagements', 'good');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not seed', 'critical');
-    } finally {
-      setSeeding(false);
-    }
-  }
 
   // Fine at two projects; a firm with forty needs to type a name. Reference
   // and city are in the haystack because "RYT-0021" and "Whitefield" are both
@@ -113,15 +99,8 @@ export default function ProjectList() {
         <EmptyState
           icon={<FolderTree size={22} />}
           title="No projects yet"
-          description="Create a project, then start an assessment from the library."
-          action={
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => navigate('/projects/new')}>Create project</Button>
-              <Button variant="ghost" onClick={() => void seed()} disabled={seeding}>
-                Load the labelled samples
-              </Button>
-            </div>
-          }
+          description="Create a project for a property. Its departments, documents and checks follow from the stage it is at."
+          action={<Button onClick={() => navigate('/projects/new')}>Create project</Button>}
         />
       ) : (
         <div className="space-y-6">

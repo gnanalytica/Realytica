@@ -208,6 +208,10 @@ export function toProjectSummary(project: DdProject): ProjectSummary {
     evidenceMissing: project.evidence.filter((e) => e.status === 'missing' || e.status === 'expected' || e.status === 'requested').length,
     portfolio: project.portfolio,
     engagement: currentEngagement(project),
+    engagements: (project.engagements ?? []).length,
+    openAlerts: (project.alerts ?? []).filter((a) => !a.resolvedAt).length,
+    criticalAlerts: (project.alerts ?? []).filter((a) => !a.resolvedAt && a.severity === 'critical').length,
+    departments: project.departments,
     waitingOn: (project.requests ?? []).filter((r) => r.status === 'sent').length,
     pendingDecisions:
       project.chatProposals.filter((p) => p.status === 'proposed').length

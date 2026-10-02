@@ -1863,6 +1863,13 @@ export interface ProjectSummary {
   portfolio?: string;
   /** The engagement the project is mostly working for. */
   engagement?: import('./engagements').Engagement;
+  /** How many engagements are on it. */
+  engagements?: number;
+  /** Alerts raised and not yet resolved, and how many of them are critical. */
+  openAlerts?: number;
+  criticalAlerts?: number;
+  /** The departments it uses, when it chose its own. */
+  departments?: import('./departments').DepartmentKey[];
   /** Requests sent and not yet answered. */
   waitingOn: number;
   /** Proposals and drafts a person has not yet accepted or rejected. */

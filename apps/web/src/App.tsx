@@ -21,6 +21,8 @@ import Reports from './pages/projects/Reports';
 import Valuation from './pages/projects/Valuation';
 import AiDrafts from './pages/projects/AiDrafts';
 import ProjectPeople from './pages/projects/ProjectPeople';
+import DepartmentPage from './pages/projects/departments/DepartmentPage';
+import WorkstreamPage from './pages/projects/departments/WorkstreamPage';
 
 /*
  * Split at the route, for the screens most sessions never open.
@@ -122,6 +124,8 @@ export default function App() {
             <Route path="ai" element={<AiDrafts />} />
             <Route path="orchestrate" element={<CockpitOrchestrate />} />
             <Route path="people" element={<ProjectPeople />} />
+            <Route path="d/:department" element={<DepartmentPage />} />
+            <Route path="w/:workstream" element={<WorkstreamPage />} />
           </Route>
           <Route path="libraries" element={<Libraries />} />
           {/* Model operations are backend-only: the API keeps /api/telemetry

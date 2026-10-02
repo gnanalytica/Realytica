@@ -219,3 +219,8 @@ export function engagementsIn(project: DdProject, workstream: string): Engagemen
 export function engagementChecks(project: DdProject, engagement: Engagement): CheckInstance[] {
   return allChecks(project).filter((c) => engagement.workstreams.includes(workstreamOfCheck(c.definitionId)));
 }
+
+/** The engagement a report was written for: the one that lists it, else the one the project is working for. */
+export function engagementForReport(project: DdProject, reportId: string): Engagement | undefined {
+  return (project.engagements ?? []).find((e) => e.reportIds.includes(reportId)) ?? currentEngagement(project);
+}

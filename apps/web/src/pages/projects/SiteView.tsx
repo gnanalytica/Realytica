@@ -6,6 +6,7 @@ import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, CardHeader, Skeleton, useToast } from '../../components/ui/kit';
 import SiteRecord from './SiteRecord';
 import type { ProjectOutlet } from './ProjectLayout';
+import { WorkstreamFrame } from './departments/WorkstreamPage';
 
 /*
  * Both cards carry Leaflet or a map provider; lazy so the visit record paints
@@ -96,6 +97,12 @@ export default function SiteView() {
   const { project, setProject } = useOutletContext<ProjectOutlet>();
   return (
     <div className="space-y-4">
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Construction &amp; Execution</p>
+        <h2 className="text-[17px] font-semibold tracking-tight text-ink">Site record</h2>
+        <p className="max-w-[70ch] text-[12px] text-ink-secondary">Where the site is, what it is next to, and what visits found — with the photographs and what could not be seen.</p>
+      </div>
+      <WorkstreamFrame project={project} workstream="construction.site" setProject={setProject} compact />
       <Suspense fallback={<Skeleton className="h-64 w-full rounded-xl" />}>
         <GisOverlayCard project={project} onChanged={async () => setProject(await api.getProject(project.id))} />
       </Suspense>

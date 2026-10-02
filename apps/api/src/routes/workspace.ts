@@ -9,6 +9,7 @@
  * PUT    /departments                     which departments this project uses
  * PUT    /team/:email                     a person's role in each department
  * DELETE /team/:email
+ * POST   /workstreams/:key/checks         put a workstream's checks on the project record
  * POST   /engagements                     a piece of work a client commissioned
  * PATCH  /engagements/:engagementId
  * POST   /certified/read                  propose a certified report from a document in the vault
@@ -47,6 +48,7 @@ import {
   certifiedReadout,
   constructionGate,
   createEngagement,
+  ensureWorkstreamChecks,
   createProjectGrant,
   departmentReach,
   departmentRole,
@@ -224,6 +226,26 @@ projectWorkspaceRouter.delete<Params & { email: string }>('/team/:email', needs(
   touch(project);
   await store.save();
   res.json({ project });
+});
+
+projectWorkspaceRouter.post<Params & { key: string }>('/workstreams/:key/checks', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  const ws = workstreamDefinition(req.params.key);
+  if (!ws) {
+    res.status(404).json({ error: 'Unknown workstream.' });
+    return;
+  }
+  if (!allowed(req, res, project, ws.department, 'edit')) return;
+  const record = ensureWorkstreamChecks(project, [ws.key], actorOf(principalOf(req)));
+  if (!record) {
+    res.status(400).json({ error: `${ws.label} has no checks in the library yet.` });
+    return;
+  }
+  noteProjectEdit(project, `Put the ${ws.label} checks on the project record.`);
+  touch(project);
+  await store.save();
+  res.status(201).json({ project });
 });
 
 /* ==================================================================== */

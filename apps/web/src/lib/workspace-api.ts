@@ -70,6 +70,9 @@ export const workspaceApi = {
   removeTeamMember: (projectId: string, email: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/team/${encodeURIComponent(email)}`, { method: 'DELETE' }),
 
+  startWorkstreamChecks: (projectId: string, workstream: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/workstreams/${workstream}/checks`, json({})),
+
   createEngagement: (projectId: string, body: CreateEngagementInput) =>
     request<{ project: DdProject; engagement: Engagement }>(`/projects/${projectId}/engagements`, json(body)),
 

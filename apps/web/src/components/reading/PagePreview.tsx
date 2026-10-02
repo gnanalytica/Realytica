@@ -3,7 +3,7 @@ import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import type { FactMarks } from '@realytica/shared';
-import { evidenceFileUrl, fetchWithAuth, proposalFileUrl, sampleDocumentUrl } from '../../lib/api';
+import { evidenceFileUrl, fetchWithAuth, proposalFileUrl } from '../../lib/api';
 import type { ReadingSource } from '../../lib/reading';
 import { cn } from '../ui/kit';
 import { MarksOverlay } from './MarksOverlay';
@@ -33,8 +33,6 @@ function sourceKey(projectId: string, source: ReadingSource): string {
       return `local:${source.file.name}:${source.file.size}:${source.file.lastModified}`;
     case 'evidence':
       return `ev:${projectId}:${source.evidenceId}:${source.fileId}`;
-    case 'sample':
-      return `sample:${projectId}:${source.name}`;
     case 'proposal':
       return `card:${projectId}:${source.proposalId}`;
   }
@@ -45,9 +43,7 @@ async function bytesOf(projectId: string, source: ReadingSource): Promise<{ data
   const url =
     source.kind === 'evidence'
       ? evidenceFileUrl(projectId, source.evidenceId, source.fileId)
-      : source.kind === 'sample'
-        ? sampleDocumentUrl(projectId, source.name)
-        : proposalFileUrl(projectId, source.proposalId);
+      : proposalFileUrl(projectId, source.proposalId);
   const res = await fetchWithAuth(url);
   if (!res.ok) return null;
   const type = (res.headers.get('Content-Type') ?? '').split(';')[0]!.trim().toLowerCase();

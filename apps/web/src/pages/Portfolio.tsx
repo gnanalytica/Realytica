@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CircleAlert, Plus, RefreshCw, Search, Sparkles, TriangleAlert } from 'lucide-react';
+import { Bell, CircleAlert, Plus, Search, Sparkles, TriangleAlert } from 'lucide-react';
 import {
-  ENGAGEMENT_STAGES,
   ENGAGEMENT_STAGE_LABEL,
-  LIFECYCLE_STAGE_LABEL,
-  can,
+  STAGES,
+  SUB_STAGE_LABEL,
+  stageOf,
   type PortfolioDue,
   type PortfolioView,
   type ProjectSummary,
@@ -13,8 +13,7 @@ import {
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { readPref, writePref } from '../lib/prefs';
-import { useMe } from '../lib/useMe';
-import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Modal, Skeleton, cn, useToast } from '../components/ui/kit';
+import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Skeleton, cn } from '../components/ui/kit';
 import { Avatar, dayMonth } from '../components/project/ProjectPanels';
 
 const LAST_SEEN_KEY = 'portfolioLastSeen';
@@ -32,7 +31,7 @@ function healthChip(p: ProjectSummary) {
   return null;
 }
 
-function EngagementCard({ project, next }: { project: ProjectSummary; next?: PortfolioDue }) {
+function ProjectCard({ project, next }: { project: ProjectSummary; next?: PortfolioDue }) {
   const e = project.engagement;
   return (
     <Link
@@ -40,15 +39,25 @@ function EngagementCard({ project, next }: { project: ProjectSummary; next?: Por
       className="block rounded-xl bg-surface p-3 ring-1 ring-[var(--ring)] shadow-card transition-colors hover:bg-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
     >
       <p className="text-[13px] font-semibold leading-snug text-ink">{project.name}</p>
-      {e?.scope ? <p className="mt-0.5 text-[12px] text-ink-secondary">{e.scope}</p> : null}
       <p className="mt-0.5 text-[12px] text-ink-muted">
-        {LIFECYCLE_STAGE_LABEL[project.currentStage]} · {project.city}
+        {SUB_STAGE_LABEL[project.currentStage]} · {project.city}
       </p>
+      {e ? (
+        <p className="mt-0.5 text-[12px] text-ink-secondary">
+          {e.title}
+          {e.client ? ` for ${e.client}` : ''} · {ENGAGEMENT_STAGE_LABEL[e.stage]}
+          {project.engagements && project.engagements > 1 ? ` · +${project.engagements - 1} more` : ''}
+        </p>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-1">
         {healthChip(project)}
+        {project.openAlerts ? (
+          <Badge tone={project.criticalAlerts ? 'critical' : 'warning'} icon={<Bell size={11} />}>
+            {project.openAlerts} alert{project.openAlerts === 1 ? '' : 's'}
+          </Badge>
+        ) : null}
         {project.pendingDecisions ? <Badge tone="brand" icon={<Sparkles size={11} />}>{project.pendingDecisions} to decide</Badge> : null}
         {project.waitingOn ? <Badge tone="neutral">{project.waitingOn} waiting</Badge> : null}
-        {project.sample ? <Badge tone="neutral" className="border border-dashed border-ink-muted bg-transparent">Sample</Badge> : null}
       </div>
       <div className="mt-2.5 border-t border-hairline pt-2">
         <p className="text-[11px] text-ink-muted">Next</p>
@@ -105,23 +114,18 @@ function FortnightStrip({ view }: { view: PortfolioView }) {
 }
 
 /**
- * The firm's engagements as a pipeline.
+ * Every project the firm works on, by the stage of its life it is in.
  *
- * Outside a case the product is a dashboard: where every engagement stands,
+ * Outside a project the product is a dashboard: where each project stands,
  * what waits for a person's decision, what the firm is waiting on from
  * others, and what falls due in the next two weeks.
  */
 export default function Portfolio() {
   const navigate = useNavigate();
-  const toast = useToast();
-  const { data, error, loading, refresh } = useAsync(() => api.portfolio(), []);
+  const { data, error, loading } = useAsync(() => api.portfolio(), []);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
-  const [seeding, setSeeding] = useState(false);
-  const [refreshOpen, setRefreshOpen] = useState(false);
   const [lastSeen] = useState<string | null>(() => readPref(LAST_SEEN_KEY));
-  const me = useMe();
-  const mayManageSamples = me ? can(me.role, 'admin') : false;
 
   // The visit is recorded on the way out, so this visit's digest still reads
   // against the previous one.
@@ -146,35 +150,6 @@ export default function Portfolio() {
     });
   }, [data, query, filter]);
 
-  async function loadSamples() {
-    setSeeding(true);
-    try {
-      await api.seedDemo();
-      await refresh();
-      toast('Loaded the labelled sample engagements', 'good');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not load the samples', 'critical');
-    } finally {
-      setSeeding(false);
-    }
-  }
-
-  async function refreshSamples() {
-    setSeeding(true);
-    try {
-      const out = await api.refreshSamples();
-      await refresh();
-      setRefreshOpen(false);
-      toast(`Replaced ${out.removed} sample${out.removed === 1 ? '' : 's'} with ${out.created} fresh ones`, 'good');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not refresh the samples', 'critical');
-    } finally {
-      setSeeding(false);
-    }
-  }
-
-  const sampleCount = (data?.projects ?? []).filter((p) => p.sample).length;
-
   const all = data?.projects ?? [];
   const issued = all.filter((p) => p.engagement?.stage === 'issued').length;
   const blockedProjects = all.filter((p) => p.health === 'red').length;
@@ -198,7 +173,7 @@ export default function Portfolio() {
         <div>
           <h1 className="text-[20px] font-semibold tracking-tight text-ink">Portfolio</h1>
           <p className="text-[13px] text-ink-secondary">
-            {all.length} engagement{all.length === 1 ? '' : 's'} · {today}
+            {all.length} project{all.length === 1 ? '' : 's'} · {today}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -211,47 +186,11 @@ export default function Portfolio() {
               className="w-56 bg-transparent text-[13px] text-ink placeholder:text-ink-muted focus:outline-none"
             />
           </label>
-          {mayManageSamples && (data?.projects.length ?? 0) > 0 ? (
-            <Button variant="ghost" icon={<RefreshCw size={14} />} onClick={() => setRefreshOpen(true)} disabled={seeding}>
-              {sampleCount ? 'Refresh the samples' : 'Load the samples'}
-            </Button>
-          ) : null}
           <Button variant="primary" icon={<Plus size={15} />} onClick={() => navigate('/projects/new')}>
-            New engagement
+            New project
           </Button>
         </div>
       </header>
-
-      <Modal
-        open={refreshOpen}
-        onClose={() => !seeding && setRefreshOpen(false)}
-        title={sampleCount ? 'Refresh the sample engagements?' : 'Load the sample engagements?'}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setRefreshOpen(false)} disabled={seeding}>
-              Cancel
-            </Button>
-            <Button variant="primary" loading={seeding} onClick={() => void (sampleCount ? refreshSamples() : loadSamples())}>
-              {sampleCount ? `Replace ${sampleCount} sample${sampleCount === 1 ? '' : 's'}` : 'Load them'}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-2 text-[13px] leading-relaxed text-ink-secondary">
-          <p>
-            Three labelled sample engagements, ready to show: a Whitefield site whose demo documents are read onto it, a
-            township under construction, and an acquisition screen waiting on documents.
-          </p>
-          {sampleCount ? (
-            <p>
-              {sampleCount === 1
-                ? 'The project marked as a sample here is removed with its documents and replaced. '
-                : `The ${sampleCount} projects marked as samples here are removed with their documents and replaced. `}
-              <span className="font-medium text-ink">Client projects are not touched.</span>
-            </p>
-          ) : null}
-        </div>
-      </Modal>
 
       {error ? <Callout tone="critical" title="Could not load the portfolio">{error}</Callout> : null}
 
@@ -314,33 +253,30 @@ export default function Portfolio() {
       ) : all.length === 0 ? (
         <Card>
           <EmptyState
-            title="No engagements yet"
-            description="Start an engagement for a client's property. Each one gets a workspace: where it stands, with the copilot beside it."
+            title="No projects yet"
+            description="Start a project for a property — a site, a scheme under construction, a building in use. It gets a workspace with its departments, its documents and the chat beside it."
             action={
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button variant="primary" onClick={() => navigate('/projects/new')}>New engagement</Button>
-                <Button variant="ghost" onClick={() => void loadSamples()} loading={seeding}>
-                  Load the labelled samples
-                </Button>
-              </div>
+              <Button variant="primary" onClick={() => navigate('/projects/new')}>
+                New project
+              </Button>
             }
           />
         </Card>
       ) : (
         <div className="overflow-x-auto pb-1">
-          <div className="grid min-w-[1080px] grid-cols-6 gap-3">
-            {ENGAGEMENT_STAGES.map((stage) => {
-              const column = projects.filter((p) => (p.engagement?.stage ?? 'intake') === stage);
+          <div className="grid min-w-[880px] grid-cols-4 gap-3">
+            {STAGES.map((stage) => {
+              const column = projects.filter((p) => stageOf(p.currentStage) === stage.key);
               return (
-                <section key={stage} aria-label={ENGAGEMENT_STAGE_LABEL[stage]} className="flex min-h-[12rem] flex-col gap-2 rounded-xl bg-sunken/70 p-2">
+                <section key={stage.key} aria-label={stage.label} className="flex min-h-[12rem] flex-col gap-2 rounded-xl bg-sunken/70 p-2">
                   <h2 className="flex items-center gap-1.5 px-1 pt-0.5 text-[12px] font-semibold text-ink">
-                    {ENGAGEMENT_STAGE_LABEL[stage]}
+                    {stage.label}
                     <span className="rounded-full bg-surface px-1.5 font-mono text-[10px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
                       {column.length}
                     </span>
                   </h2>
                   {column.map((p) => (
-                    <EngagementCard key={p.id} project={p} next={nextByProject.get(p.id)} />
+                    <ProjectCard key={p.id} project={p} next={nextByProject.get(p.id)} />
                   ))}
                 </section>
               );

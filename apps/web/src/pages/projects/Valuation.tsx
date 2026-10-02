@@ -5,7 +5,6 @@ import {
   computeIndicativeValuation,
   rule8Summary,
   runValuationApproaches,
-  titleGraphFromProject,
   valueChecks,
   valueDrivers,
   valueInputCheckId,
@@ -21,9 +20,7 @@ import {
 import { api } from '../../lib/api';
 import { Button, Disclosure, Select, useToast } from '../../components/ui/kit';
 import { ScreenResultPanel } from '../../components/ScreenResultPanel';
-import { ScheduleOfProperty } from '../../components/ScheduleOfProperty';
 import { ValuationWorkingPanel } from '../../components/ValuationWorkingPanel';
-import { TitleChainDiagram } from '../../components/charts';
 import { ValueHeadline, type ValueStatus } from '../../components/value/ValueHeadline';
 import { ValueChecks } from '../../components/value/ValueChecks';
 import { ValueDrivers } from '../../components/value/ValueDrivers';
@@ -36,6 +33,7 @@ import { countryForCurrency } from '../../lib/units';
 import { money } from '../../lib/format';
 import { formatWhen } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
+import { WorkstreamFrame } from './departments/WorkstreamPage';
 
 /**
  * The Value tab: one view of what the property is worth, what that figure
@@ -250,21 +248,23 @@ export default function Valuation() {
 
   // During the fill, the checks and drivers arrive with the inputs.
   const share = fill.phase === 'checking' ? 0 : fill.phase === 'filling' ? fill.progress.done / Math.max(1, fill.progress.total) : null;
-  const titleGraph = titleGraphFromProject(project);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-[17px] font-semibold tracking-tight text-ink">Value</h2>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Finance &amp; Investment</p>
+          <h2 className="text-[17px] font-semibold tracking-tight text-ink">Valuation</h2>
           <p className="max-w-[70ch] text-[12px] text-ink-secondary">
-            Compliance, value and what moves it, from what the file holds. Indicative — not a certified valuation until a registered valuer signs.
+            Compliance, value and what moves it, from what the file holds — the site, the whole project as is or as completed, or a phase. Indicative until a registered valuer certifies it.
           </p>
         </div>
         <Button variant="primary" icon={<Sparkles size={14} />} onClick={() => void valueProperty()} loading={fill.phase === 'checking'} disabled={filling || busy}>
           Value this property
         </Button>
       </div>
+
+      <WorkstreamFrame project={project} workstream="finance.valuation" setProject={setProject} compact />
 
       {fill.phase !== 'idle' ? <ValueReading phase={fill.phase} steps={steps} summary={readingSummary} onDismiss={fill.reset} /> : null}
 
@@ -329,14 +329,6 @@ export default function Valuation() {
         {screen?.transactionCosts ? (
           <Disclosure title="Acquisition costs">
             <ScreenResultPanel result={screen} only={['costs']} askingPrice={project.budget} country={countryForCurrency(project.currency)} locality={project.city} />
-          </Disclosure>
-        ) : null}
-        {titleGraph.nodes.length > 0 ? (
-          <Disclosure title="Title structure">
-            <div className="space-y-4">
-              <TitleChainDiagram graph={titleGraph} summary={screen?.titleGraph} />
-              <ScheduleOfProperty graph={titleGraph} />
-            </div>
           </Disclosure>
         ) : null}
         {runs.length > 0 ? (

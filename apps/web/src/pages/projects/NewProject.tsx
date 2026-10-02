@@ -1,9 +1,20 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LIFECYCLE_STAGES, PROJECT_ARCHETYPES, type LifecycleStage, type ProjectArchetype, type Tenure } from '@realytica/shared';
+import {
+  DEPARTMENTS,
+  ENGAGEMENT_KINDS,
+  PROJECT_ARCHETYPES,
+  STAGES,
+  SUB_STAGE_LABEL,
+  type DepartmentKey,
+  type EngagementKind,
+  type LifecycleStage,
+  type ProjectArchetype,
+  type Tenure,
+} from '@realytica/shared';
 import { api } from '../../lib/api';
 import { OwnerInput } from '../../components/OwnerInput';
-import { Button, Card, CardBody, CardHeader, Disclosure, Field, Input, Select, Textarea, useToast } from '../../components/ui/kit';
+import { Button, Card, CardBody, CardHeader, Checkbox, Disclosure, Field, Input, Select, Textarea, useToast } from '../../components/ui/kit';
 
 export default function NewProject() {
   const navigate = useNavigate();
@@ -46,7 +57,10 @@ export default function NewProject() {
    */
   const [parcelId, setParcelId] = useState('');
   const [tenure, setTenure] = useState<Tenure | ''>('');
-  // The engagement: who asked, for what, led by whom, due when.
+  // The departments this project uses; the firm's six unless it says otherwise.
+  const [departments, setDepartments] = useState<DepartmentKey[]>(DEPARTMENTS.map((d) => d.key));
+  // A first engagement, if there is one already: who asked, for what, led by whom, due when.
+  const [kind, setKind] = useState<EngagementKind | ''>('');
   const [client, setClient] = useState('');
   const [scope, setScope] = useState('');
   const [lead, setLead] = useState('');
@@ -111,20 +125,25 @@ export default function NewProject() {
         jurisdiction: jurisdiction || undefined,
         portfolio: portfolio || undefined,
         parcelId: parcelId.trim() || undefined,
-        engagement: {
-          stage: 'intake',
-          client: client.trim() || undefined,
-          scope: scope.trim() || undefined,
-          lead: (lead || owner).trim() || undefined,
-          dueDate: dueDate || undefined,
-        },
+        departments,
+        ...(kind
+          ? {
+              engagement: {
+                kind,
+                client: client.trim() || undefined,
+                scope: scope.trim() || undefined,
+                lead: (lead || owner).trim() || undefined,
+                dueDate: dueDate || undefined,
+              },
+            }
+          : {}),
         tenure: tenure || undefined,
         landAreaSqm: optionalNumber(landArea),
         saleableAreaSqm: optionalNumber(saleable),
         builtUpAreaSqm: optionalNumber(builtUp),
         budget: optionalNumber(budget),
       });
-      toast('Engagement created', 'good');
+      toast('Project created', 'good');
       /*
        * Land where the answer is, not on the front door.
        *
@@ -154,28 +173,7 @@ export default function NewProject() {
         below it, so it moved onto them as hints — which is where somebody
         choosing a type or a stage is actually looking.
       */}
-      <h1 className="text-xl font-semibold tracking-tight text-ink">New engagement</h1>
-      <Card>
-        <CardHeader title="The engagement" subtitle="Who asked, for what, and by when. It puts the file in the portfolio pipeline." />
-        <CardBody className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Client" hint="Who the report is for.">
-              <Input value={client} onChange={(e) => setClient(e.target.value)} placeholder="e.g. the developer, or a bank branch" />
-            </Field>
-            <Field label="What was asked for" hint="In the client's words.">
-              <Input value={scope} onChange={(e) => setScope(e.target.value)} placeholder="e.g. Screening and technical DD" />
-            </Field>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Lead" hint="Who leads it and signs.">
-              <Input value={lead} onChange={(e) => setLead(e.target.value)} placeholder="Name" />
-            </Field>
-            <Field label="Report due" hint="Shows on the portfolio's next 14 days.">
-              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-            </Field>
-          </div>
-        </CardBody>
-      </Card>
+      <h1 className="text-xl font-semibold tracking-tight text-ink">New project</h1>
       <Card>
         <CardHeader title="The property" />
         <CardBody className="space-y-3">
@@ -202,12 +200,16 @@ export default function NewProject() {
                 ))}
               </Select>
             </Field>
-            <Field label="Lifecycle stage" hint="Changeable later — the history is kept.">
+            <Field label="Where it is in its life" hint="Changeable from the timeline — the history is kept.">
               <Select value={stage} onChange={(e) => setStage(e.target.value as LifecycleStage)}>
-                {LIFECYCLE_STAGES.map((s) => (
-                  <option key={s.key} value={s.key}>
-                    {s.label}
-                  </option>
+                {STAGES.map((st) => (
+                  <optgroup key={st.key} label={st.label}>
+                    {st.subStages.map((sub) => (
+                      <option key={sub} value={sub}>
+                        {SUB_STAGE_LABEL[sub]}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </Select>
             </Field>
@@ -256,6 +258,63 @@ export default function NewProject() {
               </Select>
             </Field>
           </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="Departments" subtitle="The kinds of work this project needs. Each is its own module, linked to the others; change them any time." />
+        <CardBody className="grid gap-1.5 sm:grid-cols-2">
+          {DEPARTMENTS.map((d) => (
+            <Checkbox
+              key={d.key}
+              checked={departments.includes(d.key)}
+              disabled={departments.length === 1 && departments.includes(d.key)}
+              onChange={(on) => setDepartments((was) => (on ? [...was, d.key] : was.filter((k) => k !== d.key)))}
+              label={
+                <span>
+                  {d.label}
+                  {d.status === 'coming_soon' ? <span className="ml-1 text-micro text-ink-muted">· coming soon</span> : null}
+                  <span className="block text-micro text-ink-muted">{d.purpose}</span>
+                </span>
+              }
+            />
+          ))}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="A first engagement" subtitle="If a client has already commissioned work on it. More can be added from the overview." />
+        <CardBody className="space-y-3">
+          <Field label="Kind of work" hint={kind ? ENGAGEMENT_KINDS[kind].purpose : 'Leave it for now if nobody has commissioned anything yet.'}>
+            <Select value={kind} onChange={(e) => setKind(e.target.value as EngagementKind | '')}>
+              <option value="">None yet</option>
+              {(Object.keys(ENGAGEMENT_KINDS) as EngagementKind[]).map((k) => (
+                <option key={k} value={k}>
+                  {ENGAGEMENT_KINDS[k].label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          {kind ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Client" hint="Who the report is for.">
+                  <Input value={client} onChange={(e) => setClient(e.target.value)} placeholder="e.g. the developer, or a bank branch" />
+                </Field>
+                <Field label="What was asked for" hint="In the client's words.">
+                  <Input value={scope} onChange={(e) => setScope(e.target.value)} />
+                </Field>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Lead" hint="Who leads it and signs.">
+                  <Input value={lead} onChange={(e) => setLead(e.target.value)} placeholder="Name" />
+                </Field>
+                <Field label="Report due" hint="Shows on the portfolio's next 14 days.">
+                  <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                </Field>
+              </div>
+            </>
+          ) : null}
         </CardBody>
       </Card>
 
@@ -336,7 +395,7 @@ export default function NewProject() {
         </Button>
         {/* Never disabled on an empty field — that is the silent failure. */}
         <Button type="submit" disabled={busy}>
-          Create engagement
+          Create project
         </Button>
       </div>
     </form>
