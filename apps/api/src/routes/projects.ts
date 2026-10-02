@@ -1116,11 +1116,22 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
    * is read exactly as a new upload would be. Only what this person can see.
    */
   if (READ_FILED_REQUEST.test(question)) {
-    const filed = await filedDocumentsToRead(viewFor(req, project).project, asksAgain(question));
+    const again = asksAgain(question);
+    const filed = await filedDocumentsToRead(viewFor(req, project).project, again);
     if (filed.length) {
+      // Documents the reader already had a turn at, and got little from, go
+      // straight to the model; asking "again" reads everything from the start.
+      const readHere = new Set(
+        again
+          ? []
+          : project.evidence
+              .filter((e) => (e.facts ?? []).length < 3 && e.attachments.length > 0)
+              .flatMap((e) => e.attachments.map((a) => a.storageKey)),
+      );
       await ingestTurn(req, res, project, filed, {
         question,
         readBudgetMs: REREAD_BUDGET_MS,
+        modelOnly: readHere,
         viewContext: parsed.data.viewContext,
         sessionId: parsed.data.sessionId,
         ddId: sitting?.ddId,
@@ -1604,6 +1615,12 @@ interface IngestUpload {
   storageKey?: string;
 }
 
+/**
+ * How long a turn keeps starting model reads. The function may run 800 s; a
+ * read of a long scan takes one to two minutes, and the turn still has to save.
+ */
+const MODEL_READ_BUDGET_MS = 480_000;
+
 interface IngestFields {
   question?: string;
   /**
@@ -1612,6 +1629,13 @@ interface IngestFields {
    * reads everything it was given.
    */
   readBudgetMs?: number;
+  /**
+   * Stored files this reader has already read, on their way to a model: the
+   * local pass is skipped for them. Reading a seventy-page plan bundle's
+   * drawings by OCR a second time found nothing the first time, and costs
+   * the minutes the model needs.
+   */
+  modelOnly?: ReadonlySet<string>;
   viewContext?: string;
   sessionId?: string;
   ddId?: unknown;
@@ -1671,10 +1695,12 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
     // The file under way stops sending pages to OCR a minute past the budget,
     // so the turn ends inside the function's limit with what it has read.
     const deadline = fields.readBudgetMs ? started + fields.readBudgetMs + 60_000 : undefined;
-    const read = await readIngestLocally(row, file.buffer, (step) => line({ type: 'step', step }), {
-      deadline,
-      onPage: (page, of) => reading({ type: 'reading', event: 'page', key: storageKey, page, of }),
-    });
+    const read = fields.modelOnly?.has(storageKey) && agentCapability().available
+      ? { ...row }
+      : await readIngestLocally(row, file.buffer, (step) => line({ type: 'step', step }), {
+          deadline,
+          onPage: (page, of) => reading({ type: 'reading', event: 'page', key: storageKey, page, of }),
+        });
     ingest.push(read);
     reading({
       type: 'reading',
@@ -1720,6 +1746,8 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
         project: canvas,
         files: forModel.map(({ f }) => ({ ...f, read: undefined })),
         buffers: forModel.map(({ i }) => files[i]!.buffer),
+        // Leave room inside the function's ceiling for the last read and the save.
+        deadline: started + MODEL_READ_BUDGET_MS,
         // The local reading already announced each file. The model's own
         // "Reading …" would say it twice, and its failure is not news about a
         // document that was read — so only its progress passes through.

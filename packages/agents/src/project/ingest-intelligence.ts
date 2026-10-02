@@ -30,6 +30,12 @@ export interface EnrichIngestParams {
   onSpend?: (spend: TurnSpend) => void;
   /** Each file as the model starts on it, and its reading once it is done — for drawing the reading as it goes. */
   onFile?: (index: number, phase: 'start' | 'done', file?: ChatIngestFile) => void;
+  /**
+   * Start no new document after this instant. Reads run one after another,
+   * and a turn has a hard ceiling; a document not started is left for the
+   * next turn rather than cut off half-read with nothing saved.
+   */
+  deadline?: number;
 }
 
 /**
@@ -165,6 +171,10 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
     });
     if (!bytes || bytes.length === 0) {
       out.push(file);
+      continue;
+    }
+    if (params.deadline !== undefined && Date.now() > params.deadline) {
+      out.push({ ...file, readFailure: 'Not read yet: this turn ran out of time. Ask to read the filed documents again to carry on.' });
       continue;
     }
     params.onFile?.(i, 'start');
