@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, FileQuestion, FileText, Image as ImageIcon } from 'lucide-react';
 import {
   plural,
   ownedBy,
@@ -379,12 +379,12 @@ export function EvidenceRegister() {
                 </h3>
                 {isOpen(group.name)
                   ? group.items.map((e) => (
-              <LiveRow key={e.id} id={e.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+              <LiveRow key={e.id} id={e.id} highlightIds={liveIds} variant="flush" className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 transition-colors duration-quick hover:bg-sunken/40">
                 <div className="flex min-w-0 items-start gap-2.5">
                   <input
                     type="checkbox"
                     aria-label={`Select ${e.title}`}
-                    className="mt-1 shrink-0"
+                    className="mt-2.5 shrink-0"
                     checked={chosen.has(e.id)}
                     onChange={(ev) =>
                       setChosen((prev) => {
@@ -395,7 +395,16 @@ export function EvidenceRegister() {
                       })
                     }
                   />
-                <div>
+                {/* What kind of thing it is, before its name is read: a page or a photograph. */}
+                {(() => {
+                  const Icon = (e.attachments ?? []).some((f) => f.mimeType.startsWith('image/')) ? ImageIcon : (e.attachments ?? []).length ? FileText : FileQuestion;
+                  return (
+                    <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-sunken text-ink-secondary ring-1 ring-inset ring-[var(--ring)]" aria-hidden>
+                      <Icon size={15} />
+                    </span>
+                  );
+                })()}
+                <div className="min-w-0">
                   <p className="text-[13px] font-medium text-ink">{e.title}</p>
                   <p className="text-[12px] text-ink-muted">
                     {EVIDENCE_KIND_LABEL[e.kind]}

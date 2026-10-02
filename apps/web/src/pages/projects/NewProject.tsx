@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { Briefcase, Building2, Check, LayoutGrid } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   DEPARTMENTS,
@@ -14,7 +15,9 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { OwnerInput } from '../../components/OwnerInput';
-import { Button, Card, CardBody, CardHeader, Checkbox, Disclosure, Field, Input, Select, Textarea, useToast } from '../../components/ui/kit';
+import { Button, Card, CardBody, CardHeader, Disclosure, Field, Input, Select, Textarea, cn, useToast } from '../../components/ui/kit';
+import { AnimatePresence, Reveal, SPRING, motion } from '../../lib/motion';
+import { DEPARTMENT_ICON } from '../../components/departments/icons';
 
 export default function NewProject() {
   const navigate = useNavigate();
@@ -173,9 +176,13 @@ export default function NewProject() {
         below it, so it moved onto them as hints — which is where somebody
         choosing a type or a stage is actually looking.
       */}
-      <h1 className="text-xl font-semibold tracking-tight text-ink">New project</h1>
+      <Reveal>
+        <p className="text-[12px] font-medium text-ink-muted">Portfolio</p>
+        <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink">New project</h1>
+        <p className="mt-1 text-[13px] text-ink-secondary">A workspace for one property: its stages, its departments, its documents and the team around it.</p>
+      </Reveal>
       <Card>
-        <CardHeader title="The property" />
+        <CardHeader icon={<Building2 />} title="The property" />
         <CardBody className="space-y-3">
           {/* A placeholder that is the real name of the one project already in
               the system reads as a value, not an example. */}
@@ -262,28 +269,54 @@ export default function NewProject() {
       </Card>
 
       <Card>
-        <CardHeader title="Departments" subtitle="The kinds of work this project needs. Each is its own module, linked to the others; change them any time." />
-        <CardBody className="grid gap-1.5 sm:grid-cols-2">
-          {DEPARTMENTS.map((d) => (
-            <Checkbox
-              key={d.key}
-              checked={departments.includes(d.key)}
-              disabled={departments.length === 1 && departments.includes(d.key)}
-              onChange={(on) => setDepartments((was) => (on ? [...was, d.key] : was.filter((k) => k !== d.key)))}
-              label={
-                <span>
-                  {d.label}
-                  {d.status === 'coming_soon' ? <span className="ml-1 text-micro text-ink-muted">· coming soon</span> : null}
-                  <span className="block text-micro text-ink-muted">{d.purpose}</span>
+        <CardHeader icon={<LayoutGrid />} title="Departments" subtitle="The kinds of work this project needs. Each is its own module, linked to the others; change them any time." />
+        {/* Tiles that toggle: a department is a choice with a shape, not a line of small print beside a box. */}
+        <CardBody className="grid gap-2 sm:grid-cols-2">
+          {DEPARTMENTS.map((d) => {
+            const on = departments.includes(d.key);
+            const last = departments.length === 1 && on;
+            const Icon = DEPARTMENT_ICON[d.key];
+            return (
+              <button
+                key={d.key}
+                type="button"
+                role="checkbox"
+                aria-checked={on}
+                disabled={last}
+                onClick={() => setDepartments((was) => (on ? was.filter((k) => k !== d.key) : [...was, d.key]))}
+                className={cn(
+                  'group relative flex items-start gap-3 rounded-xl p-3 text-left ring-1 ring-inset transition-[background-color,box-shadow,transform] duration-quick ease-state active:scale-[0.99]',
+                  on ? 'bg-brand-soft/60 ring-brand/40' : 'bg-surface ring-[var(--ring)] hover:bg-sunken/60',
+                  last && 'cursor-not-allowed',
+                )}
+              >
+                <span className={cn('grid size-9 shrink-0 place-items-center rounded-lg ring-1 ring-inset transition-colors duration-quick', on ? 'bg-brand text-[var(--brand-ink)] ring-brand' : 'bg-sunken text-ink-secondary ring-[var(--ring)]')}>
+                  <Icon size={16} />
                 </span>
-              }
-            />
-          ))}
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                    {d.label}
+                    {d.status === 'coming_soon' ? <span className="rounded px-1 font-mono text-[9px] uppercase tracking-wide text-ink-muted ring-1 ring-inset ring-[var(--ring)]">Soon</span> : null}
+                  </span>
+                  <span className="mt-0.5 block text-micro leading-snug text-ink-muted">{d.purpose}</span>
+                </span>
+                <span className={cn('grid size-5 shrink-0 place-items-center rounded-full ring-1 ring-inset transition-colors duration-quick', on ? 'bg-brand text-[var(--brand-ink)] ring-brand' : 'ring-[var(--axis)]')} aria-hidden>
+                  <AnimatePresence initial={false}>
+                    {on ? (
+                      <motion.span key="tick" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={SPRING.snappy}>
+                        <Check size={12} strokeWidth={3} />
+                      </motion.span>
+                    ) : null}
+                  </AnimatePresence>
+                </span>
+              </button>
+            );
+          })}
         </CardBody>
       </Card>
 
       <Card>
-        <CardHeader title="A first engagement" subtitle="If a client has already commissioned work on it. More can be added from the overview." />
+        <CardHeader icon={<Briefcase />} title="A first engagement" subtitle="If a client has already commissioned work on it. More can be added from the overview." />
         <CardBody className="space-y-3">
           <Field label="Kind of work" hint={kind ? ENGAGEMENT_KINDS[kind].purpose : 'Leave it for now if nobody has commissioned anything yet.'}>
             <Select value={kind} onChange={(e) => setKind(e.target.value as EngagementKind | '')}>

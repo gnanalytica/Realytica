@@ -16,8 +16,10 @@ import {
   type DepartmentKey,
   type WorkstreamDefinition,
 } from '@realytica/shared';
-import { Badge, Card, CardBody, CardHeader, cn } from '../../../components/ui/kit';
+import { Badge, Card, CardBody, CardHeader, TONE_FILL, cn } from '../../../components/ui/kit';
 import { VERDICT_TONE } from '../../../components/departments/QuickAssessmentCard';
+import { DEPARTMENT_ICON } from '../../../components/departments/icons';
+import { Reveal, Stagger, StaggerItem } from '../../../lib/motion';
 import { useMe } from '../../../lib/useMe';
 import { useWorkstreamNav } from './WorkstreamPage';
 import type { ProjectOutlet } from '../ProjectLayout';
@@ -33,10 +35,13 @@ function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: Works
       type="button"
       onClick={onOpen}
       className={cn(
-        'group flex min-h-[9.5rem] flex-col rounded-xl p-4 text-left ring-1 ring-inset ring-[var(--ring)] transition-shadow hover:shadow-pop',
-        live ? 'bg-surface' : 'bg-sunken/40',
+        'group relative flex h-full min-h-[9.5rem] w-full flex-col overflow-hidden rounded-2xl p-4 text-left',
+        'transition-[transform,box-shadow] duration-base ease-enter hover:-translate-y-0.5 active:translate-y-0 motion-reduce:hover:translate-y-0',
+        live ? 'bg-surface shadow-card ring-1 ring-[var(--ring)] hover:shadow-raised' : 'border border-dashed border-[var(--axis)] bg-transparent hover:bg-surface/60',
       )}
     >
+      {/* The verdict, as the card's top edge: a row of these reads like a status board. */}
+      {live && qa ? <span aria-hidden className={cn('absolute inset-x-0 top-0 h-[3px]', TONE_FILL[VERDICT_TONE[qa.verdict]])} /> : null}
       <div className="flex w-full items-start gap-2">
         <p className={cn('flex-1 text-[14px] font-semibold', live ? 'text-ink' : 'text-ink-secondary')}>{ws.label}</p>
         {live && qa ? <Badge tone={VERDICT_TONE[qa.verdict]}>{QUICK_VERDICT_LABEL[qa.verdict]}</Badge> : <Badge tone="neutral">Coming soon</Badge>}
@@ -46,7 +51,7 @@ function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: Works
         {due ? <p>Delivers now: {due.title}</p> : null}
         {live ? <p>{certified ? `Certified by ${certified.signer.name}${certified.revisit && !certified.revisit.acknowledgedAt ? ' · to revisit' : ''}` : 'No certified report yet'}</p> : null}
       </div>
-      <span className="mt-2 inline-flex items-center gap-1 text-[12px] font-medium text-brand opacity-0 transition-opacity group-hover:opacity-100">
+      <span className="mt-2 inline-flex items-center gap-1 text-[12px] font-medium text-brand opacity-0 transition-[opacity,transform] duration-quick ease-state group-hover:translate-x-0.5 group-hover:opacity-100">
         Open <ArrowRight size={12} />
       </span>
     </button>
@@ -78,16 +83,25 @@ export default function DepartmentPage() {
   if (!dept) return <Navigate to={cockpitPath(project.id, 'overview')} replace />;
   const myRole = me ? departmentRole(project, { email: me.email, workspaceRole: me.role }, dept.key) : undefined;
   const team = (project.team ?? []).filter((t) => t.departments[dept.key]);
+  const DeptIcon = DEPARTMENT_ICON[dept.key];
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-[17px] font-semibold tracking-tight text-ink">{dept.label}</h2>
-          <p className="max-w-[60ch] text-[12px] text-ink-secondary">{dept.purpose}</p>
+      <Reveal>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface text-ink shadow-card ring-1 ring-[var(--ring)]" aria-hidden>
+              <DeptIcon size={18} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[12px] font-medium text-ink-muted">Department</p>
+              <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-ink">{dept.label}</h2>
+              <p className="mt-0.5 max-w-[60ch] text-[13px] text-ink-secondary">{dept.purpose}</p>
+            </div>
+          </div>
+          {myRole ? <Badge tone="brand">You: {DEPARTMENT_ROLE_LABEL[myRole]}</Badge> : <Badge tone="neutral">You can read this department</Badge>}
         </div>
-        {myRole ? <Badge tone="brand">You: {DEPARTMENT_ROLE_LABEL[myRole]}</Badge> : <Badge tone="neutral">You can read this department</Badge>}
-      </div>
+      </Reveal>
 
       {dept.status === 'coming_soon' ? (
         <Card>
@@ -97,11 +111,13 @@ export default function DepartmentPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(16rem,1fr))]">
+      <Stagger className="grid items-stretch gap-3 [grid-template-columns:repeat(auto-fill,minmax(16rem,1fr))]">
         {dept.workstreams.map((ws) => (
-          <WorkstreamCard key={ws.key} project={project} ws={ws} onOpen={() => nav.openWorkstream(ws.key)} />
+          <StaggerItem key={ws.key} className="h-full">
+            <WorkstreamCard project={project} ws={ws} onOpen={() => nav.openWorkstream(ws.key)} />
+          </StaggerItem>
         ))}
-      </div>
+      </Stagger>
 
       <div className="grid gap-4 [@container(min-width:52rem)]:grid-cols-2">
         <Card>
