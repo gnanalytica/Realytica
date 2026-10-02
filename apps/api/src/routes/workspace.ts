@@ -45,6 +45,7 @@ import {
   addMilestones,
   attachEvidenceFile,
   buildProjectGraph,
+  can,
   certifiedReadout,
   constructionGate,
   createEngagement,
@@ -458,12 +459,15 @@ projectWorkspaceRouter.get<Params>('/site', (req, res) => {
   const project = load(req, res);
   if (!project) return;
   const role = roleIn(req, project, 'construction');
+  // Whether a write would actually go through: the department role, and the
+  // workspace-wide write gate every project write passes first.
+  const canLog = roleCanEdit(role) && can(principalOf(req).role, 'write');
   const log = [...(project.siteLog ?? [])].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
   const timeline = stageTimeline(project);
   res.json({
     project: { id: project.id, name: project.name, reference: project.reference, location: project.location, city: project.city, stage: timeline.current, stageLabel: timeline.stages.find((s) => s.key === timeline.currentStage)?.label, siteCoordinate: project.siteCoordinate ?? null },
     role: role ?? null,
-    canLog: roleCanEdit(role),
+    canLog,
     milestones: project.milestones ?? [],
     progress: progressSummary(project),
     gate: constructionGate(project),
@@ -517,11 +521,17 @@ projectWorkspaceRouter.post<Params>('/site-log', async (req, res) => {
   }
 });
 
+/**
+ * Each photograph's ceiling. On the hosted service a whole request carries
+ * 4.5 MB at most, so the phone sends its photographs resized and in batches
+ * that fit — six small ones, or one large one.
+ */
 const PHOTO_MAX_BYTES = 4 * 1024 * 1024;
+const PHOTO_TYPES = /^image\/(jpeg|png|webp|heic|heif)$/;
 const photoUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: PHOTO_MAX_BYTES, files: 6 },
-  fileFilter: (_req, file, cb) => cb(null, /^image\/(jpeg|png|webp|heic|heif)$/.test(file.mimetype)),
+  // Everything is taken in, so a refusal can name the file rather than drop it.
 });
 
 projectWorkspaceRouter.post<Params>('/site-log/photos', photoUpload.array('photos', 6), async (req, res) => {
@@ -531,6 +541,11 @@ projectWorkspaceRouter.post<Params>('/site-log/photos', photoUpload.array('photo
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) {
     res.status(400).json({ error: 'Attach the photographs as JPEG, PNG or WebP, up to 4 MB each.' });
+    return;
+  }
+  const refused = files.filter((f) => !PHOTO_TYPES.test(f.mimetype));
+  if (refused.length) {
+    res.status(400).json({ error: `Not a photograph this takes (JPEG, PNG, WebP or HEIC): ${refused.map((f) => f.originalname).join(', ')}.`, refused: refused.map((f) => f.originalname) });
     return;
   }
   const photos = [];
