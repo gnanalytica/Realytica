@@ -648,6 +648,13 @@ export interface EvidenceRecord {
    * cannot — and such a document is read, not waiting to be.
    */
   modelReadAt?: string;
+  /**
+   * Which reader read it, as `MODEL_READER_VERSION` stood then. Absent on a
+   * row read before it was recorded, which counts as version 1. A row read by
+   * an older reader that placed nothing is read again when the filed
+   * documents are read: the newer reader may place what the older could not.
+   */
+  modelReadVersion?: number;
   createdAt: string;
   updatedAt: string;
   /**

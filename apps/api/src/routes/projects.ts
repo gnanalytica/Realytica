@@ -1663,6 +1663,8 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
   const { line, clientGone } = stream;
   const reading = (event: ReadingStreamEvent) => line(event);
   const ingest: ChatIngestFile[] = [];
+  /** Each file's text page by page, where this server read it, by its index in `files`. */
+  const pageTexts = new Map<number, string[]>();
   const started = Date.now();
   let unread = 0;
   for (const [index, file] of files.entries()) {
@@ -1705,6 +1707,7 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
       : await readIngestLocally(row, file.buffer, (step) => line({ type: 'step', step }), {
           deadline,
           onPage: (page, of) => reading({ type: 'reading', event: 'page', key: storageKey, page, of }),
+          onPages: (pages) => pageTexts.set(index, pages),
         });
     ingest.push(read);
     reading({
@@ -1751,6 +1754,9 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
         project: canvas,
         files: forModel.map(({ f }) => ({ ...f, read: undefined })),
         buffers: forModel.map(({ i }) => files[i]!.buffer),
+        // What this server already read, so a quote found in its page's own
+        // words is placed there without another model call.
+        pageTexts: forModel.map(({ i }) => pageTexts.get(i)),
         // Leave room inside the function's ceiling for the last read and the save.
         deadline: started + MODEL_READ_BUDGET_MS,
         // The local reading already announced each file. The model's own

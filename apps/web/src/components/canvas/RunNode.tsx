@@ -64,7 +64,7 @@ export const GAP_LABEL: Record<CapabilityGap, string> = {
  */
 export const GAP_CONSEQUENCE: Record<CapabilityGap, string> = {
   citations_unavailable:
-    'Page references on anything this node produced are self-reported by the model, not checked against the document.',
+    'No citations came back, so each page was checked here instead: against the page\'s own text, or by showing that page alone to a checking model. A value nothing could check has no page.',
   prompt_caching_unavailable: 'Repeated context was re-sent and re-billed. Costs more; changes nothing about the answer.',
   adaptive_thinking_unavailable: 'The model could not spend extra effort on the harder parts of the task.',
   server_web_search_unavailable: 'Any external lookup was done by this app, not by the provider, so results depend on what it could reach.',

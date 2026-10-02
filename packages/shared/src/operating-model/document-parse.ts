@@ -81,6 +81,8 @@ export interface DocumentFact {
   originalScript?: import('../script').DocScript;
   /** Who read it: this server's parser, or a model whose page was verified. */
   source?: 'parser' | 'model';
+  /** For a model's fact, how its page was verified. */
+  pageCheck?: import('../types').PageCheck;
   /**
    * Where the quote, and the value inside it, sit on `page` — found by
    * matching the quote back to the words the page was read from, so a person

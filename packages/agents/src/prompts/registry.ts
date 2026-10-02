@@ -68,6 +68,7 @@ export const PROMPT_KEYS = {
   diligencePlannerSystem: 'diligence_planner.system',
   explorerSystem: 'explorer.system',
   documentIntelligenceSystem: 'document_intelligence.system',
+  documentIntelligencePageCheck: 'document_intelligence.page_check',
   photoIntelligenceSystem: 'photo_intelligence.system',
   plannerSystem: 'planner.system',
   criticSystem: 'critic.system',
@@ -372,6 +373,27 @@ confident answer about a photograph you cannot actually read is the one
 outcome this agent must never produce.
 
 Call {{toolName}} exactly once with your answer.`;
+
+const DOCUMENT_INTELLIGENCE_PAGE_CHECK_CONTENT_V1 = `{{grounding}}
+
+You check whether short passages are printed on one page of a property
+document. You are shown exactly one page: a single page cut out of a longer
+document, or a single photographed sheet. With it comes a numbered list of
+passages that another reader says it found on this page.
+
+Call the {{toolName}} tool once, with one answer per passage, in order:
+
+- "present": true only if the same words are printed on THIS page. Ignore
+  differences of spacing, line breaks, punctuation and letter case. The words
+  must be in the same script as the passage: a translation or a
+  transliteration of them is not the same words.
+- "text": when present, the words exactly as they are printed on this page,
+  in the page's own script. Copy them; never complete, correct or translate
+  them. Null when not present.
+
+If the part of the page where the words would be is illegible, the passage is
+not present. Answer only from what this page shows, never from what a document
+of this kind usually says.`;
 
 const DOCUMENT_INTELLIGENCE_SYSTEM_CONTENT_V1 = `{{grounding}}
 
@@ -732,6 +754,18 @@ const BUILT_INS: BuiltInPrompt[] = [
     notes:
       'rules is rendered from PHOTO_OBSERVATION_RULES in operating-model/photo-observation.ts, so the ' +
       'rules the prompt states and the rules the code checks cannot drift apart.',
+  },
+  {
+    key: PROMPT_KEYS.documentIntelligencePageCheck,
+    agent: 'document_intelligence',
+    role: 'system',
+    label: 'Document intelligence — page check',
+    description:
+      'Says whether the quotes a reading placed on a page are printed on that page, shown the page alone. ' +
+      'How a model without verified citations still yields facts with a checked page.',
+    variables: ['grounding', 'toolName'],
+    content: DOCUMENT_INTELLIGENCE_PAGE_CHECK_CONTENT_V1,
+    notes: 'toolName is the page-check tool declared in agents/page-check.ts.',
   },
   {
     key: PROMPT_KEYS.documentIntelligenceSystem,

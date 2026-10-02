@@ -2,7 +2,7 @@
   "name": "realytica",
   "private": true,
   "version": "0.1.0",
-  "description": "Realytica \u2014 due diligence operating system. Manual-first MVP: projects, concurrent DDs, shared registers.",
+  "description": "Realytica — due diligence operating system. Manual-first MVP: projects, concurrent DDs, shared registers.",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20.10"
@@ -35,6 +35,7 @@
     "esbuild": "^0.25.0",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "pdf-lib": "^1.17.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.68.0"

@@ -149,6 +149,17 @@ const FILE_HINTS: FileHint[] = [
   { keys: ['test report', 'cube', 'ndt'], kind: 'test_report', scopes: ['quality', 'technical'], titles: ['Test reports'] },
 ];
 
+/**
+ * The model reader's version, recorded on each row it reads.
+ *
+ * 1. Pages only from a verified citation, so a model on a gateway placed
+ *    nothing on a page.
+ * 2. Pages checked against the page itself: its own text, or the page shown
+ *    to a reader alone (`agents/page-check`). Rows version 1 read and could
+ *    not place anything on are read again.
+ */
+export const MODEL_READER_VERSION = 2;
+
 export function createChatProposal(
   kind: ChatProposalKind,
   title: string,
@@ -643,7 +654,10 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     }
     if (typeof payload.documentType === 'string') evidence.documentType = payload.documentType;
     if (payload.readMethod === 'text' || payload.readMethod === 'ocr' || payload.readMethod === 'mixed') evidence.readMethod = payload.readMethod;
-    if (payload.modelRead === true) evidence.modelReadAt = nowIso();
+    if (payload.modelRead === true) {
+      evidence.modelReadAt = nowIso();
+      evidence.modelReadVersion = MODEL_READER_VERSION;
+    }
     // A document read again is already on its row; attaching it a second
     // time would list the same file twice.
     const held = evidence.attachments.some((a) => a.storageKey === payload.storageKey);

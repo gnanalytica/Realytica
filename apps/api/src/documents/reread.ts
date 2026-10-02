@@ -10,6 +10,7 @@
  */
 
 import type { DdProject } from '@realytica/shared';
+import { MODEL_READER_VERSION } from '@realytica/shared';
 import { storageAdapter } from '../storage';
 
 /** "Read the filed documents", "read the uploaded documents again", "re-read the documents". */
@@ -43,6 +44,11 @@ export interface StoredUpload {
  * describe it while placing no value on a page; counting that as unread put
  * the same ten documents back into every turn, at a model's price each time,
  * and the ones after them were never reached.
+ *
+ * Except a row an older reader read and placed nothing on
+ * (`modelReadVersion` below `MODEL_READER_VERSION`): the reader that checks
+ * pages itself may place what the citation-only one could not, so it is read
+ * once more, and then marked with the newer version.
  */
 export function rowsToRead(project: DdProject, again: boolean): DdProject['evidence'] {
   // Only a card that carries a reading counts: one from a reading that failed
@@ -57,7 +63,7 @@ export function rowsToRead(project: DdProject, again: boolean): DdProject['evide
     (e) =>
       e.attachments.length > 0
       && !NOT_RELIED_ON.has(e.status)
-      && (again || (!(e.facts ?? []).length && !e.modelReadAt))
+      && (again || (!(e.facts ?? []).length && (!e.modelReadAt || (e.modelReadVersion ?? 1) < MODEL_READER_VERSION)))
       && !waiting.has(e.attachments[e.attachments.length - 1]!.storageKey),
   );
 }

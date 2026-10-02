@@ -157,6 +157,27 @@ describe('reading a filed document again', () => {
     assert.equal(rowsToRead(project, true).length, 1, 'asking again reads it again');
   });
 
+  it('reads once more a document an older reader read and placed nothing on', async () => {
+    const { rowsToRead } = await import('../apps/api/src/documents/reread');
+    const { MODEL_READER_VERSION } = await import('../packages/shared/src');
+    const { project, storageKey } = filedProject();
+    const file = { fileName: 'Environment_clearance.pdf', mimeType: 'application/pdf', sizeBytes: 1000, storageKey, kindHint: 'other', modelRead: true } as ChatIngestFile;
+    const filing = proposalsFromIngest(project, [file]).find((c) => c.kind === 'file_evidence')!;
+    project.chatProposals.push(filing);
+    commitChatProposal(project, filing.id);
+    const row = project.evidence[0]!;
+    assert.equal(row.modelReadVersion, MODEL_READER_VERSION, 'the row says which reader read it');
+    assert.equal(rowsToRead(project, false).length, 0, 'the current reader is not asked twice');
+
+    // As a row read before the version was recorded: the reader that placed pages only by citation.
+    delete row.modelReadVersion;
+    assert.equal(rowsToRead(project, false).length, 1, 'an older reader that placed nothing leaves the row to read again');
+
+    // Once the row states something, it is read, whichever reader read it.
+    row.facts = [{ key: 'issued_on', label: 'Issued on', display: '12 Jan 2015', value: '2015-01-12', page: 1, quote: 'Dated 12th January 2015' }];
+    assert.equal(rowsToRead(project, false).length, 0);
+  });
+
   it('is asked for in plain words, and not by a question about the documents', async () => {
     // Dynamic: the module reaches storage, whose adapter is chosen with a top-level await.
     const { READ_FILED_REQUEST, asksAgain } = await import('../apps/api/src/documents/reread');

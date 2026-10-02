@@ -79,13 +79,14 @@ export const AGENT_CAPABILITY_NEEDS: Record<AgentKind, CapabilityGap[]> = {
  *
  * Written for the person reading an observability panel at the moment a
  * result looks thin, so each line names the consequence rather than the
- * feature. "citations_unavailable" is a fact; "page references are
- * self-reported and may be wrong" is what they need to know.
+ * feature. "citations_unavailable" is a fact; "each value's page was checked
+ * here instead, and one that could not be has no page" is what they need to
+ * know.
  */
 export function describeGap(gap: CapabilityGap): string {
   switch (gap) {
     case 'citations_unavailable':
-      return 'Page references are self-reported by the model rather than verified against the document, so a quoted page can be wrong. Extraction confidence is reduced accordingly.';
+      return 'The model returned no verified citations, so each value\'s page is checked against the page itself instead. A value that cannot be checked keeps no page and a reduced confidence.';
     case 'pdf_input_unavailable':
       return 'PDFs must be converted before sending, so layout and page structure are lost and a scanned document may not be readable at all.';
     case 'prompt_caching_unavailable':
