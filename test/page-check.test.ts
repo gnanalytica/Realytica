@@ -31,8 +31,9 @@ import {
   placeQuotes,
   type CheckPage,
 } from '../packages/agents/src/agents/page-check';
-import { describeChecks, originalPage, runDocumentIntelligence } from '../packages/agents/src/agents/document-intelligence';
-import type { CaseDocument, PropertyIdentity } from '../packages/shared/src';
+import { CUT_OFF_REASON, describeChecks, originalPage, runDocumentIntelligence } from '../packages/agents/src/agents/document-intelligence';
+import { enrichIngestWithDocumentIntelligence } from '../packages/agents/src/project/ingest-intelligence';
+import { createProject, type CaseDocument, type ChatIngestFile, type PropertyIdentity } from '../packages/shared/src';
 
 /** Each page of the test PDF is one point wider than the last, so a reader shown one page can tell which it is. */
 const PAGE_TEXT = [
@@ -147,6 +148,15 @@ describe('placing a reading’s quotes', () => {
     assert.deepEqual(thrown.placements, [{ status: 'unchecked' }]);
   });
 
+  it('leaves a quote unchecked when the reader could not make out its part of the page', async () => {
+    const { placements } = await placeQuotes({
+      quotes: quotes.slice(0, 2),
+      pageCount: 3,
+      checkPage: async (_page, qs) => qs.map(() => ({ present: false, legible: false })),
+    });
+    assert.deepEqual(placements, [{ status: 'unchecked' }, { status: 'unchecked' }], 'a script the reader cannot read is no evidence the words are not there');
+  });
+
   it('leaves a quote unchecked when the reader gave no answer about it', async () => {
     const { placements } = await placeQuotes({ quotes: quotes.slice(0, 1), pageCount: 3, checkPage: async () => [undefined] });
     assert.deepEqual(placements, [{ status: 'unchecked' }]);
@@ -243,7 +253,11 @@ const EXTRACTION = {
   ],
 };
 
-function streamMessage(res: ServerResponse, content: Array<{ type: 'text'; text: string } | { type: 'tool_use'; name: string; input: unknown }>): void {
+function streamMessage(
+  res: ServerResponse,
+  content: Array<{ type: 'text'; text: string } | { type: 'tool_use'; name: string; input: unknown }>,
+  stopReason = 'tool_use',
+): void {
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
   const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   send('message_start', {
@@ -260,7 +274,7 @@ function streamMessage(res: ServerResponse, content: Array<{ type: 'text'; text:
     }
     send('content_block_stop', { type: 'content_block_stop', index });
   });
-  send('message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 60 } });
+  send('message_delta', { type: 'message_delta', delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: 60 } });
   send('message_stop', { type: 'message_stop' });
   res.end();
 }
@@ -283,6 +297,12 @@ describe('a reading through a gateway that returns no citations', () => {
       const tool = String(call.tools?.[0]?.name ?? '');
       if (tool === 'record_document_extraction') {
         seen.push({ tool, model: call.model });
+        const asked = JSON.stringify(call.messages);
+        if (asked.includes('long.pdf')) {
+          // An answer stopped by the length limit, mid-sentence, before any tool call.
+          streamMessage(res, [{ type: 'text', text: 'The first transaction is a sale deed dated' }], 'max_tokens');
+          return;
+        }
         // Visible text and a tool call, as a model behind a gateway answers: no citations anywhere.
         streamMessage(res, [
           { type: 'text', text: 'The khata number is KH-7741-B/2019.' },
@@ -393,6 +413,24 @@ describe('a reading through a gateway that returns no citations', () => {
     assert.ok(result.fields.length > 0);
     assert.ok(result.fields.every((f) => f.sourcePage === 1 && f.pageCheck === 'page'), 'every quote found on the one sheet there is');
     assert.equal(seen.filter((s) => s.tool === 'record_page_check').length, 1, 'one look at the one sheet');
+  });
+
+  it('says a reading was cut off at its length limit, not that the file could not be read', async () => {
+    seen.length = 0;
+    const result = await runDocumentIntelligence({
+      caseId: 'case-1', document: document('long.pdf', 'application/pdf'), fileBytes: await threePagePdf(), identity, now: '2026-10-02T00:00:00.000Z',
+    });
+    assert.equal(result.run.status, 'failed');
+    assert.equal(result.run.error, CUT_OFF_REASON);
+
+    const project = createProject({ name: 'Long bundle', type: 'residential', location: 'Whitefield', city: 'Bengaluru' }, 'RYT-0042');
+    const [file] = await enrichIngestWithDocumentIntelligence({
+      project,
+      files: [{ fileName: 'long.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k' } as ChatIngestFile],
+      buffers: [await threePagePdf()],
+    });
+    assert.match(file!.readFailure ?? '', /cut off/, 'in words a person can act on');
+    assert.doesNotMatch(file!.readFailure ?? '', /could not read this file/);
   });
 
   it('stops checking pages at the deadline and leaves the rest unchecked', async () => {

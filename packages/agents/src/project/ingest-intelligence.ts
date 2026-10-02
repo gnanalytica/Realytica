@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentRun, AgentStep, AgentUsage, CaseDocument, ChatIngestFile, DdProject, DocumentFact, ExtractedField, TurnSpend } from '@realytica/shared';
 import { failureCause, projectToIdentity } from '@realytica/shared';
-import { runDocumentIntelligence } from '../agents/document-intelligence';
+import { CUT_OFF_REASON, runDocumentIntelligence } from '../agents/document-intelligence';
 import { priceTokens } from '../telemetry/pricing';
 
 export interface EnrichIngestParams {
@@ -152,6 +152,9 @@ function clipQuote(label: string, value: string, max = 140): string {
  * the run itself carries the full error for anyone debugging one.
  */
 function readFailureReason(raw: string): string {
+  if (raw.includes(CUT_OFF_REASON)) {
+    return 'This file states more than one reading can hold, so the reader’s answer was cut off. The file is attached.';
+  }
   switch (failureCause(raw)) {
     case 'rate_limited':
       return 'The document reader was rate limited. The file is attached; upload it again to read it.';
@@ -211,6 +214,13 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
       });
       reportSpend(params.onSpend, result.run, result.pageCheckUsage);
       if (result.run.status !== 'succeeded' || result.fields.length === 0) {
+        // In the log, so a reading that failed can be told from one that read nothing.
+        // The run's own error only: the model's notes can quote the document.
+        console.warn(
+          result.run.status === 'succeeded'
+            ? '[document reader] read, and no value kept'
+            : `[document reader] reading failed: ${(result.run.error ?? 'no reason given').slice(0, 300)}`,
+        );
         /*
          * Nothing was read, so nothing may be said about the contents. The
          * reason goes in `readFailure`, never in `extractionNotes` — see the

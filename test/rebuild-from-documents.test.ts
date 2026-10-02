@@ -157,6 +157,29 @@ describe('reading a filed document again', () => {
     assert.equal(rowsToRead(project, true).length, 1, 'asking again reads it again');
   });
 
+  it('files what a model alone read off a document, with each value on its page', async () => {
+    // A re-read sends a scan straight to the model, so there is no local reading at all.
+    const { mergeModelReading } = await import('../apps/api/src/documents/intake');
+    const { project, storageKey } = filedProject();
+    const base = { fileName: 'Environment_clearance.pdf', mimeType: 'application/pdf', sizeBytes: 1000, storageKey };
+    const fact = {
+      key: 'clearanceNumber', label: 'Clearance number', value: 'SEIAA 12 CON 2014', display: 'SEIAA 12 CON 2014',
+      page: 2, quote: 'No. SEIAA 12 CON 2014', source: 'model' as const, pageCheck: 'page' as const,
+    };
+    const merged = mergeModelReading(
+      { ...base } as ChatIngestFile,
+      { ...base, modelFacts: [fact], modelRead: true, kindHint: 'other', extractionNotes: 'An environmental clearance for the project.' } as ChatIngestFile,
+    );
+    assert.equal(merged.read?.type, 'other', 'the reader recognised nothing; only the model read it');
+
+    const filing = proposalsFromIngest(project, [merged]).find((c) => c.kind === 'file_evidence')!;
+    project.chatProposals.push(filing);
+    commitChatProposal(project, filing.id);
+    const row = project.evidence[0]!;
+    assert.deepEqual(row.facts?.map((f) => [f.key, f.page, f.pageCheck, f.review]), [['clearanceNumber', 2, 'page', 'proposed']], 'filed, waiting for a person');
+    assert.equal(row.extractionNotes, 'An environmental clearance for the project.', 'with the model’s own reading beside it');
+  });
+
   it('reads once more a document an older reader read and placed nothing on', async () => {
     const { rowsToRead } = await import('../apps/api/src/documents/reread');
     const { MODEL_READER_VERSION } = await import('../packages/shared/src');
