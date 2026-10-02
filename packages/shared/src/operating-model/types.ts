@@ -1824,6 +1824,15 @@ export interface DdProject {
    * against the value, so a later edit by hand does not inherit the deed.
    */
   valueSources?: Partial<Record<'landAreaSqm' | 'builtUpAreaSqm' | 'saleableAreaSqm', { value: number; label: string; evidenceId?: string; page?: number; at: string; by: string }>>;
+  /**
+   * The comparables a market rate is drawn from: portal listings a search
+   * found, registered sales, and figures a valuer added — each with its
+   * source, its adjustments and whether a person has accepted it. See
+   * `comparables.ts`.
+   */
+  comparables?: import('./comparables').ComparableRecord[];
+  /** The last portal search: when, for what, and what it found or why it found nothing. */
+  comparableSearch?: import('./comparables').ComparableSearchRecord;
   createdAt: string;
   updatedAt: string;
 }

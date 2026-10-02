@@ -36,6 +36,7 @@ import type { ValuationWorking } from './valuation-run';
 import { approachIsUsable, VALUATION_METHOD_LABEL, type ValuationMethodKey, type ValuationOutcome } from './valuation-model';
 import { formatValueInput, guidancePerSqm, valueHasBuilding } from './value-inputs';
 import { liveFacts } from './fact-review';
+import { MIN_SCHEDULE, comparableSchedule } from './comparables';
 import {
   FACING_ADJUSTMENT_PCT,
   LAYOUT_APPROVAL_ADJUSTMENT_PCT,
@@ -328,6 +329,25 @@ function approachesAgree(working: ValuationWorking): ValueCheck | null {
   return { ...base, verdict: 'clear', headline: `Within ${pctText(gap)}`, detail: `${usable.length} approaches agree within ${pctText(gap)} of their blend.` };
 }
 
+/** Is the market rate drawn from enough comparables, adjusted to the subject? */
+function comparablesStand(project: DdProject): ValueCheck | null {
+  const schedule = comparableSchedule(project);
+  if (!schedule) return null;
+  const base = { key: 'comparables', label: 'Comparable evidence', group: 'lender' as const, source: `Comparable schedule, ${schedule.count} on the register` };
+  if (schedule.undiscountedListings) {
+    return {
+      ...base,
+      verdict: 'attention',
+      headline: `${schedule.undiscountedListings} asking price${schedule.undiscountedListings === 1 ? '' : 's'}, no discount`,
+      detail: `${schedule.undiscountedListings} of the ${schedule.count} comparables are portal listings with no listing discount set. An asking price is what a seller hopes for; a panel valuer takes it down to what the property would sell at before using it.`,
+    };
+  }
+  if (schedule.count < MIN_SCHEDULE) {
+    return { ...base, verdict: 'attention', headline: `Only ${schedule.count}`, detail: `A rate from ${schedule.count} comparable${schedule.count === 1 ? '' : 's'} is a sample, not a market. A panel report wants three or more.` };
+  }
+  return { ...base, verdict: 'clear', headline: `${schedule.count} comparables, adjusted`, detail: `${schedule.count} comparables, every listing discounted from its asking price, at a net ${schedule.netAdjustmentPct >= 0 ? '+' : ''}${schedule.netAdjustmentPct.toFixed(1)}% to the subject.` };
+}
+
 const VERDICT_ORDER: ComplianceVerdict[] = ['blocker', 'attention', 'unknown', 'clear'];
 
 /**
@@ -344,7 +364,7 @@ export function valueChecks(project: DdProject, working: ValuationWorking, summa
     source: c.statute,
     group: 'state',
   }));
-  const lender = [extentsAgree(project), planDeviation(project), farWithin(project), chargesOnTitle(project), prohibited(project), againstGuideline(summary), approachesAgree(working)].filter(
+  const lender = [extentsAgree(project), planDeviation(project), farWithin(project), chargesOnTitle(project), prohibited(project), comparablesStand(project), againstGuideline(summary), approachesAgree(working)].filter(
     (c): c is ValueCheck => c !== null,
   );
   return [...state, ...lender].sort((a, b) => VERDICT_ORDER.indexOf(a.verdict) - VERDICT_ORDER.indexOf(b.verdict));

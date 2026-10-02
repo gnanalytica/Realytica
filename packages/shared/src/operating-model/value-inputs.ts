@@ -41,6 +41,7 @@ import { factReview, liveFacts } from './fact-review';
 import { createAssessment, recordAuditEvent, recordCheckFields } from './operations';
 import { patchProject } from './capabilities';
 import { fileRevenueMapAsEvidence, type RevenueMapAnchor } from './revenue-map';
+import { COMPARABLE_SOURCE_LABEL, MIN_SCHEDULE, comparableSchedule, fileComparableSchedule } from './comparables';
 import { reviewFacts } from './review';
 import { REFERENCE_DATA, resolveStatePack } from '../reference';
 
@@ -108,6 +109,8 @@ export const VALUE_INPUTS: readonly ValueInputSpec[] = [
 ];
 
 const SPEC_BY_KEY = new Map(VALUE_INPUTS.map((s) => [s.key, s]));
+/** Inputs that are signed adjustments rather than quantities. */
+const SIGNED: ReadonlySet<string> = new Set(['net_adjustment_pct']);
 
 /** The schema behind a check input — its proof rule and whether the approach needs it. */
 function fieldDef(target: ValueTarget) {
@@ -119,7 +122,7 @@ function fieldDef(target: ValueTarget) {
 /* An offer                                                              */
 /* ==================================================================== */
 
-export type ValueSourceKind = 'document' | 'revenue_map' | 'boundary' | 'state_pack' | 'convention' | 'project';
+export type ValueSourceKind = 'document' | 'revenue_map' | 'comparables' | 'boundary' | 'state_pack' | 'convention' | 'project';
 
 export interface ValueSource {
   kind: ValueSourceKind;
@@ -160,6 +163,8 @@ function grouped(n: number, digits = 0): string {
 
 /** A value in its own unit, the way a valuer writes it. */
 export function formatValueInput(value: number, unit: string): string {
+  // A true minus: these sit in columns beside positive figures.
+  if (value < 0) return `\u2212${formatValueInput(-value, unit)}`;
   if (unit === 'INR') return `₹${grouped(Math.round(value))}`;
   if (unit.startsWith('INR/')) return `₹${grouped(value, value < 100 ? 2 : 0)}/${unit.slice(4).replace('sqm/month', 'sqm a month')}`;
   if (unit === 'sqm') return `${grouped(value, value < 100 ? 2 : 0)} sqm`;
@@ -316,17 +321,26 @@ export const RCC_EXPECTED_LIFE_YEARS = 60;
 export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] {
   const out: ValueOffer[] = [];
   const setAside = new Set((project.valueSetAside ?? []).map((s) => s.offerId));
-  const add = (input: string, value: number, source: ValueSource, basis: string, rank: number, extra: Partial<Pick<ValueOffer, 'with' | 'facts'>> = {}) => {
+  const add = (
+    input: string,
+    value: number,
+    source: ValueSource,
+    basis: string,
+    rank: number,
+    extra: Partial<Pick<ValueOffer, 'with' | 'facts'>> & { idPart?: string } = {},
+  ) => {
     const spec = SPEC_BY_KEY.get(input);
-    if (!spec || !Number.isFinite(value) || value <= 0) return;
+    // An adjustment is signed; everything else on the sheet is a positive quantity.
+    if (!spec || !Number.isFinite(value) || value === 0 || (value < 0 && !SIGNED.has(input))) return;
     const rounded = spec.unit === 'sqm' || spec.unit.startsWith('INR') ? Math.round(value * 100) / 100 : Math.round(value * 10) / 10;
     // A rate worked out from a price keeps every digit, so the price comes
     // back out of it exactly: ₹5.5 Cr over 1,200 sqm times 1,200 sqm is
     // ₹5.5 Cr, not four rupees short of it. The id rounds, so it is stable.
     const kept = spec.unit.startsWith('INR/') ? value : rounded;
-    const id = [input, source.kind, source.evidenceId ?? source.detail ?? source.label, extra.facts?.[0]?.key ?? '', rounded].join('|');
+    const { idPart, ...rest } = extra;
+    const id = [input, source.kind, idPart ?? source.evidenceId ?? source.detail ?? source.label, rest.facts?.[0]?.key ?? '', rounded].join('|');
     if (setAside.has(id) || out.some((o) => o.id === id)) return;
-    out.push({ id, input, value: kept, display: formatValueInput(kept, spec.unit), source, basis, rank, ...extra });
+    out.push({ id, input, value: kept, display: formatValueInput(kept, spec.unit), source, basis, rank, ...rest });
   };
 
   /* ---- the plot ------------------------------------------------------- */
@@ -412,6 +426,37 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
           with: { rate_basis: 'reported transactions', comparable_count: 1 },
           facts: ['consideration', 'extent_title', 'registration_date'].map((key) => ({ evidenceId: row.id, key })),
         },
+      );
+    }
+  }
+
+  /* ---- comparables: the schedule on the register ---------------------- */
+
+  const schedule = comparableSchedule(project);
+  if (schedule) {
+    const net = Math.round(schedule.netAdjustmentPct * 10) / 10;
+    const portals = schedule.sources.filter((src) => src === '99acres' || src === 'magicbricks').map((src) => COMPARABLE_SOURCE_LABEL[src]);
+    const counted = `${schedule.count} comparable${schedule.count === 1 ? '' : 's'}${portals.length ? `, ${portals.join(' and ')}` : ''}`;
+    const asking = schedule.undiscountedListings
+      ? ` ${schedule.undiscountedListings === schedule.count ? 'All are' : `${schedule.undiscountedListings} are`} asking prices with no listing discount set — most property sells below its asking price.`
+      : '';
+    const thin = schedule.count < MIN_SCHEDULE ? ` ${schedule.count === 1 ? 'One comparable is' : `${schedule.count} comparables are`} a sample, not a market.` : '';
+    add(
+      'rate_per_sqm',
+      schedule.rawRate,
+      { kind: 'comparables', label: 'Comparable schedule', detail: counted },
+      `The weighted rate of ${schedule.count} comparable${schedule.count === 1 ? '' : 's'} on the register${net ? `, ${net > 0 ? '+' : ''}${net}% once adjusted to the subject` : ''}.${asking}${thin}`,
+      schedule.count >= MIN_SCHEDULE ? 0 : 2,
+      { idPart: `schedule:${schedule.fingerprint}`, with: { rate_basis: schedule.basis, comparable_count: schedule.count, net_adjustment_pct: net } },
+    );
+    if (net) {
+      add(
+        'net_adjustment_pct',
+        net,
+        { kind: 'comparables', label: 'Comparable schedule', detail: `${schedule.count} adjusted` },
+        'The comparables’ own adjustments — time, size, location, condition and listing discount — weighted as the rate is.',
+        0,
+        { idPart: `schedule:${schedule.fingerprint}` },
       );
     }
   }
@@ -727,9 +772,13 @@ export function acceptValueOffers(project: DdProject, ids: readonly string[], ac
             ? offer.source.evidenceId
             : offer.source.kind === 'revenue_map'
               ? fileRevenueMapAsEvidence(project, actor).id
-              : undefined;
+              : offer.source.kind === 'comparables'
+                ? fileComparableSchedule(project, actor).id
+                : undefined;
         const citations = offer.source.page || offer.source.quote ? { [spec.target.key]: { page: offer.source.page, quote: offer.source.quote } } : undefined;
-        const outcome = recordCheckFields(project, held.id, { [spec.target.key]: offer.value, ...(offer.with ?? {}) }, actor, evidenceId, citations);
+        // A rate from the schedule cites the schedule in its own field too.
+        const schedule = offer.source.kind === 'comparables' && spec.target.key === 'rate_per_sqm' && evidenceId ? { comparable_schedule: [evidenceId] } : {};
+        const outcome = recordCheckFields(project, held.id, { [spec.target.key]: offer.value, ...(offer.with ?? {}), ...schedule }, actor, evidenceId, citations);
         if (outcome.rejected.length) throw new Error(outcome.rejected.map((r) => r.error).join(' '));
       }
       // The document is accepted as stating what was just recorded from it.

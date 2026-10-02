@@ -30,6 +30,8 @@ import { ValueDrivers } from '../../components/value/ValueDrivers';
 import { ValueApproaches, describeSources } from '../../components/value/ValueApproaches';
 import { ValueReading, type ReadingStep } from '../../components/value/ValueReading';
 import { useValueFill } from '../../components/value/useValueFill';
+import { ComparablesRegister } from '../../components/value/ComparablesRegister';
+import { useAsync } from '../../lib/useAsync';
 import { countryForCurrency } from '../../lib/units';
 import { money } from '../../lib/format';
 import { formatWhen } from './shared';
@@ -56,6 +58,11 @@ export default function Valuation() {
   const toast = useToast();
   const fill = useValueFill();
   const [busy, setBusy] = useState(false);
+  // Which part of the check is running, for the steps strip.
+  const [stage, setStage] = useState<'title' | 'portals' | null>(null);
+  const [searching, setSearching] = useState(false);
+  const comparablesStatus = useAsync(() => api.comparables(project.id), [project.id]);
+  const portalsConfigured = comparablesStatus.data ? comparablesStatus.data.configured : comparablesStatus.error ? false : null;
 
   const offers = useMemo(() => valueOffers(project), [project]);
   const rows = useMemo(() => valueInputRows(project, offers), [project, offers]);
@@ -95,12 +102,48 @@ export default function Valuation() {
   async function valueProperty() {
     try {
       await fill.start(async () => {
+        setStage('title');
         const out = await api.valueProperty(project.id);
-        setProject(out.project);
-        return valueInputRows(out.project).filter((r) => r.waiting).map((r) => r.key);
+        let next = out.project;
+        setProject(next);
+        // The portals, when they can be searched and have not been this week.
+        if (out.comparableSearch === 'due') {
+          setStage('portals');
+          try {
+            next = (await api.searchComparables(project.id)).project;
+            setProject(next);
+          } catch {
+            // The register says why; the rest of the fill goes on without it.
+          }
+        }
+        setStage(null);
+        return valueInputRows(next).filter((r) => r.waiting).map((r) => r.key);
       });
     } catch (e) {
+      setStage(null);
       toast(e instanceof Error ? e.message : 'Could not value the property', 'critical');
+    }
+  }
+
+  async function searchPortals() {
+    setSearching(true);
+    try {
+      const out = await api.searchComparables(project.id);
+      setProject(out.project);
+      toast(out.found ? `Found ${out.found} comparable${out.found === 1 ? '' : 's'} on the portals` : (out.empty ?? 'No comparables found'), out.found ? 'good' : 'warning');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not search the portals', 'critical');
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function saveComparable(work: () => Promise<{ project: typeof project }>): Promise<string | null> {
+    try {
+      setProject((await work()).project);
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Could not save';
     }
   }
 
@@ -180,7 +223,10 @@ export default function Valuation() {
   const stateName = screen?.stateCompliance?.state ?? project.jurisdiction?.split('/')[0]?.trim() ?? 'state';
   const steps: ReadingStep[] = [
     { label: `Read ${documentsRead} document${documentsRead === 1 ? '' : 's'}`, state: 'done' },
-    { label: `Title against the ${stateName} rules`, state: fill.phase === 'checking' ? 'active' : 'done' },
+    { label: `Title against the ${stateName} rules`, state: fill.phase === 'checking' && stage === 'title' ? 'active' : 'done' },
+    ...(portalsConfigured
+      ? [{ label: 'Comparables · 99acres, MagicBricks', state: stage === 'portals' ? ('active' as const) : stage === 'title' ? ('waiting' as const) : ('done' as const) }]
+      : []),
     ...(project.revenueMap ? [{ label: `Revenue map · Sy. ${project.revenueMap.surveyNo}`, state: fill.phase === 'checking' ? ('waiting' as const) : ('done' as const) }] : []),
     {
       label: fill.phase === 'filling' ? `Filling ${fill.progress.done} of ${fill.progress.total} inputs` : 'Fill the inputs',
@@ -254,6 +300,21 @@ export default function Valuation() {
         busy={busy || filling}
         canRecordChecks={project.assessments.some((a) => a.scopes.some((s) => s.checks.some((c) => c.definitionId.startsWith('indicative_valuation.'))))}
         actions={{ onAccept: (ids) => void accept(ids), onSetAside: (ids) => void setAside(ids), onCommit: commit, onOpenSource: openSource }}
+        comparables={
+          <ComparablesRegister
+            project={project}
+            configured={portalsConfigured}
+            searching={searching || stage === 'portals'}
+            busy={busy || filling}
+            actions={{
+              onSearch: () => void searchPortals(),
+              onAdd: (input) => saveComparable(() => api.addComparable(project.id, input)),
+              onUpdate: (id, patch) => saveComparable(() => api.updateComparable(project.id, id, patch)),
+              onDecide: (ids, decision) => void saveComparable(() => api.decideComparables(project.id, ids, decision)),
+              onOpenSource: openSource,
+            }}
+          />
+        }
       />
 
       <div className="space-y-2">

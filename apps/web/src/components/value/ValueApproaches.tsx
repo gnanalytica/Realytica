@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Check, FileText, Map as MapIcon, Pencil, Sparkles, X } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { Check, FileText, Map as MapIcon, Pencil, Scale, Sparkles, X } from 'lucide-react';
 import {
   VALUE_APPROACH_LABEL,
   ownSales,
@@ -59,8 +59,11 @@ export function ValueApproaches({
   busy,
   canRecordChecks,
   actions,
+  comparables,
 }: {
   project: DdProject;
+  /** The comparables register, rendered inside the Comparables card. */
+  comparables?: ReactNode;
   rows: ValueInputRow[];
   working: ValuationWorking;
   /** The inputs filled so far, while the page is filling. Null: all of them. */
@@ -106,6 +109,7 @@ export function ValueApproaches({
             formula={FORMULA[key](building)}
             foldedAtFirst={folded}
             notes={history}
+            extra={key === 'comparable' ? comparables : undefined}
             revealed={revealed}
             current={current}
             busy={busy}
@@ -127,6 +131,7 @@ function ApproachCard({
   formula,
   foldedAtFirst,
   notes,
+  extra,
   revealed,
   current,
   busy,
@@ -136,6 +141,7 @@ function ApproachCard({
 }: {
   approach: ValueApproachKey;
   notes: string[];
+  extra?: ReactNode;
   rows: ValueInputRow[];
   run?: ValuationApproachRun;
   area?: ValuationWorking['area'];
@@ -207,6 +213,7 @@ function ApproachCard({
             </p>
           ))}
           {run?.amount != null && run.weightBasis ? <p className="border-t border-hairline px-4 py-2 text-mini leading-relaxed text-ink-muted">{run.weightBasis}</p> : null}
+          {extra}
         </CardBody>
       ) : null}
     </Card>
@@ -214,7 +221,7 @@ function ApproachCard({
 }
 
 function SourceChip({ offer, onOpen }: { offer: ValueOffer; onOpen: (id: string) => void }) {
-  const Icon = offer.source.kind === 'document' ? FileText : offer.source.kind === 'revenue_map' ? MapIcon : Sparkles;
+  const Icon = offer.source.kind === 'document' ? FileText : offer.source.kind === 'revenue_map' ? MapIcon : offer.source.kind === 'comparables' ? Scale : Sparkles;
   const text = `${offer.source.label}${offer.source.detail ? ` · ${offer.source.detail}` : ''}`;
   const tip = (
     <span className="block max-w-[34ch] space-y-1">
@@ -458,6 +465,7 @@ export function describeSources(offers: readonly ValueOffer[]): string {
   const parts: string[] = [];
   if (docs.size) parts.push(`${docs.size} document${docs.size === 1 ? '' : 's'}`);
   if (offers.some((o) => o.source.kind === 'revenue_map')) parts.push('the revenue map');
+  if (offers.some((o) => o.source.kind === 'comparables')) parts.push('the comparables');
   if (offers.some((o) => o.source.kind === 'boundary')) parts.push('the surveyor’s outline');
   if (offers.some((o) => o.source.kind === 'project')) parts.push('this file');
   if (offers.some((o) => o.source.kind === 'state_pack')) parts.push('the state pack');

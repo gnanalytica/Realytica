@@ -23,6 +23,15 @@ function full(n: number): string {
 }
 
 /**
+ * The figure as a report states it: to the thousand rupees. A blend of
+ * approaches lands on ₹65,99,99,569, and the last three digits are arithmetic,
+ * not knowledge. The exact figure stays a hover away.
+ */
+function rounded(n: number): string {
+  return full(Math.round(n / 1000) * 1000);
+}
+
+/**
  * The summary of values, the way a panel valuation opens: fair market value,
  * then what it realises and what it fetches in distress, then the guideline
  * value the duty is charged on, beside it.
@@ -71,8 +80,9 @@ export function ValueHeadline({
                     'mt-1 font-mono text-[28px] font-semibold leading-none tracking-tight tabular-nums',
                     status === 'provisional' ? 'text-provenance-ink' : 'text-ink',
                   )}
+                  title={`${full(summary.fairMarket)} before rounding`}
                 >
-                  {full(shown)}
+                  {rounded(shown)}
                 </p>
                 <p className="mt-2 font-mono text-[13px] tabular-nums text-ink-secondary">
                   {money(summary.low, 'INR')} – {money(summary.high, 'INR')}
@@ -132,7 +142,8 @@ export function ValueHeadline({
                       className={cn('font-mono text-mini tabular-nums', summary.vsGuideline < 0 ? 'text-[var(--status-warning-text)]' : 'text-ink-muted')}
                       title="The fair market value against the guideline value"
                     >
-                      {pct(summary.vsGuideline * 100, 0, true)}
+                      {summary.vsGuideline < 0 ? '\u2212' : '+'}
+                      {pct(Math.abs(summary.vsGuideline) * 100, 0)}
                     </span>
                   ) : null
                 }

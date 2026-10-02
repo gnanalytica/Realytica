@@ -113,6 +113,7 @@ import {
   screenProject,
   acceptValueOffers,
   ensureValueChecks,
+  comparableSearchIsFresh,
   setAsideValueOffers,
   wantsDeterministicProjectChat,
   plural,
@@ -182,6 +183,8 @@ import { UPLOAD_LIMITS } from '../uploads';
 import { projectSiteContextRouter } from './site-context';
 import { projectPeopleRouter } from './project-people';
 import { projectGisOverlayRouter } from './gis-overlay';
+import { projectComparablesRouter } from './comparables';
+import { unblockerConfigured } from '../comparables/search';
 import { graphAdapter } from '../graph';
 import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
 import {
@@ -382,6 +385,7 @@ projectsRouter.use('/:projectId', gateWrites);
 projectsRouter.use('/:projectId/valuation', requireArea('valuation'));
 projectsRouter.use('/:projectId/screen', requireArea('valuation'));
 projectsRouter.use('/:projectId/value', requireArea('valuation'));
+projectsRouter.use('/:projectId/comparables', requireArea('valuation'));
 projectsRouter.use('/:projectId/reports', requireArea('reports'));
 projectsRouter.use('/:projectId/decisions', requireArea('decisions'));
 projectsRouter.use('/:projectId/visits', requireArea('site_record'));
@@ -408,6 +412,7 @@ projectsRouter.use('/:projectId/people', workspaceOnly, projectPeopleRouter);
 
 projectsRouter.use('/:projectId/site-context', projectSiteContextRouter);
 projectsRouter.use('/:projectId/gis-overlay', projectGisOverlayRouter);
+projectsRouter.use('/:projectId/comparables', projectComparablesRouter);
 
 projectsRouter.get('/', (req, res) => {
   const me = principalOf(req);
@@ -814,7 +819,10 @@ projectsRouter.post('/:projectId/value', async (req, res) => {
     const started = ensureValueChecks(project, actor);
     await persistPaneWrite(req, project, started ? 'Checked the property and started its valuation DD.' : 'Checked the property for its valuation.');
     await journal.finish(`Verdict ${applied.snapshot.verdict}.`);
-    res.status(201).json({ project, verdict: applied.snapshot.verdict, ...(started ? { startedAssessmentId: started.id } : {}) });
+    // Whether the page should search the portals next: only when it can, and
+    // not again within the week — every search is paid for.
+    const comparableSearch = !unblockerConfigured() ? 'not_configured' : comparableSearchIsFresh(project) ? 'fresh' : 'due';
+    res.status(201).json({ project, verdict: applied.snapshot.verdict, comparableSearch, ...(started ? { startedAssessmentId: started.id } : {}) });
   } catch (err) {
     await journal.fail(err instanceof Error ? err.message : String(err));
     throw err;

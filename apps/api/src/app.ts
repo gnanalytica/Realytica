@@ -138,6 +138,8 @@ app.use('/api/libraries', needs('read'), librariesRouter);
  * project must not be rationed at the rate of running an agent over it.
  */
 app.use('/api/projects/:projectId/chat', limits.expensive);
+// Every portal search is about twenty paid requests to the scraping vendor.
+app.use('/api/projects/:projectId/comparables/search', limits.expensive);
 app.use('/api/projects/:projectId/screen', limits.expensive);
 // Reading the revenue map fans out to ten government layers; budgeted like a
 // model call. Only the read: the picker's level lists under the same path

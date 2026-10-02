@@ -36,6 +36,7 @@ Checks run on 2026-09-30: typecheck, lint and the production build pass, and all
    - `REALYTICA_GOOGLE_MAPS_API_KEY` for the place card.
    - Optional: `VITE_GOOGLE_MAPS_BROWSER_KEY`, a second key restricted to the site's addresses and the Maps JavaScript API, for Google's map under the overlay.
    - Optional: `REALYTICA_MODEL_BASIC`, a free or cheap model the chat tries before the senior model (see "Chat: a free model first").
+   - Optional: `UNBLOCKER_PROVIDER` (`zyte`, `brightdata` or `oxylabs`) and `UNBLOCKER_API_KEY`, a scraping service account for portal comparables. `UNBLOCKER_FALLBACK_PROVIDER` with that provider's own `UNBLOCKER_<PROVIDER>_API_KEY` adds a fallback. Bright Data also takes `UNBLOCKER_BRIGHTDATA_ZONE`, and Oxylabs `UNBLOCKER_OXYLABS_USER`. These are the same settings Valytica uses, so its account can serve both.
 
    Without them, document reading, file answers, the revenue map and every register still work. Only model chat and the map pin do not.
 2. Run `pnpm dev` and open `http://localhost:5173/portfolio`.
@@ -137,7 +138,31 @@ Kannada EC scans don't OCR well enough to read on the server. A model that reads
   - IBBI Rule 8(3), N of 12, item by item.
   - What needs a person is listed; what is not established and what is clear fold into a line each.
 - **What moves the value.** What the figure already carries (externalities, depreciation) is kept apart from what the file records that the market prices: the revenue map's own factors with their bands, B-khata, Gram Panchayat, no OC, tenure, the plot's road, facing, shape and layout, and nearby transit. Each shows its rate and where it came from.
-- **Not used:** no locality medians, portal listings or invented rates. A cap rate, a replacement cost or a comparable the file does not hold waits for a valuer, and the page says so.
+- **Not used:** no locality medians or invented rates. A cap rate or a replacement cost the file does not hold waits for a valuer, and the page says so.
+
+## Comparables, and searching the portals for them
+
+*Added 2026-10-02.*
+- **A comparables register on the Value tab.** It sits in the Comparables card. Each comparable carries:
+  - its source: a 99acres or MagicBricks listing with its link, a registered sale with its document, or one added by hand;
+  - its distance, its area and what the area is measured on (carpet, built-up, super built-up or plot);
+  - the price, asking or paid, and the rate per sqm;
+  - the five CMA adjustments: time, size, location, condition and listing discount;
+  - a weight.
+
+  The weighted adjusted rate is proposed as the comparable rate, with the net adjustment beside it. Accepting it files a comparable schedule on the evidence register (every comparable, its link and its adjustments), records the rate citing that schedule, and accepts the comparables.
+- **Portal search.** With a scraping service configured, **Value this property** also searches 99acres and MagicBricks near the site, at most once a week, and **Search again** runs it on demand. The pipeline is Valytica's, ported:
+  - the portal's own name for the locality, from MagicBricks' autosuggest;
+  - each (locality, city) page both portals answer, including Bangalore's zone pages on 99acres;
+  - builder adverts and the same property listed twice dropped, and a mistyped area kept out of the rate;
+  - a ranking by distance, size, type, area basis and recency, within 3 km for land and 4 km for buildings, widened only when results are thin;
+  - automatic failover when a vendor is out of credit or down.
+
+  Found listings land as proposed. Only a locality name and a city leave for the vendor, never an owner, survey number or address line, and a poster's name is never read. A search costs about twenty vendor requests (around ₹2 at Zyte's rate).
+- **Asking prices are said to be asking prices.** A schedule of listings with no listing discount is flagged on the comparable, in the offer and as a lender check, and one field applies a discount to every listing. Nothing guesses the discount.
+- **An empty search says why.** It distinguishes the vendor failing, the portals not knowing the locality, listings that were all too far away (with the nearest distance), and a market with nothing listed.
+- **Not configured:** without a scraping service the search button is off and says what it needs. Comparables added by hand count the same.
+
 
 ## A five-minute walkthrough
 
@@ -158,6 +183,6 @@ Kannada EC scans don't OCR well enough to read on the server. A model that reads
 - **One proposal model** merging chat cards and AI drafts, with a source recorded on each. AI drafts are still their own tab under Report.
 - **A true as-of graph:** nodes carry no created time.
 - **Revenue map into valuation externalities and the graph.**
-- **A comparables grid and portal comparables.** Comparable rates are typed with a citation, or come from the parcel's own recent sale. Fetching listings from 99acres or MagicBricks, as Valytica does, needs a paid scraping vendor key.
+- **Registered sale data as comparables.** Kaveri and IGRS transaction records are not searched yet; a registered sale is added by hand with its document.
 - **Firm report template:** The client firm's Word template is not yet in hand, so export uses a generic one.
 - **Email invites and access changes as proposals.**
