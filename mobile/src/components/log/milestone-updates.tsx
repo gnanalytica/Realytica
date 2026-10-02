@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
+import Animated from 'react-native-reanimated';
 
 import { MilestoneSheet } from '@/components/site/milestones';
-import { Icon, IconButton, Pill, Text } from '@/components/ui';
+import { Icon, IconButton, Pill, Text, Touchable } from '@/components/ui';
 import type { Milestone } from '@/lib/types';
 import { radius, space, useTheme } from '@/theme';
+import { appear, pop } from '@/theme/motion';
 
 interface Props {
   milestones: Milestone[];
@@ -14,7 +16,7 @@ interface Props {
 
 /** Did a milestone move today? Each change is filed with the entry and updates the project's progress. */
 export function MilestoneUpdatesEditor({ milestones, updates, onChange }: Props) {
-  const { colors } = useTheme();
+  const { colors, shadow } = useTheme();
   const [editing, setEditing] = useState<Milestone | null>(null);
   const changed = new Map(updates.map((u) => [u.milestoneId, u.percent]));
 
@@ -34,17 +36,19 @@ export function MilestoneUpdatesEditor({ milestones, updates, onChange }: Props)
             style={{
               flexDirection: 'row',
               alignItems: 'center',
-              borderRadius: radius.md,
-              backgroundColor: next != null ? colors.brandSoft : colors.surfaceRaised,
+              borderRadius: radius.lg,
+              backgroundColor: next != null ? colors.brandSoft : colors.surface,
               borderWidth: 1.5,
               borderColor: next != null ? colors.brand : colors.hairline,
+              boxShadow: next != null ? undefined : shadow.card,
             }}
           >
-            <Pressable
+            <Touchable
               accessibilityRole="button"
               accessibilityLabel={`${m.name}, at ${m.percent} percent${next != null ? `, changing to ${next}` : ''}. Change`}
               onPress={() => setEditing(m)}
-              style={({ pressed }) => ({
+              pressScale={0.985}
+              style={{
                 flex: 1,
                 flexDirection: 'row',
                 alignItems: 'center',
@@ -53,19 +57,34 @@ export function MilestoneUpdatesEditor({ milestones, updates, onChange }: Props)
                 paddingLeft: space.md,
                 paddingRight: next != null ? 0 : space.md,
                 paddingVertical: space.sm,
-                opacity: pressed ? 0.7 : 1,
-              })}
+              }}
             >
-              <View style={{ flex: 1, gap: 2 }}>
+              <View style={{ flex: 1, gap: 4 }}>
                 <Text variant="bodyStrong" numberOfLines={2}>
                   {m.name}
                 </Text>
-                {next != null ? <Pill label={`${m.percent}% → ${next}%`} tone="info" /> : <Text variant="caption">At {m.percent}%</Text>}
+                {next != null ? (
+                  // Keyed by the new figure, so each change pops in.
+                  <Animated.View key={next} entering={pop()}>
+                    <Pill label={`${m.percent}% → ${next}%`} tone="info" icon="trending-up" />
+                  </Animated.View>
+                ) : (
+                  <Text variant="caption">
+                    At{' '}
+                    <Text variant="caption" mono>
+                      {m.percent}%
+                    </Text>
+                  </Text>
+                )}
               </View>
               {next == null ? <Icon name="chevron-forward" size={20} tone="textMuted" /> : null}
-            </Pressable>
+            </Touchable>
             {/* Beside the row, not inside it, so it is a control of its own. */}
-            {next != null ? <IconButton icon="close" label={`Undo the change to ${m.name}`} tone="textMuted" onPress={() => set(m, m.percent)} /> : null}
+            {next != null ? (
+              <Animated.View entering={appear}>
+                <IconButton icon="close" label={`Undo the change to ${m.name}`} tone="textMuted" onPress={() => set(m, m.percent)} />
+              </Animated.View>
+            ) : null}
           </View>
         );
       })}

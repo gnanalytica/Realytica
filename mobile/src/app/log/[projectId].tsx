@@ -1,6 +1,7 @@
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DayPicker } from '@/components/log/day-picker';
@@ -15,6 +16,7 @@ import { useOnline } from '@/hooks/use-online';
 import { ask } from '@/lib/confirm';
 import { clearDraft, discardDraft, isEmptyDraft, loadDraft, saveDraft, type LogDraft } from '@/lib/drafts';
 import { ago, localDate } from '@/lib/format';
+import { haptics } from '@/lib/haptics';
 import { newId } from '@/lib/ids';
 import { currentFix, type Fix } from '@/lib/location';
 import type { SiteLogItem } from '@/lib/outbox/engine';
@@ -25,6 +27,7 @@ import { useSite } from '@/lib/queries';
 import { useSession } from '@/lib/session';
 import { WEATHER } from '@/lib/site-options';
 import { space, useTheme } from '@/theme';
+import { appear, leave } from '@/theme/motion';
 
 /**
  * The day's log for one project, on one scrolling page.
@@ -153,6 +156,7 @@ export default function LogScreen() {
   const save = async () => {
     if (saving) return;
     if (!hasContent) {
+      haptics.error();
       setProblem('Add something about the day first: work done, people on site, a photo, a problem or a milestone.');
       return;
     }
@@ -197,10 +201,10 @@ export default function LogScreen() {
       edges={['left', 'right']}
       header={
         <SafeAreaView edges={['top']} style={{ backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.hairline }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, paddingVertical: space.xs, gap: space.xs }}>
-            <IconButton icon="close" label="Close" onPress={close} size={52} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, paddingVertical: space.xs, gap: space.sm }}>
+            <IconButton icon="close" label="Close" onPress={close} size={52} filled />
             <View style={{ flex: 1 }}>
-              <Text variant="heading" numberOfLines={1}>
+              <Text variant="heading" numberOfLines={1} accessibilityRole="header">
                 Log the day
               </Text>
               <Text variant="caption" numberOfLines={1}>
@@ -214,9 +218,11 @@ export default function LogScreen() {
       footer={
         <View style={{ gap: space.xs }}>
           {problem ? (
-            <Text variant="label" tone="criticalText" accessibilityLiveRegion="polite">
-              {problem}
-            </Text>
+            <Animated.View entering={appear} exiting={leave}>
+              <Text variant="label" tone="criticalText" accessibilityLiveRegion="polite">
+                {problem}
+              </Text>
+            </Animated.View>
           ) : null}
           <Button title="Save entry" icon="checkmark-circle" size="xl" onPress={save} loading={saving} disabled={!canLog} />
           <Text variant="caption" center>
