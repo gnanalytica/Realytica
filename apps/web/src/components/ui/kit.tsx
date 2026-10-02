@@ -81,7 +81,7 @@ export function toneChip(tone: Tone): string {
 
 export function Card({ className, children, as: As = 'section' }: { className?: string; children: ReactNode; as?: 'section' | 'div' | 'article' }) {
   return (
-    <As className={cn('rounded-xl bg-surface ring-1 ring-[var(--ring)] shadow-card print-block', className)}>
+    <As className={cn('rounded-2xl bg-surface ring-1 ring-[var(--ring)] shadow-card print-block', className)}>
       {children}
     </As>
   );
@@ -110,10 +110,12 @@ export function CardHeader({
   return (
     <header className={cn('flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-hairline px-4 py-3', className)}>
       <div className="flex min-w-0 items-start gap-2.5">
-        {icon ? <span className="mt-0.5 shrink-0 text-ink-muted">{icon}</span> : null}
-        <div className="min-w-0">
+        {/* The icon sits in a small tile, so a column of cards reads as a set of
+            labelled things rather than a run of headings. */}
+        {icon ? <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-sunken text-ink-secondary ring-1 ring-inset ring-[var(--ring)] [&_svg]:size-[15px]">{icon}</span> : null}
+        <div className="min-w-0 self-center">
           <div className="flex min-w-0 items-center gap-1.5">
-            <h2 className="truncate text-[13px] font-semibold tracking-tight text-ink">{title}</h2>
+            <h2 className="truncate text-[13.5px] font-semibold tracking-tight text-ink">{title}</h2>
             {info ? <InfoTip label={info} /> : null}
           </div>
           {subtitle ? <p className="mt-0.5 text-xs leading-snug text-ink-secondary">{subtitle}</p> : null}

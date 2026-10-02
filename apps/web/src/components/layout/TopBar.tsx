@@ -102,7 +102,9 @@ export default function TopBar({ onOpenMobile, desktopOnly = false }: TopBarProp
           <ProjectSwitcher />
         </div>
       ) : (
-        <h1 className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-tight text-ink">{pageTitle(location.pathname)}</h1>
+        /* Where you are, quietly: every page below carries its own heading, so
+           this is a breadcrumb rather than a second title. */
+        <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-muted">{pageTitle(location.pathname)}</p>
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-2.5">
