@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FileText } from 'lucide-react';
 import { useOutletContext } from 'react-router-dom';
 import { REPORT_KIND_LABEL, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
@@ -44,7 +45,18 @@ export default function Reports() {
         <Button onClick={() => setOpen(true)}>Generate report</Button>
       </div>
       {project.reports.length === 0 ? (
-        <EmptyState title="No reports" description="Generate one from the current records." />
+        <Card>
+          <EmptyState
+            icon={<FileText size={18} />}
+            title="No reports yet"
+            description="A report is built from the records on this file — the departments' assessments, the findings and the documents behind them — and exports to Word or PDF."
+            action={
+              <Button variant="primary" onClick={() => setOpen(true)}>
+                Generate a report
+              </Button>
+            }
+          />
+        </Card>
       ) : (
         /*
           Two columns only once the *pane* is wide enough to hold both, not
