@@ -23,7 +23,8 @@ import {
   type FindingRecord,
   type ProjectCockpitPane,
 } from '@realytica/shared';
-import { Badge, Card, CardBody, CardHeader, cn } from '../ui/kit';
+import { AiMark, Badge, Card, CardBody, CardHeader, cn } from '../ui/kit';
+import { Stagger, StaggerItem } from '../../lib/motion';
 import { money } from '../../lib/format';
 
 /* ==================================================================== */
@@ -239,28 +240,27 @@ export function NeedsDecisionCard({ project, className }: { project: DdProject; 
     ...drafts.map((d) => ({ id: d.id, title: d.title, href: cockpitPath(project.id, 'drafts') })),
   ].slice(0, 5);
   return (
-    <Card className={cn(total > 0 && 'ring-2 ring-brand/40', className)}>
+    <Card className={cn(total > 0 && 'ring-[1.5px] ring-ai/50', className)}>
       <CardHeader
         title="Needs your decision"
+        icon={total > 0 ? <AiMark size="xs" /> : undefined}
         subtitle={total ? `${total} proposal${total === 1 ? '' : 's'} waiting` : 'Nothing waiting'}
       />
       <CardBody>
         {rows.length === 0 ? (
           <p className="text-[13px] text-ink-muted">Nothing is waiting for a person. Proposals from the copilot appear here until someone accepts or rejects them.</p>
         ) : (
-          <ul className="divide-y divide-hairline">
+          <Stagger as="ul" className="divide-y divide-hairline">
             {rows.map((row) => (
-              <li key={row.id} className="flex items-center gap-3 py-2">
-                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-brand-soft text-brand">
-                  <Sparkles size={11} />
-                </span>
+              <StaggerItem as="li" key={row.id} className="flex items-center gap-3 py-2">
+                <AiMark size="xs" />
                 <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{row.title}</span>
-                <Link to={row.href} className="shrink-0 text-[12px] font-medium text-brand">
+                <Link to={row.href} className="shrink-0 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-brand hover:bg-brand-soft">
                   Review
                 </Link>
-              </li>
+              </StaggerItem>
             ))}
-          </ul>
+          </Stagger>
         )}
         <p className="mt-3 text-[11px] text-ink-muted">Only people change the record. AI proposals wait for a decision.</p>
       </CardBody>

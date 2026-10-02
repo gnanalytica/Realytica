@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Bell, CircleAlert, Plus, Search, Sparkles, TriangleAlert } from 'lucide-react';
+import { ArrowRight, Bell, CalendarDays, CircleAlert, FolderTree, Inbox, Plus, Search, TriangleAlert } from 'lucide-react';
 import {
   ENGAGEMENT_STAGE_LABEL,
   STAGES,
   SUB_STAGE_LABEL,
+  stageDefinition,
   stageOf,
   type PortfolioDue,
   type PortfolioView,
@@ -13,7 +14,8 @@ import {
 import { api } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { readPref, writePref } from '../lib/prefs';
-import { Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Skeleton, cn } from '../components/ui/kit';
+import { AnimatedNumber, Reveal, SPRING, Stagger, StaggerItem, motion } from '../lib/motion';
+import { AiMark, Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Skeleton, Tooltip, cn } from '../components/ui/kit';
 import { Avatar, dayMonth } from '../components/project/ProjectPanels';
 
 const LAST_SEEN_KEY = 'portfolioLastSeen';
@@ -31,17 +33,49 @@ function healthChip(p: ProjectSummary) {
   return null;
 }
 
+/** Where in its stage a project is: one segment a step, the current one ringed. */
+function StepBar({ stage }: { stage: ProjectSummary['currentStage'] }) {
+  const steps = stageDefinition(stageOf(stage)).subStages;
+  const at = steps.indexOf(stage);
+  return (
+    <span className="flex gap-0.5" aria-label={`Step ${at + 1} of ${steps.length} in its stage`}>
+      {steps.map((step, i) => (
+        <span key={step} className={cn('h-1 w-4 rounded-full', i < at ? 'bg-ink' : i === at ? 'bg-brand' : 'bg-[var(--axis)]')} />
+      ))}
+    </span>
+  );
+}
+
+const HEALTH_RAIL: Record<ProjectSummary['health'], string> = {
+  red: 'bg-critical',
+  amber: 'bg-warning',
+  green: 'bg-good',
+  unknown: 'bg-transparent',
+};
+
 function ProjectCard({ project, next }: { project: ProjectSummary; next?: PortfolioDue }) {
   const e = project.engagement;
   return (
     <Link
       to={projectHref(project.id)}
-      className="block rounded-xl bg-surface p-3 ring-1 ring-[var(--ring)] shadow-card transition-colors hover:bg-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      className={cn(
+        'group relative block overflow-hidden rounded-2xl bg-surface p-3.5 pl-4 ring-1 ring-[var(--ring)] shadow-card',
+        'transition-[transform,box-shadow] duration-base ease-enter hover:-translate-y-0.5 hover:shadow-raised active:translate-y-0 motion-reduce:hover:translate-y-0',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
+      )}
     >
-      <p className="text-[13px] font-semibold leading-snug text-ink">{project.name}</p>
-      <p className="mt-0.5 text-[12px] text-ink-muted">
-        {SUB_STAGE_LABEL[project.currentStage]} · {project.city}
-      </p>
+      {/* The file's health, as an edge: read down a column without reading a word. */}
+      <span aria-hidden className={cn('absolute inset-y-0 left-0 w-[3px]', HEALTH_RAIL[project.health])} />
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[14px] font-semibold leading-snug text-ink">{project.name}</p>
+        <ArrowRight size={14} className="mt-0.5 shrink-0 -translate-x-1 text-ink-muted opacity-0 transition-[opacity,transform] duration-quick ease-state group-hover:translate-x-0 group-hover:opacity-100" aria-hidden />
+      </div>
+      <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-muted">
+        <StepBar stage={project.currentStage} />
+        <span className="truncate">
+          {SUB_STAGE_LABEL[project.currentStage]} · {project.city}
+        </span>
+      </div>
       {e ? (
         <p className="mt-0.5 text-[12px] text-ink-secondary">
           {e.title}
@@ -56,10 +90,15 @@ function ProjectCard({ project, next }: { project: ProjectSummary; next?: Portfo
             {project.openAlerts} alert{project.openAlerts === 1 ? '' : 's'}
           </Badge>
         ) : null}
-        {project.pendingDecisions ? <Badge tone="brand" icon={<Sparkles size={11} />}>{project.pendingDecisions} to decide</Badge> : null}
+        {project.pendingDecisions ? (
+          <span className="inline-flex items-center gap-1 rounded-md bg-ai/10 px-1.5 py-0.5 text-mini font-medium leading-4 text-ai-ink ring-1 ring-inset ring-ai/25">
+            <AiMark size="xs" className="size-3 text-[6px]" />
+            {project.pendingDecisions} to decide
+          </span>
+        ) : null}
         {project.waitingOn ? <Badge tone="neutral">{project.waitingOn} waiting</Badge> : null}
       </div>
-      <div className="mt-2.5 border-t border-hairline pt-2">
+      <div className="mt-3 border-t border-hairline pt-2">
         <p className="text-[11px] text-ink-muted">Next</p>
         <div className="flex items-baseline justify-between gap-2 text-[12px]">
           <span className="min-w-0 truncate text-ink">{next ? next.label : e?.dueDate ? 'Report due' : 'Nothing due'}</span>
@@ -91,13 +130,11 @@ function FortnightStrip({ view }: { view: PortfolioView }) {
         const date = new Date(`${d}T00:00:00Z`);
         const items = byDay.get(d) ?? [];
         const urgent = items.some((it) => it.kind === 'request' || it.kind === 'report');
-        return (
+        const cell = (
           <div
-            key={d}
-            title={items.map((it) => `${it.label} · ${it.projectName}`).join('\n') || undefined}
             className={cn(
-              'flex flex-col items-center gap-0.5 rounded-md py-1 text-center',
-              i === 0 ? 'bg-ink text-ink-inverse' : 'text-ink-secondary',
+              'flex w-full flex-col items-center gap-0.5 rounded-lg py-1.5 text-center transition-colors duration-quick',
+              i === 0 ? 'bg-ink text-ink-inverse shadow-card' : items.length ? 'bg-sunken text-ink hover:bg-[var(--hairline)]' : 'text-ink-secondary',
             )}
           >
             <span className="text-[10px] uppercase">{date.toLocaleDateString('en-GB', { weekday: 'narrow', timeZone: 'UTC' })}</span>
@@ -108,7 +145,43 @@ function FortnightStrip({ view }: { view: PortfolioView }) {
             />
           </div>
         );
+        return items.length ? (
+          <Tooltip key={d} className="w-full" label={items.map((it) => `${it.label} · ${it.projectName}`).join(' — ')}>
+            {cell}
+          </Tooltip>
+        ) : (
+          <div key={d}>{cell}</div>
+        );
       })}
+    </div>
+  );
+}
+
+function PortfolioFigure({
+  icon: Icon,
+  ai = false,
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  icon?: typeof FolderTree;
+  ai?: boolean;
+  label: string;
+  value: number;
+  hint?: string;
+  tone?: 'critical';
+}) {
+  return (
+    <div className="min-w-0 px-4 py-3">
+      <p className="flex items-center gap-1.5 truncate text-[12px] text-ink-muted">
+        {ai ? <AiMark size="xs" /> : Icon ? <Icon size={13} aria-hidden /> : null}
+        {label}
+      </p>
+      <p className={cn('mt-1.5 text-[24px] font-semibold leading-none tracking-tight tabular-nums', tone === 'critical' && value > 0 ? 'text-critical' : 'text-ink')}>
+        <AnimatedNumber value={value} />
+      </p>
+      {hint ? <p className="mt-1 truncate text-[12px] text-ink-secondary">{hint}</p> : null}
     </div>
   );
 }
@@ -169,21 +242,20 @@ export default function Portfolio() {
 
   return (
     <div className="space-y-4 pb-10">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <Reveal>
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[20px] font-semibold tracking-tight text-ink">Portfolio</h1>
-          <p className="text-[13px] text-ink-secondary">
-            {all.length} project{all.length === 1 ? '' : 's'} · {today}
-          </p>
+          <p className="text-[12px] font-medium text-ink-muted">{today}</p>
+          <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink">Portfolio</h1>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 ring-1 ring-inset ring-[var(--ring)] focus-within:ring-brand">
-            <Search size={14} className="text-ink-muted" />
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-surface px-3 py-2 shadow-card ring-1 ring-inset ring-[var(--ring)] transition-[box-shadow] duration-quick focus-within:ring-2 focus-within:ring-brand sm:flex-none">
+            <Search size={14} className="shrink-0 text-ink-muted" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search projects, clients, places"
-              className="w-56 bg-transparent text-[13px] text-ink placeholder:text-ink-muted focus:outline-none"
+              className="w-full min-w-0 bg-transparent text-[13px] text-ink placeholder:text-ink-muted focus:outline-none coarse:text-base sm:w-56"
             />
           </label>
           <Button variant="primary" icon={<Plus size={15} />} onClick={() => navigate('/projects/new')}>
@@ -191,8 +263,21 @@ export default function Portfolio() {
           </Button>
         </div>
       </header>
+      </Reveal>
 
       {error ? <Callout tone="critical" title="Could not load the portfolio">{error}</Callout> : null}
+
+      {data && all.length > 0 ? (
+        <Reveal delay={0.05}>
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-hairline shadow-card ring-1 ring-[var(--ring)] lg:grid-cols-5 [&>*]:bg-surface max-lg:[&>*:last-child]:col-span-2">
+            <PortfolioFigure icon={FolderTree} label="Projects" value={all.length} hint={`${all.length - issued} active`} />
+            <PortfolioFigure icon={CircleAlert} label="At risk" value={blockedProjects} tone={blockedProjects ? 'critical' : undefined} hint={`${data.blockers} blocker${data.blockers === 1 ? '' : 's'}`} />
+            <PortfolioFigure ai label="Waiting for a decision" value={data.decisions.length} hint="AI proposals" />
+            <PortfolioFigure icon={Inbox} label="Requests open" value={openRequests} hint="Waiting on others" />
+            <PortfolioFigure icon={CalendarDays} label="Site visits" value={data.visitsInWindow} hint="Next 14 days" />
+          </div>
+        </Reveal>
+      ) : null}
 
       {digest.length > 0 ? (
         <Card>
@@ -213,7 +298,7 @@ export default function Portfolio() {
       ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-lg bg-sunken p-0.5">
+        <div className="inline-flex rounded-xl bg-sunken p-0.5 ring-1 ring-inset ring-[var(--ring)]">
           {(
             [
               ['all', `All ${all.length}`],
@@ -227,21 +312,15 @@ export default function Portfolio() {
               onClick={() => setFilter(key)}
               aria-pressed={filter === key}
               className={cn(
-                'rounded-md px-3 py-1 text-[12px] coarse:min-h-11',
-                filter === key ? 'bg-surface font-semibold text-ink shadow-card' : 'text-ink-secondary hover:text-ink',
+                'relative rounded-[10px] px-3 py-1 text-[12px] transition-colors duration-quick coarse:min-h-11',
+                filter === key ? 'font-semibold text-ink' : 'text-ink-secondary hover:text-ink',
               )}
             >
-              {label}
+              {filter === key ? <motion.span layoutId="portfolio-filter" aria-hidden className="absolute inset-0 rounded-[10px] bg-surface shadow-card ring-1 ring-[var(--ring)]" transition={SPRING.snappy} /> : null}
+              <span className="relative">{label}</span>
             </button>
           ))}
         </div>
-        {data ? (
-          <p className="text-[12px] text-ink-secondary">
-            {data.blockers} blocker{data.blockers === 1 ? '' : 's'}
-            {blockedProjects ? ` across ${blockedProjects} project${blockedProjects === 1 ? '' : 's'}` : ''} · {openRequests} request
-            {openRequests === 1 ? '' : 's'} open · {data.visitsInWindow} site visit{data.visitsInWindow === 1 ? '' : 's'} in the next 14 days
-          </p>
-        ) : null}
       </div>
 
       {loading && !data ? (
@@ -263,21 +342,30 @@ export default function Portfolio() {
           />
         </Card>
       ) : (
-        <div className="overflow-x-auto pb-1">
-          <div className="grid min-w-[880px] grid-cols-4 gap-3">
-            {STAGES.map((stage) => {
+        <div className="-mx-4 overflow-x-auto px-4 pb-1 no-scrollbar [scroll-padding-inline:1rem] snap-x snap-mandatory sm:mx-0 sm:px-0 lg:overflow-visible">
+          <div className="grid auto-cols-[82%] grid-flow-col items-start gap-3 sm:auto-cols-[minmax(15rem,1fr)] lg:grid-flow-row lg:grid-cols-4">
+            {STAGES.map((stage, index) => {
               const column = projects.filter((p) => stageOf(p.currentStage) === stage.key);
               return (
-                <section key={stage.key} aria-label={stage.label} className="flex min-h-[12rem] flex-col gap-2 rounded-xl bg-sunken/70 p-2">
-                  <h2 className="flex items-center gap-1.5 px-1 pt-0.5 text-[12px] font-semibold text-ink">
+                <section key={stage.key} aria-label={stage.label} className="flex snap-start flex-col gap-2 rounded-2xl bg-sunken/70 p-2 ring-1 ring-inset ring-[var(--ring)]">
+                  <h2 className="flex items-center gap-2 px-1.5 pt-1 text-[13px] font-semibold text-ink">
+                    <span className="font-mono text-[10px] text-ink-muted">0{index + 1}</span>
                     {stage.label}
-                    <span className="rounded-full bg-surface px-1.5 font-mono text-[10px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
+                    <span className="ml-auto rounded-full bg-surface px-1.5 font-mono text-[10px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">
                       {column.length}
                     </span>
                   </h2>
-                  {column.map((p) => (
-                    <ProjectCard key={p.id} project={p} next={nextByProject.get(p.id)} />
-                  ))}
+                  {column.length === 0 ? (
+                    <p className="m-1 rounded-xl border border-dashed border-[var(--axis)] px-3 py-7 text-center text-[12px] text-ink-muted">No projects here</p>
+                  ) : (
+                    <Stagger className="flex flex-col gap-2">
+                      {column.map((p) => (
+                        <StaggerItem key={p.id}>
+                          <ProjectCard project={p} next={nextByProject.get(p.id)} />
+                        </StaggerItem>
+                      ))}
+                    </Stagger>
+                  )}
                 </section>
               );
             })}
@@ -287,34 +375,33 @@ export default function Portfolio() {
 
       {data && all.length > 0 ? (
         <div className="grid gap-4 lg:grid-cols-3">
-          <Card className={cn(data.decisions.length > 0 && 'ring-2 ring-brand/40')}>
+          <Card className={cn(data.decisions.length > 0 && 'ring-[1.5px] ring-ai/45')}>
             <CardHeader
               title="Needs your decision"
+              icon={data.decisions.length > 0 ? <AiMark size="xs" /> : undefined}
               subtitle={data.decisions.length ? `${data.decisions.length} proposal${data.decisions.length === 1 ? '' : 's'}` : 'Nothing waiting'}
             />
             <CardBody>
               {data.decisions.length === 0 ? (
                 <p className="text-[13px] text-ink-muted">No proposals are waiting for a person.</p>
               ) : (
-                <ul className="divide-y divide-hairline">
+                <Stagger as="ul" className="divide-y divide-hairline">
                   {data.decisions.slice(0, 6).map((d) => (
-                    <li key={d.proposalId} className="flex items-center gap-3 py-2">
-                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-brand-soft text-brand">
-                        <Sparkles size={11} />
-                      </span>
+                    <StaggerItem as="li" key={d.proposalId} className="flex items-center gap-3 py-2">
+                      <AiMark size="xs" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[13px] text-ink">{d.title}</p>
                         <p className="truncate text-[12px] text-ink-secondary">{d.projectName}</p>
                       </div>
                       <Link
                         to={d.kind === 'draft' ? `/projects/${d.projectId}/ai` : `/projects/${d.projectId}`}
-                        className="shrink-0 text-[12px] font-medium text-brand"
+                        className="shrink-0 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-brand hover:bg-brand-soft"
                       >
                         Review
                       </Link>
-                    </li>
+                    </StaggerItem>
                   ))}
-                </ul>
+                </Stagger>
               )}
               <p className="mt-3 text-[11px] text-ink-muted">Only people change the record. AI proposals wait for a decision.</p>
             </CardBody>

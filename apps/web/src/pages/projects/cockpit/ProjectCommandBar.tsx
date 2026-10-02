@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search } from 'lucide-react';
+import { CornerDownLeft, Search } from 'lucide-react';
 import {
   SEARCH_KIND_LABEL,
   paneForTalk,
@@ -10,7 +10,8 @@ import {
   type SearchKind,
 } from '@realytica/shared';
 import { api } from '../../../lib/api';
-import { useToast } from '../../../components/ui/kit';
+import { cn, useToast } from '../../../components/ui/kit';
+import { SPRING, motion } from '../../../lib/motion';
 
 type Command =
   | { kind: 'go'; id: string; label: string; hint: string; pane: ProjectCockpitPane }
@@ -252,20 +253,26 @@ export function ProjectCommandBar({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-[rgba(11,11,11,0.28)] px-3 pt-[max(1.5rem,env(safe-area-inset-top))] sm:px-4 sm:pt-[16vh]"
+    <motion.div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-[rgb(var(--shadow-tint)/0.32)] px-3 pt-[max(1.5rem,env(safe-area-inset-top))] backdrop-blur-[2px] sm:px-4 sm:pt-[16vh]"
       onClick={onClose}
       role="presentation"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.16 }}
     >
-      <div
+      <motion.div
         role="dialog"
         aria-modal="true"
         aria-label="Project command bar"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xl overflow-hidden rounded-xl bg-surface shadow-card ring-1 ring-[var(--axis)] max-h-[min(32rem,85dvh)] flex flex-col"
+        initial={{ opacity: 0, y: -10, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={SPRING.layer}
+        className="flex max-h-[min(32rem,85dvh)] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-surface shadow-pop ring-1 ring-[var(--ring)]"
       >
-        <div className="flex items-center gap-2.5 border-b border-hairline px-4 py-3">
-          <Search size={15} className="shrink-0 text-ink-muted" aria-hidden="true" />
+        <div className="flex items-center gap-2.5 border-b border-hairline px-4 py-3.5">
+          <Search size={16} className="shrink-0 text-ink-muted" aria-hidden="true" />
           <input
             ref={inputRef}
             value={query}
@@ -304,8 +311,9 @@ export function ProjectCommandBar({
             aria-controls={LIST_ID}
             aria-activedescendant={matches[active] ? optionId(active) : undefined}
             aria-autocomplete="list"
-            className="w-full bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-muted"
+            className="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-ink-muted coarse:text-base"
           />
+          <kbd className="hidden shrink-0 rounded-md bg-sunken px-1.5 py-0.5 font-mono text-[10px] text-ink-muted ring-1 ring-inset ring-[var(--ring)] sm:inline">esc</kbd>
         </div>
         <ul id={LIST_ID} role="listbox" aria-label="Matches" className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {matches.length === 0 ? (
@@ -318,18 +326,21 @@ export function ProjectCommandBar({
                   tabIndex={-1}
                   onMouseEnter={() => setActive(i)}
                   onClick={() => void run(c)}
-                  className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left coarse:min-h-11 ${
-                    i === active ? 'bg-brand-soft' : ''
-                  }`}
+                  className="relative flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left coarse:min-h-11"
                 >
+                  {/* The highlight travels with the keyboard rather than jumping. */}
+                  {i === active ? (
+                    <motion.span layoutId="command-active" aria-hidden className="absolute inset-0 rounded-xl bg-sunken ring-1 ring-inset ring-[var(--ring)]" transition={SPRING.snappy} />
+                  ) : null}
                   <span
-                    className={`mt-0.5 w-7 shrink-0 text-[11px] font-semibold ${
-                      c.kind === 'do' ? 'text-brand' : 'text-ink-muted'
-                    }`}
+                    className={cn(
+                      'relative mt-px w-9 shrink-0 rounded-md py-0.5 text-center font-mono text-[10px] font-medium',
+                      c.kind === 'do' ? 'bg-action text-action-ink' : c.kind === 'ask' ? 'bg-ai/12 text-ai-ink' : 'bg-brand-soft text-brand',
+                    )}
                   >
                     {c.kind === 'go' || c.kind === 'open' ? 'Go' : c.kind === 'ask' ? 'Ask' : 'Do'}
                   </span>
-                  <span className="min-w-0 flex-grow">
+                  <span className="relative min-w-0 flex-grow">
                     <span className="block truncate text-[13px] text-ink">{c.label}</span>
                     {/* A record's provenance is where it lives; a verb's is just
                         its own kind, which the badge already said. */}
@@ -342,12 +353,25 @@ export function ProjectCommandBar({
                       </span>
                     ) : null}
                   </span>
+                  {i === active ? <CornerDownLeft size={13} className="relative mt-1 shrink-0 text-ink-muted" aria-hidden /> : null}
                 </button>
               </li>
             ))
           )}
         </ul>
-      </div>
-    </div>
+        <div className="hidden items-center gap-4 border-t border-hairline bg-sunken/50 px-4 py-2 text-[11px] text-ink-muted sm:flex">
+          <span className="inline-flex items-center gap-1.5">
+            <kbd className="rounded bg-surface px-1 font-mono ring-1 ring-inset ring-[var(--ring)]">↑</kbd>
+            <kbd className="rounded bg-surface px-1 font-mono ring-1 ring-inset ring-[var(--ring)]">↓</kbd>
+            to move
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <kbd className="rounded bg-surface px-1 font-mono ring-1 ring-inset ring-[var(--ring)]">↵</kbd>
+            to run
+          </span>
+          <span className="ml-auto">Writes ask twice before they run</span>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }

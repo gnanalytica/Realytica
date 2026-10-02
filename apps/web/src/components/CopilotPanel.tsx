@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
-import { AlertCircle, ArrowUp, CheckCircle2, Info, MessageCircle, Paperclip, SearchX, Sparkles, Trash2, X } from 'lucide-react';
+import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, SearchX, Trash2, X } from 'lucide-react';
 import { chatSessions, groupActivity, splitThread } from '@realytica/shared';
 import type { AgentStep, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { EvidenceLink } from './EvidenceLink';
-import { Badge, Button, Textarea, cn } from './ui/kit';
+import { AiMark, Badge, Button, cn } from './ui/kit';
+import { EASE_ENTER, SPRING, motion } from '../lib/motion';
 import { AnswerBody } from './chat/AnswerBody';
 import { TurnVisual } from './chat/TurnVisual';
 import { relativeTime } from '../lib/format';
@@ -108,7 +109,7 @@ function TurnBubble({
           this side never did — so a pasted multi-line question collapsed into
           one run-on line and stopped resembling what the person typed.
         */}
-        <div className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-tr-sm bg-brand px-3 py-2 text-[13px] leading-relaxed text-[var(--brand-ink)]">
+        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-sunken px-3.5 py-2 text-[13px] leading-relaxed text-ink ring-1 ring-inset ring-[var(--ring)]">
           {turn.text}
         </div>
       </div>
@@ -121,13 +122,8 @@ function TurnBubble({
   if (turn.refusedForLackOfEvidence) {
     return (
       <div className="flex gap-2.5">
-        <span
-          aria-hidden="true"
-          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand"
-        >
-          <SearchX size={12} />
-        </span>
-        <div className="min-w-0 flex-1 rounded-xl rounded-tl-sm bg-brand-soft px-3 py-2.5 ring-1 ring-inset ring-brand/25">
+        <AiMark className="mt-0.5" />
+        <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md bg-brand-soft px-3.5 py-2.5 ring-1 ring-inset ring-brand/20">
           <div className="mb-1 flex items-center gap-1.5 text-mini font-semibold text-brand">
             <SearchX size={12} /> No answer — the evidence doesn&rsquo;t support one
           </div>
@@ -152,13 +148,9 @@ function TurnBubble({
         nothing between them. The mark is small and constant; it is the
         cheapest thing that makes a column of text read as a dialogue.
       */}
-      <span
-        aria-hidden="true"
-        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand"
-      >
-        <Sparkles size={12} />
-      </span>
-      <div className="min-w-0 flex-1 rounded-xl rounded-tl-sm bg-sunken px-3 py-2.5 ring-1 ring-inset ring-[var(--ring)]">
+      <AiMark className="mt-0.5" />
+      <div className="min-w-0 flex-1">
+        <p className="mb-1 text-[12px] font-semibold leading-5 text-ink">Copilot</p>
         {turn.unanswered ? (
           /*
            * The question was not answered, and what follows is the standing
@@ -358,21 +350,22 @@ function TypingIndicator({ steps }: { steps: AgentStep[] }) {
   const done = steps.filter(s => s.kind === 'tool_result').length;
 
   return (
-    <div className="flex gap-2.5">
-      <span
-        aria-hidden="true"
-        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand"
-      >
-        <Sparkles size={12} className="animate-pulse" />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-xl rounded-tl-sm bg-sunken px-3 py-2.5 ring-1 ring-inset ring-[var(--ring)]">
-        <div className="flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-muted [animation-delay:0ms]" />
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-muted [animation-delay:150ms]" />
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-muted [animation-delay:300ms]" />
-          {current ? (
-            <span className="ml-1 min-w-0 truncate text-[12px] text-ink-secondary">{current.label}</span>
-          ) : null}
+    <div className="flex animate-rise-in gap-2.5">
+      <AiMark className="mt-0.5" busy />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <p className="text-[12px] font-semibold leading-5 text-ink">Copilot</p>
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1" aria-hidden>
+            {[0, 1, 2].map((i) => (
+              <motion.span
+                key={i}
+                className="size-1.5 rounded-full bg-ai"
+                animate={{ y: [0, -3, 0], opacity: [0.45, 1, 0.45] }}
+                transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.14, ease: 'easeInOut' }}
+              />
+            ))}
+          </span>
+          {current ? <span className="text-shimmer min-w-0 truncate text-[13px]">{current.label}</span> : <span className="text-shimmer text-[13px]">Thinking</span>}
         </div>
         {done > 0 ? (
           <span className="text-mini text-ink-muted">
@@ -391,8 +384,9 @@ function SuggestionChip({ text, disabled, onClick }: { text: string; disabled?: 
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'rounded-full bg-sunken px-2.5 py-1 text-mini text-ink-secondary ring-1 ring-inset ring-[var(--ring)]',
-        'hover:bg-brand-soft hover:text-brand disabled:cursor-not-allowed disabled:opacity-50',
+        'rounded-full bg-surface px-3 py-1 text-[12px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] shadow-card',
+        'transition-[color,box-shadow,transform] duration-quick ease-state hover:text-ink hover:ring-[var(--text-muted)] active:scale-[0.97]',
+        'disabled:cursor-not-allowed disabled:opacity-50 coarse:min-h-11',
       )}
     >
       {text}
@@ -669,14 +663,17 @@ export function CopilotPanel({
                   : 'Chat'
               }
               className={cn(
-                // 26px on a touch pointer, on the tabs that switch the chat
-                // panel between the conversation and the run log.
-                'rounded-md px-2 py-1 text-[12px] capitalize transition-colors duration-quick coarse:min-h-11 coarse:px-3',
-                tab === key ? 'bg-brand-soft font-medium text-brand' : 'text-ink-muted hover:text-ink',
+                'relative rounded-lg px-2.5 py-1 text-[12px] capitalize transition-colors duration-quick coarse:min-h-11 coarse:px-3',
+                tab === key ? 'font-semibold text-ink' : 'text-ink-muted hover:text-ink',
               )}
             >
-              {key}
-              {key === 'activity' ? <span className="ml-1 tabular-nums opacity-70">{activity.length}</span> : null}
+              {tab === key ? (
+                <motion.span layoutId="chat-tab" aria-hidden className="absolute inset-0 rounded-lg bg-sunken ring-1 ring-inset ring-[var(--ring)]" transition={SPRING.snappy} />
+              ) : null}
+              <span className="relative">
+                {key}
+                {key === 'activity' ? <span className="ml-1 font-mono tabular-nums opacity-70">{activity.length}</span> : null}
+              </span>
             </button>
           ))}
           {/*
@@ -755,9 +752,7 @@ export function CopilotPanel({
           */
           <div className={cn('flex flex-1 flex-col justify-end gap-3', compact ? 'py-3' : 'py-6')}>
             <div className="flex items-center gap-2.5">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand">
-                <Sparkles size={14} />
-              </span>
+              <AiMark size="md" />
               <div className="min-w-0">
                 <p className="text-[13px] font-medium text-ink">{emptyTitle ?? 'Ask about this case'}</p>
                 <p className="text-xs leading-relaxed text-ink-secondary">
@@ -767,23 +762,26 @@ export function CopilotPanel({
             </div>
             {suggestions.length > 0 ? (
               <div className="flex flex-col gap-1.5">
-                {(compact ? suggestions.slice(0, 3) : suggestions).map((s) => (
-                  <button
+                {(compact ? suggestions.slice(0, 3) : suggestions).map((s, i) => (
+                  <motion.button
                     key={s}
                     type="button"
                     disabled={disabled}
                     onClick={() => void submit(s)}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.28, ease: EASE_ENTER, delay: 0.05 * i }}
                     className={cn(
-                      'group flex w-full items-center gap-2 rounded-lg bg-surface px-3 py-2 text-left text-[13px] text-ink-secondary',
-                      'ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick',
-                      'hover:bg-brand-soft hover:text-brand hover:ring-brand/30 disabled:cursor-not-allowed disabled:opacity-50',
+                      'group flex w-full items-center gap-2.5 rounded-xl bg-surface px-3 py-2.5 text-left text-[13px] text-ink-secondary shadow-card',
+                      'ring-1 ring-inset ring-[var(--ring)] transition-[color,box-shadow] duration-quick',
+                      'hover:text-ink hover:shadow-tile hover:ring-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-50',
                       'coarse:min-h-11',
                     )}
                   >
-                    <MessageCircle size={13} className="shrink-0 text-ink-muted group-hover:text-brand" />
+                    <MessageCircle size={14} className="shrink-0 text-ink-muted transition-colors group-hover:text-brand" />
                     <span className="min-w-0 flex-1">{s}</span>
-                    <ArrowUp size={12} className="shrink-0 rotate-45 text-ink-muted group-hover:text-brand" />
-                  </button>
+                    <ArrowUp size={13} className="shrink-0 rotate-45 text-ink-muted transition-transform duration-quick ease-state group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-brand" />
+                  </motion.button>
                 ))}
               </div>
             ) : null}
@@ -883,81 +881,98 @@ export function CopilotPanel({
             ))}
           </div>
         ) : null}
-        <div className="flex items-end gap-2">
-        {allowAttach ? (
-          <>
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              className="hidden"
-              accept=".pdf,.doc,.docx,.txt,.csv,.jpg,.jpeg,.png,.xlsx,.xls"
-              onChange={(e) => {
-                const next = Array.from(e.target.files ?? []);
-                if (next.length) setFiles((prev) => [...prev, ...next].slice(0, 10));
-                e.target.value = '';
-              }}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label="Attach documents"
-              title="Attach documents"
-              disabled={disabled || busy}
-              icon={<Paperclip size={14} />}
-              onClick={() => fileRef.current?.click()}
-            />
-          </>
-        ) : null}
-        <Textarea
-          aria-label="Ask the copilot"
-          placeholder={disabled ? 'Copilot unavailable' : placeholder ?? (onOpenCommands ? 'Ask about this case, or / for commands' : 'Ask about this case…')}
-          value={text}
-          rows={1}
-          disabled={disabled || busy}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={handleKeyDown}
+        <div
           className={cn(
-            'max-h-[9rem] min-h-0 flex-1 resize-none py-2',
-            compact && 'min-h-11',
+            'flex flex-col rounded-2xl bg-surface shadow-card ring-1 ring-inset ring-[var(--ring)]',
+            'transition-[box-shadow] duration-quick ease-state focus-within:ring-2 focus-within:ring-brand focus-within:shadow-[0_0_0_4px_rgb(var(--brand-rgb)/0.10)]',
+            (disabled || busy) && 'opacity-90',
           )}
-          ref={composerRef}
-        />
-        {busy && onCancel ? (
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={onCancel}
-            aria-label="Stop"
-          >
-            Stop
-          </Button>
-        ) : (
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={disabled || busy || (!text.trim() && files.length === 0)}
-          loading={busy}
-          icon={<ArrowUp size={14} />}
-          aria-label="Ask"
         >
-          {compact ? null : 'Ask'}
-        </Button>
-        )}
-        {onClear && conversation.length > 0 ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-label="Clear conversation"
-            title="Clear conversation"
+          <textarea
+            aria-label="Ask the copilot"
+            placeholder={disabled ? 'Copilot unavailable' : placeholder ?? (onOpenCommands ? 'Ask about this case, or / for commands' : 'Ask about this case…')}
+            value={text}
+            rows={1}
             disabled={disabled || busy}
-            icon={<Trash2 size={14} />}
-            onClick={onClear}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className={cn(
+              'max-h-[9rem] min-h-[2.75rem] w-full resize-none bg-transparent px-3.5 pb-1 pt-2.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-ink-muted coarse:text-base',
+            )}
+            ref={composerRef}
           />
-        ) : null}
+          <div className="flex items-center gap-1 px-1.5 pb-1.5">
+            {allowAttach ? (
+              <>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  accept=".pdf,.doc,.docx,.txt,.csv,.jpg,.jpeg,.png,.xlsx,.xls"
+                  onChange={(e) => {
+                    const next = Array.from(e.target.files ?? []);
+                    if (next.length) setFiles((prev) => [...prev, ...next].slice(0, 10));
+                    e.target.value = '';
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Attach documents"
+                  title="Attach documents"
+                  disabled={disabled || busy}
+                  icon={<Paperclip size={15} />}
+                  onClick={() => fileRef.current?.click()}
+                />
+              </>
+            ) : null}
+            {onClear && conversation.length > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label="Clear conversation"
+                title="Clear conversation"
+                disabled={disabled || busy}
+                icon={<Trash2 size={14} />}
+                onClick={onClear}
+              />
+            ) : null}
+            <span className="flex-1" />
+            {onOpenCommands && !compact ? (
+              <span className="hidden pr-1 text-[11px] text-ink-muted sm:inline">
+                <kbd className="font-mono">/</kbd> for commands
+              </span>
+            ) : null}
+            {busy && onCancel ? (
+              <Button type="button" variant="secondary" size="sm" onClick={onCancel} aria-label="Stop">
+                Stop
+              </Button>
+            ) : (
+              <button
+                type="submit"
+                disabled={disabled || busy || (!text.trim() && files.length === 0)}
+                aria-label="Ask"
+                className={cn(
+                  'grid size-8 place-items-center rounded-full bg-action text-action-ink coarse:size-11',
+                  'transition-[transform,opacity,background-color] duration-quick ease-state hover:bg-action-hover active:scale-95',
+                  'disabled:cursor-not-allowed disabled:opacity-30',
+                )}
+              >
+                <ArrowUp size={16} />
+              </button>
+            )}
+          </div>
         </div>
+        {/* The rule this product keeps, said where a person types. */}
+        {compact ? null : (
+          <p className="flex items-center gap-1.5 px-1 text-[11px] text-ink-muted">
+            <Lock size={11} aria-hidden />
+            Only people change the record. AI proposals wait for a decision.
+          </p>
+        )}
       </form>
       {error ? <p className="text-xs text-critical">{error}</p> : null}
     </div>

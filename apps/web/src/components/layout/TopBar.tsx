@@ -3,11 +3,13 @@ import { useLocation } from 'react-router-dom';
 import { Menu, Monitor, Moon, Sun } from 'lucide-react';
 import { api } from '../../lib/api';
 import { applyTheme, getStoredTheme, type ThemeMode } from '../../lib/theme';
-import { Dot, Tooltip } from '../ui/kit';
+import { Dot, Tooltip, cn } from '../ui/kit';
 import ProjectSwitcher from './ProjectSwitcher';
 
 export interface TopBarProps {
   onOpenMobile: () => void;
+  /** Leave the header to the page below the large breakpoint (a project's cockpit has its own). */
+  desktopOnly?: boolean;
 }
 
 function pageTitle(pathname: string): string {
@@ -28,7 +30,7 @@ const THEME_LABEL: Record<ThemeMode, string> = { light: 'Light', dark: 'Dark', s
 type ApiStatus = 'checking' | 'online' | 'offline';
 
 /** Sticky top bar: route title, an API health check that retries until it answers, and the theme cycle control. */
-export default function TopBar({ onOpenMobile }: TopBarProps) {
+export default function TopBar({ onOpenMobile, desktopOnly = false }: TopBarProps) {
   const location = useLocation();
   const [theme, setTheme] = useState<ThemeMode>(() => getStoredTheme());
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking');
@@ -83,7 +85,7 @@ export default function TopBar({ onOpenMobile }: TopBarProps) {
         : 'API online';
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-hairline bg-surface/95 px-3 backdrop-blur-sm sm:gap-3 sm:px-6 lg:px-8">
+    <header className={cn('sticky top-0 z-30 h-14 shrink-0 items-center gap-2 border-b border-hairline bg-surface/90 px-3 backdrop-blur-md sm:gap-3 sm:px-6 lg:px-8', desktopOnly ? 'hidden lg:flex' : 'flex')}>
       <button
         type="button"
         onClick={onOpenMobile}
@@ -100,7 +102,9 @@ export default function TopBar({ onOpenMobile }: TopBarProps) {
           <ProjectSwitcher />
         </div>
       ) : (
-        <h1 className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-tight text-ink">{pageTitle(location.pathname)}</h1>
+        /* Where you are, quietly: every page below carries its own heading, so
+           this is a breadcrumb rather than a second title. */
+        <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-muted">{pageTitle(location.pathname)}</p>
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-2.5">

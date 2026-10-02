@@ -51,6 +51,18 @@ export default {
         },
         /* The highlighter laid over a page's own words. */
         mark: 'rgb(var(--mark-rgb) / <alpha-value>)',
+        /* The one colour that commits something: ink on paper, paper on ink. */
+        action: {
+          DEFAULT: 'var(--action)',
+          hover: 'var(--action-hover)',
+          ink: 'var(--action-ink)',
+        },
+        /* What a model wrote and no person has accepted yet. */
+        ai: {
+          DEFAULT: 'rgb(var(--ai-rgb) / <alpha-value>)',
+          soft: 'rgb(var(--ai-soft-rgb) / <alpha-value>)',
+          ink: 'var(--ai-text)',
+        },
       },
       /*
        * The small end of the type scale, as tokens rather than 459 hand-set
@@ -71,9 +83,16 @@ export default {
         micro: ['var(--text-micro)', { lineHeight: 'var(--leading-micro)' }],
         mini: ['var(--text-mini)', { lineHeight: 'var(--leading-mini)' }],
       },
+      /*
+       * Schibsted Grotesk for everything, DM Mono for figures, codes and
+       * citations — the type of the Copilot Desk direction. Both are bundled
+       * with the app (@fontsource), so the interface still makes no font
+       * request of its own; Kannada and Telugu come in after them for the
+       * originals a deed is written in.
+       */
       fontFamily: {
-        sans: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'sans-serif'],
-        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        sans: ['"Schibsted Grotesk Variable"', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', '"Noto Sans Kannada"', '"Noto Sans Telugu"', 'sans-serif'],
+        mono: ['"DM Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
         /*
          * A serif, for display type only.
          *
@@ -187,6 +206,10 @@ export default {
         /* A field that has just been read, or just been filed. */
         'flash-provenance': { from: { backgroundColor: 'rgb(var(--provenance-rgb) / 0.18)' }, to: { backgroundColor: 'transparent' } },
         'flash-good': { from: { backgroundColor: 'rgb(var(--status-good-rgb) / 0.2)' }, to: { backgroundColor: 'transparent' } },
+        /* Something new that wants a glance: one soft ring outward, then still. */
+        'ping-once': { '0%': { transform: 'scale(1)', opacity: '0.55' }, '100%': { transform: 'scale(2.2)', opacity: '0' } },
+        /* The sheen that crosses a skeleton while its content is on the way. */
+        sweep: { from: { transform: 'translateX(-100%)' }, to: { transform: 'translateX(100%)' } },
       },
       animation: {
         'fade-in': 'fade-in 180ms ease-out both',
@@ -200,6 +223,8 @@ export default {
         'ring-draw': 'ring-draw 560ms cubic-bezier(0.65, 0, 0.35, 1) both',
         'flash-provenance': 'flash-provenance 1100ms ease-out both',
         'flash-good': 'flash-good 1100ms ease-out both',
+        'ping-once': 'ping-once 900ms cubic-bezier(0, 0, 0.2, 1) 2',
+        sweep: 'sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite',
       },
     },
   },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowRight,
   Building2,
@@ -28,6 +28,7 @@ import {
   type ProjectCockpitPane,
 } from '@realytica/shared';
 import { cn } from '../../../components/ui/kit';
+import { AnimatePresence, EASE_ENTER, SPRING, motion } from '../../../lib/motion';
 import { useMe } from '../../../lib/useMe';
 
 /**
@@ -262,15 +263,38 @@ function ChipScroller({ wrap, children }: { wrap: boolean; children: ReactNode }
 }
 
 function Count({ n }: { n: number }) {
-  return <span className="tabular rounded-full bg-warning/25 px-1.5 text-[10px] text-ink">{n}</span>;
+  return <span className="tabular min-w-[1.25rem] rounded-full bg-warning/20 px-1.5 text-center font-mono text-[10px] font-medium leading-4 text-[var(--status-warning-text)]">{n}</span>;
 }
 
-/** Things waiting for a person's decision — the reader's ochre, not the warning amber of what is overdue. */
+/** Things waiting for a person's decision — the reader's rose, not the warning amber of what is overdue. */
 function WaitingCount({ n, label }: { n: number; label: string }) {
   return (
-    <span className="tabular rounded-full bg-provenance/15 px-1.5 text-[10px] font-medium text-provenance-ink" aria-label={`${n} ${label}`}>
+    <span className="tabular min-w-[1.25rem] rounded-full bg-ai/12 px-1.5 text-center font-mono text-[10px] font-medium leading-4 text-ai-ink" aria-label={`${n} ${label}`}>
       {n}
     </span>
+  );
+}
+
+/** The walk through everything waiting for a decision: rose, because each of them is a reader's proposal. */
+export function ReviewPill({ n, onClick, compact = false }: { n: number; onClick: () => void; compact?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'group relative inline-flex shrink-0 items-center gap-1.5 rounded-full bg-ai/10 font-medium text-ai-ink ring-1 ring-inset ring-ai/30',
+        'transition-[background-color,transform] duration-quick ease-state hover:bg-ai/15 active:scale-[0.97]',
+        compact ? 'h-7 px-2 text-[12px] before:absolute before:-inset-2' : 'h-8 px-3 text-[13px]',
+      )}
+    >
+      <span className="relative flex size-2" aria-hidden>
+        <span className="absolute inset-0 animate-ping-once rounded-full bg-ai/60" />
+        <span className="relative size-2 rounded-full bg-ai" />
+      </span>
+      <span className="tabular-nums">{n}</span>
+      {compact ? null : <span>to review</span>}
+      <ArrowRight size={12} aria-hidden className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
+    </button>
   );
 }
 
@@ -283,7 +307,126 @@ function waitingOnTab(tab: CockpitTab, byPane: WaitingByPane): number {
 type Go = (pane: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string; department?: string; workstream?: string }) => void;
 
 function SoonTag() {
-  return <span className="rounded-full bg-sunken px-1.5 text-[10px] font-medium uppercase tracking-wide text-ink-muted">Soon</span>;
+  return <span className="rounded px-1 font-mono text-[9px] font-medium uppercase tracking-wide text-ink-muted ring-1 ring-inset ring-[var(--ring)]">Soon</span>;
+}
+
+/**
+ * The departments still to come, behind one control.
+ *
+ * Listing all three as tabs spent a third of the strip on places with nothing
+ * in them yet. They are still one press away — knowing they will be there is
+ * part of knowing what the product is for — but the row now holds the work.
+ */
+function MoreDepartments({ items, onGo }: { items: Array<{ key: DepartmentKey; label: string }>; onGo: (key: DepartmentKey) => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    window.addEventListener('pointerdown', away);
+    window.addEventListener('keydown', esc);
+    return () => {
+      window.removeEventListener('pointerdown', away);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  if (items.length === 0) return null;
+  return (
+    <div ref={box} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="inline-flex items-center gap-1 px-2 py-2.5 text-[13px] text-ink-muted transition-colors duration-quick hover:text-ink coarse:min-h-11"
+      >
+        More
+        <ChevronDown size={13} className={cn('transition-transform duration-base ease-enter', open && 'rotate-180')} />
+      </button>
+      <AnimatePresence>
+        {open ? (
+          <motion.div
+            role="menu"
+            initial={{ opacity: 0, y: -4, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -2, transition: { duration: 0.12 } }}
+            transition={{ duration: 0.18, ease: EASE_ENTER }}
+            className="fixed z-50 mt-1 w-52 origin-top-left rounded-xl bg-surface p-1 shadow-pop ring-1 ring-[var(--ring)]"
+            style={{ top: box.current ? box.current.getBoundingClientRect().bottom : undefined, left: box.current ? box.current.getBoundingClientRect().left : undefined }}
+          >
+            <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-ink-muted">Coming soon</p>
+            {items.map((d) => (
+              <button
+                key={d.key}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  onGo(d.key);
+                }}
+                className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-ink-secondary hover:bg-sunken hover:text-ink coarse:min-h-11"
+              >
+                {d.label}
+                <SoonTag />
+              </button>
+            ))}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/**
+ * The second row: a segmented control whose selection slides.
+ *
+ * Workstreams, and a section's own tabs, are siblings of one thing — the pill
+ * travelling between them says that, where a row of separately-highlighted
+ * words did not.
+ */
+function Segments({
+  items,
+  wrap,
+}: {
+  items: Array<{ key: string; label: ReactNode; on: boolean; muted?: boolean; go: () => void; extra?: ReactNode }>;
+  wrap: boolean;
+}) {
+  const group = useId();
+  return (
+    <ChipScroller wrap={wrap}>
+      <div className="inline-flex shrink-0 items-center gap-0.5 rounded-xl bg-sunken p-0.5 ring-1 ring-inset ring-[var(--ring)]">
+        {items.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={item.go}
+            aria-current={item.on ? 'true' : undefined}
+            className={cn(
+              'relative inline-flex shrink-0 items-center gap-1.5 rounded-[10px] px-2.5 py-1 text-[12px] coarse:min-h-11',
+              'transition-colors duration-quick ease-state',
+              item.on ? 'font-semibold text-ink' : item.muted ? 'text-ink-muted hover:text-ink-secondary' : 'text-ink-secondary hover:text-ink',
+            )}
+          >
+            {item.on ? (
+              <motion.span
+                layoutId={`seg-${group}`}
+                aria-hidden
+                className="absolute inset-0 rounded-[10px] bg-surface shadow-card ring-1 ring-[var(--ring)]"
+                transition={SPRING.snappy}
+              />
+            ) : null}
+            <span className="relative inline-flex items-center gap-1.5">
+              {item.label}
+              {item.extra}
+            </span>
+          </button>
+        ))}
+      </div>
+    </ChipScroller>
+  );
 }
 
 export function CockpitPaneStrip({
@@ -330,6 +473,10 @@ export function CockpitPaneStrip({
   const here = activeDepartment ? null : tabHolding(pane).section;
   const tabs = here ? here.tabs.filter((t) => !HIDDEN_TABS.has(t.pane) || t.pane === pane) : [];
 
+  const group = useId();
+  const live = departments.filter((d) => d.status !== 'coming_soon' || activeDepartment === d.key);
+  const later = departments.filter((d) => d.status === 'coming_soon' && activeDepartment !== d.key);
+
   const tab = (key: string, label: ReactNode, on: boolean, go: () => void, extra?: ReactNode, muted = false) => (
     <button
       key={key}
@@ -337,23 +484,27 @@ export function CockpitPaneStrip({
       onClick={go}
       aria-current={on ? 'true' : undefined}
       className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-2 text-[13px] -mb-px coarse:min-h-11',
-        on ? 'border-brand font-semibold text-brand' : muted ? 'border-transparent text-ink-muted hover:text-ink-secondary' : 'border-transparent text-ink-secondary hover:border-hairline hover:text-ink',
+        'relative inline-flex shrink-0 items-center gap-1.5 px-2 py-2.5 text-[13px] coarse:min-h-11',
+        'transition-colors duration-quick ease-state',
+        on ? 'font-semibold text-ink' : muted ? 'text-ink-muted hover:text-ink-secondary' : 'text-ink-secondary hover:text-ink',
       )}
     >
       {label}
       {extra}
+      {/* One underline for the whole row, travelling to whichever tab is current. */}
+      {on ? (
+        <motion.span layoutId={`strip-${group}`} aria-hidden className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-ink" transition={SPRING.snappy} />
+      ) : null}
     </button>
   );
 
   return (
     <div className={cn('shrink-0 border-b border-hairline bg-surface', wrap ? 'px-4' : 'px-3')}>
-      {/* The rule the tabs sit on. The active one joins it; the rest stop short. */}
-      <div className="flex items-center gap-2 border-b border-hairline pt-1">
+      <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
-          <ChipScroller wrap={wrap}>
+          <ChipScroller wrap={false}>
             {tab('overview', 'Overview', pane === 'overview', () => onGo('overview'))}
-            {departments.map((d) =>
+            {live.map((d) =>
               tab(
                 d.key,
                 DEPARTMENT_SHORT[d.key],
@@ -363,7 +514,8 @@ export function CockpitPaneStrip({
                 d.status === 'coming_soon',
               ),
             )}
-            <span aria-hidden className="mx-1 my-2 w-px shrink-0 self-stretch bg-hairline" />
+            <MoreDepartments items={later.map((d) => ({ key: d.key, label: DEPARTMENT_SHORT[d.key] }))} onGo={(key) => onGo('department', { department: key })} />
+            <span aria-hidden className="mx-1 my-2.5 w-px shrink-0 self-stretch bg-hairline" />
             {shared.map((section) => {
               const on = here?.key === section.key;
               const count = sectionBadge(section, badges);
@@ -384,76 +536,49 @@ export function CockpitPaneStrip({
         {/*
           The way through what is waiting: documents first, then the checks
           they answer, then the rest — one press at a time, wherever it is.
+          On a wide screen it lives in the project bar instead.
         */}
-        {waiting && waiting.total > 0 && onReview ? (
-          <button
-            type="button"
-            onClick={onReview}
-            className="mb-1 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-provenance/10 px-2.5 py-1 text-[12px] font-medium text-provenance-ink ring-1 ring-inset ring-provenance/35 hover:bg-provenance/20 coarse:min-h-11"
-          >
-            <span className="size-1.5 rounded-full bg-provenance" aria-hidden />
-            <span className="tabular-nums">{waiting.total}</span> to review
-            <ArrowRight size={12} aria-hidden />
-          </button>
-        ) : null}
+        {waiting && waiting.total > 0 && onReview ? <ReviewPill n={waiting.total} onClick={onReview} compact /> : null}
       </div>
 
       {activeDepartment ? (
-        <div className="py-1.5">
-          <ChipScroller wrap={wrap}>
-            <button
-              type="button"
-              onClick={() => onGo('department', { department: activeDepartment })}
-              aria-current={pane === 'department' ? 'true' : undefined}
-              className={cn('inline-flex shrink-0 items-center rounded-md px-2 py-1 text-[12px] coarse:min-h-11', pane === 'department' ? 'font-semibold text-ink' : 'text-ink-muted hover:text-ink-secondary')}
-            >
-              All work
-            </button>
-            {departmentDefinition(activeDepartment).workstreams.map((w) => {
-              const on = activeWorkstream === w.key;
-              return (
-                <button
-                  key={w.key}
-                  type="button"
-                  onClick={() => onGo(WORKSTREAM_PANE[w.key] ?? 'workstream', { workstream: w.key })}
-                  aria-current={on ? 'true' : undefined}
-                  className={cn(
-                    'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] coarse:min-h-11',
-                    on ? 'font-semibold text-ink' : w.status === 'live' ? 'text-ink-secondary hover:text-ink' : 'text-ink-muted hover:text-ink-secondary',
-                  )}
-                >
-                  {w.label}
-                  {w.status === 'coming_soon' ? <SoonTag /> : null}
-                </button>
-              );
-            })}
-          </ChipScroller>
+        <div className="pb-2 pt-0.5">
+          <Segments
+            wrap={false}
+            items={[
+              { key: 'all', label: 'All work', on: pane === 'department', go: () => onGo('department', { department: activeDepartment }) },
+              ...departmentDefinition(activeDepartment).workstreams.map((w) => ({
+                key: w.key,
+                label: w.label,
+                on: activeWorkstream === w.key,
+                muted: w.status !== 'live',
+                go: () => onGo(WORKSTREAM_PANE[w.key] ?? 'workstream', { workstream: w.key }),
+                extra: w.status === 'coming_soon' ? <SoonTag /> : null,
+              })),
+            ]}
+          />
         </div>
       ) : tabs.length > 1 ? (
-        <div className="py-1.5">
-          <ChipScroller wrap={wrap}>
-            {tabs.map((t) => {
-              const on = paneActive(pane, t.pane);
+        <div className="pb-2 pt-0.5">
+          <Segments
+            wrap={false}
+            items={tabs.map((t) => {
               const count = badgeFor(t.pane, badges);
               const toDecide = waiting ? waitingOnTab(t, waiting.byPane) : 0;
-              return (
-                <button
-                  key={t.pane}
-                  type="button"
-                  onClick={() => onGo(t.pane)}
-                  aria-current={on ? 'true' : undefined}
-                  className={cn(
-                    'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] coarse:min-h-11',
-                    on ? 'font-semibold text-ink' : 'text-ink-muted hover:text-ink-secondary',
-                  )}
-                >
-                  {t.label}
-                  {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
-                  {count != null ? <Count n={count} /> : null}
-                </button>
-              );
+              return {
+                key: t.pane,
+                label: t.label,
+                on: paneActive(pane, t.pane),
+                go: () => onGo(t.pane),
+                extra: (
+                  <>
+                    {toDecide > 0 ? <WaitingCount n={toDecide} label="waiting for you" /> : null}
+                    {count != null ? <Count n={count} /> : null}
+                  </>
+                ),
+              };
             })}
-          </ChipScroller>
+          />
         </div>
       ) : null}
       {/* Inside Checks, which assessment and which scope. */}

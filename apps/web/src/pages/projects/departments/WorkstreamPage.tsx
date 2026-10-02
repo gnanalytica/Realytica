@@ -1,4 +1,6 @@
 import { useMemo } from 'react';
+import { Reveal } from '../../../lib/motion';
+import { DEPARTMENT_ICON } from '../../../components/departments/icons';
 import { Navigate, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { Clock } from 'lucide-react';
 import {
@@ -117,14 +119,22 @@ export default function WorkstreamPage() {
   if (!ws) return <Navigate to={cockpitPath(project.id, 'overview')} replace />;
   if (WORKSTREAM_PANE[ws.key]) return <Navigate to={cockpitPath(project.id, WORKSTREAM_PANE[ws.key]!)} replace />;
   const dept = departmentDefinition(ws.department);
+  const DeptIcon = DEPARTMENT_ICON[ws.department];
 
   return (
     <div className="space-y-4">
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">{dept.label}</p>
-        <h2 className="text-[17px] font-semibold tracking-tight text-ink">{ws.label}</h2>
-        <p className="text-[12px] text-ink-secondary">{ws.purpose}</p>
-      </div>
+      <Reveal>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface text-ink shadow-card ring-1 ring-[var(--ring)]" aria-hidden>
+            <DeptIcon size={18} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[12px] font-medium text-ink-muted">{dept.label}</p>
+            <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-ink">{ws.label}</h2>
+            <p className="mt-0.5 text-[13px] text-ink-secondary">{ws.purpose}</p>
+          </div>
+        </div>
+      </Reveal>
       {ws.status === 'coming_soon' ? (
         <ComingSoon project={project} workstream={ws.key} />
       ) : (

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Sparkles } from 'lucide-react';
+import { Landmark, Sparkles } from 'lucide-react';
 import {
   computeIndicativeValuation,
   rule8Summary,
@@ -252,12 +252,17 @@ export default function Valuation() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Finance &amp; Investment</p>
-          <h2 className="text-[17px] font-semibold tracking-tight text-ink">Valuation</h2>
-          <p className="max-w-[70ch] text-[12px] text-ink-secondary">
-            Compliance, value and what moves it, from what the file holds — the site, the whole project as is or as completed, or a phase. Indicative until a registered valuer certifies it.
-          </p>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface text-ink shadow-card ring-1 ring-[var(--ring)]" aria-hidden>
+            <Landmark size={18} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[12px] font-medium text-ink-muted">Finance &amp; Investment</p>
+            <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-ink">Valuation</h2>
+            <p className="mt-0.5 max-w-[70ch] text-[13px] text-ink-secondary">
+              Compliance, value and what moves it, from what the file holds — the site, the whole project as is or as completed, or a phase. Indicative until a registered valuer certifies it.
+            </p>
+          </div>
         </div>
         <Button variant="primary" icon={<Sparkles size={14} />} onClick={() => void valueProperty()} loading={fill.phase === 'checking'} disabled={filling || busy}>
           Value this property
