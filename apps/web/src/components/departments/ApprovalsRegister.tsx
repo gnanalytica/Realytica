@@ -10,6 +10,13 @@ import {
 } from '@realytica/shared';
 import { Badge, Callout, Card, CardBody, CardHeader, cn, type Tone } from '../ui/kit';
 
+/** 2397 days → "6 years": a lapse reads in the unit it is felt in. */
+function since(days: number): string {
+  if (days < 60) return `${days} day${days === 1 ? '' : 's'}`;
+  if (days < 730) return `${Math.round(days / 30.4)} months`;
+  return `${Math.floor(days / 365.25)} years`;
+}
+
 const STATUS_TONE: Record<ApprovalStatus, Tone> = {
   in_force: 'good',
   expiring: 'warning',
@@ -75,7 +82,7 @@ export function ApprovalsRegister({ project, onOpenDocument }: { project: DdProj
                   <td className="px-2 py-2.5 align-top">
                     <Badge tone={STATUS_TONE[line.status]}>{APPROVAL_STATUS_LABEL[line.status]}</Badge>
                     {line.daysLeft !== null && line.status !== 'in_force' ? (
-                      <p className="mt-0.5 text-micro text-ink-muted">{line.daysLeft < 0 ? `${-line.daysLeft} days ago` : `${line.daysLeft} days left`}</p>
+                      <p className="mt-0.5 text-micro text-ink-muted">{line.daysLeft < 0 ? `${since(-line.daysLeft)} ago` : `${line.daysLeft} days left`}</p>
                     ) : null}
                   </td>
                   <td className="px-2 py-2.5 align-top">

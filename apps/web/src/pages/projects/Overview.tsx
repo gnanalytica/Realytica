@@ -9,7 +9,7 @@ import {
   currentCertified,
   projectDepartments,
   quickAssessment,
-  stageTimeline,
+  stageAndStep,
   type DdProject,
   type DepartmentDefinition,
 } from '@realytica/shared';
@@ -79,9 +79,7 @@ export default function Overview() {
   const { project, setProject } = useOutletContext<ProjectOutlet>();
   const enabled = projectDepartments(project);
   const departments = DEPARTMENTS.filter((d) => enabled.includes(d.key));
-  const timeline = useMemo(() => stageTimeline(project), [project]);
-  const stage = timeline.stages.find((s) => s.key === timeline.currentStage);
-  const subtitle = [[project.location, project.city].filter(Boolean).join(', '), stage ? `${stage.label} · ${LIFECYCLE_STAGE_LABEL[project.currentStage]}` : null].filter(Boolean).join(' · ');
+  const subtitle = [[project.location, project.city].filter(Boolean).join(', '), stageAndStep(project.currentStage)].filter(Boolean).join(' · ');
 
   return (
     <div className="space-y-4">

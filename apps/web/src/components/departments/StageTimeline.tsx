@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Flag, X } from 'lucide-react';
 import {
   SUB_STAGE_LABEL,
+  stageAndStep,
   stageTimeline,
   type DdProject,
   type LifecycleStage,
@@ -30,7 +31,6 @@ export function StageTimeline({ project, onChanged, onOpen, compact = false }: {
   const timeline = useMemo(() => stageTimeline(project), [project]);
   const [picked, setPicked] = useState<PhaseRef | null>(null);
   const markersAt = (step: LifecycleStage) => timeline.markers.filter((m) => m.stage === step);
-  const current = timeline.stages.find((s) => s.key === timeline.currentStage)!;
 
   if (compact) {
     return (
@@ -41,7 +41,7 @@ export function StageTimeline({ project, onChanged, onOpen, compact = false }: {
           className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-1 text-[12px] font-medium text-brand coarse:min-h-11"
         >
           <span className="size-1.5 rounded-full bg-brand" aria-hidden />
-          {current.label} · {SUB_STAGE_LABEL[timeline.current]}
+          {stageAndStep(timeline.current)}
         </button>
         {picked ? <StagePanel project={project} picked={picked} onPick={setPicked} onChanged={onChanged} onOpen={onOpen} timeline={timeline} /> : null}
       </div>
