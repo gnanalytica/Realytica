@@ -635,6 +635,11 @@ export interface EvidenceRecord {
   facts?: import('./document-parse').DocumentFact[];
   /** What the document was read as — "Sale deed", "Encumbrance certificate". */
   documentType?: string;
+  /**
+   * The workstream that owns it, when a person said so. Otherwise it is read
+   * from what the document is; see `documentWorkstream`.
+   */
+  workstream?: string;
   /** How its words were obtained: its own text layer, or OCR of a scan. */
   readMethod?: 'text' | 'ocr' | 'mixed';
   createdAt: string;
@@ -1148,6 +1153,19 @@ export interface ProjectGraphNode {
   origin: ProjectGraphOrigin;
   label: string;
   detail?: string;
+  /**
+   * A stable key the product names this by, on the structural nodes: the
+   * lifecycle stage (`construction`), the department (`legal`), the
+   * workstream (`legal.title`), the approval (`plan_sanction`). Cypher finds
+   * "the Legal department of this project" by it rather than by an id.
+   */
+  key?: string;
+  /**
+   * Where it stands, in the node's own vocabulary: a stage's `done`,
+   * `current` or `ahead`; a workstream's `live` or `coming_soon`; an
+   * approval's `in_force` or `expired`; a quick assessment's verdict.
+   */
+  status?: string;
 }
 
 export type ProjectGraphOrigin = 'derived' | 'authored';
@@ -1444,8 +1462,6 @@ export type ReadingStreamEvent =
       /** Set when the file is already on a row — a filed document read again — so its bytes can be fetched. */
       evidenceId?: string;
       fileId?: string;
-      /** One of the bundled sample documents, fetchable by its file name. */
-      sample?: boolean;
     }
   | { type: 'reading'; event: 'page'; key: string; page: number; of: number }
   | {
@@ -1596,20 +1612,6 @@ export const ENGAGEMENT_STAGE_LABEL: Record<EngagementStage, string> = {
   issued: 'Issued',
 };
 
-/** The commercial facts of an engagement: who asked, for what fee, by when. */
-export interface Engagement {
-  stage: EngagementStage;
-  /** Who the report is for: "Canara Bank, Jayanagar", or the developer by name. */
-  client?: string;
-  /** Agreed fee, in the project's currency. Absent until agreed. */
-  fee?: number;
-  /** The person leading it, as they sign. */
-  lead?: string;
-  /** ISO date the report is due to the client. */
-  dueDate?: string;
-  /** What was asked for, in the client's words: "Screening and TDD". */
-  scope?: string;
-}
 
 export type ProjectRequestStatus = 'draft' | 'sent' | 'answered' | 'cancelled';
 
@@ -1658,16 +1660,8 @@ export interface DdProject {
   reference: string;
   name: string;
   type: ProjectArchetype;
-  /**
-   * A labelled sample engagement, loaded on request to show the product.
-   *
-   * Its people, documents and findings are illustrative. Every surface that
-   * lists or opens a project marks it, so nobody mistakes it for a client
-   * file.
-   */
-  sample?: boolean;
-  /** The firm's engagement on this project: stage, client, fee, lead, due. */
-  engagement?: Engagement;
+  /** The pieces of work clients commission on this project, each drawing on workstreams. */
+  engagements?: import('./engagements').Engagement[];
   /** What the file is waiting on, and from whom. */
   requests?: ProjectRequest[];
   /** One-off data migrations already applied to this stored project. */
@@ -1833,6 +1827,20 @@ export interface DdProject {
   comparables?: import('./comparables').ComparableRecord[];
   /** The last portal search: when, for what, and what it found or why it found nothing. */
   comparableSearch?: import('./comparables').ComparableSearchRecord;
+  /** The departments this project uses. Absent: the firm's default. */
+  departments?: import('./departments').DepartmentKey[];
+  /** Who works on it, and their role in each department. */
+  team?: import('./team').TeamMember[];
+  /** Reports signed by named professionals, each the figure of record for its workstream. */
+  certifiedReports?: import('./certified').CertifiedReport[];
+  /** Construction › Progress: the milestones the work reports against. */
+  milestones?: import('./progress').Milestone[];
+  /** Construction › Progress: the daily site log, mostly from the phone. */
+  siteLog?: import('./progress').SiteLogEntry[];
+  /** What the team should hear about; raised and resolved from the project's state. */
+  alerts?: import('./alerts').ProjectAlert[];
+  /** Links between departments a person drew; the system's own are read on demand. */
+  links?: import('./links').ProjectLink[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1853,8 +1861,15 @@ export interface ProjectSummary {
   overdueActions: number;
   evidenceMissing: number;
   portfolio?: string;
-  sample?: boolean;
-  engagement?: Engagement;
+  /** The engagement the project is mostly working for. */
+  engagement?: import('./engagements').Engagement;
+  /** How many engagements are on it. */
+  engagements?: number;
+  /** Alerts raised and not yet resolved, and how many of them are critical. */
+  openAlerts?: number;
+  criticalAlerts?: number;
+  /** The departments it uses, when it chose its own. */
+  departments?: import('./departments').DepartmentKey[];
   /** Requests sent and not yet answered. */
   waitingOn: number;
   /** Proposals and drafts a person has not yet accepted or rejected. */
@@ -1884,7 +1899,10 @@ export interface CreateProjectInput {
   tenure?: Tenure;
   plot?: PlotAttributes;
   karnataka?: KarnatakaAttributes;
-  engagement?: Engagement;
+  /** The first engagement, when the project is created for one. */
+  engagement?: import('./engagements').CreateEngagementInput;
+  /** The departments this project uses; the firm's default when absent. */
+  departments?: import('./departments').DepartmentKey[];
 }
 
 export interface PatchProjectInput {
@@ -1913,8 +1931,6 @@ export interface PatchProjectInput {
    * of a property when it is two.
    */
   karnataka?: KarnatakaAttributes;
-  /** Patched whole, for the same reason: a stage and a due date go together. */
-  engagement?: Engagement;
 }
 
 export interface CreateAssetInput {

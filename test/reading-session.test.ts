@@ -19,14 +19,12 @@ const start = (over: Record<string, unknown> = {}) =>
   ({ type: 'reading', event: 'start', key: 'doc_1/deed.pdf', fileName: 'deed.pdf', mimeType: 'application/pdf', sizeBytes: 10, index: 0, total: 1, ...over }) as const;
 
 describe('a reading as it streams', () => {
-  it('draws a dropped file from the file itself, a filed one from its row, a sample by name', () => {
+  it('draws a dropped file from the file itself and a filed one from its row', () => {
     const local = new File(['x'], 'deed.pdf', { type: 'application/pdf' });
     const a = applyReadingEvent(newReadingSession(), start({ sizeBytes: local.size }), { localFiles: [local] });
     assert.equal(a.files[0]!.source?.kind, 'local');
     const b = applyReadingEvent(newReadingSession(), start({ evidenceId: 'ev_1', fileId: 'f_1' }));
     assert.deepEqual(b.files[0]!.source, { kind: 'evidence', evidenceId: 'ev_1', fileId: 'f_1' });
-    const c = applyReadingEvent(newReadingSession(), start({ sample: true }));
-    assert.deepEqual(c.files[0]!.source, { kind: 'sample', name: 'deed.pdf' });
   });
 
   it('follows the pages, then the facts, then what only the model added', () => {

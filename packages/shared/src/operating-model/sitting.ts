@@ -272,6 +272,9 @@ export type CockpitPathExtra = SittingRef & {
   actionId?: string;
   assetId?: string;
   page?: string;
+  /** A department (`legal`) or a workstream inside one (`legal.title`). */
+  department?: string;
+  workstream?: string;
 };
 
 export type TalkKind = 'check' | 'scope' | 'dd' | 'evidence' | 'finding' | 'risk' | 'action' | 'asset';

@@ -45,7 +45,13 @@ export interface RegisterUpload {
 /** Scans are the slow part; a big batch reads its text layers and at most this many scans. */
 const MAX_SCANS_PER_BATCH = 6;
 
-export async function readOntoRegister(project: DdProject, uploads: RegisterUpload[], actor: string): Promise<{ read: number }> {
+export async function readOntoRegister(
+  project: DdProject,
+  uploads: RegisterUpload[],
+  actor: string,
+  /** Stop starting new OCR pages after this instant; what was read stands, and the rest can be read again later. */
+  opts: { deadline?: number } = {},
+): Promise<{ read: number }> {
   const cards: ChatProposal[] = [];
   const labels: string[] = [];
   const flagged: string[] = [];
@@ -62,7 +68,7 @@ export async function readOntoRegister(project: DdProject, uploads: RegisterUplo
       sizeBytes: upload.sizeBytes,
       storageKey: upload.storageKey,
     };
-    const read = await readIngestLocally(row, upload.buffer);
+    const read = await readIngestLocally(row, upload.buffer, undefined, { deadline: opts.deadline });
     if (read.read?.method && read.read.method !== 'text') scans += 1;
     const doc = read.read;
     if (!doc || doc.type === 'other') continue;

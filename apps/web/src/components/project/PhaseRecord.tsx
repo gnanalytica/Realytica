@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
-import { CHECK_RESULT_LABEL, phaseCount, phaseRecord, type DdProject, type PhaseItem } from '@realytica/shared';
+import { CHECK_RESULT_LABEL, phaseCount, phaseRecord, type DdProject, type PhaseItem, type PhaseRef } from '@realytica/shared';
 import { Card, CardBody, CardHeader, cn } from '../ui/kit';
 
 function monthDay(iso: string): string {
@@ -75,7 +75,7 @@ export function PhaseRecordCard({
   onClose,
 }: {
   project: DdProject;
-  phase: string;
+  phase: PhaseRef;
   onOpen: PhaseOpen;
   onClose: () => void;
 }) {
@@ -88,7 +88,7 @@ export function PhaseRecordCard({
     <Card className="animate-rise-in">
       <CardHeader
         title={`In ${record.label}`}
-        subtitle={spans || 'The project has not been in this phase.'}
+        subtitle={spans || 'The project has not been here yet.'}
         action={
           <button type="button" onClick={onClose} aria-label="Close the phase" className="rounded-lg p-1.5 text-ink-muted hover:bg-sunken hover:text-ink">
             <X size={15} />

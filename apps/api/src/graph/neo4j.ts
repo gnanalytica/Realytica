@@ -24,8 +24,10 @@
  */
 
 import neo4j, { type Driver } from 'neo4j-driver';
-import type { ProjectGraphEdge, ProjectGraphNode } from '@realytica/shared';
+import type { GraphImpact, ProjectGraphEdge, ProjectGraphNode } from '@realytica/shared';
 import {
+  IMPACT_HOPS,
+  IMPACT_RELATIONS,
   clampGraphHops,
   isProjectNodeKind,
   PROJECT_NODE_KINDS,
@@ -93,7 +95,16 @@ interface NodeRow {
   origin: string;
   label: string;
   detail: string | null;
+  key?: string | null;
+  status?: string | null;
 }
+
+/** The node columns every read returns, aliased the way `toNode` reads them. */
+const NODE_COLUMNS = (n: string) =>
+  `${n}.id AS id, ${n}.kind AS kind, ${n}.layer AS layer, ${n}.origin AS origin, ${n}.label AS label, ${n}.detail AS detail, ${n}.key AS key, ${n}.status AS status`;
+
+/** The same columns as a map projection, for nodes returned inside a list. */
+const NODE_MAP = (n: string) => `${n} { .id, .kind, .layer, .origin, .label, .detail, .key, .status }`;
 
 function toNode(row: NodeRow): ProjectGraphNode {
   const kind = isProjectNodeKind(row.kind) ? row.kind : 'thought';
@@ -104,6 +115,8 @@ function toNode(row: NodeRow): ProjectGraphNode {
     origin: row.origin === 'authored' ? 'authored' : 'derived',
     label: row.label,
     ...(row.detail ? { detail: row.detail } : {}),
+    ...(row.key ? { key: row.key } : {}),
+    ...(row.status ? { status: row.status } : {}),
   };
 }
 
@@ -116,6 +129,8 @@ function nodeParams(projectId: string, nodes: ProjectGraphNode[]): Record<string
     origin: n.origin,
     label: n.label,
     detail: n.detail ?? null,
+    key: n.key ?? null,
+    status: n.status ?? null,
   }));
 }
 
@@ -140,7 +155,8 @@ const WRITE_NODES = `
   UNWIND $rows AS row
   MERGE (n:Ryt { id: row.id })
   SET n.projectId = row.projectId, n.kind = row.kind, n.layer = row.layer,
-      n.origin = row.origin, n.label = row.label, n.detail = row.detail
+      n.origin = row.origin, n.label = row.label, n.detail = row.detail,
+      n.key = row.key, n.status = row.status
   REMOVE n:${[...PROJECT_NODE_KINDS].join(':')}
   REMOVE n:${LAYERS.join(':')}
   REMOVE n:derived:authored
@@ -277,8 +293,7 @@ export const neo4jAdapter: GraphAdapter = {
       const nodeResult = await session.executeRead(tx =>
         tx.run(
           `MATCH (n:Ryt { projectId: $projectId })
-           RETURN n.id AS id, n.kind AS kind, n.layer AS layer, n.origin AS origin,
-                  n.label AS label, n.detail AS detail
+           RETURN ${NODE_COLUMNS('n')}
            ORDER BY n.id`,
           { projectId },
         ),
@@ -315,8 +330,7 @@ export const neo4jAdapter: GraphAdapter = {
           `MATCH (seed:Ryt { projectId: $projectId })
            WHERE seed.id IN $seeds
            MATCH (seed)-[:${REL}*0..${depth}]-(n:Ryt { projectId: $projectId })
-           RETURN DISTINCT n.id AS id, n.kind AS kind, n.layer AS layer, n.origin AS origin,
-                  n.label AS label, n.detail AS detail
+           RETURN DISTINCT ${NODE_COLUMNS('n')}
            ORDER BY n.id`,
           { projectId, seeds: seedIds },
         ),
@@ -331,8 +345,7 @@ export const neo4jAdapter: GraphAdapter = {
              OR (alarm.kind = 'risk' AND toLower(coalesce(alarm.detail, '')) CONTAINS 'critical')
              OR (alarm.kind = 'check' AND (toLower(coalesce(alarm.detail, '')) CONTAINS 'missing_evidence' OR toLower(coalesce(alarm.detail, '')) CONTAINS 'non_compliant'))
            )
-           RETURN DISTINCT alarm.id AS id, alarm.kind AS kind, alarm.layer AS layer, alarm.origin AS origin,
-                  alarm.label AS label, alarm.detail AS detail`,
+           RETURN DISTINCT ${NODE_COLUMNS('alarm')}`,
           { projectId, keep },
         ),
       );
@@ -353,6 +366,96 @@ export const neo4jAdapter: GraphAdapter = {
         builtAt: new Date().toISOString(),
         nodes: nodeRecords.map(r => toNode(r.toObject() as unknown as NodeRow)),
         edges: edgeResult.records.map(r => r.toObject() as unknown as ProjectGraphEdge),
+      };
+    } finally {
+      await session.close();
+    }
+  },
+
+  /*
+   * Two reads. The first walks from the record to the workstreams it sits in
+   * and on along gates and feeds; the second finds what stands on every
+   * workstream touched. Split because the second needs the first's answer as
+   * a list, and one query doing both multiplies its rows past reading.
+   */
+  async impact(projectId: string, nodeId: string): Promise<GraphImpact | null> {
+    const session = openSession();
+    try {
+      const walk = await session.executeRead(tx =>
+        tx.run(
+          `MATCH (x:Ryt { projectId: $projectId, id: $nodeId })
+           OPTIONAL MATCH (d:Ryt { projectId: $projectId })-[r1:${REL}]->(x)
+             WHERE r1.kind IN ['supported_by', 'advances'] AND r1.closedAt IS NULL
+           WITH x, [x] + collect(DISTINCT d) AS seeds
+           UNWIND seeds AS s
+           OPTIONAL MATCH (w:Ryt { projectId: $projectId })-[r2:${REL}]->(s)
+             WHERE w.kind = 'workstream' AND r2.kind = 'holds' AND r2.closedAt IS NULL
+           WITH x, seeds, collect(DISTINCT w) + [s IN seeds WHERE s.kind = 'workstream'] AS home
+           WITH x, home, home + [s IN seeds WHERE s.kind = 'approval'] AS starts
+           UNWIND (CASE WHEN size(starts) = 0 THEN [null] ELSE starts END) AS start
+           OPTIONAL MATCH p = (start)-[:${REL}*1..${IMPACT_HOPS}]->(down:Ryt { projectId: $projectId })
+             WHERE down.kind = 'workstream'
+               AND all(r IN relationships(p) WHERE r.kind IN $relations AND r.closedAt IS NULL)
+           RETURN ${NODE_MAP('x')} AS node, [h IN home | ${NODE_MAP('h')}] AS home,
+                  ${NODE_MAP('down')} AS down, length(p) AS hops, last(relationships(p)).kind AS via`,
+          { projectId, nodeId, relations: [...IMPACT_RELATIONS] },
+        ),
+      );
+      if (walk.records.length === 0) return null;
+      const first = walk.records[0]!;
+      const node = toNode(first.get('node') as NodeRow);
+      const home = new Map<string, ProjectGraphNode>();
+      for (const row of first.get('home') as NodeRow[]) home.set(row.id, toNode(row));
+      const reached = new Map<string, GraphImpact['downstream'][number]>();
+      for (const record of walk.records) {
+        const down = record.get('down') as NodeRow | null;
+        if (!down || home.has(down.id)) continue;
+        const hops = Number(record.get('hops'));
+        const held = reached.get(down.id);
+        if (!held || hops < held.hops) reached.set(down.id, { node: toNode(down), hops, via: record.get('via') as GraphImpact['downstream'][number]['via'] });
+      }
+      const downstream = [...reached.values()].sort((a, b) => a.hops - b.hops || a.node.label.localeCompare(b.node.label));
+      const touched = [...home.keys(), ...reached.keys()];
+
+      const standing = await session.executeRead(tx =>
+        tx.run(
+          `UNWIND $touched AS tid
+           MATCH (t:Ryt { projectId: $projectId, id: tid })
+           OPTIONAL MATCH (e:Ryt { projectId: $projectId })-[r:${REL}]->(t)
+             WHERE r.kind IN ['draws_on', 'certifies', 'assesses'] AND r.closedAt IS NULL
+           WITH t, collect(DISTINCT CASE WHEN e IS NULL THEN null ELSE ${NODE_MAP('e')} END) AS on
+           OPTIONAL MATCH (dept:Ryt { projectId: $projectId })-[rd:${REL}]->(t)
+             WHERE dept.kind = 'department' AND rd.kind = 'has_workstream' AND rd.closedAt IS NULL
+           OPTIONAL MATCH (m:Ryt { projectId: $projectId })-[rm:${REL}]->(dept)
+             WHERE m.kind = 'member' AND rm.kind IN ['leads', 'signs_for'] AND rm.closedAt IS NULL
+           RETURN on,
+                  collect(DISTINCT CASE WHEN m IS NULL THEN null ELSE { person: ${NODE_MAP('m')}, role: rm.kind, department: ${NODE_MAP('dept')} } END) AS people`,
+          { projectId, touched },
+        ),
+      );
+      const engagements = new Map<string, ProjectGraphNode>();
+      const certified = new Map<string, ProjectGraphNode>();
+      const assessments = new Map<string, ProjectGraphNode>();
+      const people = new Map<string, GraphImpact['people'][number]>();
+      for (const record of standing.records) {
+        for (const row of record.get('on') as NodeRow[]) {
+          const n = toNode(row);
+          if (n.kind === 'engagement') engagements.set(n.id, n);
+          else if (n.kind === 'certified_report' && n.status !== 'superseded') certified.set(n.id, n);
+          else if (n.kind === 'quick_assessment') assessments.set(n.id, n);
+        }
+        for (const row of record.get('people') as Array<{ person: NodeRow; role: 'leads' | 'signs_for'; department: NodeRow }>) {
+          people.set(`${row.person.id}|${row.role}|${row.department.id}`, { node: toNode(row.person), role: row.role, department: toNode(row.department) });
+        }
+      }
+      return {
+        node,
+        home: [...home.values()],
+        downstream,
+        engagements: [...engagements.values()],
+        certified: [...certified.values()],
+        assessments: [...assessments.values()],
+        people: [...people.values()],
       };
     } finally {
       await session.close();
@@ -396,6 +499,7 @@ export async function ensureNeo4jSchema(): Promise<void> {
       await tx.run('CREATE INDEX ryt_node_project IF NOT EXISTS FOR (n:Ryt) ON (n.projectId)');
       await tx.run('CREATE INDEX ryt_node_kind IF NOT EXISTS FOR (n:Ryt) ON (n.kind)');
       await tx.run('CREATE INDEX ryt_node_origin IF NOT EXISTS FOR (n:Ryt) ON (n.origin)');
+      await tx.run('CREATE INDEX ryt_node_key IF NOT EXISTS FOR (n:Ryt) ON (n.key)');
       await tx.run(`CREATE INDEX ryt_edge_kind IF NOT EXISTS FOR ()-[r:${REL}]-() ON (r.kind)`);
       await tx.run(`CREATE INDEX ryt_edge_open IF NOT EXISTS FOR ()-[r:${REL}]-() ON (r.closedAt)`);
     });

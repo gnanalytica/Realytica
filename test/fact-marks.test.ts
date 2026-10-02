@@ -4,7 +4,7 @@
  * A fact carries its page and quote; the reader also keeps where each word it
  * read sits, and matches the quote back to those words so the page can be
  * marked — the quote highlighted, the value ringed. Checked on made-up pages
- * for the matching rules, and on the sample documents through the real
+ * for the matching rules, and on the fixture documents through the real
  * reader: a text-layer deed and a scanned EC read by OCR.
  */
 
@@ -73,8 +73,8 @@ describe('placing a fact on its page', () => {
   });
 });
 
-describe('the sample documents, read for real', () => {
-  const sample = (name: string) => readFileSync(path.resolve('apps/api/sample-documents', name));
+describe('the fixture documents, read for real', () => {
+  const sample = (name: string) => readFileSync(path.resolve('test/fixtures/documents', name));
 
   it('places every fact of a text-layer deed, and keeps the words in reading order', async () => {
     const bytes = sample('Sale_Deed_2019_Sy_118-2_Whitefield.pdf');
@@ -117,10 +117,12 @@ describe("the model's notes on a card", () => {
 });
 
 describe('which documents a model is asked about', () => {
-  const file = (read?: { type: string; facts: unknown[] }) => ({ fileName: 'f.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k', ...(read ? { read } : {}) }) as never;
+  const file = (read?: { type: string; facts: unknown[]; confidence?: number }) => ({ fileName: 'f.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k', ...(read ? { read: { confidence: 0.9, ...read } } : {}) }) as never;
 
-  it('only the ones the reader did not understand', () => {
-    assert.equal(needsModelReading(file({ type: 'sale_deed', facts: [{}] })), false, 'a deed read with its facts is filed as read');
+  it('only the ones the reader did not understand, or only half made out', () => {
+    assert.equal(needsModelReading(file({ type: 'sale_deed', facts: [{}, {}, {}, {}] })), false, 'a deed read with its facts is filed as read');
+    assert.equal(needsModelReading(file({ type: 'sale_deed', facts: [{}] })), true, 'one fact off a long scan is a thin reading');
+    assert.equal(needsModelReading(file({ type: 'sale_deed', facts: [{}, {}, {}, {}], confidence: 0.3 })), true, 'a guess at what it is');
     assert.equal(needsModelReading(file({ type: 'other', facts: [{}] })), true, 'not recognised');
     assert.equal(needsModelReading(file({ type: 'encumbrance_certificate', facts: [] })), true, 'nothing read from it — a Kannada scan');
     assert.equal(needsModelReading(file()), true, 'not read at all');

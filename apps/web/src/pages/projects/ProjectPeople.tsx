@@ -44,6 +44,8 @@ import {
 import type { ProjectOutlet } from './ProjectLayout';
 import { NewRequestModal, PROFESSIONAL_ROLES, RequestList } from '../../components/project/RequestsPanel';
 import { formatWhen } from './shared';
+import { TeamRoles } from '../../components/departments/TeamRoles';
+import { PairPhone } from '../../components/departments/PairPhone';
 
 /**
  * Who is on this site.
@@ -288,7 +290,7 @@ function ProjectRequests() {
 }
 
 export default function ProjectPeople() {
-  const { project } = useOutletContext<ProjectOutlet>();
+  const { project, setProject } = useOutletContext<ProjectOutlet>();
   const me = useMe();
   const toast = useToast();
   const { data, error, loading, refresh } = useAsync(() => api.projectPeople(project.id), [project.id]);
@@ -315,11 +317,15 @@ export default function ProjectPeople() {
 
   return (
     <div className="space-y-4">
-      <ProjectRequests />
       {error ? <Callout tone="critical" title="Could not load who is on this project">{error}</Callout> : null}
       {loading && !data ? <Skeleton className="h-32 w-full" /> : null}
+      {data ? <TeamRoles project={project} staff={data.staff} onChanged={setProject} /> : null}
+      <PairPhone />
+      <ProjectRequests />
 
       {data ? (
+        <Disclosure title="Fine-grained access" count={data.people.length}>
+        <div className="space-y-4 p-3">
         <Card>
           <CardHeader
             title="On this project"
@@ -421,9 +427,8 @@ export default function ProjectPeople() {
             })}
           </CardBody>
         </Card>
-      ) : null}
 
-      {mayStaff && data ? (
+      {mayStaff ? (
         <Card>
           <CardHeader
             title="Add somebody"
@@ -470,6 +475,9 @@ export default function ProjectPeople() {
             </Button>
           </CardBody>
         </Card>
+      ) : null}
+        </div>
+        </Disclosure>
       ) : null}
 
       {data && data.staff.length > 0 ? (

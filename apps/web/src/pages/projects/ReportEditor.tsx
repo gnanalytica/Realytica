@@ -28,6 +28,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, FileDown, GripVertical, Link2, Link2Off, Lock, Plus, Printer, Trash2 } from 'lucide-react';
 import {
+  engagementForReport,
   REPORT_BOUND_SOURCES,
   REPORT_KIND_LABEL,
   REPORT_SECTION_STATE_LABEL,
@@ -62,7 +63,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
   const [busy, setBusy] = useState<string | null>(null);
   const [drift, setDrift] = useState<ReportDriftRow[] | null>(null);
   const [issuing, setIssuing] = useState(false);
-  const [signerName, setSignerName] = useState(project.engagement?.lead ?? '');
+  const [signerName, setSignerName] = useState(engagementForReport(project, report.id)?.lead ?? '');
   const [signerRole, setSignerRole] = useState('');
   const approved = report.body.blocks.filter((b) => b.state === 'approved').length;
   const unapproved = report.body.blocks.length - approved;

@@ -77,7 +77,6 @@ export function patchProject(project: DdProject, input: PatchProjectInput, actor
   if (input.tenure !== undefined) project.tenure = input.tenure;
   if (input.plot !== undefined) project.plot = input.plot;
   if (input.karnataka !== undefined) project.karnataka = input.karnataka;
-  if (input.engagement !== undefined) project.engagement = input.engagement;
   touch(project, at);
   project.audit.push({
     id: id('aud'),

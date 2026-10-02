@@ -29,6 +29,8 @@ before(async () => {
   dataDir = await mkdtemp(path.join(tmpdir(), 'realytica-store-'));
   process.env.REALYTICA_DATA_DIR = dataDir;
   const mod = await import('../apps/api/src/store');
+  // The store keeps its data in a generation folder inside the data directory.
+  dataDir = mod.DATA_DIR;
   store = mod.store;
   initStore = mod.initStore;
   await initStore();

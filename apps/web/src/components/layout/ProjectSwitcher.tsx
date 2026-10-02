@@ -70,7 +70,7 @@ export default function ProjectSwitcher() {
   const label = current
     ? current.name
     : creating
-      ? 'New engagement'
+      ? 'New project'
       : 'All projects';
   const reference = current?.reference;
 
@@ -144,7 +144,7 @@ export default function ProjectSwitcher() {
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-ink hover:bg-sunken"
             >
               <Plus size={14} className="text-ink-muted" />
-              New engagement
+              New project
             </button>
             <button
               type="button"

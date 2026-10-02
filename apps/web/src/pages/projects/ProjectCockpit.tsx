@@ -2,7 +2,6 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Link, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
 import {
-  LIFECYCLE_STAGE_LABEL,
   PROJECT_HEALTH_LABEL,
   cockpitPath,
   graphNodeLabels,
@@ -27,6 +26,10 @@ import {
   type WaitingEntry,
 } from '@realytica/shared';
 import { api, type ProjectChatResponse } from '../../lib/api';
+import { uploadLargeDocument } from '../../lib/workspace-api';
+
+/** Past this, a document goes up in parts: a serverless request carries 4.5 MB at most. */
+const LARGE_FILE_BYTES = 3.5 * 1024 * 1024;
 import {
   applyReadingEvent,
   finishReading,
@@ -46,10 +49,12 @@ import { healthTone } from './shared';
 import { RouteErrorBoundary } from '../../components/layout/ErrorBoundary';
 import type { ProjectOutlet } from './ProjectLayout';
 import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
-import { CockpitPaneStrip, paneLabel } from './cockpit/rail';
+import { CockpitPaneStrip, WORKSTREAM_PANE, paneLabel } from './cockpit/rail';
+import { StageTimeline } from '../../components/departments/StageTimeline';
+import { AlertsBell } from '../../components/departments/AlertsBell';
+import type { PhaseOpen } from '../../components/project/PhaseRecord';
 import { SittingChip, SittingDock } from './cockpit/SittingPeek';
 import { TurnWaiting, UndoBar, WaitingHere } from './cockpit/Waiting';
-import { SampleBadge } from '../../components/project/ProjectPanels';
 
 function sameSitting(a: TalkSitting, b: TalkSitting): boolean {
   return (
@@ -158,7 +163,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
-  const params = useParams<{ ddId?: string; scopeId?: string }>();
+  const params = useParams<{ ddId?: string; scopeId?: string; department?: string; workstream?: string }>();
   const [searchParams] = useSearchParams();
   const pane: ProjectCockpitPane = paneFromProjectPath(location.pathname);
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
@@ -256,6 +261,16 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       goPane('graph', { node: id });
     },
     [project, goPane],
+  );
+
+  /* A record opened from the stage look-back: decisions and reports have panes of their own. */
+  const openFromStage: PhaseOpen = useCallback(
+    (kind, id) => {
+      if (kind === 'decision') goPane('decisions');
+      else if (kind === 'report') goPane('reports');
+      else openCited(id);
+    },
+    [goPane, openCited],
   );
 
   const applyResult = useCallback(
@@ -412,9 +427,22 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         }
       };
       try {
-        const response = files?.length
-          ? await api.projectChatFiles(project.id, { question, viewContext: pane, files, sitting, sessionId }, { onStep, onReading, signal: ac.signal })
-          : await api.projectChat(project.id, { question, viewContext: pane, sitting, sessionId }, { onStep, onReading, signal: ac.signal });
+        /*
+         * A document too big for one request — a 70 MB merged title bundle —
+         * goes into the vault in parts first; the chat then reads what was
+         * filed rather than carrying the bytes itself.
+         */
+        const big = (files ?? []).filter((f) => f.size >= LARGE_FILE_BYTES);
+        const small = (files ?? []).filter((f) => f.size < LARGE_FILE_BYTES);
+        for (const [n, file] of big.entries()) {
+          setLiveLabel(`Filing ${file.name} in parts (${n + 1} of ${big.length})…`);
+          await uploadLargeDocument(project.id, file, { onProgress: (share) => setLiveLabel(`Filing ${file.name}: ${Math.round(share * 100)}%`) });
+        }
+        if (big.length) setLiveLabel(null);
+        const ask = question.trim() || (big.length && !small.length ? 'Read the filed documents' : question);
+        const response = small.length
+          ? await api.projectChatFiles(project.id, { question: ask, viewContext: pane, files: small, sitting, sessionId }, { onStep, onReading, signal: ac.signal })
+          : await api.projectChat(project.id, { question: ask, viewContext: pane, sitting, sessionId }, { onStep, onReading, signal: ac.signal });
         applyResult(response);
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') return;
@@ -612,7 +640,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       // does is the bundled sample set, read through the same path as a real
       // upload. Never on a client file, where it would put invented deeds
       // beside real ones.
-      if (project.sample) rows.push('Use the sample documents');
       // Same predicate as the next step itself, so the chip and the step
       // never disagree about whether the file is bare.
       if (fileIsBare(project)) rows.push(next.title);
@@ -697,7 +724,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
        * "Set owner to Priya Shah" as buttons you can actually press. The same
        * two suggestions, twice, one of them unclickable.
        */
-      placeholder={`Ask about ${paneLabel(pane)}…`}
+      placeholder={`Ask about ${paneLabel(pane, params)}…`}
       dock={
         dockTalk && !dockIsEcho && (dockTalk.kind === 'check' || dockTalk.kind === 'scope') ? (
           <SittingDock
@@ -853,12 +880,9 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           </Link>
           {/* The name is the top bar's switcher, forty pixels up; this row
               carries the way back and the state of the file. */}
-          <div className="flex min-w-0 items-center gap-2">
-            <Badge tone="neutral">{LIFECYCLE_STAGE_LABEL[project.currentStage]}</Badge>
-            <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
-            <SampleBadge project={project} />
-          </div>
-          <div className="flex-grow" />
+          <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} />
+          <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
+          <AlertsBell project={project} onChanged={setProject} onOpenWorkstream={(key) => goPane(WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })} />
           <button
             type="button"
             onClick={() => setCommandOpen(true)}
@@ -897,9 +921,10 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             <ChevronLeft size={16} />
           </Link>
           <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">
-            {mobileSurface === 'chat' ? 'Chat' : paneLabel(pane)}
+            {mobileSurface === 'chat' ? 'Chat' : paneLabel(pane, params)}
           </p>
-          <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
+          <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} compact />
+          <AlertsBell project={project} onChanged={setProject} onOpenWorkstream={(key) => goPane(WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })} />
           <button
             type="button"
             onClick={() => setCommandOpen(true)}
@@ -1013,6 +1038,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
                     project={project}
                     ddId={params.ddId}
                     scopeId={params.scopeId}
+                    department={params.department}
+                    workstream={params.workstream}
                     overdue={overdue}
                     pendingDrafts={pendingDrafts}
                     onGo={goPane}
@@ -1051,6 +1078,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
                   project={project}
                   ddId={params.ddId}
                   scopeId={params.scopeId}
+                  department={params.department}
+                  workstream={params.workstream}
                   overdue={overdue}
                   pendingDrafts={pendingDrafts}
                   onGo={goPane}
@@ -1091,7 +1120,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               )}
             >
               <LayoutDashboard size={18} />
-              {paneLabel(pane)}
+              {paneLabel(pane, params)}
             </button>
           </nav>
         </div>

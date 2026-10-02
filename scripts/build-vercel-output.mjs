@@ -156,8 +156,7 @@ async function copyPackageTree(name, fromDir, into, seen = new Set()) {
 
 /**
  * What document reading needs at runtime, beside the bundle: Tesseract and
- * its tree, the OCR language data (so nothing is fetched from a CDN), and the
- * sample documents the chat can load for somebody trying the product.
+ * its tree, and the OCR language data, so nothing is fetched from a CDN.
  */
 async function copyDocumentReading() {
   const apiDir = path.join(root, 'apps/api');
@@ -169,7 +168,6 @@ async function copyDocumentReading() {
     const data = path.join(path.dirname(require.resolve(`@tesseract.js-data/${lang}/package.json`)), '4.0.0_best_int', `${lang}.traineddata.gz`);
     await fsp.copyFile(data, path.join(langDir, `${lang}.traineddata.gz`));
   }
-  await fsp.cp(path.join(apiDir, 'sample-documents'), path.join(functionDir, 'sample-documents'), { recursive: true });
 }
 
 async function copyStatic() {

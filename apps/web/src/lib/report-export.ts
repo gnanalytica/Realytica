@@ -1,4 +1,5 @@
 import {
+  engagementForReport,
   REPORT_KIND_LABEL,
   readReportBlock,
   reportIsFrozen,
@@ -60,7 +61,7 @@ export async function exportReportDocx(project: DdProject, report: GeneratedRepo
       border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BBBBBB', space: 6 } },
       children: [
         new TextRun({ text: `${REPORT_KIND_LABEL[report.kind]} · ${project.reference} · ${dated}`, color: '555555' }),
-        ...(project.engagement?.client ? [new TextRun({ text: ` · For ${project.engagement.client}`, color: '555555' })] : []),
+        ...(engagementForReport(project, report.id)?.client ? [new TextRun({ text: ` · For ${engagementForReport(project, report.id)!.client}`, color: '555555' })] : []),
       ],
     }),
   ];

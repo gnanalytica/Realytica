@@ -86,6 +86,24 @@ const IMAGE_EXT = /\.(?:jpe?g|png|gif|bmp|tiff?|webp|pnm|ppm|pgm)$/i;
 /** A page with fewer characters than this has no usable text layer. */
 const MIN_TEXT_CHARS = 40;
 
+/**
+ * Whether a text layer is words or a font's private codes.
+ *
+ * Karnataka's online encumbrance certificates are typeset in a Kannada font
+ * with no Unicode map, so their text layer is control characters and stray
+ * punctuation: plenty of characters, none of them words. Counting characters
+ * alone took that for text and read nothing. A layer is legible when most of
+ * it is letters and digits, in any script, and almost none of it is control
+ * codes.
+ */
+export function legibleText(text: string): boolean {
+  const chars = text.replace(/\s/g, '');
+  if (chars.length < MIN_TEXT_CHARS) return false;
+  const letters = (chars.match(/[\p{L}\p{N}]/gu) ?? []).length;
+  const control = (chars.match(/[\u0000-\u001f\u007f-\u009f\ufffd]/g) ?? []).length;
+  return control / chars.length < 0.05 && letters / chars.length > 0.55;
+}
+
 /* -------------------------------------------------------------------- */
 /* pdf.js                                                                */
 /* -------------------------------------------------------------------- */
@@ -656,6 +674,11 @@ export async function readDocumentText(
         text = '';
       }
       const outOfTime = options.deadline !== undefined && Date.now() > options.deadline;
+      // A layer of a font's private codes is no layer: it is cleared and the page read as a scan.
+      if (!legibleText(text) && text.replace(/\s/g, '').length >= MIN_TEXT_CHARS) {
+        text = '';
+        words = [];
+      }
       if (outOfTime && text.replace(/\s/g, '').length < MIN_TEXT_CHARS) cut = true;
       if (text.replace(/\s/g, '').length < MIN_TEXT_CHARS && ocrPages.length < maxOcrPages && !outOfTime) {
         // No usable text layer: a scan. Read the page image instead.

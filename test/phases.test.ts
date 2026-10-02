@@ -42,7 +42,7 @@ function journey(): DdProject {
 describe('the phase of a moment', () => {
   it('is the stage the project was in then', () => {
     const p = journey();
-    assert.equal(phaseAt(p, T(5)), 'opportunity');
+    assert.equal(phaseAt(p, T(5)), 'opportunity_site');
     assert.equal(phaseAt(p, T(10)), 'acquisition', 'a change takes effect at its own moment');
     assert.equal(phaseAt(p, T(25)), 'design');
     assert.equal(phaseAt(p, T(40)), 'acquisition');
@@ -50,8 +50,9 @@ describe('the phase of a moment', () => {
 
   it('counts every time the project was in a phase', () => {
     const p = journey();
-    assert.deepEqual(phaseSpans(p, 'acquisition'), [{ from: T(10), to: T(20) }, { from: T(30) }]);
-    assert.deepEqual(phaseSpans(p, 'handover'), [], 'never reached');
+    assert.deepEqual(phaseSpans(p, { kind: 'step', key: 'acquisition' }), [{ from: T(10), to: T(20) }, { from: T(30) }]);
+    assert.deepEqual(phaseSpans(p, { kind: 'step', key: 'handover' }), [], 'never reached');
+    assert.deepEqual(phaseSpans(p, { kind: 'stage', key: 'pre_development' }), [{ from: T(1), to: T(20) }, { from: T(30) }], 'opportunity and acquisition are one stage');
   });
 });
 
@@ -67,14 +68,17 @@ describe('what happened in a phase', () => {
     const action = addAction(p, { title: 'Chase the corrected khata', kind: 'evidence_request', owner: 'tester', priority: 'medium' }, 'tester');
     action.createdAt = T(22);
 
-    const acquisition = phaseRecord(p, 'acquisition');
+    const acquisition = phaseRecord(p, { kind: 'step', key: 'acquisition' });
     assert.deepEqual(acquisition.assessments.map((a) => a.title), ['Acquisition']);
     assert.deepEqual(acquisition.findings.map((f) => f.title), ['Khata in a predecessor name']);
     assert.equal(acquisition.actions.length, 0, 'the action was raised during design');
     assert.equal(acquisition.label, 'Acquisition');
 
-    assert.deepEqual(phaseRecord(p, 'opportunity').findings.map((f) => f.title), ['Encroachment on the east boundary']);
-    assert.deepEqual(phaseRecord(p, 'design').actions.map((a) => a.title), ['Chase the corrected khata']);
-    assert.equal(phaseCount(phaseRecord(p, 'handover')), 0);
+    assert.deepEqual(phaseRecord(p, { kind: 'step', key: 'opportunity_site' }).findings.map((f) => f.title), ['Encroachment on the east boundary']);
+    assert.deepEqual(phaseRecord(p, { kind: 'step', key: 'design' }).actions.map((a) => a.title), ['Chase the corrected khata']);
+    assert.equal(phaseCount(phaseRecord(p, { kind: 'step', key: 'handover' })), 0);
+    const pre = phaseRecord(p, { kind: 'stage', key: 'pre_development' });
+    assert.deepEqual(pre.findings.map((f) => f.title).sort(), ['Encroachment on the east boundary', 'Khata in a predecessor name'], 'the whole stage holds both steps');
+    assert.equal(pre.label, 'Pre-development');
   });
 });

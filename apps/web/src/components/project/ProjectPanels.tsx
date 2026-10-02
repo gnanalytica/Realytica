@@ -14,11 +14,10 @@ import {
   Waypoints,
 } from 'lucide-react';
 import {
-  LIFECYCLE_DISPLAY,
   LIFECYCLE_STAGE_LABEL,
   REPORT_KIND_LABEL,
   cockpitPath,
-  lifecycleDisplayIndex,
+  currentEngagement,
   waitingOn,
   type DdProject,
   type FindingRecord,
@@ -98,117 +97,6 @@ function Avatar({ name, className }: { name: string; className?: string }) {
 /* Lifecycle                                                             */
 /* ==================================================================== */
 
-/**
- * The nine displayed stages, with the date each was reached.
- *
- * A stage is dated by the first time the project entered any stage it
- * groups, read off the stage history; a stage nobody has reached has no date,
- * because a planned date is a claim this file does not hold.
- */
-export function LifecycleStepper({
-  project,
-  className,
-  picked,
-  onPick,
-}: {
-  project: DdProject;
-  className?: string;
-  /** The phase being looked back at. */
-  picked?: string | null;
-  /** Look back at a phase the project has been in. Without it the strip is a picture. */
-  onPick?: (phase: string) => void;
-}) {
-  const current = lifecycleDisplayIndex(project.currentStage);
-  // A phase the project has been in, even one it later went back past, can be opened.
-  const visited = new Set(
-    project.stageHistory.filter((s) => s.subject === 'project').map((s) => LIFECYCLE_DISPLAY[lifecycleDisplayIndex(s.stage)]!.key),
-  );
-  const reached = LIFECYCLE_DISPLAY.map((group) => {
-    const dates = project.stageHistory
-      .filter((s) => group.stages.includes(s.stage))
-      .map((s) => s.effectiveAt)
-      .sort();
-    return dates[0];
-  });
-  return (
-    <Card className={className}>
-      <CardHeader
-        title="Lifecycle"
-        subtitle={`Stage ${current + 1} of ${LIFECYCLE_DISPLAY.length} · ${LIFECYCLE_STAGE_LABEL[project.currentStage]}${reached[current] ? ` since ${monthYear(reached[current])}` : ''}`}
-      />
-      <CardBody className="overflow-x-auto">
-        <ol className="grid min-w-[640px] grid-cols-9">
-          {LIFECYCLE_DISPLAY.map((group, i) => {
-            const past = i < current;
-            const now = i === current;
-            const open = Boolean(onPick) && (past || now || visited.has(group.key));
-            const on = picked === group.key;
-            return (
-              <li key={group.key} className="relative flex flex-col items-center gap-1.5 text-center">
-                <span className="h-4 font-mono text-[11px] text-ink-muted">{past || now ? monthYear(reached[i]) : ''}</span>
-                <div className="relative flex h-4 w-full items-center justify-center">
-                  {i > 0 ? (
-                    <span
-                      aria-hidden
-                      className={cn(
-                        'absolute left-0 right-1/2 top-1/2 -translate-y-1/2 border-t-2',
-                        i <= current ? 'border-ink' : 'border-dashed border-[var(--ring)]',
-                      )}
-                    />
-                  ) : null}
-                  {i < LIFECYCLE_DISPLAY.length - 1 ? (
-                    <span
-                      aria-hidden
-                      className={cn(
-                        'absolute left-1/2 right-0 top-1/2 -translate-y-1/2 border-t-2',
-                        i < current ? 'border-ink' : 'border-dashed border-[var(--ring)]',
-                      )}
-                    />
-                  ) : null}
-                  <span
-                    className={cn(
-                      'relative z-10 rounded-full',
-                      now
-                        ? 'h-3.5 w-3.5 bg-surface ring-[3px] ring-ink'
-                        : past
-                          ? 'h-2.5 w-2.5 bg-ink'
-                          : 'h-2.5 w-2.5 bg-surface ring-2 ring-[var(--ring)]',
-                    )}
-                  />
-                </div>
-                {open ? (
-                  <button
-                    type="button"
-                    onClick={() => onPick!(group.key)}
-                    aria-pressed={on}
-                    title={`What was done in ${group.label}`}
-                    className={cn(
-                      'rounded-md px-1.5 text-[12px] leading-tight underline-offset-2 hover:underline coarse:min-h-11',
-                      now ? 'font-semibold text-ink' : 'text-ink-secondary',
-                      on && 'bg-brand-soft text-brand',
-                    )}
-                  >
-                    {group.label}
-                  </button>
-                ) : (
-                  <span className={cn('text-[12px] leading-tight', now ? 'font-semibold text-ink' : past ? 'text-ink-secondary' : 'text-ink-muted')}>
-                    {group.label}
-                  </span>
-                )}
-                {now ? <span className="rounded bg-ink px-1.5 text-[10px] font-medium text-ink-inverse">Current</span> : null}
-              </li>
-            );
-          })}
-        </ol>
-      </CardBody>
-    </Card>
-  );
-}
-
-/* ==================================================================== */
-/* Key facts                                                             */
-/* ==================================================================== */
-
 export function KeyFacts({ project, className }: { project: DdProject; className?: string }) {
   const guidance = project.revenueMap?.anchor;
   const rows: Array<[string, ReactNode]> = [];
@@ -218,9 +106,10 @@ export function KeyFacts({ project, className }: { project: DdProject; className
   if (extent) rows.push(['Extent', extent]);
   if (project.builtUpAreaSqm) rows.push(['Built-up', `${Math.round(project.builtUpAreaSqm).toLocaleString('en-IN')} m²`]);
   if (project.description) rows.push(['Scheme', project.description]);
-  if (project.engagement?.client) rows.push(['Client', project.engagement.client]);
+  const engagement = currentEngagement(project);
+  if (engagement?.client) rows.push(['Client', engagement.client]);
   if (project.developer) rows.push(['Developer', project.developer]);
-  if (project.engagement?.scope) rows.push(['Engagement', project.engagement.scope]);
+  if (engagement) rows.push(['Engagement', engagement.scope ?? engagement.title]);
   if (guidance) {
     rows.push([
       'Guidance value',
@@ -241,159 +130,6 @@ export function KeyFacts({ project, className }: { project: DdProject; className
         </dl>
       </CardBody>
     </Card>
-  );
-}
-
-/* ==================================================================== */
-/* View tiles                                                            */
-/* ==================================================================== */
-
-interface ViewTileSpec {
-  pane: ProjectCockpitPane;
-  label: string;
-  icon: typeof FileText;
-  chip?: { tone: 'critical' | 'warning' | 'good' | 'neutral' | 'info'; text: string };
-  headline?: string;
-  detail: string;
-}
-
-export function viewTiles(project: DdProject): ViewTileSpec[] {
-  const onFile = project.evidence.filter(
-    (e) => e.attachments.length > 0 || e.status === 'received' || e.status === 'validated' || e.status === 'used',
-  ).length;
-  const missing = project.evidence.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested').length;
-  const contradictions = project.lastScreenResult?.titleGraph?.contradictions.length ?? 0;
-
-  const map = project.revenueMap;
-  const siteAttention = map ? map.factors.filter((f) => f.severity === 'critical' || f.severity === 'high').length : 0;
-
-  const valued = [...project.valuationRuns].reverse().find((r) => r.status !== 'superseded' && r.indicatedValue > 0);
-
-  const open = openFindings(project);
-  const critical = open.filter((f) => f.severity === 'critical').length;
-  const attention = open.filter((f) => f.severity === 'high' || f.severity === 'medium').length;
-  const checks = project.assessments.flatMap((a) => a.scopes.flatMap((s) => s.checks));
-  const checked = checks.filter((c) => c.result !== 'pending').length;
-  // Values read off documents land on checks before anyone rules on them.
-  const withValues = checks.filter(
-    (c) => c.result === 'pending' && Object.values(c.fields ?? {}).some((v) => v.value !== null && v.value !== ''),
-  ).length;
-
-  const requestsOpen = (project.requests ?? []).filter((r) => r.status === 'sent').length;
-  const requestsDone = (project.requests ?? []).filter((r) => r.status === 'answered').length;
-
-  const report = project.reports.at(-1);
-
-  return [
-    {
-      pane: 'evidence',
-      label: 'Documents',
-      icon: FileStack,
-      chip: contradictions ? { tone: 'warning', text: `${contradictions} contradiction${contradictions === 1 ? '' : 's'}` } : undefined,
-      detail: `${onFile} on file · ${missing} still expected`,
-    },
-    {
-      pane: 'visits',
-      label: 'Site',
-      icon: MapPin,
-      chip: map ? (siteAttention ? { tone: 'warning', text: `${siteAttention} attention` } : { tone: 'good', text: 'Read' }) : undefined,
-      detail: map ? `Revenue map read ${new Date(map.readAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Revenue map not read yet',
-    },
-    {
-      pane: 'valuation',
-      label: 'Value',
-      icon: Building2,
-      headline: valued ? `${money(valued.low || valued.indicatedValue, project.currency, { compact: true })} – ${money(valued.high || valued.indicatedValue, project.currency, { compact: true })}` : undefined,
-      detail: valued ? `Indicative · ${valued.signOff === 'unsigned' ? 'not signed' : valued.signOff.replaceAll('_', ' ')}` : 'No figure yet · record rates to run it',
-    },
-    {
-      pane: 'dd',
-      label: 'Technical DD',
-      icon: ScrollText,
-      chip: critical ? { tone: 'critical', text: `${critical} blocker${critical === 1 ? '' : 's'}` } : attention ? { tone: 'warning', text: `${attention} attention` } : undefined,
-      detail: checks.length
-        ? `${checked} of ${checks.length} checks recorded${withValues ? ` · values on ${withValues} more` : ''}`
-        : 'No assessment started',
-    },
-    {
-      pane: 'people',
-      label: 'People',
-      icon: Users,
-      detail: requestsOpen || requestsDone ? `${requestsOpen} request${requestsOpen === 1 ? '' : 's'} open · ${requestsDone} answered` : 'No requests yet',
-    },
-    {
-      pane: 'reports',
-      label: 'Report',
-      icon: FileText,
-      headline: report ? REPORT_KIND_LABEL[report.kind] : undefined,
-      detail: report ? reportCounts(project) : 'No report yet',
-    },
-    {
-      pane: 'graph',
-      label: 'Evidence graph',
-      icon: Waypoints,
-      detail: 'Trace any finding to the page behind it',
-    },
-  ];
-}
-
-/** "1 issued · 1 in draft": what went out, and what is still being written. */
-function reportCounts(project: DdProject): string {
-  const issued = project.reports.filter((r) => r.status === 'issued').length;
-  const drafts = project.reports.length - issued;
-  return [issued ? `${issued} issued` : null, drafts ? `${drafts} in draft` : null].filter(Boolean).join(' · ');
-}
-
-export function ViewTiles({
-  project,
-  className,
-  columns = 'dashboard',
-}: {
-  project: DdProject;
-  className?: string;
-  columns?: 'dashboard' | 'canvas';
-}) {
-  const tiles = viewTiles(project);
-  return (
-    <div
-      className={cn(
-        'grid gap-3',
-        columns === 'dashboard'
-          ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7'
-          : 'grid-cols-1 [@container(min-width:30rem)]:grid-cols-2',
-        className,
-      )}
-    >
-      {tiles.map((tile) => {
-        const Icon = tile.icon;
-        return (
-          <Link
-            key={tile.pane}
-            to={cockpitPath(project.id, tile.pane)}
-            className="group flex min-h-[7.5rem] flex-col gap-2 rounded-xl bg-surface p-3.5 ring-1 ring-[var(--ring)] shadow-card transition-colors hover:bg-sunken/60"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2 text-[13px] font-semibold text-ink">
-                <Icon size={15} className="text-ink-secondary" />
-                {tile.label}
-              </span>
-              <ChevronRight size={15} className="text-ink-muted transition-transform group-hover:translate-x-0.5" />
-            </div>
-            {tile.chip ? (
-              <Badge
-                tone={tile.chip.tone}
-                className="self-start"
-                icon={tile.chip.tone === 'critical' ? <CircleAlert size={11} /> : tile.chip.tone === 'warning' ? <TriangleAlert size={11} /> : undefined}
-              >
-                {tile.chip.text}
-              </Badge>
-            ) : null}
-            {tile.headline ? <p className="text-[14px] font-semibold text-ink">{tile.headline}</p> : null}
-            <p className="mt-auto text-[12px] leading-snug text-ink-secondary">{tile.detail}</p>
-          </Link>
-        );
-      })}
-    </div>
   );
 }
 
@@ -564,18 +300,6 @@ export function RecentActivityCard({ project, className, limit = 5 }: { project:
         )}
       </CardBody>
     </Card>
-  );
-}
-
-export function SampleBadge({ project }: { project: DdProject }) {
-  if (!project.sample) return null;
-  return (
-    <span
-      title="A labelled sample engagement. Its people, documents and findings are illustrative."
-      className="inline-flex items-center rounded-md border border-dashed border-ink-muted px-1.5 py-0.5 text-[11px] font-medium text-ink-secondary"
-    >
-      Sample data
-    </span>
   );
 }
 

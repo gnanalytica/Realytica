@@ -7,6 +7,15 @@ import type { Transform } from '../../../components/canvas/Canvas';
 import { useMeasure } from '../../../components/charts/primitives';
 
 const KIND_ORDER: ProjectGraphNode['kind'][] = [
+  // How the work is organised comes first: the stages, the departments and
+  // their workstreams, who works there, and the engagements drawing on them.
+  'stage',
+  'department',
+  'workstream',
+  'member',
+  'engagement',
+  'quick_assessment',
+  'certified_report',
   'project',
   // The property itself, left of the workflow that examines it — the land,
   // the people, the paper and the permissions come before the checks.
@@ -25,6 +34,8 @@ const KIND_ORDER: ProjectGraphNode['kind'][] = [
   // came from, a sheet is one placed on the ground.
   'site_visit',
   'sheet',
+  'milestone',
+  'site_entry',
   'contradiction',
   'finding',
   'risk',
@@ -37,6 +48,15 @@ const KIND_ORDER: ProjectGraphNode['kind'][] = [
 ];
 
 const KIND_LABEL: Record<ProjectGraphNode['kind'], string> = {
+  stage: 'Stages',
+  department: 'Departments',
+  workstream: 'Workstreams',
+  member: 'People on it',
+  engagement: 'Engagements',
+  quick_assessment: 'Quick assessments',
+  certified_report: 'Certified reports',
+  milestone: 'Milestones',
+  site_entry: 'Site log',
   project: 'Project',
   parcel: 'Land',
   party: 'People',
@@ -63,6 +83,15 @@ const KIND_LABEL: Record<ProjectGraphNode['kind'], string> = {
 };
 
 const KIND_TONE: Record<ProjectGraphNode['kind'], string> = {
+  stage: 'var(--ink-muted, var(--axis))',
+  department: 'var(--brand)',
+  workstream: 'var(--brand)',
+  member: 'var(--axis)',
+  engagement: 'var(--status-warning)',
+  quick_assessment: 'var(--status-info, var(--axis))',
+  certified_report: 'var(--status-good, var(--brand))',
+  milestone: 'var(--status-info, var(--axis))',
+  site_entry: 'var(--status-info, var(--axis))',
   project: 'var(--brand)',
   parcel: 'var(--status-good, var(--brand))',
   party: 'var(--status-good, var(--brand))',

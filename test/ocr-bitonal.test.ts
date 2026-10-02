@@ -22,7 +22,7 @@ after(() => releaseOcr());
 
 /** The sample scan's page image, as greyscale pixels. */
 async function samplePage(): Promise<{ width: number; height: number; grey: Uint8Array }> {
-  const bytes = new Uint8Array(readFileSync(path.resolve('apps/api/sample-documents/SCANNED_Encumbrance_Certificate.pdf')));
+  const bytes = new Uint8Array(readFileSync(path.resolve('test/fixtures/documents/SCANNED_Encumbrance_Certificate.pdf')));
   const img = (await firstPageImage(bytes))!;
   const stride = img.kind === 3 ? 4 : 3;
   const grey = new Uint8Array(img.width * img.height);

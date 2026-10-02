@@ -2,6 +2,7 @@ import { put, head, list, del, get } from '@vercel/blob';
 import type { HeadBlobResult, ListBlobResultBlob } from '@vercel/blob';
 import type { StoreData } from '../store';
 import type { StorageAdapter } from './types';
+import { STORAGE_NAMESPACE } from './namespace';
 
 /**
  * The Vercel Blob-backed `StorageAdapter` — used in place of the filesystem
@@ -10,12 +11,12 @@ import type { StorageAdapter } from './types';
  * configured never resolves `@vercel/blob` at all.
  *
  * The case store lives at one stable pathname; documents live under
- * `uploads/<caseId>/<key>`, mirroring the filesystem layout closely enough
+ * `<namespace>/uploads/<caseId>/<key>`, mirroring the filesystem layout closely enough
  * that `deleteCaseDocuments` can list-by-prefix and delete.
  */
 
-const STORE_PATHNAME = 'store/realytica.json';
-const UPLOADS_PREFIX = 'uploads/';
+const STORE_PATHNAME = `${STORAGE_NAMESPACE}/store/realytica.json`;
+const UPLOADS_PREFIX = `${STORAGE_NAMESPACE}/uploads/`;
 
 function documentPathname(caseId: string, key: string): string {
   return `${UPLOADS_PREFIX}${caseId}/${key}`;

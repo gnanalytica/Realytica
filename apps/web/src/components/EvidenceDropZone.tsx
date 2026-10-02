@@ -3,6 +3,12 @@ import { UploadCloud } from 'lucide-react';
 import { matchFilesToEvidence, type EvidenceFileMatch, type EvidenceRecord } from '@realytica/shared';
 import { Badge, Button, Modal, Select, cn, useToast } from './ui/kit';
 import { api } from '../lib/api';
+import { uploadLargeDocument } from '../lib/workspace-api';
+
+/** A file at least this large goes up in parts: a serverless request carries 4.5 MB at most. */
+const IN_PARTS_FROM = 3.5 * 1024 * 1024;
+/** The target that files a document as a new row in the vault. */
+const NEW_ROW = '__new__';
 
 /**
  * A diligence pack arrives as a folder, so take a folder.
@@ -34,6 +40,7 @@ export function EvidenceDropZone({
   const [dropped, setDropped] = useState<File[] | null>(null);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   // A dragenter fires again for every child element the pointer crosses, so the
   // highlight has to be reference-counted or it flickers off mid-drag.
   const depth = useRef(0);
@@ -49,7 +56,8 @@ export function EvidenceDropZone({
       const seeded = matchFilesToEvidence(rows, files.map((f) => f.name));
       const next: Record<string, string> = {};
       files.forEach((f, i) => {
-        next[`${i}:${f.name}`] = seeded[i]?.evidenceId ?? '';
+        // A document nothing on the register expects is filed as itself.
+        next[`${i}:${f.name}`] = seeded[i]?.evidenceId ?? NEW_ROW;
       });
       setDropped(files);
       setTargets(next);
@@ -76,15 +84,23 @@ export function EvidenceDropZone({
         toast('Nothing to file — every document is set to skip.', 'warning');
         return;
       }
-      await api.fileEvidenceBatch(projectId, entries);
+      // Small documents against rows the register expects go in one request;
+      // new documents and large ones go up in parts, one at a time.
+      const batch = entries.filter((e) => e.evidenceId !== NEW_ROW && e.file.size < IN_PARTS_FROM);
+      const parted = entries.filter((e) => !batch.includes(e));
+      if (batch.length) await api.fileEvidenceBatch(projectId, batch);
+      for (const [n, e] of parted.entries()) {
+        await uploadLargeDocument(projectId, e.file, {
+          evidenceId: e.evidenceId === NEW_ROW ? undefined : e.evidenceId,
+          onProgress: (share) => setProgress(`${e.file.name}: ${Math.round(share * 100)}% (${n + 1} of ${parted.length})`),
+        });
+      }
+      setProgress(null);
       await onFiled();
       close();
-      const rows = new Set(entries.map((e) => e.evidenceId)).size;
-      toast(
-        `Filed ${entries.length} document${entries.length === 1 ? '' : 's'} against ${rows} row${rows === 1 ? '' : 's'}`,
-        'good',
-      );
+      toast(`Filed ${entries.length} document${entries.length === 1 ? '' : 's'}. Each is read and given to the workstream it belongs to.`, 'good');
     } catch (e) {
+      setProgress(null);
       toast(e instanceof Error ? e.message : 'Those documents did not file.', 'critical');
     } finally {
       setBusy(false);
@@ -136,7 +152,8 @@ export function EvidenceDropZone({
         footer={
           <>
             <Button variant="ghost" onClick={close}>Cancel</Button>
-            <Button onClick={() => void file()} disabled={busy || willFile === 0}>
+            {progress ? <span className="mr-auto text-[12px] text-ink-secondary">{progress}</span> : null}
+            <Button onClick={() => void file()} disabled={busy || willFile === 0} loading={busy}>
               {willFile === 0 ? 'Nothing selected' : `File ${willFile}`}
             </Button>
           </>
@@ -151,7 +168,7 @@ export function EvidenceDropZone({
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="min-w-0 truncate text-[13px] font-medium text-ink">{f.name}</p>
                   {!match?.evidenceId ? (
-                    <Badge tone="warning">No match — pick a row</Badge>
+                    <Badge tone="neutral">New document{f.size >= IN_PARTS_FROM ? ` · ${(f.size / 1048576).toFixed(0)} MB, sent in parts` : ''}</Badge>
                   ) : match.ambiguousWith ? (
                     <Badge tone="warning">Two rows fit — confirm</Badge>
                   ) : (
@@ -164,6 +181,7 @@ export function EvidenceDropZone({
                   value={targets[key] ?? ''}
                   onChange={(e) => setTargets((prev) => ({ ...prev, [key]: e.target.value }))}
                 >
+                  <option value={NEW_ROW}>File as a new document</option>
                   <option value="">Skip this document</option>
                   {rows.map((r) => (
                     <option key={r.id} value={r.id}>{r.title}</option>

@@ -11,8 +11,6 @@ import { initPrompts } from './prompts';
 import { initTelemetry } from './telemetry';
 import { UPLOAD_LIMITS } from './uploads';
 import { referenceRouter } from './routes/reference';
-import { demoRouter } from './routes/demo';
-import { cleanReferenceData } from '@realytica/shared';
 import { librariesRouter, projectsRouter } from './routes/projects';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
@@ -28,6 +26,7 @@ import { reportOperators } from './auth/operator';
 import { initCredentialSealing } from './flows/credentials';
 import { automationsEnabled } from './flows/enabled';
 import { membersRouter } from './routes/members';
+import { deviceClaimRouter, devicesRouter } from './routes/devices';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { readEnv } from '@realytica/agents';
@@ -114,6 +113,7 @@ app.use('/api/projects/:projectId', (req: Request, _res: Response, next: NextFun
  * inherits the gate instead of being born unguarded, which is exactly how an
  * endpoint ends up public by accident.
  */
+app.use('/api/devices/claim', limits.pairing, deviceClaimRouter);
 app.use('/api', authenticate);
 
 /*
@@ -155,7 +155,6 @@ app.use('/api/agents', needs('read'), agentsCapabilityRouter);
 app.use('/api/sources', needs('read'), sourcesRouter);
 app.use('/api/telemetry', needs('admin'), telemetryRouter);
 app.use('/api/prompts', needs('admin'), promptsRouter);
-app.use('/api/demo', demoRouter);
 app.use('/api/work', workRouter);
 app.use('/api/portfolio', portfolioRouter);
 // A flow decides what the agents do and what they cost, so reading one is any
@@ -166,6 +165,7 @@ if (automationsEnabled()) {
   app.use('/api/flows', flowsRouter);
 }
 app.use('/api/members', membersRouter);
+app.use('/api/devices', devicesRouter);
 
 // 404 for any unmatched /api/* route.
 app.use('/api', (_req, res) => {
@@ -250,16 +250,6 @@ export async function initApp(): Promise<void> {
   );
 
   await initStore();
-  /*
-   * Once per stored project: take off what the illustrative reference tables
-   * left on it before they stopped being used. Recorded on each project, so
-   * later boots skip it; see `cleanReferenceData`.
-   */
-  const cleaned = (store.data.projects ?? []).filter((project) => cleanReferenceData(project).changed);
-  if (cleaned.length) {
-    await store.save();
-    console.log(`[cleanup] removed illustrative reference data from ${cleaned.length} project(s)`);
-  }
   // Before the first request, on a server and on a cold serverless invocation
   // alike: until this runs the agent layer resolves every prompt to its
   // built-in, so an operator's edit would be silently ignored rather than

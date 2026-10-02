@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
+  engagementForReport,
   REPORT_KIND_LABEL,
   readReportBlock,
   reportIsFrozen,
@@ -61,7 +62,7 @@ export default function ReportPrint() {
           <p className="text-neutral-600">{[project.siteAddress || project.location, project.city].filter(Boolean).join(', ')}</p>
           <p className="mt-1 text-[13px] text-neutral-600">
             {REPORT_KIND_LABEL[report.kind]} · {project.reference} · {dated}
-            {project.engagement?.client ? ` · For ${project.engagement.client}` : ''}
+            {engagementForReport(project, report.id)?.client ? ` · For ${engagementForReport(project, report.id)!.client}` : ''}
           </p>
         </header>
 
