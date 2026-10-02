@@ -36,8 +36,31 @@ to the pairing screen (unsent work stays on the phone — see below).
 | Settings | Who is signed in, the server, notifications, sign out. |
 
 Designed for outdoors: large type, high contrast, nothing pressable under 48pt,
-plain words. Light and dark themes use the web app's own colour tokens
-(`src/theme`).
+plain words. Light and dark themes use Realytica's own identity, the same as the
+web app's (`src/theme`): grey pages with white cards, near-black for the one
+action a screen is for, teal for links and selection, rose for anything waiting
+on the person's own decision, Schibsted Grotesk for words and DM Mono for
+figures, codes and percentages. The fonts are bundled and loaded before the
+splash screen goes.
+
+### Motion and touch
+
+Motion is feedback, not decoration, and comes from one small vocabulary
+(`src/theme/motion.ts`, Reanimated 4):
+
+- **Everything pressable gives** under the thumb — a quick spring to about 97%
+  and a slight fade (`Touchable`). The main action on a screen also taps the
+  hand; choices and steps tick; saved, sent and paired buzz success; a refusal
+  buzzes error (`src/lib/haptics.ts`, expo-haptics).
+- **Lists arrive** in reading order (35 ms apart, all in place within half a
+  second), rows leave with a fade, and the rest close up behind them.
+- **Figures run to their value**: progress rings and bars fill, counts tick.
+- **Sheets** spring up over a fading shade and can be pulled down to close;
+  **toasts** drop in and lift away on their own.
+- **Waiting** is shown as the shape of the screen (skeletons) rather than a
+  spinner, and anything live (sending, checking, finding a location) breathes.
+- **Reduce Motion is honoured everywhere**: animations land instantly and
+  nothing loops or travels.
 
 ## Offline, and how sending works
 
@@ -212,8 +235,8 @@ src/
       projects/           list, and [projectId] site home
     log/[projectId].tsx   the day's log form
     photo.tsx             one photo, full screen
-  components/ui/          design-system primitives (Button, Card, Chip, Stepper, PercentPicker, Sheet…)
-  components/site/        site home pieces (entry cards, milestones, photo thumbnails, freshness)
+  components/ui/          design-system primitives (Touchable, Button, Card, Chip, Stepper, PercentPicker, Sheet, Skeleton…)
+  components/site/        site home pieces (tab bar, entry cards, milestones, stage track, photo thumbnails, freshness)
   components/log/         log form sections
   lib/
     http.ts api.ts        API calls and errors
@@ -222,8 +245,8 @@ src/
     outbox/engine.ts      how the outbox is sent (pure TypeScript)
     outbox/store.ts       the outbox on disk
     outbox/sync.ts        when it is sent
-    photos.ts location.ts push.ts drafts.ts
-  theme/                  colours from the web app, type scale, spacing
+    photos.ts location.ts push.ts drafts.ts haptics.ts
+  theme/                  the identity's colours and typefaces, type scale, spacing; motion.ts
 assets/images/            icon, adaptive icon, splash, favicon
 ```
 
@@ -238,8 +261,10 @@ npx expo export --platform android --platform ios --output-dir /tmp/realytica-si
 
 ## Known limits
 
-- The web build is for development: no QR scanning or notifications, and photos
-  are kept as data URLs in localStorage, which holds only a few.
+- The web build is for development: no QR scanning, notifications or haptics,
+  and photos are kept as data URLs in localStorage, which holds only a few. Its
+  animations are Reanimated's web versions, so cards arrive from a little
+  further away than on a phone (see `travel()` in `src/theme/motion.ts`).
 - On Android, photos chosen from the library usually arrive without GPS (the OS
   strips it unless the app holds `ACCESS_MEDIA_LOCATION`, which it does not ask
   for); camera photos are tagged from the phone's own location.
