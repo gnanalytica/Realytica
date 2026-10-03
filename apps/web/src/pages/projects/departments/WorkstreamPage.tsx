@@ -20,6 +20,7 @@ import { Connections } from '../../../components/departments/Connections';
 import { WorkstreamChecks, WorkstreamDocuments, WorkstreamEngagements } from '../../../components/departments/WorkstreamRecords';
 import { ApprovalsRegister } from '../../../components/departments/ApprovalsRegister';
 import { ProgressBoard } from '../../../components/departments/ProgressBoard';
+import { TechnicalDueDiligence } from '../../../components/departments/TechnicalDueDiligence';
 import { TitleChainDiagram } from '../../../components/charts';
 import { ScheduleOfProperty } from '../../../components/ScheduleOfProperty';
 import { WORKSTREAM_PANE } from '../cockpit/rail';
@@ -33,6 +34,9 @@ export function useWorkstreamNav(project: DdProject) {
     openDocument: (evidenceId: string) => navigate(cockpitPath(project.id, 'evidence', { evidenceId })),
     openCheck: (where: { ddId: string; scopeId: string; checkId: string }) => navigate(cockpitPath(project.id, 'scope', where)),
     pairPhone: () => navigate(`${cockpitPath(project.id, 'people')}#pair`),
+    openFindings: () => navigate(cockpitPath(project.id, 'findings')),
+    openActions: () => navigate(cockpitPath(project.id, 'actions')),
+    openReports: () => navigate(cockpitPath(project.id, 'reports')),
   };
 }
 
@@ -112,7 +116,7 @@ function TitleBody({ project }: { project: DdProject }) {
 
 /** One workstream: its frame, then the work that is its own. */
 export default function WorkstreamPage() {
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, refresh } = useOutletContext<ProjectOutlet>();
   const { workstream = '' } = useParams<{ workstream: string }>();
   const nav = useWorkstreamNav(project);
   const ws = workstreamDefinition(workstream);
@@ -137,6 +141,15 @@ export default function WorkstreamPage() {
       </Reveal>
       {ws.status === 'coming_soon' ? (
         <ComingSoon project={project} workstream={ws.key} />
+      ) : ws.key === 'construction.quality' ? (
+        // The technical due diligence is five steps, not one long page.
+        <TechnicalDueDiligence
+          project={project}
+          setProject={setProject}
+          refresh={refresh}
+          nav={{ ...nav, openSite: () => nav.openWorkstream('construction.site') }}
+          frame={<WorkstreamFrame project={project} workstream={ws.key} setProject={setProject} />}
+        />
       ) : (
         <>
           <WorkstreamFrame project={project} workstream={ws.key} setProject={setProject} />

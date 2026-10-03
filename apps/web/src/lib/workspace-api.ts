@@ -9,6 +9,8 @@
  */
 
 import type {
+  AnswerProof,
+  AnswerSource,
   CertifiedReadout,
   CertifiedReport,
   CreateEngagementInput,
@@ -21,6 +23,8 @@ import type {
   LinkEnd,
   LinkType,
   Milestone,
+  ObservationInput,
+  ObservationPatch,
   ProjectAlert,
   ProjectLink,
   TeamMember,
@@ -105,6 +109,45 @@ export const workspaceApi = {
 
   removeLink: (projectId: string, linkId: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/links/${encodeURIComponent(linkId)}`, { method: 'DELETE' }),
+
+  addObservation: (projectId: string, body: ObservationInput) => request<{ project: DdProject; findingId: string }>(`/projects/${projectId}/observations`, json(body)),
+
+  patchObservation: (projectId: string, findingId: string, body: ObservationPatch) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/observations/${findingId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  /** File a site-log photograph onto the document register, so it can be cited. */
+  fileSitePhoto: (projectId: string, entryId: string, index: number) =>
+    request<{ project: DdProject; evidenceId: string }>(`/projects/${projectId}/site-log/${entryId}/photos/${index}/file`, { method: 'POST' }),
+
+  /** Import a questionnaire: a Word, CSV or text file, or the questions pasted as text. */
+  importQuestionnaire: (projectId: string, input: { file: File; title?: string } | { title: string; text: string }) => {
+    if ('file' in input) {
+      const form = new FormData();
+      form.append('file', input.file);
+      if (input.title) form.append('title', input.title);
+      return request<{ project: DdProject; questionnaireId: string }>(`/projects/${projectId}/questionnaires`, { method: 'POST', body: form });
+    }
+    return request<{ project: DdProject; questionnaireId: string }>(`/projects/${projectId}/questionnaires`, json(input));
+  },
+
+  answerQuestion: (
+    projectId: string,
+    questionnaireId: string,
+    questionId: string,
+    body: { answer?: string | null; source?: AnswerSource | null; proof?: AnswerProof[]; note?: string | null; text?: string; section?: string | null },
+  ) => request<{ project: DdProject }>(`/projects/${projectId}/questionnaires/${questionnaireId}/questions/${questionId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  addQuestion: (projectId: string, questionnaireId: string, body: { text: string; section?: string }) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/questionnaires/${questionnaireId}/questions`, json(body)),
+
+  removeQuestion: (projectId: string, questionnaireId: string, questionId: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/questionnaires/${questionnaireId}/questions/${questionId}`, { method: 'DELETE' }),
+
+  confirmAnswers: (projectId: string, questionnaireId: string, questionIds?: string[]) =>
+    request<{ project: DdProject; confirmed: number }>(`/projects/${projectId}/questionnaires/${questionnaireId}/confirm`, json({ questionIds })),
+
+  removeQuestionnaire: (projectId: string, questionnaireId: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/questionnaires/${questionnaireId}`, { method: 'DELETE' }),
 
   setDocumentWorkstream: (projectId: string, evidenceId: string, workstream: string | null) =>
     request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/workstream`, { method: 'PUT', body: JSON.stringify({ workstream }) }),

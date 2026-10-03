@@ -23,7 +23,17 @@ import {
   REPORT_SOURCE_LABEL,
   rankTalkSittings,
   DD_CONNECTORS,
+  DEPARTMENT_KEYS,
   PROJECT_COCKPIT_PANES,
+  ANSWER_SOURCES,
+  engineeringSummary,
+  questionStatus,
+  questionnaireSummary,
+  suggestAnswers,
+  projectDepartments,
+  requirementSheet,
+  supportingDocuments,
+  workstreamDefinition,
   SCOPE_KEYS,
   SCOPE_LABEL,
   clampGraphHops,
@@ -93,6 +103,9 @@ const PROPOSE_KINDS = [
   'change_stage',
   'commit_draft',
   'snapshot_capabilities',
+  'set_departments',
+  'request_documents',
+  'assign_document',
 ] as const satisfies readonly ChatProposalKind[];
 
 export interface ProjectGraphRagPort {
@@ -247,6 +260,20 @@ function validateProposal(kind: ChatProposalKind, payload: Record<string, unknow
     return 'actions need title, kind, owner, priority.';
   }
   if (kind === 'add_risk' && (!str('title') || !str('category') || !str('cause'))) return 'add_risk needs title, category, cause.';
+  if (kind === 'set_departments') {
+    const list = payload.departments;
+    if (!Array.isArray(list) || !list.length || list.some((d) => !(DEPARTMENT_KEYS as readonly string[]).includes(String(d)))) {
+      return `set_departments needs departments — one or more of ${DEPARTMENT_KEYS.join(', ')}.`;
+    }
+  }
+  if (kind === 'request_documents') {
+    if (!Array.isArray(payload.evidenceIds) || !payload.evidenceIds.length) return 'request_documents needs evidenceIds — call get_requirement_sheet for the ids of what is still missing.';
+    if (!str('recipient')) return 'request_documents needs recipient — the person or firm being asked.';
+  }
+  if (kind === 'assign_document') {
+    if (!str('evidenceId')) return 'assign_document needs evidenceId.';
+    if (payload.workstream !== null && !workstreamDefinition(str('workstream'))) return 'assign_document needs workstream — a workstream key such as construction.quality, or null to hand it back.';
+  }
   if (kind === 'record_check_fields') {
     if (!str('checkId')) return 'record_check_fields needs checkId.';
     const values = payload.values;
@@ -725,6 +752,156 @@ export function createProjectTools(
     run: async () => JSON.stringify(projectAgentSnapshot(project)),
   });
 
+  const getRequirementSheet = betaTool({
+    name: 'get_requirement_sheet',
+    description:
+      'The requirement sheet: every document the checks on the file expect, by discipline, each one pending, asked for or in hand, with the evidence id to ask for it by. Also lists supporting documents — filed papers that belong to a department this project does not run. Call it when asked what is missing, what to ask the client for, or how complete the documents are. To ask for documents, propose_update kind request_documents {evidenceIds, recipient, dueAt?, detail?}. To give a document to a workstream, propose_update kind assign_document {evidenceId, workstream}.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        department: { type: 'string', enum: [...DEPARTMENT_KEYS], description: 'Narrow to one department’s checks. Omit for the whole project.' },
+        status: { type: 'string', enum: ['pending', 'requested', 'received'], description: 'Only documents in this state.' },
+      },
+    } as const,
+    run: async ({ department, status }) => {
+      const sheet = requirementSheet(project, department ? { department: department as (typeof DEPARTMENT_KEYS)[number] } : {});
+      const groups = sheet.groups
+        .map((g) => ({
+          discipline: g.label,
+          received: g.received,
+          total: g.items.length,
+          documents: clipList(
+            g.items.filter((i) => !status || i.status === status).map((i) => ({ evidenceId: i.evidenceId, title: i.title, status: i.status, askedOf: i.askedOf, dueAt: i.dueAt, overdue: i.overdue, neededFor: i.checks.map((c) => c.title) })),
+            40,
+          ),
+        }))
+        .filter((g) => g.documents.length);
+      const supporting = clipList(supportingDocuments(project), 30).map((s) => ({ evidenceId: s.evidence.id, title: s.evidence.title, type: s.evidence.documentType, belongsTo: s.homeLabel }));
+      bag.toolCalls.push({ name: 'get_requirement_sheet', summary: `${sheet.received} of ${sheet.total} in hand${sheet.overdue ? ` · ${sheet.overdue} overdue` : ''}` });
+      return JSON.stringify({
+        departmentsOnThisProject: projectDepartments(project),
+        total: sheet.total,
+        received: sheet.received,
+        requested: sheet.requested,
+        pending: sheet.pending,
+        overdue: sheet.overdue,
+        percent: sheet.percent,
+        groups,
+        supportingDocuments: supporting,
+        note: sheet.total ? undefined : 'No checks on the file yet, so nothing is expected. Start the checks for a workstream or a due diligence first.',
+      });
+    },
+  });
+
+  const getEngineeringSummary = betaTool({
+    name: 'get_engineering_summary',
+    description:
+      'The technical picture of the project by discipline: checks answered and with an issue, open findings by severity, documents in hand, and what the remedies cost. The same figures the Engineering & Construction dashboard draws. Call it for "where does the technical due diligence stand", "which discipline has the most findings", or "what will it cost to fix". To change which departments the project runs, propose_update kind set_departments {departments:[...]}.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        department: { type: 'string', enum: [...DEPARTMENT_KEYS], description: 'Defaults to construction (Engineering & Construction).' },
+      },
+    } as const,
+    run: async ({ department }) => {
+      const summary = engineeringSummary(project, (department as (typeof DEPARTMENT_KEYS)[number] | undefined) ?? 'construction');
+      bag.toolCalls.push({ name: 'get_engineering_summary', summary: `${summary.checks.answered}/${summary.checks.total} checks · ${summary.findings.open} open finding(s)` });
+      return JSON.stringify(summary);
+    },
+  });
+
+  const getQuestionnaire = betaTool({
+    name: 'get_questionnaire',
+    description:
+      'The questionnaires on this project: the client’s own questions about the building, each with its answer, where the answer came from (seller, document, site, engineer), what proves it, and whether it is still unanswered or only suggested. Call it when asked about the questionnaire, what is unanswered, or before answering questions from the documents. Then use suggest_answers.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        questionnaireId: { type: 'string', description: 'Omit for the latest questionnaire.' },
+        status: { type: 'string', enum: ['unanswered', 'suggested', 'answered'], description: 'Only questions in this state.' },
+      },
+    } as const,
+    run: async ({ questionnaireId, status }) => {
+      const all = project.questionnaires ?? [];
+      const sheet = questionnaireId ? all.find((q) => q.id === questionnaireId) : all[all.length - 1];
+      if (!sheet) {
+        bag.toolCalls.push({ name: 'get_questionnaire', summary: 'No questionnaire on the file' });
+        return JSON.stringify({ questionnaires: [], note: 'No questionnaire has been imported. A person imports one from Engineering › Technical due diligence.' });
+      }
+      const summary = questionnaireSummary(sheet);
+      const questions = sheet.questions
+        .slice()
+        .sort((x, y) => x.order - y.order)
+        .filter((q) => !status || questionStatus(q) === status)
+        .map((q, i) => ({ questionId: q.id, no: i + 1, section: q.section, question: q.text, answer: q.answer, status: questionStatus(q), source: q.source, proof: q.proof }));
+      bag.toolCalls.push({ name: 'get_questionnaire', summary: `${sheet.title}: ${summary.answered}/${summary.total} answered` });
+      return JSON.stringify({
+        questionnaireId: sheet.id,
+        title: sheet.title,
+        header: sheet.header,
+        summary,
+        questions: clipList(questions, 120),
+        others: all.filter((q) => q.id !== sheet.id).map((q) => ({ questionnaireId: q.id, title: q.title })),
+      });
+    },
+  });
+
+  const suggestAnswersTool = betaTool({
+    name: 'suggest_answers',
+    description:
+      'Lay answers beside questionnaire questions as SUGGESTIONS for a person to confirm. Use only what a filed document states or a site record shows: give the evidenceId, and the page and a short quote when it is a document. Never guess, and never answer from general knowledge — leave a question unanswered instead. A question a person already answered is left alone. Call get_questionnaire first for the question ids, and read the documents with the other tools before answering.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['questionnaireId', 'answers'],
+      properties: {
+        questionnaireId: { type: 'string' },
+        answers: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['questionId', 'answer', 'evidenceId'],
+            properties: {
+              questionId: { type: 'string' },
+              answer: { type: 'string', description: 'Short and factual, in the units the question asks for.' },
+              source: { type: 'string', enum: [...ANSWER_SOURCES], description: 'document for a filed paper, site for a photograph or site entry.' },
+              evidenceId: { type: 'string', description: 'The filed document or photograph the answer rests on.' },
+              page: { type: 'number' },
+              quote: { type: 'string', description: 'The words on the page, under 300 characters.' },
+            },
+          },
+        },
+      },
+    } as const,
+    run: async ({ questionnaireId, answers }) => {
+      const known = new Set(project.evidence.map((e) => e.id));
+      const usable = (answers ?? []).filter((x) => x.answer?.trim() && known.has(x.evidenceId));
+      const dropped = (answers ?? []).length - usable.length;
+      try {
+        const landed = suggestAnswers(
+          project,
+          questionnaireId,
+          usable.map((x) => ({
+            questionId: x.questionId,
+            answer: x.answer,
+            source: (ANSWER_SOURCES as readonly string[]).includes(String(x.source)) ? (x.source as (typeof ANSWER_SOURCES)[number]) : 'document',
+            proof: [{ evidenceId: x.evidenceId, page: typeof x.page === 'number' ? x.page : undefined, quote: x.quote }],
+          })),
+          `${actor} (suggested by the copilot)`,
+        );
+        bag.toolCalls.push({ name: 'suggest_answers', summary: `${landed} answer(s) suggested` });
+        if (!bag.navigations.some((n) => n.target === 'workstream')) bag.navigations.push({ target: 'workstream', workstream: 'construction.quality' });
+        return JSON.stringify({ suggested: landed, droppedForNoProof: dropped, note: 'They show as suggestions on the questionnaire. A person confirms each, or all at once.' });
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : 'Could not suggest those answers.' });
+      }
+    },
+  });
+
   const searchRegisters = betaTool({
     name: 'search_registers',
     description: 'Search one shared register by title/description substring. Use before proposing a duplicate finding, action or evidence request.',
@@ -780,7 +957,7 @@ export function createProjectTools(
         payloadJson: {
           type: 'string',
           description:
-            'JSON object for the kind: record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?}; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
+            'JSON object for the kind: record_check_fields {checkId, values:{fieldKey:value,...}} — call get_check_fields first and use its exact field keys and units; values you read off a document, never guessed. edit_report {reportId, and then EITHER text (+optional heading, afterBlockId) to add a paragraph, OR blockId+text to rewrite a paragraph somebody wrote, OR blockId+source to change what a live section reads}. You may never write the text of a section that reads the registers — propose a source change or a new paragraph beside it. record_check {checkId,result,comments} — result is one of pending, compliant, non_compliant, partially_compliant, not_applicable, unable_to_verify, missing_evidence, requires_expert_review, and comments must say what in the evidence supports it; start_dd {ddType,name,owner,targetType}; add_finding {title,description,severity,discipline,evidenceIds?,area?,mitigation?,standardRef?} — on a technical due diligence a finding is an observation: give area (where in the building), mitigation (what to do) and standardRef (the code clause) whenever the source states them, and cite the photograph or document in evidenceIds; add_action/request_evidence {title,kind,owner,priority,description?}; add_risk {title,category,cause,impactType,probability,impactScore,materiality}; add_decision {title,decisionType,decisionMaker,rationale}; generate_report {kind}; add_asset {name,assetType}; add_scope {assessmentId,scopeKey}; patch_project {owner?,landAreaSqm?,...}; change_stage {stage,reason}; commit_draft {draftIds}; run_screen/run_valuation/snapshot_capabilities may be {}.',
         },
       },
     } as const,
@@ -1260,6 +1437,10 @@ export function createProjectTools(
     getSiteRecord,
     getReport,
     searchRegisters,
+    getRequirementSheet,
+    getEngineeringSummary,
+    getQuestionnaire,
+    suggestAnswersTool,
     getSubgraph,
     traceConclusion,
     lookupReference,

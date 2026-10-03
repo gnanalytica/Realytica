@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Briefcase, Building2, Check, LayoutGrid } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Briefcase, Building2, LayoutGrid } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   DEPARTMENTS,
@@ -15,9 +15,9 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { OwnerInput } from '../../components/OwnerInput';
-import { Button, Card, CardBody, CardHeader, Disclosure, Field, Input, Select, Textarea, cn, useToast } from '../../components/ui/kit';
-import { AnimatePresence, Reveal, SPRING, motion } from '../../lib/motion';
-import { DEPARTMENT_ICON } from '../../components/departments/icons';
+import { Button, Card, CardBody, CardHeader, Disclosure, Field, Input, Select, Textarea, useToast } from '../../components/ui/kit';
+import { Reveal } from '../../lib/motion';
+import { DepartmentTiles } from '../../components/departments/DepartmentTiles';
 
 export default function NewProject() {
   const navigate = useNavigate();
@@ -60,8 +60,28 @@ export default function NewProject() {
    */
   const [parcelId, setParcelId] = useState('');
   const [tenure, setTenure] = useState<Tenure | ''>('');
-  // The departments this project uses; the firm's six unless it says otherwise.
+  // The departments this project uses. A firm tends to run the same set on
+  // every project, so a new one starts from what the last project chose —
+  // an engineering firm is not asked to untick five departments each time.
   const [departments, setDepartments] = useState<DepartmentKey[]>(DEPARTMENTS.map((d) => d.key));
+  const [departmentsFrom, setDepartmentsFrom] = useState<string | null>(null);
+  const departmentsTouched = useRef(false);
+  useEffect(() => {
+    let live = true;
+    void api
+      .listProjects()
+      .then((rows) => {
+        const last = rows.find((r) => r.departments?.length);
+        if (live && last?.departments && !departmentsTouched.current) {
+          setDepartments(last.departments);
+          setDepartmentsFrom(last.name);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
   // A first engagement, if there is one already: who asked, for what, led by whom, due when.
   const [kind, setKind] = useState<EngagementKind | ''>('');
   const [client, setClient] = useState('');
@@ -270,48 +290,16 @@ export default function NewProject() {
 
       <Card>
         <CardHeader icon={<LayoutGrid />} title="Departments" subtitle="The kinds of work this project needs. Each is its own module, linked to the others; change them any time." />
-        {/* Tiles that toggle: a department is a choice with a shape, not a line of small print beside a box. */}
-        <CardBody className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {DEPARTMENTS.map((d) => {
-            const on = departments.includes(d.key);
-            const last = departments.length === 1 && on;
-            const Icon = DEPARTMENT_ICON[d.key];
-            return (
-              <button
-                key={d.key}
-                type="button"
-                role="checkbox"
-                aria-checked={on}
-                disabled={last}
-                onClick={() => setDepartments((was) => (on ? was.filter((k) => k !== d.key) : [...was, d.key]))}
-                className={cn(
-                  'group relative flex items-start gap-3 rounded-xl p-3 text-left ring-1 ring-inset transition-[background-color,box-shadow,transform] duration-quick ease-state active:scale-[0.99]',
-                  on ? 'bg-brand-soft/60 ring-brand/40' : 'bg-surface ring-[var(--ring)] hover:bg-sunken/60',
-                  last && 'cursor-not-allowed',
-                )}
-              >
-                <span className={cn('grid size-9 shrink-0 place-items-center rounded-lg ring-1 ring-inset transition-colors duration-quick', on ? 'bg-brand text-[var(--brand-ink)] ring-brand' : 'bg-sunken text-ink-secondary ring-[var(--ring)]')}>
-                  <Icon size={16} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
-                    {d.label}
-                    {d.status === 'coming_soon' ? <span className="rounded px-1 font-mono text-[9px] uppercase tracking-wide text-ink-muted ring-1 ring-inset ring-[var(--ring)]">Soon</span> : null}
-                  </span>
-                  <span className="mt-0.5 block text-micro leading-snug text-ink-muted">{d.purpose}</span>
-                </span>
-                <span className={cn('grid size-5 shrink-0 place-items-center rounded-full ring-1 ring-inset transition-colors duration-quick', on ? 'bg-brand text-[var(--brand-ink)] ring-brand' : 'ring-[var(--axis)]')} aria-hidden>
-                  <AnimatePresence initial={false}>
-                    {on ? (
-                      <motion.span key="tick" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={SPRING.snappy}>
-                        <Check size={12} strokeWidth={3} />
-                      </motion.span>
-                    ) : null}
-                  </AnimatePresence>
-                </span>
-              </button>
-            );
-          })}
+        <CardBody>
+          <DepartmentTiles
+            value={departments}
+            onChange={(next) => {
+              departmentsTouched.current = true;
+              setDepartmentsFrom(null);
+              setDepartments(next);
+            }}
+          />
+          {departmentsFrom ? <p className="mt-2 text-micro text-ink-muted">Starting from the departments {departmentsFrom} uses. Change them here, or later from Overview.</p> : null}
         </CardBody>
       </Card>
 

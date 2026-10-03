@@ -60,7 +60,10 @@ import type {
 import { connectorEvidenceInput } from './chat-sides';
 import { absorbAnsweredGaps, factFillProposals, flagFindingProposals, matchReadToRow } from './document-intake';
 import type { DocumentFact } from './document-parse';
-import { documentTypeOfKind } from './vault';
+import { documentTypeOfKind, setDocumentWorkstream } from './vault';
+import { setProjectDepartments } from './team';
+import { addRequest } from './project-requests';
+import { DEPARTMENT_KEYS, type DepartmentKey } from './departments';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -588,12 +591,19 @@ export function extractReadableExcerpt(bytes: Uint8Array, mimeType: string, file
   return '';
 }
 
-export function commitChatProposal(project: DdProject, proposalId: string, actor = 'operator'): { proposal: ChatProposal; recordId?: string } {
+/** Cards only a workspace admin may approve, like the controls they stand for. */
+export const ADMIN_ONLY_PROPOSALS: ReadonlySet<ChatProposalKind> = new Set<ChatProposalKind>(['set_departments']);
+
+export function commitChatProposal(project: DdProject, proposalId: string, actor = 'operator', opts: { admin?: boolean } = {}): { proposal: ChatProposal; recordId?: string } {
   ensureProjectShape(project);
   const item = project.chatProposals.find((p) => p.id === proposalId);
   if (!item) throw new Error('Proposal not found');
   if (item.status === 'rejected') throw new Error('Rejected proposals cannot be committed');
   if (item.status === 'committed') return { proposal: item, recordId: item.committedRecordId };
+
+  if (ADMIN_ONLY_PROPOSALS.has(item.kind) && !opts.admin) {
+    throw new Error('Changing which departments a project runs needs a workspace admin. An admin can approve this card, or change them from Overview.');
+  }
 
   const payload = item.payload;
   let recordId: string | undefined;
@@ -697,6 +707,10 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     if (filed && !(input.evidenceIds ?? []).includes(filed.id)) input.evidenceIds = [...(input.evidenceIds ?? []), filed.id];
     delete (input as unknown as Record<string, unknown>).sourceStorageKey;
     const record = addFinding(project, input, actor);
+    // An observation's own three fields: where, what to do, and against which code.
+    if (typeof payload.area === 'string' && payload.area.trim()) record.area = payload.area.trim();
+    if (typeof payload.mitigation === 'string' && payload.mitigation.trim()) record.mitigation = payload.mitigation.trim();
+    if (typeof payload.standardRef === 'string' && payload.standardRef.trim()) record.standardRef = payload.standardRef.trim();
     recordId = record.id;
   } else if (item.kind === 'generate_report') {
     const record = generateReport(
@@ -782,6 +796,39 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
   } else if (item.kind === 'patch_project') {
     patchProject(project, payload as PatchProjectInput, actor);
     recordId = project.id;
+  } else if (item.kind === 'set_departments') {
+    const wanted = (Array.isArray(payload.departments) ? payload.departments : []).filter((d): d is DepartmentKey => (DEPARTMENT_KEYS as readonly string[]).includes(String(d)));
+    setProjectDepartments(project, wanted, actor);
+    recordId = project.id;
+  } else if (item.kind === 'request_documents') {
+    // One request per document, each tied to the row it will answer, so the
+    // sheet shows who was asked and the request closes itself on arrival.
+    const ids = (Array.isArray(payload.evidenceIds) ? payload.evidenceIds : []).map(String);
+    const recipient = String(payload.recipient ?? '').trim();
+    for (const evidenceId of ids) {
+      const row = project.evidence.find((e) => e.id === evidenceId);
+      if (!row) continue;
+      const out = (project.requests ?? []).some((r) => r.evidenceId === evidenceId && (r.status === 'sent' || r.status === 'draft'));
+      if (out) continue;
+      const made = addRequest(
+        project,
+        {
+          title: row.title,
+          detail: typeof payload.detail === 'string' ? payload.detail : undefined,
+          recipient,
+          recipientRole: typeof payload.recipientRole === 'string' ? payload.recipientRole : undefined,
+          dueAt: typeof payload.dueAt === 'string' ? payload.dueAt : undefined,
+          evidenceId,
+          send: true,
+        },
+        actor,
+      );
+      recordId = recordId ?? made.id;
+    }
+    if (!recordId) throw new Error('None of those documents is still waiting to be asked for.');
+  } else if (item.kind === 'assign_document') {
+    const moved = setDocumentWorkstream(project, String(payload.evidenceId), typeof payload.workstream === 'string' ? payload.workstream : null);
+    recordId = moved.id;
   } else if (item.kind === 'patch_asset') {
     const record = patchAsset(project, String(payload.assetId), payload as PatchAssetInput, actor);
     recordId = record.id;

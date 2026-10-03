@@ -73,4 +73,7 @@ export * from './alerts';
 export * from './links';
 export * from './team';
 export * from './vault';
+export * from './engineering';
+export * from './questionnaire';
+export * from './observations';
 export * from './graph-impact';

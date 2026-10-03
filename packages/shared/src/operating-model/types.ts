@@ -739,6 +739,12 @@ export interface FindingRecord {
    * restrictions left" and nothing more.
    */
   environmentalCondition?: EnvironmentalCondition;
+  /** Where in the building it was seen: pump room, basement. */
+  area?: string;
+  /** What to do about it, as the engineer's table states it. */
+  mitigation?: string;
+  /** The code or standard it is judged against. */
+  standardRef?: string;
   createdAt: string;
   updatedAt: string;
   /**
@@ -1384,7 +1390,13 @@ export type ChatProposalKind =
   | 'change_stage'
   | 'open_connector'
   | 'commit_draft'
-  | 'snapshot_capabilities';
+  | 'snapshot_capabilities'
+  /** Which departments the project runs. Admin's to approve, like the control it mirrors. */
+  | 'set_departments'
+  /** Ask a named person for documents the requirement sheet still lacks. */
+  | 'request_documents'
+  /** Give a filed document to a workstream, or hand it back to what it is. */
+  | 'assign_document';
 
 export type ChatSideIntentKind = 'places' | 'web_search' | 'connectors' | 'locality' | 'planning' | 'capabilities' | 'commit_drafts';
 
@@ -1680,6 +1692,8 @@ export interface DdProject {
   engagements?: import('./engagements').Engagement[];
   /** What the file is waiting on, and from whom. */
   requests?: ProjectRequest[];
+  /** The lists of questions a due diligence put to the building, with their answers. */
+  questionnaires?: import('./questionnaire').Questionnaire[];
   /** One-off data migrations already applied to this stored project. */
   migrations?: string[];
   subtype?: string;

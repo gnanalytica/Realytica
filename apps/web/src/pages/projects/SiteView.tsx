@@ -98,7 +98,7 @@ export default function SiteView() {
   return (
     <div className="space-y-4">
       <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Construction &amp; Execution</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">Engineering &amp; Construction</p>
         <h2 className="text-[17px] font-semibold tracking-tight text-ink">Site record</h2>
         <p className="max-w-[70ch] text-[12px] text-ink-secondary">Where the site is, what it is next to, and what visits found — with the photographs and what could not be seen.</p>
       </div>

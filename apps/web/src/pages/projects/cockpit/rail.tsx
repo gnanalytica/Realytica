@@ -100,7 +100,7 @@ export const DEPARTMENT_SHORT: Record<DepartmentKey, string> = {
   finance: 'Finance',
   legal: 'Legal',
   design: 'Design',
-  construction: 'Construction',
+  construction: 'Engineering',
   procurement: 'Procurement',
   commercial: 'Commercial',
 };

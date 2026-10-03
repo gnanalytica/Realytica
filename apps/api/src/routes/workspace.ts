@@ -68,6 +68,21 @@ import {
   roleCanEdit,
   sameEmail,
   setDocumentWorkstream,
+  addObservation,
+  addQuestion,
+  addQuestionnaire,
+  fileSiteLogPhoto,
+  patchObservation,
+  SCOPE_KEYS,
+  answerQuestion,
+  confirmSuggestions,
+  findQuestionnaire,
+  parseQuestionnaire,
+  parseQuestionnaireCsv,
+  parseQuestionnaireText,
+  removeQuestion,
+  removeQuestionnaire,
+  ANSWER_SOURCES,
   setMilestonePercent,
   setProjectDepartments,
   setTeamMember,
@@ -84,6 +99,7 @@ import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { graphAdapter } from '../graph';
 import { readOntoRegister } from '../documents/register-read';
+import { docxOutline } from '../documents/docx-outline';
 import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
 
 type Params = { projectId: string };
@@ -809,3 +825,236 @@ projectWorkspaceRouter.post<Params & { uploadId: string }>('/uploads/:uploadId/c
   await Promise.all([...Array.from({ length: upload.parts }, (_, n) => storageAdapter.deleteDocument(project.id, partKey(uploadId, n))), storageAdapter.deleteDocument(project.id, manifestKey(uploadId))].map((p) => Promise.resolve(p).catch(() => undefined)));
   res.status(201).json({ project, evidenceId });
 });
+
+/* ==================================================================== */
+/* Questionnaires                                                        */
+/* ==================================================================== */
+
+/**
+ * A questionnaire belongs to the technical work, so the Engineering &
+ * Construction roles govern it: a contributor imports and answers, as they
+ * would file a document or record a check.
+ */
+const QUESTIONNAIRE_MAX_BYTES = 4 * 1024 * 1024;
+const questionnaireUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: QUESTIONNAIRE_MAX_BYTES, files: 1 } });
+
+const questionnaireTextSchema = z.object({ title: z.string().trim().min(1).max(160), text: z.string().min(1).max(400_000) });
+
+function parseQuestionnaireFile(file: Express.Multer.File) {
+  const name = file.originalname.toLowerCase();
+  if (name.endsWith('.docx')) return parseQuestionnaire(docxOutline(file.buffer));
+  const text = file.buffer.toString('utf8');
+  if (name.endsWith('.csv') || name.endsWith('.tsv')) return parseQuestionnaireCsv(text);
+  if (name.endsWith('.txt') || name.endsWith('.md')) return parseQuestionnaireText(text);
+  throw new Error('A questionnaire is read from a Word file (.docx), a spreadsheet saved as .csv, or plain text. Save it as one of those, or paste the questions.');
+}
+
+projectWorkspaceRouter.post<Params>('/questionnaires', questionnaireUpload.single('file'), async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  try {
+    const file = req.file as Express.Multer.File | undefined;
+    let record;
+    if (file) {
+      const title = typeof req.body?.title === 'string' && req.body.title.trim() ? String(req.body.title).trim().slice(0, 160) : file.originalname.replace(/\.[a-z0-9]+$/i, '');
+      record = addQuestionnaire(project, { title, fileName: file.originalname, parsed: parseQuestionnaireFile(file) }, actorOf(principalOf(req)));
+    } else {
+      const parsed = questionnaireTextSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'Attach a file, or send a title and the questions as text.' });
+        return;
+      }
+      const looksCsv = /^[^\n]*\b(question|query)\b[^\n]*[,\t]/i.test(parsed.data.text);
+      record = addQuestionnaire(project, { title: parsed.data.title, parsed: looksCsv ? parseQuestionnaireCsv(parsed.data.text) : parseQuestionnaireText(parsed.data.text) }, actorOf(principalOf(req)));
+    }
+    noteProjectEdit(project, `Imported the questionnaire “${record.title}”: ${record.questions.length} question(s).`);
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, questionnaireId: record.id });
+  } catch (err) {
+    failed(res, err, 'Could not read that questionnaire');
+  }
+});
+
+const proofSchema = z.object({ evidenceId: z.string().min(1), page: z.number().int().min(1).max(100_000).optional(), quote: z.string().max(400).optional() });
+const answerSchema = z.object({
+  answer: z.string().max(4000).nullable().optional(),
+  source: z.enum(ANSWER_SOURCES as unknown as [string, ...string[]]).nullable().optional(),
+  proof: z.array(proofSchema).max(12).optional(),
+  note: z.string().max(1000).nullable().optional(),
+  text: z.string().trim().min(1).max(600).optional(),
+  section: z.string().max(120).nullable().optional(),
+});
+
+type QParams = Params & { questionnaireId: string };
+
+projectWorkspaceRouter.patch<QParams & { questionId: string }>('/questionnaires/:questionnaireId/questions/:questionId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  const parsed = answerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the answer, where it came from, and what stands behind it.' });
+    return;
+  }
+  try {
+    answerQuestion(project, req.params.questionnaireId, req.params.questionId, parsed.data as Parameters<typeof answerQuestion>[3], actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not save the answer');
+  }
+});
+
+projectWorkspaceRouter.post<QParams>('/questionnaires/:questionnaireId/questions', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  const parsed = z.object({ text: z.string().trim().min(1).max(600), section: z.string().max(120).optional() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the question’s wording.' });
+    return;
+  }
+  try {
+    addQuestion(project, req.params.questionnaireId, parsed.data, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.status(201).json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not add the question');
+  }
+});
+
+projectWorkspaceRouter.delete<QParams & { questionId: string }>('/questionnaires/:questionnaireId/questions/:questionId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'decide')) return;
+  try {
+    removeQuestion(project, req.params.questionnaireId, req.params.questionId, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not remove the question');
+  }
+});
+
+/** Confirm a model's suggested answers: some, or all of them. */
+projectWorkspaceRouter.post<QParams>('/questionnaires/:questionnaireId/confirm', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  const parsed = z.object({ questionIds: z.array(z.string()).max(500).optional() }).safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send the ids of the answers to confirm, or none to confirm all.' });
+    return;
+  }
+  try {
+    const confirmed = confirmSuggestions(project, req.params.questionnaireId, parsed.data.questionIds ?? 'all', actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project, confirmed });
+  } catch (err) {
+    failed(res, err, 'Could not confirm those answers');
+  }
+});
+
+projectWorkspaceRouter.delete<QParams>('/questionnaires/:questionnaireId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'decide')) return;
+  try {
+    const title = findQuestionnaire(project, req.params.questionnaireId).title;
+    removeQuestionnaire(project, req.params.questionnaireId, actorOf(principalOf(req)));
+    noteProjectEdit(project, `Removed the questionnaire “${title}”.`);
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not remove the questionnaire');
+  }
+});
+
+/* ==================================================================== */
+/* Observations and mitigations                                          */
+/* ==================================================================== */
+
+const severitySchema = z.enum(['low', 'medium', 'high', 'critical']);
+const disciplineSchema = z.enum(SCOPE_KEYS as unknown as [string, ...string[]]);
+const observationSchema = z.object({
+  area: z.string().max(120).optional(),
+  description: z.string().trim().min(1).max(4000),
+  severity: severitySchema,
+  mitigation: z.string().max(4000).optional(),
+  standardRef: z.string().max(240).optional(),
+  discipline: disciplineSchema.optional(),
+  title: z.string().max(200).optional(),
+  evidenceIds: z.array(z.string()).max(40).optional(),
+});
+const observationPatchSchema = z.object({
+  area: z.string().max(120).nullable().optional(),
+  description: z.string().trim().min(1).max(4000).optional(),
+  title: z.string().max(200).optional(),
+  severity: severitySchema.optional(),
+  mitigation: z.string().max(4000).nullable().optional(),
+  standardRef: z.string().max(240).nullable().optional(),
+  discipline: disciplineSchema.optional(),
+  evidenceIds: z.array(z.string()).max(40).optional(),
+});
+
+projectWorkspaceRouter.post<Params>('/observations', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  const parsed = observationSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Say what was observed and how much it matters.' });
+    return;
+  }
+  try {
+    const record = addObservation(project, parsed.data as Parameters<typeof addObservation>[1], actorOf(principalOf(req)));
+    noteProjectEdit(project, `Recorded an observation: ${record.title}`);
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, findingId: record.id });
+  } catch (err) {
+    failed(res, err, 'Could not record the observation');
+  }
+});
+
+projectWorkspaceRouter.patch<Params & { findingId: string }>('/observations/:findingId', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  const parsed = observationPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'That change to the observation is not one this takes.' });
+    return;
+  }
+  try {
+    patchObservation(project, req.params.findingId, parsed.data as Parameters<typeof patchObservation>[2], actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not change the observation');
+  }
+});
+
+/** Put a site-log photograph on the document register, so an observation or an answer can cite it. */
+projectWorkspaceRouter.post<Params & { entryId: string; index: string }>('/site-log/:entryId/photos/:index/file', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  try {
+    const row = fileSiteLogPhoto(project, req.params.entryId, Number(req.params.index), actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.status(201).json({ project, evidenceId: row.id });
+  } catch (err) {
+    failed(res, err, 'Could not file that photograph');
+  }
+});
+

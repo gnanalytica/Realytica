@@ -22,6 +22,7 @@ import { DEPARTMENT_ICON } from '../../../components/departments/icons';
 import { Reveal, Stagger, StaggerItem } from '../../../lib/motion';
 import { useMe } from '../../../lib/useMe';
 import { useWorkstreamNav } from './WorkstreamPage';
+import { SupportingDocumentsCard } from '../../../components/departments/EngineeringDesk';
 import type { ProjectOutlet } from '../ProjectLayout';
 
 function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: WorkstreamDefinition; onOpen: () => void }) {
@@ -63,7 +64,7 @@ function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: Works
  * what this department exchanges with the others, and who works in it.
  */
 export default function DepartmentPage() {
-  const { project } = useOutletContext<ProjectOutlet>();
+  const { project, setProject } = useOutletContext<ProjectOutlet>();
   const { department = '' } = useParams<{ department: string }>();
   const me = useMe();
   const nav = useWorkstreamNav(project);
@@ -118,6 +119,8 @@ export default function DepartmentPage() {
           </StaggerItem>
         ))}
       </Stagger>
+
+      {dept.status === 'live' ? <SupportingDocumentsCard project={project} department={dept.key} onChanged={setProject} onOpenDocument={nav.openDocument} /> : null}
 
       <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-2">
         <Card>

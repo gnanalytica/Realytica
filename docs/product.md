@@ -21,12 +21,29 @@ A phased project can have each phase at its own step; phases show as markers on 
 |---|---|---|
 | Finance & Investment | **Valuation** · Feasibility & underwriting · Budget & cost to complete · Funding & escrow · Tax | Live |
 | Legal & Compliance | **Title & land records** · **Approvals & NOCs** · RERA · Contracts & disputes · Handover & society | Live |
-| Construction & Execution | **Progress & schedule** · **Quality & inspections** · **Site record** · Safety & environment | Live |
+| Engineering & Construction | **Progress & schedule** · **Technical due diligence** · **Site record** · Safety & environment | Live |
 | Design & Architecture | Drawings & versions · Design compliance · RFIs · Coordination | Coming soon |
 | Procurement & Supply Chain | BOQ & tenders · Purchase orders · Vendors · Deliveries | Coming soon |
 | Commercial & Operations | Market & pricing · Sales & leasing inventory · Buyers & collections · Handover & defects · Property management | Coming soon |
 
 Bold workstreams are built; the rest are listed with what they will produce.
+
+A project's departments are chosen when it is made and changed from **Overview › Departments on this project** (a workspace admin's control). Switching one off hides it and deletes nothing. A new project starts from the departments the firm's last project used.
+
+**An engineering-only project.** A firm doing only the technical work runs Engineering & Construction alone. Its technical due diligence is one screen in five steps, each showing its own count: **Documents**, **Questions**, **Site**, **Observations**, **Report**. Four figures sit above them: documents in hand, checks answered, open findings and the cost to remedy.
+
+- **Observations and mitigations** (step 4) is the table the report is read for: area by area, what was seen, its risk category, the mitigation, the code it is judged against, and the photographs that show it. An observation is a finding — the same record a check raises or the chat proposes — so nothing is entered twice. Below the table sit the photographs nothing cites yet, from the document register and from the phone's site log, each with what a model saw in it and any finding it suggested; one press starts an observation from a photograph or attaches it to one. A site-log photograph is filed onto the register the first time it is used.
+- **Report** (step 5) exports the three tables — observations, the answered questionnaire, the requirement sheet — and opens the report built from the registers.
+
+The pieces under the other steps:
+
+- **The requirement sheet** (step 1): every document the checks expect, by discipline — Architecture, Structural, MEP, Statutory — each one not asked, asked for or in hand. Tick the ones to chase, name who is asked and by when, and a tracked request goes out for each. A line turns to in hand on its own when the paper is filed. It copies as a list and exports as a spreadsheet.
+- **The charts** under Observations: findings and checks by discipline, and what the remedies cost by how soon they are needed.
+- **Supporting documents**: the client's deeds, approvals and valuation still arrive. They are read and citable, and show on the department page as supporting documents; one can be given to a workstream here. Switching Legal or Finance on later puts each where it belongs.
+
+- **The questionnaire** (step 2): the client's own list of questions about the building, imported as written from a Word file, a spreadsheet saved as CSV, or pasted text. Answers already in the sheet come in as the seller's. Each answer records where it came from — the seller said so, a document states it, it was seen on site, or it is the engineer's view — and the documents or photographs that stand behind it, with the page. The chat can answer from the documents on file; its answers arrive as suggestions and wait for a person to confirm them, one by one or all at once. The answered sheet copies as text and exports as a spreadsheet, in the order the questions came in.
+
+The chat does all of this too: it reads the requirement sheet, the questionnaire and the technical summary, and proposes asking for documents, moving a document, or changing the departments (the last for an admin to approve).
 
 **Workstreams (the work inside).** Each workstream holds, stage by stage:
 

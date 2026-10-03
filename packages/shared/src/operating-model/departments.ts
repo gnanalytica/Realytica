@@ -262,8 +262,8 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
   },
   {
     key: 'construction',
-    label: 'Construction & Execution',
-    purpose: 'What is being built on site: progress, quality and safety.',
+    label: 'Engineering & Construction',
+    purpose: 'The technical work: what is built or being built, its condition, progress, quality and safety.',
     professions: ['Project Manager', 'Site Engineer', 'Quantity Surveyor', 'Safety Officer'],
     status: 'live',
     workstreams: [
@@ -271,7 +271,7 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
         ['design_tender', 'Baseline schedule'],
         ['construction', 'Progress report'],
       ]),
-      ws('construction', 'quality', 'Quality & inspections', 'Inspections, tests, defects and the technical due diligence.', 'live', ['Structural Engineer', 'Independent Engineer'], [
+      ws('construction', 'quality', 'Technical due diligence', 'The documents, the questions, the site inspection and the observations: structure, services, fire safety and quality.', 'live', ['Structural Engineer', 'Independent Engineer'], [
         ['pre_development', 'Geotechnical and site assessment'],
         ['construction', 'Technical due diligence'],
         ['operations', 'Snag list'],
@@ -346,10 +346,16 @@ const CHECK_WORKSTREAM: Record<string, string> = {
   'regulatory.occupancy': 'legal.approvals',
   'esg.clearance': 'legal.approvals',
   'technical.drawing_register': 'design.drawings',
-  'technical.fire_life_safety': 'design.compliance',
-  'technical.structural': 'design.coordination',
-  'technical.mep_capacity': 'design.coordination',
-  'technical.constructability': 'design.coordination',
+  // The technical due diligence is engineering's own work: structure,
+  // services and fire safety are inspected on the building, whoever drew it.
+  'technical.fire_life_safety': 'construction.quality',
+  'technical.structural': 'construction.quality',
+  'technical.mep_capacity': 'construction.quality',
+  'technical.constructability': 'construction.quality',
+  'technical.as_built_architecture': 'construction.quality',
+  'technical.structural_condition': 'construction.quality',
+  'technical.services_condition': 'construction.quality',
+  'technical.statutory_record': 'construction.quality',
   'schedule_progress.baseline': 'construction.progress',
   'schedule_progress.milestones': 'construction.progress',
   'schedule_progress.planned_vs_actual': 'construction.progress',

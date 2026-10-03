@@ -49,6 +49,7 @@ import type {
 } from './types';
 import {
   buildWizardProposals,
+  ADMIN_ONLY_PROPOSALS,
   commitChatProposal,
   createChatProposal,
   interpretConversation,
@@ -125,7 +126,9 @@ export const PROJECT_COCKPIT_PANES = [
 export type ProjectCockpitPane = (typeof PROJECT_COCKPIT_PANES)[number];
 
 export function paneForProposalKind(kind: ChatProposalKind): ProjectCockpitPane {
-  if (kind === 'file_evidence') return 'evidence';
+  if (kind === 'file_evidence' || kind === 'assign_document') return 'evidence';
+  if (kind === 'request_documents') return 'evidence';
+  if (kind === 'set_departments') return 'overview';
   if (kind === 'request_evidence' || kind === 'add_action' || kind === 'open_connector') return 'actions';
   if (kind === 'run_valuation') return 'valuation';
   // The screen is the Value tab's compliance half now, so it waits there.
@@ -1164,6 +1167,8 @@ export function applyProjectChat(
           highlightIds.push(String(item.payload.checkId));
           continue;
         }
+        // An admin's card is approved on its own, by an admin; "accept all" leaves it waiting.
+        if (ADMIN_ONLY_PROPOSALS.has(item.kind)) continue;
         const result = commitChatProposal(project, item.id, actor);
         done.push(`${item.title}${result.recordId ? ` → ${result.recordId}` : ''}`);
         if (result.recordId) highlightIds.push(result.recordId);

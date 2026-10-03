@@ -24,6 +24,7 @@ import { KeyFacts, NeedsDecisionCard, OpenItemsCard, RecentActivityCard, Waiting
 import { EngagementsCard } from '../../components/project/EngagementEditor';
 import { VERDICT_TONE } from '../../components/departments/QuickAssessmentCard';
 import { DEPARTMENT_ICON } from '../../components/departments/icons';
+import { DepartmentsControl } from '../../components/departments/DepartmentsControl';
 import { WORKSTREAM_PANE } from './cockpit/rail';
 import { formatWhen, healthTone } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -196,6 +197,8 @@ export default function Overview() {
           })}
         </div>
       ) : null}
+
+      <DepartmentsControl project={project} onSaved={setProject} />
 
       <EngagementsCard project={project} onSaved={setProject} />
 

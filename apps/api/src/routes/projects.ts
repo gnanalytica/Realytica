@@ -95,7 +95,10 @@ import {
   toDashboard,
   toProjectSummary,
   updateEvidenceStatus,
+  ADMIN_ONLY_PROPOSALS,
   applyProjectChat,
+  can,
+  commitChatProposal,
   acceptWaiting,
   decideCheckFields,
   pickCheckValue,
@@ -1900,6 +1903,19 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req,
   }
   applyReviewedPayload(item.payload, parsed.data.payload);
   refreshProjectDerived(project);
+  if (ADMIN_ONLY_PROPOSALS.has(item.kind)) {
+    // The card stands for an admin's control, so approving it is an admin's act.
+    if (!can(principalOf(req).role, 'admin')) {
+      res.status(403).json({ error: `Your role (${principalOf(req).role}) cannot approve that. A workspace admin can.` });
+      return;
+    }
+    try {
+      commitChatProposal(project, item.id, actorOf(req), { admin: true });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Could not apply that.' });
+      return;
+    }
+  }
   if (item.kind === 'run_screen') {
     const now = new Date().toISOString();
     await ensureIdentitySiteContext(project, projectToIdentity(project), now);
