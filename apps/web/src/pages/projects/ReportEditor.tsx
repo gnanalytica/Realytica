@@ -108,7 +108,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
           <h2 className="text-[16px] font-semibold tracking-tight text-ink">{report.title}</h2>
           <p className="mt-1 max-w-[70ch] text-[13px] text-ink-secondary">{summary}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
           <Badge tone={frozen ? 'neutral' : 'good'}>{frozen ? report.status : 'live'}</Badge>
           <InfoTip label="Sections with a coloured rail read the registers and update as the file does. The rest are your words. Detaching a live section stops it updating, and the report says so." />
           <Button
@@ -243,7 +243,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
               You can still issue it; the sign-off is yours.
             </Callout>
           ) : null}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Signed by" required>
               <Input value={signerName} onChange={(e) => setSignerName(e.target.value)} placeholder="Name, as you sign" />
             </Field>

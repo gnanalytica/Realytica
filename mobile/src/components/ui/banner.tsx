@@ -98,6 +98,9 @@ export function Pill({ label, tone = 'info', icon, live, spin }: PillProps) {
         alignItems: 'center',
         gap: 6,
         alignSelf: 'flex-start',
+        // In a narrow row it gives way and wraps, rather than pushing past the edge.
+        flexShrink: 1,
+        maxWidth: '100%',
         paddingHorizontal: space.sm + 2,
         paddingVertical: 4,
         borderRadius: radius.pill,
@@ -111,7 +114,7 @@ export function Pill({ label, tone = 'info', icon, live, spin }: PillProps) {
       ) : live != null ? (
         <StatusDot color={look.dot} size={7} pulse={live} />
       ) : null}
-      <Text variant="caption" tone={look.ink} style={{ fontWeight: '600' }}>
+      <Text variant="caption" tone={look.ink} style={{ fontWeight: '600', flexShrink: 1 }}>
         {label}
       </Text>
     </View>

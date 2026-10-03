@@ -37,16 +37,23 @@ export function StageTimeline({ project, onChanged, onOpen, compact = false }: {
   const markersAt = (step: LifecycleStage) => timeline.markers.filter((m) => m.stage === step);
 
   if (compact) {
+    const stage = stageAndStep(timeline.current);
+    const step = SUB_STAGE_LABEL[timeline.current];
     return (
       <>
         <button
           type="button"
           onClick={() => setPicked({ kind: 'stage', key: timeline.currentStage })}
-          /* A 28px pill that still takes a 44px press: the hit area grows, the pill does not. */
-          className="relative inline-flex h-7 max-w-[11rem] items-center gap-1.5 rounded-full bg-surface px-2.5 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] before:absolute before:-inset-2 coarse:before:-inset-y-2"
+          aria-label={`Where the project is: ${stage}`}
+          /* A 28px pill that still takes a 44px press: the hit area grows, the pill does not.
+             It gives way before the page's name does: on a narrow phone the
+             step alone says where the project is, and the sheet it opens
+             says the rest. */
+          className="relative inline-flex h-7 min-w-0 max-w-[11rem] shrink items-center gap-1.5 rounded-full bg-surface px-2.5 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] before:absolute before:-inset-2 coarse:before:-inset-y-2"
         >
           <span className="size-1.5 shrink-0 rounded-full bg-ink" aria-hidden />
-          <span className="truncate">{stageAndStep(timeline.current)}</span>
+          <span className="truncate sm:hidden">{step}</span>
+          <span className="hidden truncate sm:inline">{stage}</span>
         </button>
         {/* On a phone the record of a stage is a sheet, not a dropdown pinned to a pill. */}
         <Modal open={picked !== null} onClose={() => setPicked(null)} title="Where the project is" width="lg">

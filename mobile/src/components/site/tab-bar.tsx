@@ -5,7 +5,7 @@ import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSeque
 
 import { Text, Touchable } from '@/components/ui';
 import { haptics } from '@/lib/haptics';
-import { space, useTheme } from '@/theme';
+import { PANEL_MAX, space, useTheme } from '@/theme';
 import { pop, SETTLE_SPRING } from '@/theme/motion';
 
 /**
@@ -15,9 +15,9 @@ import { pop, SETTLE_SPRING } from '@/theme/motion';
  */
 export function SiteTabBar({ state, descriptors, navigation, insets }: BottomTabBarProps) {
   const { colors, isDark } = useTheme();
+  // The width of the row of tabs: the whole bar on a phone, a phone's width centred on a tablet.
   const [width, setWidth] = useState(0);
-  // Each tab's share of the bar, inside the side insets (an iPad in landscape has them).
-  const slot = (width - insets.left - insets.right) / state.routes.length;
+  const slot = width / state.routes.length;
   const at = useSharedValue(state.index);
   useEffect(() => {
     at.set(withSpring(state.index, SETTLE_SPRING));
@@ -26,50 +26,55 @@ export function SiteTabBar({ state, descriptors, navigation, insets }: BottomTab
 
   return (
     <View
-      accessibilityRole="tablist"
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       style={{
-        flexDirection: 'row',
         backgroundColor: colors.surface,
         borderTopWidth: 1,
         borderTopColor: colors.hairline,
         boxShadow: isDark ? undefined : '0px -6px 20px rgba(21, 23, 26, 0.05)',
         paddingTop: 6,
         paddingBottom: Math.max(insets.bottom, space.sm),
+        // An iPad in landscape has side insets.
         paddingLeft: insets.left,
         paddingRight: insets.right,
       }}
     >
-      {slot > 0 ? (
-        <Animated.View style={[{ position: 'absolute', top: 8, left: insets.left, width: slot, alignItems: 'center' }, pill]}>
-          <View style={{ width: 64, height: 34, borderRadius: 17, backgroundColor: colors.brandSoft }} />
-        </Animated.View>
-      ) : null}
-      {state.routes.map((route, index) => {
-        const { options } = descriptors[route.key];
-        const focused = state.index === index;
-        const color = focused ? colors.brandStrong : colors.textSecondary;
-        const title = typeof options.title === 'string' ? options.title : route.name;
-        return (
-          <TabButton
-            key={route.key}
-            title={title}
-            focused={focused}
-            color={color}
-            badge={options.tabBarBadge}
-            accessibilityLabel={options.tabBarAccessibilityLabel ?? title}
-            icon={options.tabBarIcon?.({ focused, color, size: 26 })}
-            onPress={() => {
-              const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-              if (!focused && !event.defaultPrevented) {
-                haptics.tick();
-                navigation.navigate(route.name, route.params);
-              }
-            }}
-            onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
-          />
-        );
-      })}
+      {/* Three tabs spread across a tablet's whole width are three islands; they stay a phone's width apart. */}
+      <View
+        accessibilityRole="tablist"
+        onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+        style={{ flexDirection: 'row', width: '100%', maxWidth: PANEL_MAX, alignSelf: 'center' }}
+      >
+        {slot > 0 ? (
+          <Animated.View style={[{ position: 'absolute', top: 2, left: 0, width: slot, alignItems: 'center' }, pill]}>
+            <View style={{ width: 64, height: 34, borderRadius: 17, backgroundColor: colors.brandSoft }} />
+          </Animated.View>
+        ) : null}
+        {state.routes.map((route, index) => {
+          const { options } = descriptors[route.key];
+          const focused = state.index === index;
+          const color = focused ? colors.brandStrong : colors.textSecondary;
+          const title = typeof options.title === 'string' ? options.title : route.name;
+          return (
+            <TabButton
+              key={route.key}
+              title={title}
+              focused={focused}
+              color={color}
+              badge={options.tabBarBadge}
+              accessibilityLabel={options.tabBarAccessibilityLabel ?? title}
+              icon={options.tabBarIcon?.({ focused, color, size: 26 })}
+              onPress={() => {
+                const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+                if (!focused && !event.defaultPrevented) {
+                  haptics.tick();
+                  navigation.navigate(route.name, route.params);
+                }
+              }}
+              onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
+            />
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -132,12 +137,13 @@ function TabButton({ title, focused, color, icon, badge, accessibilityLabel, onP
             justifyContent: 'center',
           }}
         >
-          <Text mono variant="caption" style={{ fontSize: 12, lineHeight: 15, fontWeight: '500', color: isDark ? colors.textInverse : colors.text }}>
+          <Text mono variant="caption" maxFontSizeMultiplier={1.2} style={{ fontSize: 12, lineHeight: 15, fontWeight: '500', color: isDark ? colors.textInverse : colors.text }}>
             {String(badge)}
           </Text>
         </Animated.View>
       ) : null}
-      <Text variant="caption" style={{ color, fontWeight: focused ? '700' : '600' }}>
+      {/* A tab's word sits under its icon in a bar of fixed height, so it grows only a little. */}
+      <Text variant="caption" maxFontSizeMultiplier={1.3} numberOfLines={1} style={{ color, fontWeight: focused ? '700' : '600' }}>
         {title}
       </Text>
     </Touchable>

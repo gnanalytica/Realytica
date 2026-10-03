@@ -97,6 +97,42 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
     }
   }
 
+  const person = (row: Row) => (
+    <>
+      <p className="font-medium text-ink">{row.name ?? row.email}</p>
+      <p className="text-micro text-ink-muted [overflow-wrap:anywhere]">
+        {row.name ? `${row.email} · ` : ''}
+        {row.workspaceRole ? WORKSPACE_ROLE_LABEL[row.workspaceRole] : 'Outside the firm'}
+        {row.member?.signer ? ` · ${row.member.signer.profession}${row.member.signer.registration ? `, ${row.member.signer.registration}` : ''}` : ''}
+      </p>
+    </>
+  );
+
+  const roleFor = (row: Row, d: (typeof departments)[number], className?: string) => {
+    const explicit = row.member?.departments[d.key];
+    const effective = departmentRole(project, { email: row.email, workspaceRole: row.workspaceRole }, d.key);
+    if (mayStaff) {
+      return (
+        <Select
+          aria-label={`${row.name ?? row.email} in ${d.label}`}
+          title={explicit ? undefined : 'Their firm role'}
+          value={explicit ?? ''}
+          disabled={busy !== null}
+          onChange={(e) => void save(row, d.key, e.target.value as DepartmentRole | '')}
+          className={cn('h-8', !explicit && 'text-ink-muted', className)}
+        >
+          <option value="">{effective ? DEPARTMENT_ROLE_LABEL[effective] : '—'}</option>
+          {DEPARTMENT_ROLES.map((r) => (
+            <option key={r} value={r} title={DEPARTMENT_ROLE_HINT[r]}>
+              {DEPARTMENT_ROLE_LABEL[r]}
+            </option>
+          ))}
+        </Select>
+      );
+    }
+    return effective ? <Badge tone={effective === 'lead' ? 'brand' : 'neutral'}>{DEPARTMENT_ROLE_LABEL[effective]}</Badge> : <span className="text-ink-muted">—</span>;
+  };
+
   return (
     <Card>
       <CardHeader
@@ -104,68 +140,63 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
         subtitle="Lead runs it and accepts proposals · Contributor adds documents and records · Signer certifies its reports · Viewer reads"
         info="A person's firm role sets the default. Change a cell to give them a different role on this project; somebody outside the firm reaches only the departments given to them here."
       />
-      <CardBody className="overflow-x-auto p-0">
-        <table className="w-full min-w-[40rem] text-left text-[13px]">
-          <thead>
-            <tr className="border-b border-hairline text-[11px] uppercase tracking-[0.06em] text-ink-muted">
-              <th className="px-4 py-2 font-semibold">Person</th>
-              {departments.map((d) => (
-                <th key={d.key} className="px-2 py-2 font-semibold">
-                  {SHORT[d.key]}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-hairline">
-            {rows.map((row) => (
-              <tr key={row.email} className={cn(busy === row.email && 'opacity-60')}>
-                <td className="px-4 py-2 align-top">
-                  <p className="font-medium text-ink">{row.name ?? row.email}</p>
-                  <p className="text-micro text-ink-muted">
-                    {row.name ? `${row.email} · ` : ''}
-                    {row.workspaceRole ? WORKSPACE_ROLE_LABEL[row.workspaceRole] : 'Outside the firm'}
-                    {row.member?.signer ? ` · ${row.member.signer.profession}${row.member.signer.registration ? `, ${row.member.signer.registration}` : ''}` : ''}
-                  </p>
-                </td>
-                {departments.map((d) => {
-                  const explicit = row.member?.departments[d.key];
-                  const effective = departmentRole(project, { email: row.email, workspaceRole: row.workspaceRole }, d.key);
-                  return (
-                    <td key={d.key} className="px-2 py-2 align-top">
-                      {mayStaff ? (
-                        <Select
-                          aria-label={`${row.name ?? row.email} in ${d.label}`}
-                          title={explicit ? undefined : 'Their firm role'}
-                          value={explicit ?? ''}
-                          disabled={busy !== null}
-                          onChange={(e) => void save(row, d.key, e.target.value as DepartmentRole | '')}
-                          className={cn('h-8 min-w-[7.5rem]', !explicit && 'text-ink-muted')}
-                        >
-                          <option value="">{effective ? DEPARTMENT_ROLE_LABEL[effective] : '—'}</option>
-                          {DEPARTMENT_ROLES.map((r) => (
-                            <option key={r} value={r} title={DEPARTMENT_ROLE_HINT[r]}>
-                              {DEPARTMENT_ROLE_LABEL[r]}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : effective ? (
-                        <Badge tone={effective === 'lead' ? 'brand' : 'neutral'}>{DEPARTMENT_ROLE_LABEL[effective]}</Badge>
-                      ) : (
-                        <span className="text-ink-muted">—</span>
-                      )}
-                    </td>
-                  );
-                })}
+      {/*
+        A person a row and a department a column while the card has the room;
+        below that, a person a block with their departments two to a row.
+
+        The table needs 40rem. On a phone it scrolled sideways with no sign
+        that it did, and the second department's role was already past the
+        edge. The card measures itself (a container), because inside a project
+        it is as wide as the pane the chat leaves, not as the window.
+      */}
+      <CardBody className="p-0 [container-type:inline-size]">
+        <ul className="divide-y divide-hairline [@container(min-width:40rem)]:hidden">
+          {rows.map((row) => (
+            <li key={row.email} className={cn('space-y-2.5 px-4 py-3', busy === row.email && 'opacity-60')}>
+              <div className="text-[13px]">{person(row)}</div>
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+                {departments.map((d) => (
+                  <div key={d.key} className="min-w-0">
+                    <dt className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">{SHORT[d.key]}</dt>
+                    <dd className="mt-1">{roleFor(row, d)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto [@container(min-width:40rem)]:block">
+          <table className="w-full min-w-[40rem] text-left text-[13px]">
+            <thead>
+              <tr className="border-b border-hairline text-[11px] uppercase tracking-[0.06em] text-ink-muted">
+                <th className="px-4 py-2 font-semibold">Person</th>
+                {departments.map((d) => (
+                  <th key={d.key} className="px-2 py-2 font-semibold">
+                    {SHORT[d.key]}
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-hairline">
+              {rows.map((row) => (
+                <tr key={row.email} className={cn(busy === row.email && 'opacity-60')}>
+                  <td className="px-4 py-2 align-top">{person(row)}</td>
+                  {departments.map((d) => (
+                    <td key={d.key} className="px-2 py-2 align-top">
+                      {roleFor(row, d, 'min-w-[7.5rem]')}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {mayStaff ? <p className="px-4 pb-3 pt-1 text-micro text-ink-muted">A grey role is the person&rsquo;s firm role. Pick another to change it on this project only.</p> : null}
       </CardBody>
       {mayStaff ? (
         <div className="space-y-3 border-t border-hairline p-4">
           <p className="text-[12px] font-semibold text-ink">Add someone</p>
-          <div className="grid gap-3 [@container(min-width:44rem)]:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 [@container(min-width:44rem)]:grid-cols-4">
             <Field label="Email">
               <Input type="email" value={adding.email} onChange={(e) => setAdding({ ...adding, email: e.target.value })} placeholder="advocate@firm.in" />
             </Field>
@@ -192,7 +223,7 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
             </Field>
           </div>
           {adding.role === 'signer' ? (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Profession" hint="As their reports describe them: Advocate, Registered Valuer, Structural Engineer.">
                 <Input value={adding.profession} onChange={(e) => setAdding({ ...adding, profession: e.target.value })} />
               </Field>

@@ -200,7 +200,8 @@ export function PercentPicker({ value, onChange, from }: PercentPickerProps) {
                 justifyContent: 'center',
               }}
             >
-              <Text variant="bodyStrong" mono={preset !== 100} tone={on ? 'brandStrong' : 'text'} style={{ fontSize: 16 }}>
+              {/* Five to a row on a phone's width: "Done" has to fit a fifth of it at any text size. */}
+              <Text variant="bodyStrong" mono={preset !== 100} tone={on ? 'brandStrong' : 'text'} maxFontSizeMultiplier={1.3} numberOfLines={1} style={{ fontSize: 16 }}>
                 {preset === 100 ? 'Done' : `${preset}%`}
               </Text>
             </Touchable>

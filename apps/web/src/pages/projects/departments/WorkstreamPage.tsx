@@ -46,7 +46,7 @@ export function WorkstreamFrame({ project, workstream, setProject, compact = fal
   const nav = useWorkstreamNav(project);
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 [@container(min-width:56rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+      <div className="grid grid-cols-1 gap-4 [@container(min-width:56rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <QuickAssessmentCard assessment={assessment} compact={compact} />
         <CertifiedPanel project={project} workstream={workstream} onChanged={setProject} />
       </div>
@@ -143,7 +143,7 @@ export default function WorkstreamPage() {
           {ws.key === 'legal.approvals' ? <ApprovalsRegister project={project} onOpenDocument={nav.openDocument} /> : null}
           {ws.key === 'construction.progress' ? <ProgressBoard project={project} onChanged={setProject} onPairPhone={nav.pairPhone} /> : null}
           {ws.key === 'legal.title' ? <TitleBody project={project} /> : null}
-          <div className="grid gap-4 [@container(min-width:56rem)]:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 [@container(min-width:56rem)]:grid-cols-2">
             <WorkstreamChecks project={project} workstream={ws.key} onChanged={setProject} onOpenCheck={nav.openCheck} />
             <WorkstreamDocuments project={project} workstream={ws.key} onOpenDocument={nav.openDocument} />
           </div>

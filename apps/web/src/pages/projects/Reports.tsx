@@ -66,7 +66,7 @@ export default function Reports() {
           characters of report left over; below it the list sits on top, where
           a handful of report names cost one line each.
         */
-        <div className="grid gap-4 [@container(min-width:44rem)]:grid-cols-[16rem_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-4 [@container(min-width:44rem)]:grid-cols-[16rem_minmax(0,1fr)]">
           <Card>
             <CardBody className="space-y-1 p-2">
               {project.reports.map((r) => (

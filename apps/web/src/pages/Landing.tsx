@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Check, CheckCircle2, CloudOff, FileText, Lock, Minus, Plus, Smartphone, Sparkles, Waypoints } from 'lucide-react';
+import { ArrowRight, Check, CheckCircle2, CloudOff, FileText, Lock, Menu, Minus, Plus, Smartphone, Sparkles, Waypoints, X } from 'lucide-react';
 import { DEPARTMENTS, STAGES, SUB_STAGE_LABEL, type DepartmentKey, type StageKey } from '@realytica/shared';
-import { EASE_ENTER, SPRING, motion } from '../lib/motion';
+import { AnimatePresence, EASE_ENTER, SPRING, motion } from '../lib/motion';
 import { AiMark, cn } from '../components/ui/kit';
 import { DEPARTMENT_ICON } from '../components/departments/icons';
 
@@ -32,6 +32,79 @@ const NAV = [
   { href: '#site', label: 'Site app' },
   { href: '#scope', label: 'Scope' },
 ];
+
+/**
+ * The page's sections, for a screen too narrow to list them in the bar.
+ *
+ * Below the large breakpoint the links used to be hidden outright on a phone
+ * and squeezed onto two lines each on a tablet. Here they open under the bar
+ * as one column of 44px rows; choosing one, pressing Escape or touching
+ * anywhere else closes it.
+ */
+function SectionMenu() {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    // A listener rather than a backdrop: the bar's backdrop blur makes it the
+    // box a fixed overlay would be measured against, so one could not cover the page.
+    const onPointer = (e: PointerEvent) => {
+      if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onPointer);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer);
+    };
+  }, [open]);
+  return (
+    <div ref={root} className="lg:hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls="landing-sections"
+        aria-label={open ? 'Close the list of sections' : 'Sections on this page'}
+        className="grid size-10 place-items-center rounded-lg text-ink-secondary ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick hover:bg-sunken hover:text-ink coarse:size-11"
+      >
+        {open ? <X size={18} /> : <Menu size={18} />}
+      </button>
+      <AnimatePresence>
+        {open ? (
+          <motion.nav
+            id="landing-sections"
+            aria-label="On this page"
+            /* Opaque: `page` is a plain variable, so an opacity modifier on it
+               (`bg-page/95`) compiles to nothing and the hero showed through. */
+            className="absolute inset-x-0 top-full border-b border-hairline bg-page px-4 pb-4 pt-2 shadow-pop sm:px-6"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6, transition: { duration: 0.12 } }}
+            transition={{ duration: 0.2, ease: EASE_ENTER }}
+          >
+            <ul className="mx-auto grid max-w-6xl grid-cols-1 gap-0.5 sm:grid-cols-2">
+              {NAV.map((n) => (
+                <li key={n.href}>
+                  <a
+                    href={n.href}
+                    onClick={() => setOpen(false)}
+                    className="flex min-h-11 items-center rounded-lg px-3 text-[15px] text-ink transition-colors duration-quick hover:bg-sunken"
+                  >
+                    {n.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </motion.nav>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 /** Rises into place the first time it scrolls into view. */
 function InView({ children, delay = 0, className }: { children: ReactNode; delay?: number; className?: string }) {
@@ -255,7 +328,7 @@ function HeroCanvas() {
           />
         </div>
       </motion.div>
-      <div className="absolute -bottom-20 right-2 sm:-right-8">
+      <div className="absolute -bottom-20 right-2 xl:-right-8">
         <ProposalSketch />
       </div>
     </div>
@@ -273,70 +346,137 @@ function HeroCanvas() {
  * department's live workstreams deliver at that stage, so the grid is the
  * product's own scope rather than a diagram of it.
  */
-function StageMatrix() {
-  const [hover, setHover] = useState<DepartmentKey | null>(null);
-  const cell = (dept: (typeof DEPARTMENTS)[number], stage: StageKey) =>
-    dept.workstreams.flatMap((w) => w.deliverables.filter((d) => d.stage === stage).map((d) => ({ title: d.title, live: w.status === 'live' })));
+type Deliverable = { title: string; live: boolean };
+
+function deliverables(dept: (typeof DEPARTMENTS)[number], stage: StageKey): Deliverable[] {
+  return dept.workstreams.flatMap((w) => w.deliverables.filter((d) => d.stage === stage).map((d) => ({ title: d.title, live: w.status === 'live' })));
+}
+
+function DeliverableList({ items }: { items: Deliverable[] }) {
+  return items.length ? (
+    <ul className="space-y-1">
+      {items.slice(0, 3).map((d) => (
+        <li key={d.title} className={cn('flex items-start gap-1.5 text-[12px] leading-snug', d.live ? 'text-ink' : 'text-ink-muted')}>
+          <span className={cn('mt-[5px] size-1.5 shrink-0 rounded-full', d.live ? 'bg-brand' : 'bg-[var(--axis)]')} />
+          {d.title}
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <Minus size={14} className="text-[var(--axis)]" aria-label="Nothing at this stage" />
+  );
+}
+
+function DepartmentLabel({ dept }: { dept: (typeof DEPARTMENTS)[number] }) {
+  const Icon = DEPARTMENT_ICON[dept.key];
   return (
-    <div className="overflow-x-auto rounded-2xl bg-surface shadow-card ring-1 ring-[var(--ring)]">
-      <div className="min-w-[56rem]">
-        <div className="grid grid-cols-[13rem_repeat(4,minmax(0,1fr))] border-b border-hairline bg-sunken/60">
-          <div className="px-4 py-3 text-[11px] font-medium text-ink-muted">Department</div>
-          {STAGES.map((s, i) => (
-            <div key={s.key} className="border-l border-hairline px-4 py-3">
-              <p className="font-mono text-[10px] text-ink-muted">0{i + 1}</p>
-              <p className="text-[13px] font-semibold text-ink">{s.label}</p>
-              <p className="truncate text-[11px] text-ink-muted">{s.subStages.map((x) => SUB_STAGE_LABEL[x]).join(' · ')}</p>
-            </div>
-          ))}
-        </div>
-        {DEPARTMENTS.map((dept, row) => {
-          const Icon = DEPARTMENT_ICON[dept.key];
-          const dim = hover !== null && hover !== dept.key;
+    <div className="flex items-start gap-2.5">
+      <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg ring-1 ring-inset', dept.status === 'live' ? 'bg-ink text-[var(--text-inverse)] ring-ink' : 'bg-sunken text-ink-muted ring-[var(--ring)]')}>
+        <Icon size={15} />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[13px] font-semibold leading-tight text-ink">{dept.label}</p>
+        <p className={cn('mt-0.5 text-[11px]', dept.status === 'live' ? 'text-[var(--status-good-text)]' : 'text-ink-muted')}>{dept.status === 'live' ? 'Live' : 'Coming soon'}</p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The same grid a stage at a time, for a screen narrower than its four columns.
+ *
+ * The full grid is 56rem wide. On a phone it showed the departments and the
+ * first stage, with the other three past the edge of a box that gave no sign
+ * it scrolled. Here the stages are a segmented control and the departments a
+ * list, so every cell is one touch away and nothing is off screen.
+ */
+function StageMatrixByStage() {
+  const [at, setAt] = useState<StageKey>(STAGES[0].key);
+  const stage = STAGES.find((s) => s.key === at)!;
+  return (
+    <div className="space-y-3">
+      <div role="group" aria-label="Stage" className="grid grid-cols-4 gap-1 rounded-xl bg-sunken p-1 ring-1 ring-inset ring-[var(--ring)]">
+        {STAGES.map((s, i) => {
+          const on = s.key === at;
           return (
-            <motion.div
-              key={dept.key}
-              onMouseEnter={() => setHover(dept.key)}
-              onMouseLeave={() => setHover(null)}
-              className={cn('grid grid-cols-[13rem_repeat(4,minmax(0,1fr))] border-b border-hairline transition-opacity duration-base last:border-0', dim && 'opacity-45')}
-              initial={{ opacity: 0, x: -8 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.45, ease: EASE_ENTER, delay: row * 0.06 }}
+            <button
+              key={s.key}
+              type="button"
+              aria-pressed={on}
+              onClick={() => setAt(s.key)}
+              className={cn(
+                'relative flex min-h-11 min-w-0 flex-col items-center justify-center rounded-lg px-1 py-1.5 text-center transition-colors duration-quick',
+                on ? 'text-ink' : 'text-ink-secondary hover:text-ink',
+              )}
             >
-              <div className="flex items-start gap-2.5 px-4 py-3.5">
-                <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg ring-1 ring-inset', dept.status === 'live' ? 'bg-ink text-[var(--text-inverse)] ring-ink' : 'bg-sunken text-ink-muted ring-[var(--ring)]')}>
-                  <Icon size={15} />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[13px] font-semibold leading-tight text-ink">{dept.label}</p>
-                  <p className={cn('mt-0.5 text-[11px]', dept.status === 'live' ? 'text-[var(--status-good-text)]' : 'text-ink-muted')}>{dept.status === 'live' ? 'Live' : 'Coming soon'}</p>
-                </div>
-              </div>
-              {STAGES.map((s) => {
-                const items = cell(dept, s.key);
-                return (
-                  <div key={s.key} className="border-l border-hairline px-4 py-3.5">
-                    {items.length ? (
-                      <ul className="space-y-1">
-                        {items.slice(0, 3).map((d) => (
-                          <li key={d.title} className={cn('flex items-start gap-1.5 text-[12px] leading-snug', d.live ? 'text-ink' : 'text-ink-muted')}>
-                            <span className={cn('mt-[5px] size-1.5 shrink-0 rounded-full', d.live ? 'bg-brand' : 'bg-[var(--axis)]')} />
-                            {d.title}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <Minus size={14} className="text-[var(--axis)]" aria-label="Nothing at this stage" />
-                    )}
-                  </div>
-                );
-              })}
-            </motion.div>
+              {on ? <motion.span layoutId="landing-stage" aria-hidden className="absolute inset-0 rounded-lg bg-surface shadow-card ring-1 ring-[var(--ring)]" transition={SPRING.snappy} /> : null}
+              <span className="relative font-mono text-[10px] text-ink-muted">0{i + 1}</span>
+              <span className={cn('relative text-[11px] leading-tight [overflow-wrap:anywhere] sm:text-[12px]', on && 'font-semibold')}>{s.label}</span>
+            </button>
           );
         })}
       </div>
+      <p className="px-1 text-[12px] text-ink-muted">{stage.subStages.map((x) => SUB_STAGE_LABEL[x]).join(' · ')}</p>
+      <ul className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl bg-hairline shadow-card ring-1 ring-[var(--ring)] sm:grid-cols-2 [&>*]:bg-surface" aria-label={`What each department produces at ${stage.label}`}>
+        {DEPARTMENTS.map((dept) => (
+          <li key={dept.key} className="space-y-2.5 px-4 py-3.5">
+            <DepartmentLabel dept={dept} />
+            <div className="pl-[2.625rem]">
+              <DeliverableList items={deliverables(dept, at)} />
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
+  );
+}
+
+function StageMatrix() {
+  const [hover, setHover] = useState<DepartmentKey | null>(null);
+  return (
+    <>
+      <div className="lg:hidden">
+        <StageMatrixByStage />
+      </div>
+      <div className="hidden overflow-x-auto rounded-2xl bg-surface shadow-card ring-1 ring-[var(--ring)] lg:block">
+        <div className="min-w-[56rem]">
+          <div className="grid grid-cols-[13rem_repeat(4,minmax(0,1fr))] border-b border-hairline bg-sunken/60">
+            <div className="px-4 py-3 text-[11px] font-medium text-ink-muted">Department</div>
+            {STAGES.map((s, i) => (
+              <div key={s.key} className="border-l border-hairline px-4 py-3">
+                <p className="font-mono text-[10px] text-ink-muted">0{i + 1}</p>
+                <p className="text-[13px] font-semibold text-ink">{s.label}</p>
+                <p className="truncate text-[11px] text-ink-muted">{s.subStages.map((x) => SUB_STAGE_LABEL[x]).join(' · ')}</p>
+              </div>
+            ))}
+          </div>
+          {DEPARTMENTS.map((dept, row) => {
+            const dim = hover !== null && hover !== dept.key;
+            return (
+              <motion.div
+                key={dept.key}
+                onMouseEnter={() => setHover(dept.key)}
+                onMouseLeave={() => setHover(null)}
+                className={cn('grid grid-cols-[13rem_repeat(4,minmax(0,1fr))] border-b border-hairline transition-opacity duration-base last:border-0', dim && 'opacity-45')}
+                initial={{ opacity: 0, x: -8 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.45, ease: EASE_ENTER, delay: row * 0.06 }}
+              >
+                <div className="px-4 py-3.5">
+                  <DepartmentLabel dept={dept} />
+                </div>
+                {STAGES.map((s) => (
+                  <div key={s.key} className="border-l border-hairline px-4 py-3.5">
+                    <DeliverableList items={deliverables(dept, s.key)} />
+                  </div>
+                ))}
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -346,7 +486,7 @@ function StageMatrix() {
 
 function CitationSpecimen() {
   return (
-    <div className="grid items-center gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]" role="img" aria-label="An illustration: a value on the record, with a citation chip pointing to the line on the page it was read from.">
+    <div className="grid grid-cols-1 items-center gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]" role="img" aria-label="An illustration: a value on the record, with a citation chip pointing to the line on the page it was read from.">
       <div className="relative mx-auto w-full max-w-[16rem] rounded-xl bg-[#fbfaf6] p-4 shadow-raised ring-1 ring-[var(--ring)] dark:bg-[#1f1e1b]">
         <p className="mb-3 font-mono text-[9px] uppercase tracking-[0.12em] text-ink-muted">Page 4</p>
         <div className="space-y-2" aria-hidden>
@@ -407,12 +547,14 @@ const IMPACT = [
 
 function ImpactWalk() {
   return (
-    <div className="flex flex-col items-stretch gap-0 sm:flex-row sm:items-center" role="img" aria-label="An approval that is missing gates construction progress, which feeds the valuation, which feeds funding and escrow.">
+    /* A column until there is room for all four in a row: in a row they need
+       52rem, and from the small breakpoint they ran 80px past a tablet's edge. */
+    <div className="flex max-w-md flex-col items-stretch gap-0 lg:max-w-none lg:flex-row lg:items-center" role="img" aria-label="An approval that is missing gates construction progress, which feeds the valuation, which feeds funding and escrow.">
       {IMPACT.map((node, i) => (
-        <div key={node.label} className="flex flex-col items-center sm:flex-row">
+        <div key={node.label} className="flex flex-col items-center lg:flex-row">
           <motion.div
             className={cn(
-              'w-full rounded-xl px-4 py-3 shadow-card ring-1 sm:w-44',
+              'w-full rounded-xl px-4 py-3 shadow-card ring-1 lg:w-44',
               node.tone === 'critical' ? 'bg-critical/10 ring-critical/30' : 'bg-surface ring-[var(--ring)]',
             )}
             initial={{ opacity: 0, scale: 0.92 }}
@@ -426,7 +568,9 @@ function ImpactWalk() {
           {i < IMPACT.length - 1 ? (
             <motion.span
               aria-hidden
-              className="my-1 h-6 w-[2px] origin-top bg-ink/40 sm:mx-1 sm:my-0 sm:h-[2px] sm:w-8 sm:origin-left"
+              /* The rule colour: `bg-ink/40` compiled to nothing (`ink` is a plain
+                 variable), so the steps never showed as one chain. */
+              className="my-1 h-6 w-[2px] origin-top bg-[var(--axis)] lg:mx-1 lg:my-0 lg:h-[2px] lg:w-8 lg:origin-left"
               initial={{ scale: 0 }}
               whileInView={{ scale: 1 }}
               viewport={{ once: true }}
@@ -531,44 +675,47 @@ export default function Landing() {
   return (
     <div className="min-h-full overflow-x-hidden bg-page text-ink">
       <header className="sticky top-0 z-30 border-b border-hairline/70 bg-page/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-4 sm:px-6">
-          <Link to="/" className="flex items-center gap-2.5">
+        <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-4 sm:gap-3 sm:px-6 lg:gap-6">
+          <Link to="/" aria-label="Realytica" className="flex shrink-0 items-center gap-2.5">
             <span className="grid size-8 place-items-center rounded-lg bg-brand" aria-hidden>
               <svg viewBox="0 0 100 100" className="size-[18px]">
                 <path d="M26 68 L50 26 L74 68 Z" fill="none" stroke="white" strokeWidth={10} strokeLinejoin="round" />
               </svg>
             </span>
-            <span className="text-[15px] font-semibold tracking-tight">Realytica</span>
+            {/* The mark alone on the narrowest phones, where the name and the
+                two controls beside it cannot share one row. */}
+            <span className="hidden text-[15px] font-semibold tracking-tight min-[360px]:inline">Realytica</span>
           </Link>
-          <nav className="hidden flex-1 items-center gap-1 md:flex" aria-label="On this page">
+          <nav className="hidden flex-1 items-center gap-1 lg:flex" aria-label="On this page">
             {NAV.map((n) => (
-              <a key={n.href} href={n.href} className="rounded-lg px-3 py-1.5 text-[13px] text-ink-secondary transition-colors duration-quick hover:bg-sunken hover:text-ink">
+              <a key={n.href} href={n.href} className="whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] text-ink-secondary transition-colors duration-quick hover:bg-sunken hover:text-ink">
                 {n.label}
               </a>
             ))}
           </nav>
-          <Link to="/portfolio" className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-action px-3.5 py-2 text-[13px] font-medium text-action-ink transition-colors hover:bg-action-hover md:ml-0">
+          <Link to="/portfolio" className="ml-auto inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-action px-3.5 py-2 text-[13px] font-medium text-action-ink transition-colors hover:bg-action-hover coarse:min-h-11 lg:ml-0">
             Open workspace
             <ArrowRight size={14} />
           </Link>
+          <SectionMenu />
         </div>
       </header>
 
       {/* Hero */}
       <section className="relative">
         <div aria-hidden className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,var(--hairline)_1px,transparent_1px),linear-gradient(to_bottom,var(--hairline)_1px,transparent_1px)] bg-[size:48px_48px] opacity-40 [mask-image:radial-gradient(70%_60%_at_50%_30%,black,transparent)]" />
-        <div className="relative mx-auto grid max-w-6xl items-center gap-14 px-4 pb-24 pt-14 sm:px-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:pb-32 lg:pt-20">
+        <div className="relative mx-auto grid grid-cols-1 max-w-6xl items-center gap-14 px-4 pb-24 pt-14 sm:px-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:pb-32 lg:pt-20">
           <div>
             <motion.p
-              className="inline-flex items-center gap-2 rounded-full bg-surface px-3 py-1 text-[12px] text-ink-secondary shadow-card ring-1 ring-[var(--ring)]"
+              className="inline-flex items-center gap-2 rounded-xl bg-surface px-3 py-1 text-[12px] text-ink-secondary shadow-card ring-1 ring-[var(--ring)] sm:rounded-full"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, ease: EASE_ENTER }}
             >
-              <span className="size-1.5 rounded-full bg-good" />
+              <span className="size-1.5 shrink-0 rounded-full bg-good" />
               For engineering firms, developers and the professionals around them
             </motion.p>
-            <h1 className="mt-6 text-[38px] font-semibold leading-[1.04] tracking-[-0.035em] sm:text-[52px] lg:text-[44px] xl:text-[50px]">
+            <h1 className="mt-6 text-[34px] font-semibold leading-[1.04] tracking-[-0.035em] min-[360px]:text-[38px] sm:text-[52px] lg:text-[44px] xl:text-[50px]">
               {['A property’s whole life,', 'in one place.'].map((line, i) => (
                 <span key={line} className="block overflow-hidden pb-[0.06em]">
                   <motion.span
@@ -591,26 +738,26 @@ export default function Landing() {
               Every project moves through {inWords(STAGES.length)} stages, and its work through {inWords(DEPARTMENTS.length)} departments. Realytica gives each its place — title and approvals, progress and the site, the valuation — reads the documents for you, Kannada included, with the page behind every value, and keeps a copilot beside every view.
             </motion.p>
             <motion.div
-              className="mt-8 flex flex-wrap items-center gap-3"
+              className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, ease: EASE_ENTER, delay: 0.45 }}
             >
-              <Link to="/portfolio" className={CTA}>
+              <Link to="/portfolio" className={cn(CTA, 'justify-center')}>
                 Open the workspace
                 <ArrowRight size={16} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
               </Link>
-              <a href="#structure" className="inline-flex items-center gap-1.5 rounded-xl px-4 py-3 text-[14px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick hover:bg-surface">
+              <a href="#structure" className="inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-[14px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick hover:bg-surface">
                 See how it is organised
               </a>
             </motion.div>
             <motion.p
-              className="mt-6 flex items-center gap-2 text-[13px] text-ink-muted"
+              className="mt-6 flex items-start gap-2 text-[13px] text-ink-muted"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.6, delay: 0.6 }}
             >
-              <Lock size={13} />
+              <Lock size={13} className="mt-[3px] shrink-0" />
               The AI proposes. Nothing is filed until a person accepts it.
             </motion.p>
           </div>
@@ -628,7 +775,9 @@ export default function Landing() {
             title="Organised the way the work is."
             note={
               <>
-                {inWords(STAGES.length).replace(/^./, (c) => c.toUpperCase())} stages, {inWords(DEPARTMENTS.length)} departments and the workstreams inside them. {live.map((d) => d.label.split(' ')[0]).join(', ')} are live; the rest are listed with what they will hold. Point at a department to follow its work across the life of the project.
+                {inWords(STAGES.length).replace(/^./, (c) => c.toUpperCase())} stages, {inWords(DEPARTMENTS.length)} departments and the workstreams inside them. {live.map((d) => d.label.split(' ')[0]).join(', ')} are live; the rest are listed with what they will hold.
+                <span className="hidden lg:inline"> Point at a department to follow its work across the life of the project.</span>
+                <span className="lg:hidden"> Pick a stage to see what each department produces in it.</span>
               </>
             }
           />
@@ -640,7 +789,7 @@ export default function Landing() {
 
       {/* 02 */}
       <section id="copilot" className="scroll-mt-20 py-24">
-        <div className="mx-auto grid max-w-6xl items-center gap-14 px-4 sm:px-6 lg:grid-cols-2">
+        <div className="mx-auto grid grid-cols-1 max-w-6xl items-center gap-14 px-4 sm:px-6 lg:grid-cols-2">
           <div>
             <SectionHead n="02" title="The copilot proposes. A person decides." note="It reads what you file, answers from the file with the source attached, and drafts what you ask for. Everything it wants to change arrives as a proposal, marked as the model’s, and waits." />
             <ul className="space-y-4">
@@ -709,7 +858,7 @@ export default function Landing() {
 
       {/* 05 */}
       <section id="site" className="scroll-mt-20 border-y border-hairline bg-surface py-24">
-        <div className="mx-auto grid max-w-6xl items-center gap-14 px-4 sm:px-6 lg:grid-cols-2">
+        <div className="mx-auto grid grid-cols-1 max-w-6xl items-center gap-14 px-4 sm:px-6 lg:grid-cols-2">
           <div>
             <SectionHead n="05" title="The site, from a phone." note="Realytica Site, for Android and iOS, does one job: the day on site. Manpower, work done, progress against milestones, weather, photographs and issues — logged with no signal and sent when there is. Pair it with a code; it never sees a password." />
             <InView>
@@ -727,7 +876,7 @@ export default function Landing() {
       <section id="scope" className="scroll-mt-20 py-24">
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <SectionHead n="06" title="Scope and limitations." />
-          <InView className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
+          <InView className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
             <div className="max-w-[62ch] space-y-4 text-[16px] leading-[1.7] text-ink-secondary">
               <p>
                 A portfolio by stage, a workspace per project with its departments and their workstreams, one chat across all of it, a graph of how the work connects, and a site app for Android and iOS. Reports are built from the records and export to Word or PDF.

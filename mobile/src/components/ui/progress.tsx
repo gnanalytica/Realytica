@@ -65,7 +65,7 @@ export function ProgressRing({ percent, size = 148, stroke = 14 }: RingProps) {
         ) : null}
       </Svg>
       {percent == null ? (
-        <Text variant="display" mono style={{ fontSize: big ? 34 : 22, lineHeight: big ? 40 : 26 }}>
+        <Text variant="display" mono maxFontSizeMultiplier={1.2} style={{ fontSize: big ? 34 : 22, lineHeight: big ? 40 : 26 }}>
           —
         </Text>
       ) : (
@@ -76,11 +76,13 @@ export function ProgressRing({ percent, size = 148, stroke = 14 }: RingProps) {
           format={(n) => `${n.toFixed(Number.isInteger(value) ? 0 : 1)}%`}
           variant="display"
           mono
+          // Inside a circle of fixed size; the figure is read out in full from the ring's label.
+          maxFontSizeMultiplier={1.2}
           style={{ fontSize: big ? 32 : 20, lineHeight: big ? 38 : 24, letterSpacing: -0.5 }}
         />
       )}
       {percent != null && big ? (
-        <Text variant="caption" tone="textSecondary">
+        <Text variant="caption" tone="textSecondary" maxFontSizeMultiplier={1.2}>
           complete
         </Text>
       ) : null}

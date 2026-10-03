@@ -112,6 +112,8 @@ export function Stepper({ value, onChange, min = 0, max = 5000, label }: Stepper
           keyboardType="number-pad"
           selectTextOnFocus
           maxLength={4}
+          // Four digits in a box of fixed size; past this they no longer fit it.
+          maxFontSizeMultiplier={1.3}
           selectionColor={colors.brand}
           style={[
             face('500', true),

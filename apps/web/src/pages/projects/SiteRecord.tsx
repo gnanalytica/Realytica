@@ -384,7 +384,7 @@ function VisitModal({
             ))}
           </Select>
         </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Date"><Input type="date" value={visitedOn} onChange={(e) => setVisitedOn(e.target.value)} /></Field>
           <Field label="Outcome">
             <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>

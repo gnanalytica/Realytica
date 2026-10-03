@@ -241,7 +241,7 @@ export function NewRequestModal({
         <Field label="What is asked for" required>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Encumbrance certificate, 2004 to 2026" />
         </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Who is asked" required>
             <Input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="Name, or their email" />
           </Field>
@@ -254,7 +254,7 @@ export function NewRequestModal({
             </Select>
           </Field>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Due by">
             <Input type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
           </Field>

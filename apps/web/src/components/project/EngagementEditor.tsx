@@ -136,7 +136,7 @@ export function EngagementsCard({ project, onSaved }: { project: DdProject; onSa
         }
       >
         <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {editing === 'new' ? (
               <Field label="Kind of work" hint={ENGAGEMENT_KINDS[draft.kind].purpose}>
                 <Select
@@ -185,7 +185,7 @@ export function EngagementsCard({ project, onSaved }: { project: DdProject; onSa
           </Field>
           <fieldset>
             <legend className="mb-1 text-xs font-medium text-ink-secondary">Draws on</legend>
-            <div className="grid gap-1.5 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {LIVE.map((w) => (
                 <Checkbox
                   key={w.key}

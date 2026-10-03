@@ -49,6 +49,28 @@ measured once at the root. The native `SafeAreaView` measures where its own view
 sits, and in a full-screen modal that slides up it reads zero, which put the
 log's header under the status bar.
 
+### Phones, tablets and text size
+
+The app is locked to portrait on a phone, but an iPad ignores the lock (it runs
+in any orientation and in Split View, from 320 to 1,366 points across) and so
+does a large Android screen. Every screen therefore lays itself out for the
+width it has (`src/theme`, `src/hooks/use-layout.ts`):
+
+- **A column.** `Screen` keeps its content, and the bar pinned under it, in one
+  column: the whole width of a phone, at most `CONTENT_MAX` (720) and centred
+  on anything wider. A sheet, a toast and the row of tabs stop at `PANEL_MAX`
+  (560), so on a tablet they keep a phone's proportions.
+- **Small phones.** `useLayout()` gives the column's width and whether the
+  phone is small (under 360 points). The progress ring takes about a third of
+  its card rather than a fixed 128 points, and a photo's thumbnail gives up a
+  little, so the words beside them keep room.
+- **Text size.** Text follows the phone's text-size setting up to a limit per
+  step of the type scale (`MAX_SCALE` in `src/components/ui/text.tsx`): reading
+  text to double, headings less, as they start large. Controls with a box of
+  fixed size (a stepper's number, a tab's word, the percentage presets, a
+  button's label) set a lower limit of their own, and rows that would squeeze
+  their words (the progress card, the settings rows) stack instead.
+
 ### Motion and touch
 
 Motion is feedback, not decoration, and comes from one small vocabulary

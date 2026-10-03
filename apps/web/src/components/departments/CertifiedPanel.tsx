@@ -234,7 +234,7 @@ function FileCertifiedModal({ project, workstream, onClose, onFiled }: { project
             ))}
           </Select>
         </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Title">
             <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           </Field>
@@ -257,7 +257,7 @@ function FileCertifiedModal({ project, workstream, onClose, onFiled }: { project
         <Field label="What it covers" hint={hint('scope')}>
           <Textarea rows={2} value={form.scope ?? ''} onChange={(e) => setForm({ ...form, scope: e.target.value || undefined })} />
         </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Conclusion" hint={hint('verdict')}>
             <Select value={form.verdict ?? ''} onChange={(e) => setForm({ ...form, verdict: (e.target.value || undefined) as FileCertifiedBody['verdict'] })}>
               <option value="">No conclusion stated</option>

@@ -285,7 +285,7 @@ export default function Valuation() {
         onRecord={() => void record()}
       />
 
-      <div className="grid gap-4 [@container(min-width:52rem)]:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-2">
         <ValueChecks
           checks={checks}
           rule8={rule8}

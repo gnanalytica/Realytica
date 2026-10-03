@@ -146,6 +146,20 @@ export const radius = { sm: 8, md: 12, lg: 14, xl: 22, pill: 999 } as const;
 export const TOUCH = 48;
 
 /**
+ * The widest a screen's column of cards and fields gets.
+ *
+ * A phone uses its whole width. An iPad ignores the portrait lock (it runs in
+ * any orientation and in Split View), and so does a large Android screen, so
+ * the app also has to make sense at 1,366 points across: there the column
+ * stops here and sits in the middle, rather than stretching a card into a
+ * strip with its words at one end and its chevron at the other.
+ */
+export const CONTENT_MAX = 720;
+
+/** A sheet, a toast or the row of tabs on a wide screen keeps roughly a phone's proportions. */
+export const PANEL_MAX = 560;
+
+/**
  * The type scale, in Schibsted Grotesk. Headings run slightly tight (about
  * -0.01em); body text keeps the face's own spacing for reading in glare.
  */

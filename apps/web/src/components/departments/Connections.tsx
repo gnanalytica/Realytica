@@ -58,7 +58,7 @@ export function Connections({ project, workstream, onOpenWorkstream }: { project
         subtitle="What this work depends on, and what a change here reaches"
         action={impact.data ? <Badge tone="neutral" title="Where the walk was answered">{impact.data.source === 'neo4j' ? 'Neo4j' : impact.data.source === 'journal' ? 'Local graph' : 'Projection'}</Badge> : null}
       />
-      <CardBody className="grid gap-4 [@container(min-width:40rem)]:grid-cols-2">
+      <CardBody className="grid grid-cols-1 gap-4 [@container(min-width:40rem)]:grid-cols-2">
         <section className="min-w-0">
           <h4 className="mb-1 flex items-center gap-1 text-[12px] font-semibold text-ink">
             <ArrowDownRight size={13} /> Depends on

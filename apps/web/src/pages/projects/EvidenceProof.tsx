@@ -91,7 +91,7 @@ export function EvidenceProof({
               {evidence.readMethod === 'ocr' ? ' · from a scan' : ''}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
             {file ? (
               <button
                 type="button"

@@ -197,7 +197,7 @@ export default function NewProject() {
               placeholder="e.g. Kanakapura Heights Phase 2"
             />
           </Field>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Project type" hint="Decides which DD templates get recommended. Changeable later.">
               <Select value={type} onChange={(e) => setType(e.target.value as ProjectArchetype)}>
                 {PROJECT_ARCHETYPES.map((a) => (
@@ -221,7 +221,7 @@ export default function NewProject() {
               </Select>
             </Field>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="City" required hint="The jurisdictional city — what the registry and the authorities call it." error={errors.city}>
               <Input
                 name="city"
@@ -253,7 +253,7 @@ export default function NewProject() {
             Sitting it beside the address is the difference between a file the
             rest of the product can work on and one it cannot.
           */}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Survey number(s)" hint="As the deed writes them. The encumbrance search and the revenue map both key on this.">
               <Input value={parcelId} onChange={(e) => setParcelId(e.target.value)} placeholder="e.g. Sy. No. 12/3, 14" />
             </Field>
@@ -271,7 +271,7 @@ export default function NewProject() {
       <Card>
         <CardHeader icon={<LayoutGrid />} title="Departments" subtitle="The kinds of work this project needs. Each is its own module, linked to the others; change them any time." />
         {/* Tiles that toggle: a department is a choice with a shape, not a line of small print beside a box. */}
-        <CardBody className="grid gap-2 sm:grid-cols-2">
+        <CardBody className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {DEPARTMENTS.map((d) => {
             const on = departments.includes(d.key);
             const last = departments.length === 1 && on;
@@ -330,7 +330,7 @@ export default function NewProject() {
           </Field>
           {kind ? (
             <>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Client" hint="Who the report is for.">
                   <Input value={client} onChange={(e) => setClient(e.target.value)} placeholder="e.g. the developer, or a bank branch" />
                 </Field>
@@ -338,7 +338,7 @@ export default function NewProject() {
                   <Input value={scope} onChange={(e) => setScope(e.target.value)} />
                 </Field>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Lead" hint="Who leads it and signs.">
                   <Input value={lead} onChange={(e) => setLead(e.target.value)} placeholder="Name" />
                 </Field>
@@ -376,7 +376,7 @@ export default function NewProject() {
           }
         />
         <CardBody className="space-y-3">
-          <div className="grid gap-3 [@container(min-width:30rem)]:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 [@container(min-width:30rem)]:grid-cols-3">
             <Field label="Plot area, sqm" hint="The land. Unlocks the cost and residual approaches.">
               <Input inputMode="decimal" value={landArea} onChange={(e) => setLandArea(e.target.value)} placeholder="1,200" />
             </Field>
@@ -408,7 +408,7 @@ export default function NewProject() {
           <Field label="Developer" hint="The counterparty building or selling it.">
             <Input value={developer} onChange={(e) => setDeveloper(e.target.value)} />
           </Field>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Jurisdiction" hint="The state whose statutory rules apply.">
               <Input value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value)} placeholder="e.g. Karnataka" />
             </Field>
