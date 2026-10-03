@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import {
   ACTION_KIND_LABEL,
-  ACTION_STATUS_LABEL,
-  ASSESSMENT_STATUS_LABEL,
   CHECK_RESULT_LABEL,
   DD_TYPE_KEYS,
   DECISION_STATUS_LABEL,
@@ -15,7 +13,6 @@ import {
   PROJECT_ARCHETYPES,
   PROJECT_STATUS_LABEL,
   REPORT_KIND_LABEL,
-  RISK_STATUS_LABEL,
   SCOPE_KEYS,
   SEVERITY_LABEL,
   type DdTypeKey,
@@ -36,14 +33,11 @@ export const evidenceStatusSchema = z.enum(keys(EVIDENCE_STATUS_LABEL));
 export const evidenceKindSchema = z.enum(keys(EVIDENCE_KIND_LABEL));
 export const findingStatusSchema = z.enum(keys(FINDING_STATUS_LABEL));
 export const severitySchema = z.enum(keys(SEVERITY_LABEL));
-export const riskStatusSchema = z.enum(keys(RISK_STATUS_LABEL));
 export const impactTypeSchema = z.enum(keys(IMPACT_TYPE_LABEL));
 export const actionKindSchema = z.enum(keys(ACTION_KIND_LABEL));
-export const actionStatusSchema = z.enum(keys(ACTION_STATUS_LABEL));
 export const decisionTypeSchema = z.enum(keys(DECISION_TYPE_LABEL));
 export const decisionStatusSchema = z.enum(keys(DECISION_STATUS_LABEL));
 export const reportKindSchema = z.enum(keys(REPORT_KIND_LABEL));
-export const assessmentStatusSchema = z.enum(keys(ASSESSMENT_STATUS_LABEL));
 export const projectStatusSchema = z.enum(keys(PROJECT_STATUS_LABEL));
 export const probabilitySchema = z.enum(['rare', 'unlikely', 'possible', 'likely', 'almost_certain']);
 

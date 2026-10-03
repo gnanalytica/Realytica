@@ -4,7 +4,7 @@ import { Check, ChevronDown, FolderTree, Plus } from 'lucide-react';
 import { LIFECYCLE_STAGE_LABEL, PROJECT_HEALTH_LABEL, type ProjectHealth, type ProjectSummary } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
-import { Badge, Dot, cn, type Tone } from '../ui/kit';
+import { Badge, cn, type Tone } from '../ui/kit';
 
 const PROJECT_TABS = new Set(['assets', 'dd', 'evidence', 'visits', 'findings', 'risks', 'decisions', 'reports', 'valuation', 'graph', 'ai', 'orchestrate', 'people']);
 

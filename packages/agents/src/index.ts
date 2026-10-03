@@ -19,24 +19,16 @@ export * from './tools/project-tools';
 
 export * from './agents/document-intelligence';
 export * from './agents/photo-intelligence';
-export * from './agents/proof-pathways';
-export * from './agents/copilot';
 export * from './agents/project-copilot';
 export * from './agents/project-orchestrator';
 export * from './project/ingest-intelligence';
-export * from './agents/market-research';
-export * from './agents/diligence-planner';
-export * from './agents/explorer';
 export * from './agents/property-discovery';
 export * from './records';
-export * from './agents/planner';
-export * from './agents/critic';
 
 export * from './routing';
 export * from './providers';
 export * from './telemetry';
 export * from './eval';
-export * from './retrieval';
 export * from './memory';
 export * from './sources';
 
@@ -44,12 +36,6 @@ export * from './sources';
 // see `SiteContext` in the shared types.
 export * from './places';
 export { createWebSearchTool, createWebFetchTool, BLOCKED_HOSTNAMES } from './tools/exploration-tools';
-
-export * from './orchestrator';
-
-// The orchestration replayed as a drawable graph. Placed after
-// './orchestrator' because it describes what that module produced.
-export * from './runview';
 
 // The conversational front door. Placed last because it depends on the
 // engine, the playbooks and the provider port, and nothing depends on it.

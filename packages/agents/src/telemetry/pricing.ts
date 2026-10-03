@@ -344,11 +344,6 @@ function overrideTable(): Map<string, RateCard> {
   return table;
 }
 
-/** Every route an operator has declared a rate for. For the observability panel. */
-export function declaredPricingRoutes(): string[] {
-  return [...overrideTable().keys()].sort();
-}
-
 /* ==================================================================== */
 /* Resolution                                                            */
 /* ==================================================================== */
@@ -385,60 +380,6 @@ export function priceTokens(_provider: ProviderId, model: string, tokens: TokenC
     source: resolved.source,
     route: model,
   };
-}
-
-function applyRate(
-  route: string,
-  rate: RateCard,
-  tokens: TokenCounts,
-  confidence: PriceConfidence,
-  source: PriceSource,
-): PriceResolution {
-  const cacheReadRate = rate.cacheRead ?? rate.input * DEFAULT_CACHE_READ_DISCOUNT;
-  const cacheWriteRate = rate.cacheWrite ?? rate.input * CACHE_WRITE_MULTIPLIER;
-  const usd =
-    (tokens.inputTokens / 1_000_000) * rate.input +
-    (tokens.cacheReadTokens / 1_000_000) * cacheReadRate +
-    ((tokens.cacheWriteTokens ?? 0) / 1_000_000) * cacheWriteRate +
-    (tokens.outputTokens / 1_000_000) * rate.output;
-  return { costUsd: round4(usd), confidence, source, route, rate };
-}
-
-/**
- * Token counts plus their price, in the shape the frozen contract wants.
- *
- * `estimatedCostUsd` is a plain `number` in `AgentUsage` and that type is
- * frozen, so "unknown" cannot live inside it. The three alternatives were all
- * worse:
- *
- *   - `NaN` is honest at the point of production and poisonous everywhere
- *     else — one unpriced call turns every sum, mean and comparison it touches
- *     into `NaN`, and `JSON.stringify` writes it out as `null`, so the honesty
- *     does not even survive the round trip to the panel.
- *   - A negative sentinel (`-1`) is a number that sums, and the moment it does
- *     the total is not merely unknown but wrong in a direction nobody expects.
- *   - Pricing an unknown model at some vendor's rate is the inversion this
- *     module exists to prevent.
- *
- * So the number stays `0` and the uncertainty travels beside it — per call in
- * `RecordedLlmCall.costConfidence`, per view in `PricingCoverage`. The
- * invariant that makes that safe: nothing in this package reports a cost total
- * without also reporting how much of it could not be priced.
- */
-export function pricedUsage(provider: ProviderId, model: string, tokens: TokenCounts): AgentUsage {
-  return { ...tokens, estimatedCostUsd: priceTokens(provider, model, tokens).costUsd };
-}
-
-/** A sentence for the panel. Written for the person deciding whether to trust the number. */
-export function describePriceConfidence(confidence: PriceConfidence): string {
-  switch (confidence) {
-    case 'exact':
-      return 'Priced from a rate on file for this exact provider and model.';
-    case 'upper_bound':
-      return 'No published rate for this model id, so it is priced at the most expensive rate its own vendor charges. The figure is a ceiling, not an estimate.';
-    case 'unavailable':
-      return 'No rate on file for this provider and model, so these tokens are not counted at all. The total is a lower bound — declare a rate in REALYTICA_PRICING to include them.';
-  }
 }
 
 /* ==================================================================== */

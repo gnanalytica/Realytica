@@ -353,20 +353,6 @@ export class ProviderCallError extends Error {
 /* Small shared helpers                                                  */
 /* ==================================================================== */
 
-/** Deduplicates gaps while keeping first-seen order — the order they were hit in. */
-export function mergeGaps(...lists: (CapabilityGap[] | undefined)[]): CapabilityGap[] {
-  const seen = new Set<CapabilityGap>();
-  const out: CapabilityGap[] = [];
-  for (const list of lists) {
-    for (const gap of list ?? []) {
-      if (seen.has(gap)) continue;
-      seen.add(gap);
-      out.push(gap);
-    }
-  }
-  return out;
-}
-
 /** The text of a result, joined the way every agent already joins text blocks. */
 export function textOf(result: { content: LlmContentBlock[] }): string {
   return result.content

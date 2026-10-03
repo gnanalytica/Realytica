@@ -1,4 +1,4 @@
-import type { CurrencyCode, ConfidenceBand, RiskSeverity, ScreenVerdict, PropertyType, DocumentKind, CaseStatus } from '@realytica/shared';
+import type { CurrencyCode, ConfidenceBand, DocumentKind } from '@realytica/shared';
 
 // English-language UI, so euro figures use an English euro locale (en-IE) rather
 // than nl-NL — "€7.140/m²" in Dutch grouping reads as seven euros to everyone else.
@@ -45,37 +45,6 @@ export function perSqm(value: number | null | undefined, currency: CurrencyCode)
   if (value === null || value === undefined) return '—';
   const symbol = currency === 'INR' ? '₹' : '€';
   return `${symbol}${Math.round(value).toLocaleString(LOCALE[currency])}/m²`;
-}
-
-/**
- * A rate already expressed in ₹/m² or €/m², shown per sq ft instead — never a
- * decimal on the rounded rate. For the general sq-ft/m² toggle used across the
- * app, prefer `formatRate` in `lib/units.ts`, which is unit-aware; this sibling
- * exists so callers that only ever want sq ft (e.g. a fixed India-only table)
- * don't need to pull in the unit-preference machinery.
- */
-export function perSqft(perSqmValue: number | null | undefined, currency: CurrencyCode): string {
-  if (perSqmValue === null || perSqmValue === undefined) return '—';
-  const symbol = currency === 'INR' ? '₹' : '€';
-  const SQM_PER_SQFT = 0.09290304;
-  return `${symbol}${Math.round(perSqmValue * SQM_PER_SQFT).toLocaleString(LOCALE[currency])}/sq ft`;
-}
-
-/**
- * Full (non-compact) lakh/crore rendering for INR — `₹1.35 Cr`, `₹78.5 L`,
- * `₹42,000`. `money()` already does this compaction for INR; this just gives
- * it a name for call sites that only ever deal in rupees and want the intent
- * ("give me lakh/crore") to be obvious at the call site, and always compacts
- * regardless of the caller's default. Falls back to a plain grouped number for
- * EUR, since lakh/crore is an Indian numbering convention only.
- */
-export function lakhCrore(value: number | null | undefined, currency: CurrencyCode = 'INR'): string {
-  return money(value, currency, { compact: true });
-}
-
-export function num(value: number | null | undefined, digits = 0): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return '—';
-  return value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 export function pct(value: number | null | undefined, digits = 1, signed = false): string {
@@ -135,27 +104,11 @@ export function relativeTime(iso: string | null | undefined): string {
   return date(iso);
 }
 
-export function fileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 export function titleCase(input: string): string {
   return input
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
-
-export const PROPERTY_TYPE_LABEL: Record<PropertyType, string> = {
-  residential_apartment: 'Residential apartment',
-  residential_villa: 'Residential villa',
-  residential_plot: 'Residential plot',
-  commercial_office: 'Commercial office',
-  retail_unit: 'Retail unit',
-  industrial_warehouse: 'Industrial warehouse',
-  land_parcel: 'Land parcel',
-};
 
 // The Karnataka / Bengaluru pack added document kinds to the shared `DocumentKind`
 // union (packages/shared/src/types.ts). Their labels belong with the pack's own
@@ -191,36 +144,6 @@ export const DOCUMENT_KIND_LABEL: Record<DocumentKind, string> = {
   other: 'Other',
   unclassified: 'Unclassified',
 };
-
-export const CASE_STATUS_LABEL: Record<CaseStatus, string> = {
-  draft: 'Draft',
-  collecting: 'Collecting evidence',
-  analysing: 'Analysing',
-  screened: 'Screened',
-  archived: 'Archived',
-};
-
-export const VERDICT_LABEL: Record<ScreenVerdict, string> = {
-  pursue: 'Pursue',
-  pursue_with_conditions: 'Pursue with conditions',
-  investigate_further: 'Investigate further',
-  do_not_pursue: 'Do not pursue',
-};
-
-/** Status tone for a verdict — status colours are reserved and always ship with a label. */
-export function verdictTone(v: ScreenVerdict): 'good' | 'warning' | 'serious' | 'critical' {
-  switch (v) {
-    case 'pursue': return 'good';
-    case 'pursue_with_conditions': return 'warning';
-    case 'investigate_further': return 'serious';
-    case 'do_not_pursue': return 'critical';
-    default: return 'serious';
-  }
-}
-
-export function severityTone(s: RiskSeverity): 'info' | 'warning' | 'serious' | 'critical' {
-  return s;
-}
 
 export function confidenceTone(band: ConfidenceBand): 'good' | 'warning' | 'critical' {
   return band === 'high' ? 'good' : band === 'moderate' ? 'warning' : 'critical';

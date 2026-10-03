@@ -618,11 +618,6 @@ export function severityRank(severity: RiskSeverity): number {
   return SEVERITY_ORDER.indexOf(severity);
 }
 
-/** Picks the harsher of two severities. */
-export function worstSeverity(a: RiskSeverity, b: RiskSeverity): RiskSeverity {
-  return severityRank(a) <= severityRank(b) ? a : b;
-}
-
 /* ==================================================================== */
 /* The remedy catalogue                                                  */
 /* ==================================================================== */

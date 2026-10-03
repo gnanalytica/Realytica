@@ -121,10 +121,6 @@ export interface PromptHydrationReport {
   repaired: number;
 }
 
-export function emptyPromptStoreData(): PromptStoreData {
-  return { version: 1, customVersions: {}, active: {}, nextVersion: {} };
-}
-
 /* ==================================================================== */
 /* Content hashing                                                       */
 /* ==================================================================== */
@@ -670,74 +666,4 @@ export class PersistedPromptStore implements PromptStore {
     await this.ready();
     return this.catalogue.toData();
   }
-}
-
-/* ==================================================================== */
-/* Test port                                                             */
-/* ==================================================================== */
-
-export interface InMemoryPromptPersistence extends PromptPersistence {
-  /** What the port currently holds — the durable side, not the catalogue's view. */
-  readonly stored: PromptStoreData | null;
-  /** Completed saves. Lets a test assert that a write actually happened. */
-  readonly saveCount: number;
-  /**
-   * How long the nth save takes, in ms.
-   *
-   * Per-save rather than fixed so a test can give the writes *descending*
-   * delays: if the queue were not serialising, a slow first write would finish
-   * after a fast second one and the store would end up holding the earlier
-   * state. With the queue in place the order is the call order regardless of
-   * how long each takes.
-   */
-  saveDelay: (index: number) => number;
-  /**
-   * `start:<n>` / `end:<n>` in the order they happened.
-   *
-   * A serialised queue produces strictly `start:0, end:0, start:1, end:1, …`;
-   * any interleaving shows up here as two starts in a row.
-   */
-  readonly events: readonly string[];
-}
-
-/**
- * A `PromptPersistence` backed by an object.
- *
- * Shipped rather than left to each test to reinvent, and it deep-copies on
- * both sides: a port that handed back the very objects the catalogue holds
- * would make a test pass even if the store never serialised anything.
- */
-export function createInMemoryPromptPersistence(
-  seed: PromptStoreData | null = null,
-): InMemoryPromptPersistence {
-  let data: PromptStoreData | null = seed ? (JSON.parse(JSON.stringify(seed)) as PromptStoreData) : null;
-  let started = 0;
-  let saves = 0;
-  const events: string[] = [];
-  const port: InMemoryPromptPersistence = {
-    async load() {
-      return data ? (JSON.parse(JSON.stringify(data)) as PromptStoreData) : null;
-    },
-    async save(next) {
-      const index = started++;
-      events.push(`start:${index}`);
-      const snapshot = JSON.parse(JSON.stringify(next)) as PromptStoreData;
-      const ms = port.saveDelay(index);
-      if (ms > 0) await new Promise(resolve => setTimeout(resolve, ms));
-      data = snapshot;
-      saves++;
-      events.push(`end:${index}`);
-    },
-    get stored() {
-      return data ? (JSON.parse(JSON.stringify(data)) as PromptStoreData) : null;
-    },
-    get saveCount() {
-      return saves;
-    },
-    get events() {
-      return [...events];
-    },
-    saveDelay: () => 0,
-  };
-  return port;
 }

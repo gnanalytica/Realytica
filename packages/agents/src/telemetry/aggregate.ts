@@ -31,18 +31,13 @@
  */
 
 import type {
-  AgentKind,
   AgentUsage,
-  CaseCostSummary,
-  CostBreakdownEntry,
   LlmCallRecord,
-  ModelTier,
   ProviderId,
   ProviderPerformance,
   TelemetrySummary,
 } from '@realytica/shared';
-import { sumUsage, warnOnce } from '../client';
-import { modelForTier } from '../config';
+import { sumUsage } from '../client';
 import { formatRoute } from '../routing';
 import {
   createCoverageAccumulator,
@@ -76,12 +71,6 @@ export interface TelemetrySummaryView extends TelemetrySummary {
   byProvider: ProviderPerformanceRow[];
   /** What the total does and does not account for. Never omit this when showing `totalCostUsd`. */
   pricing: PricingCoverage;
-}
-
-export interface CaseCostView extends CaseCostSummary {
-  pricing: PricingCoverage;
-  /** The route `singleTierComparisonUsd` was priced at, so the counterfactual is inspectable. */
-  comparisonRoute: string;
 }
 
 export interface SummaryOptions {
@@ -341,163 +330,4 @@ function clockNow(clock: Clock): number {
     /* falls through */
   }
   return Date.now();
-}
-
-/* ==================================================================== */
-/* Case cost                                                            */
-/* ==================================================================== */
-
-export interface CaseCostOptions {
-  /**
-   * The route the counterfactual is priced at. Defaults to whatever this
-   * deployment's judgment tier currently resolves to, through the same
-   * `modelForTier` the runtime uses — so the comparison tracks the deployment
-   * rather than a constant that can silently go stale.
-   */
-  judgmentRoute?: { provider: ProviderId; model: string };
-}
-
-/**
- * The per-case cost breakdown, provider-aware.
- *
- * This is `summariseCost` in `client.ts` with two changes and no change of
- * meaning. Rows carry the `provider` that served them, and rows are keyed by
- * `(agent, model, tier, provider)` rather than `(agent, model, tier)` — the
- * same model id can be served by two providers at two prices in one case, and
- * merging them would produce a line item whose cost cannot be reproduced from
- * any rate.
- *
- * The counterfactual keeps its existing semantics exactly, because they are
- * what make it defensible: `singleTierComparisonUsd` re-prices the tokens
- * *actually spent* at the judgment route's rate. It does not invent token
- * counts a frontier model might have produced — a comparison that guessed at
- * that could be tuned to say anything — and it does not drop rows that already
- * ran on the judgment tier, which contribute identically to both sides and so
- * correctly contribute zero saving.
- *
- * `savedUsd` stays signed. An override that moves an agent up a tier can make
- * it negative, and "your overrides cost $0.20 more this case" is information.
- *
- * One case this version has to handle that the original could not: the
- * judgment route may itself be unpriced. There is then no counterfactual to
- * compute, and inventing one would put a fabricated saving on screen. So the
- * comparison collapses to the actual spend, `savedUsd` is zero, and the reason
- * is warned once and visible in `pricing`.
- */
-export function summariseCaseCost(
-  records: readonly LlmCallRecord[],
-  options: CaseCostOptions = {},
-): CaseCostView {
-  const judgment = options.judgmentRoute ?? defaultJudgmentRoute();
-  const judgmentRoute = formatRoute(judgment.provider, judgment.model);
-
-  interface Row {
-    agent: AgentKind;
-    model: string;
-    tier: ModelTier;
-    provider: ProviderId;
-    /** Summed tokens, used for the counterfactual — the same granularity `summariseCost` prices it at. */
-    tokens: TokenCounts;
-    /**
-     * Per-call priced usage, summed through `sumUsage`.
-     *
-     * Rounding granularity has to match `providerPerformance` and
-     * `summariseCost`, both of which price each call and then add. Pricing the
-     * row's summed tokens in one go instead differs by a fraction of a cent,
-     * and a panel showing the same tokens as $0.0418 in one table and $0.042 in
-     * the next invites exactly the "which number is real" question this layer
-     * exists to remove.
-     */
-    usages: AgentUsage[];
-  }
-  const byKey = new Map<string, Row>();
-  const coverage = createCoverageAccumulator();
-
-  for (const record of records) {
-    const tokens = tokensOf(record);
-    const price = priceTokens(record.provider, record.model, tokens);
-    coverage.add(price, tokens);
-
-    // Keyed rather than one row per call: document intelligence runs once per
-    // document, and three scans are one line item, not three.
-    const key = `${record.agent} ${record.model} ${record.tier} ${record.provider}`;
-    const callUsage: AgentUsage = { ...tokens, estimatedCostUsd: price.costUsd };
-    const existing = byKey.get(key);
-    if (existing) {
-      existing.tokens.inputTokens += tokens.inputTokens;
-      existing.tokens.outputTokens += tokens.outputTokens;
-      existing.tokens.cacheReadTokens += tokens.cacheReadTokens;
-      existing.usages.push(callUsage);
-    } else {
-      byKey.set(key, {
-        agent: record.agent,
-        model: record.model,
-        tier: record.tier,
-        provider: record.provider,
-        tokens: { ...tokens },
-        usages: [callUsage],
-      });
-    }
-  }
-
-  const rows = [...byKey.values()];
-  const perAgent: CostBreakdownEntry[] = rows.map(row => ({
-    agent: row.agent,
-    model: row.model,
-    tier: row.tier,
-    provider: row.provider,
-    usage: sumUsage(row.usages),
-  }));
-  const total = sumUsage(perAgent.map(e => e.usage));
-
-  // Priced per row rather than off the summed totals, so rounding happens at
-  // the same granularity on both sides of the comparison — otherwise the
-  // saving quietly absorbs rounding drift and stops being reproducible from
-  // the rows the user is shown.
-  let comparisonPriceable = true;
-  let singleTierComparisonUsd = 0;
-  for (const row of rows) {
-    const priced = priceTokens(judgment.provider, judgment.model, row.tokens);
-    if (priced.confidence === 'unavailable') {
-      comparisonPriceable = false;
-      break;
-    }
-    singleTierComparisonUsd += priced.costUsd;
-  }
-
-  if (!comparisonPriceable) {
-    warnOnce(
-      `case-cost-comparison:${judgmentRoute}`,
-      `No rate on file for the judgment route "${judgmentRoute}", so the single-tier comparison cannot be computed — the saving is reported as zero rather than guessed. Declare the rate in REALYTICA_PRICING to restore it.`,
-    );
-    return {
-      perAgent,
-      total,
-      singleTierComparisonUsd: total.estimatedCostUsd,
-      savedUsd: 0,
-      pricing: coverage.result(),
-      comparisonRoute: judgmentRoute,
-    };
-  }
-
-  const comparison = round4(singleTierComparisonUsd);
-  return {
-    perAgent,
-    total,
-    singleTierComparisonUsd: comparison,
-    savedUsd: round4(comparison - total.estimatedCostUsd),
-    pricing: coverage.result(),
-    comparisonRoute: judgmentRoute,
-  };
-}
-
-/**
- * Where the judgment tier currently points.
- *
- * Read through `modelForTier` rather than restated, so the "what this would
- * have cost on one model" comparison tracks the deployment's actual judgment
- * model with no second implementation to keep in step.
- */
-function defaultJudgmentRoute(): { provider: ProviderId; model: string } {
-  return { provider: 'anthropic', model: modelForTier('judgment') };
 }

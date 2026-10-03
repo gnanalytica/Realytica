@@ -13,7 +13,7 @@
 // the exact distance is always recomputed locally.
 
 import { KA_LAYERS } from "./karnataka/layers";
-import { STATES, stateAt, type StateKey } from "./states";
+import { stateAt, type StateKey } from "./states";
 
 export type LayerGeometry = "polygon" | "polyline" | "point";
 
@@ -157,20 +157,6 @@ export const LAYER_BY_KEY: Record<string, LayerSpec> = Object.fromEntries(
 export function layersFor(state: StateKey): LayerSpec[] {
   return state === "KA" ? KA_LAYERS : SITE_LAYERS;
 }
-
-/**
- * The layers whose absence changes the answer rather than merely thinning it.
- * If one of these could not be reached, the report says so prominently and the
- * estimate is still produced — but flagged as incomplete.
- */
-export const DECISIVE_LAYER_KEYS = ["water_bodies", "prohibited_land"] as const;
-
-/**
- * Telangana GIS covers Telangana. A point outside this box gets an honest
- * "not covered" rather than an estimate built from nothing. Generous bounds —
- * the layers themselves decide precision.
- */
-export const TELANGANA_BOUNDS = STATES.TS.bounds;
 
 export function isWithinCoverage(point: { lat: number; lng: number }): boolean {
   return stateAt(point) !== null;

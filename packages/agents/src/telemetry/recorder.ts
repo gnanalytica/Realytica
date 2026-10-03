@@ -30,7 +30,6 @@ import type {
   AgentKind,
   CapabilityGap,
   LlmCallOutcome,
-  LlmCallRecord,
   ModelTier,
   ProviderId,
 } from '@realytica/shared';
@@ -278,25 +277,6 @@ export async function withCall<T>(
     if (!call.settled) await call.failed(err);
     throw err;
   }
-}
-
-/**
- * A recorder with its dependencies already bound.
- *
- * What an adapter constructed once at startup actually wants: the sink and the
- * clock are deployment facts, not per-call ones, and threading them through
- * every call site is how one of them ends up wired differently from the rest.
- */
-export interface Recorder {
-  begin(start: CallStart): CallHandle;
-  run<T>(start: CallStart, fn: (call: CallHandle) => Promise<T>): Promise<T>;
-}
-
-export function createRecorder(deps: RecorderDeps = {}): Recorder {
-  return {
-    begin: start => beginCall(start, deps),
-    run: (start, fn) => withCall(start, deps, fn),
-  };
 }
 
 /* ==================================================================== */

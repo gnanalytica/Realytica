@@ -52,7 +52,6 @@ import type {
   ProjectScreenSnapshot,
   RiskImpactType,
   ScopeKey,
-  ValuationRun,
 } from './types';
 
 const SCREEN_MARK = (code: string) => `[screen:${code}]`;

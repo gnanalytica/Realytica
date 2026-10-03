@@ -16,19 +16,10 @@
  *  - `commit.ts`   — draft to case, on the user's press and not the model's.
  */
 
-export { INTAKE_FIELDS, SQFT_PER_SQM, applyCapture, coerceValue, draftIdentity, fieldSpec, valueOf } from './fields';
-export type { CaptureInput, IntakeFieldSpec } from './fields';
+export { INTAKE_FIELDS, draftIdentity, fieldSpec, valueOf } from './fields';
+export type { IntakeFieldSpec } from './fields';
 
 export { documentRequests, particularGaps, previewScreen, readDraft, resolveLocality } from './readout';
-
-export { answerCurrentGap, describeState, fallbackReply, openingTurn, parseIndianQuantity } from './script';
-export type { FallbackReason } from './script';
-
-export { createIntakeTools } from './tools';
-export type { IntakeToolBuffer } from './tools';
-
-export { intakeModelAvailable, runIntakeTurn } from './agent';
-export type { RunIntakeTurnParams, RunIntakeTurnResult } from './agent';
 
 export { commitDraft } from './commit';
 export type { CommitReady, CommitRefusal } from './commit';

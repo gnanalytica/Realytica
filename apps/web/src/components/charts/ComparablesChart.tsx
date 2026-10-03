@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Comparable, CurrencyCode } from '@realytica/shared';
-import { area, date, perSqm, pct } from '../../lib/format';
-import { formatArea, formatRate, useAreaUnitForCurrency } from '../../lib/units';
+import { area, date, pct } from '../../lib/format';
+import { formatRate, useAreaUnitForCurrency } from '../../lib/units';
 import {
   ChartContainer,
   ChartEmpty,

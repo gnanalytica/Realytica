@@ -29,7 +29,6 @@
     "lint:type": "node scripts/check-type-scale.mjs"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.5",
     "concurrently": "^9.1.2",
     "esbuild": "^0.25.0",

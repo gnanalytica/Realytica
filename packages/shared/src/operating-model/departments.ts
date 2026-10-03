@@ -417,10 +417,6 @@ export function scopesOfDepartments(departments: readonly DepartmentKey[]): stri
   return [...scopes].sort();
 }
 
-export function checkDefinitionsIn(workstream: string, definitionIds: readonly string[]): string[] {
-  return definitionIds.filter((id) => workstreamOfCheck(id) === workstream);
-}
-
 /* ==================================================================== */
 /* Roles                                                                 */
 /* ==================================================================== */

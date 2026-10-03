@@ -37,31 +37,6 @@ export interface Clock {
 
 export const systemClock: Clock = { now: () => Date.now() };
 
-export interface ManualClock extends Clock {
-  /** Move time forward. Negative values are allowed — a clock that steps backwards is a real thing to test. */
-  advance(ms: number): void;
-  set(ms: number): void;
-}
-
-/**
- * A clock a test drives by hand.
- *
- * Shipped rather than reinvented per test, because every duration, percentile
- * and retention assertion in this package depends on time being an input.
- */
-export function createManualClock(startMs = 0): ManualClock {
-  let t = startMs;
-  return {
-    now: () => t,
-    advance: ms => {
-      t += ms;
-    },
-    set: ms => {
-      t = ms;
-    },
-  };
-}
-
 /* ==================================================================== */
 /* Records                                                               */
 /* ==================================================================== */

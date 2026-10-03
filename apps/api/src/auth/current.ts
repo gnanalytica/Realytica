@@ -24,11 +24,6 @@ export function withPrincipal<T>(principal: Principal, run: () => T): T {
   return store.run(principal, run);
 }
 
-/** The principal of the request in flight, or nothing outside one. */
-export function currentPrincipal(): Principal | undefined {
-  return store.getStore();
-}
-
 export function currentTenantId(): string | undefined {
   return store.getStore()?.tenantId;
 }

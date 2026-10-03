@@ -87,13 +87,6 @@ export const SUBJECT_KINDS = [
 ] as const;
 export type SubjectKind = (typeof SUBJECT_KINDS)[number];
 
-export const SUBJECT_KIND_LABEL: Record<SubjectKind, string> = {
-  open_plot: "Open plot",
-  independent_house: "Independent house",
-  apartment: "Flat / apartment",
-  agricultural_land: "Agricultural land",
-};
-
 /** The subject as the estimator needs it. No PII — never an owner or door no. */
 export type SiteSubject = {
   point: LatLng;

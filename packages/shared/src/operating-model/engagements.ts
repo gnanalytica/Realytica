@@ -28,25 +28,6 @@ export function projectRecord(project: DdProject): DdAssessment | undefined {
 }
 
 /**
- * Make sure the project record exists and carries every check in the library.
- * Idempotent: a scope already on the record is left as it is.
- */
-export function ensureProjectRecord(project: DdProject, actor: string): DdAssessment {
-  let record = (project.assessments ?? []).find((a) => a.name === PROJECT_RECORD_NAME);
-  if (!record) {
-    record = createAssessment(
-      project,
-      { ddType: 'custom', name: PROJECT_RECORD_NAME, owner: actor, targetType: 'project', extraScopes: [...SCOPE_KEYS] },
-      actor,
-    );
-  }
-  for (const key of SCOPE_KEYS) {
-    if (!record.scopes.some((s) => s.scopeKey === key)) addScopeToAssessment(project, record.id, key, actor);
-  }
-  return record;
-}
-
-/**
  * Make sure the checks these workstreams need are on the project record,
  * creating the record if the project has none. Only the scopes those
  * workstreams draw on are added, so opening Title work does not seed every
@@ -213,11 +194,6 @@ export function currentEngagement(project: DdProject): Engagement | undefined {
 /** The engagements that draw on a workstream. */
 export function engagementsIn(project: DdProject, workstream: string): Engagement[] {
   return (project.engagements ?? []).filter((e) => e.workstreams.includes(workstream));
-}
-
-/** The checks an engagement draws on. */
-export function engagementChecks(project: DdProject, engagement: Engagement): CheckInstance[] {
-  return allChecks(project).filter((c) => engagement.workstreams.includes(workstreamOfCheck(c.definitionId)));
 }
 
 /** The engagement a report was written for: the one that lists it, else the one the project is working for. */

@@ -442,8 +442,6 @@ export function seedDemoProject(): DdProject {
   return project;
 }
 
-export const SEED_DEMO_PROJECT_REFERENCE = 'RYT-0001';
-
 /** Koramangala 4th Block — inside BDA RMP 2015 PD 207/208, and inside the BBMP viewer box. */
 export const SEED_BDA_REFERENCE_PIN = { lat: 12.9345, lng: 77.623 };
 export const SEED_BDA_REFERENCE_PROJECT_REFERENCE = 'RYT-0003';

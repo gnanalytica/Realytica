@@ -41,14 +41,6 @@ export interface DisclosureDescriptor {
   cost: string;
 }
 
-/** Withheld at every level, regardless of what the user chooses. */
-export const NEVER_DISCLOSED: string[] = [
-  "The owner's or seller's name",
-  'The asking price and any figure you have negotiated',
-  'The contents of any document you have uploaded',
-  'Your own identity, and the fact that you are looking at this property',
-];
-
 export const DISCLOSURE_LEVELS: Record<DisclosureLevel, DisclosureDescriptor> = {
   locality_only: {
     level: 'locality_only',
@@ -105,10 +97,6 @@ export const DISCLOSURE_LEVELS: Record<DisclosureLevel, DisclosureDescriptor> = 
 };
 
 export const DISCLOSURE_ORDER: DisclosureLevel[] = ['locality_only', 'property_identifiers', 'full_address'];
-
-export function disclosureDescriptor(level: DisclosureLevel): DisclosureDescriptor {
-  return DISCLOSURE_LEVELS[level];
-}
 
 /** Is `level` at least as permissive as `required`? */
 export function disclosureAllows(level: DisclosureLevel, required: DisclosureLevel): boolean {

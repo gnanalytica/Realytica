@@ -1,44 +1,20 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Building2,
-  ChevronRight,
-  CircleAlert,
-  FileStack,
-  FileText,
-  MapPin,
-  ScrollText,
-  Sparkles,
-  TriangleAlert,
-  Users,
-  Waypoints,
-} from 'lucide-react';
-import {
-  LIFECYCLE_STAGE_LABEL,
-  REPORT_KIND_LABEL,
   cockpitPath,
   currentEngagement,
   waitingOn,
   type DdProject,
   type FindingRecord,
-  type ProjectCockpitPane,
 } from '@realytica/shared';
 import { AiMark, Badge, Card, CardBody, CardHeader, cn } from '../ui/kit';
 import { Stagger, StaggerItem } from '../../lib/motion';
-import { money } from '../../lib/format';
 
 /* ==================================================================== */
 /* Small formatting helpers                                              */
 /* ==================================================================== */
 
-const MONTH = new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric' });
 const DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
-
-export function monthYear(iso: string | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : MONTH.format(d);
-}
 
 export function dayMonth(iso: string | undefined): string {
   if (!iso) return '';

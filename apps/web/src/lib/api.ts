@@ -5,44 +5,20 @@ import type {
   DurableRun,
   DurableRunState,
   AgentCapability,
-  AgentKind,
-  AgentRun,
   AgentStep,
   ReadingStreamEvent,
-  CaseSummary,
-  ComparisonResult,
   CopilotTurn,
-  CreateCaseRequest,
-  CaseDocument,
   DataSourceDescriptor,
-  DocumentKind,
   IngestionReport,
   MemoryRecall,
   PromptDescriptor,
   PromptInvariantCheck,
   ReferenceData,
-  RiskStatus,
   RunGraph,
   SiteContext,
   StalenessReport,
   TitleGraph,
-  DisclosureLevel,
-  ProjectIntent,
-  ProjectKind,
-  ScreenResult,
-  CaseRequest,
-  RequestRecipient,
-  RequestStatus,
-  TechnicalFinding,
-  TechnicalFindingDraft,
-  TechnicalSystem,
-  TechnicalFindingPatch,
-  TechnicalFindingReviewState,
   TelemetrySummary,
-  UpdateCaseRequest,
-  DdEdge,
-  DdGraph,
-  DdNode,
   DdProject,
   ProjectSummary,
   Asset,
@@ -598,7 +574,6 @@ export const api = {
     }),
 
   reference: () => request<ReferenceData>('/reference'),
-
 
   agentCapability: () => request<AgentCapability>('/agents/capability'),
 
@@ -1188,40 +1163,3 @@ export const api = {
 
   evidenceFileUrl,
 };
-
-/**
- * The deployment's upload limits, fetched once and shared.
- *
- * Cached as the promise rather than the value so that several callers racing
- * on first use share one request instead of each firing their own. A failed
- * lookup is not cached: `uploadLimits()` falls back to a conservative guess
- * for that call and the next one tries again, so a blip does not leave the
- * app permanently guessing.
- */
-let uploadLimitsPromise: Promise<UploadLimits> | null = null;
-
-/**
- * Small enough to be safe on any host, including a serverless platform with a
- * request-body cap. Only used when the API cannot be reached to say otherwise
- * — in which case the upload is about to fail anyway, and rejecting a large
- * file early is the better of the two wrong answers.
- */
-const FALLBACK_UPLOAD_LIMITS: UploadLimits = {
-  maxFiles: 10,
-  maxFileBytes: 4 * 1024 * 1024,
-  maxRequestBytes: 4 * 1024 * 1024,
-};
-
-export async function uploadLimits(): Promise<UploadLimits> {
-  if (!uploadLimitsPromise) {
-    uploadLimitsPromise = api
-      .health()
-      .then((h) => h.upload ?? FALLBACK_UPLOAD_LIMITS)
-      .catch(() => {
-        uploadLimitsPromise = null;
-        return FALLBACK_UPLOAD_LIMITS;
-      });
-  }
-  return uploadLimitsPromise;
-}
-

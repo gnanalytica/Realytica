@@ -1,4 +1,4 @@
-import type { CheckDefinition, CheckFieldDef, CheckInsightRule, DdTypeDefinition, ScopeDefinition, ScopeKey } from './types';
+import type { CheckDefinition, DdTypeDefinition, ScopeDefinition, ScopeKey } from './types';
 import { CHECK_FIELDS, CHECK_INSIGHT_RULES } from './check-schemas';
 
 function checks(
@@ -934,12 +934,7 @@ export const CHECK_DEFINITIONS: CheckDefinition[] = [
   ]),
 ];
 
-const SCOPE_BY_KEY = Object.fromEntries(SCOPE_DEFINITIONS.map((s) => [s.key, s])) as Record<ScopeKey, ScopeDefinition>;
 const DD_BY_KEY = Object.fromEntries(DD_TYPE_DEFINITIONS.map((d) => [d.key, d])) as Record<string, DdTypeDefinition>;
-
-export function scopeDefinition(key: ScopeKey): ScopeDefinition {
-  return SCOPE_BY_KEY[key];
-}
 
 export function ddTypeDefinition(key: DdTypeDefinition['key']): DdTypeDefinition {
   const found = DD_BY_KEY[key];
@@ -949,13 +944,4 @@ export function ddTypeDefinition(key: DdTypeDefinition['key']): DdTypeDefinition
 
 export function checksForScope(key: ScopeKey): CheckDefinition[] {
   return CHECK_DEFINITIONS.filter((c) => c.scopeKey === key);
-}
-
-export function librarySnapshot() {
-  return {
-    projectArchetypes: SCOPE_DEFINITIONS.length,
-    scopes: SCOPE_DEFINITIONS,
-    ddTypes: DD_TYPE_DEFINITIONS,
-    checks: CHECK_DEFINITIONS,
-  };
 }

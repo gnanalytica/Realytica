@@ -47,12 +47,6 @@ export interface Derivation {
   steps?: { label: string; expression?: string; value: string }[];
 }
 
-/** Nothing to show is not the same as an empty tooltip. */
-export function hasDerivation(d: Derivation | undefined): d is Derivation {
-  if (!d) return false;
-  return Boolean(d.formula || d.substituted || d.note || d.steps?.length);
-}
-
 /**
  * Room above the trigger, in pixels, before it opens downward.
  *
@@ -225,31 +219,5 @@ export function FormulaTip({
         </span>
       ) : null}
     </span>
-  );
-}
-
-/**
- * The same thing, but silent when there is nothing to explain.
- *
- * A dotted underline that opens an empty box is worse than a plain number: it
- * promises a derivation the page does not have. Callers that build a
- * derivation conditionally use this and stop having to write the ternary.
- */
-export function MaybeFormulaTip({
-  children,
-  derivation,
-  className,
-  label,
-}: {
-  children: ReactNode;
-  derivation: Derivation | undefined;
-  className?: string;
-  label?: string;
-}) {
-  if (!hasDerivation(derivation)) return <>{children}</>;
-  return (
-    <FormulaTip derivation={derivation} className={className} label={label}>
-      {children}
-    </FormulaTip>
   );
 }

@@ -22,11 +22,6 @@ export function readEnv(suffix: string, env: NodeJS.ProcessEnv = process.env): s
   return value !== undefined && value !== '' ? value : undefined;
 }
 
-/** True when the variable is set to a non-empty value. */
-export function hasEnv(suffix: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  return readEnv(suffix, env) !== undefined;
-}
-
 /** The full name, for telling an operator what to set. */
 export function envName(suffix: string): string {
   return `${PREFIX}${suffix}`;

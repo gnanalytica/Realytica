@@ -12,7 +12,6 @@
  */
 
 import { buildProjectGraph } from './project-graph';
-import { sittingCheckOf, type SittingRef } from './sitting';
 import type { ProjectGraphEdgeKind } from './project-ontology';
 import type { DdProject, ProjectGraphEdge, ProjectGraphNode } from './types';
 
@@ -197,12 +196,3 @@ export function retrieveProjectNeighbourhood(project: DdProject, query: string, 
   const seeds = findProjectNodes(live, query).slice(0, MAX_SEEDS);
   return { seeds, graph: extractProjectSubgraph(live, seeds.map((s) => s.id), hops) };
 }
-
-export function retrieveForSitting(project: DdProject, sitting?: SittingRef, hops = 2): ProjectGraphView {
-  const live = projectGraphOf(project);
-  const seated = sittingCheckOf(project, sitting);
-  if (!seated) return extractProjectSubgraph(live, [project.id], hops);
-  return extractProjectSubgraph(live, [seated.check.id, seated.scope.id, seated.assessment.id], hops);
-}
-
-export const PROJECT_GRAPH_SEED_CAP = MAX_SEEDS;

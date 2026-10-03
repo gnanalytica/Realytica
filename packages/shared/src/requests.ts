@@ -11,7 +11,7 @@
  * both, as it does everywhere else in this package.
  */
 
-import type { CaseRequest, PropertyCase, RequestRecipient, RequestStatus } from './types';
+import type { CaseRequest, PropertyCase, RequestRecipient } from './types';
 import type { DdDomain } from './dd-domains';
 import { DD_DOMAIN_PROFILES } from './dd-domains';
 import { buildRfi } from './rfi';
@@ -22,13 +22,6 @@ export const REQUEST_RECIPIENT_LABEL: Record<RequestRecipient, string> = {
   site_team: 'Site team',
   authority: 'Authority',
   internal: 'Internal',
-};
-
-export const REQUEST_STATUS_LABEL: Record<RequestStatus, string> = {
-  open: 'Open',
-  sent: 'Sent',
-  answered: 'Answered',
-  withdrawn: 'Withdrawn',
 };
 
 /** A request still being waited on. Withdrawn and answered ones are settled. */

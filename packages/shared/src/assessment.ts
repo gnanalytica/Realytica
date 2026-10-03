@@ -253,10 +253,6 @@ export function assessmentProfile(kind: ProjectKind): AssessmentProfile {
   return ASSESSMENT_PROFILES[kind];
 }
 
-export function projectKindLabel(kind: ProjectKind): string {
-  return ASSESSMENT_PROFILES[kind].label;
-}
-
 /** The stance a profile takes on one method, or `null` where it takes none (base weight stands). */
 export function methodStance(profile: AssessmentProfile, method: MethodStance['method']): MethodStance | null {
   return profile.methodStances.find(s => s.method === method) ?? null;

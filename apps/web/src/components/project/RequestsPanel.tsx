@@ -30,13 +30,6 @@ export interface RequestRow {
   overdue: boolean;
 }
 
-const STATUS_LABEL: Record<ProjectRequestStatus, string> = {
-  draft: 'Draft',
-  sent: 'Sent',
-  answered: 'Answered',
-  cancelled: 'Cancelled',
-};
-
 function statusBadge(row: RequestRow) {
   const { request, overdue, ageDays } = row;
   if (request.status === 'answered') return <Badge tone="good">Answered {dayMonth(request.answeredAt)}</Badge>;

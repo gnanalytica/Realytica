@@ -4,7 +4,6 @@ import {
   APPROVAL_STATUS_LABEL,
   SUB_STAGE_LABEL,
   approvalsRegister,
-  constructionGate,
   type ApprovalLine,
   type ApprovalStatus,
   type DdProject,

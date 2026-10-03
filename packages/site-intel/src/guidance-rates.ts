@@ -1,4 +1,3 @@
-
 import {
   KAVERI_CAPTURED_ON,
   KAVERI_FLATS_CAPTURED_ON,
@@ -53,7 +52,6 @@ type CapturedEntry = {
 };
 
 const CAPTURED = (captured as { capturedOn?: string; entries?: CapturedEntry[] }).entries ?? [];
-export const IGRS_CAPTURED_ON = (captured as { capturedOn?: string }).capturedOn ?? null;
 
 /** village -> entries, so a lookup is a map hit rather than a scan of 25k rows. */
 const CAPTURED_BY_VILLAGE = new Map<string, CapturedEntry[]>();
@@ -117,9 +115,6 @@ function fromCaptured(place: RateLookup): ResolvedRate | null {
     matchedOn: byVillage[0] ? "village" : "mandal",
   };
 }
-
-/** When the figures below were last reviewed against the IGRS portal. */
-export const RATE_SNAPSHOT_ON = "2026-08-25";
 
 export type GuidanceEntry = {
   locality: string;

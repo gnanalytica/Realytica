@@ -28,16 +28,12 @@
  */
 
 import type {
-  ActionRecord,
   ActionStatus,
   AssessmentStatus,
   DdProject,
-  EvidenceRecord,
   EvidenceStatus,
-  FindingRecord,
   FindingSeverity,
   FindingStatus,
-  RiskRecord,
   ScopeStatus,
 } from './types';
 import { SCOPE_LABEL } from './catalogs';
@@ -291,15 +287,6 @@ export function sortWork(items: WorkItem[]): WorkItem[] {
     if (sa !== sb) return sa - sb;
     return a.title.localeCompare(b.title);
   });
-}
-
-export function myWorkAcross(projects: readonly DdProject[], person: WorkPerson, now: string): WorkItem[] {
-  return sortWork(projects.flatMap((p) => myWorkOn(p, person, now)));
-}
-
-/** A count worth putting on a nav item: how much of this is late. */
-export function overdueCount(items: readonly WorkItem[]): number {
-  return items.filter((i) => i.overdue).length;
 }
 
 /* ==================================================================== */

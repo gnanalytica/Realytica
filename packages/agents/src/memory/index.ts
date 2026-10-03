@@ -55,19 +55,13 @@ export type {
 
 export type { NormalisedSubject, SubjectKind } from './subjects';
 export {
-  SCOPE_FOR_SUBJECT_KIND,
-  dedupeSubjects,
   localitySubject,
   looksLikePartyName,
   parseSubjectKey,
   partySubject,
-  procedureSubject,
-  sourceSubject,
-  subjectFor,
   userSubject,
 } from './subjects';
 
-export type { InMemoryPersistence } from './store';
 export {
   DEFAULT_CARDINALITY,
   DEFAULT_HALF_LIFE_DAYS,
@@ -75,16 +69,12 @@ export {
   InMemoryMemoryStore,
   MemoryLedger,
   PersistedMemoryStore,
-  createInMemoryPersistence,
   defaultCardinality,
   memoryFactId,
   memoryFactIdentity,
 } from './store';
 
-export type { ExtractFactsOptions, MemoryHorizons, PartyMention, ReachabilityValue } from './learn';
-export { DEFAULT_HORIZONS, extractFactsFromCase, partyMentionsInCase } from './learn';
-
-export type { RecallOptions, RenderMemoryOptions, SubjectsForCaseOptions } from './recall';
-export { recallForCase, renderMemoryForPrompt, subjectsForCase } from './recall';
+export type { RecallOptions, RenderMemoryOptions } from './recall';
+export { renderMemoryForPrompt } from './recall';
 
 export { extractFactsFromProject, recallForProject, subjectsForProject } from './project';

@@ -244,17 +244,6 @@ export function checkAdvise(project: DdProject, check: { id: string; title: stri
   return { lean: 'cross', why: 'No evidence is linked yet. Cross to record missing evidence, or attach a file in chat.' };
 }
 
-export function proposalsPinnedToCheck(project: DdProject, checkId: string): ChatProposal[] {
-  return project.chatProposals.filter((p) => {
-    if (p.status !== 'proposed') return false;
-    const pl = p.payload as Record<string, unknown>;
-    if (pl.checkId === checkId) return true;
-    const checks = pl.checkIds;
-    if (Array.isArray(checks) && checks.includes(checkId)) return true;
-    return (p.citedNodeIds ?? []).includes(checkId);
-  });
-}
-
 export function wantsCritic(question: string): boolean {
   return /\bcritic\b|\bunevidenced\b|\breview findings\b|\bchallenge (the )?findings?\b|\bfindings? without (proof|evidence)\b/i.test(
     question,

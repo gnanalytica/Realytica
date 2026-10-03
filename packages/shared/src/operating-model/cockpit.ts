@@ -19,7 +19,6 @@ import {
   ensureProjectShape,
   insertReportBlock,
   issueReport,
-  generateReport,
   packCompleteness,
   packEvidence,
   patchFindingSeverity,
@@ -771,7 +770,6 @@ export function runProjectOrchestrator(project: DdProject, actor = 'operator'): 
 }
 
 function briefingAnswer(project: DdProject, viewContext?: string): Pick<ProjectChatTurn, 'text' | 'citedEvidenceIds' | 'citedNodeIds'> {
-  const pack = packCompleteness(project);
   const next = projectNextStep(project);
   const material = materialOpenFindings(project);
   return {

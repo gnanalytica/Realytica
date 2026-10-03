@@ -8,7 +8,7 @@ import {
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
-import { Badge, Button, Callout, Card, CardBody, EmptyState, Input, Skeleton, StatTile, useToast } from '../../components/ui/kit';
+import { Badge, Button, Callout, Card, CardBody, EmptyState, Input, Skeleton, StatTile } from '../../components/ui/kit';
 import { healthTone } from './shared';
 import { useState } from 'react';
 
@@ -17,7 +17,6 @@ const SEARCH_FROM = 6;
 
 export default function ProjectList() {
   const navigate = useNavigate();
-  const toast = useToast();
   const { data, error, loading, refresh } = useAsync(() => api.listProjects(), []);
   const [query, setQuery] = useState('');
 

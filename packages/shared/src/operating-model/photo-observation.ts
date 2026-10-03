@@ -50,12 +50,6 @@ export type PhotoSubject =
   /** Neither, or too poor to tell. Says so rather than guessing. */
   | 'unclear';
 
-export const PHOTO_SUBJECT_LABEL: Record<PhotoSubject, string> = {
-  property: 'The property',
-  document: 'A photographed document',
-  unclear: 'Could not tell',
-};
-
 /**
  * One thing visible in the frame, with how sure the model is and what would
  * settle it.

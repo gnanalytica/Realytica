@@ -18,7 +18,6 @@ import {
   addFinding,
   addRisk,
   addScopeToAssessment,
-  assessmentProgress,
   changeStage,
   createAssessment,
   ensureProjectShape,
@@ -227,17 +226,6 @@ export function recommendedDdTypesForProject(project: DdProject): DdTypeDefiniti
     }
   }
   return out;
-}
-
-export function missingProjectFields(project: DdProject): string[] {
-  const missing: string[] = [];
-  if (!project.owner) missing.push('owner / DD lead');
-  if (!project.jurisdiction) missing.push('jurisdiction');
-  if (!project.landAreaSqm) missing.push('land area (sqm)');
-  if (!project.builtUpAreaSqm) missing.push('built-up area (sqm)');
-  if (!project.budget) missing.push('budget');
-  if (!project.siteAddress && !project.location) missing.push('site address');
-  return missing;
 }
 
 function activeAssessments(project: DdProject) {

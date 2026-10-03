@@ -20,12 +20,6 @@ type GoogleWindow = Window & {
 };
 
 let loading: Promise<void> | null = null;
-let refused = false;
-
-/** Whether Google refused the key — wrong site, API not enabled — after it loaded. */
-export function googleMapsRefused(): boolean {
-  return refused;
-}
 
 /** Load the Maps JavaScript API once, however many maps ask. */
 export function loadGoogleMaps(onRefused?: () => void): Promise<void> {
@@ -34,7 +28,6 @@ export function loadGoogleMaps(onRefused?: () => void): Promise<void> {
   const w = window as GoogleWindow;
   // Google calls this when the key is rejected for this site; the map falls back to its own imagery.
   w.gm_authFailure = () => {
-    refused = true;
     onRefused?.();
   };
   if (loading) return loading;

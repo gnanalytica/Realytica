@@ -111,18 +111,6 @@ export type ConditionOperator =
   | 'is_true'
   | 'is_false';
 
-export const CONDITION_OPERATORS: ConditionOperator[] = [
-  'equals',
-  'not_equals',
-  'contains',
-  'greater_than',
-  'less_than',
-  'is_empty',
-  'is_not_empty',
-  'is_true',
-  'is_false',
-];
-
 export interface FlowCondition {
   /** Dotted path into the run payload, e.g. `document.readable` or `findings.length`. */
   path: string;
@@ -256,14 +244,6 @@ export type TriggerOn =
   | 'evidence_uploaded'
   | 'assessment_started'
   | 'schedule';
-
-export const TRIGGER_KINDS: TriggerOn[] = [
-  'manual',
-  'project_created',
-  'evidence_uploaded',
-  'assessment_started',
-  'schedule',
-];
 
 export interface TriggerNodeConfig {
   /** What starts a run. */

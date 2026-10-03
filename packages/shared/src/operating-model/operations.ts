@@ -1,7 +1,7 @@
-import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, SCOPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
+import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS, checksForScope, ddTypeDefinition } from './libraries';
 import { createEngagement, currentEngagement } from './engagements';
 import { reconcileRequests } from './project-requests';
-import { LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
+import { REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { looksLikeProviderError } from './provider-failure';
 import { documentAnswers } from './document-parse';
 import { readCheckFields, toleranceReadings, validateFieldValue, withComputed, type CheckFieldReading, type ToleranceReading } from './check-fields';
@@ -43,7 +43,6 @@ import type {
   ReportBlock,
   ReportBody,
   ReportBoundSource,
-  ReportSection,
   RiskRecord,
   ScopeInstance,
   ScopeKey,
@@ -1655,24 +1654,6 @@ export function filterFindings(project: DdProject, filter: RegisterFilter = {}):
   });
 }
 
-export function filterRisks(project: DdProject, filter: RegisterFilter = {}): RiskRecord[] {
-  return project.risks.filter((r) => {
-    if (filter.assessmentId && !r.assessmentIds.includes(filter.assessmentId)) return false;
-    if (filter.scopeInstanceId && !r.scopeInstanceIds.includes(filter.scopeInstanceId)) return false;
-    if (filter.assetId && !r.assetIds.includes(filter.assetId)) return false;
-    return true;
-  });
-}
-
-export function filterEvidence(project: DdProject, filter: RegisterFilter = {}): EvidenceRecord[] {
-  return project.evidence.filter((e) => {
-    if (filter.assessmentId && !e.assessmentIds.includes(filter.assessmentId)) return false;
-    if (filter.scopeInstanceId && !e.scopeInstanceIds.includes(filter.scopeInstanceId)) return false;
-    if (filter.assetId && !e.assetIds.includes(filter.assetId)) return false;
-    return true;
-  });
-}
-
 export function scopeCompleteness(scope: ScopeInstance): { total: number; done: number; percent: number; findings: number; missing: number } {
   const total = scope.checks.length;
   const done = scope.checks.filter((c) => c.result !== 'pending').length;
@@ -1737,10 +1718,6 @@ export function isPackEvidenceTitle(title: string): boolean {
 function packKeyFor(title: string): string | undefined {
   const t = title.toLowerCase();
   return PACK_EVIDENCE_KEYS.find((k) => t.includes(k));
-}
-
-function packGapStatus(e: EvidenceRecord): boolean {
-  return e.status === 'expected' || e.status === 'missing' || e.status === 'requested';
 }
 
 function packReceivedStatus(e: EvidenceRecord): boolean {
@@ -1825,15 +1802,6 @@ export function changesSincePrevious(project: DdProject, assessmentId: string): 
     unresolvedFindings,
     repeatedTitles,
   };
-}
-
-function assetName(project: DdProject, assetId: string): string {
-  return project.assets.find((a) => a.id === assetId)?.name ?? assetId;
-}
-
-function targetLabel(project: DdProject, assessment: DdAssessment): string {
-  if (assessment.targetType === 'project') return 'Whole project';
-  return assessment.targetAssetIds.map((idValue) => assetName(project, idValue)).join(', ') || 'Selected assets';
 }
 
 /**
@@ -2173,9 +2141,3 @@ export function assetTree(project: DdProject): Array<Asset & { depth: number; pa
 export function recommendedDdTypes(stage: LifecycleStage) {
   return DD_TYPE_DEFINITIONS.filter((d) => d.typicalStages.includes(stage));
 }
-
-export const OPERATING_MODEL_LIBRARIES = {
-  scopes: SCOPE_DEFINITIONS,
-  ddTypes: DD_TYPE_DEFINITIONS,
-  checks: CHECK_DEFINITIONS,
-};

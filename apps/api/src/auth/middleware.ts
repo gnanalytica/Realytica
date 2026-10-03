@@ -45,11 +45,6 @@ export function authSettings(): AuthSettings {
   return settings;
 }
 
-/** Only for tests, which need to swap the mode between cases. */
-export function setAuthSettingsForTest(next: AuthSettings | null): void {
-  settings = next;
-}
-
 function workspace(): { tenants: Tenant[]; memberships: Membership[] } {
   if (!store.data.tenants) store.data.tenants = [];
   if (!store.data.memberships) store.data.memberships = [];

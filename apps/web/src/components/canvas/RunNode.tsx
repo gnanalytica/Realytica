@@ -13,7 +13,6 @@ import type {
   AgentRun,
   AgentRunStatus,
   CapabilityGap,
-  ProviderId,
   RunGraphNode,
   RunGraphNodeKind,
 } from '@realytica/shared';
@@ -53,25 +52,6 @@ export const GAP_LABEL: Record<CapabilityGap, string> = {
   refusal_fallback_unavailable: 'No refusal fallback',
   pdf_input_unavailable: 'No native PDF input',
   strict_tools_unavailable: 'No strict tool schemas',
-};
-
-/**
- * What each gap actually did to this node's output.
- *
- * Written as a consequence rather than a capability, because "adaptive
- * thinking unavailable" tells a valuer nothing and "the model could not spend
- * longer on the harder parts" tells them what to distrust.
- */
-export const GAP_CONSEQUENCE: Record<CapabilityGap, string> = {
-  citations_unavailable:
-    'No citations came back, so each page was checked here instead: against the page\'s own text, or by showing that page alone to a checking model. A value nothing could check has no page.',
-  prompt_caching_unavailable: 'Repeated context was re-sent and re-billed. Costs more; changes nothing about the answer.',
-  adaptive_thinking_unavailable: 'The model could not spend extra effort on the harder parts of the task.',
-  server_web_search_unavailable: 'Any external lookup was done by this app, not by the provider, so results depend on what it could reach.',
-  refusal_fallback_unavailable: 'A safety decline could not be retried server-side, so one refusal ends the step.',
-  pdf_input_unavailable:
-    'The PDF was rasterised or text-extracted locally before the model saw it, so layout, stamps and marginalia may be lost.',
-  strict_tools_unavailable: 'Tool arguments were not schema-guaranteed, so a malformed call is possible.',
 };
 
 /**

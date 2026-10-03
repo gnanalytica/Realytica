@@ -32,10 +32,6 @@ export function setTelemetrySink(next: TelemetrySink | null): void {
   sink = next;
 }
 
-export function telemetrySinkInstalled(): boolean {
-  return sink !== null;
-}
-
 /**
  * How a call learns which workspace it belongs to.
  *

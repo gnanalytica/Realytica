@@ -1,4 +1,3 @@
-
 // Fetching the survey-number map.
 //
 // Four reads, in the order a person actually thinks: which district, which
@@ -39,7 +38,7 @@ import {
   fallbackVillages,
 } from "./cadastre-fallback";
 import { bboxAround, pointInRings, type Ring } from "./geometry";
-import { getKgisParcel, kgisNeighbours } from "./karnataka/kgis";
+import { getKgisParcel } from "./karnataka/kgis";
 import {
   KA_INDEX_CAPTURED_ON,
   kaDistricts,
@@ -334,51 +333,6 @@ export async function getParcel(ref: string): Promise<CadastreOutcome<ParcelReco
     ok: true,
     data: shapeParcel(source, feature.attributes ?? {}, feature.geometry?.rings ?? []),
   };
-}
-
-/**
- * Every parcel whose boundary falls in a box around a point — the subject's
- * neighbours, so the plot can be drawn where it actually sits rather than as a
- * shape floating on its own. This is the survey map a person recognises: their
- * number, and the numbers around it.
- */
-export async function neighbouringParcels(
-  point: LatLng,
-  radiusM = 220,
-  limit = 120,
-  /** The subject's own ref; needed in Karnataka, where neighbours are found by number. */
-  ref: string | null = null,
-): Promise<CadastreOutcome<ParcelRecord[]>> {
-  const parsed = ref ? parseParcelRef(ref) : null;
-  if (parsed?.source === "kgis") {
-    return { ok: true, data: await kgisNeighbours(parsed.code, parsed.surveyNo, point) };
-  }
-  const box = bboxAround(point, radiusM);
-  return acrossSources<ParcelRecord>(
-    async (source) => {
-      const res = await ask(source, {
-        where: "1=1",
-        geometry: `${box.xmin},${box.ymin},${box.xmax},${box.ymax}`,
-        geometryType: "esriGeometryEnvelope",
-        inSR: "4326",
-        outSR: "4326",
-        spatialRel: "esriSpatialRelIntersects",
-        outFields: outFieldsFor(source).join(","),
-        returnGeometry: "true",
-        resultRecordCount: String(limit),
-      });
-      if (!res.ok) return res;
-      const rows: ParcelRecord[] = [];
-      for (const f of res.data.features ?? []) {
-        const rings = f.geometry?.rings ?? [];
-        if (!rings.length) continue;
-        const record = shapeParcel(source, f.attributes ?? {}, rings);
-        if (record) rows.push(record);
-      }
-      return { ok: true, data: rows };
-    },
-    (all) => all.slice(0, limit),
-  );
 }
 
 /**
