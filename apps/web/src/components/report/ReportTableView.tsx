@@ -10,6 +10,8 @@ import { cn } from '../ui/kit';
  */
 export function ReportTableView({ table, print = false, onOpenRecord }: { table: ReportTable; print?: boolean; onOpenRecord?: (recordId: string) => void }) {
   const line = print ? 'border-neutral-300' : 'border-hairline';
+  const last = table.columns.length - 1;
+  const max = table.bars ? Math.max(1, ...table.rows.map((r) => Number(r.cells[last]) || 0)) : 0;
   return (
     <div className={cn('overflow-x-auto', print ? 'mt-2' : 'rounded-xl ring-1 ring-inset ring-[var(--ring)]')}>
       <table className={cn('w-full border-collapse text-left align-top', print ? 'text-[12px]' : 'text-[13px]')}>
@@ -31,7 +33,14 @@ export function ReportTableView({ table, print = false, onOpenRecord }: { table:
             >
               {row.cells.map((cell, j) => (
                 <td key={j} className={cn('px-2 py-1.5', j === 0 && 'whitespace-nowrap font-mono tabular-nums', print ? 'text-black' : j === 0 ? 'text-ink-muted' : 'text-ink-secondary')}>
-                  {cell}
+                  {table.bars && j === last ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-6 text-right font-mono tabular-nums">{cell}</span>
+                      <span className={cn('h-2.5 rounded-full', print ? 'bg-neutral-700' : 'bg-ink')} style={{ width: `${Math.max(4, ((Number(cell) || 0) / max) * 60)}%` }} aria-hidden />
+                    </span>
+                  ) : (
+                    cell
+                  )}
                 </td>
               ))}
             </tr>

@@ -17,6 +17,7 @@ import { Button, Card, CardBody, CardHeader, StatTile, cn, useToast } from '../u
 import { EngineeringDashboard, RequirementSheetCard } from './EngineeringDesk';
 import { ObservationsCard } from './ObservationsCard';
 import { QuestionnaireCard } from './QuestionnaireCard';
+import { SitePhotos } from './SitePhotos';
 import { WorkstreamChecks, WorkstreamDocuments } from './WorkstreamRecords';
 
 type StepKey = 'documents' | 'questions' | 'site' | 'observations' | 'report';
@@ -155,6 +156,7 @@ export function TechnicalDueDiligence({
       {step === 'questions' ? <QuestionnaireCard project={project} onChanged={setProject} onOpenDocument={nav.openDocument} /> : null}
 
       {step === 'site' ? (
+        <>
         <Card>
           <CardHeader
             icon={<MapPin size={15} />}
@@ -204,6 +206,8 @@ export function TechnicalDueDiligence({
             ) : null}
           </CardBody>
         </Card>
+        <SitePhotos project={project} refresh={refresh} onChanged={setProject} />
+        </>
       ) : null}
 
       {step === 'observations' ? (

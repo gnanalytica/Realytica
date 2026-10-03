@@ -57,6 +57,8 @@ export interface QuestionnaireQuestion {
   /** A model wrote this answer and nobody has confirmed it yet. */
   suggested?: boolean;
   note?: string;
+  /** Kept on the sheet, left out of the report: not every question is the client's business to read. */
+  omitFromReport?: boolean;
   answeredBy?: string;
   answeredAt?: string;
 }
@@ -305,6 +307,7 @@ export interface AnswerInput {
   /** Change the question's own wording or section: an import is not always clean. */
   text?: string;
   section?: string | null;
+  omitFromReport?: boolean;
 }
 
 function cleanProof(project: DdProject, proof: readonly AnswerProof[]): AnswerProof[] {
@@ -334,6 +337,7 @@ export function answerQuestion(project: DdProject, questionnaireId: string, ques
   }
   if (input.section !== undefined) question.section = input.section?.trim() || undefined;
   if (input.note !== undefined) question.note = input.note?.trim() || undefined;
+  if (input.omitFromReport !== undefined) question.omitFromReport = input.omitFromReport || undefined;
   if (input.proof !== undefined) question.proof = cleanProof(project, input.proof);
   if (input.source !== undefined) question.source = input.source ?? undefined;
   if (input.answer !== undefined) {

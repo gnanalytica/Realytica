@@ -89,6 +89,8 @@ export interface ObservationPatch {
   standardRef?: string | null;
   discipline?: ScopeKey;
   evidenceIds?: string[];
+  /** Whether it prints in the report. Leaving one out does not close it. */
+  includeInReport?: boolean;
 }
 
 export function patchObservation(project: DdProject, findingId: string, patch: ObservationPatch, actor: string): FindingRecord {
@@ -109,6 +111,7 @@ export function patchObservation(project: DdProject, findingId: string, patch: O
   if (patch.mitigation !== undefined) record.mitigation = patch.mitigation?.trim() || undefined;
   if (patch.standardRef !== undefined) record.standardRef = patch.standardRef?.trim() || undefined;
   if (patch.evidenceIds !== undefined) record.evidenceIds = knownEvidence(project, patch.evidenceIds);
+  if (patch.includeInReport !== undefined) record.includeInReport = patch.includeInReport;
   record.updatedAt = at;
   project.updatedAt = at;
   project.audit.push({ id: newId('aud'), at, actor, action: 'update', entityType: 'finding', entityId: record.id, newValue: record.title });
@@ -143,5 +146,18 @@ export function fileSiteLogPhoto(project: DdProject, entryId: string, index: num
     actor,
   );
   row.workstream = 'construction.site';
+  return row;
+}
+
+/** Choose whether a filed photograph prints in the report on its own. */
+export function setPhotoInReport(project: DdProject, evidenceId: string, inReport: boolean, actor: string): EvidenceRecord {
+  const row = project.evidence.find((e) => e.id === evidenceId);
+  if (!row) throw new Error('No photograph by that id.');
+  if (!row.attachments.some((a) => a.mimeType.startsWith('image/'))) throw new Error('That is not a photograph.');
+  const at = nowIso();
+  row.inReport = inReport || undefined;
+  row.updatedAt = at;
+  project.updatedAt = at;
+  project.audit.push({ id: newId('aud'), at, actor, action: inReport ? 'photo_in_report' : 'photo_out_of_report', entityType: 'evidence', entityId: row.id, newValue: row.title });
   return row;
 }

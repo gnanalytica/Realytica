@@ -150,16 +150,29 @@ export interface PhotoCandidate {
   key: string;
   /** On the document register already. */
   evidenceId?: string;
+  /** The file within that row, for its caption and for asking a model to describe it. */
+  fileId?: string;
   /** Still only in the site log: filed onto the register when it is first used. */
   siteLog?: { entryId: string; index: number };
   title: string;
+  /** The caption a person gave it. */
+  caption?: string;
   takenAt?: string;
+  point?: { lat: number; lng: number };
   /** Where it was taken, when the capture or the caption says. */
   area?: string;
   /** What a model saw in it, in its own words. Never a diagnosis. */
   seen?: string;
+  /** A model has looked at it. */
+  described: boolean;
   /** Findings a model thought the photograph might support, for a person to take or leave. */
   suggestions: Array<{ title: string; description: string; severity: FindingSeverity }>;
+  /** The observations that cite it, by their number in the table. */
+  usedIn: number[];
+  /** An answer on a questionnaire rests on it. */
+  provesAnAnswer: boolean;
+  /** Chosen to print in the report on its own. */
+  inReport: boolean;
 }
 
 function usedEvidence(project: DdProject): Set<string> {
@@ -170,26 +183,36 @@ function usedEvidence(project: DdProject): Set<string> {
 }
 
 /**
- * Photographs on the file that prove nothing yet: no observation cites them
- * and no questionnaire answer rests on them. Newest first.
+ * Every photograph on the project, newest first: the files on the document
+ * register and the ones still only in the phone's site log, each with what a
+ * person wrote about it, what a model saw in it, and where it is used.
  */
-export function unusedPhotos(project: DdProject): PhotoCandidate[] {
-  const used = usedEvidence(project);
+export function projectPhotos(project: DdProject, department: DepartmentKey = 'construction'): PhotoCandidate[] {
+  const table = observations(project, department);
+  const numberOf = new Map(table.map((f, i) => [f.id, i + 1]));
+  const answered = new Set<string>();
+  for (const q of project.questionnaires ?? []) for (const question of q.questions) for (const p of question.proof) answered.add(p.evidenceId);
   const filedKeys = new Set(project.evidence.flatMap((e) => e.attachments.map((a) => a.storageKey)));
   const out: PhotoCandidate[] = [];
   for (const row of project.evidence) {
-    if (used.has(row.id)) continue;
     const shot = row.attachments.find((a) => a.mimeType.startsWith('image/'));
     if (!shot || (row.kind !== 'photograph' && shot.observation?.subject !== 'property')) continue;
     const seen = shot.observation;
     out.push({
       key: row.id,
       evidenceId: row.id,
+      fileId: shot.id,
       title: row.title,
+      caption: shot.capture?.caption,
       takenAt: shot.capture?.takenAt ?? shot.uploadedAt,
+      point: shot.capture?.lat != null && shot.capture?.lng != null ? { lat: shot.capture.lat, lng: shot.capture.lng } : undefined,
       area: shot.capture?.zone,
-      seen: seen?.description,
+      seen: seen?.description || undefined,
+      described: Boolean(seen),
       suggestions: (seen?.suggestedFindings ?? []).map((s) => ({ title: s.title, description: [s.observed, s.whyItMayMatter].filter(Boolean).join(' '), severity: s.suggestedSeverity })),
+      usedIn: project.findings.filter((f) => f.evidenceIds.includes(row.id) && numberOf.has(f.id)).map((f) => numberOf.get(f.id)!),
+      provesAnAnswer: answered.has(row.id),
+      inReport: row.inReport === true,
     });
   }
   for (const entry of project.siteLog ?? []) {
@@ -199,11 +222,26 @@ export function unusedPhotos(project: DdProject): PhotoCandidate[] {
         key: `${entry.id}:${index}`,
         siteLog: { entryId: entry.id, index },
         title: photo.caption?.trim() || photo.fileName,
+        caption: photo.caption?.trim() || undefined,
         takenAt: photo.takenAt ?? entry.createdAt,
-        seen: photo.caption?.trim() || undefined,
+        point: photo.point ?? entry.point,
+        seen: undefined,
+        described: false,
         suggestions: [],
+        usedIn: [],
+        provesAnAnswer: false,
+        inReport: false,
       });
     });
   }
-  return out.sort((a, b) => (b.takenAt ?? '').localeCompare(a.takenAt ?? ''));
+  return out.sort((x, y) => (y.takenAt ?? '').localeCompare(x.takenAt ?? ''));
+}
+
+/**
+ * Photographs on the file that prove nothing yet: no observation cites them
+ * and no questionnaire answer rests on them. Newest first.
+ */
+export function unusedPhotos(project: DdProject): PhotoCandidate[] {
+  const used = usedEvidence(project);
+  return projectPhotos(project).filter((p) => !p.evidenceId || !used.has(p.evidenceId));
 }

@@ -42,7 +42,7 @@
 
 import { LIFECYCLE_STAGE_LABEL, SCOPE_LABEL } from './catalogs';
 import { CAPTURE_PURPOSE_LABEL } from './capture';
-import { RISK_LABEL, observationStatement, observations } from './observation-table';
+import { RISK_LABEL, observationStatement, observations, projectPhotos } from './observation-table';
 import { ANSWER_SOURCE_LABEL, questionStatus } from './questionnaire';
 import { remedialCostSummary } from './remedial';
 import { REQUIREMENT_STATUS_LABEL, requirementSheet } from './requirement-sheet';
@@ -83,6 +83,8 @@ export const REPORT_BOUND_SOURCES: readonly ReportBoundSourceKind[] = [
   'observations',
   'questionnaire',
   'requirement_sheet',
+  'risk_summary',
+  'site_photographs',
 ] as const;
 
 export function isReportBoundSource(value: unknown): value is ReportBoundSourceKind {
@@ -107,6 +109,8 @@ export const REPORT_SOURCE_LABEL: Record<ReportBoundSourceKind, string> = {
   observations: 'Observations and mitigations',
   questionnaire: 'Building information',
   requirement_sheet: 'Documents reviewed and outstanding',
+  risk_summary: 'At a glance',
+  site_photographs: 'Site photographs',
 };
 
 export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
@@ -126,6 +130,8 @@ export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
   observations: 'The engineer’s table: what was seen, area by area, its risk, the mitigation and the code it is judged against, with the photographs.',
   questionnaire: 'The questions put to the building and their answers, each with where it came from. A suggestion nobody confirmed is not printed as an answer.',
   requirement_sheet: 'Every document the checks expect, by discipline: in hand, asked for, or not received.',
+  risk_summary: 'How many observations fall in each risk category, counted from the table below it.',
+  site_photographs: 'The photographs chosen for the report that no observation already shows, each with its caption, where and when it was taken, and what it shows.',
 };
 
 /* ==================================================================== */
@@ -245,10 +251,52 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
       };
     }
 
+    case 'risk_summary': {
+      const rows = observations(project, 'construction')
+        .filter((f) => scoped(f.assessmentIds) || !source.assessmentIds?.length)
+        .filter((f) => f.includeInReport !== false);
+      if (!rows.length) return { lines: [], recordIds: [], note: 'No observations are recorded yet.' };
+      const order = ['critical', 'high', 'medium', 'low'] as const;
+      const counted = order.map((s) => ({ label: RISK_LABEL[s], n: rows.filter((f) => f.severity === s).length })).filter((c) => c.n > 0);
+      const areas = new Set(rows.map((f) => (f.area ?? '').toLowerCase()).filter(Boolean)).size;
+      return {
+        lines: counted.map((c) => `${c.label}: ${c.n}`),
+        recordIds: [],
+        table: { columns: ['Risk category', 'Observations'], bars: true, rows: counted.map((c) => ({ cells: [c.label, String(c.n)] })) },
+        note: `${plural(rows.length, 'observation')}${areas ? ` across ${plural(areas, 'area')}` : ''}.`,
+      };
+    }
+
+    case 'site_photographs': {
+      // The ones an observation in the report already shows print under that
+      // table; printing them twice would only make the report longer.
+      const photos = projectPhotos(project, 'construction').filter((p) => p.inReport && p.evidenceId);
+      const shownAlready = new Set(
+        observations(project, 'construction')
+          .filter((f) => f.includeInReport !== false)
+          .flatMap((f) => f.evidenceIds),
+      );
+      const rows = photos.filter((p) => !shownAlready.has(p.evidenceId!)).reverse();
+      if (!rows.length) {
+        return { lines: [], recordIds: [], note: 'No photograph is chosen for this section. Choose them under Technical due diligence › Site; the photographs an observation cites print with that observation.' };
+      }
+      const when = (iso?: string) => (iso ? iso.slice(0, 10) : '');
+      return {
+        lines: rows.map((p, i) => `${i + 1}. ${[p.area, p.caption ?? p.title].filter(Boolean).join(': ')}${p.seen ? ` — ${p.seen}` : ''}`),
+        recordIds: rows.map((p) => p.evidenceId!),
+        table: {
+          columns: ['No.', 'Area', 'Caption', 'What the photograph shows', 'Taken'],
+          rows: rows.map((p, i) => ({ cells: [String(i + 1), p.area ?? '', p.caption ?? p.title, p.seen ?? '', when(p.takenAt)], recordId: p.evidenceId, evidenceIds: [p.evidenceId!] })),
+        },
+        note: rows.some((p) => p.seen) ? 'What a photograph shows is a description of what is visible in it, not a diagnosis.' : undefined,
+      };
+    }
+
     case 'questionnaire': {
       const sheet = (project.questionnaires ?? []).slice(-1)[0];
       if (!sheet) return { lines: [], recordIds: [], note: 'No questionnaire has been imported for this building.' };
-      const ordered = sheet.questions.slice().sort((a, b) => a.order - b.order);
+      // A question left out of the report stays on the sheet; it is simply not printed.
+      const ordered = sheet.questions.filter((q) => !q.omitFromReport).sort((a, b) => a.order - b.order);
       const answer = (q: (typeof ordered)[number]) => (questionStatus(q) === 'answered' ? q.answer! : '');
       const footing = (q: (typeof ordered)[number]) => {
         if (questionStatus(q) !== 'answered' || !q.source) return '';
@@ -568,10 +616,12 @@ export function reportTemplate(kind: string): Array<{ heading: string; source?: 
           heading: 'Scope and basis',
           text: 'This report records a technical due diligence of the property: a review of the documents made available, the information given in answer to our questions, and a visual inspection of the accessible areas. No destructive testing was carried out and concealed elements were not opened up unless stated.',
         },
+        { heading: 'At a glance', source: bound('risk_summary') },
         { heading: 'Building information', source: bound('questionnaire') },
         { heading: 'Observations and mitigations', source: bound('observations') },
         { heading: 'Remedial cost by band', source: bound('remedial_cost') },
         { heading: 'Inspection record', source: bound('site_visits') },
+        { heading: 'Site photographs', source: bound('site_photographs') },
         { heading: 'Documents reviewed and outstanding', source: bound('requirement_sheet') },
         {
           heading: 'Limitations',

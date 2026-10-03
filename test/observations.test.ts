@@ -29,9 +29,11 @@ import {
   observationsCsv,
   observationsText,
   patchObservation,
+  projectPhotos,
   readReportBlock,
   reportTemplate,
   resolveReportBlock,
+  setPhotoInReport,
   suggestAnswers,
   unusedPhotos,
   type DdProject,
@@ -192,7 +194,7 @@ describe('the technical due diligence report', () => {
     addObservation(p, { area: 'Lift core', description: 'The machine room has no ventilation.', severity: 'high', mitigation: 'Add an exhaust fan.', standardRef: 'NBC 2016 Part 8', evidenceIds: [shot.id] }, 'engineer');
     addObservation(p, { area: 'Terrace', description: 'The terrace drain is blocked.', severity: 'medium' }, 'engineer');
     const headings = reportTemplate('technical_dd').map((b) => b.heading);
-    assert.deepEqual(headings, ['The property', 'Scope and basis', 'Building information', 'Observations and mitigations', 'Remedial cost by band', 'Inspection record', 'Documents reviewed and outstanding', 'Limitations', 'Opinion']);
+    assert.deepEqual(headings, ['The property', 'Scope and basis', 'At a glance', 'Building information', 'Observations and mitigations', 'Remedial cost by band', 'Inspection record', 'Site photographs', 'Documents reviewed and outstanding', 'Limitations', 'Opinion']);
     const block = { id: 'b1', origin: 'derived' as const, heading: 'Observations and mitigations', source: { kind: 'observations' as const } };
     const resolved = resolveReportBlock(p, block);
     assert.deepEqual(resolved.table!.columns, ['S. No', 'Area', 'Description', 'Risk category', 'Mitigation', 'Reference']);
@@ -232,5 +234,53 @@ describe('the technical due diligence report', () => {
     const obs = issued.body.blocks.find((b) => b.source?.kind === 'observations')!;
     const frozen = readReportBlock(p, obs, true);
     assert.equal(frozen.table!.rows.length, 1, 'an issued report does not change when the file does');
+  });
+});
+
+describe('choosing what the report prints', () => {
+  it('leaves out an observation switched off, and counts the rest at a glance', () => {
+    const p = project();
+    addObservation(p, { area: 'Basement', description: 'Ponding at the ramp.', severity: 'critical' }, 'engineer');
+    addObservation(p, { area: 'Basement', description: 'Exit signage is missing.', severity: 'medium' }, 'engineer');
+    const internal = addObservation(p, { area: 'Terrace', description: 'A note for ourselves.', severity: 'medium' }, 'engineer');
+    patchObservation(p, internal.id, { includeInReport: false }, 'engineer');
+    const table = resolveReportBlock(p, { id: 'b', origin: 'derived', source: { kind: 'observations' } });
+    assert.equal(table.table!.rows.length, 2);
+    const glance = resolveReportBlock(p, { id: 'g', origin: 'derived', source: { kind: 'risk_summary' } });
+    assert.equal(glance.table!.bars, true);
+    assert.deepEqual(glance.table!.rows.map((r) => r.cells), [['Critical risk', '1'], ['Moderate risk', '1']]);
+    assert.equal(glance.note, '2 observations across 1 area.');
+    assert.equal(observations(p).length, 3, 'still on the table to work on');
+  });
+
+  it('prints the photographs chosen, once each, with caption, area and what a model saw', () => {
+    const p = project();
+    const cited = photo(p, 'Machine room');
+    const chosen = photo(p, 'Lobby');
+    const ignored = photo(p, 'Car park');
+    chosen.attachments[0]!.capture = { caption: 'Main lobby, facing the lifts', zone: 'Lobby', takenAt: '2026-10-02T09:00:00.000Z' };
+    chosen.attachments[0]!.observation = { subject: 'property', description: 'A double-height lobby with stone cladding.', elements: [], notes: [], suggestedFindings: [], model: 'test', at: '2026-10-02T09:05:00.000Z' };
+    addObservation(p, { description: 'No ventilation.', severity: 'high', evidenceIds: [cited.id] }, 'engineer');
+    setPhotoInReport(p, chosen.id, true, 'engineer');
+    setPhotoInReport(p, cited.id, true, 'engineer');
+    const all = projectPhotos(p);
+    assert.deepEqual(all.find((x) => x.evidenceId === cited.id)!.usedIn, [1]);
+    assert.equal(all.find((x) => x.evidenceId === ignored.id)!.inReport, false);
+    const section = resolveReportBlock(p, { id: 's', origin: 'derived', source: { kind: 'site_photographs' } });
+    assert.deepEqual(section.table!.rows.map((r) => r.cells), [['1', 'Lobby', 'Main lobby, facing the lifts', 'A double-height lobby with stone cladding.', '2026-10-02']]);
+    assert.deepEqual(section.table!.rows[0]!.evidenceIds, [chosen.id], 'the one an observation shows is not printed twice');
+    setPhotoInReport(p, chosen.id, false, 'engineer');
+    assert.equal(resolveReportBlock(p, { id: 's', origin: 'derived', source: { kind: 'site_photographs' } }).table, undefined);
+    assert.throws(() => setPhotoInReport(p, 'ev_none', true, 'engineer'), /No photograph/);
+  });
+
+  it('leaves a question out of the report without taking it off the sheet', () => {
+    const p = project();
+    const q = addQuestionnaire(p, { title: 'Sheet', parsed: { header: [], questions: [{ text: 'Who owns the SPV?', answer: 'Confidential' }, { text: 'How many lifts?', answer: 'Five' }] } }, 'engineer');
+    answerQuestion(p, q.id, q.questions[0]!.id, { omitFromReport: true }, 'engineer');
+    const section = resolveReportBlock(p, { id: 'q', origin: 'derived', source: { kind: 'questionnaire' } });
+    assert.deepEqual(section.table!.rows.map((r) => r.cells[1]), ['How many lifts?']);
+    assert.equal(q.questions.length, 2);
+    assert.equal(q.questions[0]!.answer, 'Confidential');
   });
 });

@@ -115,6 +115,9 @@ export const workspaceApi = {
   patchObservation: (projectId: string, findingId: string, body: ObservationPatch) =>
     request<{ project: DdProject }>(`/projects/${projectId}/observations/${findingId}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
+  setPhotoInReport: (projectId: string, evidenceId: string, inReport: boolean) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/in-report`, { method: 'PUT', body: JSON.stringify({ inReport }) }),
+
   /** File a site-log photograph onto the document register, so it can be cited. */
   fileSitePhoto: (projectId: string, entryId: string, index: number) =>
     request<{ project: DdProject; evidenceId: string }>(`/projects/${projectId}/site-log/${entryId}/photos/${index}/file`, { method: 'POST' }),
@@ -134,7 +137,7 @@ export const workspaceApi = {
     projectId: string,
     questionnaireId: string,
     questionId: string,
-    body: { answer?: string | null; source?: AnswerSource | null; proof?: AnswerProof[]; note?: string | null; text?: string; section?: string | null },
+    body: { answer?: string | null; source?: AnswerSource | null; proof?: AnswerProof[]; note?: string | null; text?: string; section?: string | null; omitFromReport?: boolean },
   ) => request<{ project: DdProject }>(`/projects/${projectId}/questionnaires/${questionnaireId}/questions/${questionId}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   addQuestion: (projectId: string, questionnaireId: string, body: { text: string; section?: string }) =>

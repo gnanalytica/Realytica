@@ -657,6 +657,8 @@ export interface EvidenceRecord {
    * documents are read: the newer reader may place what the older could not.
    */
   modelReadVersion?: number;
+  /** A photograph chosen to print in the report on its own, beside the ones the observations cite. */
+  inReport?: boolean;
   createdAt: string;
   updatedAt: string;
   /**
@@ -943,7 +945,9 @@ export type ReportBoundSourceKind =
   | 'changes_since_previous'
   | 'observations'
   | 'questionnaire'
-  | 'requirement_sheet';
+  | 'requirement_sheet'
+  | 'risk_summary'
+  | 'site_photographs';
 
 /**
  * What a bound block asks the registers for.
@@ -1024,6 +1028,8 @@ export interface ReportBlock {
  */
 export interface ReportTable {
   columns: string[];
+  /** The last column is a count: draw it as a bar as well as a figure. */
+  bars?: boolean;
   rows: Array<{
     cells: string[];
     recordId?: string;

@@ -268,6 +268,7 @@ function QuestionRow({
           <span className="block text-[13px] text-ink">
             <span className="mr-1.5 font-mono text-micro tabular-nums text-ink-muted">{number}</span>
             {question.text}
+            {question.omitFromReport ? <span className="ml-1.5 text-micro text-ink-muted">(not in the report)</span> : null}
           </span>
           {question.answer ? <span className={cn('mt-0.5 block text-[13px]', question.suggested ? 'text-brand' : 'font-medium text-ink')}>{question.answer}</span> : <span className="mt-0.5 block text-micro text-ink-muted">Not answered</span>}
           {question.answer && (question.source || question.proof.length) ? (
@@ -379,6 +380,16 @@ function QuestionRow({
                   Clear answer
                 </Button>
               ) : null}
+              <label className="inline-flex items-center gap-1.5 text-micro text-ink-secondary" title="Keep this question on the sheet but do not print it in the report">
+                <input
+                  type="checkbox"
+                  checked={!question.omitFromReport}
+                  disabled={busy}
+                  onChange={(e) => void send({ omitFromReport: !e.target.checked }, e.target.checked ? 'Back in the report.' : 'Left out of the report.')}
+                  className="h-4 w-4 rounded border-[var(--axis)] text-brand focus:ring-brand coarse:h-5 coarse:w-5"
+                />
+                In report
+              </label>
             </div>
             <div className="flex items-center gap-1.5">
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>

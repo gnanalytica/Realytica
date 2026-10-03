@@ -62,13 +62,13 @@ function FiledThumb({ project, evidenceId, onOpen }: { project: DdProject; evide
   );
 }
 
-function CandidateThumb({ project, photo }: { project: DdProject; photo: PhotoCandidate }) {
+export function CandidateThumb({ project, photo, size = 'md' }: { project: DdProject; photo: PhotoCandidate; size?: 'md' | 'lg' }) {
   const row = photo.evidenceId ? project.evidence.find((e) => e.id === photo.evidenceId) : undefined;
   const shot = row?.attachments.find((a) => a.mimeType.startsWith('image/'));
   const path = row && shot ? evidenceFileUrl(project.id, row.id, shot.id, { inline: true }) : photo.siteLog ? workspaceApi.sitePhotoUrl(project.id, photo.siteLog.entryId, photo.siteLog.index) : undefined;
   const { url } = useAuthedUrl(path);
   return (
-    <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-lg bg-sunken ring-1 ring-inset ring-[var(--ring)]">
+    <span className={cn('grid shrink-0 place-items-center overflow-hidden rounded-lg bg-sunken ring-1 ring-inset ring-[var(--ring)]', size === 'lg' ? 'aspect-[4/3] w-full' : 'size-16')}>
       {url ? <img src={url} alt={photo.title} className="size-full object-cover" /> : <Camera size={16} className="text-ink-muted" aria-hidden />}
     </span>
   );
@@ -432,6 +432,16 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
                           ) : null}
                         </div>
                         <Badge tone={RISK_TONE[f.severity]}>{RISK_LABEL[f.severity]}</Badge>
+                        <label className={cn('inline-flex shrink-0 items-center gap-1.5 text-micro', f.includeInReport === false ? 'text-ink-muted' : 'text-ink-secondary')} title="Print this observation in the report">
+                          <input
+                            type="checkbox"
+                            checked={f.includeInReport !== false}
+                            disabled={!mayEdit || busy}
+                            onChange={(e) => void run(() => workspaceApi.patchObservation(project.id, f.id, { includeInReport: e.target.checked }), e.target.checked ? 'Back in the report.' : 'Left out of the report.')}
+                            className="h-4 w-4 rounded border-[var(--axis)] text-brand focus:ring-brand coarse:h-5 coarse:w-5"
+                          />
+                          In report
+                        </label>
                         {mayEdit ? (
                           <Button size="sm" variant="ghost" icon={<Pencil size={13} />} aria-label={`Edit observation ${numberOf.get(f.id)}`} onClick={() => (setAdding(null), setEditing(f.id))}>
                             Edit

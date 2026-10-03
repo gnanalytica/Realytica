@@ -72,6 +72,7 @@ import {
   addQuestion,
   addQuestionnaire,
   fileSiteLogPhoto,
+  setPhotoInReport,
   patchObservation,
   SCOPE_KEYS,
   answerQuestion,
@@ -885,6 +886,7 @@ const answerSchema = z.object({
   note: z.string().max(1000).nullable().optional(),
   text: z.string().trim().min(1).max(600).optional(),
   section: z.string().max(120).nullable().optional(),
+  omitFromReport: z.boolean().optional(),
 });
 
 type QParams = Params & { questionnaireId: string };
@@ -1002,6 +1004,7 @@ const observationPatchSchema = z.object({
   standardRef: z.string().max(240).nullable().optional(),
   discipline: disciplineSchema.optional(),
   evidenceIds: z.array(z.string()).max(40).optional(),
+  includeInReport: z.boolean().optional(),
 });
 
 projectWorkspaceRouter.post<Params>('/observations', async (req, res) => {
@@ -1055,6 +1058,26 @@ projectWorkspaceRouter.post<Params & { entryId: string; index: string }>('/site-
     res.status(201).json({ project, evidenceId: row.id });
   } catch (err) {
     failed(res, err, 'Could not file that photograph');
+  }
+});
+
+/** Choose whether a filed photograph prints in the report on its own. */
+projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidenceId/in-report', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  const parsed = z.object({ inReport: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Say whether the photograph is in the report.' });
+    return;
+  }
+  try {
+    setPhotoInReport(project, req.params.evidenceId, parsed.data.inReport, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not change that photograph');
   }
 });
 
