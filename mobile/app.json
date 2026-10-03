@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Realytica Site",
-    "slug": "realytica-site",
+    "slug": "realytica",
     "version": "1.0.0",
     "owner": "gnanalytica",
     "scheme": "realytica",
@@ -95,7 +95,10 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {}
+      "router": {},
+      "eas": {
+        "projectId": "a1835a69-f12f-41fd-a0b3-ce3d38fc902b"
+      }
     }
   }
 }
