@@ -131,7 +131,7 @@ export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
   questionnaire: 'The questions put to the building and their answers, each with where it came from. A suggestion nobody confirmed is not printed as an answer.',
   requirement_sheet: 'Every document the checks expect, by discipline: in hand, asked for, or not received.',
   risk_summary: 'How many observations fall in each risk category, counted from the table below it.',
-  site_photographs: 'The photographs chosen for the report that no observation already shows, each with its caption, where and when it was taken, and what it shows.',
+  site_photographs: 'The photographs chosen for the report that no observation already shows, each with its caption, where and when it was taken, and the description a person accepted or wrote.',
 };
 
 /* ==================================================================== */
@@ -282,13 +282,14 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
       }
       const when = (iso?: string) => (iso ? iso.slice(0, 10) : '');
       return {
-        lines: rows.map((p, i) => `${i + 1}. ${[p.area, p.caption ?? p.title].filter(Boolean).join(': ')}${p.seen ? ` — ${p.seen}` : ''}`),
+        // Only a description a person accepted or wrote is printed. A model's reading nobody has looked at stays on the photograph.
+        lines: rows.map((p, i) => `${i + 1}. ${[p.area, p.caption ?? p.title].filter(Boolean).join(': ')}${p.shows ? ` — ${p.shows}` : ''}`),
         recordIds: rows.map((p) => p.evidenceId!),
         table: {
           columns: ['No.', 'Area', 'Caption', 'What the photograph shows', 'Taken'],
-          rows: rows.map((p, i) => ({ cells: [String(i + 1), p.area ?? '', p.caption ?? p.title, p.seen ?? '', when(p.takenAt)], recordId: p.evidenceId, evidenceIds: [p.evidenceId!] })),
+          rows: rows.map((p, i) => ({ cells: [String(i + 1), p.area ?? '', p.caption ?? p.title, p.shows ?? '', when(p.takenAt)], recordId: p.evidenceId, evidenceIds: [p.evidenceId!] })),
         },
-        note: rows.some((p) => p.seen) ? 'What a photograph shows is a description of what is visible in it, not a diagnosis.' : undefined,
+        note: rows.some((p) => p.shows) ? 'What a photograph shows is a description of what is visible in it, not a diagnosis.' : undefined,
       };
     }
 

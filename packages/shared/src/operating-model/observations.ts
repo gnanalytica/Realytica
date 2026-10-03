@@ -161,3 +161,22 @@ export function setPhotoInReport(project: DdProject, evidenceId: string, inRepor
   project.audit.push({ id: newId('aud'), at, actor, action: inReport ? 'photo_in_report' : 'photo_out_of_report', entityType: 'evidence', entityId: row.id, newValue: row.title });
   return row;
 }
+
+/**
+ * Say what a photograph shows: accept a model's description, correct it, or
+ * write one. `null` takes the description away again. Until this is called
+ * the model's words are a suggestion on the photograph and print nowhere.
+ */
+export function setPhotoDescription(project: DdProject, evidenceId: string, text: string | null, actor: string): EvidenceRecord {
+  const row = project.evidence.find((e) => e.id === evidenceId);
+  const shot = row?.attachments.find((a) => a.mimeType.startsWith('image/'));
+  if (!row || !shot) throw new Error('No photograph by that id.');
+  const at = nowIso();
+  const words = text?.trim() ?? '';
+  if (!words) delete shot.shows;
+  else shot.shows = { text: words.slice(0, 1200), by: actor, at, fromModel: words === (shot.observation?.description ?? '').trim() };
+  row.updatedAt = at;
+  project.updatedAt = at;
+  project.audit.push({ id: newId('aud'), at, actor, action: words ? 'photo_described' : 'photo_description_cleared', entityType: 'evidence', entityId: row.id, newValue: words || undefined });
+  return row;
+}

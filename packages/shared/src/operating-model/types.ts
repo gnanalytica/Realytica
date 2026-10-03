@@ -700,6 +700,14 @@ export interface EvidenceAttachment {
    * cannot carry.
    */
   observation?: PhotoObservation;
+  /**
+   * What the photograph shows, in words a person stands behind.
+   *
+   * A model's reading sits in `observation` as a suggestion. It becomes this
+   * only when a person accepts it or writes their own, the same way a value
+   * read off a document waits to be accepted before anything relies on it.
+   */
+  shows?: { text: string; by: string; at: string; fromModel: boolean };
 }
 
 export interface FindingRecord {

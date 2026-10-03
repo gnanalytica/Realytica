@@ -161,8 +161,10 @@ export interface PhotoCandidate {
   point?: { lat: number; lng: number };
   /** Where it was taken, when the capture or the caption says. */
   area?: string;
-  /** What a model saw in it, in its own words. Never a diagnosis. */
+  /** What a model saw in it, in its own words. A suggestion: never a diagnosis, and never printed as it stands. */
   seen?: string;
+  /** What it shows, as a person accepted or wrote it. This is what the report prints. */
+  shows?: string;
   /** A model has looked at it. */
   described: boolean;
   /** Findings a model thought the photograph might support, for a person to take or leave. */
@@ -208,6 +210,7 @@ export function projectPhotos(project: DdProject, department: DepartmentKey = 'c
       point: shot.capture?.lat != null && shot.capture?.lng != null ? { lat: shot.capture.lat, lng: shot.capture.lng } : undefined,
       area: shot.capture?.zone,
       seen: seen?.description || undefined,
+      shows: shot.shows?.text,
       described: Boolean(seen),
       suggestions: (seen?.suggestedFindings ?? []).map((s) => ({ title: s.title, description: [s.observed, s.whyItMayMatter].filter(Boolean).join(' '), severity: s.suggestedSeverity })),
       usedIn: project.findings.filter((f) => f.evidenceIds.includes(row.id) && numberOf.has(f.id)).map((f) => numberOf.get(f.id)!),

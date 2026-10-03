@@ -33,6 +33,7 @@ import {
   readReportBlock,
   reportTemplate,
   resolveReportBlock,
+  setPhotoDescription,
   setPhotoInReport,
   suggestAnswers,
   unusedPhotos,
@@ -266,8 +267,19 @@ describe('choosing what the report prints', () => {
     const all = projectPhotos(p);
     assert.deepEqual(all.find((x) => x.evidenceId === cited.id)!.usedIn, [1]);
     assert.equal(all.find((x) => x.evidenceId === ignored.id)!.inReport, false);
+    // A model's reading is a suggestion: it prints nowhere until a person accepts or corrects it.
+    const before = resolveReportBlock(p, { id: 's', origin: 'derived', source: { kind: 'site_photographs' } });
+    assert.deepEqual(before.table!.rows.map((r) => r.cells), [['1', 'Lobby', 'Main lobby, facing the lifts', '', '2026-10-02']]);
+    assert.equal(all.find((x) => x.evidenceId === chosen.id)!.seen, 'A double-height lobby with stone cladding.');
+    assert.equal(all.find((x) => x.evidenceId === chosen.id)!.shows, undefined);
+    setPhotoDescription(p, chosen.id, 'A double-height lobby with stone cladding.', 'engineer');
+    assert.equal(chosen.attachments[0]!.shows!.fromModel, true, 'accepted as the model wrote it');
+    setPhotoDescription(p, chosen.id, 'Double-height lobby; stone cladding intact.', 'engineer');
+    assert.equal(chosen.attachments[0]!.shows!.fromModel, false, 'a person’s own words once edited');
     const section = resolveReportBlock(p, { id: 's', origin: 'derived', source: { kind: 'site_photographs' } });
-    assert.deepEqual(section.table!.rows.map((r) => r.cells), [['1', 'Lobby', 'Main lobby, facing the lifts', 'A double-height lobby with stone cladding.', '2026-10-02']]);
+    assert.deepEqual(section.table!.rows.map((r) => r.cells), [['1', 'Lobby', 'Main lobby, facing the lifts', 'Double-height lobby; stone cladding intact.', '2026-10-02']]);
+    setPhotoDescription(p, cited.id, null, 'engineer');
+    assert.equal(cited.attachments[0]!.shows, undefined);
     assert.deepEqual(section.table!.rows[0]!.evidenceIds, [chosen.id], 'the one an observation shows is not printed twice');
     setPhotoInReport(p, chosen.id, false, 'engineer');
     assert.equal(resolveReportBlock(p, { id: 's', origin: 'derived', source: { kind: 'site_photographs' } }).table, undefined);

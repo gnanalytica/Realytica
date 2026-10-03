@@ -72,6 +72,7 @@ import {
   addQuestion,
   addQuestionnaire,
   fileSiteLogPhoto,
+  setPhotoDescription,
   setPhotoInReport,
   patchObservation,
   SCOPE_KEYS,
@@ -1078,6 +1079,26 @@ projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidence
     res.json({ project });
   } catch (err) {
     failed(res, err, 'Could not change that photograph');
+  }
+});
+
+/** Accept, correct or write what a photograph shows; `null` clears it. */
+projectWorkspaceRouter.put<Params & { evidenceId: string }>('/evidence/:evidenceId/description', async (req, res) => {
+  const project = load(req, res);
+  if (!project) return;
+  if (!allowed(req, res, project, 'construction', 'edit')) return;
+  const parsed = z.object({ text: z.string().max(1200).nullable() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Send what the photograph shows, or null to clear it.' });
+    return;
+  }
+  try {
+    setPhotoDescription(project, req.params.evidenceId, parsed.data.text, actorOf(principalOf(req)));
+    touch(project);
+    await store.save();
+    res.json({ project });
+  } catch (err) {
+    failed(res, err, 'Could not save that description');
   }
 });
 

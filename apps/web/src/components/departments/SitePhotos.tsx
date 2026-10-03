@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Camera, MapPin, Sparkles } from 'lucide-react';
+import { Camera, Check, MapPin, Pencil, Sparkles } from 'lucide-react';
 import { departmentRole, projectPhotos, roleCanEdit, type DdProject, type PhotoCandidate } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
-import { Badge, Button, Card, CardBody, CardHeader, Input, cn, useToast } from '../ui/kit';
+import { Badge, Button, Card, CardBody, CardHeader, Input, Textarea, cn, useToast } from '../ui/kit';
 import { CandidateThumb } from './ObservationsCard';
 
 type Filter = 'all' | 'in' | 'out';
@@ -13,9 +13,10 @@ type Filter = 'all' | 'in' | 'out';
  * One photograph: the picture, what a person says about it, what a model saw
  * in it, and whether it goes in the report.
  *
- * The caption and the area are the person's; the description is the model's
- * and says only what is visible. Both travel into the report with the
- * photograph. A photograph an observation cites is in the report with that
+ * The caption and the area are the person's. A model's description arrives
+ * as a suggestion, the way a value read off a document does: it is accepted
+ * or edited here, and only then is it the photograph's description and
+ * printed in the report. A photograph an observation cites is in the report with that
  * observation, so its switch is already on and says why.
  */
 function PhotoCard({
@@ -35,6 +36,8 @@ function PhotoCard({
   const [caption, setCaption] = useState(photo.caption ?? '');
   const [area, setArea] = useState(photo.area ?? '');
   const [busy, setBusy] = useState<'save' | 'ai' | 'report' | null>(null);
+  // The description being typed: null when nobody is typing.
+  const [writing, setWriting] = useState<string | null>(null);
   const cited = photo.usedIn.length > 0;
   const on = cited || photo.inReport;
 
@@ -63,6 +66,13 @@ function PhotoCard({
     }
   }
 
+  const describe = (text: string | null) =>
+    void act('save', async (ids) => {
+      const res = await workspaceApi.setPhotoDescription(project.id, ids.evidenceId, text);
+      onChanged(res.project);
+      setWriting(null);
+    });
+
   const dirty = caption.trim() !== (photo.caption ?? '') || area.trim() !== (photo.area ?? '');
   const save = () => {
     if (!dirty) return;
@@ -85,29 +95,76 @@ function PhotoCard({
           </span>
         ) : null}
       </p>
-      {photo.seen ? (
-        <p className="flex items-start gap-1.5 text-[12px] text-ink-secondary">
-          <Sparkles size={12} className="mt-0.5 shrink-0 text-brand" aria-hidden />
-          {photo.seen}
-        </p>
+      {writing !== null ? (
+        <div className="space-y-1.5">
+          <Textarea value={writing} onChange={(e) => setWriting(e.target.value)} rows={3} placeholder="What the photograph shows" aria-label={`What ${photo.title} shows`} />
+          <div className="flex items-center justify-end gap-1.5">
+            <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setWriting(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" loading={busy === 'save'} disabled={!writing.trim() || busy !== null} onClick={() => describe(writing)}>
+              Save
+            </Button>
+          </div>
+        </div>
+      ) : photo.shows ? (
+        // Accepted or written by a person: this is what the report prints.
+        <div className="space-y-1">
+          <p className="text-[12px] text-ink">{photo.shows}</p>
+          {mayEdit ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button size="sm" variant="ghost" icon={<Pencil size={13} />} disabled={busy !== null} onClick={() => setWriting(photo.shows ?? '')}>
+                Edit
+              </Button>
+              <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => describe(null)}>
+                Remove
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : photo.seen ? (
+        // A model's reading, waiting. Nothing prints until a person accepts or corrects it.
+        <div className="space-y-1.5 rounded-lg bg-brand-soft/50 p-2 ring-1 ring-inset ring-brand/20">
+          <p className="flex items-start gap-1.5 text-[12px] text-ink">
+            <Sparkles size={12} className="mt-0.5 shrink-0 text-brand" aria-hidden />
+            <span>
+              <span className="font-medium">AI suggests:</span> {photo.seen}
+            </span>
+          </p>
+          {mayEdit ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button size="sm" variant="primary" icon={<Check size={13} />} loading={busy === 'save'} disabled={busy !== null} onClick={() => describe(photo.seen!)}>
+                Accept
+              </Button>
+              <Button size="sm" variant="secondary" icon={<Pencil size={13} />} disabled={busy !== null} onClick={() => setWriting(photo.seen ?? '')}>
+                Edit
+              </Button>
+            </div>
+          ) : null}
+        </div>
       ) : mayEdit ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          icon={<Sparkles size={13} />}
-          loading={busy === 'ai'}
-          disabled={busy !== null}
-          onClick={() =>
-            void act('ai', async (ids) => {
-              const res = await api.readPhotographs(project.id, ids);
-              const failed = res.results?.find((r) => r.error)?.error;
-              if (failed) throw new Error(failed);
-              return res.read ? 'Described.' : (res.note ?? 'Nothing was read.');
-            })
-          }
-        >
-          {photo.described ? 'Describe again' : 'Describe with AI'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<Sparkles size={13} />}
+            loading={busy === 'ai'}
+            disabled={busy !== null}
+            onClick={() =>
+              void act('ai', async (ids) => {
+                const res = await api.readPhotographs(project.id, ids);
+                const failed = res.results?.find((r) => r.error)?.error;
+                if (failed) throw new Error(failed);
+                return res.read ? 'A description is suggested. Accept or edit it.' : (res.note ?? 'Nothing was read.');
+              })
+            }
+          >
+            Describe with AI
+          </Button>
+          <Button size="sm" variant="ghost" icon={<Pencil size={13} />} disabled={busy !== null} onClick={() => setWriting('')}>
+            Write it
+          </Button>
+        </div>
       ) : null}
       <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-1">
         <label className={cn('inline-flex items-center gap-1.5 text-[12px]', on ? 'font-medium text-ink' : 'text-ink-secondary')}>
@@ -146,6 +203,7 @@ export function SitePhotos({ project, refresh, onChanged }: { project: DdProject
   const inReport = photos.filter((p) => p.inReport || p.usedIn.length > 0);
   const undescribed = photos.filter((p) => p.evidenceId && !p.described);
   const choosable = photos.filter((p) => p.evidenceId && p.usedIn.length === 0);
+  const waiting = photos.filter((p) => p.seen && !p.shows).length;
   const shown = photos.filter((p) => (filter === 'all' ? true : filter === 'in' ? inReport.includes(p) : !inReport.includes(p)));
   if (!photos.length) return null;
 
@@ -189,7 +247,7 @@ export function SitePhotos({ project, refresh, onChanged }: { project: DdProject
       <CardHeader
         icon={<Camera size={15} />}
         title="Photographs"
-        subtitle={`${photos.length} on the file · ${inReport.length} in the report · ${photos.filter((p) => p.described).length} described`}
+        subtitle={`${photos.length} on the file · ${inReport.length} in the report · ${photos.filter((p) => p.shows).length} described${waiting ? ` · ${waiting} suggestion${waiting === 1 ? '' : 's'} to accept` : ''}`}
         action={
           mayEdit ? (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -236,7 +294,7 @@ export function SitePhotos({ project, refresh, onChanged }: { project: DdProject
             <PhotoCard key={`${photo.key}:${photo.caption ?? ''}:${photo.area ?? ''}`} project={project} photo={photo} mayEdit={mayEdit} refresh={refresh} onChanged={onChanged} />
           ))}
         </ul>
-        <p className="text-micro text-ink-muted">A caption and an area are yours to write. A description is what a model sees in the picture and nothing more; it never says what caused it or how serious it is.</p>
+        <p className="text-micro text-ink-muted">A caption and an area are yours to write. A description from AI is a suggestion of what is visible, never a cause or a severity; it prints in the report only after you accept or edit it.</p>
       </CardBody>
     </Card>
   );

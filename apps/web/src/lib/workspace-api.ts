@@ -115,6 +115,10 @@ export const workspaceApi = {
   patchObservation: (projectId: string, findingId: string, body: ObservationPatch) =>
     request<{ project: DdProject }>(`/projects/${projectId}/observations/${findingId}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
+  /** Accept, correct or write what a photograph shows; `null` clears it. */
+  setPhotoDescription: (projectId: string, evidenceId: string, text: string | null) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/description`, { method: 'PUT', body: JSON.stringify({ text }) }),
+
   setPhotoInReport: (projectId: string, evidenceId: string, inReport: boolean) =>
     request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/in-report`, { method: 'PUT', body: JSON.stringify({ inReport }) }),
 
