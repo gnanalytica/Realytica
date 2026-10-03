@@ -299,7 +299,7 @@ export default function NewProject() {
               setDepartments(next);
             }}
           />
-          {departmentsFrom ? <p className="mt-2 text-micro text-ink-muted">Starting from the departments {departmentsFrom} uses. Change them here, or later from Overview.</p> : null}
+          {departmentsFrom ? <p className="mt-2 text-micro text-ink-muted">Same as {departmentsFrom}.</p> : null}
         </CardBody>
       </Card>
 

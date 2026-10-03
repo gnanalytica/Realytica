@@ -85,7 +85,7 @@ function PhotoCard({
     <li className={cn('flex flex-col gap-2 rounded-xl p-2.5 ring-1 ring-inset transition-colors duration-quick ease-state', on ? 'bg-brand-soft/40 ring-brand/30' : 'bg-surface ring-[var(--ring)]')}>
       <CandidateThumb project={project} photo={photo} size="lg" />
       <Input value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={save} disabled={!mayEdit || busy !== null} placeholder="Caption" aria-label={`Caption for ${photo.title}`} />
-      <Input value={area} onChange={(e) => setArea(e.target.value)} onBlur={save} disabled={!mayEdit || busy !== null} placeholder="Area: pump room, terrace…" aria-label={`Area for ${photo.title}`} />
+      <Input value={area} onChange={(e) => setArea(e.target.value)} onBlur={save} disabled={!mayEdit || busy !== null} placeholder="Area" aria-label={`Area for ${photo.title}`} />
       <p className="flex flex-wrap items-center gap-x-2 text-micro text-ink-muted">
         {photo.takenAt ? new Date(photo.takenAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date not recorded'}
         {photo.point ? (
@@ -97,7 +97,7 @@ function PhotoCard({
       </p>
       {writing !== null ? (
         <div className="space-y-1.5">
-          <Textarea value={writing} onChange={(e) => setWriting(e.target.value)} rows={3} placeholder="What the photograph shows" aria-label={`What ${photo.title} shows`} />
+          <Textarea value={writing} onChange={(e) => setWriting(e.target.value)} rows={3} placeholder="What it shows" aria-label={`What ${photo.title} shows`} />
           <div className="flex items-center justify-end gap-1.5">
             <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setWriting(null)}>
               Cancel
@@ -155,14 +155,14 @@ function PhotoCard({
                 const res = await api.readPhotographs(project.id, ids);
                 const failed = res.results?.find((r) => r.error)?.error;
                 if (failed) throw new Error(failed);
-                return res.read ? 'A description is suggested. Accept or edit it.' : (res.note ?? 'Nothing was read.');
+                return res.read ? 'Suggestion ready.' : (res.note ?? 'Nothing was read.');
               })
             }
           >
             Describe with AI
           </Button>
           <Button size="sm" variant="ghost" icon={<Pencil size={13} />} disabled={busy !== null} onClick={() => setWriting('')}>
-            Write it
+            Write
           </Button>
         </div>
       ) : null}
@@ -214,7 +214,7 @@ export function SitePhotos({ project, refresh, onChanged }: { project: DdProject
       await refresh();
       toast(res.read ? `${res.read} photograph${res.read === 1 ? '' : 's'} described.` : (res.note ?? 'Nothing was read.'), res.read ? 'good' : 'warning');
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'The photographs could not be described', 'critical');
+      toast(e instanceof Error ? e.message : 'Could not describe the photographs', 'critical');
     } finally {
       setBusy(false);
     }
@@ -247,23 +247,23 @@ export function SitePhotos({ project, refresh, onChanged }: { project: DdProject
       <CardHeader
         icon={<Camera size={15} />}
         title="Photographs"
-        subtitle={`${photos.length} on the file · ${inReport.length} in the report · ${photos.filter((p) => p.shows).length} described${waiting ? ` · ${waiting} suggestion${waiting === 1 ? '' : 's'} to accept` : ''}`}
+        subtitle={`${photos.length} · ${inReport.length} in report${waiting ? ` · ${waiting} to review` : ''}`}
         action={
           mayEdit ? (
             <div className="flex flex-wrap items-center gap-1.5">
               {undescribed.length ? (
                 <Button size="sm" variant="secondary" icon={<Sparkles size={13} />} loading={busy} onClick={() => void describeAll()}>
-                  Describe {undescribed.length > 12 ? 'the next 12' : `all ${undescribed.length}`} with AI
+                  Describe {undescribed.length > 12 ? 'next 12' : `all ${undescribed.length}`}
                 </Button>
               ) : null}
               {choosable.some((p) => !p.inReport) ? (
                 <Button size="sm" variant="ghost" disabled={busy} onClick={() => void setAll(true)}>
-                  Add all to the report
+                  Add all
                 </Button>
               ) : null}
               {choosable.some((p) => p.inReport) ? (
                 <Button size="sm" variant="ghost" disabled={busy} onClick={() => void setAll(false)}>
-                  Clear the selection
+                  Clear
                 </Button>
               ) : null}
             </div>
@@ -294,7 +294,6 @@ export function SitePhotos({ project, refresh, onChanged }: { project: DdProject
             <PhotoCard key={`${photo.key}:${photo.caption ?? ''}:${photo.area ?? ''}`} project={project} photo={photo} mayEdit={mayEdit} refresh={refresh} onChanged={onChanged} />
           ))}
         </ul>
-        <p className="text-micro text-ink-muted">A caption and an area are yours to write. A description from AI is a suggestion of what is visible, never a cause or a severity; it prints in the report only after you accept or edit it.</p>
       </CardBody>
     </Card>
   );

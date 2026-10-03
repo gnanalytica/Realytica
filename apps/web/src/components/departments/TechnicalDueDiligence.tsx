@@ -161,7 +161,7 @@ export function TechnicalDueDiligence({
           <CardHeader
             icon={<MapPin size={15} />}
             title="Site inspection"
-            subtitle="What was logged and photographed on site, with where and when"
+            subtitle="Logged and photographed on site"
             action={
               <div className="flex flex-wrap items-center gap-1.5">
                 <Button size="sm" variant="ghost" icon={<Smartphone size={13} />} onClick={nav.pairPhone}>
@@ -176,9 +176,9 @@ export function TechnicalDueDiligence({
           <CardBody className="space-y-3">
             <div className="grid grid-cols-2 gap-3 [@container(min-width:44rem)]:grid-cols-4">
               <StatTile label="Site log entries" value={log.length} hint={log[0] ? `Last on ${log[0].date}` : 'None yet'} />
-              <StatTile label="Visits recorded" value={project.siteVisits.length} hint="With their findings" />
-              <StatTile label="Photographs" value={sitePhotos} hint="Each with its time and place" icon={<Camera size={15} />} />
-              <StatTile label="Not used yet" value={photos.length} hint={photos.length ? 'Waiting under Observations' : 'Every one is cited'} tone={photos.length ? 'warning' : 'neutral'} />
+              <StatTile label="Visits recorded" value={project.siteVisits.length} />
+              <StatTile label="Photographs" value={sitePhotos} icon={<Camera size={15} />} />
+              <StatTile label="Not used yet" value={photos.length} hint={photos.length ? 'See Observations' : 'All cited'} tone={photos.length ? 'warning' : 'neutral'} />
             </div>
             {log.length ? (
               <ul className="divide-y divide-hairline rounded-xl ring-1 ring-inset ring-[var(--ring)]">
@@ -197,11 +197,11 @@ export function TechnicalDueDiligence({
                 ))}
               </ul>
             ) : (
-              <p className="text-[13px] text-ink-secondary">Nothing from site yet. Pair a phone and the Realytica Site app logs the day and its photographs, with or without a signal.</p>
+              <p className="text-[13px] text-ink-secondary">Nothing from site yet. Pair a phone to start.</p>
             )}
             {photos.length ? (
               <Button size="sm" variant="primary" onClick={() => go('observations')}>
-                Use the {photos.length} photograph{photos.length === 1 ? '' : 's'} in observations
+                Use {photos.length} in observations
               </Button>
             ) : null}
           </CardBody>
@@ -224,7 +224,7 @@ export function TechnicalDueDiligence({
             <CardHeader
               icon={<FileOutput size={15} />}
               title="Hand-over"
-              subtitle="The report is built from the steps before this one, and updates as they do. The three tables also export on their own."
+              subtitle="Built from the steps before it"
               action={
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Button size="sm" variant="ghost" onClick={nav.openReports}>
@@ -241,7 +241,7 @@ export function TechnicalDueDiligence({
                 <li className="flex flex-wrap items-center gap-3 py-2">
                   <span className="min-w-0 flex-1 text-[13px] text-ink">
                     Observations and mitigations
-                    <span className="block text-micro text-ink-muted">{rows.length ? `${rows.length} observation${rows.length === 1 ? '' : 's'}, with risk, mitigation and reference` : 'None recorded yet'}</span>
+                    <span className="block text-micro text-ink-muted">{rows.length ? `${rows.length} observation${rows.length === 1 ? '' : 's'}` : 'None recorded yet'}</span>
                   </span>
                   <Button size="sm" variant="secondary" icon={<Download size={13} />} disabled={!rows.length} onClick={() => download(`${project.reference}-observations.csv`, observationsCsv(project, rows))}>
                     Export

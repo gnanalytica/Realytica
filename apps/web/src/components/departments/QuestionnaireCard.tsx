@@ -63,7 +63,7 @@ function ImportDialog({ project, open, onClose, onDone }: { project: DdProject; 
         : await workspaceApi.importQuestionnaire(project.id, { title: title.trim() || 'Questionnaire', text });
       const made = (res.project.questionnaires ?? []).find((q) => q.id === res.questionnaireId);
       onDone(res.project);
-      toast(made ? `${made.questions.length} questions imported, ${made.questions.filter((q) => q.answer).length} already answered in the sheet.` : 'Imported.', 'good');
+      toast(made ? `${made.questions.length} questions · ${made.questions.filter((q) => q.answer).length} answered` : 'Imported.', 'good');
       setFile(null);
       setTitle('');
       setText('');
@@ -93,7 +93,6 @@ function ImportDialog({ project, open, onClose, onDone }: { project: DdProject; 
       }
     >
       <div className="space-y-3">
-        <p className="text-[13px] text-ink-secondary">The questions are kept exactly as the client wrote them. Answers already in the sheet come in as the seller’s.</p>
         <button
           type="button"
           onClick={() => input.current?.click()}
@@ -107,7 +106,7 @@ function ImportDialog({ project, open, onClose, onDone }: { project: DdProject; 
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-medium text-ink">{file ? file.name : 'Choose a file'}</span>
-            <span className="block text-micro text-ink-muted">Word (.docx), a spreadsheet saved as .csv, or plain text</span>
+            <span className="block text-micro text-ink-muted">.docx, .csv or .txt</span>
           </span>
           {file ? (
             <span
@@ -144,12 +143,12 @@ function ImportDialog({ project, open, onClose, onDone }: { project: DdProject; 
         />
         <label className="block text-micro text-ink-secondary">
           Name
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Building questionnaire" className="mt-1" />
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Name" className="mt-1" />
         </label>
         {file ? null : (
           <label className="block text-micro text-ink-secondary">
-            Or paste the questions, one per line
-            <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={7} placeholder={'What is the column grid size?\nWhat type of slab is used?\nHow many lifts are there, and of what capacity?'} className="mt-1" />
+            Or paste, one question per line
+            <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={7} placeholder="What is the column grid size?" className="mt-1" />
           </label>
         )}
       </div>
@@ -349,7 +348,7 @@ function QuestionRow({
           ) : null}
           <div className="flex flex-wrap items-end gap-2">
             <label className="min-w-[12rem] flex-1 text-micro text-ink-secondary">
-              Proof: a document or a photograph on the file
+              Proof
               <Select value={attach} onChange={(e) => setAttach(e.target.value)} className="mt-1">
                 <option value="">{files.length ? 'Choose…' : 'Nothing filed yet'}</option>
                 {files.map((f) => (
@@ -380,7 +379,7 @@ function QuestionRow({
                   Clear answer
                 </Button>
               ) : null}
-              <label className="inline-flex items-center gap-1.5 text-micro text-ink-secondary" title="Keep this question on the sheet but do not print it in the report">
+              <label className="inline-flex items-center gap-1.5 text-micro text-ink-secondary">
                 <input
                   type="checkbox"
                   checked={!question.omitFromReport}
@@ -438,10 +437,10 @@ export function QuestionnaireCard({ project, onChanged, onOpenDocument }: { proj
   if (!questionnaire || !summary) {
     return (
       <Card>
-        <CardHeader icon={<ClipboardList size={15} />} title="Questionnaire" subtitle="The questions the client put to the building, each answered with what stands behind it" />
+        <CardHeader icon={<ClipboardList size={15} />} title="Questionnaire" subtitle="The client’s questions, answered with proof" />
         <CardBody>
           <div className="flex flex-wrap items-center gap-3">
-            <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">No questionnaire yet. Import the client’s own list — a Word file, a spreadsheet or pasted text — and work down it here or in the chat.</p>
+            <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">No questionnaire yet.</p>
             {mayEdit ? (
               <Button size="sm" variant="primary" icon={<Upload size={13} />} onClick={() => setImporting(true)}>
                 Import a questionnaire
@@ -507,9 +506,9 @@ export function QuestionnaireCard({ project, onChanged, onOpenDocument }: { proj
   async function copy() {
     try {
       await navigator.clipboard.writeText(questionnaireText(project, questionnaire!));
-      toast('The answered sheet is on the clipboard.', 'good');
+      toast('Copied.', 'good');
     } catch {
-      toast('Could not reach the clipboard.', 'warning');
+      toast('Could not copy.', 'warning');
     }
   }
 
@@ -518,7 +517,7 @@ export function QuestionnaireCard({ project, onChanged, onOpenDocument }: { proj
       <CardHeader
         icon={<ClipboardList size={15} />}
         title={questionnaire.title}
-        subtitle={`Questionnaire · ${summary.answered} of ${summary.total} answered${summary.suggested ? ` · ${summary.suggested} suggested` : ''}${summary.sellerOnly ? ` · ${summary.sellerOnly} on the seller’s word alone` : ''}`}
+        subtitle={`${summary.answered}/${summary.total} answered · ${summary.proven} with proof${summary.suggested ? ` · ${summary.suggested} suggested` : ''}${summary.sellerOnly ? ` · ${summary.sellerOnly} seller’s word only` : ''}`}
         action={
           <div className="flex flex-wrap items-center gap-1.5">
             {all.length > 1 ? (
@@ -574,14 +573,10 @@ export function QuestionnaireCard({ project, onChanged, onOpenDocument }: { proj
               })}
               {summary.suggested && mayEdit ? (
                 <Button size="sm" variant="secondary" icon={<Sparkles size={13} />} loading={busy} onClick={() => void confirmAll()}>
-                  Confirm all {summary.suggested} suggested
+                  Confirm all {summary.suggested}
                 </Button>
               ) : null}
             </div>
-            <p className="text-micro text-ink-muted">
-              {summary.proven} answered with a document or photograph behind them.
-              {summary.unanswered ? ' Ask the chat to answer the rest from the documents on file; its answers arrive as suggestions.' : ''}
-            </p>
           </div>
         </div>
 
@@ -651,14 +646,14 @@ export function QuestionnaireCard({ project, onChanged, onOpenDocument }: { proj
           <div className="flex flex-wrap items-end gap-2">
             <label className="min-w-[14rem] flex-1 text-micro text-ink-secondary">
               Add a question
-              <Input value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void add()} placeholder="A question the list missed" className="mt-1" />
+              <Input value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void add()} placeholder="Question" className="mt-1" />
             </label>
             <Button size="sm" variant="secondary" icon={<Plus size={13} />} loading={busy} disabled={!adding.trim()} onClick={() => void add()}>
               Add
             </Button>
             {mayDecide ? (
               <Button size="sm" variant="ghost" icon={<Trash2 size={13} />} disabled={busy} onClick={() => void removeSheet()}>
-                Remove this questionnaire
+                Remove
               </Button>
             ) : null}
           </div>

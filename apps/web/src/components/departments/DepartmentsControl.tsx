@@ -48,8 +48,8 @@ export function DepartmentsControl({ project, onSaved }: { project: DdProject; o
         <DepartmentTiles value={draft} onChange={setDraft} disabled={busy} />
         <div className="flex flex-wrap items-center gap-3">
           <p className="min-w-0 flex-1 text-micro text-ink-muted">
-            Switching one off hides it and deletes nothing.
-            {supporting ? ` ${supporting} filed document${supporting === 1 ? ' belongs' : 's belong'} to a department that is off, and show as supporting documents.` : ''}
+            Switching one off hides it; nothing is deleted.
+            {supporting ? ` ${supporting} supporting document${supporting === 1 ? '' : 's'}.` : ''}
           </p>
           {changed ? (
             <>

@@ -118,7 +118,7 @@ function ObservationForm({
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-[10rem] flex-1 text-micro text-ink-secondary">
           Area
-          <Input list={listId} value={draft.area} onChange={(e) => set('area', e.target.value)} placeholder="Pump room, basement, terrace…" className="mt-1" />
+          <Input list={listId} value={draft.area} onChange={(e) => set('area', e.target.value)} placeholder="Pump room" className="mt-1" />
           <datalist id={listId}>
             {areas.map((a) => (
               <option key={a} value={a} />
@@ -147,16 +147,16 @@ function ObservationForm({
         </div>
       </div>
       <label className="block text-micro text-ink-secondary">
-        What was observed
-        <Textarea value={draft.description} onChange={(e) => set('description', e.target.value)} rows={2} placeholder="The pump room has one fire pump and no standby." className="mt-1" />
+        Observation
+        <Textarea value={draft.description} onChange={(e) => set('description', e.target.value)} rows={2} placeholder="What was seen" className="mt-1" />
       </label>
       <label className="block text-micro text-ink-secondary">
         Mitigation
-        <Textarea value={draft.mitigation} onChange={(e) => set('mitigation', e.target.value)} rows={2} placeholder="Install a standby pump." className="mt-1" />
+        <Textarea value={draft.mitigation} onChange={(e) => set('mitigation', e.target.value)} rows={2} placeholder="What to do" className="mt-1" />
       </label>
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-[12rem] flex-1 text-micro text-ink-secondary">
-          Reference (code or standard)
+          Reference
           <Input value={draft.standardRef} onChange={(e) => set('standardRef', e.target.value)} placeholder="NBC 2016 Part 4, cl. 4.16.1" className="mt-1" />
         </label>
         <label className="text-micro text-ink-secondary">
@@ -328,9 +328,9 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
   async function copy() {
     try {
       await navigator.clipboard.writeText(observationsText(rows));
-      toast('The table is on the clipboard.', 'good');
+      toast('Copied.', 'good');
     } catch {
-      toast('Could not reach the clipboard.', 'warning');
+      toast('Could not copy.', 'warning');
     }
   }
 
@@ -342,8 +342,8 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
           title="Observations and mitigations"
           subtitle={
             summary.total
-              ? `${summary.total} observation${summary.total === 1 ? '' : 's'} · ${material} critical or high${unmitigated ? ` · ${unmitigated} without a mitigation` : ''} · ${summary.withPhoto} with a photograph`
-              : 'What was seen, how much it matters and what to do about it'
+              ? `${summary.total} · ${material} critical or high${unmitigated ? ` · ${unmitigated} no mitigation` : ''} · ${summary.withPhoto} with photo`
+              : 'What was seen, the risk, and the fix'
           }
           action={
             <div className="flex flex-wrap items-center gap-1.5">
@@ -394,7 +394,7 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
           {adding ? <ObservationForm project={project} areas={summary.areas} initial={adding} busy={busy} saveLabel="Record" onSave={(d) => void create(d)} onCancel={() => setAdding(null)} /> : null}
 
           {!summary.total && !adding ? (
-            <p className="text-[13px] text-ink-secondary">Nothing recorded yet. Add what was seen on site, or start from a photograph below. Findings raised by a check or proposed by the chat appear here too.</p>
+            <p className="text-[13px] text-ink-secondary">Nothing recorded yet.</p>
           ) : null}
 
           {groups.map((group) => (
@@ -432,7 +432,7 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
                           ) : null}
                         </div>
                         <Badge tone={RISK_TONE[f.severity]}>{RISK_LABEL[f.severity]}</Badge>
-                        <label className={cn('inline-flex shrink-0 items-center gap-1.5 text-micro', f.includeInReport === false ? 'text-ink-muted' : 'text-ink-secondary')} title="Print this observation in the report">
+                        <label className={cn('inline-flex shrink-0 items-center gap-1.5 text-micro', f.includeInReport === false ? 'text-ink-muted' : 'text-ink-secondary')}>
                           <input
                             type="checkbox"
                             checked={f.includeInReport !== false}
@@ -459,7 +459,7 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
 
       {photos.length ? (
         <Card>
-          <CardHeader icon={<ImagePlus size={15} />} title="Photographs not used yet" subtitle={`${photos.length} on the file that no observation or answer cites. Start an observation from one, or attach it to one above.`} />
+          <CardHeader icon={<ImagePlus size={15} />} title="Unused photographs" subtitle={`${photos.length} not cited yet`} />
           <CardBody>
             <ul className="divide-y divide-hairline">
               {photos.slice(0, 30).map((photo) => (

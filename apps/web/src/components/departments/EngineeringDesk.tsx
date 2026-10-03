@@ -86,14 +86,14 @@ export function EngineeringDashboard({
         <StatTile
           label="Documents in hand"
           value={summary.documents.total ? `${summary.documents.received}/${summary.documents.total}` : '—'}
-          hint={summary.documents.total ? `${summary.documents.requested} asked for${summary.documents.overdue ? ` · ${summary.documents.overdue} overdue` : ''}` : 'Nothing expected yet'}
+          hint={summary.documents.total ? `${summary.documents.requested} asked for${summary.documents.overdue ? ` · ${summary.documents.overdue} overdue` : ''}` : 'None expected'}
           tone={summary.documents.overdue ? 'warning' : 'neutral'}
           icon={<FileStack size={15} />}
         />
         <StatTile
           label="Checks answered"
           value={summary.checks.total ? `${summary.checks.answered}/${summary.checks.total}` : '—'}
-          hint={summary.checks.issues ? `${summary.checks.issues} with an issue` : summary.checks.total ? 'None with an issue' : 'No checks on the file'}
+          hint={summary.checks.issues ? `${summary.checks.issues} with an issue` : summary.checks.total ? 'No issues' : 'None yet'}
           tone={summary.checks.issues ? 'warning' : 'neutral'}
           icon={<ClipboardCheck size={15} />}
         />
@@ -107,7 +107,7 @@ export function EngineeringDashboard({
         <StatTile
           label="Cost to remedy"
           value={cost.total ? money(cost.total, project.currency, { compact: true }) : '—'}
-          hint={cost.uncosted + cost.unbanded ? `${cost.uncosted + cost.unbanded} action${cost.uncosted + cost.unbanded === 1 ? '' : 's'} not yet costed` : cost.total ? 'Every action costed' : 'No remedies costed yet'}
+          hint={cost.uncosted + cost.unbanded ? `${cost.uncosted + cost.unbanded} action${cost.uncosted + cost.unbanded === 1 ? '' : 's'} not yet costed` : cost.total ? 'All costed' : 'None costed'}
           tone="neutral"
           icon={<IndianRupee size={15} />}
         />
@@ -120,7 +120,7 @@ export function EngineeringDashboard({
         <Card>
           <CardHeader
             title="Findings by discipline"
-            subtitle={summary.findings.open ? 'Open findings; the bar’s colours are their severity' : 'No open findings yet'}
+            subtitle={summary.findings.open ? 'Open, by severity' : undefined}
             action={
               summary.findings.open ? (
                 <Button size="sm" variant="ghost" onClick={onOpenFindings}>
@@ -159,13 +159,13 @@ export function EngineeringDashboard({
                 </ul>
               </>
             ) : (
-              <p className="text-[13px] text-ink-secondary">Findings appear here as checks are answered or raised from a document, a site visit or the chat.</p>
+              <p className="text-[13px] text-ink-secondary">No open findings.</p>
             )}
           </CardBody>
         </Card>
 
         <Card>
-          <CardHeader title="Checks by discipline" subtitle={withChecks.length ? 'Answered so far; the darker part has an issue' : 'No checks on the file yet'} />
+          <CardHeader title="Checks by discipline" subtitle={withChecks.length ? 'Answered, and with an issue' : undefined} />
           <CardBody>
             {withChecks.length ? (
               <ul className="space-y-2.5">
@@ -192,7 +192,7 @@ export function EngineeringDashboard({
                 })}
               </ul>
             ) : (
-              <p className="text-[13px] text-ink-secondary">Add the checks below and each discipline appears here with its progress.</p>
+              <p className="text-[13px] text-ink-secondary">No checks yet.</p>
             )}
           </CardBody>
         </Card>
@@ -201,8 +201,8 @@ export function EngineeringDashboard({
       {hasCost ? (
         <Card>
           <CardHeader
-            title="What the remedies cost, and when"
-            subtitle="Open actions by how soon they are needed"
+            title="Remedial cost"
+            subtitle="By when it is needed"
             action={
               <Button size="sm" variant="ghost" onClick={onOpenActions}>
                 Open the actions
@@ -300,7 +300,7 @@ export function RequirementSheetCard({
     try {
       await workspaceApi.startWorkstreamChecks(project.id, startWorkstream);
       await onChanged();
-      toast('The checks are on the file, and the sheet lists what they need.', 'good');
+      toast('Checks added.', 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not add the checks', 'critical');
     } finally {
@@ -332,22 +332,22 @@ export function RequirementSheetCard({
   async function copy() {
     try {
       await navigator.clipboard.writeText(requirementSheetText(sheet, filter === 'all' ? {} : { only: filter }));
-      toast('The list is on the clipboard.', 'good');
+      toast('Copied.', 'good');
     } catch {
-      toast('Could not reach the clipboard.', 'warning');
+      toast('Could not copy.', 'warning');
     }
   }
 
   if (!sheet.total) {
     return (
       <Card>
-        <CardHeader icon={<FileStack size={15} />} title="Requirement sheet" subtitle="The documents to ask the client and each consultant for" />
+        <CardHeader icon={<FileStack size={15} />} title="Requirement sheet" subtitle="Documents to ask for" />
         <CardBody>
           <div className="flex flex-wrap items-center gap-3">
-            <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">Nothing is expected yet. The sheet is built from the checks: put them on the file and it lists every document they need, by discipline.</p>
+            <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">Nothing expected yet. Start the checks to build the list.</p>
             {mayEdit ? (
               <Button size="sm" variant="primary" loading={busy} onClick={() => void start()}>
-                Start the technical checks
+                Start the checks
               </Button>
             ) : null}
           </div>
@@ -361,7 +361,7 @@ export function RequirementSheetCard({
       <CardHeader
         icon={<FileStack size={15} />}
         title="Requirement sheet"
-        subtitle={`${sheet.received} of ${sheet.total} in hand · ${sheet.requested} asked for${sheet.overdue ? ` · ${sheet.overdue} overdue` : ''}`}
+        subtitle={`${sheet.received}/${sheet.total} in hand · ${sheet.requested} asked for${sheet.overdue ? ` · ${sheet.overdue} overdue` : ''}`}
         action={
           <div className="flex items-center gap-1.5">
             <Button size="sm" variant="ghost" icon={<Copy size={13} />} onClick={() => void copy()}>
@@ -409,7 +409,7 @@ export function RequirementSheetCard({
           <div className="flex flex-wrap items-end gap-2 rounded-xl bg-sunken/60 p-2.5 ring-1 ring-inset ring-[var(--ring)]">
             <label className="min-w-[11rem] flex-1 text-micro text-ink-secondary">
               Ask
-              <Input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="The developer, the architect…" className="mt-1" />
+              <Input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="Who" className="mt-1" />
             </label>
             <label className="text-micro text-ink-secondary">
               By
@@ -553,7 +553,7 @@ export function SupportingDocumentsCard({
     try {
       const res = await workspaceApi.setDocumentWorkstream(project.id, evidenceId, workstream);
       onChanged(res.project);
-      toast('Filed under that work.', 'good');
+      toast('Filed.', 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not move the document', 'critical');
     } finally {
@@ -566,7 +566,7 @@ export function SupportingDocumentsCard({
       <CardHeader
         icon={<FolderInput size={15} />}
         title="Supporting documents"
-        subtitle={`${docs.length} from the client that belong to a department this project does not run. Read and citable; give one a place here if this work relies on it.`}
+        subtitle={`${docs.length} from departments this project does not run`}
       />
       <CardBody>
         <ul className="divide-y divide-hairline">
