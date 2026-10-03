@@ -89,7 +89,7 @@ export function QuickAssessmentCard({ assessment, compact = false }: { assessmen
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[12px] font-medium text-ink-muted">Quick assessment</span>
-              <InfoTip label="A living estimate built from what is on the file, following the official method for this kind of assessment. It is re-read whenever anything changes and never replaces a certified report." />
+              <InfoTip label="A living estimate from what is on the file. It never replaces a certified report." />
               <Badge tone={tone}>{QUICK_VERDICT_LABEL[a.verdict]}</Badge>
               {a.rough ? <Badge tone="warning" title={`More than ${Math.round(ROUGH_ABOVE * 100)}% rests on standard assumptions`}>Rough range</Badge> : null}
             </div>

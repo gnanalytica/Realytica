@@ -81,7 +81,7 @@ function ComingSoon({ project, workstream }: { project: DdProject; workstream: s
         </div>
         {ws.signers.length ? <p className="text-ink-secondary">Signed by: {ws.signers.join(', ')}</p> : null}
         <p className="text-ink-secondary">
-          Already on the file and waiting for it: {checks.length} check{checks.length === 1 ? '' : 's'} and {docs.length} document{docs.length === 1 ? '' : 's'}. They stay where they are and move here when it opens.
+          Waiting for it: {checks.length} check{checks.length === 1 ? '' : 's'}, {docs.length} document{docs.length === 1 ? '' : 's'}.
         </p>
       </CardBody>
     </Card>
@@ -95,10 +95,10 @@ function TitleBody({ project }: { project: DdProject }) {
   if (!graph.nodes.some((n) => n.kind === 'party' || n.kind === 'instrument' || n.kind === 'parcel')) {
     return (
       <Card>
-        <CardHeader title="Title chain" subtitle="Owners, the instruments between them, and what charges the land" />
+        <CardHeader title="Title chain" subtitle="Owners, instruments and charges" />
         <CardBody>
           <p className="text-[13px] text-ink-secondary">
-            Not drawn yet. The chain is built when the deeds and encumbrance certificates on file are checked against the state&rsquo;s title rules — run <span className="font-medium text-ink">Value this property</span> from Finance › Valuation, and each sale, its parties and the charges on the land appear here with the page they were read from.
+            Not drawn yet. Run <span className="font-medium text-ink">Value this property</span> in Finance › Valuation to build it from the deeds on file.
           </p>
         </CardBody>
       </Card>
@@ -106,7 +106,7 @@ function TitleBody({ project }: { project: DdProject }) {
   }
   return (
     <Card>
-      <CardHeader title="Title chain" subtitle="Owners, the instruments between them, and what charges the land — read from the deeds and encumbrance certificates" />
+      <CardHeader title="Title chain" subtitle="Owners, instruments and charges, read from the deeds" />
       <CardBody className="space-y-4">
         <TitleChainDiagram graph={graph} summary={project.lastScreenResult?.titleGraph} />
         <ScheduleOfProperty graph={graph} />

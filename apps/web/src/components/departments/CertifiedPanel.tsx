@@ -62,7 +62,7 @@ export function CertifiedPanel({ project, workstream, onChanged }: { project: Dd
         icon={<BadgeCheck size={15} />}
         title="Certified report"
         subtitle={current ? 'The figure of record' : `Signed by ${ws.signers.length ? ws.signers.join(' or ') : 'a named professional'}`}
-        info="A report a named professional signs. It is the figure of record; the quick assessment keeps running beside it and flags it for revisiting when later evidence moves the estimate more than 10%, progress by more than 5 points, or a new blocker or condition appears."
+        info="Signed by a named professional; the figure of record. Flagged to revisit when the estimate moves over 10%, progress over 5 points, or a new blocker appears."
         action={
           mayDecide ? (
             <Button size="sm" onClick={() => setFiling(true)}>
@@ -113,7 +113,7 @@ export function CertifiedPanel({ project, workstream, onChanged }: { project: Dd
           </div>
         ) : (
           <p className="text-[13px] text-ink-secondary">
-            None on file. Upload the signed report to the documents, then file it here: its figures, signer and date are read off it for you to confirm.
+            None on file. Upload the signed report in Documents, then file it here.
           </p>
         )}
         {earlier.length ? (
@@ -216,7 +216,7 @@ function FileCertifiedModal({ project, workstream, onClose, onFiled }: { project
       }
     >
       <div className="space-y-3">
-        <Field label="The signed report" hint="Upload it in Documents first. Reports this workstream owns are listed first.">
+        <Field label="The signed report" hint="Upload it in Documents first.">
           <Select value={evidenceId} onChange={(e) => read(e.target.value)}>
             <option value="">Choose a document…</option>
             {owned.filter((e) => e.attachments.length).map((e) => (

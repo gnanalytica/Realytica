@@ -275,7 +275,7 @@ function ProjectRequests() {
         <RequestList
           rows={rows}
           onChanged={refresh}
-          empty="Record who you have asked for a document or an answer, and by when. The portfolio shows everything overdue."
+          empty="Record who was asked for what, and by when."
         />
       </CardBody>
       <NewRequestModal
@@ -330,7 +330,7 @@ export default function ProjectPeople() {
           <CardHeader
             title="On this project"
             subtitle={`${data.people.length} named · ${data.staff.length} staff reach every project`}
-            info="Staff and managers see every project in the workspace. Everybody listed here sees only what is ticked against their name."
+            info="Staff and managers see every project. People listed here see only what is ticked."
           />
           <CardBody className="divide-y divide-hairline p-0">
             {data.people.length === 0 ? (
@@ -432,7 +432,7 @@ export default function ProjectPeople() {
         <Card>
           <CardHeader
             title="Add somebody"
-            info="They get in by signing in with this address. No email is sent, and nothing is ticked until you tick it."
+            info="They sign in with this address. No email is sent."
           />
           <CardBody className="space-y-3">
             <div className="grid grid-cols-1 max-w-2xl gap-3 sm:grid-cols-2">

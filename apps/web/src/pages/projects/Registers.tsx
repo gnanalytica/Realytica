@@ -226,7 +226,7 @@ export function EvidenceRegister() {
       const first = out.results?.[0];
       if (first?.error) toast(first.error, 'warning');
       else if (out.drafts) toast(`Read — ${out.drafts} finding${out.drafts === 1 ? '' : 's'} proposed`, 'good');
-      else if (out.documents) toast('That is a photographed document — read through extraction instead', 'good');
+      else if (out.documents) toast('That is a photographed document; read it through extraction.', 'good');
       else toast('Read', 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not read that photograph', 'critical');

@@ -154,7 +154,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
 
       {frozen ? (
         <Callout tone="neutral" title={`Issued ${new Date(report.signedAt ?? report.generatedAt).toLocaleDateString()}`}>
-          This is what the report said when it was issued, and it will not change again — somebody is holding this version.
+          This is the report as issued. It will not change.
           {drift === null ? null : drift.length === 0 ? (
             <> Nothing in the registers has moved since.</>
           ) : (
@@ -237,7 +237,7 @@ export function ReportEditor({ project, report, onChanged, onOpenRecord }: Props
       >
         <div className="space-y-3">
           <p className="text-[13px] leading-relaxed text-ink-secondary">
-            Every live section freezes at what it says now and the document stops changing. A later version is a new report.
+            Live sections freeze as they read now. A later version is a new report.
           </p>
           {unapproved > 0 ? (
             <Callout tone="warning" title={`${unapproved} section${unapproved === 1 ? ' is' : 's are'} not approved`}>
@@ -383,7 +383,7 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
             ) : null}
             {live ? (
               <IconBtn
-                title="Detach — keep what it says now, and edit it yourself. It will stop updating, and the report will say so."
+                title="Detach: keep what it says now and edit it. It stops updating."
                 disabled={busy}
                 onClick={() => onRun(() => api.detachReportBlock(project.id, report.id, block.id), 'Detached — this section is yours now')}
               >

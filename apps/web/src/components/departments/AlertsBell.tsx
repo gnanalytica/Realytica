@@ -50,7 +50,7 @@ export function AlertsBell({ project, onChanged, onOpenWorkstream }: { project: 
 
   const list =
     alerts.length === 0 ? (
-      <p className="px-2 py-6 text-center text-[13px] text-ink-secondary">Nothing needs attention. Approvals, revisits, late milestones and issues from site show here.</p>
+      <p className="px-2 py-6 text-center text-[13px] text-ink-secondary">Nothing needs attention.</p>
     ) : (
       <Stagger as="ul" className="max-h-[60vh] space-y-0.5 overflow-y-auto">
         {alerts.map((a) => {

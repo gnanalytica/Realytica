@@ -52,7 +52,7 @@ export default function Reports() {
           <EmptyState
             icon={<FileText size={18} />}
             title="No reports yet"
-            description="A report is built from the records on this file — the departments' assessments, the findings and the documents behind them — and exports to Word or PDF."
+            description="Built from the records on this file. Exports to Word or PDF."
             action={
               <Button variant="primary" onClick={() => setOpen(true)}>
                 Generate a report

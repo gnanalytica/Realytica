@@ -106,7 +106,7 @@ export function WorkstreamChecks({
       <CardBody>
         {rows.length === 0 ? (
           <div className="flex flex-wrap items-center gap-3">
-            <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">No checks on the file for {ws.label} yet. They come from the library, each answered once for every engagement that needs it.</p>
+            <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">No checks for {ws.label} yet.</p>
             {mayEdit ? (
               <Button size="sm" loading={busy} onClick={() => void start()}>
                 Add the {ws.label} checks
@@ -150,7 +150,7 @@ export function WorkstreamDocuments({ project, workstream, onOpenDocument }: { p
             ))}
           </ul>
         ) : (
-          <p className="text-[13px] text-ink-secondary">Drop documents into Documents or the chat. Each is read, typed and given to the workstream it belongs to.</p>
+          <p className="text-[13px] text-ink-secondary">Drop documents into Documents or the chat.</p>
         )}
       </CardBody>
     </Card>

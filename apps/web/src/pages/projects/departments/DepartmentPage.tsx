@@ -107,7 +107,7 @@ export default function DepartmentPage() {
       {dept.status === 'coming_soon' ? (
         <Card>
           <CardBody className="text-[13px] text-ink-secondary">
-            {dept.label} is coming. Its workstreams are listed below with what each will produce, and anything already on the file that belongs to them waits where it is.
+            {dept.label} is coming soon.
           </CardBody>
         </Card>
       ) : null}
@@ -124,7 +124,7 @@ export default function DepartmentPage() {
 
       <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-2">
         <Card>
-          <CardHeader title="Between departments" subtitle="What this department's work feeds, gates or depends on elsewhere" />
+          <CardHeader title="Between departments" subtitle="What it feeds, gates or needs" />
           <CardBody>
             {links.length ? (
               <ul className="space-y-2">
@@ -164,7 +164,7 @@ export default function DepartmentPage() {
                 ))}
               </ul>
             ) : (
-              <p className="text-[13px] text-ink-secondary">The firm's own people work here by their firm role. Add a lead, a signer or an outside contributor in People.</p>
+              <p className="text-[13px] text-ink-secondary">The firm's people work here by their firm role. Add others in People.</p>
             )}
           </CardBody>
         </Card>

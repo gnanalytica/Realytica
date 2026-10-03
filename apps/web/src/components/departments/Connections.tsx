@@ -55,7 +55,7 @@ export function Connections({ project, workstream, onOpenWorkstream }: { project
       <CardHeader
         icon={<Network size={15} />}
         title="Connections"
-        subtitle="What this work depends on, and what a change here reaches"
+        subtitle="What this needs, and what a change reaches"
         action={impact.data ? <Badge tone="neutral" title="Where the walk was answered">{impact.data.source === 'neo4j' ? 'Neo4j' : impact.data.source === 'journal' ? 'Local graph' : 'Projection'}</Badge> : null}
       />
       <CardBody className="grid grid-cols-1 gap-4 [@container(min-width:40rem)]:grid-cols-2">

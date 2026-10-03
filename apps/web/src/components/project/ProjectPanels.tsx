@@ -224,7 +224,7 @@ export function NeedsDecisionCard({ project, className }: { project: DdProject; 
       />
       <CardBody>
         {rows.length === 0 ? (
-          <p className="text-[13px] text-ink-muted">Nothing is waiting for a person. Proposals from the copilot appear here until someone accepts or rejects them.</p>
+          <p className="text-[13px] text-ink-muted">Nothing is waiting for a person.</p>
         ) : (
           <Stagger as="ul" className="divide-y divide-hairline">
             {rows.map((row) => (

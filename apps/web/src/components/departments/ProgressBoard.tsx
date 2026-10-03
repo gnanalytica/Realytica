@@ -125,7 +125,7 @@ export function ProgressBoard({ project, onChanged, onPairPhone }: { project: Dd
     setAdding(true);
     try {
       onChanged((await workspaceApi.addMilestones(project.id, { template: true })).project);
-      toast('Nine usual milestones added. Weights and dates are yours to change.', 'good');
+      toast('Nine milestones added.', 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not add them', 'critical');
     } finally {
@@ -171,7 +171,7 @@ export function ProgressBoard({ project, onChanged, onPairPhone }: { project: Dd
       </Card>
 
       <Card>
-        <CardHeader title="Milestones" subtitle="Progress is the weighted share of milestones complete" />
+        <CardHeader title="Milestones" subtitle="Weighted share of milestones complete" />
         <CardBody>
           {milestones.length ? (
             <ul className="divide-y divide-hairline">
@@ -181,7 +181,7 @@ export function ProgressBoard({ project, onChanged, onPairPhone }: { project: Dd
             </ul>
           ) : (
             <div className="flex flex-wrap items-center gap-3">
-              <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">No milestones yet. Start from the usual nine — excavation to OC, weighted the way stage payments usually are — and make them this project's.</p>
+              <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">No milestones yet. Start from the usual nine.</p>
               {mayEdit ? (
                 <Button size="sm" loading={adding} onClick={() => void addUsualMilestones()}>
                   Use the usual milestones
@@ -193,7 +193,7 @@ export function ProgressBoard({ project, onChanged, onPairPhone }: { project: Dd
       </Card>
 
       <Card>
-        <CardHeader icon={<Camera size={15} />} title="Site log" subtitle={log.length ? `${log.length} entr${log.length === 1 ? 'y' : 'ies'}` : 'Entries arrive from the site app, with photographs and where they were taken'} />
+        <CardHeader icon={<Camera size={15} />} title="Site log" subtitle={log.length ? `${log.length} entr${log.length === 1 ? 'y' : 'ies'}` : 'From the site app, with photographs'} />
         <CardBody>
           {log.length ? (
             <ol className="space-y-4">
@@ -236,7 +236,7 @@ export function ProgressBoard({ project, onChanged, onPairPhone }: { project: Dd
               ))}
             </ol>
           ) : (
-            <p className="text-[13px] text-ink-secondary">Pair a phone and log the day from site: manpower, work done, progress against milestones, weather, photographs and issues. It works with no signal and sends when it can.</p>
+            <p className="text-[13px] text-ink-secondary">Pair a phone to log the day from site.</p>
           )}
         </CardBody>
       </Card>

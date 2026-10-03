@@ -264,7 +264,7 @@ export function NewRequestModal({
           <Textarea value={detail} onChange={(e) => setDetail(e.target.value)} rows={3} />
         </Field>
         <p className={cn('text-[12px] text-ink-muted')}>
-          The app records the request; it does not send email. Send it the way you normally would, then record it as sent.
+          This records the request; it does not send email.
         </p>
       </div>
     </Modal>

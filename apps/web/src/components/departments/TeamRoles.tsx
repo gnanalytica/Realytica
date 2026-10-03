@@ -63,7 +63,7 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
     if (role) current[department] = role;
     else delete current[department];
     if (role === 'signer' && !row.member?.signer) {
-      toast('A signer needs their profession and registration: add them with the form below.', 'warning');
+      toast('A signer needs a profession and registration.', 'warning');
       return;
     }
     setBusy(row.email);
@@ -137,8 +137,8 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
     <Card>
       <CardHeader
         title="Roles by department"
-        subtitle="Lead runs it and accepts proposals · Contributor adds documents and records · Signer certifies its reports · Viewer reads"
-        info="A person's firm role sets the default. Change a cell to give them a different role on this project; somebody outside the firm reaches only the departments given to them here."
+        subtitle="Lead runs it · Contributor adds records · Signer certifies · Viewer reads"
+        info="The firm role is the default. Change a cell to set a different role on this project."
       />
       {/*
         A person a row and a department a column while the card has the room;
@@ -191,7 +191,7 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
             </tbody>
           </table>
         </div>
-        {mayStaff ? <p className="px-4 pb-3 pt-1 text-micro text-ink-muted">A grey role is the person&rsquo;s firm role. Pick another to change it on this project only.</p> : null}
+        {mayStaff ? <p className="px-4 pb-3 pt-1 text-micro text-ink-muted">A grey role is their firm role. Pick another to change it here only.</p> : null}
       </CardBody>
       {mayStaff ? (
         <div className="space-y-3 border-t border-hairline p-4">
@@ -224,7 +224,7 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
           </div>
           {adding.role === 'signer' ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Profession" hint="As their reports describe them: Advocate, Registered Valuer, Structural Engineer.">
+              <Field label="Profession" hint="Advocate, Registered Valuer, Structural Engineer.">
                 <Input value={adding.profession} onChange={(e) => setAdding({ ...adding, profession: e.target.value })} />
               </Field>
               <Field label="Registration" hint="Enrolment, IBBI or council number.">
@@ -240,7 +240,7 @@ export function TeamRoles({ project, staff, onChanged }: { project: DdProject; s
           >
             Add to the project
           </Button>
-          <p className="text-micro text-ink-muted">Someone outside the firm is invited as a collaborator and reaches only the departments given to them. Nothing is emailed.</p>
+          <p className="text-micro text-ink-muted">Outside collaborators reach only the departments given to them. Nothing is emailed.</p>
         </div>
       ) : null}
     </Card>

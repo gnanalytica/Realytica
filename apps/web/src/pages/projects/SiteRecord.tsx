@@ -396,13 +396,13 @@ function VisitModal({
           <Field label="Surveyor" required hint="A report has to say who looked."><Input value={surveyor} onChange={(e) => setSurveyor(e.target.value)} /></Field>
           <Field label="Accompanied by"><Input value={accompaniedBy} onChange={(e) => setAccompaniedBy(e.target.value)} /></Field>
         </div>
-        <Field label="Conditions" hint="Heavy rain means no report on ponding. Recorded because it limits what the visit can say.">
+        <Field label="Conditions" hint="Recorded because weather limits what a visit can say.">
           <Input value={weather} onChange={(e) => setWeather(e.target.value)} placeholder="Dry, overcast, 28°C" />
         </Field>
 
         <Field
           label="What could not be inspected"
-          hint="Leave empty only if the surveyor genuinely got everywhere — an empty list is read as a claim of full access."
+          hint="Leave empty only if every area was reached."
         >
           <div className="space-y-2">
             {limitations.map((l, i) => (

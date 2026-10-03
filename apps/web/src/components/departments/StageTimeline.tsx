@@ -191,7 +191,7 @@ function StageBody({
     try {
       await api.changeStage(project.id, { subject: 'project', stage: step, reason: reason.trim() || `Moved to ${SUB_STAGE_LABEL[step]}` });
       onChanged(await api.getProject(project.id));
-      toast(`The project is at ${SUB_STAGE_LABEL[step]}. The history is kept.`, 'good');
+      toast(`Now at ${SUB_STAGE_LABEL[step]}.`, 'good');
       setReason('');
       onPick(null);
     } catch (e) {
@@ -245,7 +245,7 @@ function StageBody({
       {step && step !== timeline.current ? (
         <div className="mt-3 flex flex-wrap items-end gap-2 rounded-lg bg-sunken p-3">
           <div className="min-w-[16rem] flex-1">
-            <Field label={`Move the project to ${SUB_STAGE_LABEL[step]}`} hint="The stage history keeps every move, with its reason.">
+            <Field label={`Move the project to ${SUB_STAGE_LABEL[step]}`} hint="Kept in the stage history.">
               <Textarea rows={1} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why — e.g. commencement certificate issued" />
             </Field>
           </div>

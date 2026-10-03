@@ -75,7 +75,7 @@ export function PairPhone() {
       <CardHeader
         icon={<Smartphone size={15} />}
         title="The site app"
-        subtitle="Log the day from site — manpower, work done, progress, photographs and issues — with or without signal"
+        subtitle="Log the day from site, with or without signal"
         action={
           <Button size="sm" variant="primary" loading={busy} onClick={() => void issue()}>
             {code && !expired ? 'New code' : 'Pair a phone'}
