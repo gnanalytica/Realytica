@@ -181,14 +181,15 @@ tokens run the API with an identity provider (`REALYTICA_AUTH_MODE=google`,
 
 ## Build with EAS
 
-The app is not yet linked to an EAS project (there is no `extra.eas.projectId`
-in `app.json`). Once, under the **gnanalytica** Expo account:
+The app is linked to the EAS project **@gnanalytica/realytica**
+(`extra.eas.projectId` in `app.json`,
+<https://expo.dev/accounts/gnanalytica/projects/realytica>). To build, sign
+in to an Expo account with access to the **gnanalytica** organisation:
 
 ```bash
 npm i -g eas-cli      # or use npx eas-cli
 cd mobile
 eas login
-eas init              # creates the project and writes extra.eas.projectId into app.json — commit that
 ```
 
 Then:
@@ -221,7 +222,7 @@ Push needs a **development or production build on a real phone**. It does not
 work in Expo Go (remote notifications were removed from Expo Go in SDK 53), in a
 simulator, or on the web; Settings says which applies. It also needs:
 
-1. `eas init` (the Expo push token is issued for the EAS project id), then a rebuild;
+1. a build made after the app was linked to EAS (the Expo push token is issued for the EAS project id);
 2. push credentials on EAS: Firebase Cloud Messaging (FCM v1) for Android and an
    APNs key for iOS — `eas credentials` walks through both;
 3. optionally `REALYTICA_EXPO_ACCESS_TOKEN` on the API, if push security is
