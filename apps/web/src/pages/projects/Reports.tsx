@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FileText } from 'lucide-react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { REPORT_KIND_LABEL, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Button, Card, CardBody, EmptyState, Field, Modal, Select, useToast } from '../../components/ui/kit';
@@ -15,7 +15,10 @@ export default function Reports() {
   const [kind, setKind] = useState<ReportKind>('executive_dd');
   const [assessmentId, setAssessmentId] = useState('');
   const [busy, setBusy] = useState(false);
-  const [viewId, setViewId] = useState<string | null>(project.reports[0]?.id ?? null);
+  // A link may name the report to open: `?report=<id>`.
+  const [params] = useSearchParams();
+  const linked = params.get('report');
+  const [viewId, setViewId] = useState<string | null>(project.reports.find((r) => r.id === linked)?.id ?? project.reports[0]?.id ?? null);
 
   const view = project.reports.find((r) => r.id === viewId) ?? project.reports[0];
 

@@ -220,7 +220,9 @@ export type ReportKind =
   | 'open_risk_action'
   | 'changes_since_previous'
   | 'indicative_valuation'
-  | 'handover_readiness';
+  | 'handover_readiness'
+  /** The engineer's report: building information, observations and mitigations, documents. */
+  | 'technical_dd';
 
 export type ReportStatus = 'draft' | 'generated' | 'reviewed' | 'issued' | 'superseded' | 'archived';
 
@@ -938,7 +940,10 @@ export type ReportBoundSourceKind =
   | 'valuation'
   | 'remedial_cost'
   | 'site_visits'
-  | 'changes_since_previous';
+  | 'changes_since_previous'
+  | 'observations'
+  | 'questionnaire'
+  | 'requirement_sheet';
 
 /**
  * What a bound block asks the registers for.
@@ -990,6 +995,8 @@ export interface ReportBlock {
    */
   frozen?: string[];
   frozenRecordIds?: string[];
+  /** The table as it stood when the report was issued. */
+  frozenTable?: ReportTable;
   /**
    * Set when a bound block was turned into prose, with the source it came
    * from. Recorded rather than erased: a reader is entitled to know that a
@@ -1010,9 +1017,25 @@ export interface ReportBlock {
   stateAt?: string;
 }
 
+/**
+ * A section that is a table rather than a list: the observations and their
+ * mitigations, the answered questionnaire, the document sheet. `lines` still
+ * carries the same content as text, for anything that cannot draw a table.
+ */
+export interface ReportTable {
+  columns: string[];
+  rows: Array<{
+    cells: string[];
+    recordId?: string;
+    /** Photographs and documents that stand behind the row, printed after the table. */
+    evidenceIds?: string[];
+  }>;
+}
+
 export interface ResolvedReportBlock {
   lines: string[];
   recordIds: string[];
+  table?: ReportTable;
   /** Said instead of inventing a line, when the registers have nothing to show. */
   note?: string;
 }

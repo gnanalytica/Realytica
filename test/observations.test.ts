@@ -19,13 +19,20 @@ import {
   commitChatProposal,
   createChatProposal,
   createProject,
+  ensureWorkstreamChecks,
   fileSiteLogPhoto,
+  generateReport,
+  issueReport,
   logSiteEntry,
   observationSummary,
   observations,
   observationsCsv,
   observationsText,
   patchObservation,
+  readReportBlock,
+  reportTemplate,
+  resolveReportBlock,
+  suggestAnswers,
   unusedPhotos,
   type DdProject,
 } from '@realytica/shared';
@@ -175,5 +182,55 @@ describe('the chat proposing an observation', () => {
     const [o] = observations(p);
     assert.deepEqual([o!.area, o!.mitigation, o!.standardRef], ['Transformer yard', 'Fence it.', 'NBC 2016 Part 4']);
     assert.deepEqual(o!.evidenceIds, [shot.id]);
+  });
+});
+
+describe('the technical due diligence report', () => {
+  it('opens with the engineer’s sections, and prints the observations as a table', () => {
+    const p = project();
+    const shot = photo(p, 'Machine room');
+    addObservation(p, { area: 'Lift core', description: 'The machine room has no ventilation.', severity: 'high', mitigation: 'Add an exhaust fan.', standardRef: 'NBC 2016 Part 8', evidenceIds: [shot.id] }, 'engineer');
+    addObservation(p, { area: 'Terrace', description: 'The terrace drain is blocked.', severity: 'medium' }, 'engineer');
+    const headings = reportTemplate('technical_dd').map((b) => b.heading);
+    assert.deepEqual(headings, ['The property', 'Scope and basis', 'Building information', 'Observations and mitigations', 'Remedial cost by band', 'Inspection record', 'Documents reviewed and outstanding', 'Limitations', 'Opinion']);
+    const block = { id: 'b1', origin: 'derived' as const, heading: 'Observations and mitigations', source: { kind: 'observations' as const } };
+    const resolved = resolveReportBlock(p, block);
+    assert.deepEqual(resolved.table!.columns, ['S. No', 'Area', 'Description', 'Risk category', 'Mitigation', 'Reference']);
+    assert.deepEqual(resolved.table!.rows[0]!.cells, ['1', 'Lift core', 'The machine room has no ventilation.', 'High risk', 'Add an exhaust fan.', 'NBC 2016 Part 8']);
+    assert.deepEqual(resolved.table!.rows[0]!.evidenceIds, [shot.id]);
+    assert.equal(resolved.lines.length, 2, 'the same content as text, for anything that cannot draw a table');
+    assert.match(resolved.note ?? '', /1 observation has no mitigation/);
+  });
+
+  it('prints only confirmed answers, and says what rests on the seller’s word', () => {
+    const p = project();
+    const doc = photo(p, 'Lift licence');
+    const q = addQuestionnaire(p, { title: 'Sheet', parsed: { header: [{ label: 'City', value: 'Bengaluru' }], questions: [{ text: 'How many lifts?', answer: 'Five' }, { text: 'Lift speed?' }, { text: 'Clear height?' }] } }, 'engineer');
+    suggestAnswers(p, q.id, [{ questionId: q.questions[1]!.id, answer: '2.5 m/s', proof: [{ evidenceId: doc.id, page: 1 }] }], 'copilot');
+    const resolved = resolveReportBlock(p, { id: 'b2', origin: 'derived', heading: 'Building information', source: { kind: 'questionnaire' } });
+    const cells = resolved.table!.rows.map((r) => r.cells);
+    assert.deepEqual(cells[0], ['', 'City', 'Bengaluru', '']);
+    assert.deepEqual(cells[1], ['1', 'How many lifts?', 'Five', 'Seller said']);
+    assert.deepEqual(cells[2], ['2', 'Lift speed?', 'Not answered', ''], 'a suggestion nobody confirmed is not an answer');
+    assert.match(resolved.note ?? '', /2 questions are not answered/);
+    assert.match(resolved.note ?? '', /1 answer rests on the seller/);
+  });
+
+  it('lists the documents by discipline with what was not received, and keeps its tables when issued', () => {
+    const p = project();
+    ensureWorkstreamChecks(p, ['construction.quality'], 'engineer');
+    addObservation(p, { description: 'Exit signage is missing.', severity: 'medium' }, 'engineer');
+    const sheet = resolveReportBlock(p, { id: 'b3', origin: 'derived', heading: 'Documents', source: { kind: 'requirement_sheet' } });
+    assert.deepEqual(sheet.table!.columns, ['Discipline', 'Document', 'Status']);
+    assert.ok(sheet.table!.rows.every((r) => r.cells[2] === 'Not received'));
+    assert.match(sheet.note ?? '', /^0 of \d+ received/);
+
+    const report = generateReport(p, { kind: 'technical_dd', generatedBy: 'engineer' });
+    issueReport(p, report.id, 'engineer');
+    addObservation(p, { description: 'Added after issue.', severity: 'low' }, 'engineer');
+    const issued = p.reports.find((r) => r.id === report.id)!;
+    const obs = issued.body.blocks.find((b) => b.source?.kind === 'observations')!;
+    const frozen = readReportBlock(p, obs, true);
+    assert.equal(frozen.table!.rows.length, 1, 'an issued report does not change when the file does');
   });
 });

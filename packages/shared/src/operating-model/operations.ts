@@ -2084,6 +2084,7 @@ export function issueReport(
     const resolved = resolveReportBlock(project, block);
     block.frozen = resolved.lines;
     block.frozenRecordIds = resolved.recordIds;
+    if (resolved.table) block.frozenTable = resolved.table;
   }
   report.body.summary = reportSummaryLine(project);
   report.status = 'issued';

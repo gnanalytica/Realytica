@@ -26,6 +26,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ReportPhotos, ReportTableView } from '../../components/report/ReportTableView';
 import { Check, FileDown, GripVertical, Link2, Link2Off, Lock, Plus, Printer, Trash2 } from 'lucide-react';
 import {
   engagementForReport,
@@ -455,6 +456,11 @@ function BlockRow({ project, report, block, index, total, frozen, busy, onOpenRe
             <p className="text-[13px] italic text-ink-muted">
               {resolved.note ?? 'Nothing in the registers matches this section yet. It will fill in as the file does — it is not printing “none found”.'}
             </p>
+          ) : resolved.table ? (
+            <>
+              <ReportTableView table={resolved.table} onOpenRecord={onOpenRecord} />
+              <ReportPhotos project={project} table={resolved.table} />
+            </>
           ) : (
             <ul className="space-y-1">
               {resolved.lines.map((line, i) => {

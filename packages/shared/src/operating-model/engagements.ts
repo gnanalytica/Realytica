@@ -88,7 +88,7 @@ export const ENGAGEMENT_KINDS: Record<EngagementKind, EngagementKindDefinition> 
     label: 'Technical due diligence',
     purpose: 'Whether what is built, or being built, is sound and as approved.',
     workstreams: ['construction.quality', 'construction.progress', 'construction.site', 'legal.approvals'],
-    reportKind: 'detailed_dd',
+    reportKind: 'technical_dd',
   },
   lender_monitoring: {
     label: 'Lender’s independent engineer',

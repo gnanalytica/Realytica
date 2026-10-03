@@ -37,6 +37,7 @@ export function useWorkstreamNav(project: DdProject) {
     openFindings: () => navigate(cockpitPath(project.id, 'findings')),
     openActions: () => navigate(cockpitPath(project.id, 'actions')),
     openReports: () => navigate(cockpitPath(project.id, 'reports')),
+    openReport: (reportId: string) => navigate(`${cockpitPath(project.id, 'reports')}?report=${encodeURIComponent(reportId)}`),
   };
 }
 

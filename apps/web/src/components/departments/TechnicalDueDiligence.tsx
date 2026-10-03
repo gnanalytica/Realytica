@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Camera, ClipboardList, Download, FileOutput, FileStack, MapPin, ShieldAlert, Smartphone } from 'lucide-react';
 import {
@@ -11,7 +11,9 @@ import {
   unusedPhotos,
   type DdProject,
 } from '@realytica/shared';
-import { Button, Card, CardBody, CardHeader, StatTile, cn } from '../ui/kit';
+import { api } from '../../lib/api';
+import { useMe } from '../../lib/useMe';
+import { Button, Card, CardBody, CardHeader, StatTile, cn, useToast } from '../ui/kit';
 import { EngineeringDashboard, RequirementSheetCard } from './EngineeringDesk';
 import { ObservationsCard } from './ObservationsCard';
 import { QuestionnaireCard } from './QuestionnaireCard';
@@ -38,6 +40,7 @@ export interface TechnicalDdNav {
   openActions: () => void;
   openSite: () => void;
   openReports: () => void;
+  openReport: (reportId: string) => void;
   pairPhone: () => void;
 }
 
@@ -61,6 +64,8 @@ export function TechnicalDueDiligence({
   /** The quick assessment, certified report and connections every workstream carries. */
   frame: React.ReactNode;
 }) {
+  const me = useMe();
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
   const asked = params.get('step') as StepKey | null;
   const step: StepKey = asked && STEP_KEYS.includes(asked) ? asked : 'documents';
@@ -81,6 +86,26 @@ export function TechnicalDueDiligence({
     { key: 'observations', label: 'Observations', count: rows.length ? String(rows.length) : '—', icon: <ShieldAlert size={14} /> },
     { key: 'report', label: 'Report', count: '', icon: <FileOutput size={14} /> },
   ];
+
+  // The engineer's report: one per project is the usual case, so an existing draft is opened rather than a second made.
+  const existing = project.reports.find((r) => r.kind === 'technical_dd' && r.status !== 'superseded' && r.status !== 'archived');
+  const [creating, setCreating] = useState(false);
+  async function createReport() {
+    if (existing) {
+      nav.openReport(existing.id);
+      return;
+    }
+    setCreating(true);
+    try {
+      const made = await api.generateReport(project.id, { kind: 'technical_dd', generatedBy: me?.name ?? me?.email ?? 'operator' });
+      await refresh();
+      nav.openReport(made.id);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not create the report', 'critical');
+    } finally {
+      setCreating(false);
+    }
+  }
 
   function go(next: StepKey) {
     const p = new URLSearchParams(params);
@@ -195,11 +220,16 @@ export function TechnicalDueDiligence({
             <CardHeader
               icon={<FileOutput size={15} />}
               title="Hand-over"
-              subtitle="The three tables a technical due diligence is read for, and the report built from them"
+              subtitle="The report is built from the steps before this one, and updates as they do. The three tables also export on their own."
               action={
-                <Button size="sm" variant="primary" onClick={nav.openReports}>
-                  Open Reports
-                </Button>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button size="sm" variant="ghost" onClick={nav.openReports}>
+                    Open Reports
+                  </Button>
+                  <Button size="sm" variant="primary" loading={creating} onClick={() => void createReport()}>
+                    {existing ? 'Open the report' : 'Create the report'}
+                  </Button>
+                </div>
               }
             />
             <CardBody>

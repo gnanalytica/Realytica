@@ -502,6 +502,7 @@ export function reportKindRequested(question: string): ReportKind | null {
   if (/\bchanges?\b/.test(q)) return 'changes_since_previous';
   if (/\bvaluation\b/.test(q)) return 'indicative_valuation';
   if (/\bhandover\b/.test(q)) return 'handover_readiness';
+  if (/\btechnical\b|\btdd\b|\bobservations?\b/.test(q)) return 'technical_dd';
   return 'executive_dd';
 }
 

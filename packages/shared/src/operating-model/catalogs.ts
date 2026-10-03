@@ -289,6 +289,7 @@ export const REPORT_KIND_LABEL: Record<ReportKind, string> = {
   changes_since_previous: 'Changes since previous DD',
   indicative_valuation: 'Indicative valuation',
   handover_readiness: 'Handover readiness',
+  technical_dd: 'Technical due diligence report',
 };
 
 export const VALUATION_SIGN_OFF_LABEL: Record<ValuationSignOff, string> = {

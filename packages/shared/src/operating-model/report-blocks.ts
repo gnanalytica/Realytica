@@ -42,7 +42,10 @@
 
 import { LIFECYCLE_STAGE_LABEL, SCOPE_LABEL } from './catalogs';
 import { CAPTURE_PURPOSE_LABEL } from './capture';
+import { RISK_LABEL, observationStatement, observations } from './observation-table';
+import { ANSWER_SOURCE_LABEL, questionStatus } from './questionnaire';
 import { remedialCostSummary } from './remedial';
+import { REQUIREMENT_STATUS_LABEL, requirementSheet } from './requirement-sheet';
 import { VISIT_LIMITATION_LABEL } from './site-visit';
 import { ENVIRONMENTAL_CONDITION_CAVEAT, ENVIRONMENTAL_CONDITION_LABEL, ricsConditionRating } from './standards';
 import type {
@@ -77,6 +80,9 @@ export const REPORT_BOUND_SOURCES: readonly ReportBoundSourceKind[] = [
   'remedial_cost',
   'site_visits',
   'changes_since_previous',
+  'observations',
+  'questionnaire',
+  'requirement_sheet',
 ] as const;
 
 export function isReportBoundSource(value: unknown): value is ReportBoundSourceKind {
@@ -98,6 +104,9 @@ export const REPORT_SOURCE_LABEL: Record<ReportBoundSourceKind, string> = {
   remedial_cost: 'Remedial cost by band',
   site_visits: 'Inspection record',
   changes_since_previous: 'Changes since the previous assessment',
+  observations: 'Observations and mitigations',
+  questionnaire: 'Building information',
+  requirement_sheet: 'Documents reviewed and outstanding',
 };
 
 export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
@@ -114,6 +123,9 @@ export const REPORT_SOURCE_READS: Record<ReportBoundSourceKind, string> = {
   remedial_cost: 'What the open actions cost, banded by when the money falls — with what is still unpriced said out loud.',
   site_visits: 'Who inspected, when, and what they could not get to. A visit nobody wrote up is named as such.',
   changes_since_previous: 'What a reassessment opened, closed and left unresolved.',
+  observations: 'The engineer’s table: what was seen, area by area, its risk, the mitigation and the code it is judged against, with the photographs.',
+  questionnaire: 'The questions put to the building and their answers, each with where it came from. A suggestion nobody confirmed is not printed as an answer.',
+  requirement_sheet: 'Every document the checks expect, by discipline: in hand, asked for, or not received.',
 };
 
 /* ==================================================================== */
@@ -207,6 +219,76 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
           return tail.length ? `${head} ${tail.join(' ')}` : head;
         }),
         recordIds: rows.map((f) => f.id),
+      };
+    }
+
+    case 'observations': {
+      const rows = observations(project, 'construction')
+        .filter((f) => scoped(f.assessmentIds) || !source.assessmentIds?.length)
+        .filter((f) => f.includeInReport !== false)
+        .filter((f) => (source.materialOnly ? MATERIAL.has(f.severity) : true));
+      if (!rows.length) return { lines: [], recordIds: [], note: 'No observations are recorded yet. This table fills from Technical due diligence › Observations.' };
+      const unmitigated = rows.filter((f) => !f.mitigation).length;
+      return {
+        lines: rows.map((f, i) => `${i + 1}. ${f.area ? `${f.area}: ` : ''}${observationStatement(f)} [${RISK_LABEL[f.severity]}]${f.mitigation ? ` Mitigation: ${f.mitigation}` : ''}${f.standardRef ? ` (${f.standardRef})` : ''}`),
+        recordIds: rows.map((f) => f.id),
+        table: {
+          columns: ['S. No', 'Area', 'Description', 'Risk category', 'Mitigation', 'Reference'],
+          rows: rows.map((f, i) => ({
+            cells: [String(i + 1), f.area ?? '', observationStatement(f), RISK_LABEL[f.severity], f.mitigation ?? '', f.standardRef ?? ''],
+            recordId: f.id,
+            evidenceIds: f.evidenceIds,
+          })),
+        },
+        // An observation with no mitigation is unfinished work, and the report says so rather than leaving a blank cell to be read as "none needed".
+        note: unmitigated ? `${plural(unmitigated, 'observation')} ${unmitigated === 1 ? 'has' : 'have'} no mitigation recorded yet.` : undefined,
+      };
+    }
+
+    case 'questionnaire': {
+      const sheet = (project.questionnaires ?? []).slice(-1)[0];
+      if (!sheet) return { lines: [], recordIds: [], note: 'No questionnaire has been imported for this building.' };
+      const ordered = sheet.questions.slice().sort((a, b) => a.order - b.order);
+      const answer = (q: (typeof ordered)[number]) => (questionStatus(q) === 'answered' ? q.answer! : '');
+      const footing = (q: (typeof ordered)[number]) => {
+        if (questionStatus(q) !== 'answered' || !q.source) return '';
+        const proof = q.proof.map((p) => `${project.evidence.find((e) => e.id === p.evidenceId)?.title ?? 'document'}${p.page ? `, p. ${p.page}` : ''}`).join('; ');
+        return proof ? `${ANSWER_SOURCE_LABEL[q.source]}: ${proof}` : ANSWER_SOURCE_LABEL[q.source];
+      };
+      const open = ordered.filter((q) => questionStatus(q) !== 'answered').length;
+      const sellerOnly = ordered.filter((q) => questionStatus(q) === 'answered' && q.source === 'seller' && q.proof.length === 0).length;
+      const notes = [
+        open ? `${plural(open, 'question')} ${open === 1 ? 'is' : 'are'} not answered.` : '',
+        sellerOnly ? `${plural(sellerOnly, 'answer')} ${sellerOnly === 1 ? 'rests' : 'rest'} on the seller’s statement alone and ${sellerOnly === 1 ? 'has' : 'have'} not been verified.` : '',
+      ].filter(Boolean);
+      return {
+        lines: [...sheet.header.map((h) => `${h.label}: ${h.value}`), ...ordered.map((q, i) => `${i + 1}. ${q.text} — ${answer(q) || 'Not answered'}${footing(q) ? ` (${footing(q)})` : ''}`)],
+        recordIds: [],
+        table: {
+          columns: ['No.', 'Question', 'Answer', 'Basis'],
+          rows: [
+            ...sheet.header.map((h) => ({ cells: ['', h.label, h.value, ''] })),
+            ...ordered.map((q, i) => ({ cells: [String(i + 1), q.text, answer(q) || 'Not answered', footing(q)], evidenceIds: questionStatus(q) === 'answered' ? q.proof.map((p) => p.evidenceId) : undefined })),
+          ],
+        },
+        note: notes.length ? notes.join(' ') : undefined,
+      };
+    }
+
+    case 'requirement_sheet': {
+      const sheet = requirementSheet(project, { department: 'construction' });
+      if (!sheet.total) return { lines: [], recordIds: [], note: 'No documents are expected yet: no technical checks are on the file.' };
+      const rows = sheet.groups.flatMap((g) => g.items.map((item) => ({ group: g.label, item })));
+      const status = (item: (typeof rows)[number]['item']) =>
+        item.status === 'received' ? 'Received' : item.status === 'requested' ? `Asked for${item.askedOf ? ` (${item.askedOf})` : ''}, not received` : 'Not received';
+      return {
+        lines: rows.map(({ group, item }) => `${group} · ${item.title} — ${status(item)}`),
+        recordIds: rows.map(({ item }) => item.evidenceId ?? ''),
+        table: {
+          columns: ['Discipline', 'Document', 'Status'],
+          rows: rows.map(({ group, item }) => ({ cells: [group, item.title, status(item)], recordId: item.evidenceId })),
+        },
+        note: `${sheet.received} of ${sheet.total} received. ${REQUIREMENT_STATUS_LABEL.requested}: ${sheet.requested}. The opinion in this report rests on the documents received, and is limited by those that were not.`,
       };
     }
 
@@ -382,7 +464,7 @@ export function isLiveBlock(block: ReportBlock): boolean {
  * two is not hidden either; see `reportDrift`.
  */
 export function readReportBlock(project: DdProject, block: ReportBlock, frozen: boolean): ResolvedReportBlock {
-  if (frozen && block.frozen) return { lines: block.frozen, recordIds: block.frozenRecordIds ?? [] };
+  if (frozen && block.frozen) return { lines: block.frozen, recordIds: block.frozenRecordIds ?? [], table: block.frozenTable };
   return resolveReportBlock(project, block);
 }
 
@@ -478,6 +560,24 @@ export function reportTemplate(kind: string): Array<{ heading: string; source?: 
         { heading: 'Open actions', source: bound('actions') },
         { heading: 'Remedial cost by band', source: bound('remedial_cost') },
         { heading: 'Inspection record', source: bound('site_visits') },
+      ];
+    case 'technical_dd':
+      return [
+        opening,
+        {
+          heading: 'Scope and basis',
+          text: 'This report records a technical due diligence of the property: a review of the documents made available, the information given in answer to our questions, and a visual inspection of the accessible areas. No destructive testing was carried out and concealed elements were not opened up unless stated.',
+        },
+        { heading: 'Building information', source: bound('questionnaire') },
+        { heading: 'Observations and mitigations', source: bound('observations') },
+        { heading: 'Remedial cost by band', source: bound('remedial_cost') },
+        { heading: 'Inspection record', source: bound('site_visits') },
+        { heading: 'Documents reviewed and outstanding', source: bound('requirement_sheet') },
+        {
+          heading: 'Limitations',
+          text: 'The observations are those visible on the dates of inspection. Statements attributed to the seller have been taken as given except where a document or our own inspection is cited beside them. Where a document was asked for and not received, the matters it would evidence remain unverified.',
+        },
+        { heading: 'Opinion', text: '' },
       ];
     case 'detailed_dd':
       return [
