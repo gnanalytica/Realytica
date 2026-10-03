@@ -631,19 +631,3 @@ function TableField({
 
 const inputCls =
   'mt-1 w-full rounded-lg border border-hairline bg-surface px-2.5 py-1.5 text-[13px] tabular-nums text-ink outline-none focus:border-brand disabled:opacity-60';
-
-/** One value, read-only — for the report, the sitting peek, anywhere not editing. */
-export function CheckFieldSummary({ defs, values }: { defs: CheckFieldDef[]; values: Record<string, CheckFieldValue> }) {
-  const recorded = defs.filter((d) => !isBlank(values[d.key]));
-  if (!recorded.length) return null;
-  return (
-    <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-[12px]">
-      {recorded.map((def) => (
-        <div key={def.key} className="contents">
-          <dt className="truncate text-ink-muted">{def.label}</dt>
-          <dd className="tabular-nums text-ink">{formatFieldValue(def, values[def.key])}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}

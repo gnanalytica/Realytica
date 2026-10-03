@@ -96,8 +96,6 @@ export const KA_LAYERS: LayerSpec[] = [
   },
 ];
 
-export const KA_DECISIVE_LAYER_KEYS = ["ka_water", "ka_masterplan"] as const;
-
 /** Proposed-land-use wording in the BMRDA layer, grouped by what it means. */
 export type ZoneClass =
   | "residential"

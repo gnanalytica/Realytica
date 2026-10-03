@@ -21,7 +21,7 @@
 
 import type { DdProject } from './types';
 import type { DepartmentKey } from './departments';
-import { WORKSTREAMS, workstreamDefinition } from './departments';
+import { workstreamDefinition } from './departments';
 import { workstreamChecks } from './engagements';
 import { approvalsRegister, constructionGate } from './approvals';
 import { progressSummary } from './progress';
@@ -387,9 +387,4 @@ export function quickAssessment(project: DdProject, workstream: string, now = ne
     default:
       return checksVerdict(project, workstream, at, 'The workstream’s checks, answered against the evidence on file.');
   }
-}
-
-/** A quick assessment for every workstream in the departments this project uses. */
-export function quickAssessments(project: DdProject, departments: readonly DepartmentKey[], now = new Date()): QuickAssessment[] {
-  return WORKSTREAMS.filter((w) => departments.includes(w.department)).map((w) => quickAssessment(project, w.key, now));
 }

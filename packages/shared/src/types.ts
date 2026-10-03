@@ -1049,14 +1049,6 @@ export interface TechnicalFinding extends TechnicalFindingDraft {
   deviatesFromApproved?: boolean;
 }
 
-/** Every field a finding may be updated with after creation — the one list the API schema, the client and the update route all read from. */
-export type TechnicalFindingPatch = Partial<
-  Pick<
-    TechnicalFinding,
-    'zone' | 'observation' | 'severity' | 'recommendation' | 'codeCitation' | 'evidenceDocumentIds' | 'status' | 'estimatedCost' | 'estimatedCostCurrency' | 'owner' | 'deviatesFromApproved'
-  >
->;
-
 /** Built (Phase I, already standing) vs proposed (Phase II, not yet built) — the split the document checklist itself uses. */
 export type TechnicalDdPhase = 'built' | 'proposed';
 
@@ -2035,30 +2027,6 @@ export interface PropertyCase {
   requests?: CaseRequest[];
 }
 
-/** Case shape without the heavy nested payloads — used by list endpoints. */
-export interface CaseSummary {
-  id: string;
-  reference: string;
-  label: string;
-  city: string;
-  locality: string;
-  country: CountryCode;
-  propertyType: PropertyType;
-  status: CaseStatus;
-  updatedAt: string;
-  documentCount: number;
-  currency: CurrencyCode;
-  askingPrice?: number;
-  indicativeLow?: number;
-  indicativeMid?: number;
-  indicativeHigh?: number;
-  confidenceScore?: number;
-  confidenceBand?: ConfidenceBand;
-  completenessScore?: number;
-  verdict?: ScreenVerdict;
-  openCriticalRisks: number;
-}
-
 /* ------------------------------------------------------------------ */
 /* Reference data (Country Pack + State / Municipality Pack)           */
 /* ------------------------------------------------------------------ */
@@ -2337,25 +2305,6 @@ export interface ReferenceData {
 /* Comparison (key user job 8)                                         */
 /* ------------------------------------------------------------------ */
 
-export interface ComparisonRow {
-  key: string;
-  label: string;
-  /** Higher is better / lower is better / neutral — drives the winner highlight. */
-  better: 'higher' | 'lower' | 'none';
-  format: 'currency' | 'currency_per_sqm' | 'number' | 'percent' | 'score' | 'text' | 'days';
-  values: { caseId: string; value: number | string | null; note?: string }[];
-}
-
-export interface ComparisonResult {
-  generatedAt: string;
-  cases: { id: string; reference: string; label: string; currency: CurrencyCode }[];
-  rows: ComparisonRow[];
-  /** Case id the engine would shortlist first, with the reason. */
-  shortlist: { caseId: string; reason: string } | null;
-  /** Cases that could not be compared like-for-like (e.g. different currency). */
-  caveats: string[];
-}
-
 /* ------------------------------------------------------------------ */
 /* API payloads                                                        */
 /* ------------------------------------------------------------------ */
@@ -2370,18 +2319,6 @@ export interface CreateCaseRequest {
    * intention survives into the case, not a required field.
    */
   project?: ProjectBrief;
-}
-
-export interface UpdateCaseRequest {
-  identity?: Partial<PropertyIdentity>;
-  status?: CaseStatus;
-  ownerName?: string;
-  notes?: string;
-}
-
-export interface ApiError {
-  error: string;
-  details?: unknown;
 }
 
 /* ------------------------------------------------------------------ */

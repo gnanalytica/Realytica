@@ -10,7 +10,7 @@ A project moves through **four stages** (Pre-development, Design & Tender, Const
 | API | `apps/api` — Express, one serverless function on Vercel (Mumbai) |
 | Site app | `mobile/` — Expo (React Native) for Android and iOS, offline-first |
 | Domain | `packages/shared` — the model and every rule that is a pure function of a project |
-| Models | `packages/agents` — document reading, the chat, the planners |
+| Models | `packages/agents` — document reading, the chat, the project orchestrator |
 
 Read next: [what the product does](docs/product.md) · [how it is built](docs/architecture.md) · [how it looks and moves](docs/design.md) · [the API](docs/api.md) · [the site app](docs/mobile.md) · [the demo](docs/demo.md) · [deploying](docs/runbooks/deployment.md) · [sign-in](docs/auth.md)
 
@@ -59,7 +59,7 @@ apps/web            The web app
 mobile/             The site app (Expo); its own package, outside the pnpm workspace
 packages/shared     The domain: projects, stages, departments, workstreams, checks, approvals,
                     progress, quick assessments, certified reports, alerts, links, the graph
-packages/agents     Model calls: document intelligence, the chat, planners and critics
+packages/agents     Model calls: document intelligence, the chat, the project orchestrator
 packages/site-intel Public map layers and place lookups
 test/               Every test, run by `pnpm test`; test/fixtures holds synthetic documents
 docs/               Product, architecture, design, API, site app, demo, runbooks

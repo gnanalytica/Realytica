@@ -146,10 +146,3 @@ export async function uploadLargeDocument(
   }
   return request<{ project: DdProject; evidenceId: string }>(`/projects/${projectId}/uploads/${start.uploadId}/complete`, json({ evidenceId: options.evidenceId, title: options.title }));
 }
-
-/** An image the API serves behind sign-in, as an object URL the page can show. */
-export async function authedImageUrl(path: string): Promise<string> {
-  const res = await fetchWithAuth(path);
-  if (!res.ok) throw new Error(`Could not load the photograph (${res.status}).`);
-  return URL.createObjectURL(await res.blob());
-}

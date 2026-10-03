@@ -213,42 +213,6 @@ export function TickText({
   );
 }
 
-/** A direct label riding a mark — always in an ink token, never the series color. */
-export function MarkLabel({
-  x,
-  y,
-  children,
-  anchor = 'middle',
-  baseline = 'middle',
-  weight = 'medium',
-  size = 11,
-  tone = 'primary',
-}: {
-  x: number;
-  y: number;
-  children: ReactNode;
-  anchor?: 'start' | 'middle' | 'end';
-  baseline?: 'middle' | 'hanging' | 'auto';
-  weight?: 'medium' | 'semibold';
-  size?: number;
-  tone?: 'primary' | 'secondary' | 'inverse';
-}) {
-  const fill = tone === 'inverse' ? 'var(--text-inverse)' : tone === 'secondary' ? 'var(--text-secondary)' : 'var(--text-primary)';
-  return (
-    <text
-      x={x}
-      y={y}
-      textAnchor={anchor}
-      dominantBaseline={baseline}
-      fontSize={size}
-      fontWeight={weight === 'semibold' ? 600 : 500}
-      fill={fill}
-    >
-      {children}
-    </text>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* Legend                                                              */
 /* ------------------------------------------------------------------ */

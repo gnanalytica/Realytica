@@ -9,7 +9,7 @@
  */
 
 import type { DdProject, EvidenceRecord } from './types';
-import { workstreamOfCheck, workstreamDefinition, type DepartmentKey } from './departments';
+import { workstreamOfCheck, workstreamDefinition } from './departments';
 import { allChecks } from './engagements';
 
 /**
@@ -86,11 +86,6 @@ export function documentWorkstream(project: DdProject, evidence: EvidenceRecord)
   if (check) return workstreamOfCheck(check.definitionId);
   if (evidence.kind === 'approval') return 'legal.approvals';
   return undefined;
-}
-
-export function documentDepartment(project: DdProject, evidence: EvidenceRecord): DepartmentKey | undefined {
-  const ws = documentWorkstream(project, evidence);
-  return ws ? workstreamDefinition(ws)?.department : undefined;
 }
 
 /** The documents a workstream owns. */

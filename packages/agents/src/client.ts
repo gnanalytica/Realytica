@@ -2,10 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type {
   AgentCapability,
   AgentKind,
-  AgentRun,
   AgentUsage,
-  CaseCostSummary,
-  CostBreakdownEntry,
   ModelTier,
   ModelTierAssignment,
 } from '@realytica/shared';
@@ -148,15 +145,6 @@ export function modelTierAssignments(): ModelTierAssignment[] {
   });
 }
 
-/**
- * The judgment-tier model, resolved once at module load.
- *
- * "What model is this deployment fronting", for a caller that has no agent in
- * hand. Every actual request goes through `modelFor(agent)`, which is
- * per-agent and reads env live.
- */
-export const AGENT_MODEL = modelForTier('judgment');
-
 /* ==================================================================== */
 /* Requests                                                              */
 /* ==================================================================== */
@@ -199,18 +187,6 @@ export function baseRequestFor(agent: AgentKind) {
   };
 }
 
-/**
- * The pre-tiering constant, preserved so nothing outside this package breaks.
- * In-package callers use `baseRequestFor(agent)`; this is the judgment-tier
- * shape and is what an external caller with no agent in hand should get.
- */
-export const BASE_REQUEST = {
-  model: AGENT_MODEL,
-  thinking: { type: 'adaptive' as const },
-  betas: ['server-side-fallback-2026-07-01'],
-  fallbacks: 'default' as const,
-};
-
 /* ==================================================================== */
 /* Pricing                                                               */
 /* ==================================================================== */
@@ -225,7 +201,6 @@ export const BASE_REQUEST = {
 import { priceTokensUsd } from './telemetry/pricing';
 
 export { priceTokensUsd };
-
 
 /**
  * Costs one API response.
@@ -269,76 +244,6 @@ export function sumUsage(runs: (AgentUsage | undefined)[]): AgentUsage {
     }),
     { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, estimatedCostUsd: 0 },
   );
-}
-
-/* ==================================================================== */
-/* Cost rollup                                                           */
-/* ==================================================================== */
-
-const ZERO_USAGE: AgentUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, estimatedCostUsd: 0 };
-
-function round4(n: number): number {
-  return Math.round(n * 10000) / 10000;
-}
-
-/**
- * Turns a case's agent runs into the number that decides what this can be
- * priced at.
- *
- * The saving is the entire argument for tiering, which is exactly why it is
- * computed conservatively. Two things this deliberately does not do:
- *
- *   - It does not invent token counts. `singleTierComparisonUsd` re-prices the
- *     tokens actually spent, at the judgment model's rates. A frontier model
- *     would in reality have produced somewhat different output lengths, and a
- *     comparison that guessed at that could be tuned to say anything. Holding
- *     the token counts fixed is the one counterfactual that cannot be.
- *   - It does not drop runs that were already on the judgment tier. They add
- *     an identical amount to both sides and so contribute zero saving, which
- *     is correct: excluding them would inflate the headline percentage.
- *
- * A deployment that overrides a tier upwards can make `savedUsd` negative.
- * It is left signed rather than clamped — "your overrides cost $0.20 more this
- * case" is information, and hiding it would make this number decorative.
- *
- * Rows are keyed by (agent, model, tier), not by run: document intelligence
- * runs once per document, and three scans are one line item, not three.
- */
-export function summariseCost(runs: AgentRun[]): CaseCostSummary {
-  const byKey = new Map<string, CostBreakdownEntry>();
-
-  for (const run of runs) {
-    // `tier` is optional on AgentRun — runs recorded before tiering, and the
-    // orchestrator's synthesised failure runs, carry none. Falling back to the
-    // static assignment attributes them to the tier they would have run on,
-    // rather than dropping them out of the breakdown entirely.
-    const tier = run.tier ?? AGENT_TIERS[run.agent];
-    const usage = run.usage ?? ZERO_USAGE;
-    const key = `${run.agent} ${run.model} ${tier}`;
-    const existing = byKey.get(key);
-    if (existing) {
-      existing.usage = sumUsage([existing.usage, usage]);
-    } else {
-      byKey.set(key, { agent: run.agent, model: run.model, tier, usage: { ...usage } });
-    }
-  }
-
-  const perAgent = [...byKey.values()];
-  const total = sumUsage(perAgent.map(e => e.usage));
-
-  // Priced per row rather than off the summed totals, so the rounding happens
-  // at the same granularity on both sides of the comparison. Otherwise the
-  // "saving" quietly absorbs rounding drift and stops being reproducible from
-  // the rows the user is shown.
-  const judgmentModel = modelForTier('judgment');
-  const singleTierComparisonUsd = round4(perAgent.reduce((acc, e) => acc + priceTokensUsd(judgmentModel, e.usage), 0));
-
-  return {
-    perAgent,
-    total,
-    singleTierComparisonUsd,
-    savedUsd: round4(singleTierComparisonUsd - total.estimatedCostUsd),
-  };
 }
 
 /* ==================================================================== */

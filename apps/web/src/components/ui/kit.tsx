@@ -308,18 +308,6 @@ export const INTERACTIVE =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-page ' +
   'active:scale-[0.98] disabled:active:scale-100';
 
-/**
- * A surface that rises to meet the pointer.
- *
- * Only for things that genuinely go somewhere when clicked. A lift on a
- * non-interactive card is a promise the interface does not keep, and users
- * learn very quickly to stop trusting the cue.
- */
-export const LIFT =
-  'transition-[transform,box-shadow,border-color] duration-base ease-enter ' +
-  'hover:-translate-y-0.5 hover:shadow-pop active:translate-y-0 active:shadow-none ' +
-  'motion-reduce:hover:translate-y-0';
-
 export function Button({ variant = 'secondary', size = 'md', icon, loading, className, children, disabled, ...rest }: ButtonProps) {
   return (
     <button
@@ -468,35 +456,6 @@ export function Dot({ tone = 'neutral', className }: { tone?: Tone; className?: 
   return <span className={cn('inline-block h-2 w-2 shrink-0 rounded-full', TONE_FILL[tone], className)} />;
 }
 
-export function Stat({
-  label,
-  value,
-  sub,
-  tone = 'neutral',
-  hint,
-  className,
-}: {
-  label: ReactNode;
-  value: ReactNode;
-  sub?: ReactNode;
-  tone?: Tone;
-  hint?: string;
-  className?: string;
-}) {
-  return (
-    <div className={cn('min-w-0', className)} title={hint}>
-      <div className="text-[12px] font-medium text-ink-muted">{label}</div>
-      <div
-        className={cn('mt-1 truncate font-semibold leading-tight tracking-tight tabular-nums', valueSizeClass(value, 'stat'), TONE_TEXT[tone])}
-        title={hint ?? (typeof value === 'string' ? value : undefined)}
-      >
-        {typeof value === 'number' ? <AnimatedNumber value={value} /> : value}
-      </div>
-      {sub ? <div className="mt-0.5 text-xs text-ink-secondary">{sub}</div> : null}
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* Tiles                                                               */
 /* ------------------------------------------------------------------ */
@@ -636,72 +595,6 @@ export function RegisterRow({
   );
 }
 
-/**
- * A row of figures that describe where a file stands.
- *
- * Replaces four tinted tiles in a 2×2 grid, which is the shape a dashboard
- * takes when nobody has decided what matters. Every tile was the same size, so
- * "0 overdue actions" — good news, and the commonest reading — occupied the
- * same quarter of the screen as three unevidenced material findings. Two of
- * the four were routinely zero. The tints made it worse: a wash of colour
- * behind a figure reads as a state before it is read as a number, and half the
- * washes were reporting nothing wrong.
- *
- * So: one line, hairline-separated, no fills. The figure carries colour ONLY
- * when it is telling somebody to act — that is the whole vocabulary, and it
- * works because nothing else on the strip is competing for it. A zero stays
- * legible rather than being hidden, because "nothing overdue" is a fact worth
- * reading; it just stops shouting.
- */
-export function StandingStrip({ items, className }: { items: StandingItem[]; className?: string }) {
-  return (
-    <dl
-      className={cn(
-        'flex flex-wrap items-stretch gap-x-6 gap-y-3 rounded-xl bg-sunken px-4 py-3 ring-1 ring-inset ring-[var(--ring)]',
-        className,
-      )}
-    >
-      {items.map((item, i) => (
-        <div
-          key={typeof item.label === 'string' ? item.label : i}
-          className={cn('min-w-[8.5rem] flex-1', i > 0 ? 'border-l border-hairline pl-6' : null)}
-        >
-          <dt className="text-[12px] leading-none text-ink-muted">{item.label}</dt>
-          <dd className="mt-1.5 flex items-baseline gap-1.5">
-            <span
-              className={cn(
-                'text-[19px] font-semibold leading-none tracking-tight tabular-nums',
-                // Colour is reserved for a figure somebody has to act on.
-                item.alert ? TONE_TEXT[item.alert] : 'text-ink',
-              )}
-            >
-              {item.value}
-            </span>
-            {item.hint ? <span className="text-[12px] leading-none text-ink-secondary">{item.hint}</span> : null}
-          </dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-export interface StandingItem {
-  label: ReactNode;
-  value: ReactNode;
-  /** Sits beside the figure, not under it — a strip is one line, not four cards. */
-  hint?: ReactNode;
-  /**
-   * Set only when this figure is asking for action. Absent means "read it and
-   * move on", which is what most of these are most of the time.
-   *
-   * Narrower than `Tone` on purpose: this palette renders `warning` and
-   * `serious` as plain ink, deliberately, so accepting them here would offer a
-   * prop that silently does nothing. These two are the tones that actually
-   * change what a figure looks like.
-   */
-  alert?: 'critical' | 'good';
-}
-
 export function StatTile({
   label,
   value,
@@ -783,38 +676,6 @@ function valueSizeClass(value: ReactNode, scale: 'tile' | 'stat' = 'tile'): stri
   if (len <= 12) return steps[1];
   if (len <= 16) return steps[2];
   return steps[3];
-}
-
-/**
- * A full-bleed band behind a section.
- *
- * Long pages in this app run for thousands of pixels on one flat ground, and
- * a reader loses their place in it. Alternating the ground gives the page a
- * rhythm and makes "where does this section end" answerable without reading
- * anything.
- */
-export function SectionBand({
-  ground = 'page',
-  className,
-  children,
-}: {
-  ground?: 'page' | 'surface' | 'sunken' | 'brand';
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        'relative',
-        ground === 'surface' && 'bg-surface',
-        ground === 'sunken' && 'bg-sunken',
-        className,
-      )}
-    >
-      {ground === 'brand' && <span aria-hidden="true" className="pointer-events-none absolute inset-0 bg-band" />}
-      <div className="relative">{children}</div>
-    </div>
-  );
 }
 
 export function KeyValue({ label, value, mono }: { label: ReactNode; value: ReactNode; mono?: boolean }) {
@@ -1004,45 +865,6 @@ export function Select({ className, id, children, ...rest }: SelectHTMLAttribute
   );
 }
 
-export function Toggle({
-  checked,
-  onChange,
-  label,
-  size = 'md',
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  label?: ReactNode;
-  size?: 'sm' | 'md';
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className="inline-flex items-center gap-2 text-[13px] text-ink coarse:min-h-11"
-    >
-      <span
-        className={cn(
-          'relative inline-flex shrink-0 items-center rounded-full transition-colors',
-          size === 'sm' ? 'h-4 w-7' : 'h-5 w-9',
-          checked ? 'bg-brand' : 'bg-[var(--axis)]',
-        )}
-      >
-        <span
-          className={cn(
-            'absolute rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.25)] transition-transform duration-base ease-enter',
-            size === 'sm' ? 'h-3 w-3 translate-x-0.5' : 'h-4 w-4 translate-x-0.5',
-            checked && (size === 'sm' ? 'translate-x-[14px]' : 'translate-x-[18px]'),
-          )}
-        />
-      </span>
-      {label}
-    </button>
-  );
-}
-
 export function Checkbox({
   checked,
   onChange,
@@ -1071,65 +893,6 @@ export function Checkbox({
 /* ------------------------------------------------------------------ */
 /* Tabs                                                                */
 /* ------------------------------------------------------------------ */
-
-export interface TabDef {
-  key: string;
-  label: string;
-  icon?: ReactNode;
-  badge?: ReactNode;
-}
-
-/**
- * One underline, and it travels.
- *
- * The selection moves from the old tab to the new one instead of vanishing
- * from one and appearing under the other, so the eye follows it to where the
- * reader now is. The row scrolls sideways when it does not fit and the chosen
- * tab is brought into view.
- */
-export function Tabs({ tabs, active, onChange, className }: { tabs: TabDef[]; active: string; onChange: (key: string) => void; className?: string }) {
-  const group = useId();
-  const row = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const on = row.current?.querySelector<HTMLElement>('[aria-selected="true"]');
-    on?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
-  }, [active]);
-  return (
-    <div ref={row} className={cn('no-scrollbar flex gap-0.5 overflow-x-auto border-b border-hairline', className)} role="tablist">
-      {tabs.map((t) => {
-        const on = t.key === active;
-        return (
-          <button
-            key={t.key}
-            role="tab"
-            aria-selected={on}
-            onClick={() => onChange(t.key)}
-            className={cn(
-              'relative flex shrink-0 cursor-pointer items-center gap-1.5 px-3 py-2.5 text-[13px] font-medium coarse:min-h-11',
-              // No `active:scale` on a tab: the underline is the feedback, and
-              // a shrinking tab in a fixed row nudges its neighbours.
-              'transition-[color] duration-quick ease-state',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset',
-              on ? 'text-ink' : 'text-ink-secondary hover:text-ink',
-            )}
-          >
-            {t.icon}
-            {t.label}
-            {t.badge}
-            {on ? (
-              <motion.span
-                layoutId={`tab-${group}`}
-                aria-hidden="true"
-                className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-ink"
-                transition={SPRING.snappy}
-              />
-            ) : null}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* Feedback                                                            */

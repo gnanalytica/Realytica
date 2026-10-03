@@ -1,5 +1,5 @@
 import { ASSESSMENT_PROFILES, PROJECT_KINDS } from '@realytica/shared';
-import type { IntakeField, IntakeProvenance, ProjectKind, PropertyIdentity } from '@realytica/shared';
+import type { IntakeField, ProjectKind, PropertyIdentity } from '@realytica/shared';
 
 /**
  * The particulars the intake knows how to capture, and what each one is worth.
@@ -208,105 +208,6 @@ const BY_PATH = new Map(INTAKE_FIELDS.map(f => [f.path, f]));
 
 export function fieldSpec(path: string): IntakeFieldSpec | undefined {
   return BY_PATH.get(path);
-}
-
-/** Square feet to square metres. Bengaluru quotes sqft; the contract stores sqm. */
-export const SQFT_PER_SQM = 10.7639;
-
-/**
- * Coerce a captured value to what its field declares, or reject it.
- *
- * Returns `undefined` for anything that does not fit, which `applyCapture`
- * treats as "this capture did not happen". Silently storing a string where a
- * number belongs would surface much later as a valuation of `NaN`.
- */
-export function coerceValue(spec: IntakeFieldSpec, raw: unknown): string | number | boolean | null | undefined {
-  if (raw === null) return null;
-  switch (spec.kind) {
-    case 'number': {
-      const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/[, ]/g, ''));
-      return Number.isFinite(n) && n >= 0 ? n : undefined;
-    }
-    case 'boolean':
-      if (typeof raw === 'boolean') return raw;
-      if (raw === 'true') return true;
-      if (raw === 'false') return false;
-      return undefined;
-    case 'enum': {
-      const s = String(raw);
-      return spec.options?.some(o => o.value === s) ? s : undefined;
-    }
-    case 'string': {
-      const s = String(raw).trim();
-      return s.length > 0 ? s : undefined;
-    }
-  }
-}
-
-export interface CaptureInput {
-  path: string;
-  value: unknown;
-  provenance: IntakeProvenance;
-  basis?: string;
-  saidAs?: string;
-}
-
-/**
- * Fold captures into the field list.
- *
- * Two rules, both about not letting the conversation quietly overwrite the
- * user:
- *
- *  - An unconfirmed inference never replaces something the user stated. The
- *    model re-inferring `super_built_up` on every turn must not clobber the
- *    `carpet` they typed.
- *  - Re-stating a value re-stamps its provenance, so correcting an inference
- *    by saying the real answer promotes the field to `stated` and clears the
- *    "confirm this" prompt, which is what a person expects to happen.
- */
-export function applyCapture(existing: IntakeField[], captures: CaptureInput[], now: string): {
-  fields: IntakeField[];
-  captured: IntakeField[];
-  rejected: { path: string; reason: string }[];
-} {
-  const byPath = new Map(existing.map(f => [f.path, f]));
-  const captured: IntakeField[] = [];
-  const rejected: { path: string; reason: string }[] = [];
-
-  for (const c of captures) {
-    const spec = BY_PATH.get(c.path);
-    if (!spec) {
-      rejected.push({ path: c.path, reason: 'not a particular this intake captures' });
-      continue;
-    }
-    const value = coerceValue(spec, c.value);
-    if (value === undefined) {
-      rejected.push({ path: c.path, reason: `"${String(c.value)}" is not a valid ${spec.kind} for ${spec.label}` });
-      continue;
-    }
-    const prior = byPath.get(c.path);
-    const priorIsStated = prior?.provenance === 'stated' || prior?.provenance === 'document' || prior?.confirmed === true;
-    if (prior && priorIsStated && c.provenance !== 'stated' && c.provenance !== 'document') {
-      rejected.push({ path: c.path, reason: `${spec.label} was already given by the user; an inference may not overwrite it` });
-      continue;
-    }
-    const field: IntakeField = {
-      path: c.path,
-      label: spec.label,
-      value,
-      display: spec.options?.find(o => o.value === String(value))?.label,
-      saidAs: c.saidAs,
-      provenance: c.provenance,
-      basis: c.basis,
-      // Stating something is confirming it. Only inferences and defaults wait.
-      confirmed: c.provenance === 'stated' || c.provenance === 'document',
-      at: now,
-    };
-    byPath.set(c.path, field);
-    captured.push(field);
-  }
-
-  return { fields: [...byPath.values()], captured, rejected };
 }
 
 /** Read a field's value, or undefined when it has not been captured. */

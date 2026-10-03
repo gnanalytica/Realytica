@@ -27,9 +27,6 @@ const DISTRICT_ALIASES: Record<string, string> = {
   "jayashankar bhoopalpally": "jayashankar bhupalpally",
 };
 
-/** When `pnpm capture:igrs` last read the portal. Client-safe. */
-export const RATES_CAPTURED_ON = (covered as { capturedOn?: string }).capturedOn ?? null;
-
 export function normaliseDistrict(v: string | null | undefined): string {
   const k = (v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   return DISTRICT_ALIASES[k] ?? k;

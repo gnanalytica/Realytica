@@ -1,4 +1,4 @@
-import type { AgentCapability, AgentKind, AgentRoute, CapabilityGap, ModelTier } from '@realytica/shared';
+import type { AgentCapability, AgentKind, AgentRoute, CapabilityGap } from '@realytica/shared';
 import { AGENT_TIERS, agentCapability, tierFor } from './client';
 import { modelForTier } from './config';
 

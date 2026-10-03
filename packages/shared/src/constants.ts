@@ -5,14 +5,7 @@
  */
 
 import type {
-  AreaBasis,
-  CaseStatus,
-  CountryCode,
   DocumentKind,
-  KarnatakaJurisdiction,
-  KhataType,
-  LandConversionStatus,
-  PropertyType,
 } from './types';
 import {
   AREA_BASIS_LABEL,
@@ -32,17 +25,6 @@ import {
  * this so a stored screen states which engine produced it.
  */
 export const ENGINE_VERSION = '0.2.0';
-
-/** Property types the MVP screens. Order drives select-box order in the UI. */
-export const PROPERTY_TYPES: PropertyType[] = [
-  'residential_apartment',
-  'residential_villa',
-  'residential_plot',
-  'commercial_office',
-  'retail_unit',
-  'industrial_warehouse',
-  'land_parcel',
-];
 
 /** All document kinds a case document can be classified into. */
 export const DOCUMENT_KINDS: DocumentKind[] = [
@@ -111,19 +93,6 @@ export const DOCUMENT_KIND_LABEL: Record<DocumentKind, string> = {
   unclassified: 'Unclassified',
 };
 
-export const CASE_STATUSES: CaseStatus[] = ['draft', 'collecting', 'analysing', 'screened', 'archived'];
-
-/** Metadata about the two country packs shipped in the MVP (Phase 1 India, Phase 3 Netherlands). */
-export const COUNTRY_PACKS_META: {
-  country: CountryCode;
-  countryName: string;
-  phase: string;
-  flagLabel: string;
-}[] = [
-  { country: 'IN', countryName: 'India', phase: 'Phase 1 (MVP)', flagLabel: 'IN' },
-  { country: 'NL', countryName: 'Netherlands', phase: 'Phase 3', flagLabel: 'NL' },
-];
-
 /* ------------------------------------------------------------------ */
 /* Karnataka State Pack — enum option arrays for the case wizard       */
 /*                                                                      */
@@ -142,27 +111,6 @@ export {
   KHATA_TYPE_LABEL,
   LAND_CONVERSION_LABEL,
 };
-
-export const KHATA_TYPE_OPTIONS: { key: KhataType; label: string }[] = (
-  Object.keys(KHATA_TYPE_LABEL) as KhataType[]
-).map(key => ({ key, label: KHATA_TYPE_LABEL[key] }));
-
-export const JURISDICTION_OPTIONS: { key: KarnatakaJurisdiction; label: string }[] = (
-  Object.keys(JURISDICTION_LABEL) as KarnatakaJurisdiction[]
-).map(key => ({ key, label: JURISDICTION_LABEL[key] }));
-
-export const LAND_CONVERSION_OPTIONS: { key: LandConversionStatus; label: string }[] = (
-  Object.keys(LAND_CONVERSION_LABEL) as LandConversionStatus[]
-).map(key => ({ key, label: LAND_CONVERSION_LABEL[key] }));
-
-export const AREA_BASIS_OPTIONS: { key: AreaBasis; label: string }[] = (
-  Object.keys(AREA_BASIS_LABEL) as AreaBasis[]
-).map(key => ({ key, label: AREA_BASIS_LABEL[key] }));
-
-/** BBMP property-tax zone options (A–F), for a case's `bbmpTaxZone` field. */
-export const BBMP_TAX_ZONE_OPTIONS: { key: 'A' | 'B' | 'C' | 'D' | 'E' | 'F'; label: string }[] = BBMP_TAX_ZONES.map(
-  z => ({ key: z.zone, label: `Zone ${z.zone} — ${z.description}` }),
-);
 
 /* ------------------------------------------------------------------ */
 /* About-page content, transcribed from docs/SOURCE_SPEC.md            */

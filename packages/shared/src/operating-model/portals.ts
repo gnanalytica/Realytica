@@ -29,27 +29,7 @@ const ALIASES: Array<{ keys: string[]; test: RegExp }> = [
   { keys: ['aai_nocas'], test: /\bnocas\b|\bheight clearance\b|\baai\b/i },
 ];
 
-/** Hosts we will not fetch, even with a VPN — CAPTCHA, OTP, or session. */
-const GATED_HOSTS = [
-  'kaveri.karnataka.gov.in',
-  'kaverionline.karnataka.gov.in',
-  'igr.karnataka.gov.in',
-  'landrecords.karnataka.gov.in',
-  'bhoomi.karnataka.gov.in',
-  'bbmpeaasthi.karnataka.gov.in',
-  'bbmptax.karnataka.gov.in',
-  'bbmp.gov.in',
-  'ksfes.karnataka.gov.in',
-];
-
 export const CONNECTOR_ALIASES = ALIASES;
-
-export function connectorIsGated(connector: DdConnector): boolean {
-  if (!connector.url) return true;
-  const host = connector.url.match(/^https?:\/\/([^/?#]+)/i)?.[1]?.toLowerCase();
-  if (!host) return true;
-  return GATED_HOSTS.some((g) => host === g || host.endsWith(`.${g}`));
-}
 
 export function connectorsMatchingText(...parts: string[]): DdConnector[] {
   const title = parts[0] ?? '';

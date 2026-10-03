@@ -1,4 +1,4 @@
-import type { EvalCase, EvalExpectation, EvalFieldResult, EvalScore, ExtractedField } from '@realytica/shared';
+import type { EvalCase, EvalExpectation, EvalFieldResult, EvalScore } from '@realytica/shared';
 
 /**
  * Scoring one model's answer against one case.
@@ -312,17 +312,4 @@ export function scoreEvalCase(evalCase: EvalCase, answer: EvalAnswer): EvalScore
   const score = evalCase.expectations.length === 0 ? 0 : round4(correctCount / evalCase.expectations.length);
 
   return { score, fabrications, fields };
-}
-
-/**
- * `ExtractedField[]` as an answer map.
- *
- * The bridge from what `document_intelligence` actually returns to what this
- * file scores, so wiring the harness to the real agent is one call rather than
- * a reshaping the caller has to get right.
- */
-export function answerFromExtractedFields(fields: ExtractedField[]): EvalAnswer {
-  const answer: EvalAnswer = {};
-  for (const field of fields) answer[field.key] = field.value;
-  return answer;
 }

@@ -1459,11 +1459,6 @@ export function documentKindForLabel(label: string | undefined): DocumentKind | 
   return profile && profile.documentKind !== 'other' ? profile.documentKind : undefined;
 }
 
-/** The label a document type is shown under. */
-export function readDocumentLabel(type: ReadDocumentType): string {
-  return type === 'other' ? OTHER.label : PROFILES[type].label;
-}
-
 /**
  * Whether a document read as `label` is the document an expected-evidence
  * row titled `title` is waiting for.

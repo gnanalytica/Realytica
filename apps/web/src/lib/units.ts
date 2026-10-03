@@ -16,14 +16,9 @@ import type { ReactNode } from 'react';
 
 /** 1 sq ft in m² — the exact conversion factor (1 ft = 0.3048 m, squared). */
 export const SQM_PER_SQFT = 0.09290304;
-export const SQFT_PER_SQM = 1 / SQM_PER_SQFT;
 
 export function sqmToSqft(sqm: number): number {
   return sqm / SQM_PER_SQFT;
-}
-
-export function sqftToSqm(sqft: number): number {
-  return sqft * SQM_PER_SQFT;
 }
 
 export type AreaUnit = 'sqft' | 'sqm';
@@ -165,34 +160,6 @@ export function formatRate(perSqmValue: number | null | undefined, unit: AreaUni
   return `${symbol}${Math.round(perSqmValue).toLocaleString('en-IN')}/m²`;
 }
 
-/** Convert a value already expressed per-sq-ft back to per-sqm, for feeding into the m²-native engine. */
-export function ratePerSqftToPerSqm(perSqft: number): number {
-  return perSqft / SQM_PER_SQFT;
-}
-
 /* ------------------------------------------------------------------ */
 /* Area basis                                                          */
 /* ------------------------------------------------------------------ */
-
-/**
- * Local copy of `AreaBasis` shaped to match `@realytica/shared`'s type so this
- * module has no hard dependency on the Karnataka pack landing first — see the
- * contract note in `packages/shared/src/types.ts`. Structurally identical to
- * the shared `AreaBasis` union, so it is a drop-in whichever lands.
- */
-export type LocalAreaBasis = 'carpet' | 'built_up' | 'super_built_up' | 'unknown';
-
-/** One-line explanation of carpet vs built-up vs super built-up, for help text. */
-export function describeAreaBasis(basis: LocalAreaBasis): string {
-  switch (basis) {
-    case 'carpet':
-      return 'Carpet area — the usable floor area inside the walls; this is what RERA requires developers to quote.';
-    case 'built_up':
-      return 'Built-up area — carpet area plus wall thickness and balconies, typically 10–15% more than carpet.';
-    case 'super_built_up':
-      return 'Super built-up area — built-up area plus a share of common areas (lobby, lifts, stairwells); this is what Bengaluru listings usually quote, and it typically runs 25–35% above carpet area for the same unit.';
-    case 'unknown':
-    default:
-      return "Area basis not confirmed — Bengaluru listings usually quote super built-up, while RERA mandates carpet area, and the two can differ by 25–35% for the same unit. Confirm which one you're looking at before comparing prices.";
-  }
-}

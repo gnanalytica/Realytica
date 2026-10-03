@@ -156,14 +156,6 @@ export const FLOW_NODE_TYPES: Record<FlowNodeKind, FlowNodeType> = {
   },
 };
 
-export const FLOW_NODE_GROUP_LABEL: Record<FlowNodeType['group'], string> = {
-  start: 'Start',
-  think: 'Think',
-  read: 'Read',
-  route: 'Route',
-  write: 'Write',
-};
-
 /**
  * Every way out of this particular node.
  *
@@ -176,19 +168,6 @@ export function portsOf(node: FlowNode): string[] {
     return [...node.config.cases.map((c) => c.id), BRANCH_DEFAULT_PORT];
   }
   return [...base];
-}
-
-/** What to call a port on screen. */
-export function portLabel(node: FlowNode, port: string): string {
-  if (node.config.kind === 'branch') {
-    const hit = node.config.cases.find((c) => c.id === port);
-    if (hit) return hit.label;
-    if (port === BRANCH_DEFAULT_PORT) return 'Otherwise';
-  }
-  if (port === LOOP_BODY_PORT) return 'Each item';
-  if (port === LOOP_DONE_PORT) return 'After the loop';
-  if (port === FILTER_PASS_PORT) return 'Passes';
-  return 'Next';
 }
 
 /** The label shown on a node: what the operator named it, or the type's own. */

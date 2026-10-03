@@ -110,11 +110,6 @@ export function fillTemplate(template: string, payload: Payload): string {
   return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, path: string) => asText(readPath(payload, path)));
 }
 
-/** Names the template mentions, for showing an operator what a node depends on. */
-export function templatePaths(template: string): string[] {
-  return [...template.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g)].map((m) => m[1]!.trim());
-}
-
 function emptyish(value: unknown): boolean {
   if (value === null || value === undefined) return true;
   if (typeof value === 'string') return value.trim() === '';
@@ -179,36 +174,4 @@ export function evaluateGroup(group: FlowConditionGroup, payload: Payload): bool
   return group.match === 'all'
     ? group.conditions.every((c) => evaluateCondition(c, payload))
     : group.conditions.some((c) => evaluateCondition(c, payload));
-}
-
-/* ==================================================================== */
-/* Saying it back in words                                              */
-/* ==================================================================== */
-
-const OPERATOR_PHRASE: Record<FlowCondition['operator'], string> = {
-  equals: 'is',
-  not_equals: 'is not',
-  contains: 'contains',
-  greater_than: 'is more than',
-  less_than: 'is less than',
-  is_empty: 'is empty',
-  is_not_empty: 'is not empty',
-  is_true: 'is true',
-  is_false: 'is false',
-};
-
-const UNARY = new Set<FlowCondition['operator']>(['is_empty', 'is_not_empty', 'is_true', 'is_false']);
-
-/** One condition as a sentence, so a drawn flow can be read rather than decoded. */
-export function describeCondition(condition: FlowCondition): string {
-  const phrase = OPERATOR_PHRASE[condition.operator];
-  return UNARY.has(condition.operator)
-    ? `${condition.path} ${phrase}`
-    : `${condition.path} ${phrase} ${condition.value ?? ''}`.trim();
-}
-
-export function describeGroup(group: FlowConditionGroup): string {
-  if (group.conditions.length === 0) return 'anything';
-  const joiner = group.match === 'all' ? ' and ' : ' or ';
-  return group.conditions.map(describeCondition).join(joiner);
 }

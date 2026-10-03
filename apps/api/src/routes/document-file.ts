@@ -1,6 +1,3 @@
-import type { Response } from 'express';
-import type { CaseDocument } from '@realytica/shared';
-
 /**
  * Serving a stored file back to the browser.
  *
@@ -126,32 +123,4 @@ export function resolveServedType(
 export function documentDisposition(inline: boolean, fileName: string): string {
   const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '').slice(0, 200) || 'document';
   return `${inline ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
-}
-
-export function sendDocumentBytes(res: Response, doc: CaseDocument, bytes: Buffer, forceDownload = false): void {
-  const { contentType, inline } = resolveServedType(bytes, doc.fileName, forceDownload);
-  res.setHeader('Content-Type', contentType);
-  res.setHeader('Content-Disposition', documentDisposition(inline, doc.fileName));
-  // Belt and braces on the same class of bug: forbid MIME sniffing, so a
-  // "PDF" whose bytes are HTML cannot be re-interpreted by the browser.
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Content-Length', String(bytes.length));
-  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  /*
-   * The CSP goes on the ATTACHMENT path only.
-   *
-   * Chrome's built-in PDF viewer — which the preview modal mounts in an
-   * iframe — refuses to render under a restrictive CSP on the PDF response
-   * itself, so setting this unconditionally turns every inline PDF into a
-   * blank grey rectangle. An inline response is already pinned to an inert
-   * media type by the sniff above, which is what the header was for.
-   */
-  if (!inline) res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
-  // The bytes are immutable for a given document id — an upload creates a new
-  // document, it never rewrites one — so a short private cache is what makes
-  // reopening a case instant instead of re-downloading several megabytes.
-  // `private` keeps it out of shared and CDN caches: a case document is not
-  // public data.
-  res.setHeader('Cache-Control', 'private, max-age=900, must-revalidate');
-  res.end(bytes);
 }

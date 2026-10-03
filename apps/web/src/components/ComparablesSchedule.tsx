@@ -386,5 +386,3 @@ export function ComparablesSchedule({
     </Card>
   );
 }
-
-export default ComparablesSchedule;

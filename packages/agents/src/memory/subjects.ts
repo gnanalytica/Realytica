@@ -57,15 +57,6 @@ import type { MemoryScope } from '@realytica/shared';
 
 export type SubjectKind = 'party' | 'locality' | 'source' | 'procedure' | 'user';
 
-/** Which `MemoryScope` a subject of each kind belongs to. */
-export const SCOPE_FOR_SUBJECT_KIND: Record<SubjectKind, MemoryScope> = {
-  party: 'party',
-  locality: 'locality',
-  source: 'source_reliability',
-  procedure: 'procedure',
-  user: 'user_preference',
-};
-
 export interface NormalisedSubject {
   kind: SubjectKind;
   /** The stored key, e.g. `party:ramaiah-k`. Prefixed so keys never collide across kinds. */
@@ -300,122 +291,6 @@ export function localitySubject(raw: string): NormalisedSubject | null {
 }
 
 /* ==================================================================== */
-/* Source                                                               */
-/* ==================================================================== */
-
-/**
- * Words that describe what a portal *is* rather than which portal it is.
- *
- * "Kaveri Online Services" and "Kaveri" must be one source, or the store learns
- * a separate reliability history for each way an agent happened to name it.
- */
-const SOURCE_NOISE = new Set([
-  'portal', 'online', 'service', 'services', 'website', 'site', 'web',
-  'department', 'dept', 'govt', 'government', 'of', 'the', 'system',
-  'karnataka', 'india', 'official', 'app', 'application',
-]);
-
-/** Host labels that are infrastructure, not identity. */
-const HOST_NOISE = new Set([
-  'www', 'in', 'com', 'org', 'net', 'gov', 'nic', 'co', 'karnataka', 'kar', 'info',
-]);
-
-function looksLikeHost(s: string): boolean {
-  return /^[a-z0-9.:/_-]+$/i.test(s) && s.includes('.') && !s.includes(' ');
-}
-
-function hostOf(raw: string): string | null {
-  const s = raw.trim();
-  try {
-    const url = new URL(s.includes('://') ? s : `https://${s}`);
-    return url.hostname.toLowerCase();
-  } catch {
-    return looksLikeHost(s) ? s.toLowerCase() : null;
-  }
-}
-
-/**
- * Trim `online` / `portal` off the end of a run-together token.
- *
- * `kaverionline.karnataka.gov.in` and the label "Kaveri Online Services" should
- * reach the same key, and this one rule is what closes that gap cheaply.
- */
-function trimSourceSuffix(t: string): string {
-  const trimmed = t.replace(/(?:online|portal|services|service)$/, '');
-  return trimmed.length >= 3 ? trimmed : t;
-}
-
-export function sourceSubject(raw: string): NormalisedSubject | null {
-  const trimmedRaw = raw.trim();
-  if (!trimmedRaw) return null;
-
-  const host = /\s/.test(trimmedRaw) ? null : hostOf(trimmedRaw);
-  let tokens: string[];
-  if (host) {
-    const labels = host.split('.').filter(Boolean);
-    const kept = labels.filter(l => !HOST_NOISE.has(l));
-    tokens = (kept.length > 0 ? kept : labels.slice(0, 1)).map(trimSourceSuffix);
-  } else {
-    let s = toAscii(trimmedRaw).toLowerCase();
-    s = s.replace(/[()[\]]/g, ' ');
-    tokens = toTokens(s)
-      // Version numbers ("Kaveri 2.0") are not a different source.
-      .filter(t => !/^\d+$/.test(t))
-      .filter(t => !SOURCE_NOISE.has(t))
-      .map(trimSourceSuffix);
-  }
-
-  const key = tokens.filter(Boolean).slice(0, 5).join('-');
-  if (!key) return null;
-  return {
-    kind: 'source',
-    key: `source:${key}`,
-    label: tokens.map(displayToken).join(' '),
-    scope: 'source_reliability',
-  };
-}
-
-/* ==================================================================== */
-/* Procedure                                                            */
-/* ==================================================================== */
-
-/** Everything from these words on describes where, not what. */
-const PROCEDURE_CLAUSE_CUT = /\b(?:from|at|with|before)\b/;
-
-/** Leading verbs: every proof route is phrased as an instruction. */
-const PROCEDURE_VERBS = new Set([
-  'obtain', 'obtaining', 'apply', 'applying', 'request', 'requesting', 'get',
-  'getting', 'download', 'collect', 'file', 'filing', 'secure', 'procure',
-  'seek', 'raise', 'submit', 'lodge',
-]);
-
-const PROCEDURE_STOPWORDS = new Set(['the', 'a', 'an', 'for', 'of', 'to', 'and', 'via', 'in', 'on']);
-
-/** Generic nouns that every route ends with and none is distinguished by. */
-const PROCEDURE_TAIL_NOUNS = new Set([
-  'order', 'application', 'applications', 'process', 'procedure', 'route',
-  'request', 'pathway', 'step', 'steps',
-]);
-
-export function procedureSubject(raw: string): NormalisedSubject | null {
-  let s = toAscii(raw).toLowerCase();
-  s = s.replace(/[()[\]]/g, ' ');
-  const cut = s.search(PROCEDURE_CLAUSE_CUT);
-  if (cut > 0) s = s.slice(0, cut);
-  let tokens = toTokens(s).filter(t => !PROCEDURE_STOPWORDS.has(t));
-  while (tokens.length > 1 && PROCEDURE_VERBS.has(tokens[0])) tokens = tokens.slice(1);
-  while (tokens.length > 1 && PROCEDURE_TAIL_NOUNS.has(tokens[tokens.length - 1])) tokens = tokens.slice(0, -1);
-  const key = tokens.slice(0, 5).join('-');
-  if (!key) return null;
-  return {
-    kind: 'procedure',
-    key: `procedure:${key}`,
-    label: tokens.map(displayToken).join(' '),
-    scope: 'procedure',
-  };
-}
-
-/* ==================================================================== */
 /* User                                                                 */
 /* ==================================================================== */
 
@@ -445,22 +320,6 @@ export function userSubject(raw?: string): NormalisedSubject {
 /* Generic entry points                                                 */
 /* ==================================================================== */
 
-/** Normalise by kind. `user` never fails; the rest return `null` on empty input. */
-export function subjectFor(kind: SubjectKind, raw: string): NormalisedSubject | null {
-  switch (kind) {
-    case 'party':
-      return partySubject(raw);
-    case 'locality':
-      return localitySubject(raw);
-    case 'source':
-      return sourceSubject(raw);
-    case 'procedure':
-      return procedureSubject(raw);
-    case 'user':
-      return userSubject(raw);
-  }
-}
-
 /**
  * Split a stored key back into its parts.
  *
@@ -475,14 +334,4 @@ export function parseSubjectKey(key: string): { kind: SubjectKind; tail: string 
   const kind = kinds.find(k => k === prefix);
   if (!kind) return null;
   return { kind, tail: key.slice(idx + 1) };
-}
-
-/** De-duplicate subjects by key, keeping first-seen order and label. */
-export function dedupeSubjects(subjects: (NormalisedSubject | null)[]): NormalisedSubject[] {
-  const seen = new Map<string, NormalisedSubject>();
-  for (const s of subjects) {
-    if (!s) continue;
-    if (!seen.has(s.key)) seen.set(s.key, s);
-  }
-  return [...seen.values()];
 }

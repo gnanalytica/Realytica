@@ -17,7 +17,7 @@
  */
 
 import type { AgentKind, AgentRoute, CapabilityGap, ProviderCapabilities, ProviderDescriptor, ProviderId } from '@realytica/shared';
-import { AGENT_CAPABILITY_NEEDS, formatRoute, routeFor } from '../routing';
+import { AGENT_CAPABILITY_NEEDS, routeFor } from '../routing';
 import { anthropicProvider } from './anthropic';
 import { instrument } from './instrument';
 import type { LlmProvider } from './types';
@@ -41,15 +41,6 @@ const INSTRUMENTED: Record<ProviderId, LlmProvider> = {
 /** The provider object for an id. Total over `ProviderId`, so a new id is a compile error here. */
 export function providerFor(id: ProviderId): LlmProvider {
   return INSTRUMENTED[id];
-}
-
-/**
- * The provider without telemetry, for the capability probe and anything else
- * that must not appear in the cost view. Kept separate rather than adding a
- * flag to `providerFor`, so an unrecorded call is a deliberate import.
- */
-export function rawProviderFor(id: ProviderId): LlmProvider {
-  return PROVIDERS[id];
 }
 
 /** Every provider's current state, for the capability probe and the observability view. */
@@ -113,11 +104,6 @@ export function resolveRoute(agent: AgentKind): ResolvedRoute {
 /** The short form: `"<why> — <what that means for this agent>"`. */
 export function missingCredentialsReason(_route: AgentRoute, clause: string): string {
   return `${CREDENTIALS_MISSING} — ${clause}`;
-}
-
-/** The long form, used where an agent already spelled out every credential it looks for. */
-export function missingCredentialsDetail(_route: AgentRoute, clause?: string): string {
-  return clause ? `${CREDENTIALS_MISSING} — ${clause}` : `${CREDENTIALS_MISSING}.`;
 }
 
 const CREDENTIALS_MISSING =

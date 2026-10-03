@@ -406,8 +406,6 @@ const SHELF: ReferenceWork[] = [
   },
 ];
 
-export const REFERENCE_SHELF: readonly ReferenceWork[] = SHELF;
-
 /** Open official PDFs the API may fetch into the shelf cache. Never paid. Never gated portals. */
 export function fetchableReferenceWorks(): ReferenceWork[] {
   return SHELF.filter((w) => w.standing !== 'paid' && (w.standing === 'official_pdf' || Boolean(w.ingestUrl)));

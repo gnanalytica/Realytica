@@ -82,11 +82,6 @@ export function departmentRole(project: DdProject, person: { email: string; work
   return person.workspaceRole ? DEFAULT_BY_WORKSPACE_ROLE[person.workspaceRole] : undefined;
 }
 
-/** Every department role a person holds on this project. */
-export function departmentRoles(project: DdProject, person: { email: string; workspaceRole?: WorkspaceRole }): Partial<Record<DepartmentKey, DepartmentRole>> {
-  return Object.fromEntries(DEPARTMENT_KEYS.map((d) => [d, departmentRole(project, person, d)]).filter(([, r]) => r)) as Partial<Record<DepartmentKey, DepartmentRole>>;
-}
-
 /** The departments this project uses: its own choice, else the firm's, else all six. */
 export function projectDepartments(project: DdProject, firmDefaults?: readonly DepartmentKey[]): DepartmentKey[] {
   const chosen = project.departments ?? firmDefaults ?? DEFAULT_DEPARTMENTS;

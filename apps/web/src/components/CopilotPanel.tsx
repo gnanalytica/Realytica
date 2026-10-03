@@ -4,7 +4,6 @@ import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Papercli
 import { chatSessions, groupActivity, splitThread } from '@realytica/shared';
 import type { AgentStep, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
-import { EvidenceLink } from './EvidenceLink';
 import { AiMark, Badge, Button, cn } from './ui/kit';
 import { EASE_ENTER, SPRING, motion } from '../lib/motion';
 import { AnswerBody } from './chat/AnswerBody';
@@ -92,11 +91,6 @@ function TurnBubble({
   const known = new Set((evidence ?? []).map(e => e.id));
   const uncitedMissing = turn.citedEvidenceIds.filter(id => !inlineEvidence.has(id) && !known.has(id));
   const consulted = Array.from(new Set((turn.toolCalls ?? []).map(t => t.summary.trim()).filter(Boolean)));
-  const nodeLabel = (id: string): string => {
-    const found = (nodes ?? []).find(n => n.id === id);
-    if (found) return found.label.length > 40 ? `${found.label.slice(0, 40)}…` : found.label;
-    return id.length > 26 ? `${id.slice(0, 26)}…` : id;
-  };
   // A critic flag has to travel with the claim it concerns. Surfacing it only
   // in the verification panel would let someone read an unsupported answer
   // cleanly here and never see the warning sitting on another screen.

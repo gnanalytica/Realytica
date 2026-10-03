@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { CredentialKind, CredentialRecord, StoredCredential } from '@realytica/shared';
 import { store } from '../store';
 import { envName } from '@realytica/agents';
@@ -90,11 +90,6 @@ export function sealedFor(tenantId: string, id: string): StoredCredential | unde
 function hintOf(secret: string): string {
   const tail = secret.trim().slice(-4);
   return tail.length === 4 ? tail : '••••';
-}
-
-/** A stable, non-reversible id for a value, so an unchanged form is not a rotation. */
-export function fingerprint(secret: string): string {
-  return createHash('sha256').update(secret).digest('hex').slice(0, 12);
 }
 
 export async function saveCredential(input: {

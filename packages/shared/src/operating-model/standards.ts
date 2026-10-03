@@ -98,31 +98,6 @@ export const REMEDIAL_BAND_LABEL: Record<RemedialBand, string> = {
 /* IPMS and RERA — what an area measurement means                        */
 /* ==================================================================== */
 
-/**
- * The measurement standard a stated area was taken under.
- *
- * This exists because of a real defect: the product offered `carpet`,
- * `built_up` and `super_built_up` as if they were three equivalent bases.
- * Only the first has a statutory definition in India — RERA s.2(k) — and
- * "super built-up" has none at all, which is precisely why RERA stopped
- * apartments being sold on it. A valuation that states a basis without saying
- * which document defines that basis has not stated one.
- *
- * IPMS levels are kept coarse deliberately. The sub-variants exist and matter
- * to a measuring surveyor, but recording a precision this product cannot
- * verify from a drawing would be a worse error than recording the level.
- *
- * Source: IPMS All Buildings, IPMS Coalition.
- */
-export type IpmsBasis = 'ipms_1' | 'ipms_2' | 'ipms_3' | 'ipms_4';
-
-export const IPMS_BASIS_LABEL: Record<IpmsBasis, string> = {
-  ipms_1: 'IPMS 1 — whole building, measured to the outer face',
-  ipms_2: 'IPMS 2 — whole building, measured internally',
-  ipms_3: 'IPMS 3 — the area in an occupant’s exclusive use',
-  ipms_4: 'IPMS 4 — component areas within a floor',
-};
-
 /** The bases the Indian market quotes in, and what each is actually worth. */
 export const INDIAN_AREA_BASIS_STANDING: Record<string, { defined: boolean; note: string }> = {
   carpet: {

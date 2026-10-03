@@ -31,102 +31,12 @@
  * the version that stays correct as the schema grows.
  */
 
-import type { MemoryFact, MemoryRecall, MemoryScope, PropertyCase } from '@realytica/shared';
-import { partyMentionsInCase } from './learn';
-import { DEFAULT_HALF_LIFE_DAYS, DEFAULT_RECALL_LIMIT } from './store';
-import type { MemoryStore } from './types';
+import type { MemoryFact, MemoryRecall, MemoryScope } from '@realytica/shared';
+import { DEFAULT_RECALL_LIMIT } from './store';
 import {
-  dedupeSubjects,
-  localitySubject,
   parseSubjectKey,
-  procedureSubject,
-  sourceSubject,
-  userSubject,
-  type NormalisedSubject,
   type SubjectKind,
 } from './subjects';
-
-/* ==================================================================== */
-/* Which subjects a case touches                                        */
-/* ==================================================================== */
-
-/**
- * One case can name a lot of sources. Capping per kind keeps a pathological
- * case from turning a recall into a scan, and keeps `consultedSubjects` short
- * enough to actually read.
- */
-const DEFAULT_MAX_SUBJECTS_PER_KIND = 20;
-
-/** Kind order for the consulted list, so a recall reads the same way every time. */
-const KIND_ORDER: SubjectKind[] = ['locality', 'party', 'procedure', 'source', 'user'];
-
-export interface SubjectsForCaseOptions {
-  maxPerKind?: number;
-}
-
-/**
- * Resolve every subject a case gives us a reason to look up.
- *
- * Note what is *not* here: nothing is read from the title graph, even though it
- * holds a tidier party list. Memory resolves parties from the same extracted
- * fields `learn.ts` uses, so the two halves cannot drift and neither depends on
- * the graph existing.
- */
-export function subjectsForCase(
-  c: PropertyCase,
-  opts: SubjectsForCaseOptions = {},
-): NormalisedSubject[] {
-  const maxPerKind = opts.maxPerKind ?? DEFAULT_MAX_SUBJECTS_PER_KIND;
-  const collected: NormalisedSubject[] = [];
-
-  const locality = localitySubject(c.identity.locality);
-  if (locality) collected.push(locality);
-
-  for (const mention of partyMentionsInCase(c)) collected.push(mention.subject);
-
-  const intelligence = c.intelligence;
-  for (const report of intelligence?.ingestions ?? []) {
-    for (const attempt of report.attempted) {
-      const s = sourceSubject(attempt.sourceLabel || attempt.sourceId);
-      if (s) collected.push(s);
-    }
-  }
-  for (const session of intelligence?.explorations ?? []) {
-    for (const entry of session.unreachable) {
-      const s = sourceSubject(entry.source);
-      if (s) collected.push(s);
-    }
-    for (const lead of session.leads) {
-      for (const visit of lead.visited) {
-        const s = sourceSubject(visit.url);
-        if (s) collected.push(s);
-      }
-    }
-  }
-  for (const pathway of intelligence?.pathways ?? []) {
-    for (const route of pathway.routes) {
-      const s = procedureSubject(route.title);
-      if (s) collected.push(s);
-    }
-  }
-
-  // Always consulted, even on an empty draft case: the owner's own
-  // dispositions attached to it are the one thing memory can offer before a
-  // single document has been uploaded.
-  collected.push(userSubject(c.ownerName));
-
-  const unique = dedupeSubjects(collected);
-
-  // Group by kind in a fixed order, sort within the group, then cap. Sorting
-  // before capping means the cap drops a predictable set rather than whichever
-  // ones happened to be found last.
-  const out: NormalisedSubject[] = [];
-  for (const kind of KIND_ORDER) {
-    const group = unique.filter(s => s.kind === kind).sort((a, b) => a.key.localeCompare(b.key));
-    out.push(...group.slice(0, maxPerKind));
-  }
-  return out;
-}
 
 /* ==================================================================== */
 /* recallForCase                                                        */
@@ -165,69 +75,6 @@ export interface RecallOptions {
   /** Extra subject keys to consult — a locality the user asked about, say. */
   extraSubjects?: string[];
   maxSubjectsPerKind?: number;
-}
-
-/**
- * What memory has to say about this case.
- *
- * Returns the frozen `MemoryRecall` shape and nothing more, so the value can be
- * dropped straight onto `CaseIntelligence.memory`.
- */
-export async function recallForCase(
-  store: MemoryStore,
-  c: PropertyCase,
-  opts: RecallOptions,
-): Promise<MemoryRecall> {
-  const subjects = subjectsForCase(c, { maxPerKind: opts.maxSubjectsPerKind });
-  const keys = [...subjects.map(s => s.key), ...(opts.extraSubjects ?? [])];
-  const consultedSubjects = [...new Set(keys)];
-
-  // A case with no locality, no documents and no owner name still resolves to
-  // `user:default`, so this branch is close to unreachable — but an empty
-  // subject list would otherwise be read by the store as "match everything",
-  // which is the one wrong answer available.
-  if (consultedSubjects.length === 0) {
-    return { facts: [], consultedSubjects: [], excludedCount: 0, storedFactCount: await storedCount(store) };
-  }
-
-  const result = await store.query({
-    subjects: consultedSubjects,
-    now: opts.now,
-    asOf: opts.asOf,
-    validAt: opts.validAt,
-    excludeCaseIds: opts.includeOwnCase ? undefined : [c.id],
-    limit: opts.limit ?? DEFAULT_RECALL_LIMIT,
-    perScopeLimit: opts.perScopeLimit,
-    halfLifeDays: opts.halfLifeDays ?? DEFAULT_HALF_LIFE_DAYS,
-    minConfidence: opts.minConfidence,
-  });
-
-  return {
-    facts: result.facts,
-    consultedSubjects,
-    excludedCount: result.excludedCount,
-    storedFactCount: await storedCount(store),
-  };
-}
-
-/**
- * How much memory holds in total.
- *
- * Counted from `snapshot()` rather than from the query result, because the
- * query is filtered by subject and by case — a store full of facts about other
- * properties would report zero if this counted matches, which is exactly the
- * confusion the field exists to remove.
- *
- * `snapshot()` and not `size()`: the ledger has a `size()` but the
- * `MemoryStore` interface does not expose it, so reaching for it through a
- * duck-typed cast compiled and would have returned 0 forever — the same silent
- * wrong answer this field was added to prevent. Allocating the array is
- * acceptable here for the reason the store itself gives for holding everything
- * in memory: the dataset is small. If memory ever outgrows that, `size()`
- * belongs on the interface and this should call it.
- */
-async function storedCount(store: MemoryStore): Promise<number> {
-  return (await store.snapshot()).length;
 }
 
 /* ==================================================================== */

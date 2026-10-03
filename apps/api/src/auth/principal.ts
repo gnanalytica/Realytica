@@ -1,8 +1,6 @@
 import {
-  can,
   membershipFor,
   sameEmail,
-  type Capability,
   type Membership,
   type Principal,
   type Tenant,
@@ -179,9 +177,4 @@ export function resolvePrincipal(
     status: 403,
     reason: 'You are not a member of this workspace. Ask an admin to invite you.',
   };
-}
-
-/** Whether a principal may do a thing. One call, so the rule is not restated. */
-export function allows(principal: Principal, capability: Capability): boolean {
-  return can(principal.role, capability);
 }

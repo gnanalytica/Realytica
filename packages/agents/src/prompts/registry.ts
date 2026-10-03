@@ -47,20 +47,6 @@ import { SHARED_GROUNDING_KEY } from './invariants';
 /* Keys                                                                  */
 /* ==================================================================== */
 
-/**
- * Prompt keys are `<agent>.<role>`.
- *
- * The one exception is the shared preamble, keyed `shared.grounding` rather
- * than `orchestrator.grounding`: it belongs to no single agent, and naming it
- * after one would suggest editing it changed that agent's behaviour alone,
- * which is the opposite of true. `PromptDescriptor.agent` still has to be an
- * `AgentKind`, so it is filed under `orchestrator` — the roster member that
- * already owns cross-cutting concerns — and the key says what it really is.
- */
-export function promptKeyFor(agent: AgentKind, role: PromptRole): string {
-  return `${agent}.${role}`;
-}
-
 export const PROMPT_KEYS = {
   sharedGrounding: SHARED_GROUNDING_KEY,
   analystCopilotSystem: 'analyst_copilot.system',
@@ -576,18 +562,6 @@ respons­ibly name, ranked best-first:
 
 {{jurisdictionNotice}}`;
 
-
-/**
- * The shared preamble, under the name the rest of the package already used.
- *
- * Re-exported through `../context` so `import { GROUNDING_RULES } from
- * '@realytica/agents'` keeps meaning what it meant. It is the *built-in*
- * text — not whatever version is currently active — because a caller reaching
- * for a constant wants the shipped rules, and anything that wants the live
- * selection should be going through `resolvePrompt`.
- */
-export const GROUNDING_RULES = GROUNDING_CONTENT_V1;
-
 /* ==================================================================== */
 /* Descriptors                                                           */
 /* ==================================================================== */
@@ -693,8 +667,6 @@ const BUILT_INS: BuiltInPrompt[] = [
     variables: ['grounding'],
     content: COPILOT_SYSTEM_CONTENT_V1,
   },
-
-
 
   {
     key: PROMPT_KEYS.marketResearchSystem,
@@ -850,21 +822,8 @@ export const BUILT_IN_PROMPTS: readonly BuiltInPrompt[] = Object.freeze(
   BUILT_INS.map(p => Object.freeze({ ...p, variables: Object.freeze([...p.variables]) as string[] })),
 );
 
-export const BUILT_IN_PROMPT_KEYS: readonly string[] = Object.freeze(BUILT_IN_PROMPTS.map(p => p.key));
-
 const BY_KEY = new Map<string, BuiltInPrompt>(BUILT_IN_PROMPTS.map(p => [p.key, p]));
 
 export function builtInPrompt(key: string): BuiltInPrompt | undefined {
   return BY_KEY.get(key);
-}
-
-/**
- * The built-in prompt for an agent's system role, if it has one.
- *
- * `orchestrator` and `title_graph` send no system prompt of their own, so this
- * returns `undefined` for them rather than inventing an empty descriptor —
- * an agent with no prompt is a fact worth reading off the catalogue.
- */
-export function builtInSystemPromptFor(agent: AgentKind): BuiltInPrompt | undefined {
-  return BY_KEY.get(promptKeyFor(agent, 'system'));
 }

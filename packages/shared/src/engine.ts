@@ -29,8 +29,6 @@ import type {
   CompletenessSummary,
   ComplianceCheck,
   ComplianceVerdict,
-  ComparisonResult,
-  ComparisonRow,
   ConfidenceBand,
   ConfidenceFactor,
   ConfidenceSummary,
@@ -87,7 +85,7 @@ import { assessmentProfile, methodStance, resolveProjectBrief } from './assessme
 import { COMPASS_SIDES, analyseTitleGraph, type CompassSide } from './graph';
 import { runPlaybooks } from './playbooks';
 import { ENGINE_VERSION } from './constants';
-import { REFERENCE_DATA, jurisdictionSegments, resolveStatePack as matchStatePack } from './reference';
+import { jurisdictionSegments, resolveStatePack as matchStatePack } from './reference';
 
 /* ==================================================================== */
 /* Deterministic PRNG                                                    */
@@ -1767,7 +1765,6 @@ function applyProfileToAnchors(anchors: ValueAnchor[], profile: AssessmentProfil
     };
   });
 }
-
 
 /** Blends anchors into a single low/mid/high, normalising by each anchor's relative weight. */
 function blendIndicativeValue(anchors: ValueAnchor[], currency: CurrencyCode): { low: number; mid: number; high: number } {
@@ -4697,7 +4694,6 @@ function buildOffer(
 
   const stance: OfferStance = blockers.length > 0 || criticals.length > 0 ? 'do_not_offer' : serious.length > 0 || completeness.missingCritical.length > 0 ? 'offer_conditionally' : 'offer';
 
-
   // The headline is prose a person reads, so it carries formatted money
   // rather than raw integers — using the country pack's own locale, which is
   // what makes an Indian figure group as lakh and crore rather than as
@@ -5063,165 +5059,6 @@ export function runScreen(input: {
 
   assertEvidenceIntegrity(result);
   return result;
-}
-
-/* ==================================================================== */
-/* compareCases — key user job 8                                         */
-/* ==================================================================== */
-
-function hasResult(c: PropertyCase): c is PropertyCase & { result: ScreenResult } {
-  return c.result !== undefined;
-}
-
-/**
- * Builds the side-by-side comparison for a set of cases. Reads locality gross
- * yield and liquidity from the same static `REFERENCE_DATA` the rest of the
- * engine uses (via `matchLocalityReference`) since `ScreenResult` itself has
- * no dedicated yield field — this keeps the function pure and dependent only
- * on its arguments plus static reference data, never on live lookups.
- */
-export function compareCases(cases: PropertyCase[], now: string): ComparisonResult {
-  const rows: ComparisonRow[] = [];
-  const caveats: string[] = [];
-
-  const currencies = new Set(cases.map(c => c.identity.currency));
-  const propertyTypes = new Set(cases.map(c => c.identity.propertyType));
-  if (currencies.size > 1) {
-    caveats.push(`Cases span multiple currencies (${[...currencies].join(', ')}) — currency-denominated figures are not directly comparable across them.`);
-  }
-  if (propertyTypes.size > 1) {
-    caveats.push(`Cases span multiple property types (${[...propertyTypes].join(', ')}) — comparable-driven metrics may not be like-for-like.`);
-  }
-  const unscreened = cases.filter(c => !c.result);
-  if (unscreened.length > 0) {
-    caveats.push(`${unscreened.map(c => c.reference).join(', ')} ${unscreened.length === 1 ? 'has' : 'have'} not been screened yet — some rows are blank for ${unscreened.length === 1 ? 'it' : 'them'}.`);
-  }
-
-  const marketByCaseId = new Map(
-    cases.map(c => {
-      const { ref } = matchLocalityReference(c.identity, REFERENCE_DATA.localities);
-      return [c.id, { grossYield: ref.grossYield, liquidityDays: c.result?.marketContext.liquidityDays ?? ref.liquidityDays }] as const;
-    }),
-  );
-
-  rows.push({
-    key: 'askingPrice',
-    label: 'Asking price',
-    better: 'none',
-    format: 'currency',
-    values: cases.map(c => ({ caseId: c.id, value: c.identity.askingPrice ?? null, note: c.identity.askingPrice === undefined ? 'No asking price on file' : undefined })),
-  });
-  rows.push({
-    key: 'indicativeMid',
-    label: 'Indicative mid value',
-    better: 'none',
-    format: 'currency',
-    values: cases.map(c => ({ caseId: c.id, value: c.result?.indicativeValue.mid ?? null, note: c.result ? undefined : 'Not yet screened' })),
-  });
-  rows.push({
-    key: 'pricePerSqm',
-    label: 'Indicative mid — per sqm',
-    better: 'lower',
-    format: 'currency_per_sqm',
-    values: cases.map(c => ({ caseId: c.id, value: c.result?.indicativeValue.perSqm.mid ?? null, note: c.result ? undefined : 'Not yet screened' })),
-  });
-  rows.push({
-    key: 'askingVsMid',
-    label: 'Asking vs indicative mid',
-    better: 'lower',
-    format: 'percent',
-    values: cases.map(c => ({
-      caseId: c.id,
-      value: c.result?.indicativeValue.askingVsMidPct ?? null,
-      note: c.result?.indicativeValue.askingVsMidPct == null ? 'No asking price on file, or not yet screened' : undefined,
-    })),
-  });
-  rows.push({
-    key: 'confidence',
-    label: 'Confidence score',
-    better: 'higher',
-    format: 'score',
-    values: cases.map(c => ({ caseId: c.id, value: c.result?.confidence.score ?? null, note: c.result ? undefined : 'Not yet screened' })),
-  });
-  rows.push({
-    key: 'completeness',
-    label: 'Document completeness',
-    better: 'higher',
-    format: 'score',
-    values: cases.map(c => ({ caseId: c.id, value: c.result?.completeness.score ?? null, note: c.result ? undefined : 'Not yet screened' })),
-  });
-  rows.push({
-    key: 'openCriticalRisks',
-    label: 'Open critical risks',
-    better: 'lower',
-    format: 'number',
-    values: cases.map(c => ({
-      caseId: c.id,
-      value: c.result ? c.result.risks.filter(r => r.status === 'open' && r.severity === 'critical').length : null,
-      note: c.result ? undefined : 'Not yet screened',
-    })),
-  });
-  rows.push({
-    key: 'spreadPct',
-    label: 'Value range spread',
-    better: 'lower',
-    format: 'percent',
-    values: cases.map(c => ({ caseId: c.id, value: c.result?.indicativeValue.spreadPct ?? null, note: c.result ? undefined : 'Not yet screened' })),
-  });
-  rows.push({
-    key: 'yieldProxy',
-    label: 'Locality gross yield (proxy)',
-    better: 'higher',
-    format: 'percent',
-    values: cases.map(c => ({ caseId: c.id, value: round2((marketByCaseId.get(c.id)?.grossYield ?? 0) * 100) })),
-  });
-  rows.push({
-    key: 'liquidityDays',
-    label: 'Market liquidity (days to transact)',
-    better: 'lower',
-    format: 'days',
-    values: cases.map(c => ({ caseId: c.id, value: marketByCaseId.get(c.id)?.liquidityDays ?? null })),
-  });
-  rows.push({
-    key: 'developmentPotential',
-    label: 'Development potential',
-    better: 'none',
-    format: 'text',
-    values: cases.map(c => ({ caseId: c.id, value: c.result?.planning.developmentPotential ?? null, note: c.result ? undefined : 'Not yet screened' })),
-  });
-  rows.push({
-    key: 'verdict',
-    label: 'Recommendation',
-    better: 'none',
-    format: 'text',
-    values: cases.map(c => ({ caseId: c.id, value: c.result?.recommendation.verdict ?? null, note: c.result ? undefined : 'Not yet screened' })),
-  });
-
-  const verdictRank: Record<ScreenVerdict, number> = { pursue: 3, pursue_with_conditions: 2, investigate_further: 1, do_not_pursue: 0 };
-  const screened = cases.filter(hasResult);
-  let shortlist: ComparisonResult['shortlist'] = null;
-  if (screened.length > 0) {
-    const openCriticalCount = (c: PropertyCase & { result: ScreenResult }): number => c.result.risks.filter(r => r.status === 'open' && r.severity === 'critical').length;
-    const best = screened.reduce((a, b) => {
-      const rankDelta = verdictRank[b.result.recommendation.verdict] - verdictRank[a.result.recommendation.verdict];
-      if (rankDelta !== 0) return rankDelta > 0 ? b : a;
-      const confidenceDelta = b.result.confidence.score - a.result.confidence.score;
-      if (confidenceDelta !== 0) return confidenceDelta > 0 ? b : a;
-      return openCriticalCount(b) < openCriticalCount(a) ? b : a;
-    });
-    shortlist = {
-      caseId: best.id,
-      reason: `${best.reference} has the strongest recommendation (${best.result.recommendation.verdict.replace(/_/g, ' ')}) at ${best.result.confidence.band} confidence (${best.result.confidence.score}/100) with ${openCriticalCount(best)} open critical risk(s).`,
-    };
-  }
-
-  return {
-    generatedAt: now,
-    cases: cases.map(c => ({ id: c.id, reference: c.reference, label: c.identity.label, currency: c.identity.currency })),
-    rows,
-    shortlist,
-    caveats,
-  };
 }
 
 /* ==================================================================== */

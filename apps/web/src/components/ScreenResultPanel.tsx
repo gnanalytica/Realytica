@@ -100,7 +100,6 @@ function ComplianceRow({ check }: { check: ComplianceCheck }) {
   );
 }
 
-
 /**
  * Which slice of the working to render.
  *
@@ -766,5 +765,3 @@ export function ScreenResultPanel({
     </div>
   );
 }
-
-export default ScreenResultPanel;

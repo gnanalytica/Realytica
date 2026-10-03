@@ -4,7 +4,6 @@ import type {
   DocumentKind,
   EvalCase,
   EvalExpectation,
-  EvalTaskKind,
   ExtractedField,
   PropertyIdentity,
 } from '@realytica/shared';
@@ -91,15 +90,6 @@ export interface EvalCorpusParams {
   /** Seeded cases to derive from. Defaults to the whole demo corpus. */
   seedCases?: CreateCaseRequest[];
 }
-
-/**
- * A default corpus timestamp, for callers with nothing better to pin.
- *
- * Chosen as a fixed past date rather than "today" so that the derived
- * expectations, and therefore the case ids, are stable for as long as this
- * constant is.
- */
-export const DEFAULT_EVAL_CORPUS_AT = '2025-06-01T00:00:00.000Z';
 
 /** Areas drift under OCR; a millimetre of disagreement is not an error. */
 const AREA_TOLERANCE = 0.02;
@@ -321,18 +311,6 @@ function documentExtractionCase(params: {
   return { evalCase, groundTruth };
 }
 
-/**
- * One case per seeded document that the engine can extract anything from.
- *
- * Documents that yield no fields (a photograph, an unclassified file) produce
- * no case: there is nothing to be right or wrong about, and a case with no
- * expectations would be scored as a vacuous success by anything that got hold
- * of it.
- */
-export function buildDocumentExtractionCases(params: EvalCorpusParams): EvalCase[] {
-  return documentExtractionCasesWithTruth(params).map(entry => entry.evalCase);
-}
-
 function documentExtractionCasesWithTruth(params: EvalCorpusParams): EvalCaseWithTruth[] {
   const seeds = params.seedCases ?? FIXTURE_CASES;
   const cases: EvalCaseWithTruth[] = [];
@@ -527,10 +505,6 @@ function absenceExpectation(key: string): EvalExpectation {
   return { key, expected: ABSENT_EXPECTED, match: 'exact', mustBeAbsent: true };
 }
 
-export function buildAdversarialAbsenceCases(params: EvalCorpusParams): EvalCase[] {
-  return adversarialAbsenceCasesWithTruth(params).map(entry => entry.evalCase);
-}
-
 function adversarialAbsenceCasesWithTruth(params: EvalCorpusParams): EvalCaseWithTruth[] {
   const seeds = params.seedCases ?? FIXTURE_CASES;
   const byLabel = new Map(seeds.map(seed => [seed.identity.label, seed.identity]));
@@ -682,10 +656,6 @@ function groundingCasesWithTruth(): EvalCaseWithTruth[] {
   ];
 }
 
-export function buildGroundingCases(): EvalCase[] {
-  return groundingCasesWithTruth().map(entry => entry.evalCase);
-}
-
 /**
  * Proof-routing cases: does the route name a real authority, form and
  * procedure?
@@ -784,10 +754,6 @@ function proofRoutingCasesWithTruth(): EvalCaseWithTruth[] {
   ];
 }
 
-export function buildProofRoutingCases(): EvalCase[] {
-  return proofRoutingCasesWithTruth().map(entry => entry.evalCase);
-}
-
 /**
  * Title-reasoning cases: does the chain reasoning reach the right finding?
  *
@@ -858,10 +824,6 @@ function titleReasoningCasesWithTruth(): EvalCaseWithTruth[] {
   ];
 }
 
-export function buildTitleReasoningCases(): EvalCase[] {
-  return titleReasoningCasesWithTruth().map(entry => entry.evalCase);
-}
-
 /* ==================================================================== */
 /* The whole corpus                                                      */
 /* ==================================================================== */
@@ -888,37 +850,4 @@ export function buildEvalCorpus(params: EvalCorpusParams): EvalCaseWithTruth[] {
 /** Every case, every task kind. */
 export function buildEvalCases(params: EvalCorpusParams): EvalCase[] {
   return buildEvalCorpus(params).map(entry => entry.evalCase);
-}
-
-/** The corpus for one task kind — what `runEvalComparison` is normally given. */
-export function evalCasesForTaskKind(kind: EvalTaskKind, params: EvalCorpusParams): EvalCase[] {
-  return buildEvalCases(params).filter(c => c.kind === kind);
-}
-
-/**
- * How many cases and expectations exist per task kind, and how many of those
- * expectations are absences.
- *
- * The absence count is the number worth watching: it is the share of this
- * corpus that tests for fabrication rather than for accuracy, and if it drifts
- * towards zero the harness has quietly stopped doing the job it was built for.
- */
-export function summariseEvalCorpus(cases: EvalCase[]): {
-  kind: EvalTaskKind;
-  cases: number;
-  expectations: number;
-  absenceExpectations: number;
-}[] {
-  const kinds: EvalTaskKind[] = ['document_extraction', 'grounding', 'proof_routing', 'title_reasoning'];
-  return kinds
-    .map(kind => {
-      const forKind = cases.filter(c => c.kind === kind);
-      return {
-        kind,
-        cases: forKind.length,
-        expectations: forKind.reduce((n, c) => n + c.expectations.length, 0),
-        absenceExpectations: forKind.reduce((n, c) => n + c.expectations.filter(e => e.mustBeAbsent).length, 0),
-      };
-    })
-    .filter(row => row.cases > 0);
 }

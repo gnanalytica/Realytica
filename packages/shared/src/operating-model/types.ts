@@ -1620,8 +1620,6 @@ export interface ProjectScreenSnapshot {
  */
 export type EngagementStage = 'intake' | 'documents' | 'site_visit' | 'analysis' | 'review' | 'issued';
 
-export const ENGAGEMENT_STAGES: EngagementStage[] = ['intake', 'documents', 'site_visit', 'analysis', 'review', 'issued'];
-
 export const ENGAGEMENT_STAGE_LABEL: Record<EngagementStage, string> = {
   intake: 'Intake',
   documents: 'Documents',
@@ -1630,7 +1628,6 @@ export const ENGAGEMENT_STAGE_LABEL: Record<EngagementStage, string> = {
   review: 'Review',
   issued: 'Issued',
 };
-
 
 export type ProjectRequestStatus = 'draft' | 'sent' | 'answered' | 'cancelled';
 

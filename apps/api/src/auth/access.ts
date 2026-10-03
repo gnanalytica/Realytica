@@ -77,16 +77,6 @@ export function projectFor(req: Request, project: DdProject): DdProject {
 }
 
 /**
- * Whether a caller with a narrowed grant is a reviewer rather than a
- * contributor. Staff and above are never reviewers here.
- */
-export function isReadOnlyOn(req: Request, project: DdProject): boolean {
-  const resolved = accessTo(req, project);
-  if (!resolved.ok) return true;
-  return resolved.access.kind === 'granted' && resolved.access.grant.role === 'reviewer';
-}
-
-/**
  * The ids on this project that this caller cannot reach.
  *
  * Everything on the real file, minus everything on their projection. It does

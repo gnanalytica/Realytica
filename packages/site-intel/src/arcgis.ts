@@ -1,4 +1,3 @@
-
 // ArcGIS REST client for the Telangana GIS layers.
 //
 // Two things about this server shape the design. Its `distance`/`units` query
@@ -290,6 +289,3 @@ export async function queryLayers(
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   return mapWithConcurrency(specs, concurrency, (spec) => queryOne(spec, point, timeoutMs));
 }
-
-/** Exported for the probe script, which checks the live layers without the app. */
-export const __internal = { buildUrl, measure, cleanAttributes };

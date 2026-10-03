@@ -26,7 +26,6 @@ import type { PhotoObservation } from './photo-observation';
 import type {
   ActionAging,
   AiDraft,
-  AiDraftKind,
   AiDraftStatus,
   CapabilityRun,
   CreateActionInput,
@@ -781,13 +780,3 @@ export function commitAiDraft(project: DdProject, draftId: string, actor = 'oper
   });
   return { draft, recordId };
 }
-
-export const AI_DRAFT_KINDS: AiDraftKind[] = [
-  'finding',
-  'risk',
-  'action',
-  'decision',
-  'report_section',
-  'check_comment',
-  'orchestrator_plan',
-];

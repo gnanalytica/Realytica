@@ -42,15 +42,8 @@ import type { ChatChoice, DdProject } from './types';
 const COMMAND_VERB =
   /\b(set|mark|start|begin|record|close|complete|finish|resolve|assign|update|change|add|create|request|tick|cross|approve|reject|skip|make)\b/i;
 
-/** Verbs that only read. A near-miss here is worth offering, never fatal. */
-const LOOKUP_VERB = /\b(show|open|find|fetch|get|see|view|read|tell|what|which|where|how|why|status|details?)\b/i;
-
 export function looksLikeCommand(text: string): boolean {
   return COMMAND_VERB.test(text) && !/^\s*(what|which|where|how|why|who)\b/i.test(text.trim());
-}
-
-export function looksLikeLookup(text: string): boolean {
-  return LOOKUP_VERB.test(text);
 }
 
 /* ==================================================================== */
@@ -254,68 +247,6 @@ export function sittingTitle(sitting: TalkSitting): string {
 }
 
 /* ==================================================================== */
-/* When the verb is not one we can carry out                             */
-/* ==================================================================== */
-
-/**
- * What can actually be done to this subject, from here, today.
- *
- * Derived from the subject's kind rather than from the words in the message,
- * so it stays true as commands are added and cannot drift into advertising
- * something chat does not do.
- */
-export function actionChoicesFor(project: DdProject, sitting: TalkSitting): ChatChoice[] {
-  const out: ChatChoice[] = [];
-  const push = (label: string, detail: string, send: string) => {
-    out.push({ id: choiceId('act', out.length), label, detail, send });
-  };
-  const title = sitting.label.includes(' · ')
-    ? sitting.label.slice(sitting.label.lastIndexOf(' · ') + 3)
-    : sitting.label;
-
-  if (sitting.kind === 'check' || sitting.kind === 'scope' || sitting.kind === 'dd') {
-    push(
-      'Record it as compliant',
-      'Closes the check as satisfied. No finding is raised.',
-      `Mark "${title}" as compliant`,
-    );
-    push(
-      'Record it as non-compliant',
-      'Closes the check and raises a high-severity finding against this scope.',
-      `Mark "${title}" as non-compliant`,
-    );
-    push('Open it', 'Opens the check on the right, with the full result list. Nothing is written.', `Open "${title}"`);
-    const hit = sittingCheckOf(project, sitting.extra);
-    if (hit?.check.expectedEvidence.length) {
-      push(
-        'Request the evidence it needs',
-        `Queues a request card for ${hit.check.expectedEvidence.slice(0, 2).join(', ')}.`,
-        `Request evidence for "${title}"`,
-      );
-    }
-    return out;
-  }
-  if (sitting.kind === 'finding') {
-    push('Close it', 'Marks the finding closed on the register.', `Close finding "${title}"`);
-    push('Show it', 'Opens the finding, nothing written.', `Open "${title}"`);
-    return out;
-  }
-  if (sitting.kind === 'risk') {
-    push('Mark it mitigated', 'Moves the risk to mitigated.', `Mitigate risk "${title}"`);
-    push('Accept it', 'Moves the risk to accepted.', `Accept risk "${title}"`);
-    push('Show it', 'Opens the risk, nothing written.', `Open "${title}"`);
-    return out;
-  }
-  if (sitting.kind === 'action') {
-    push('Close it', 'Marks the action closed.', `Close action "${title}"`);
-    push('Show it', 'Opens the action, nothing written.', `Open "${title}"`);
-    return out;
-  }
-  push('Show it', 'Opens it on the right, nothing written.', `Open "${title}"`);
-  return out;
-}
-
-/* ==================================================================== */
 /* When there is nothing to rank: ask                                    */
 /* ==================================================================== */
 
@@ -437,7 +368,6 @@ export function clarifySubject(
   }
   return null;
 }
-
 
 /* ==================================================================== */
 /* Dead ends on the register commands                                    */

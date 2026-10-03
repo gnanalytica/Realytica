@@ -27,29 +27,3 @@ export function toSqft(value: number, unit: string | null | undefined): number {
 export function convertArea(value: number, from: string | null | undefined, to: AreaUnit): number {
   return toSqft(value, from) / TO_SQFT[to];
 }
-
-export function formatArea(value: number, unit: string): string {
-  const rounded = Math.round(value * 100) / 100;
-  return `${rounded.toLocaleString("en-IN")} ${unit}`;
-}
-
-// RERA / IBA disclosures expect carpet < built-up < super-built-up. Returns a
-// human-readable warning when the hierarchy is violated, else null. Compares in
-// sqft (the areas are stored in sqft) but tolerates rounding noise.
-export function validateAreaHierarchy(
-  carpet: number | null,
-  builtUp: number | null,
-  superBuiltUp: number | null,
-): string | null {
-  const EPS = 0.5;
-  if (carpet != null && builtUp != null && carpet > builtUp + EPS) {
-    return "Carpet area exceeds built-up area — check the figures.";
-  }
-  if (builtUp != null && superBuiltUp != null && builtUp > superBuiltUp + EPS) {
-    return "Built-up area exceeds super built-up area — check the figures.";
-  }
-  if (carpet != null && superBuiltUp != null && carpet > superBuiltUp + EPS) {
-    return "Carpet area exceeds super built-up area — check the figures.";
-  }
-  return null;
-}

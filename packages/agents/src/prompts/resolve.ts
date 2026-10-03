@@ -48,10 +48,9 @@
  * an unrecognised override lands on the shipped text.
  */
 
-import type { AgentKind, PromptDescriptor, PromptUsage, PromptVersion } from '@realytica/shared';
+import type { PromptDescriptor, PromptUsage, PromptVersion } from '@realytica/shared';
 import { warnOnce } from '../client';
 import { brokenInvariantIds, SHARED_GROUNDING_KEY } from './invariants';
-import { promptKeyFor } from './registry';
 import { InMemoryPromptStore, type PromptStore } from './store';
 
 /* ==================================================================== */
@@ -285,13 +284,4 @@ export async function resolvePrompt(
   const content = renderPromptTemplate(key, version.content, descriptor.variables, values);
   const usage = usageOf(version);
   return { key, content, version, source, usage, usages: [...composed, usage] };
-}
-
-/** `resolvePrompt` for an agent's own system prompt. The common call. */
-export function resolveAgentSystemPrompt(
-  agent: AgentKind,
-  variables: Record<string, string> = {},
-  options: ResolvePromptOptions = {},
-): Promise<ResolvedPrompt> {
-  return resolvePrompt(promptKeyFor(agent, 'system'), variables, options);
 }

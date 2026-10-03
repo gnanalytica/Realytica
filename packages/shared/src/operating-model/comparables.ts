@@ -510,10 +510,6 @@ export interface ComparableQuery {
 
 const LAND: ReadonlySet<ComparableSubclass> = new Set(['residential_plot', 'commercial_plot', 'agricultural']);
 
-export function isLandSubclass(subclass: ComparableSubclass): boolean {
-  return LAND.has(subclass);
-}
-
 /** Land trades over a wider area than flats do, and farmland wider still. */
 function radiusKmFor(subclass: ComparableSubclass): number {
   if (subclass === 'agricultural') return 10;

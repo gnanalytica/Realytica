@@ -407,10 +407,6 @@ function proposalsFromDrafts(project: DdProject, actor: string): { cards: ChatPr
   };
 }
 
-export function reviewPendingDrafts(project: DdProject, actor = 'operator'): { cards: ChatProposal[]; text: string } {
-  return proposalsFromDrafts(project, actor);
-}
-
 export function handleChatSides(
   project: DdProject,
   question: string,

@@ -58,10 +58,7 @@ import type {
   CountryCode,
   DataSourceDescriptor,
   IngestedRecordType,
-  PropertyIdentity,
   PropertyType,
-  SourceAccess,
-  SourceKind,
 } from '@realytica/shared';
 
 /* ------------------------------------------------------------------ */
@@ -777,12 +774,6 @@ export const DATA_SOURCES: readonly RegisteredSource[] = Object.freeze([
   LANDEED,
 ]);
 
-const BY_ID: ReadonlyMap<string, RegisteredSource> = new Map(DATA_SOURCES.map(s => [s.id, s]));
-
-export function findSource(id: string): RegisteredSource | undefined {
-  return BY_ID.get(id);
-}
-
 /** The contract-shaped view, for anything outside this package. */
 export function toDescriptor(source: RegisteredSource): DataSourceDescriptor {
   const { id, label, authority, kind, country, state, access, url, whatItWouldHaveAnswered, manualRoute } = source;
@@ -793,113 +784,6 @@ export function allDescriptors(): DataSourceDescriptor[] {
   return DATA_SOURCES.map(toDescriptor);
 }
 
-/**
- * Hostnames of every source this registry declares unreachable.
- *
- * Exported so that the explorer's `BLOCKED_HOSTNAMES` and this registry can be
- * cross-checked rather than drifting apart — two files independently deciding
- * what is blocked is exactly how a portal ends up blocked in one code path and
- * hammered in the other. Note that `file_upload` hosts are included: a source
- * whose only supported route is a human downloading a file is a source no
- * automated fetch should be pointed at either.
- */
-export const DECLARED_UNREACHABLE_HOSTNAMES: readonly string[] = Object.freeze(
-  Array.from(
-    new Set(
-      DATA_SOURCES.filter(s => s.access !== 'open')
-        .flatMap(s => s.hostnames)
-        .sort(),
-    ),
-  ),
-);
-
-/** The access classifications that will never cause a network request from this package. */
-export const NON_NETWORK_ACCESS: readonly SourceAccess[] = Object.freeze([
-  'auth_required',
-  'captcha',
-  'offline_only',
-  'file_upload',
-]);
-
 /* ------------------------------------------------------------------ */
 /* Applicability                                                       */
 /* ------------------------------------------------------------------ */
-
-export interface ApplicabilityVerdict {
-  applies: boolean;
-  /** Always populated — a positive verdict states the match, a negative one states the gate that rejected it. */
-  reason: string;
-}
-
-function norm(value: string | undefined): string {
-  return (value ?? '').trim().toLowerCase();
-}
-
-/**
- * Whether a source has anything to say about this case.
- *
- * Distinguished from unreachability on purpose. "BBMP has no record of a
- * Devanahalli gram panchayat site" is not a gap in the diligence — BBMP is not
- * the authority. Reporting it as unreachable would inflate the apparent list
- * of things we failed to check, which is the mirror image of the dishonesty
- * this registry exists to prevent.
- */
-export function sourceApplies(source: RegisteredSource, identity: PropertyIdentity): ApplicabilityVerdict {
-  const scope = source.applicability;
-
-  if (!scope.countries.includes(identity.country)) {
-    return {
-      applies: false,
-      reason: `Out of scope: ${source.label} covers ${scope.countries.join('/')}, this case is ${identity.country}. ${scope.scopeNote}`,
-    };
-  }
-
-  if (scope.states && !scope.states.some(s => norm(s) === norm(identity.state))) {
-    return {
-      applies: false,
-      reason: `Out of scope: ${source.label} covers ${scope.states.join('/')}, this case is in ${identity.state || 'an unstated state'}. ${scope.scopeNote}`,
-    };
-  }
-
-  if (scope.cities && !scope.cities.some(c => norm(c) === norm(identity.city))) {
-    return {
-      applies: false,
-      reason: `Out of scope: ${source.label} covers ${scope.cities.join('/')}, this case is in ${identity.city || 'an unstated city'}. ${scope.scopeNote}`,
-    };
-  }
-
-  if (scope.propertyTypes && !scope.propertyTypes.includes(identity.propertyType)) {
-    return {
-      applies: false,
-      reason: `Out of scope for a ${identity.propertyType.replace(/_/g, ' ')}. ${scope.scopeNote}`,
-    };
-  }
-
-  if (scope.karnatakaJurisdictions) {
-    const jurisdiction = identity.karnataka?.jurisdiction;
-    if (!jurisdiction) {
-      return {
-        applies: false,
-        reason: `Out of scope: ${source.label} is jurisdiction-specific (${scope.karnatakaJurisdictions.join('/')}) and this case does not state a Karnataka jurisdiction. ${scope.scopeNote}`,
-      };
-    }
-    if (!scope.karnatakaJurisdictions.includes(jurisdiction)) {
-      return {
-        applies: false,
-        reason: `Out of scope: ${source.label} covers ${scope.karnatakaJurisdictions.join('/')} properties, this case is ${jurisdiction}. ${scope.scopeNote}`,
-      };
-    }
-  }
-
-  return { applies: true, reason: `In scope: ${scope.scopeNote}` };
-}
-
-/** Every source that has something to say about this case, in registry order. */
-export function applicableSources(identity: PropertyIdentity): RegisteredSource[] {
-  return DATA_SOURCES.filter(s => sourceApplies(s, identity).applies);
-}
-
-/** Sources of a given kind, for callers that want (say) every comparables route. */
-export function sourcesOfKind(kind: SourceKind): RegisteredSource[] {
-  return DATA_SOURCES.filter(s => s.kind === kind);
-}

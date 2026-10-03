@@ -32,7 +32,7 @@
 import type { DocumentKind, PropertyType } from '../types';
 import { KARNATAKA_PACK } from '../packs/karnataka';
 import type { Playbook, PlaybookContext, StepOutcome } from './types';
-import { isoYear, normaliseSurveyNumber } from './types';
+import { isoYear } from './types';
 
 /**
  * The pack's own catalogue is the single source of truth for a named check's

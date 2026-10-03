@@ -13,7 +13,7 @@ import {
   type TalkSitting,
 } from '@realytica/shared';
 import { api } from '../../../lib/api';
-import { Badge, Button, cn, useToast } from '../../../components/ui/kit';
+import { Badge, cn, useToast } from '../../../components/ui/kit';
 import { checkTone } from '../shared';
 import { FieldAdvise } from './FieldAdvise';
 

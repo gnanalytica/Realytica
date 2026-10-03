@@ -6,7 +6,6 @@
  * Nothing here is this file's evidence until a person files the extract.
  */
 
-import { DD_CONNECTORS } from '../dd-connectors';
 import type { PlanningOverlayPin } from './planning-overlay';
 import type { DdProject } from './types';
 
@@ -178,9 +177,4 @@ export function planningMapsFor(
 
   const refused = PLANNING_MAP_SOURCES.filter((s) => s.standing === 'commercial' || s.standing === 'unofficial' || s.standing === 'withdrawn');
   return { realm, sittings, liveOverlays, refused };
-}
-
-export function connectorForMapSource(source: PlanningMapSource) {
-  if (!source.connectorKey) return undefined;
-  return DD_CONNECTORS.find((c) => c.key === source.connectorKey);
 }

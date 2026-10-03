@@ -18,7 +18,3 @@
  */
 
 export * from './registry';
-export * from './normalise';
-export * from './adapters/file';
-export * from './adapters/http';
-export * from './ingest';

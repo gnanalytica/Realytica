@@ -59,8 +59,3 @@ export async function syncGraph(projects: DdProject[]): Promise<void> {
     }
   }
 }
-
-/** Forgets what has been synced, so the next call rebuilds everything. Tests only. */
-export function resetSyncState(): void {
-  synced.clear();
-}

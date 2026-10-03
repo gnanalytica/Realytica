@@ -17,9 +17,6 @@ import type {
   ReportKind,
   ScopeStatus,
   RiskImpactType,
-  ValuationApproach,
-  ValuationBasis,
-  ValuationPremise,
   ValuationRunStatus,
   ValuationSignOff,
   CapabilityKind,
@@ -292,27 +289,6 @@ export const REPORT_KIND_LABEL: Record<ReportKind, string> = {
   changes_since_previous: 'Changes since previous DD',
   indicative_valuation: 'Indicative valuation',
   handover_readiness: 'Handover readiness',
-};
-
-export const VALUATION_PREMISE_LABEL: Record<ValuationPremise, string> = {
-  as_is: 'As-is',
-  as_completed: 'As completed',
-  residual: 'Residual / development',
-  forced_sale: 'Forced sale',
-};
-
-export const VALUATION_BASIS_LABEL: Record<ValuationBasis, string> = {
-  market_value: 'Market value',
-  investment_value: 'Investment value',
-  liquidation: 'Liquidation',
-  replacement_cost: 'Replacement cost',
-};
-
-export const VALUATION_APPROACH_LABEL: Record<ValuationApproach, string> = {
-  market: 'Market / comparable',
-  cost: 'Cost / replacement',
-  income: 'Income',
-  residual: 'Residual',
 };
 
 export const VALUATION_SIGN_OFF_LABEL: Record<ValuationSignOff, string> = {

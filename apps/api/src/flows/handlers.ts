@@ -11,7 +11,7 @@ import { agentCapability, allDescriptors, resolveRoute } from '@realytica/agents
 import { graphAdapter } from '../graph';
 import { memoryReadableBy, memoryStore } from '../memory';
 import { noteCredentialUse, secretFor } from './credentials';
-import { OutboundRefused, assertReachable, fetchOutbound } from './outbound';
+import { OutboundRefused, fetchOutbound } from './outbound';
 
 /**
  * What each node kind actually does, once the engine has decided it should.

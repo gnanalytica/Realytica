@@ -41,7 +41,7 @@ import {
 } from '../../lib/reading';
 import { ReadingDesk } from '../../components/reading/ReadingDesk';
 import { CopilotPanel } from '../../components/CopilotPanel';
-import { Badge, Button, Spinner, cn, useToast } from '../../components/ui/kit';
+import { Badge, Spinner, cn, useToast } from '../../components/ui/kit';
 import { SPRING, ScreenEnter, motion } from '../../lib/motion';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { EMPTY_CHAT_WIDTH, LAYOUTS, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
@@ -612,7 +612,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const conversation = (project.conversation ?? []) as CopilotTurn[];
   const spec = LAYOUTS[layout];
   const fillRight = pane === 'graph';
-  const currentDd = params.ddId ? project.assessments.find((a) => a.id === params.ddId) : undefined;
   const next = useMemo(() => projectNextStep(project), [project]);
   const nodeLabels = useMemo(() => graphNodeLabels(project), [project]);
 

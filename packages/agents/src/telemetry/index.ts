@@ -57,15 +57,11 @@ export {
   DEFAULT_CACHE_READ_DISCOUNT,
   PRICING_ENV_VAR,
   createCoverageAccumulator,
-  declaredPricingRoutes,
-  describePriceConfidence,
   priceTokens,
-  pricedUsage,
 } from './pricing';
 
 export type {
   Clock,
-  ManualClock,
   OneOrMany,
   RecordedLlmCall,
   TelemetryPersistence,
@@ -73,14 +69,12 @@ export type {
   TelemetryRetention,
   TelemetrySink,
 } from './types';
-export { createManualClock, systemClock } from './types';
+export { systemClock } from './types';
 
-export type { CallFinish, CallHandle, CallStart, Recorder, RecorderDeps } from './recorder';
-export { beginCall, createRecorder, withCall } from './recorder';
+export type { CallFinish, CallHandle, CallStart, RecorderDeps } from './recorder';
+export { beginCall, withCall } from './recorder';
 
 export type {
-  CaseCostOptions,
-  CaseCostView,
   ProviderPerformanceRow,
   SummaryOptions,
   TelemetrySummaryView,
@@ -89,19 +83,16 @@ export {
   percentileNearestRank,
   providerPerformance,
   sortNewestFirst,
-  summariseCaseCost,
   summariseTelemetry,
 } from './aggregate';
 
-export type { InMemoryTelemetryPersistence, PersistedTelemetrySinkOptions } from './sinks';
+export type { PersistedTelemetrySinkOptions } from './sinks';
 export {
   DEFAULT_MEMORY_CAPACITY,
   DEFAULT_RETENTION,
   MemoryTelemetrySink,
-  NoopTelemetrySink,
   PersistedTelemetrySink,
   applyQuery,
   applyRetention,
-  createInMemoryTelemetryPersistence,
   matchesQuery,
 } from './sinks';

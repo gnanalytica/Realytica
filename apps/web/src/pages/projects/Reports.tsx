@@ -3,7 +3,7 @@ import { FileText } from 'lucide-react';
 import { useOutletContext } from 'react-router-dom';
 import { REPORT_KIND_LABEL, type ReportKind } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Modal, Select, useToast } from '../../components/ui/kit';
+import { Button, Card, CardBody, EmptyState, Field, Modal, Select, useToast } from '../../components/ui/kit';
 import { ReportEditor } from './ReportEditor';
 import type { ProjectOutlet } from './ProjectLayout';
 import { formatWhen } from './shared';

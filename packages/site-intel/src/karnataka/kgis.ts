@@ -1,4 +1,3 @@
-
 // Reading a Karnataka parcel from K-GIS.
 //
 // One call per survey number: `geomForSurveyNum/<villageId>/<surveyNo>/DD`
@@ -9,9 +8,6 @@
 // village, so N±6 is usually the plots around N. It is a heuristic and the
 // map says so.
 
-import { mapWithConcurrency } from "../concurrency";
-import type { LatLng } from "../geo/measure";
-import { haversineMeters } from "../geo/measure";
 import type { ParcelRecord } from "../cadastre";
 import { parcelExtent } from "../cadastre";
 import { ringsCentroid, type Ring } from "../geometry";
@@ -21,10 +17,6 @@ import { wktToRings } from "./utm";
 
 const KGIS_WS = "https://kgis.ksrsac.in:9000/genericwebservices/ws";
 const TIMEOUT_MS = 15_000;
-/** How far either side of the subject's number the neighbour probe looks. */
-const NEIGHBOUR_SPAN = 6;
-/** A probed neighbour further than this is a numbering coincidence, not a neighbour. */
-const NEIGHBOUR_MAX_M = 500;
 
 export type KgisOutcome<T> =
   | { ok: true; data: T }
@@ -140,40 +132,4 @@ export async function getKgisParcel(
   }
   if (last && !last.ok) return last;
   return { ok: true, data: null };
-}
-
-/**
- * The plots around a subject, by probing the survey numbers either side of it
- * and keeping the ones that are actually nearby. Returns whatever answered;
- * a probe that fails is dropped rather than failing the sketch.
- */
-export async function kgisNeighbours(
-  code: string,
-  surveyNo: string,
-  centre: LatLng,
-): Promise<ParcelRecord[]> {
-  const v = kaVillageByCode(code);
-  const split = splitSurveyNo(surveyNo);
-  if (!v || !split) return [];
-  const base = Number.parseInt(split.base, 10);
-  if (!Number.isFinite(base)) return [];
-
-  const candidates: string[] = [];
-  for (let d = 1; d <= NEIGHBOUR_SPAN; d++) {
-    if (base - d >= 1) candidates.push(String(base - d));
-    candidates.push(String(base + d));
-  }
-
-  const found = await mapWithConcurrency(candidates, 4, async (n) => {
-    for (const id of v.ids) {
-      const res = await fetchRings(id, n);
-      if (res.ok && res.data) return shape(v, n, res.data);
-      if (!res.ok) return null;
-    }
-    return null;
-  });
-
-  return found
-    .filter((p): p is ParcelRecord => p !== null)
-    .filter((p) => haversineMeters(centre, p.centroid) <= NEIGHBOUR_MAX_M);
 }

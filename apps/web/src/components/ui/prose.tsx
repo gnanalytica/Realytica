@@ -145,25 +145,3 @@ export function SplitProse({ text, tone, lead, alwaysOpen, className }: {
   const { lead: claim, rest } = splitLead(text);
   return <Finding claim={claim} detail={rest} tone={tone} lead={lead} alwaysOpen={alwaysOpen} className={className} />;
 }
-
-/**
- * A short label-and-value row, for facts that are not sentences.
- *
- * Most of what a paragraph in this product was carrying is a pair: a name and
- * a figure. Rendering those as prose is what turned a table into notes.
- */
-export function FactRow({ label, value, tone }: { label: string; value: ReactNode; tone?: 'critical' | 'warning' | 'good' }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-hairline py-1.5 last:border-0">
-      <span className="text-[13px] text-ink-secondary">{label}</span>
-      <span
-        className={cn(
-          'shrink-0 font-mono text-[13px] tabular-nums font-medium',
-          tone === 'critical' ? 'text-critical' : tone === 'warning' ? 'text-ink' : tone === 'good' ? 'text-good' : 'text-ink',
-        )}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
