@@ -14,7 +14,13 @@ export function googleMapsKey(): string | undefined {
 }
 
 type GoogleWindow = Window & {
-  google?: { maps?: { Map?: unknown; importLibrary?: (name: string) => Promise<unknown> } };
+  google?: {
+    maps?: {
+      Map?: unknown;
+      importLibrary?: (name: string) => Promise<unknown>;
+      event?: { trigger(instance: object, eventName: string): void };
+    };
+  };
   __realyticaGoogleMapsReady?: () => void;
   gm_authFailure?: () => void;
 };
@@ -49,14 +55,35 @@ export interface StreetViewLibrary {
 
 let loading: Promise<void> | null = null;
 
+/*
+ * Google turns a key away once for a page, and from then on draws nothing
+ * worth showing on it however many maps are made. So the refusal is kept
+ * here, and not by whichever map happened to be on screen when it came: a
+ * map made afterwards is refused at once, keeps its own imagery, and offers
+ * the street view as a link.
+ */
+let refused = false;
+let whenRefused: (() => void) | undefined;
+
+/** Whether Google has turned this site's key away since the page was loaded. */
+export function googleMapsRefused(): boolean {
+  return refused;
+}
+
 /** Load the Maps JavaScript API once, however many maps ask. */
 export function loadGoogleMaps(onRefused?: () => void): Promise<void> {
   const key = googleMapsKey();
   if (!key) return Promise.reject(new Error('No Google Maps browser key is configured.'));
+  if (refused) return Promise.reject(new Error('Google has turned this key away for this site.'));
   const w = window as GoogleWindow;
-  // Google calls this when the key is rejected for this site; the map falls back to its own imagery.
-  // A caller with nothing to fall back to leaves the map's handler where it is.
-  if (onRefused) w.gm_authFailure = onRefused;
+  // Google calls this when the key is rejected for this site. The map on
+  // screen is told, and falls back to its own imagery; a caller with nothing
+  // to fall back to leaves the map's handler where it is.
+  if (onRefused) whenRefused = onRefused;
+  w.gm_authFailure = () => {
+    refused = true;
+    whenRefused?.();
+  };
   if (loading) return loading;
   loading = new Promise<void>((resolve, reject) => {
     if (w.google?.maps?.Map) {
@@ -85,6 +112,17 @@ export async function loadStreetView(): Promise<StreetViewLibrary> {
   const maps = (window as GoogleWindow).google?.maps;
   if (!maps?.importLibrary) throw new Error('Google Maps could not be loaded.');
   return (await maps.importLibrary('streetView')) as StreetViewLibrary;
+}
+
+/**
+ * Tell a panorama that its box has changed size.
+ *
+ * Google redraws a panorama when the window is resized and asks to be told,
+ * with this event, when only the box is: a column dragged wider, the map
+ * going full screen.
+ */
+export function panoramaResized(panorama: object): void {
+  (window as GoogleWindow).google?.maps?.event?.trigger(panorama, 'resize');
 }
 
 /**

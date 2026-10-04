@@ -118,9 +118,12 @@ export function securityHeaders(env: NodeJS.ProcessEnv = process.env): RequestHa
     res.setHeader('X-Frame-Options', 'DENY');
     // A project URL carries an id. Do not spend it on every outbound link.
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    // The app asks for none of these; saying so stops an embedded document
-    // from asking on its behalf.
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    // The app asks for no camera, microphone or payment; saying so stops an
+    // embedded document from asking on its behalf. Location it does ask for,
+    // from its own pages only: the site map's "where I am" button, on a press.
+    // With `geolocation=()` here the browser refused that press outright,
+    // wherever this server, rather than the edge, served the page.
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self), payment=()');
     if (csp) res.setHeader('Content-Security-Policy', csp);
     if (production && (req.secure || req.headers['x-forwarded-proto'] === 'https')) {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');

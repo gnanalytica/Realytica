@@ -8,7 +8,7 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { parseNamedPolygons, type NamedRing } from '@realytica/shared';
+import { isHttpsUrl, parseNamedPolygons, type NamedRing } from '@realytica/shared';
 import { DATA_DIR } from '../storage/filesystem';
 
 const CACHE_DIR = path.join(DATA_DIR, 'gis-context');
@@ -100,7 +100,8 @@ export async function loadWithdrawnRmpSheets(opts?: { force?: boolean }): Promis
   const file = path.join(CACHE_DIR, 'opencity_rmp2031_index.json');
   if (!opts?.force) {
     const cached = await readJson<{ fetchedAt: string; ok: boolean; sheets?: WithdrawnSheet[] }>(file);
-    if (cached && fresh(cached.fetchedAt, INDEX_TTL_MS) && cached.ok) return cached.sheets ?? [];
+    // Checked on the way out as well as on the way in: an index cached before the check existed holds whatever it was given.
+    if (cached && fresh(cached.fetchedAt, INDEX_TTL_MS) && cached.ok) return (cached.sheets ?? []).filter((s) => isHttpsUrl(s.url));
   }
   const fetchedAt = new Date().toISOString();
   try {
@@ -115,8 +116,10 @@ export async function loadWithdrawnRmpSheets(opts?: { force?: boolean }): Promis
     const body = (await res.json()) as {
       result?: { resources?: Array<{ name?: string; url?: string; format?: string }> };
     };
+    // These addresses become links on the site map. The catalogue is somebody
+    // else's and holds what it holds, so only an https address is kept.
     const sheets = (body.result?.resources ?? [])
-      .filter((r) => typeof r.name === 'string' && typeof r.url === 'string' && /pdf/i.test(r.format ?? 'pdf'))
+      .filter((r) => typeof r.name === 'string' && typeof r.url === 'string' && isHttpsUrl(r.url) && /pdf/i.test(r.format ?? 'pdf'))
       .map((r) => ({ name: r.name as string, url: r.url as string }));
     await writeJson(file, { fetchedAt, ok: true, sheets });
     return sheets;

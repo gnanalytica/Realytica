@@ -80,6 +80,11 @@ export function siteMarker(pin: NonNullable<GisOverlayRead['pin']>): L.Marker {
  * Hovering names it, as before. Clicking or tapping opens the same thing as a
  * popup, because a finger cannot hover and the name was otherwise unreachable
  * on a phone.
+ *
+ * Not a stop for the Tab key. There can be eighteen of them, all ahead of the
+ * map's own buttons, and the map moves to each as it takes the focus — to an
+ * airport thirty kilometres off among them. The place card under the map is
+ * where a keyboard reads names and distances.
  */
 export function placeMarker(place: NearbyAmenity): L.Marker {
   const kind = PLACE_LABEL[place.kind] ?? place.kind;
@@ -95,6 +100,7 @@ export function placeMarker(place: NearbyAmenity): L.Marker {
 
   const marker = L.marker([place.point.lat, place.point.lng], {
     icon: L.divIcon({ className: '', html: face, iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -14], tooltipAnchor: [14, 0] }),
+    keyboard: false,
   });
   // Bound in this order on purpose: a tap opens the tooltip and then the
   // popup, and the popup opening is what puts the tooltip away again.

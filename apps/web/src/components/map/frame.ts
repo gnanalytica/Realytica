@@ -1,16 +1,24 @@
 import L from 'leaflet';
-import { GIS_OVERLAY_RADIUS_M, type GeoPoint, type GisOverlayRead } from '@realytica/shared';
+import { siteFrame, type GeoPoint, type GisOverlayRead } from '@realytica/shared';
 
 /*
  * Where the map opens, and when it is allowed to move there by itself.
+ *
+ * The rules — outline before pin, the margin, the room round a large outline,
+ * how far a street view may be looked for — are `siteFrame` in the shared
+ * package, as plain numbers with tests. This file hands them to Leaflet.
  */
 
-/** No closer than this either side of the centre: a small plot keeps the roads and neighbours that place it. */
-const SITE_MARGIN_M = 150;
-
-/** The one point that stands for the site, and what to call it: "the pin", or "the outline centre". */
+/** The one point that stands for the site, what to call it, and how far from it a street view may be looked for. */
 export interface SitePoint extends GeoPoint {
   name: string;
+  reachM: number;
+}
+
+/** The site as the map needs it: the box to open on, and the point. */
+export interface Site {
+  bounds: L.LatLngBounds;
+  point: SitePoint;
 }
 
 /** What the map holds about the site: its frame, its point, and the frame the map last opened on. */
@@ -20,47 +28,40 @@ export interface SiteView {
   opened: string | null;
 }
 
-function outlineOf(read: GisOverlayRead): L.LatLngBounds | null {
-  return read.survey?.ring.length ? L.latLngBounds(read.survey.ring.map((p) => L.latLng(p.lat, p.lng))) : null;
+/** The site in a read, or null when the read has neither an outline nor a pin to stand for it. */
+export function siteOf(read: GisOverlayRead): Site | null {
+  const frame = siteFrame(read);
+  if (!frame) return null;
+  return {
+    bounds: L.latLngBounds([frame.south, frame.west], [frame.north, frame.east]),
+    point: { ...frame.point, name: frame.from === 'outline' ? 'the outline centre' : 'the pin', reachM: frame.reachM },
+  };
 }
 
-/**
- * Where the map opens: on the site, and on nothing else.
- *
- * The outline when one is on file; otherwise the pin, with the distance the
- * overlay reads context for around it. Wards, lakes and the state's layers
- * are context and never widen the frame — a ward is kilometres across, and
- * framing one left a 40 m plot seven pixels wide.
- *
- * The room round a large outline is a tenth of its own size, and it is part
- * of the frame rather than padding added in pixels when the map is fitted. A
- * map only has whole zoom levels, and on a narrow phone a few pixels of
- * padding were enough to tip a small plot out to the next one, twice as wide.
+/*
+ * A box narrower or shorter than this has not been laid out yet: a panel
+ * still opening, a column being dragged out from nothing. It has a size, but
+ * not its size.
  */
-export function siteFrame(read: GisOverlayRead): L.LatLngBounds | null {
-  const outline = outlineOf(read);
-  if (outline) return outline.pad(0.1).extend(outline.getCenter().toBounds(2 * SITE_MARGIN_M));
-  return read.pin ? L.latLng(read.pin.lat, read.pin.lng).toBounds(2 * GIS_OVERLAY_RADIUS_M) : null;
-}
-
-/** The pin, or the middle of the outline when there is no pin. */
-export function sitePoint(read: GisOverlayRead): SitePoint | null {
-  if (read.pin) return { lat: read.pin.lat, lng: read.pin.lng, name: 'the pin' };
-  const centre = outlineOf(read)?.getCenter();
-  return centre ? { lat: centre.lat, lng: centre.lng, name: 'the outline centre' } : null;
-}
+const SETTLED_PX = 120;
 
 /**
  * Frame the site — once for each frame, unless somebody asks to go back to it.
  *
  * The same read fetched again, or a layer switched off, leaves the reader's
- * view where they put it; only a site that has moved brings the map back. A
- * box with no size yet cannot be framed (the zoom comes out as the closest
- * there is), so it is left alone and tried again once it has been measured.
+ * view where they put it; only a site that has moved brings the map back.
+ *
+ * A box that has not settled is left alone and tried again when it has been
+ * measured. With no size at all the zoom comes out as the closest there is;
+ * in a sliver it comes out several levels too far, and because the fit
+ * counted as made, the map then stayed there when the box reached full size.
+ * A press of the button is somebody looking at the box as it is, and is
+ * honoured at any size it can be.
  */
 export function openOnSite(map: L.Map, view: SiteView, again = false): void {
   const size = map.getSize();
   if (!view.frame || !size.x || !size.y) return;
+  if (!again && (size.x < SETTLED_PX || size.y < SETTLED_PX)) return;
   const frame = view.frame.toBBoxString();
   if (!again && frame === view.opened) return;
   map.fitBounds(view.frame);

@@ -142,6 +142,98 @@ export interface GisOverlayRead {
   radiusM: number;
 }
 
+/** No closer than this either side of the centre: a small plot keeps the roads and neighbours that place it. */
+export const SITE_FRAME_MARGIN_M = 150;
+
+/** How far from the site a street-level photograph may stand and still be offered as a view of it. */
+export const STREET_VIEW_REACH_M = 100;
+
+/** Metres in a degree of latitude. A degree of longitude is this times the cosine of the latitude. */
+const METRES_PER_DEG_LAT = 111_320;
+
+/** The box a map of the site opens on, and the one point that stands for the site. */
+export interface SiteFrame {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+  /** The middle of the outline when there is one, otherwise the pin. */
+  point: GeoPoint;
+  from: 'outline' | 'pin';
+  /**
+   * How far from `point` a street view may be looked for. A pin is on or
+   * beside a road; the middle of an outline need not be, so its reach runs
+   * out to the outline's corner before the same allowance is added.
+   */
+  reachM: number;
+}
+
+function boxAround(point: GeoPoint, metres: number): Pick<SiteFrame, 'south' | 'west' | 'north' | 'east'> {
+  const dLat = metres / METRES_PER_DEG_LAT;
+  const dLng = dLat / Math.cos((point.lat * Math.PI) / 180);
+  return { south: point.lat - dLat, west: point.lng - dLng, north: point.lat + dLat, east: point.lng + dLng };
+}
+
+/**
+ * Where a map of the site opens: on the site, and on nothing else.
+ *
+ * The outline when one is on file; otherwise the pin, with the distance the
+ * overlay reads context for around it. Wards, lakes and the state's layers
+ * are context and never widen the frame — a ward is kilometres across, and
+ * framing one left a 40 m plot seven pixels wide.
+ *
+ * The point follows the frame. A geocode that landed on the locality and a
+ * parcel read from the revenue map can be a kilometre apart, and a map framed
+ * on the parcel with a street view opened beside the pin shows two places as
+ * if they were one.
+ *
+ * The room round a large outline is a tenth of its own size, and it is part
+ * of the frame rather than padding added in pixels when the map is fitted. A
+ * map only has whole zoom levels, and on a narrow phone a few pixels of
+ * padding were enough to tip a small plot out to the next one, twice as wide.
+ *
+ * Plain numbers, so that all of this can be tested without a map.
+ */
+export function siteFrame(read: Pick<GisOverlayRead, 'pin' | 'survey'>): SiteFrame | null {
+  const ring = read.survey?.ring ?? [];
+  if (ring.length) {
+    let south = ring[0].lat;
+    let north = ring[0].lat;
+    let west = ring[0].lng;
+    let east = ring[0].lng;
+    for (const p of ring) {
+      south = Math.min(south, p.lat);
+      north = Math.max(north, p.lat);
+      west = Math.min(west, p.lng);
+      east = Math.max(east, p.lng);
+    }
+    const point = { lat: (south + north) / 2, lng: (west + east) / 2 };
+    const room = boxAround(point, SITE_FRAME_MARGIN_M);
+    return {
+      south: Math.min(south - (north - south) * 0.1, room.south),
+      west: Math.min(west - (east - west) * 0.1, room.west),
+      north: Math.max(north + (north - south) * 0.1, room.north),
+      east: Math.max(east + (east - west) * 0.1, room.east),
+      point,
+      from: 'outline',
+      reachM: Math.round(STREET_VIEW_REACH_M + haversineMetres(point, { lat: north, lng: east })),
+    };
+  }
+  if (!read.pin) return null;
+  const point = { lat: read.pin.lat, lng: read.pin.lng };
+  return { ...boxAround(point, GIS_OVERLAY_RADIUS_M), point, from: 'pin', reachM: STREET_VIEW_REACH_M };
+}
+
+/**
+ * Whether an address out of somebody else's catalogue may be offered as a link.
+ *
+ * Only https. An address is whatever the catalogue holds that day, and one
+ * that begins `javascript:` runs when the link is clicked.
+ */
+export function isHttpsUrl(url: string): boolean {
+  return /^https:\/\//i.test(url);
+}
+
 export interface OsmElementLike {
   type?: string;
   id?: number | string;

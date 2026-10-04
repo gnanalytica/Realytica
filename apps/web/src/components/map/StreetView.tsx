@@ -1,12 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { bearingDegrees, haversineMetres } from '@realytica/shared';
-import { loadStreetView, type StreetViewLibrary, type StreetViewPanoramaData } from '../../lib/google-maps';
+import { loadStreetView, panoramaResized, type StreetViewLibrary, type StreetViewPanoramaData } from '../../lib/google-maps';
 import { Button } from '../ui/kit';
 import type { SitePoint } from './frame';
-
-/** How far from the site a panorama may stand and still be offered as a view of it. */
-export const STREET_VIEW_REACH_M = 100;
 
 /** A panorama found near the site, ready to be shown. */
 export interface StreetScene {
@@ -21,6 +18,11 @@ export interface StreetScene {
   opened: string;
 }
 
+/** A distance the way a reader says it: metres up to a kilometre, then kilometres. */
+function metres(m: number): string {
+  return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
+}
+
 /** "2023-05", as Google gives it, to "May 2023". Anything else is shown as it came. */
 function monthOf(imageDate: string): string {
   const [year, month] = imageDate.split('-').map(Number);
@@ -28,7 +30,16 @@ function monthOf(imageDate: string): string {
 }
 
 /**
- * The nearest outdoor panorama to the site, or null when none is close enough.
+ * The line for a site with none. It names the distance that was searched,
+ * which from the middle of an outline is further than from a pin.
+ */
+export function noStreetView(site: SitePoint): string {
+  return `No street view within ${metres(site.reachM)} of ${site.name}.`;
+}
+
+/**
+ * The nearest outdoor panorama within the site's reach, or null when there is
+ * none.
  *
  * Outdoor only. In a built-up street the nearest panorama to a pin is often
  * the inside of a shop, which shows nothing of the site. And the view opens
@@ -37,13 +48,14 @@ function monthOf(imageDate: string): string {
  */
 export async function findStreetScene(site: SitePoint): Promise<StreetScene | null> {
   const library = await loadStreetView();
+  const none = library.StreetViewStatus.ZERO_RESULTS;
   let status = library.StreetViewStatus.UNKNOWN_ERROR;
   let found: StreetViewPanoramaData;
   try {
     ({ data: found } = await new library.StreetViewService().getPanorama(
       {
         location: { lat: site.lat, lng: site.lng },
-        radius: STREET_VIEW_REACH_M,
+        radius: site.reachM,
         preference: library.StreetViewPreference.NEAREST,
         sources: [library.StreetViewSource.OUTDOOR],
       },
@@ -52,8 +64,10 @@ export async function findStreetScene(site: SitePoint): Promise<StreetScene | nu
       },
     ));
   } catch (error) {
-    // "None here" arrives as a failure too. Only the status tells it from a request that broke.
-    if (status === library.StreetViewStatus.ZERO_RESULTS) return null;
+    // "None here" arrives as a failure too. Google says which it was twice
+    // over, in the status it hands the callback and in the code on the error,
+    // and either is taken at its word.
+    if (status === none || (error as { code?: unknown } | null)?.code === none) return null;
     throw error;
   }
   const pano = found.location?.pano;
@@ -65,7 +79,7 @@ export async function findStreetScene(site: SitePoint): Promise<StreetScene | nu
     pano,
     heading: camera ? bearingDegrees(camera, site) : 0,
     opened: [
-      camera ? `Opened ${Math.round(haversineMetres(camera, site))} m from ${site.name}` : null,
+      camera ? `Opened ${metres(haversineMetres(camera, site))} from ${site.name}` : null,
       found.imageDate ? `${monthOf(found.imageDate)} imagery` : 'capture date not stated',
     ]
       .filter(Boolean)
@@ -92,7 +106,13 @@ export function StreetViewPane({ scene, onBack }: { scene: StreetScene; onBack: 
       // The view stays where it is pointed. On a phone it would otherwise swing about with the handset.
       motionTracking: false,
     });
+    // The box changes size without the window doing so: the conversation
+    // beside it is dragged wider, the map goes full screen. Google only
+    // watches the window, so it is told.
+    const resized = new ResizeObserver(() => panoramaResized(panorama));
+    resized.observe(el);
     return () => {
+      resized.disconnect();
       panorama.setVisible(false);
       el.replaceChildren();
     };
