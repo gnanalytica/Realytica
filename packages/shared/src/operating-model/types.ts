@@ -1217,15 +1217,18 @@ export interface ProjectGraphNode {
   detail?: string;
   /**
    * A stable key the product names this by, on the structural nodes: the
-   * lifecycle stage (`construction`), the department (`legal`), the
-   * workstream (`legal.title`), the approval (`plan_sanction`). Cypher finds
-   * "the Legal department of this project" by it rather than by an id.
+   * stage (`construction`, one of the four), the department (`legal`), the
+   * function (`legal.title`, or `design` for Design's workstreams together),
+   * the approval (`plan_sanction`). Cypher finds "the Legal department of this
+   * project" by it rather than by an id.
    */
   key?: string;
   /**
    * Where it stands, in the node's own vocabulary: a stage's `done`,
-   * `current` or `ahead`; a workstream's `live` or `coming_soon`; an
-   * approval's `in_force` or `expired`; a quick assessment's verdict.
+   * `current` or `ahead`; a function's `live` or `coming_soon`; an
+   * approval's `in_force`, `expired` or `missing`; a document's `expected`,
+   * `received` or `rejected`; a quick assessment's verdict. It is what says
+   * whether a paper an edge reaches is in hand (`projectNodeAwaited`).
    */
   status?: string;
 }

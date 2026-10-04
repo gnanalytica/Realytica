@@ -62,26 +62,49 @@ The project graph is a closed ontology (`project-ontology.ts`): six layers, a fi
 |---|---|
 | structure | `stage`, `department`, `workstream`, `engagement`, `member`, `milestone` |
 | entity | `project`, `asset`, `parcel`, `party`, `instrument`, `authority`, `encumbrance`, `approval` |
-| evidence | `evidence`, `site_visit`, `sheet`, `site_entry` |
-| claim | `contradiction` |
+| evidence | `evidence`, `site_visit`, `sheet`, `site_entry`, `questionnaire` |
+| claim | `contradiction`, `answer` |
 | judgement | `assessment`, `scope`, `check`, `finding`, `risk`, `action`, `decision`, `report`, `quick_assessment`, `certified_report` |
 | deliberation | `question`, `thought`, `proposal` |
+
+The structure is the one the menu shows. Both take the five departments, the one-word names and the rule that Design sits under Engineering from `departments.ts` (`MENU_DEPARTMENTS`, `DEPARTMENT_SHORT`, `FUNCTION_SHORT`, `menuDepartment`). The graph goes on to list a department's functions with `menuFunctions`, the departments that are on with `menuDepartmentsOf`, and a workstream's function with `functionKey`. The menu does not use those three yet: `rail.tsx` still builds its own list of tabs and applies the Engineering rule in its own selector. It is to be moved onto them in the next change.
+
+| Node | Which ones | Id | Label |
+|---|---|---|---|
+| `stage` | Always four, one for each of `STAGES` | `<project>::stage::<stage key>` | Land, Pre-construction, Under construction, Completed |
+| `department` | Each menu department that is switched on. Engineering is on while either `construction` or `design` is | `<project>::dept::<key>` | Legal, Finance, Engineering, Commercial, Procurement |
+| `workstream` | Each function whose own department is switched on | `<project>::ws::<workstream key>`, and `<project>::ws::design` for Design | The function's one word: Title, Approvals, Valuation, Design |
+
+The twelve finer steps are not nodes. Every stage carries `done`, `current` or `ahead` as its `status` and lists its steps in its `detail`, and the stage the project is in says first which one it is at ("At the Mobilisation step · Steps: Mobilisation, Construction, Testing & commissioning, Completion").
+
+Design is not a department in the graph. Its four workstreams are the one function Design, under Engineering, and whatever names a design workstream (a check, a link, an engagement, a certified report) is joined to that one node, once. A role in Design is not a role in Engineering. It is said on the person ("Signer, Design") and draws no edge to a department, so Design's signer is never named as answering for Engineering's work. A person whose only role is in Design is tied to the project like any other record nothing places. When only Design is switched on, the Engineering node stands for Design alone: it is described as Design is and its `status` is `coming_soon`, taken from the functions drawn under it.
+
+A function node keeps the kind `workstream`. The names the frame no longer draws are kept in the `detail` of what stands for them, which is what a search reads: a step on its stage, a department's name in full on the department ("Legal & Compliance", and "Engineering & Construction", so "Construction" finds Engineering), a function's name in full where it differs from its one word ("land records" finds Title), and Design's four workstreams on Design. `findProjectNodes` also answers to "function" and "functions" for the kind. Two functions share the word Handover, so wherever functions are named side by side the department is said with it ("Legal › Handover"; `withDepartment`).
 
 The structural edges:
 
 | Edge | From → to |
 |---|---|
-| `at_stage`, `precedes`, `in_stage` | project → its step; step → the next; a record → the step it happened in |
-| `has_department`, `has_workstream` | project → department → workstream |
-| `holds` | workstream → a check, document, approval, milestone, visit or site entry |
-| `gates`, `feeds` | approval or workstream → the workstream it allows; workstream → one whose estimate it moves |
-| `draws_on`, `delivers` | engagement → workstream; engagement → report |
-| `assesses`, `certifies` | quick assessment → workstream; certified report → workstream |
+| `at_stage`, `precedes`, `in_stage` | project → the stage it is at; stage → the next; a record → the stage it arrived in |
+| `has_department`, `has_workstream` | project → department → function |
+| `holds` | function → a check, document, approval, milestone, visit, site entry or questionnaire |
+| `gates`, `feeds` | approval or function → the function that cannot go ahead without it; function → one whose estimate it moves |
+| `draws_on`, `delivers` | engagement → function; engagement → report |
+| `assesses`, `certifies` | quick assessment → function; certified report → function |
 | `leads`, `contributes_to`, `signs_for`, `views` | member → department |
 | `advances` | site entry → the milestone it moved |
 | `relates` | anything a person said belongs together |
+| `has_record` | project → a record nothing else places |
 
 …beside the register edges that were already there (`has_scope`, `has_check`, `supported_by`, `produces`, `raises`, `requires`, `affects`, `encumbers`, the title chain and so on).
+
+**Nothing floats.** Every node can be reached from the project. Once the registers are written, the builder walks out from the project and ties to it whatever the walk did not arrive at. Where the kind has a relation of its own that is true of an unplaced record, it uses that (`has_risk`, `has_asset`, `reported_in`). Otherwise it uses `has_record`. That covers an action or a document that names nothing else on the file, a finding or a decision that has no date to place it in a stage, an approval or a milestone whose function is switched off, a person with no role in a department that is drawn, and a parcel or a party that only a title chain names. The last two are not tied with `sited_at` or `engaged_on`: on a file that declares no land of its own, the chain says the deeds name that parcel, not that the project stands on it.
+
+Three limits on the tie. A record the project already reaches never gets it. Records joined only to each other get one between them, on whichever was written first. Talk does not count as placing a record: an edge that starts at a question, a thought or a proposal is left out of the walk, so a record keeps its tie when a chat turn cites it and the tie does not come and go as turns leave the window.
+
+**Relations in plain words.** `PROJECT_EDGE_LABEL` gives every edge kind a phrase for each direction: "rests on" and "supports" for `supported_by`, "holds" and "is held by" for `holds`. It is a `Record` over the kind, so a relation cannot be added without its words. A phrase has to be true in every state the edge is drawn in, so `gates` reads "is needed before" and "cannot go ahead without", which holds for an approval that is missing. Three relations are drawn to a paper whether or not it has arrived (`supported_by`, `holds`, `has_record`), and no single phrase is true of both states. They have a second pair in `PROJECT_EDGE_LABEL_AWAITED`, "still needs" and "is still needed by", used when the record the edge reaches is a document that is expected, requested, missing or rejected, or an approval with nothing on file (`projectNodeAwaited`; a document's standing is its node's `status`). `projectEdgePhrase` picks between the two. The Graph page reads a node's links with it, never the key, and groups the links by the kind of thing at the other end, with documents, site visits, site entries and sheets first and no kind left out.
+
+**Links drawn by hand.** `linkEdge` says which edge a link is drawn as, and `addLink` refuses a link whose edge the endpoint rules do not allow (a check cannot gate a function), naming `relates` as the way to say two things belong together. The system's own links all pass the same check.
 
 ### In Neo4j
 
@@ -90,7 +113,7 @@ Every node is `(:Ryt {id, projectId, kind, layer, origin, label, detail, key, st
 What a change reaches — the question behind the Connections panel and an expiring approval's alert — is a walk (`graph/neo4j.ts`, `impact`):
 
 ```cypher
-// From a record to the workstreams it sits in, then on along gates and feeds.
+// From a record to the functions it sits in, then on along gates and feeds.
 MATCH (x:Ryt {projectId: $p, id: $id})
 OPTIONAL MATCH (d:Ryt {projectId: $p})-[r:RYT_EDGE]->(x) WHERE r.kind IN ['supported_by','advances'] AND r.closedAt IS NULL
 WITH x, [x] + collect(DISTINCT d) AS seeds
@@ -103,7 +126,7 @@ WHERE all(r IN relationships(p) WHERE r.kind IN ['gates','feeds'] AND r.closedAt
 RETURN down.label, length(p)
 ```
 
-A second read finds the engagements, certified reports, quick assessments and the leads and signers standing on every workstream touched. The same walk runs over a snapshot in `graph-impact.ts`, for the local journal and as the fallback when Neo4j does not answer.
+A second read finds the engagements, certified reports, quick assessments and the leads and signers standing on every function touched. The walk goes by kind and relation and never by id, so it needs no change when the frame does. The same walk runs over a snapshot in `graph-impact.ts`, for the local journal and as the fallback when Neo4j does not answer.
 
 Useful queries:
 
@@ -112,13 +135,17 @@ Useful queries:
 MATCH (:Ryt {projectId: $p, kind: 'department', key: 'legal'})-[:RYT_EDGE {kind: 'has_workstream'}]->(w)-[h:RYT_EDGE {kind: 'holds'}]->(x)
 WHERE h.closedAt IS NULL RETURN w.label, x.kind, x.label
 
-// What happened while the project was Under construction
-MATCH (x:Ryt {projectId: $p})-[:RYT_EDGE {kind: 'in_stage'}]->(s:stage {projectId: $p})
-WHERE s.detail = 'Under construction' RETURN s.label, x.kind, x.label
+// What arrived while the project was Under construction (a stage's key is its own: `construction` is the stage)
+MATCH (x:Ryt {projectId: $p})-[r:RYT_EDGE {kind: 'in_stage'}]->(:stage {projectId: $p, key: 'construction'})
+WHERE r.closedAt IS NULL RETURN x.kind, x.label
 
-// Who answers for a workstream
-MATCH (m:member {projectId: $p})-[r:RYT_EDGE]->(:department)-[:RYT_EDGE {kind: 'has_workstream'}]->(w {key: 'finance.valuation'})
-WHERE r.kind IN ['leads','signs_for'] RETURN m.label, r.kind
+// Who answers for a function now (without the two `closedAt` tests it also returns people who used to)
+MATCH (m:member {projectId: $p})-[r:RYT_EDGE]->(:department)-[f:RYT_EDGE {kind: 'has_workstream'}]->(w {key: 'finance.valuation'})
+WHERE r.kind IN ['leads','signs_for'] AND r.closedAt IS NULL AND f.closedAt IS NULL RETURN m.label, r.kind
+
+// The records nothing but the project places. Some are in hand and some are still needed: x.status says which
+MATCH (:project {projectId: $p})-[r:RYT_EDGE {kind: 'has_record'}]->(x)
+WHERE r.closedAt IS NULL RETURN x.kind, x.label, x.status
 ```
 
 ## Sign-in and access

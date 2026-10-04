@@ -42,12 +42,17 @@
 /**
  * The case graph's five layers, and a sixth for how the work is organised.
  *
- * `structure` holds the stages a project moves through, its departments and
- * their workstreams, the engagements clients commission, the people on it and
- * the milestones it is built to. None of these is evidence or a conclusion;
- * they are the frame every record sits in, and the graph is where the frame
- * and the records meet: "everything Legal holds", "what an expired approval
- * stops", "who signs for what this touches" are walks across the two.
+ * `structure` holds the four stages a project moves through, its departments
+ * and their functions, the engagements clients commission, the people on it
+ * and the milestones it is built to. None of these is evidence or a
+ * conclusion; they are the frame every record sits in, and the graph is where
+ * the frame and the records meet: "everything Legal holds", "what an expired
+ * approval stops", "who signs for what this touches" are walks across the two.
+ *
+ * The frame is the one the menu shows, so a person finds in the graph the
+ * same four stages, five departments and functions they move between: the
+ * twelve finer steps stay on the record and are not nodes, and Design is one
+ * function inside Engineering.
  *
  * `report` sits in `judgement` rather than getting a `deliverable` layer of
  * its own: a report is the assembled conclusion, and everything the layer is
@@ -58,13 +63,18 @@ export type ProjectGraphLayer = 'structure' | 'entity' | 'evidence' | 'claim' | 
 
 export type ProjectGraphNodeKind =
   /* --- structure: how the work is organised ---------------------- */
-  /** One of the twelve lifecycle stages, inside one of the four macro stages. */
+  /** One of the four stages: Land, Pre-construction, Under construction or Completed. */
   | 'stage'
-  /** Finance, Legal, Design, Construction, Procurement or Commercial. */
+  /** One of the menu's five departments: Legal, Finance, Engineering, Commercial or Procurement. */
   | 'department'
-  /** One ongoing piece of work inside a department: Title, Approvals, Valuation… */
+  /**
+   * A function: one ongoing piece of work inside a department, as the menu
+   * names it (Title, Approvals, Valuation…). The kind keeps the record's word
+   * because the stored graph is labelled by it. Every workstream is a function
+   * by itself, except Design's four, which are the one function Design.
+   */
   | 'workstream'
-  /** A piece of work a client commissioned, drawing on workstreams. */
+  /** A piece of work a client commissioned, drawing on functions. */
   | 'engagement'
   /** A person on the project, with a role in each department they reach. */
   | 'member'
@@ -117,7 +127,7 @@ export type ProjectGraphNodeKind =
   | 'action'
   | 'decision'
   | 'report'
-  /** A workstream's living estimate, re-read whenever the file changes. */
+  /** A function's living estimate, re-read whenever the file changes. */
   | 'quick_assessment'
   /** A report a named professional signed: the figure of record. */
   | 'certified_report'
@@ -240,29 +250,29 @@ export function isProjectNodeKind(value: unknown): value is ProjectGraphNodeKind
  */
 export type ProjectGraphEdgeKind =
   /* --- how the work is organised --------------------------------- */
-  /** project -> the lifecycle stage it is at now. */
+  /** project -> the stage it is at now. */
   | 'at_stage'
   /** stage -> the stage after it. */
   | 'precedes'
-  /** a record -> the stage the project was at when it happened. */
+  /** a record -> the stage the project was at when it arrived. */
   | 'in_stage'
-  /** project -> a department switched on for it. */
+  /** project -> a department of the menu switched on for it. */
   | 'has_department'
-  /** department -> one of its workstreams. */
+  /** department -> one of its functions. */
   | 'has_workstream'
-  /** workstream -> a record it holds: a check, a document, an approval, a milestone. */
+  /** function -> a record it holds: a check, a document, an approval, a milestone. */
   | 'holds'
-  /** quick assessment -> the workstream it estimates. */
+  /** quick assessment -> the function it estimates. */
   | 'assesses'
-  /** certified report -> the workstream it is the figure of record for. */
+  /** certified report -> the function it is the figure of record for. */
   | 'certifies'
-  /** engagement -> a workstream its deliverable draws on. */
+  /** engagement -> a function its deliverable draws on. */
   | 'draws_on'
   /** engagement -> the report it delivers. */
   | 'delivers'
-  /** approval | workstream -> the workstream that may not go ahead without it. */
+  /** approval | function -> the function that may not go ahead without it. */
   | 'gates'
-  /** workstream -> a workstream whose estimate it moves. */
+  /** function -> a function whose estimate it moves. */
   | 'feeds'
   /** member -> a department they run. */
   | 'leads'
@@ -280,6 +290,13 @@ export type ProjectGraphEdgeKind =
   | 'has_asset'
   | 'contains'
   | 'assessed_by'
+  /**
+   * assessment | site visit -> an asset it is about.
+   *
+   * A visit, like an assessment, can be about particular assets: a walk of
+   * Tower A looked at Tower A, and what could not be seen on it bounds what
+   * is said about that tower and no other.
+   */
   | 'targets'
   | 'has_scope'
   | 'has_check'
@@ -289,6 +306,23 @@ export type ProjectGraphEdgeKind =
   | 'has_visit'
   /** A sheet somebody has placed on the map. */
   | 'has_sheet'
+  /**
+   * project -> a record on its registers that nothing else places.
+   *
+   * Drawn only for a record no other edge joins to the project: an action
+   * with no finding, risk, document or check behind it, a document nothing
+   * cites and no function holds, an approval or a milestone whose function is
+   * switched off, a parcel only a title chain names. Being cited in the chat
+   * is not being placed, so talk about a record never takes this edge away.
+   * A record placed anywhere else never gets one, so the edge also says
+   * something true about the record: the project has it, and it is tied to
+   * nothing yet.
+   *
+   * The record may be a paper the file does not hold: a missing approval, a
+   * document still expected. The edge is the same and its words are not. It
+   * reads "has on file" of what is in hand and "still needs" of what is not.
+   */
+  | 'has_record'
   /**
    * Seen on that visit.
    *
@@ -373,6 +407,7 @@ export const PROJECT_EDGE_KINDS: readonly ProjectGraphEdgeKind[] = [
   'has_risk',
   'has_visit',
   'has_sheet',
+  'has_record',
   'observed_on',
   'sited_at',
   'engaged_on',
@@ -436,13 +471,27 @@ export const PROJECT_EDGE_ENDPOINT_RULES: Record<
   has_asset: { from: ['project'], to: ['asset'] },
   contains: { from: ['asset'], to: ['asset'] },
   assessed_by: { from: ['project'], to: ['assessment'] },
-  targets: { from: ['assessment'], to: ['asset'] },
+  targets: { from: ['assessment', 'site_visit'], to: ['asset'] },
   has_scope: { from: ['assessment'], to: ['scope'] },
   has_check: { from: ['scope'], to: ['check'] },
   reported_in: { from: ['project'], to: ['report'] },
   has_risk: { from: ['project'], to: ['risk'] },
   has_visit: { from: ['project'], to: ['site_visit'] },
   has_sheet: { from: ['project'], to: ['sheet'] },
+  // Every kind of record with no relation of its own from the project and no
+  // parent that always carries it. An asset, a risk or a report has its own
+  // word for being the project's; a check always has its scope and an answer
+  // its questionnaire. These are the kinds that can be left with nothing.
+  //
+  // A parcel and a party are here for the title chain. When a screen has read
+  // deeds on a file that declares no land of its own, the chain's parcels and
+  // parties are joined to nothing the project reaches. `sited_at` would say
+  // the project stands on that parcel and `engaged_on` that it engaged that
+  // party, and the chain claims neither: it says the deeds name them.
+  has_record: {
+    from: ['project'],
+    to: ['evidence', 'finding', 'action', 'decision', 'approval', 'milestone', 'site_entry', 'questionnaire', 'certified_report', 'engagement', 'member', 'contradiction', 'parcel', 'party'],
+  },
   observed_on: { from: ['evidence', 'finding'], to: ['site_visit', 'site_entry'] },
 
   sited_at: { from: ['project', 'asset'], to: ['parcel'] },
@@ -482,6 +531,130 @@ export function projectEdgeEndpointsValid(
   if (rule.from && !rule.from.includes(fromKind)) return false;
   if (rule.to && !rule.to.includes(toKind)) return false;
   return true;
+}
+
+/* ==================================================================== */
+/* Relations in plain words                                              */
+/* ==================================================================== */
+
+/**
+ * How each relation reads to a person, from either end.
+ *
+ * A relation's key is written for Cypher: `supported_by`, `has_workstream`.
+ * Shown as it stands it asks the reader to translate, and the reader of a
+ * diligence file is a lawyer or an engineer, not whoever wrote the query. So
+ * every kind carries two short phrases. Whichever node is being read is the
+ * subject: `forward` is said of the node the edge leaves ("this check rests
+ * on that deed") and `backward` of the node it reaches ("this deed supports
+ * that check").
+ *
+ * A phrase has to stay true whatever state the thing at either end is in,
+ * because the edge is drawn in every state. An approval that is missing is
+ * still joined to the work it gates, so `gates` reads "is needed before" and
+ * not "allows". A superseded report is still joined to its function, a
+ * suggested answer to its sheet, an abandoned visit to the tower it was for,
+ * a lapsed registration to its parcel, a released charge to the land it was
+ * on: each of those is said in words that claim no more than the edge does.
+ *
+ * A `Record` over the kind, so a relation cannot be added without its words.
+ */
+export const PROJECT_EDGE_LABEL: Record<ProjectGraphEdgeKind, { forward: string; backward: string }> = {
+  at_stage: { forward: 'is at', backward: 'is the current stage of' },
+  precedes: { forward: 'comes before', backward: 'comes after' },
+  in_stage: { forward: 'arrived in', backward: 'took in' },
+  has_department: { forward: 'has the department', backward: 'is a department of' },
+  has_workstream: { forward: 'has the function', backward: 'is a function of' },
+  holds: { forward: 'holds', backward: 'is held by' },
+  assesses: { forward: 'is the estimate for', backward: 'has the estimate' },
+  certifies: { forward: 'is a certified report on', backward: 'has the certified report' },
+  draws_on: { forward: 'draws on', backward: 'is drawn on by' },
+  delivers: { forward: 'delivers', backward: 'is delivered by' },
+  gates: { forward: 'is needed before', backward: 'cannot go ahead without' },
+  feeds: { forward: 'feeds', backward: 'is fed by' },
+  leads: { forward: 'leads', backward: 'is led by' },
+  contributes_to: { forward: 'contributes to', backward: 'has the contributor' },
+  signs_for: { forward: 'signs for', backward: 'has the signer' },
+  views: { forward: 'may read', backward: 'may be read by' },
+  advances: { forward: 'updated', backward: 'was updated by' },
+  relates: { forward: 'belongs with', backward: 'belongs with' },
+  has_asset: { forward: 'has the asset', backward: 'is an asset of' },
+  contains: { forward: 'contains', backward: 'is part of' },
+  assessed_by: { forward: 'has the assessment', backward: 'is an assessment of' },
+  targets: { forward: 'is about', backward: 'is the subject of' },
+  has_scope: { forward: 'has the scope', backward: 'is a scope of' },
+  has_check: { forward: 'has the check', backward: 'is a check of' },
+  reported_in: { forward: 'is reported in', backward: 'reports on' },
+  has_risk: { forward: 'has the risk', backward: 'is a risk to' },
+  has_visit: { forward: 'has the site visit', backward: 'is a site visit to' },
+  has_sheet: { forward: 'has the sheet', backward: 'is a sheet of' },
+  has_record: { forward: 'has on file', backward: 'is on file with' },
+  observed_on: { forward: 'was seen on', backward: 'saw' },
+  sited_at: { forward: 'stands on', backward: 'is the land under' },
+  engaged_on: { forward: 'has engaged', backward: 'is engaged on' },
+  conveyed_by: { forward: 'passed the land from', backward: 'gave up the land by' },
+  conveyed_to: { forward: 'passed the land to', backward: 'received the land by' },
+  affects: { forward: 'deals with', backward: 'is dealt with by' },
+  derives_from: { forward: 'comes from', backward: 'leads to' },
+  encumbers: { forward: 'is recorded against', backward: 'has recorded against it' },
+  issued_by: { forward: 'was issued by', backward: 'issued' },
+  governed_by: { forward: 'is governed by', backward: 'governs' },
+  supported_by: { forward: 'rests on', backward: 'supports' },
+  contradicts: { forward: 'puts in doubt', backward: 'is put in doubt by' },
+  about: { forward: 'is about', backward: 'is the subject of' },
+  answers: { forward: 'is asked on', backward: 'asks' },
+  produces: { forward: 'led to', backward: 'came out of' },
+  found: { forward: 'found', backward: 'was found by' },
+  raises: { forward: 'raises', backward: 'is raised by' },
+  requires: { forward: 'calls for', backward: 'is called for by' },
+  informs: { forward: 'informs', backward: 'is informed by' },
+  raised_on: { forward: 'was raised on', backward: 'was discussed in' },
+  cites: { forward: 'refers to', backward: 'is referred to by' },
+  became: { forward: 'became', backward: 'began as' },
+};
+
+/**
+ * What a relation reads as while the record it reaches is not in hand.
+ *
+ * Three relations are drawn to a paper whether or not it has arrived. A check
+ * is joined to every document it expects, a function to every approval the
+ * project needs, the project to a record nothing else places. No one phrase
+ * is true of both states: "rests on" is the point when the deed is on file
+ * and false when it is only expected, and on a new file most papers are only
+ * expected. So these three have a second pair of words, for the edge whose
+ * far end is still awaited. They are the approvals register's own: what the
+ * project holds, and what it still needs.
+ */
+export const PROJECT_EDGE_LABEL_AWAITED: Partial<Record<ProjectGraphEdgeKind, { forward: string; backward: string }>> = {
+  holds: { forward: 'still needs', backward: 'is still needed by' },
+  has_record: { forward: 'still needs', backward: 'is still needed by' },
+  supported_by: { forward: 'still needs', backward: 'is still needed by' },
+};
+
+/**
+ * Whether a node stands for something the file does not have in hand: a
+ * document expected, asked for, missing or refused, or an approval with
+ * nothing on file for it.
+ */
+export function projectNodeAwaited(node: { kind: ProjectGraphNodeKind; status?: string }): boolean {
+  if (node.kind === 'evidence') return node.status === 'expected' || node.status === 'requested' || node.status === 'missing' || node.status === 'rejected';
+  if (node.kind === 'approval') return node.status === 'missing';
+  return false;
+}
+
+/**
+ * A relation in plain words, said of one end of one edge.
+ *
+ * `forward` is said of the node the edge leaves and `backward` of the node it
+ * reaches. `to` is the node it reaches, whichever end is being read: when
+ * that is still awaited, the words for an awaited record are the ones used.
+ */
+export function projectEdgePhrase(
+  kind: ProjectGraphEdgeKind,
+  direction: 'forward' | 'backward',
+  to: { kind: ProjectGraphNodeKind; status?: string },
+): string {
+  const words = (projectNodeAwaited(to) ? PROJECT_EDGE_LABEL_AWAITED[kind] : undefined) ?? PROJECT_EDGE_LABEL[kind];
+  return words[direction];
 }
 
 /**

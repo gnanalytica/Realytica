@@ -12,6 +12,7 @@ import type { DdProject } from './types';
 import { recordAuditEvent } from './operations';
 import { approvalsRegister } from './approvals';
 import { allChecks } from './engagements';
+import { projectEdgeEndpointsValid, type ProjectGraphEdgeKind, type ProjectGraphNodeKind } from './project-ontology';
 
 export type LinkType = 'gates' | 'feeds' | 'cites' | 'certifies' | 'draws_on' | 'relates';
 
@@ -92,8 +93,64 @@ export function systemLinks(project: DdProject): ProjectLink[] {
   return out;
 }
 
+/** The kind of graph node each end of a link is drawn as. */
+const LINK_END_NODE_KIND: Record<LinkEndKind, ProjectGraphNodeKind> = {
+  workstream: 'workstream',
+  check: 'check',
+  document: 'evidence',
+  certified: 'certified_report',
+  milestone: 'milestone',
+  approval: 'approval',
+  engagement: 'engagement',
+  finding: 'finding',
+  site_entry: 'site_entry',
+};
+
+/** An end's kind, as a person would say it. */
+const LINK_END_WORD: Record<LinkEndKind, string> = {
+  workstream: 'a function',
+  check: 'a check',
+  document: 'a document',
+  certified: 'a certified report',
+  milestone: 'a milestone',
+  approval: 'an approval',
+  engagement: 'an engagement',
+  finding: 'a finding',
+  site_entry: 'a site entry',
+};
+
+/**
+ * The graph edge a link is drawn as: which way round, and by which relation.
+ *
+ * A link is said the way a person says it ("this document cites that check",
+ * "this certificate certifies that approval"). The graph says the same thing
+ * from the conclusion to the paper: the check rests on the document, the
+ * approval on its certificate. Every other link is drawn as it is said.
+ */
+export function linkEdge(link: { from: LinkEnd; to: LinkEnd; type: LinkType }): { from: LinkEnd; to: LinkEnd; rel: ProjectGraphEdgeKind } {
+  if (link.type === 'cites' || (link.type === 'certifies' && link.from.kind === 'document')) {
+    return link.from.kind === 'document' ? { from: link.to, to: link.from, rel: 'supported_by' } : { from: link.from, to: link.to, rel: 'supported_by' };
+  }
+  return { from: link.from, to: link.to, rel: link.type };
+}
+
+/**
+ * Draw a link by hand.
+ *
+ * A link the graph cannot draw is refused. The ontology says which kinds
+ * each relation may join: a check cannot gate a function, a milestone cannot
+ * feed a document. Taken as it came, such a link would be on the file and
+ * break the graph every time it was built. `relates` joins any two things,
+ * so it is what the refusal offers instead.
+ */
 export function addLink(project: DdProject, input: { from: LinkEnd; to: LinkEnd; type: LinkType; note?: string }, actor: string): ProjectLink {
   if (input.from.kind === input.to.kind && input.from.id === input.to.id) throw new Error('A link joins two different things.');
+  const edge = linkEdge(input);
+  if (!projectEdgeEndpointsValid(edge.rel, LINK_END_NODE_KIND[edge.from.kind], LINK_END_NODE_KIND[edge.to.kind])) {
+    throw new Error(
+      `“${LINK_TYPE_LABEL[input.type]}” cannot join ${LINK_END_WORD[input.from.kind]} to ${LINK_END_WORD[input.to.kind]}. To say two things belong together, link them with “relates”.`,
+    );
+  }
   const held = (project.links ?? []).find((l) => l.type === input.type && l.from.id === input.from.id && l.to.id === input.to.id);
   if (held) return held;
   const link: ProjectLink = {

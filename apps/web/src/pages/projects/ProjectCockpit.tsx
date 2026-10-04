@@ -9,6 +9,7 @@ import {
   hasSpokenConversation,
   paneFromProjectPath,
   fileIsBare,
+  projectFrameLabels,
   projectNextStep,
   paneForTalk,
   sittingFromCitedId,
@@ -613,7 +614,10 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const spec = LAYOUTS[layout];
   const fillRight = pane === 'graph';
   const next = useMemo(() => projectNextStep(project), [project]);
-  const nodeLabels = useMemo(() => graphNodeLabels(project), [project]);
+  // The records an answer can name, and the frame they sit in: a stage, a
+  // department or a function the copilot quoted by its graph id reads as its
+  // name, and one the frame no longer has is left out of the sentence.
+  const nodeLabels = useMemo(() => [...graphNodeLabels(project), ...projectFrameLabels(project)], [project]);
 
   /*
    * What to offer, from where the file stands.

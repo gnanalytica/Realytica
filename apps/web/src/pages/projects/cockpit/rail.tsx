@@ -16,8 +16,12 @@ import {
 } from 'lucide-react';
 import {
   DEPARTMENT_KEYS,
+  DEPARTMENT_SHORT,
+  FUNCTION_SHORT,
+  MENU_DEPARTMENTS,
   SCOPE_LABEL,
   departmentDefinition,
+  menuDepartment,
   projectDepartments,
   reachesEveryProject,
   scopeCompleteness,
@@ -106,59 +110,12 @@ export const SECTIONS: CockpitSection[] = [
   { key: 'graph', label: 'Graph', icon: Waypoints, home: 'graph', tabs: [{ pane: 'graph', label: 'Graph', icon: Waypoints }] },
 ];
 
-/** A department's name in the menu: one word. */
-export const DEPARTMENT_SHORT: Record<DepartmentKey, string> = {
-  finance: 'Finance',
-  legal: 'Legal',
-  design: 'Design',
-  construction: 'Engineering',
-  procurement: 'Procurement',
-  commercial: 'Commercial',
-};
-
-/**
- * The departments of the menu, in the order a property is worked: is it
- * owned and allowed, does it pay, can it be built, will it sell, what is
- * bought for it.
- *
- * Five, not six: drawings and their compliance are engineering work, so
- * Design is a function inside Engineering rather than a department beside it.
- * The record underneath still keeps Design as its own department, with its
- * own people and roles.
+/*
+ * The menu's own words (the five departments, a department's one word, a
+ * function's one word, and which menu department a department sits under)
+ * are in `@realytica/shared`, beside the departments themselves, because the
+ * graph draws the same five departments and the same functions.
  */
-export const MENU_DEPARTMENTS: readonly DepartmentKey[] = ['legal', 'finance', 'construction', 'commercial', 'procurement'];
-
-/** The menu department a department's pages sit under. */
-export function menuDepartment(key: DepartmentKey): DepartmentKey {
-  return key === 'design' ? 'construction' : key;
-}
-
-/** A function's name on its tab: one word. */
-export const FUNCTION_SHORT: Record<string, string> = {
-  'finance.valuation': 'Valuation',
-  'finance.feasibility': 'Feasibility',
-  'finance.budget': 'Budget',
-  'finance.funding': 'Funding',
-  'finance.tax': 'Tax',
-  'legal.title': 'Title',
-  'legal.approvals': 'Approvals',
-  'legal.rera': 'RERA',
-  'legal.contracts': 'Contracts',
-  'legal.handover': 'Handover',
-  'construction.progress': 'Progress',
-  'construction.quality': 'Technical',
-  'construction.site': 'Site',
-  'construction.safety': 'Safety',
-  'procurement.boq': 'Tenders',
-  'procurement.orders': 'Orders',
-  'procurement.vendors': 'Vendors',
-  'procurement.deliveries': 'Deliveries',
-  'commercial.market': 'Market',
-  'commercial.inventory': 'Sales',
-  'commercial.buyers': 'Collections',
-  'commercial.handover': 'Handover',
-  'commercial.operations': 'Operations',
-};
 
 /** The two workstreams whose page is an existing pane rather than the workstream page. */
 export const WORKSTREAM_PANE: Record<string, ProjectCockpitPane> = {
@@ -201,7 +158,7 @@ export function paneLabel(pane: ProjectCockpitPane, at: { department?: string; w
   if (pane === 'valuation') return 'Valuation';
   if (pane === 'visits') return 'Site record';
   if (pane === 'department') return (at.department && DEPARTMENT_SHORT[at.department as DepartmentKey]) || 'Department';
-  if (pane === 'workstream') return (at.workstream && workstreamDefinition(at.workstream)?.label) || 'Workstream';
+  if (pane === 'workstream') return (at.workstream && workstreamDefinition(at.workstream)?.label) || 'Function';
   return tabHolding(pane).tab.label;
 }
 

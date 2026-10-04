@@ -7,15 +7,22 @@
  * has engagements drawing on it, a certified report standing on it and a lead
  * and a signer answering for it. Neo4j runs the same walk in Cypher; this is
  * the walk over a snapshot, for the local journal and as Neo4j's fallback.
+ *
+ * The walk goes by kind and relation, never by id or name, so it reads the
+ * graph as it is drawn: a `workstream` node is a function of the menu, Design
+ * is one of Engineering's, and the people answering for a function are those
+ * who lead or sign for the department it is drawn under. A role in Design
+ * joins nobody to Engineering, so Design's own signer is never named as
+ * answering for Engineering's work.
  */
 
 import type { ProjectGraphEdge, ProjectGraphEdgeKind, ProjectGraphNode } from './types';
 
 export interface GraphImpact {
   node: ProjectGraphNode;
-  /** The workstreams the record sits in. */
+  /** The functions the record sits in. */
   home: ProjectGraphNode[];
-  /** Workstreams reached through gates and feeds, nearest first. */
+  /** Functions reached through gates and feeds, nearest first. */
   downstream: Array<{ node: ProjectGraphNode; hops: number; via: ProjectGraphEdgeKind }>;
   engagements: ProjectGraphNode[];
   certified: ProjectGraphNode[];
@@ -37,7 +44,7 @@ export function graphImpact(snapshot: { nodes: ProjectGraphNode[]; edges: Projec
   const into = (id: string, rels: readonly string[]) => open.filter((e) => e.to === id && rels.includes(e.rel)).map((e) => byId.get(e.from)).filter((n): n is ProjectGraphNode => Boolean(n));
 
   // What rests on it — a check citing a document, an approval resting on its
-  // certificate — sits in a workstream too, and the change reaches that.
+  // certificate — sits in a function too, and the change reaches that.
   const dependents = into(node.id, ['supported_by', 'advances']);
   const seeds = [node, ...dependents];
   const home = new Map<string, ProjectGraphNode>();
@@ -46,7 +53,7 @@ export function graphImpact(snapshot: { nodes: ProjectGraphNode[]; edges: Projec
     for (const ws of into(seed.id, ['holds'])) if (ws.kind === 'workstream') home.set(ws.id, ws);
   }
 
-  // Downstream along gates and feeds, from the home workstreams and from any
+  // Downstream along gates and feeds, from the home functions and from any
   // approval among the seeds (an approval gates work directly).
   const starts = [...home.values(), ...seeds.filter((s) => s.kind === 'approval')];
   const reached = new Map<string, { node: ProjectGraphNode; hops: number; via: ProjectGraphEdgeKind }>();

@@ -142,7 +142,7 @@ export function EvidenceRegister() {
    * department. A document nothing has claimed yet keeps a group of its own.
    */
   const groups = useMemo(() => {
-    const UNFILED = 'Not yet given to a workstream';
+    const UNFILED = 'Not yet given to a function';
     const byName = new Map<string, typeof rows>();
     for (const row of rows) {
       const ws = documentWorkstream(project, row);

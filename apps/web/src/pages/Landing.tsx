@@ -781,7 +781,7 @@ export default function Landing() {
             title="Organised the way the work is."
             note={
               <>
-                {inWords(STAGES.length).replace(/^./, (c) => c.toUpperCase())} stages, {inWords(DEPARTMENTS.length)} departments and the workstreams inside them. {live.map((d) => d.label.split(' ')[0]).join(', ')} are live; the rest are listed with what they will hold.
+                {inWords(STAGES.length).replace(/^./, (c) => c.toUpperCase())} stages, {inWords(DEPARTMENTS.length)} departments and the functions inside them. {live.map((d) => d.label.split(' ')[0]).join(', ')} are live; the rest are listed with what they will hold.
                 <span className="hidden lg:inline"> Point at a department to follow its work across the life of the project.</span>
                 <span className="lg:hidden"> Pick a stage to see what each department produces in it.</span>
               </>
@@ -852,7 +852,7 @@ export default function Landing() {
             title="See what a change reaches."
             note={
               <>
-                The project is a graph — stages, departments, workstreams and every record in them. When an approval lapses, the walk shows what it gates and what that feeds, and who is standing on each. <span className="inline-flex items-center gap-1 text-ink"><Waypoints size={14} /> Walked in Neo4j.</span>
+                The project is a graph — stages, departments, functions and every record in them. When an approval lapses, the walk shows what it gates and what that feeds, and who is standing on each. <span className="inline-flex items-center gap-1 text-ink"><Waypoints size={14} /> Walked in Neo4j.</span>
               </>
             }
           />
@@ -885,7 +885,7 @@ export default function Landing() {
           <InView className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
             <div className="max-w-[62ch] space-y-4 text-[16px] leading-[1.7] text-ink-secondary">
               <p>
-                A portfolio by stage, a workspace per project with its departments and their workstreams, one chat across all of it, a graph of how the work connects, and a site app for Android and iOS. Reports are built from the records and export to Word or PDF.
+                A portfolio by stage, a workspace per project with its departments and their functions, one chat across all of it, a graph of how the work connects, and a site app for Android and iOS. Reports are built from the records and export to Word or PDF.
               </p>
               <p>
                 It is <span className="font-medium text-ink">not</span> a certified valuation, a legal title certificate or a live-registry product. Indicative figures and AI drafts sit on the same records and never replace a registered valuer or the engineer who signs.

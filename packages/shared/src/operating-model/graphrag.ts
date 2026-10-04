@@ -79,7 +79,17 @@ export function clampGraphHops(hops: number): number {
   return Math.max(1, Math.min(MAX_HOPS, Math.trunc(hops)));
 }
 
-/** Case-insensitive id or label search — how a question's words become seeds. */
+/**
+ * Case-insensitive id or label search — how a question's words become seeds.
+ *
+ * A kind's name finds every node of that kind. The menu calls a workstream a
+ * function and the graph keeps the kind `workstream`, so the reader's word
+ * finds them too, one or many: "function" and "functions".
+ *
+ * The names the frame no longer draws are found through the detail of what
+ * stands for them: a step on its stage, a department's name in full on the
+ * department, Design's workstreams on Design.
+ */
 export function findProjectNodes(graph: ProjectGraphView, query: string): ProjectGraphNode[] {
   const needle = query.trim().toLowerCase();
   if (needle.length === 0) return [];
@@ -89,7 +99,8 @@ export function findProjectNodes(graph: ProjectGraphView, query: string): Projec
     (n) =>
       n.label.toLowerCase().includes(needle) ||
       (n.detail ?? '').toLowerCase().includes(needle) ||
-      n.kind.toLowerCase() === needle,
+      n.kind.toLowerCase() === needle ||
+      (n.kind === 'workstream' && (needle === 'function' || needle === 'functions')),
   );
 }
 

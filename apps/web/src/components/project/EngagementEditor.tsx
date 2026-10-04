@@ -79,7 +79,7 @@ export function EngagementsCard({ project, onSaved }: { project: DdProject; onSa
           : await workspaceApi.updateEngagement(project.id, (editing as Engagement).id, { ...common, stage: draft.stage });
       onSaved(res.project);
       setEditing(null);
-      toast(editing === 'new' ? 'Engagement opened. Its workstreams carry the checks it needs.' : 'Engagement saved', 'good');
+      toast(editing === 'new' ? 'Engagement opened. Its functions carry the checks it needs.' : 'Engagement saved', 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not save the engagement', 'critical');
     } finally {
@@ -116,7 +116,7 @@ export function EngagementsCard({ project, onSaved }: { project: DdProject; onSa
             ))}
           </ul>
         ) : (
-          <p className="text-[13px] text-ink-secondary">None yet. An engagement says who the work is for, what was asked, who leads it and when it is due, and which workstreams it draws on.</p>
+          <p className="text-[13px] text-ink-secondary">None yet. An engagement says who the work is for, what was asked, who leads it and when it is due, and which functions it draws on.</p>
         )}
       </CardBody>
       <Modal

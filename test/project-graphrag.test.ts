@@ -110,6 +110,27 @@ describe('project GraphRAG', () => {
     assert.match(ref.tool.description ?? '', /not this project's evidence/i);
   });
 
+  it('tells a copilot that read Design off the graph which workstreams a document can go to', async () => {
+    // The graph draws Design as one function, under the key `design`. A
+    // document is given to a workstream, and Design is four of them, so the
+    // key the copilot read is not one it can use. The refusal names the four.
+    const { project, tool: propose } = tool('propose_update');
+    const give = async (workstream: string) =>
+      JSON.parse(
+        String(
+          await propose.run(
+            { kind: 'assign_document', title: `Give the deed to ${workstream}`, rationale: 'It belongs there.', impact: 'Moves one document.', payloadJson: JSON.stringify({ evidenceId: project.evidence[0]!.id, workstream }) } as never,
+            {} as never,
+          ),
+        ),
+      ) as { error?: string; queued?: boolean };
+    const refused = await give('design');
+    assert.match(refused.error ?? '', /Design is not one key: give one of design\.drawings, design\.compliance, design\.rfis, design\.coordination\./);
+    const taken = await give('design.drawings');
+    assert.equal(taken.error, undefined);
+    assert.equal(taken.queued, true);
+  });
+
   it('trace_conclusion on a missing id says so rather than inventing support', async () => {
     const { tool: trace } = tool('trace_conclusion');
     const raw = String(await trace.run({ nodeId: 'chk_does_not_exist' } as never, {} as never));

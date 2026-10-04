@@ -30,6 +30,7 @@ import {
   questionStatus,
   questionnaireSummary,
   suggestAnswers,
+  departmentDefinition,
   projectDepartments,
   requirementSheet,
   supportingDocuments,
@@ -272,7 +273,11 @@ function validateProposal(kind: ChatProposalKind, payload: Record<string, unknow
   }
   if (kind === 'assign_document') {
     if (!str('evidenceId')) return 'assign_document needs evidenceId.';
-    if (payload.workstream !== null && !workstreamDefinition(str('workstream'))) return 'assign_document needs workstream — a workstream key such as construction.quality, or null to hand it back.';
+    // The graph shows Design as one function under the key `design`, which is
+    // no workstream. A model that read it there is told the keys that are.
+    if (payload.workstream !== null && !workstreamDefinition(str('workstream'))) {
+      return `assign_document needs workstream — a workstream key such as construction.quality, or null to hand it back. Design is not one key: give one of ${departmentDefinition('design').workstreams.map((w) => w.key).join(', ')}.`;
+    }
   }
   if (kind === 'record_check_fields') {
     if (!str('checkId')) return 'record_check_fields needs checkId.';
@@ -1138,7 +1143,7 @@ export function createProjectTools(
   const getSubgraph = betaTool({
     name: 'get_subgraph',
     description:
-      "Query THIS FILE's register graph: assets, DDs, scopes, checks, evidence, findings, risks, actions. Pass a term or an id and hops (1-3). The result is the neighbourhood as [id] lines. Prefer this when asked how things connect. Graph hits are this project's registers — never treat them as a statute. For IBBI/NBC/acts use lookup_reference, which is catalogue-only and is not evidence.",
+      "Query THIS FILE's register graph: assets, DDs, scopes, checks, evidence, findings, risks, actions, each placed in one of the four stages and in a department's function. A `workstream` node is what the person calls a function (Title, Approvals, Design): say function. Pass a term or an id and hops (1-3). The result is the neighbourhood as [id] lines. Prefer this when asked how things connect. Graph hits are this project's registers — never treat them as a statute. For IBBI/NBC/acts use lookup_reference, which is catalogue-only and is not evidence.",
     inputSchema: {
       type: 'object',
       additionalProperties: false,

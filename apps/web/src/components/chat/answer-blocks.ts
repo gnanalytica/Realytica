@@ -54,6 +54,43 @@ const BOLD = /\*\*([^*]+)\*\*/;
 const CODE = /`([^`]+)`/;
 
 /**
+ * A bracketed id of the project graph's frame: a stage, a department or a
+ * function, written `<project>::stage::<key>`, `::dept::<key>` or
+ * `::ws::<key>`.
+ *
+ * It is the one id that is taken out of the sentence when it resolves to
+ * nothing, where a record's id is kept and marked. The difference is what
+ * each is. A record's id is a reference the answer made, and hiding one we
+ * cannot follow would present an unsupported claim as a clean one. A frame
+ * id supports nothing: it names where in the project the sentence is
+ * talking about, and the sentence has already said so in words.
+ *
+ * And they do stop resolving, without anything being wrong. The frame was
+ * redrawn to match the menu: twelve steps became four stages, and Design
+ * became one function of Engineering. An answer written before quotes
+ * `…::stage::acquisition` or `…::ws::design.drawings`, which is no longer
+ * anything. Printed, that is a key nobody can read in the middle of a
+ * sentence about the Acquisition step.
+ */
+const FRAME_TOKEN = /\[([A-Za-z0-9][A-Za-z0-9_-]*::(?:stage|dept|ws)::[A-Za-z0-9_.-]+)\]/;
+
+/**
+ * The stretch to take out with an id that is gone: the token, the round
+ * brackets when it stood alone in them, and the space before, so that
+ * "the Acquisition step ([…]) is done" closes up as a sentence.
+ */
+function stretchOf(text: string, at: number, len: number): { at: number; len: number } {
+  let from = at;
+  let to = at + len;
+  if (text[from - 1] === '(' && text[to] === ')') {
+    from -= 1;
+    to += 1;
+  }
+  while (from > 0 && text[from - 1] === ' ') from -= 1;
+  return { at: from, len: to - from };
+}
+
+/**
  * Split one line into spans.
  *
  * `isNode` decides whether a bracketed token is a real graph node or just
@@ -64,9 +101,16 @@ const CODE = /`([^`]+)`/;
 export function parseInline(text: string, isNode: (id: string) => boolean): Inline[] {
   const out: Inline[] = [];
   let rest = text;
+  // Text joins the text before it, so a sentence an id was taken out of is
+  // one run of words again and not two with a seam.
+  const say = (words: string): void => {
+    const last = out[out.length - 1];
+    if (last?.kind === 'text') last.text += words;
+    else out.push({ kind: 'text', text: words });
+  };
 
   while (rest.length > 0) {
-    const candidates: { at: number; len: number; span: Inline }[] = [];
+    const candidates: { at: number; len: number; span: Inline | null }[] = [];
 
     const ev = EVIDENCE_TOKEN.exec(rest);
     if (ev) candidates.push({ at: ev.index, len: ev[0].length, span: { kind: 'evidence', id: ev[1] } });
@@ -77,11 +121,23 @@ export function parseInline(text: string, isNode: (id: string) => boolean): Inli
     const code = CODE.exec(rest);
     if (code) candidates.push({ at: code.index, len: code[0].length, span: { kind: 'code', text: code[1] } });
 
+    // A frame id is looked for by its own shape, wherever it stands on the
+    // line. One the graph has is a node like any other; one it no longer has
+    // leaves the sentence, with nothing in its place.
+    const frame = FRAME_TOKEN.exec(rest);
+    if (frame) {
+      candidates.push(
+        isNode(frame[1])
+          ? { at: frame.index, len: frame[0].length, span: { kind: 'node', id: frame[1] } }
+          : { ...stretchOf(rest, frame.index, frame[0].length), span: null },
+      );
+    }
+
     // Checked last and gated on the graph, so `[ev:…]` is never also read as a
     // node — one citation rendering as two chips was a real bug in the
     // server-side extractor and the same trap exists here.
     const node = NODE_TOKEN.exec(rest);
-    if (node && !node[0].startsWith('[ev:')) {
+    if (node && !node[0].startsWith('[ev:') && !FRAME_TOKEN.test(node[0])) {
       if (isNode(node[1])) {
         candidates.push({ at: node.index, len: node[0].length, span: { kind: 'node', id: node[1] } });
       } else if (looksLikeOurId(node[1])) {
@@ -92,12 +148,12 @@ export function parseInline(text: string, isNode: (id: string) => boolean): Inli
     if (candidates.length === 0) break;
     candidates.sort((a, b) => a.at - b.at);
     const first = candidates[0];
-    if (first.at > 0) out.push({ kind: 'text', text: rest.slice(0, first.at) });
-    out.push(first.span);
+    if (first.at > 0) say(rest.slice(0, first.at));
+    if (first.span) out.push(first.span);
     rest = rest.slice(first.at + first.len);
   }
 
-  if (rest.length > 0) out.push({ kind: 'text', text: rest });
+  if (rest.length > 0) say(rest);
   return out;
 }
 

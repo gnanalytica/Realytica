@@ -29,11 +29,17 @@ import { exampleOfWorkstream } from '../../example/paths';
 import { WORKSTREAM_PANE } from '../cockpit/rail';
 import type { ProjectOutlet } from '../ProjectLayout';
 
-/** Where a workstream lives: its own page, or the pane that has always been it. */
+/**
+ * Where a workstream lives: its own page, or the pane that has always been it.
+ *
+ * The graph hands back a function's key, and one function is not a
+ * workstream: Design, whose page is the design department's.
+ */
 export function useWorkstreamNav(project: DdProject) {
   const navigate = useNavigate();
   return {
-    openWorkstream: (key: string) => navigate(cockpitPath(project.id, WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })),
+    openWorkstream: (key: string) =>
+      navigate(key === 'design' ? cockpitPath(project.id, 'department', { department: 'design' }) : cockpitPath(project.id, WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })),
     openDocument: (evidenceId: string) => navigate(cockpitPath(project.id, 'evidence', { evidenceId })),
     openCheck: (where: { ddId: string; scopeId: string; checkId: string }) => navigate(cockpitPath(project.id, 'scope', where)),
     pairPhone: () => navigate(`${cockpitPath(project.id, 'people')}#pair`),

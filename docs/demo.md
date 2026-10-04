@@ -42,7 +42,7 @@ The Kannada encumbrance certificates are read by the model alone: their text lay
 7. **Engineering › Progress.** Use the usual milestones, then **Pair a phone** from People. On the phone, in the Realytica Site app, scan the code, log today's entry with a photograph — offline if you like — and watch it arrive: progress moves, and if the commencement certificate is not on file, an alert says work is being logged before it is allowed.
 8. **Finance › Valuation.** **Value this property** fills what the file holds — on this pack, the plot area off the sale deed, and the 2006 sale price, which it shows but will not use as a rate twenty years on — and checks the Karnataka title rules: K-RERA registered, the occupancy certificate not yet due, the EC period as read, and what is not established. The rate and the land rate wait for a valuer, a comparable you add, or the portal search (which needs a scraping service account on the API).
 9. **People.** Roles by department: make an outside advocate the signer for Legal, and see what they can and cannot reach.
-10. **Graph.** Opens on the project, its departments and their workstreams; open any node to walk out to the records placed in it, and search to reach past what is open.
+10. **Graph.** Opens on the project, the four stages, its departments and their functions; open any node to walk out to the records placed in it, and search to reach past what is open.
 
 ## What the demo does not claim
 

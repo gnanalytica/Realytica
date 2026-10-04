@@ -12,6 +12,9 @@
  * - A **workstream** is one ongoing piece of work inside a department, with a
  *   quick assessment, certified reports from named professionals, its checks
  *   and its records.
+ * - The **menu** shows five of the six departments, by one word each, and
+ *   calls a workstream a function. Design is one function inside Engineering.
+ *   The graph draws the same five and the same functions.
  *
  * Every check in the library belongs to exactly one workstream, so the same
  * title check serves every engagement that needs it.
@@ -329,6 +332,161 @@ export function departmentDefinition(key: DepartmentKey): DepartmentDefinition {
 
 export function workstreamDefinition(key: string): WorkstreamDefinition | undefined {
   return WORKSTREAM_BY_KEY.get(key);
+}
+
+/* ==================================================================== */
+/* The menu: five departments, and the functions inside each            */
+/* ==================================================================== */
+
+/** A department's name in the menu: one word. */
+export const DEPARTMENT_SHORT: Record<DepartmentKey, string> = {
+  finance: 'Finance',
+  legal: 'Legal',
+  design: 'Design',
+  construction: 'Engineering',
+  procurement: 'Procurement',
+  commercial: 'Commercial',
+};
+
+/**
+ * The departments of the menu, in the order a property is worked: is it
+ * owned and allowed, does it pay, can it be built, will it sell, what is
+ * bought for it.
+ *
+ * Five, not six: drawings and their compliance are engineering work, so
+ * Design is a function inside Engineering rather than a department beside it.
+ * The record underneath still keeps Design as its own department, with its
+ * own people and roles.
+ */
+export const MENU_DEPARTMENTS: readonly DepartmentKey[] = ['legal', 'finance', 'construction', 'commercial', 'procurement'];
+
+/** The menu department a department's pages sit under. */
+export function menuDepartment(key: DepartmentKey): DepartmentKey {
+  return key === 'design' ? 'construction' : key;
+}
+
+/**
+ * The menu departments that stand for a set of switched-on departments.
+ * Engineering is one of them while either it or Design is on, since Design
+ * is reached through it. The graph draws these; the menu applies the same
+ * rule in its own selector and is to be moved onto this.
+ */
+export function menuDepartmentsOf(enabled: readonly DepartmentKey[]): DepartmentKey[] {
+  return MENU_DEPARTMENTS.filter((menu) => enabled.some((key) => menuDepartment(key) === menu));
+}
+
+/** A function's name on its tab: one word. */
+export const FUNCTION_SHORT: Record<string, string> = {
+  'finance.valuation': 'Valuation',
+  'finance.feasibility': 'Feasibility',
+  'finance.budget': 'Budget',
+  'finance.funding': 'Funding',
+  'finance.tax': 'Tax',
+  'legal.title': 'Title',
+  'legal.approvals': 'Approvals',
+  'legal.rera': 'RERA',
+  'legal.contracts': 'Contracts',
+  'legal.handover': 'Handover',
+  'construction.progress': 'Progress',
+  'construction.quality': 'Technical',
+  'construction.site': 'Site',
+  'construction.safety': 'Safety',
+  'procurement.boq': 'Tenders',
+  'procurement.orders': 'Orders',
+  'procurement.vendors': 'Vendors',
+  'procurement.deliveries': 'Deliveries',
+  'commercial.market': 'Market',
+  'commercial.inventory': 'Sales',
+  'commercial.buyers': 'Collections',
+  'commercial.handover': 'Handover',
+  'commercial.operations': 'Operations',
+};
+
+/** The key of the Design function: the design workstreams, together. */
+const DESIGN_FUNCTION = 'design';
+
+/**
+ * The function a workstream belongs to in the menu.
+ *
+ * Every design workstream is the one function Design, under the key
+ * `design`. Any other workstream is a function by itself, under its own key.
+ */
+export function functionKey(workstreamKey: string): string {
+  return workstreamKey.startsWith('design.') ? DESIGN_FUNCTION : workstreamKey;
+}
+
+/**
+ * The menu department a function sits under, from the function's key or the
+ * key of a workstream it stands for: Engineering for Design, a workstream's
+ * own department otherwise.
+ *
+ * It is what tells two functions apart where they are named side by side.
+ * Legal and Commercial each have a Handover, so the one word is not a name
+ * until the department is said with it ("Legal › Handover").
+ */
+export function functionDepartment(key: string): DepartmentKey | undefined {
+  const own = key === DESIGN_FUNCTION ? 'design' : workstreamDefinition(key)?.department;
+  return own ? menuDepartment(own) : undefined;
+}
+
+/** A function's word with its department's in front, the way the app writes a place: "Legal › Handover". */
+export function withDepartment(key: string, word: string): string {
+  const department = functionDepartment(key);
+  return department ? `${DEPARTMENT_SHORT[department]} › ${word}` : word;
+}
+
+/**
+ * One function of a menu department, as the graph draws it: one node each.
+ * The menu shows the same functions as tabs from its own list in `rail.tsx`
+ * and is to be moved onto this one.
+ */
+export interface MenuFunction {
+  /** A workstream's own key, or `design` for the design workstreams together. */
+  key: string;
+  /** Its one word. */
+  label: string;
+  /** Its name in full, as the record has it. */
+  name: string;
+  /** One line: what it is for. */
+  purpose: string;
+  /** The department of the record its work is kept under. */
+  department: DepartmentKey;
+  /** The workstreams it stands for. */
+  workstreams: string[];
+  /** Whether any of it is built. */
+  built: boolean;
+}
+
+/**
+ * A menu department's functions, in menu order: for Engineering, Design
+ * first and then its own. Asked of Design itself, it answers for Engineering,
+ * the department its pages sit under.
+ */
+export function menuFunctions(menu: DepartmentKey): MenuFunction[] {
+  const under = menuDepartment(menu);
+  const own = departmentDefinition(under).workstreams.map((w) => ({
+    key: w.key,
+    label: FUNCTION_SHORT[w.key] ?? w.label,
+    name: w.label,
+    purpose: w.purpose,
+    department: w.department,
+    workstreams: [w.key],
+    built: w.status === 'live',
+  }));
+  if (under !== menuDepartment('design')) return own;
+  const design = departmentDefinition('design');
+  return [
+    {
+      key: DESIGN_FUNCTION,
+      label: DEPARTMENT_SHORT.design,
+      name: design.label,
+      purpose: design.purpose,
+      department: design.key,
+      workstreams: design.workstreams.map((w) => w.key),
+      built: design.workstreams.some((w) => w.status === 'live'),
+    },
+    ...own,
+  ];
 }
 
 /* ==================================================================== */
