@@ -7,7 +7,6 @@ import { Spinner, ToastHost } from './components/ui/kit';
 import MyWork from './pages/MyWork';
 import Landing from './pages/Landing';
 
-import ProjectList from './pages/projects/ProjectList';
 import NewProject from './pages/projects/NewProject';
 import ProjectLayout from './pages/projects/ProjectLayout';
 import Overview from './pages/projects/Overview';
@@ -119,7 +118,8 @@ export default function App() {
           <Route path="work" element={<MyWork />} />
           {/* Automations are off in this build; an old link lands somewhere useful. */}
           <Route path="flows/*" element={<Navigate to="/portfolio" replace />} />
-          <Route path="projects" element={<ProjectList />} />
+          {/* The list of projects is one of the portfolio's two views now, not a page beside it. */}
+          <Route path="projects" element={<Navigate to="/portfolio" replace />} />
           <Route path="projects/new" element={<NewProject />} />
           {/* The case dashboard is now the workspace's Overview. Old links, and a
               question asked from them, land there. */}

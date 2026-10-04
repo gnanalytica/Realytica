@@ -1,147 +1,75 @@
-import { Link, useNavigate } from 'react-router-dom';
-import { FolderTree, Plus, RotateCw } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import {
   PROJECT_ARCHETYPE_LABEL,
   PROJECT_HEALTH_LABEL,
   PROJECT_STATUS_LABEL,
   stageDefinition,
   stageOf,
+  type ProjectSummary,
 } from '@realytica/shared';
-import { api } from '../../lib/api';
-import { useAsync } from '../../lib/useAsync';
-import { Badge, Button, Callout, Card, CardBody, EmptyState, Input, Skeleton, StatTile } from '../../components/ui/kit';
+import { Badge, Card, CardBody } from '../../components/ui/kit';
 import { healthTone } from './shared';
-import { useState } from 'react';
 
-/** Below this many projects the eye is faster than a search box. */
-const SEARCH_FROM = 6;
-
-export default function ProjectList() {
-  const navigate = useNavigate();
-  const { data, error, loading, refresh } = useAsync(() => api.listProjects(), []);
-  const [query, setQuery] = useState('');
-
-  // Fine at two projects; a firm with forty needs to type a name. Reference
-  // and city are in the haystack because "RYT-0021" and "Whitefield" are both
-  // things people say out loud about a file.
-  const all = data ?? [];
-  const needle = query.trim().toLowerCase();
-  const list = needle
-    ? all.filter((p) =>
-        [p.name, p.reference, p.city, p.location, p.portfolio ?? '']
-          .join(' ')
-          .toLowerCase()
-          .includes(needle),
-      )
-    : all;
-  // Tiles count the portfolio, not the filtered view — a search should not
-  // make the number of at-risk projects appear to fall.
-  const active = all.filter((p) => p.status === 'active').length;
-  const red = all.filter((p) => p.health === 'red').length;
-  const overdue = all.reduce((n, p) => n + p.overdueActions, 0);
-  const grouped = new Map<string, typeof list>();
-  for (const p of list) {
+/**
+ * The projects as a list: one row each, with the counts a board has no room
+ * for.
+ *
+ * This was a page of its own beside the portfolio, with its own entry in the
+ * sidebar, its own search and its own three figures. It showed the same
+ * projects the portfolio does, arranged differently, so it is now one of the
+ * portfolio's two views and this is only the rows.
+ */
+export function ProjectRows({ projects }: { projects: ProjectSummary[] }) {
+  const grouped = new Map<string, ProjectSummary[]>();
+  for (const p of projects) {
     const key = p.portfolio?.trim() || 'Ungrouped';
     const rows = grouped.get(key) ?? [];
     rows.push(p);
     grouped.set(key, rows);
   }
-  const showGroups = list.some((p) => p.portfolio?.trim());
-  const groupEntries = showGroups
-    ? [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b))
-    : ([['__all__', list]] as Array<[string, typeof list]>);
+  // A firm that names its portfolios gets them as headings; one that does not gets no heading at all.
+  const showGroups = projects.some((p) => p.portfolio?.trim());
+  const groupEntries: Array<[string, ProjectSummary[]]> = showGroups ? [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)) : [['__all__', projects]];
+
+  if (projects.length === 0) {
+    return <p className="rounded-xl border border-dashed border-[var(--axis)] px-3 py-7 text-center text-[12px] text-ink-muted">No projects match.</p>;
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-ink">Projects</h1>
-          {all.length >= SEARCH_FROM ? (
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Find a project"
-              aria-label="Find a project"
-              className="w-56"
-            />
-          ) : null}
-        </div>
-        <div className="flex gap-2">
-          <Button variant="ghost" icon={<RotateCw size={14} />} onClick={() => void refresh()} disabled={loading}>
-            Refresh
-          </Button>
-          <Button icon={<Plus size={14} />} onClick={() => navigate('/projects/new')}>
-            New project
-          </Button>
-        </div>
-      </div>
-
-      {/* `pending` rather than zeroes: the first paint used to read
-          "Projects 0 · 0 active", which is not a slow number, it is a wrong
-          one — and it is the first thing anybody sees on opening the app. */}
-      {data || !error ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <StatTile label="Projects" value={String(all.length)} hint={`${active} active`} pending={!data} />
-          <StatTile label="At risk" value={String(red)} hint="Health red" pending={!data} />
-          <StatTile label="Overdue actions" value={String(overdue)} pending={!data} />
-        </div>
-      ) : null}
-
-      {error ? <Callout tone="critical" title="Could not load projects">{error}</Callout> : null}
-      {loading && !data ? (
-        <div className="space-y-2">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-        </div>
-      ) : null}
-
-      {!loading && list.length === 0 ? (
-        <EmptyState
-          icon={<FolderTree size={22} />}
-          title="No projects yet"
-          description="Create a project for a property. Its departments, documents and checks follow from the stage it is at."
-          action={<Button onClick={() => navigate('/projects/new')}>Create project</Button>}
-        />
-      ) : (
-        <div className="space-y-6">
-          {groupEntries.map(([group, rows]) => (
-            <div key={group} className="space-y-2">
-              {showGroups ? (
-                <h2 className="text-[12px] font-semibold text-ink-secondary">{group}</h2>
-              ) : null}
-              {rows.map((p) => (
-                <Link key={p.id} to={`/projects/${p.id}`} className="block">
-                  <Card className="transition-colors hover:bg-sunken/60">
-                    <CardBody className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="font-mono text-[11px] text-ink-muted">{p.reference}</p>
-                        <p className="mt-0.5 text-[15px] font-semibold text-ink">{p.name}</p>
-                        <p className="mt-1 text-[13px] text-ink-secondary">
-                          {PROJECT_ARCHETYPE_LABEL[p.type]} · {p.city} · {stageDefinition(stageOf(p.currentStage)).label}
-                          {/* The portfolio is the heading these cards sit
-                              under whenever grouping is on, and repeating it
-                              on every card put "Bengaluru" twice in one line:
-                              once as the city, once inside "Bengaluru
-                              residential". Only shown when nothing above
-                              already says it. */}
-                          {p.portfolio && !showGroups ? ` · ${p.portfolio}` : ''}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone={healthTone(p.health)}>{PROJECT_HEALTH_LABEL[p.health]}</Badge>
-                        <Badge>{PROJECT_STATUS_LABEL[p.status]}</Badge>
-                        <span className="text-[12px] text-ink-muted">
-                          {p.activeDdCount} DD · {p.openFindings} findings · {p.openRisks} risks
-                        </span>
-                      </div>
-                    </CardBody>
-                  </Card>
-                </Link>
-              ))}
-            </div>
+      {groupEntries.map(([group, rows]) => (
+        <div key={group} className="space-y-2">
+          {showGroups ? <h2 className="text-[12px] font-semibold text-ink-secondary">{group}</h2> : null}
+          {rows.map((p) => (
+            <Link key={p.id} to={`/projects/${p.id}`} className="block">
+              <Card className="transition-colors hover:bg-sunken/60">
+                <CardBody className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-mono text-[11px] text-ink-muted">{p.reference}</p>
+                    <p className="mt-0.5 text-[15px] font-semibold text-ink">{p.name}</p>
+                    <p className="mt-1 text-[13px] text-ink-secondary">
+                      {PROJECT_ARCHETYPE_LABEL[p.type]} · {p.city} · {stageDefinition(stageOf(p.currentStage)).label}
+                      {/* The portfolio is the heading these rows sit under
+                          whenever grouping is on, and repeating it on every
+                          row put "Bengaluru" twice in one line: once as the
+                          city, once inside "Bengaluru residential". Only
+                          shown when nothing above already says it. */}
+                      {p.portfolio && !showGroups ? ` · ${p.portfolio}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={healthTone(p.health)}>{PROJECT_HEALTH_LABEL[p.health]}</Badge>
+                    <Badge>{PROJECT_STATUS_LABEL[p.status]}</Badge>
+                    <span className="text-[12px] text-ink-muted">
+                      {p.activeDdCount} DD · {p.openFindings} findings · {p.openRisks} risks
+                    </span>
+                  </div>
+                </CardBody>
+              </Card>
+            </Link>
           ))}
         </div>
-      )}
+      ))}
     </div>
   );
 }

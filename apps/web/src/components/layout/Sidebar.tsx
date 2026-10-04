@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { ChevronsLeft, ChevronsRight, BookOpen, CircleCheck, FolderTree, Home, Inbox, Info, Users, X } from 'lucide-react';
 import { cn } from '../ui/kit';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
@@ -18,16 +18,20 @@ interface NavItem {
   label: string;
   icon: typeof FolderTree;
   end: boolean;
+  /** Addresses that are also this place: a project's own pages belong to the portfolio it was opened from. */
+  also?: string;
 }
 
 /*
- * The firm's work first: its engagements as a pipeline, the files, what it is
- * waiting on from others, and the people it works with. Setup and reference
- * sit below the rule.
+ * The firm's work first: its projects, what it is waiting on from others, and
+ * the people it works with. Setup and reference sit below the rule.
+ *
+ * Portfolio and Projects were two entries here for one set of projects, shown
+ * as a board by stage in one and as a list in the other. The portfolio now
+ * has both views, and this is one entry.
  */
 const PROJECT_ITEMS: NavItem[] = [
-  { to: '/portfolio', label: 'Portfolio', icon: Home, end: false },
-  { to: '/projects', label: 'Projects', icon: FolderTree, end: false },
+  { to: '/portfolio', label: 'Portfolio', icon: Home, end: false, also: '/projects' },
   { to: '/requests', label: 'Requests', icon: Inbox, end: false },
   { to: '/members', label: 'People', icon: Users, end: false },
 ];
@@ -47,6 +51,7 @@ function NavGroup({
   collapsed: boolean;
   heading?: string;
 }) {
+  const { pathname } = useLocation();
   return (
     <>
       {/*
@@ -69,8 +74,9 @@ function NavGroup({
            * `display:none` at this width and a hidden span names nothing.
            */
           aria-label={collapsed ? item.label : undefined}
-          className={({ isActive }) =>
-            cn(
+          className={({ isActive: here }) => {
+            const isActive = here || Boolean(item.also && pathname.startsWith(item.also));
+            return cn(
               /* `coarse:` for the pointer, not `lg:` for the window: a tablet
                  is wide and still fingered. These rows measured 36px against
                  the 44 a thumb needs, on the app's primary navigation. */
@@ -86,8 +92,8 @@ function NavGroup({
               // The narrow rail keeps its words, small, under each mark — an
               // eight-icon rail with no words is a memory test.
               collapsed && 'lg:flex-col lg:justify-center lg:gap-1 lg:px-0 lg:py-2 lg:before:inset-y-2',
-            )
-          }
+            );
+          }}
         >
           <item.icon size={collapsed ? 18 : 16} className="shrink-0" />
           <span className={cn(collapsed && 'lg:text-[10px] lg:font-medium lg:leading-none')}>{item.label}</span>

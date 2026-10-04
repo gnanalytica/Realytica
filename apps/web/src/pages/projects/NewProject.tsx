@@ -411,7 +411,7 @@ export default function NewProject() {
       </Disclosure>
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={() => navigate('/projects')}>
+        <Button type="button" variant="ghost" onClick={() => navigate('/portfolio')}>
           Cancel
         </Button>
         {/* Never disabled on an empty field — that is the silent failure. */}
