@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { Reveal } from '../../../lib/motion';
 import { DEPARTMENT_ICON } from '../../../components/departments/icons';
-import { Navigate, useNavigate, useOutletContext, useParams } from 'react-router-dom';
-import { Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Stamp, Waypoints } from 'lucide-react';
+import { Link, Navigate, useNavigate, useOutletContext, useParams } from 'react-router-dom';
+import { ArrowRight, Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Stamp, Waypoints } from 'lucide-react';
 import {
   STAGES,
   cockpitPath,
@@ -25,6 +25,7 @@ import { DepartmentDesk } from '../../../components/departments/DepartmentDesk';
 import { TitleChainDiagram } from '../../../components/charts';
 import { ScheduleOfProperty } from '../../../components/ScheduleOfProperty';
 import { SectionPage, type PageSection } from '../../../components/workspace/SectionPage';
+import { exampleOfWorkstream } from '../../example/paths';
 import { WORKSTREAM_PANE } from '../cockpit/rail';
 import type { ProjectOutlet } from '../ProjectLayout';
 
@@ -44,9 +45,11 @@ export function useWorkstreamNav(project: DdProject) {
 }
 
 /**
- * The frame every live workstream shares: its quick assessment and the
- * certified report beside it, how it connects to the rest of the project, and
- * the engagements drawing on it. The Value and Site pages carry it too.
+ * A workstream's frame, for the pages that keep a layout of their own: its
+ * quick assessment and the certified report beside it, how it connects to
+ * the rest of the project, and the engagements drawing on it. The technical
+ * due diligence, Valuation and Site carry it; the functions laid out as one
+ * page with a rail show the same pieces as sections of that page instead.
  */
 export function WorkstreamFrame({ project, workstream, setProject, compact = false }: { project: DdProject; workstream: string; setProject: (p: DdProject) => void; compact?: boolean }) {
   const assessment = useQuickAssessment(project, workstream);
@@ -67,6 +70,8 @@ function ComingSoon({ project, workstream }: { project: DdProject; workstream: s
   const ws = workstreamDefinition(workstream)!;
   const checks = workstreamChecks(project, workstream);
   const docs = workstreamDocuments(project, workstream).filter((e) => e.attachments.length);
+  // The example project has every function drawn with made-up data, this one included.
+  const example = exampleOfWorkstream(workstream);
   return (
     <Card>
       <CardHeader icon={<Clock size={15} />} title={`${ws.label} is coming`} subtitle={ws.purpose} />
@@ -85,6 +90,12 @@ function ComingSoon({ project, workstream }: { project: DdProject; workstream: s
         <p className="text-ink-secondary">
           Waiting for it: {checks.length} check{checks.length === 1 ? '' : 's'}, {docs.length} document{docs.length === 1 ? '' : 's'}.
         </p>
+        {example ? (
+          <Link to={example} className="group inline-flex items-center gap-1 font-medium text-brand hover:underline coarse:min-h-11">
+            See this page in the example project
+            <ArrowRight size={13} aria-hidden className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
+          </Link>
+        ) : null}
       </CardBody>
     </Card>
   );

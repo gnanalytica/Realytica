@@ -45,6 +45,12 @@ const Libraries = lazy(() => import('./pages/projects/Libraries'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
 const Requests = lazy(() => import('./pages/Requests'));
 const ReportPrint = lazy(() => import('./pages/projects/ReportPrint'));
+/*
+ * The example project carries every function's made-up data with it, a third
+ * of a megabyte nobody working on a real project needs, so it arrives only
+ * when it is opened.
+ */
+const ExampleWorkspace = lazy(() => import('./pages/example/ExampleWorkspace'));
 
 /*
  * Two project tabs that are the exception to the eager rule above.
@@ -74,6 +80,18 @@ export default function App() {
         {/* The landing page is the one thing outside the gate: somebody has to
             be able to read what this is before being asked to sign in. */}
         <Route index element={<Landing />} />
+        {/* The example project stands outside the gate too: it is the product
+            shown whole, with made-up data and nothing saved, for somebody who
+            has no account yet. It fills the window, so it is outside the
+            shell as well. */}
+        <Route
+          path="example/:department?/:fn?"
+          element={
+            <Suspense fallback={null}>
+              <ExampleWorkspace />
+            </Suspense>
+          }
+        />
         {/* The printable report stands outside the shell, so the page that
             prints is the report and not the navigation around it. */}
         <Route

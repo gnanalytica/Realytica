@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { EXAMPLE_HOME } from './example/paths';
 import { ArrowRight, Check, CheckCircle2, CloudOff, FileText, Lock, Menu, Minus, Plus, Smartphone, Sparkles, Waypoints, X } from 'lucide-react';
 import { DEPARTMENTS, STAGES, SUB_STAGE_LABEL, type DepartmentKey, type StageKey } from '@realytica/shared';
 import { AnimatePresence, EASE_ENTER, SPRING, motion } from '../lib/motion';
@@ -750,6 +751,11 @@ export default function Landing() {
               <a href="#structure" className="inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-[14px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick hover:bg-surface">
                 See how it is organised
               </a>
+              {/* The one thing here that can be tried without an account: a whole project, with made-up data. */}
+              <Link to={EXAMPLE_HOME} className="group inline-flex items-center justify-center gap-1.5 px-2 py-3 text-[14px] font-medium text-brand hover:underline">
+                Open an example project
+                <ArrowRight size={15} className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
+              </Link>
             </motion.div>
             <motion.p
               className="mt-6 flex items-start gap-2 text-[13px] text-ink-muted"

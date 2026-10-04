@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Bell, CalendarDays, CircleAlert, FolderTree, Inbox, Plus, Search, TriangleAlert } from 'lucide-react';
+import { ArrowRight, Bell, CalendarDays, CircleAlert, FolderTree, Inbox, LayoutTemplate, Plus, Search, TriangleAlert } from 'lucide-react';
 import {
   ENGAGEMENT_STAGE_LABEL,
   STAGES,
@@ -16,6 +16,7 @@ import { useAsync } from '../lib/useAsync';
 import { readPref, writePref } from '../lib/prefs';
 import { AnimatedNumber, Reveal, SPRING, Stagger, StaggerItem, motion } from '../lib/motion';
 import { AiMark, Badge, Button, Callout, Card, CardBody, CardHeader, EmptyState, Skeleton, Tooltip, cn } from '../components/ui/kit';
+import { EXAMPLE_HOME } from './example/paths';
 import { Avatar, dayMonth } from '../components/project/ProjectPanels';
 
 const LAST_SEEN_KEY = 'portfolioLastSeen';
@@ -269,6 +270,10 @@ export default function Portfolio() {
               className="w-full min-w-0 bg-transparent text-[13px] text-ink placeholder:text-ink-muted focus:outline-none coarse:text-base sm:w-56"
             />
           </label>
+          {/* Every function of every department, drawn with made-up data: what a full project looks like before one of your own is. */}
+          <Button variant="secondary" icon={<LayoutTemplate size={15} />} onClick={() => navigate(EXAMPLE_HOME)}>
+            Example project
+          </Button>
           <Button variant="primary" icon={<Plus size={15} />} onClick={() => navigate('/projects/new')}>
             New project
           </Button>

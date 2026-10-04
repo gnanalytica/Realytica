@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Navigate, useOutletContext, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import {
   DEPARTMENT_ROLE_LABEL,
@@ -9,6 +9,7 @@ import {
   currentCertified,
   departmentDefinition,
   departmentRole,
+  projectDepartments,
   projectLinks,
   quickAssessment,
   workstreamDefinition,
@@ -24,6 +25,7 @@ import { useMe } from '../../../lib/useMe';
 import { useWorkstreamNav } from './WorkstreamPage';
 import { SupportingDocumentsCard } from '../../../components/departments/EngineeringDesk';
 import { DepartmentDesk } from '../../../components/departments/DepartmentDesk';
+import { exampleOfDepartment } from '../../example/paths';
 import type { ProjectOutlet } from '../ProjectLayout';
 
 function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: WorkstreamDefinition; onOpen: () => void }) {
@@ -68,6 +70,7 @@ export default function DepartmentPage() {
   const { project, setProject, refresh } = useOutletContext<ProjectOutlet>();
   const { department = '' } = useParams<{ department: string }>();
   const me = useMe();
+  const navigate = useNavigate();
   const nav = useWorkstreamNav(project);
   const dept = departmentDefinition(department as DepartmentKey);
   const links = useMemo(
@@ -86,6 +89,14 @@ export default function DepartmentPage() {
   const myRole = me ? departmentRole(project, { email: me.email, workspaceRole: me.role }, dept.key) : undefined;
   const team = (project.team ?? []).filter((t) => t.departments[dept.key]);
   const DeptIcon = DEPARTMENT_ICON[dept.key];
+  // The example project has this department drawn with made-up data.
+  const example = exampleOfDepartment(dept.key);
+  /*
+   * Design is a function of Engineering in the menu, and a department of its
+   * own on the record. So Engineering's summary lists it beside its own
+   * functions, and its page says whose function it is.
+   */
+  const design = dept.key === 'construction' && projectDepartments(project).includes('design') ? departmentDefinition('design') : null;
 
   return (
     <div className="space-y-4">
@@ -96,7 +107,7 @@ export default function DepartmentPage() {
               <DeptIcon size={18} />
             </span>
             <div className="min-w-0">
-              <p className="text-[12px] font-medium text-ink-muted">Department</p>
+              <p className="text-[12px] font-medium text-ink-muted">{dept.key === 'design' ? 'Engineering' : 'Department'}</p>
               <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-ink">{dept.label}</h2>
               <p className="mt-0.5 max-w-[60ch] text-[13px] text-ink-secondary">{dept.purpose}</p>
             </div>
@@ -107,13 +118,28 @@ export default function DepartmentPage() {
 
       {dept.status === 'coming_soon' ? (
         <Card>
-          <CardBody className="text-[13px] text-ink-secondary">
-            {dept.label} is coming soon.
+          <CardBody className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-ink-secondary">
+            <span>{dept.label} is coming soon.</span>
+            {example ? (
+              <Link to={example} className="group inline-flex items-center gap-1 font-medium text-brand hover:underline coarse:min-h-11">
+                See it in the example project
+                <ArrowRight size={13} aria-hidden className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
+              </Link>
+            ) : null}
           </CardBody>
         </Card>
       ) : null}
 
       <Stagger className="grid items-stretch gap-3 [grid-template-columns:repeat(auto-fill,minmax(16rem,1fr))]">
+        {design ? (
+          <StaggerItem key="design" className="h-full">
+            <WorkstreamCard
+              project={project}
+              ws={{ key: 'design', department: 'design', label: 'Design', purpose: design.purpose, deliverables: [], signers: [], status: design.status }}
+              onOpen={() => navigate(cockpitPath(project.id, 'department', { department: 'design' }))}
+            />
+          </StaggerItem>
+        ) : null}
         {dept.workstreams.map((ws) => (
           <StaggerItem key={ws.key} className="h-full">
             <WorkstreamCard project={project} ws={ws} onOpen={() => nav.openWorkstream(ws.key)} />
