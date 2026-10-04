@@ -14,7 +14,7 @@ export function QaBlock({ at, block }: { at: BlockAt; block: Spec }) {
   const toast = useToast();
   const items = block.items.map((item, i) => {
     const id = `${at.id}/${i}`;
-    return { ...item, id, now: item.state === 'suggested' && state.confirmed[id] ? 'answered' : item.state };
+    return { ...item, id, now: item.state === 'suggested' && state.accepted[id] ? 'answered' : item.state };
   });
   const answered = items.filter((item) => item.now === 'answered').length;
 
@@ -35,7 +35,7 @@ export function QaBlock({ at, block }: { at: BlockAt; block: Spec }) {
                     size="sm"
                     variant="primary"
                     onClick={() => {
-                      dispatch({ type: 'mark', what: 'confirmed', ids: [item.id] });
+                      dispatch({ type: 'mark', what: 'accepted', ids: [item.id] });
                       toast('Confirmed.');
                     }}
                   >

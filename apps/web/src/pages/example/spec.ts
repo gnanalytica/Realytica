@@ -1,5 +1,5 @@
 import { EXAMPLE_STAGE_NOW, type ExampleStage } from './paths';
-import type { Department, DepartmentSpec, DeptKey, FunctionSpec } from './types';
+import type { CertifiedStanding, Department, DepartmentSpec, DeptKey, FunctionSpec } from './types';
 import commercial from './spec/commercial.json';
 import engineering from './spec/engineering.json';
 import finance from './spec/finance.json';
@@ -12,6 +12,9 @@ import procurement from './spec/procurement.json';
  */
 
 export const PROJECT_NAME = 'Lakeview Tower';
+
+/** The day the example is set on. */
+export const TODAY = '3 Oct 2026';
 
 /** The one place the files are taken at their word to match the types. */
 const FILES = { legal, finance, engineering, commercial, procurement } as unknown as Record<DeptKey, DepartmentSpec>;
@@ -76,4 +79,22 @@ export function stageFor(fn: FunctionSpec, looking: ExampleStage): ExampleStage 
 /** "Legal · Under construction": a department at a stage, in words. */
 export function placeLabel(dept: Department, stage: ExampleStage): string {
   return `${dept.label} · ${stageLabel(stage)}`;
+}
+
+/** Who signs each department's results, and as what. */
+const SIGNER: Record<DeptKey, { by: string; role: string }> = {
+  legal: { by: 'P. Nair', role: 'Advocate' },
+  finance: { by: 'K. Shetty', role: 'Chartered accountant' },
+  engineering: { by: 'N. Rao', role: 'Structural engineer' },
+  commercial: { by: 'R. Menon', role: 'Registered valuer' },
+  procurement: { by: 'D. Pinto', role: 'Procurement lead' },
+};
+
+/** Finance's valuation is the one result its accountant does not sign: a registered valuer does. */
+const VALUER = { by: 'R. Menon', role: 'Registered valuer' };
+
+/** How a function stands once its professional signs a result today. */
+export function certifiedToday(dept: Department, fn: FunctionSpec): CertifiedStanding {
+  const signer = dept.key === 'finance' && fn.name === 'Valuation' ? VALUER : SIGNER[dept.key];
+  return { state: 'certified', by: signer.by, role: signer.role, on: TODAY, moved: false };
 }

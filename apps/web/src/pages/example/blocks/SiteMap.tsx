@@ -1,14 +1,23 @@
 import { MapBlock, type MapBlockSpec } from '../MapBlock';
-import { mapHome, type BlockAt } from '../engine';
+import type { At, BlockAt } from '../engine';
 import { useOpen } from '../place';
+import { DEPARTMENTS } from '../spec';
 import { useExample } from '../state';
+
+/** The project keeps one map, in Engineering · Site. Every other map is a view of it. */
+function mapHome(): At | null {
+  const dept = DEPARTMENTS.find((d) => d.key === 'engineering');
+  const fn = dept?.functions.find((f) => f.name === 'Site');
+  const section = fn?.sections.find((s) => s.blocks.some((b) => b.type === 'map'));
+  return dept && fn && section ? { dept, fn, section } : null;
+}
 
 /**
  * A map on a function's page.
  *
- * The project keeps one map, in Engineering · Site. Anywhere else this is a
- * view of it with its own layers switched on, and it says where the original
- * is. Which layers are on is remembered for each map separately.
+ * Anywhere but in Engineering · Site this is a view of the map kept there,
+ * with its own layers switched on, and it says where the original is. Which
+ * layers are on is remembered for each map separately.
  */
 export function SiteMap({ at, block }: { at: BlockAt; block: MapBlockSpec }) {
   const { state, dispatch } = useExample();

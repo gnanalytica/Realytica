@@ -1,9 +1,10 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { Badge, cn } from '../../../components/ui/kit';
 import { connections, passedTo } from '../links';
 import { AiChip, RowButton, RowText } from '../parts';
 import { useOpen, usePlace } from '../place';
+import { backToPicked } from '../seek';
 import { useExample, type ProofTab } from '../state';
 import type { Department } from '../types';
 
@@ -11,19 +12,49 @@ import type { Department } from '../types';
 
 const LABEL = 'text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted';
 
-/** What the proof is of, and the way to put it away. */
-export function ProofHead({ kind, title }: { kind: string; title: string }) {
-  const { dispatch } = useExample();
+/**
+ * What the proof is of, and the way to put it away.
+ *
+ * Each showing hands the keyboard to the proof, at its heading; closing it
+ * hands the keyboard back to the thing it was the proof of.
+ */
+export function ProofHead({ kind, title, note }: { kind: string; title: string; note?: string }) {
+  const { state, dispatch } = useExample();
+  const heading = useRef<HTMLHeadingElement>(null);
+  const visit = state.picked?.visit;
+
+  useEffect(() => {
+    const el = heading.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    // A paper that is still closing holds the page inert. The heading takes the keyboard once it lets go.
+    const held = el.closest('[inert]');
+    if (!held) return;
+    const watch = new MutationObserver(() => {
+      if (held.hasAttribute('inert')) return;
+      watch.disconnect();
+      el.focus({ preventScroll: true });
+    });
+    watch.observe(held, { attributes: true, attributeFilter: ['inert'] });
+    return () => watch.disconnect();
+  }, [visit]);
+
   return (
     <div className="flex items-start gap-2.5 px-4 pb-2.5 pt-3.5">
       <div className="min-w-0 flex-1">
         <span className={cn(LABEL, 'block')}>{kind}</span>
-        <h2 className="text-[15px] font-semibold text-ink [overflow-wrap:anywhere]">{title}</h2>
+        <h2 ref={heading} tabIndex={-1} className="text-[15px] font-semibold text-ink [overflow-wrap:anywhere]">
+          {title}
+        </h2>
+        {note ? <p className="text-[12px] text-ink-muted">{note}</p> : null}
       </div>
       <button
         type="button"
         aria-label="Close proof"
-        onClick={() => dispatch({ type: 'close' })}
+        onClick={() => {
+          dispatch({ type: 'close' });
+          backToPicked();
+        }}
         className="grid size-8 shrink-0 place-items-center rounded-lg bg-sunken text-ink-secondary transition-colors duration-quick ease-state hover:text-ink coarse:size-11"
       >
         <X size={14} aria-hidden />
@@ -94,10 +125,11 @@ export function ReadCard({ title, rows }: { title: string; rows: [term: string, 
   );
 }
 
-/** Whether a read value is on the record yet. */
-export function StandingChip({ standing }: { standing: 'waiting' | 'left out' | 'accepted' }) {
-  if (standing === 'waiting') return <AiChip>A suggestion until a person accepts it</AiChip>;
+/** Whether what the copilot read or suggested is on the record, and if not, what a person did with it. */
+export function StandingChip({ standing }: { standing: 'waiting' | 'left out' | 'changed' | 'accepted' }) {
+  if (standing === 'waiting') return <AiChip wrap>A suggestion until a person accepts it</AiChip>;
   if (standing === 'left out') return <Badge>Left out by a person</Badge>;
+  if (standing === 'changed') return <Badge tone="warning">Changed by a person</Badge>;
   return <Badge tone="good">Accepted by S. Rao, 3 Oct</Badge>;
 }
 

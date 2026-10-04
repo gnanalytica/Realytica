@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react';
 import { useMeasure } from '../../components/charts/primitives';
 import { Button, Card, TONE_ICON, andList, cn, toneText, type Tone } from '../../components/ui/kit';
 
@@ -272,13 +273,13 @@ const WORDS: Record<MapView, MapWords[]> = {
     { layer: 'roads', says: 'Main road', x: 418, y: 40, anchor: 'end' },
     { layer: 'roads', says: 'Metro line', x: 40, y: 222 },
     { layer: 'rings', says: '3 km', x: 506, y: 124 },
-    { layer: 'rings', says: '5 km', x: 506, y: 24 },
+    { layer: 'rings', says: '5 km', x: 506, y: 36, drop: 0.85 },
     { layer: 'plot', says: 'Site', x: 524, y: 280, drop: 0.35, face: 'plot' },
     { says: 'Airport 14 km to the north-east', x: 40, y: 540 },
   ],
   plot: [
     { layer: 'roads', says: '24 m road', x: 40, y: 500, drop: 0.35 },
-    { layer: 'roads', says: '12 m road', x: 992, y: 180, anchor: 'end' },
+    { layer: 'roads', says: '12 m road', x: 988, y: 180, anchor: 'end' },
     { layer: 'planning', says: 'Road widening strip', x: 160, y: 434, drop: 0.35, sample: { area: INK.restricted } },
     { layer: 'planning', says: 'Setback line', x: 204, y: 118, drop: 0.8, sample: { line: INK.setback } },
     { says: 'Basement line', x: 244, y: 387, drop: 0.8, sample: { line: INK.basement } },
@@ -536,12 +537,14 @@ function describe(block: MapBlockSpec, on: ReadonlySet<MapLayer>): string {
 
 /*
  * A measure's tone is a tint, a mark and a word for a screen reader, so it
- * does not rest on colour alone.
+ * does not rest on colour alone. Its label is in the quiet ink on a plain
+ * chip and the secondary ink on a tinted one, where the quiet ink is too
+ * faint to read in the dark theme.
  */
 const MEASURE_TONE: Record<MapMeasure['tone'], { tone: Tone; chip: string; says: string }> = {
-  ok: { tone: 'good', chip: 'border-good/40 bg-surface', says: 'fine' },
-  warn: { tone: 'warning', chip: 'border-warning/50 bg-warning/15', says: 'to check' },
-  crit: { tone: 'critical', chip: 'border-critical/50 bg-critical/10', says: 'a problem' },
+  ok: { tone: 'good', chip: 'border-good/40 bg-surface text-ink-muted', says: 'fine' },
+  warn: { tone: 'warning', chip: 'border-warning/50 bg-warning/15 text-ink-secondary', says: 'to check' },
+  crit: { tone: 'critical', chip: 'border-critical/50 bg-critical/10 text-ink-secondary', says: 'a problem' },
 };
 
 /**
@@ -591,11 +594,13 @@ export function MapBlock({ block, layers, onToggleLayer, home }: MapBlockProps) 
               aria-pressed={pressed}
               onClick={() => onToggleLayer(layer)}
               className={cn(
-                'inline-flex min-h-7 items-center rounded-full border px-[11px] text-[12px] font-medium coarse:min-h-11',
+                'inline-flex min-h-7 items-center gap-1.5 rounded-full border text-[12px] font-medium coarse:min-h-11',
                 'transition-colors duration-quick ease-state',
-                pressed ? 'border-brand bg-brand-soft text-brand-strong' : 'border-[var(--axis)] bg-surface text-ink-secondary hover:bg-sunken hover:text-ink',
+                // A layer that is on carries a tick. One that is off keeps the tick's room as padding, so a switch stays the same width and nothing under it moves.
+                pressed ? 'border-brand bg-brand-soft px-[11px] text-brand-strong' : 'border-[var(--axis)] bg-surface px-5 text-ink-muted hover:bg-sunken hover:text-ink',
               )}
             >
+              {pressed ? <Check size={12} strokeWidth={2.5} aria-hidden className="shrink-0" /> : null}
               {LAYER_NAME[layer]}
             </button>
           );
@@ -653,7 +658,7 @@ export function MapBlock({ block, layers, onToggleLayer, home }: MapBlockProps) 
                     chip,
                   )}
                 >
-                  <dt className="flex min-w-0 items-baseline gap-1.5 text-ink-muted [@container(min-width:56rem)]:flex-auto">
+                  <dt className="flex min-w-0 items-baseline gap-1.5 [@container(min-width:56rem)]:flex-auto">
                     <Mark size={12} aria-hidden className={cn('shrink-0 translate-y-[2px]', toneText(tone))} />
                     {measure.t}
                   </dt>

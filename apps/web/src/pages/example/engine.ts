@@ -14,8 +14,8 @@ import type { Block, CertifiedStanding, Department, FieldItem, FunctionSpec, Pho
 
 export type CheckMark = 'yes' | 'no' | 'na' | '';
 
-/** The things that are either done or not: a value accepted, a paper asked for, a list opened. */
-export type MarkKind = 'accepted' | 'rejected' | 'asked' | 'raised' | 'dismissed' | 'drafted' | 'filed' | 'sent' | 'described' | 'confirmed' | 'opened';
+/** The things that are either done or not: a suggestion accepted, a paper asked for, a list opened. */
+export type MarkKind = 'accepted' | 'rejected' | 'asked' | 'raised' | 'dismissed' | 'drafted' | 'filed' | 'sent' | 'chosen' | 'opened';
 
 type Done = Readonly<Partial<Record<string, true>>>;
 
@@ -59,24 +59,55 @@ export interface PhotoRef extends At {
   photo: PhotoItem;
 }
 
+/** Something the copilot suggested, which waits until a person accepts it or leaves it out. */
+export interface Suggestion extends At {
+  id: string;
+  /** A value, a photograph's description, an answer to a question, or an entry in a chain. */
+  kind: 'field' | 'photo' | 'answer' | 'entry';
+  /** What it says, and one quieter line about it. */
+  t: string;
+  sub: string;
+}
+
 export const fnId = (dept: Department, fn: FunctionSpec): string => `${dept.key}/${fn.name}`;
 export const blockId = (dept: Department, fn: FunctionSpec, section: Section, index: number): string => `${fnId(dept, fn)}/${section.id}/${index}`;
 
 const FIELDS = new Map<string, FieldRef>();
 const SLOTS = new Map<string, SlotRef>();
 const PHOTOS = new Map<string, PhotoRef>();
+const SUGGESTED: Suggestion[] = [];
+
+/** Files one block: what can be picked in it, and what the copilot suggested there. */
+function file(at: At, bid: string, block: Block): void {
+  if (block.type === 'slots') {
+    block.groups.forEach((group, gi) => group.lines.forEach((line, li) => SLOTS.set(`${bid}/${gi}.${li}`, { id: `${bid}/${gi}.${li}`, ...at, line })));
+  } else if (block.type === 'fields') {
+    block.items.forEach((item, i) => {
+      const id = `${bid}/${i}`;
+      FIELDS.set(id, { id, ...at, item });
+      const sub = item.from ? `Read from ${item.from}${item.page ? `, page ${item.page}` : ''}` : 'Suggested by the copilot';
+      if (item.state === 'sug') SUGGESTED.push({ id, kind: 'field', ...at, t: `${item.l}: ${item.v}`, sub });
+    });
+  } else if (block.type === 'photos') {
+    block.items.forEach((photo, i) => {
+      const id = `${bid}/${i}`;
+      PHOTOS.set(id, { id, ...at, photo });
+      if (photo.state === 'sug') SUGGESTED.push({ id, kind: 'photo', ...at, t: `Photograph: ${photo.where}`, sub: photo.says });
+    });
+  } else if (block.type === 'qa') {
+    block.items.forEach((item, i) => {
+      if (item.state === 'suggested') SUGGESTED.push({ id: `${bid}/${i}`, kind: 'answer', ...at, t: item.q, sub: item.a });
+    });
+  } else if (block.type === 'timeline') {
+    block.items.forEach((item, i) => {
+      if (item.state === 'sug') SUGGESTED.push({ id: `${bid}/${i}`, kind: 'entry', ...at, t: `${item.year} · ${item.t}`, sub: item.sub ?? '' });
+    });
+  }
+}
 
 for (const dept of DEPARTMENTS) {
   for (const fn of dept.functions) {
-    for (const section of fn.sections) {
-      section.blocks.forEach((block, index) => {
-        const at = { dept, fn, section };
-        const bid = blockId(dept, fn, section, index);
-        if (block.type === 'fields') block.items.forEach((item, i) => FIELDS.set(`${bid}/${i}`, { id: `${bid}/${i}`, ...at, item }));
-        if (block.type === 'slots') block.groups.forEach((g, gi) => g.lines.forEach((line, li) => SLOTS.set(`${bid}/${gi}.${li}`, { id: `${bid}/${gi}.${li}`, ...at, line })));
-        if (block.type === 'photos') block.items.forEach((photo, i) => PHOTOS.set(`${bid}/${i}`, { id: `${bid}/${i}`, ...at, photo }));
-      });
-    }
+    for (const section of fn.sections) section.blocks.forEach((block, index) => file({ dept, fn, section }, blockId(dept, fn, section, index), block));
   }
 }
 
@@ -87,6 +118,9 @@ export const photoById = (id: string): PhotoRef | undefined => PHOTOS.get(id);
 export const fieldsIn = (fn: FunctionSpec): FieldRef[] => [...FIELDS.values()].filter((x) => x.fn === fn);
 export const slotsIn = (fn: FunctionSpec): SlotRef[] => [...SLOTS.values()].filter((x) => x.fn === fn);
 export const photosIn = (fn: FunctionSpec): PhotoRef[] => [...PHOTOS.values()].filter((x) => x.fn === fn);
+
+/** What the copilot suggested in a function that nobody has accepted or left out yet. */
+export const waitingIn = (fn: FunctionSpec, m: Marks): Suggestion[] => SUGGESTED.filter((s) => s.fn === fn && !m.accepted[s.id] && !m.rejected[s.id]);
 
 /* ---- fields, papers, photographs ---- */
 
@@ -99,13 +133,17 @@ export function fieldState(x: FieldRef, m: Marks): FieldState {
   return x.item.state;
 }
 
+/** The value on the record: what a person typed, otherwise what the file holds. */
 export const fieldValue = (x: FieldRef, m: Marks): string => m.values[x.id] ?? x.item.v ?? '';
 
-/** The other typed facts of the same block: what a worked-out value is worked out from. */
-export function inputsOf(x: FieldRef): FieldRef[] {
-  const block = x.id.slice(0, x.id.lastIndexOf('/') + 1);
-  return fieldsIn(x.fn).filter((y) => y !== x && y.id.startsWith(block) && y.item.state !== 'calc');
+/** A person has typed a value other than the one the file holds. */
+export function changed(x: FieldRef, m: Marks): boolean {
+  const typed = m.values[x.id];
+  return typed !== undefined && typed !== x.item.v;
 }
+
+/** The other values of the same section. The files do not say which of them a worked-out value uses. */
+export const othersIn = (x: FieldRef): FieldRef[] => fieldsIn(x.fn).filter((y) => y.section === x.section && y !== x);
 
 /** A paper has one home. A line that only refers to it resolves to the original there. */
 export function homeOf(x: SlotRef): SlotRef {
@@ -120,10 +158,25 @@ export function slotState(x: SlotRef, m: Marks): SlotLine['state'] {
   return home.line.state === 'none' && m.asked[home.id] ? 'asked' : home.line.state;
 }
 
+/** Every line that is this paper: the original, and each line in another function that refers to it. */
+export const linesOf = (paper: SlotRef): SlotRef[] => [...SLOTS.values()].filter((y) => homeOf(y) === paper);
+
+/** The paper a value was read from, at its home. */
+export function paperOf(x: FieldRef): SlotRef | undefined {
+  const line = slotsIn(x.fn).find((y) => y.line.t === x.item.from);
+  return line ? homeOf(line) : undefined;
+}
+
+/** Every value read from a paper, in whichever function reads it. Each names the paper by its own line. */
+export const readFrom = (paper: SlotRef): FieldRef[] => linesOf(paper).flatMap((line) => fieldsIn(line.fn).filter((x) => x.item.from === line.line.t));
+
 /** A photograph's description counts once a person has accepted it. */
-export const photoOk = (x: PhotoRef, m: Marks): boolean => x.photo.state === 'ok' || Boolean(m.described[x.id]);
+export const photoOk = (x: PhotoRef, m: Marks): boolean => x.photo.state === 'ok' || Boolean(m.accepted[x.id]);
 
 export const standingOf = (dept: Department, fn: FunctionSpec, m: Marks): Standing => m.certified[fnId(dept, fn)] ?? fn.standing;
+
+/** What a person has put against a line of the must-have checklist. Every line starts with nothing. */
+export const expectation = (id: string, m: Marks): CheckMark => m.checks[id] ?? '';
 
 /* ---- words and figures ---- */
 
@@ -146,17 +199,12 @@ export const fmt = (n: number): string => (Math.round(n * 10) / 10).toLocaleStri
 
 export const many = (n: number, one: string, more: string): string => `${n} ${n === 1 ? one : more}`;
 
-/** A steady number from a piece of text, so an example default is the same on every visit. */
+/** A steady number from a piece of text. */
 export function hash(text: string): number {
   let n = 7;
   for (let i = 0; i < text.length; i++) n = (n * 31 + text.charCodeAt(i)) >>> 0;
   return n;
 }
-
-const EXPECTED: CheckMark[] = ['yes', 'yes', '', 'yes', 'no', 'yes'];
-
-/** What stands against a line of the must-have checklist: a person's mark, or the example's own. */
-export const expectation = (id: string, m: Marks): CheckMark => m.checks[id] ?? EXPECTED[hash(id) % EXPECTED.length] ?? '';
 
 /* ---- where a name leads ---- */
 
@@ -186,27 +234,6 @@ export function targets(names: string, from: Department): Target[] {
     if (to && !found.some((t) => t.dept === to.dept && t.fn === to.fn)) found.push(to);
   }
   return found;
-}
-
-export const targetLabel = (to: Target): string => (to.fn ? `${to.dept.label} · ${to.fn.name}` : to.dept.label);
-
-/** The first place a kind of block lives: in this department if it has one, otherwise wherever it is. */
-export function firstBlock(type: Block['type'], first: Department | null): At | null {
-  for (const dept of [...(first ? [first] : []), ...DEPARTMENTS.filter((d) => d !== first)]) {
-    for (const fn of dept.functions) {
-      const section = fn.sections.find((s) => s.blocks.some((b) => b.type === type));
-      if (section) return { dept, fn, section };
-    }
-  }
-  return null;
-}
-
-/** The project keeps one map, in Engineering · Site. Every other map is a view of it. */
-export function mapHome(): At | null {
-  const dept = DEPARTMENTS.find((d) => d.key === 'engineering');
-  const fn = dept?.functions.find((f) => f.name === 'Site');
-  const section = fn?.sections.find((s) => s.blocks.some((b) => b.type === 'map'));
-  return dept && fn && section ? { dept, fn, section } : null;
 }
 
 /* ---- what the copilot notices, and what is on the record as a flag ---- */
@@ -251,7 +278,7 @@ export function flagsOf(dept: Department, fn: FunctionSpec, m: Marks): FlagRef[]
   ];
 }
 
-/** A flag by its id, wherever it was raised. Gone once the insight behind it is dismissed. */
+/** A flag by its id, wherever it was raised. */
 export function flagById(id: string, m: Marks): FlagRef | undefined {
   for (const dept of DEPARTMENTS) {
     for (const fn of dept.functions) {
@@ -277,8 +304,8 @@ export interface Summary {
   docsIn: number;
   /** Papers nobody has asked for yet. */
   pending: number;
-  /** Values the copilot read that wait for a person. */
-  waiting: FieldRef[];
+  /** What the copilot suggested that waits for a person: values, descriptions, answers, entries. */
+  waiting: Suggestion[];
   flags: FlagRef[];
   /** Papers in hand, as a percentage. */
   ready: number;
@@ -292,7 +319,7 @@ export function summary(dept: Department, stage: ExampleStage, m: Marks): Summar
     docs,
     docsIn,
     pending: docs.filter((x) => slotState(x, m) === 'none').length,
-    waiting: fns.flatMap(fieldsIn).filter((x) => fieldState(x, m) === 'sug'),
+    waiting: fns.flatMap((fn) => waitingIn(fn, m)),
     flags: allFlags(dept, stage, m),
     ready: docs.length ? Math.round((docsIn / docs.length) * 100) : 0,
   };

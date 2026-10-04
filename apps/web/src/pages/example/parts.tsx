@@ -143,9 +143,13 @@ export function ShowAll({ count, onClick }: { count: number; onClick: () => void
   );
 }
 
-/** Something the copilot suggested that waits for a person. The kit's badge has no tone for it. */
-export function AiChip({ children }: { children: ReactNode }) {
-  return <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-ai/10 px-1.5 py-0.5 text-mini font-medium leading-4 text-ai-ink ring-1 ring-inset ring-ai/25">{children}</span>;
+/** Something the copilot suggested that waits for a person. The kit's badge has no tone for it. `wrap` lets a long one break in a narrow pane. */
+export function AiChip({ children, wrap = false }: { children: ReactNode; wrap?: boolean }) {
+  return (
+    <span className={cn('inline-flex items-center gap-1 rounded-md bg-ai/10 px-1.5 py-0.5 text-mini font-medium leading-4 text-ai-ink ring-1 ring-inset ring-ai/25', !wrap && 'whitespace-nowrap')}>
+      {children}
+    </span>
+  );
 }
 
 const SOURCE = 'inline-flex min-h-6 items-center gap-[5px] rounded-full border py-0.5 pl-[7px] pr-[9px] text-[12px] [&_svg]:size-3 [&_svg]:shrink-0';

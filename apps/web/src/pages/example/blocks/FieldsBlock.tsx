@@ -1,9 +1,10 @@
-import { FileText, Sigma } from 'lucide-react';
+import { useState } from 'react';
+import { FileText, Pencil, Sigma, Sparkles } from 'lucide-react';
 import { Badge, Button, Field, Input, Select, cn, useToast } from '../../../components/ui/kit';
-import { fieldById, fieldState, fieldValue, type BlockAt, type FieldRef } from '../engine';
+import { changed, fieldById, fieldState, fieldValue, type BlockAt, type FieldRef } from '../engine';
 import { Group, SourceChip } from '../parts';
 import { useOpen, usePicked } from '../place';
-import { useSeek } from '../seek';
+import { SEEK, useSeek } from '../seek';
 import { useExample } from '../state';
 import type { FieldsBlock as Spec } from '../types';
 
@@ -43,27 +44,80 @@ function YesNo({ label, options, value, suggested, onPick }: { label: string; op
 }
 
 /**
+ * A value being typed. The field keeps the draft to itself and puts it on
+ * the record when the person leaves the field or presses Enter, so a
+ * keystroke redraws one field and not the workspace.
+ */
+function Typed({ value, onCommit }: { value: string; onCommit: (next: string) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft !== null && draft !== value) onCommit(draft);
+    setDraft(null);
+  };
+  return (
+    <Input
+      value={draft ?? value}
+      placeholder="Not filled"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+      }}
+      className="font-mono"
+    />
+  );
+}
+
+/**
  * One typed fact, with where its value came from.
  *
- * A value the copilot read waits here until a person accepts it or says it
- * is not right, on the field itself or in the proof pane. An empty field
- * takes a typed value; a field with a set of answers is a selector.
+ * A value the copilot read or suggested waits here until a person accepts it
+ * or says it is not right, on the field itself or in the proof pane. Typing
+ * over it puts the person's value on the record and says so: the chip that
+ * named the paper now says a person changed it, with what the paper says
+ * beside it. An empty field takes a typed value; a field with a set of
+ * answers is a selector.
  */
 function FieldCell({ field }: { field: FieldRef }) {
   const { state, dispatch } = useExample();
   const open = useOpen();
   const toast = useToast();
-  const picked = usePicked('field', field.id);
-  const cell = useSeek<HTMLDivElement>(picked);
+  const visit = usePicked('field', field.id);
+  const picked = visit > 0;
+  const cell = useSeek<HTMLDivElement>(visit);
   const { item } = field;
   const now = fieldState(field, state);
   const value = now === 'empty' ? '' : fieldValue(field, state);
+  const suggested = item.state === 'sug';
+  // The person's own value, where the copilot had read or suggested another.
+  const typedOver = changed(field, state) && (Boolean(item.from) || suggested);
   const set = (next: string) => dispatch({ type: 'value', id: field.id, value: next });
   const show = () => open.field(field.id);
   const options = item.options;
 
+  const source = typedOver ? (
+    <SourceChip icon={<Pencil aria-hidden />} on={picked} title="Show what was there before" onClick={show}>
+      Changed by a person
+    </SourceChip>
+  ) : item.from ? (
+    <SourceChip icon={<FileText aria-hidden />} on={picked} title="Show where this came from" onClick={show}>
+      {item.from}
+      {item.page ? `, p. ${item.page}` : ''}
+    </SourceChip>
+  ) : suggested ? (
+    <SourceChip icon={<Sparkles aria-hidden />} on={picked} title="Show where this came from" onClick={show}>
+      Suggested by the copilot
+    </SourceChip>
+  ) : now === 'calc' ? (
+    <SourceChip icon={<Sigma aria-hidden />} on={picked} title="Show how it was worked out" onClick={show}>
+      Worked out
+    </SourceChip>
+  ) : now === 'assume' && !changed(field, state) ? (
+    <SourceChip assumed>Assumption</SourceChip>
+  ) : null;
+
   return (
-    <div ref={cell} className={cn('grid min-w-0 content-start gap-1', now === 'sug' && SUGGESTED, now === 'calc' && WORKED_OUT)}>
+    <div ref={cell} className={cn('grid min-w-0 content-start gap-1', SEEK, now === 'sug' && SUGGESTED, now === 'calc' && WORKED_OUT)}>
       <Field label={item.l} className={cn(picked && '[&>label]:font-semibold [&>label]:text-brand-strong')}>
         {now === 'calc' ? (
           <Input readOnly value={value} className="font-mono" />
@@ -79,22 +133,16 @@ function FieldCell({ field }: { field: FieldRef }) {
             ))}
           </Select>
         ) : (
-          <Input value={value} placeholder="Not filled" onChange={(e) => set(e.target.value)} className="font-mono" />
+          <Typed value={value} onCommit={set} />
         )}
       </Field>
       {now === 'empty' ? null : (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 empty:hidden">
-          {item.from ? (
-            <SourceChip icon={<FileText aria-hidden />} on={picked} title="Show where this came from" onClick={show}>
-              {item.from}
-              {item.page ? `, p. ${item.page}` : ''}
-            </SourceChip>
-          ) : now === 'calc' ? (
-            <SourceChip icon={<Sigma aria-hidden />} on={picked} title="Show what it was worked out from" onClick={show}>
-              Worked out
-            </SourceChip>
-          ) : now === 'assume' ? (
-            <SourceChip assumed>Assumption</SourceChip>
+          {source}
+          {typedOver ? (
+            <span className="text-[12px] text-ink-muted">
+              {item.from ? 'Page says' : 'Copilot suggested'} {item.v}
+            </span>
           ) : null}
           {now === 'sug' ? (
             <>
@@ -134,7 +182,8 @@ export function FieldsBlock({ at, block }: { at: BlockAt; block: Spec }) {
 
   return (
     <Group title={block.title ?? 'Details'} note={`${filled} of ${fields.length} filled`}>
-      <div className="grid gap-x-4 gap-y-3.5 px-3.5 pb-4 pt-1 [grid-template-columns:repeat(auto-fill,minmax(230px,1fr))]">
+      {/* As many columns of 230px as fit, and one of the card's own width where even one does not. */}
+      <div className="grid gap-x-4 gap-y-3.5 px-3.5 pb-4 pt-1 [grid-template-columns:repeat(auto-fill,minmax(min(230px,100%),1fr))]">
         {fields.map((field) => (
           <FieldCell key={field.id} field={field} />
         ))}

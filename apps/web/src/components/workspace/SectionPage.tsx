@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '../ui/kit';
+import { useEdges } from '../../lib/useEdges';
 
 /**
  * One function's page: its sections one under another, and a rail down the
@@ -97,7 +98,8 @@ export function SectionPage({
   }, [ids]);
 
   const go = useCallback((id: string) => {
-    const part = root.current?.querySelector<HTMLElement>(`[data-section="${id}"]`);
+    // Matched on the attribute's value, not through a selector: the id can come from an address, and an address can hold anything.
+    const part = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-section]') ?? []).find((el) => el.dataset.section === id);
     if (!part) return;
     held.current = true;
     setCurrent(id);
@@ -109,20 +111,35 @@ export function SectionPage({
     if (jump) go(jump.id);
   }, [jump, go]);
 
+  // Where the icons lie in a row, whether the row has more to show past either edge.
+  const [row, edges] = useEdges(ids);
+
   return (
     <div
       ref={root}
       className={cn('grid grid-cols-1 items-start gap-2 [@container(min-width:35rem)]:-ml-2.5 [@container(min-width:35rem)]:grid-cols-[38px_minmax(0,1fr)] [@container(min-width:35rem)]:gap-2.5', className)}
     >
+      {/*
+        The holder stays put while the page scrolls; the row or rail inside it
+        is what scrolls sideways or opens. They are two elements so the fades
+        at the row's edges can sit still over it.
+      */}
+      <div
+        className={cn(
+          'sticky top-0 z-[4] -my-1.5 bg-page',
+          // A scroller's own padding stays above a sticky child, and the page would show through it: the row's ground reaches up to cover that strip.
+          'shadow-[0_-16px_0_0_var(--page)]',
+          '[@container(min-width:35rem)]:top-3 [@container(min-width:35rem)]:my-0 [@container(min-width:35rem)]:w-[38px] [@container(min-width:35rem)]:bg-transparent [@container(min-width:35rem)]:shadow-none',
+        )}
+      >
       <nav
+        ref={row}
         aria-label="Parts of this page"
         className={cn(
           // Narrow: a row of icons across the top, only the current one named.
-          'sticky top-0 z-[4] -my-1.5 flex gap-0.5 overflow-x-auto bg-page py-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-          // A scroller's own padding stays above a sticky child, and the page would show through it: the row's ground reaches up to cover that strip.
-          'shadow-[0_-16px_0_0_var(--page)] [@container(min-width:35rem)]:shadow-none',
+          'flex gap-0.5 overflow-x-auto py-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
           // Wide: the rail, which opens over the page.
-          '[@container(min-width:35rem)]:top-3 [@container(min-width:35rem)]:my-0 [@container(min-width:35rem)]:grid [@container(min-width:35rem)]:w-[38px] [@container(min-width:35rem)]:grid-cols-1 [@container(min-width:35rem)]:overflow-hidden [@container(min-width:35rem)]:rounded-[11px] [@container(min-width:35rem)]:bg-transparent [@container(min-width:35rem)]:p-[3px]',
+          '[@container(min-width:35rem)]:grid [@container(min-width:35rem)]:w-[38px] [@container(min-width:35rem)]:grid-cols-1 [@container(min-width:35rem)]:overflow-hidden [@container(min-width:35rem)]:rounded-[11px] [@container(min-width:35rem)]:p-[3px]',
           '[@container(min-width:35rem)]:transition-[width,background-color,box-shadow] [@container(min-width:35rem)]:delay-75 [@container(min-width:35rem)]:duration-base [@container(min-width:35rem)]:ease-state motion-reduce:transition-none',
           '[@container(min-width:35rem)]:hover:w-[168px] [@container(min-width:35rem)]:hover:bg-surface [@container(min-width:35rem)]:hover:shadow-pop [@container(min-width:35rem)]:hover:ring-1 [@container(min-width:35rem)]:hover:ring-[var(--ring)]',
           '[@container(min-width:35rem)]:has-[button:focus-visible]:w-[168px] [@container(min-width:35rem)]:has-[button:focus-visible]:bg-surface [@container(min-width:35rem)]:has-[button:focus-visible]:shadow-pop [@container(min-width:35rem)]:has-[button:focus-visible]:ring-1 [@container(min-width:35rem)]:has-[button:focus-visible]:ring-[var(--ring)]',
@@ -150,6 +167,10 @@ export function SectionPage({
           );
         })}
       </nav>
+        {/* The row hides its scrollbar, so a fade says there are more icons that way. The rail never scrolls and has none. */}
+        {edges.start ? <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-page to-transparent [@container(min-width:35rem)]:hidden" /> : null}
+        {edges.end ? <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-page to-transparent [@container(min-width:35rem)]:hidden" /> : null}
+      </div>
       <div className="flex min-w-0 flex-col gap-3.5">
         {lead}
         {/* A section brought into view stops clear of what stays put above it: the row of icons where the page is narrow, nothing but a margin where the rail stands beside it. */}

@@ -44,13 +44,13 @@ export function SlotRow({ slot, tagged = false }: { slot: SlotRef; tagged?: bool
           className="mr-3 shrink-0"
           onClick={() => {
             dispatch({ type: 'mark', what: 'asked', ids: [home.id] });
-            toast('Asked.');
+            toast('Asks for the paper.');
           }}
         >
           Ask for it
         </Button>
       ) : now === 'asked' ? (
-        <Button size="sm" className="mr-3 shrink-0" onClick={() => toast('Reminder sent.')}>
+        <Button size="sm" className="mr-3 shrink-0" onClick={() => toast('Sends a reminder.')}>
           Remind
         </Button>
       ) : null}

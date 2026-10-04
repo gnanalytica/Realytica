@@ -20,18 +20,27 @@ const CELL = `${PAD} min-w-[72px] border-hairline`;
 const BAR = `${PAD} min-w-[120px] border-hairline`;
 const TOTAL = `${PAD} min-w-[72px] border-[var(--axis)]`;
 
-/** In a comparison, the column with the lowest amount. The first two columns are the item and its estimate. */
-function lowest(row: string[]): number {
-  let best = -1;
-  let least = Infinity;
-  row.forEach((cell, i) => {
-    const n = i < 2 ? null : num(cell);
-    if (n !== null && n < least) {
-      least = n;
-      best = i;
-    }
-  });
-  return best;
+/** What an amount is counted in: "₹ 42 L" is in "₹L", "10.5%" in "%". */
+const unit = (cell: string): string => cell.replace(/[-\d.,\s]/g, '');
+
+/**
+ * In a comparison, the columns of a row that hold its lowest amount.
+ *
+ * Every amount column is compared except the first, which names the item,
+ * and the estimate the others are set against, when the table has one. Two
+ * columns that tie are both the lowest. A row has none when its amounts are
+ * all the same, or are not counted in the same unit.
+ */
+function lowest(row: string[], block: Spec): Set<number> {
+  const amounts = block.money.length ? block.money : block.cols.map((_, i) => i);
+  const compared = amounts
+    .filter((i) => i !== 0 && i !== block.estimate)
+    .map((i) => ({ i, cell: row[i] ?? '', n: num(row[i] ?? '') }))
+    .filter((x): x is { i: number; cell: string; n: number } => x.n !== null);
+  if (new Set(compared.map((x) => unit(x.cell))).size > 1) return new Set();
+  const least = Math.min(...compared.map((x) => x.n));
+  const low = compared.filter((x) => x.n === least);
+  return new Set(low.length < compared.length ? low.map((x) => x.i) : []);
 }
 
 /** The sum of an amount column, in the unit its first row is written in. */
@@ -46,7 +55,8 @@ function total(rows: string[][], col: number): string {
  *
  * A table whose rows arrive from another function says so and opens it. One
  * column may be a status chip, one a bar, and amount columns sit right and
- * add up.
+ * add up. In a comparison the lowest amount of each row is tinted and says
+ * "Lowest", so it does not rest on colour alone.
  */
 export function TableBlock({ at, block }: { at: BlockAt; block: Spec }) {
   const open = useOpen();
@@ -70,7 +80,7 @@ export function TableBlock({ at, block }: { at: BlockAt; block: Spec }) {
           <tbody>
             {block.rows.length ? (
               block.rows.map((row, r) => {
-                const low = block.low ? lowest(row) : -1;
+                const low = block.low ? lowest(row, block) : null;
                 return (
                   <tr key={r}>
                     {row.map((cell, i) =>
@@ -86,8 +96,9 @@ export function TableBlock({ at, block }: { at: BlockAt; block: Spec }) {
                           </span>
                         </td>
                       ) : (
-                        <td key={i} className={cn(CELL, money.has(i) && FIGURE, i === low && 'bg-brand-soft font-medium text-brand-strong')}>
+                        <td key={i} className={cn(CELL, money.has(i) && FIGURE, low?.has(i) && 'bg-brand-soft font-medium text-brand-strong')}>
                           {cell}
+                          {low?.has(i) ? <span className="block font-sans text-[11px]">Lowest</span> : null}
                         </td>
                       ),
                     )}

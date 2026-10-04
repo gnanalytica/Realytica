@@ -1,28 +1,39 @@
 import { Button, Modal, useToast } from '../../components/ui/kit';
-import { fieldState, fieldValue, fieldsIn, hash, slotById, slotState, type FieldRef, type SlotRef } from './engine';
+import { changed, fieldValue, homeOf, linesOf, readFrom, slotById, slotState, type FieldRef, type SlotRef } from './engine';
 import { FIGURE, RowButton, RowText, StateDot } from './parts';
-import { useOpen } from './place';
+import { useOpen, usePlace } from './place';
 import { useExample } from './state';
-import { Sheet, type SheetLine } from './Sheet';
+import { Sheet, sheetLine } from './Sheet';
 
 const LABEL = 'text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted';
 const TERMS = 'grid gap-x-3 gap-y-1.5 text-[13px] text-ink [grid-template-columns:max-content_minmax(0,1fr)]';
 
-/** The paper's page beside what was read from it, or a plain word that it is not in hand. */
-function Paper({ slot, read, meta }: { slot: SlotRef; read: FieldRef[]; meta: string }) {
+/** "Legal · Approvals": the function something sits in. */
+const fnLabel = (x: FieldRef | SlotRef): string => `${x.dept.label} · ${x.fn.name}`;
+
+/** The paper's pages beside what was read from them, or a plain word that it is not in hand. */
+function Paper({ paper, read, meta }: { paper: SlotRef; read: FieldRef[]; meta: string }) {
   const { state } = useExample();
   const open = useOpen();
-  const inHand = slotState(slot, state) === 'in';
-  const lines = read.map((y): SheetLine => {
-    const now = fieldState(y, state);
-    return { id: y.id, label: y.item.l, value: fieldValue(y, state), state: now === 'set' ? 'ok' : now === 'no' ? 'no' : 'wait' };
-  });
+  const inHand = slotState(paper, state) === 'in';
+  // One sheet for each page something was read from, each with only its own values. A paper nothing was read from shows one ruled page.
+  const pages = [...new Set(read.map((x) => x.item.page ?? 1))].sort((a, b) => a - b);
+  const users = [...new Set(linesOf(paper).map(fnLabel))];
 
   return (
     <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_17.5rem]">
-      <div className="min-w-0 rounded-xl bg-sunken p-4">
+      <div className="grid min-w-0 gap-4 rounded-xl bg-sunken p-4">
         {inHand ? (
-          <Sheet large title={slot.line.t} page={1} lines={lines} onPick={open.field} />
+          (pages.length ? pages : [1]).map((page) => (
+            <Sheet
+              key={page}
+              large
+              title={paper.line.t}
+              page={page}
+              lines={read.filter((x) => (x.item.page ?? 1) === page).map((x) => sheetLine(x, state))}
+              onPick={open.field}
+            />
+          ))
         ) : (
           <div className="grid min-h-60 place-content-center justify-items-center gap-1 text-[13px] text-ink-muted">
             <b className="text-[15px] font-semibold text-ink">Not in hand yet</b>
@@ -36,11 +47,14 @@ function Paper({ slot, read, meta }: { slot: SlotRef; read: FieldRef[]; meta: st
             <h3 className={LABEL}>Read from it</h3>
             {read.length ? (
               <ul className="overflow-hidden rounded-[10px] ring-1 ring-[var(--ring)]">
-                {read.map((y, i) => (
-                  <li key={y.id} className={i > 0 ? 'border-t border-hairline' : undefined}>
-                    <RowButton onClick={() => open.field(y.id)}>
-                      <RowText>{y.item.l}</RowText>
-                      <span className={FIGURE}>{fieldValue(y, state)}</span>
+                {read.map((x, i) => (
+                  <li key={x.id} className={i > 0 ? 'border-t border-hairline' : undefined}>
+                    <RowButton onClick={() => open.field(x.id)}>
+                      {/* What the page says. Where it is used is named when that is another function; a value typed over it is named too. */}
+                      <RowText sub={[x.fn !== paper.fn ? fnLabel(x) : '', changed(x, state) ? `Changed by a person to ${fieldValue(x, state) || 'nothing'}` : ''].filter(Boolean).join(' · ')}>
+                        {x.item.l}
+                      </RowText>
+                      <span className={FIGURE}>{x.item.v}</span>
                     </RowButton>
                   </li>
                 ))}
@@ -50,10 +64,14 @@ function Paper({ slot, read, meta }: { slot: SlotRef; read: FieldRef[]; meta: st
             )}
             <h3 className={LABEL}>File</h3>
             <dl className={TERMS}>
-              <dt className="text-ink-muted">Pages</dt>
-              <dd>{slot.line.pages ?? 4 + (hash(slot.line.t) % 30)}</dd>
+              {paper.line.pages ? (
+                <>
+                  <dt className="text-ink-muted">Pages</dt>
+                  <dd>{paper.line.pages}</dd>
+                </>
+              ) : null}
               <dt className="text-ink-muted">Used in</dt>
-              <dd>{slot.fn.name}</dd>
+              <dd>{users.join(', ')}</dd>
             </dl>
           </>
         ) : (
@@ -71,34 +89,36 @@ function Paper({ slot, read, meta }: { slot: SlotRef; read: FieldRef[]; meta: st
 }
 
 /**
- * A paper, opened large over the workspace: its page with the words that
- * were read marked, what was read from it, and what can be done with it.
- * Pressing a value closes the paper and shows that value where it lives.
+ * A paper, opened large over the workspace: its pages with the words that
+ * were read marked, what every function read from it, and what can be done
+ * with it. It is open only on the page it was opened on. Pressing a value
+ * closes the paper and shows that value where it lives.
  */
 export function DocumentViewer() {
   const { state, dispatch } = useExample();
+  const here = usePlace();
   const toast = useToast();
-  const slot = state.viewing ? slotById(state.viewing) : undefined;
-  const now = slot ? slotState(slot, state) : 'none';
-  const meta = now === 'in' ? 'In hand' : now === 'asked' ? `Asked${slot?.line.due ? ` · due ${slot.line.due}` : ''}` : 'Not asked';
-  const read = slot ? fieldsIn(slot.fn).filter((y) => y.item.from === slot.line.t) : [];
+  const line = state.viewing && state.viewing.at === here.key ? slotById(state.viewing.id) : undefined;
+  const paper = line ? homeOf(line) : undefined;
+  const now = paper ? slotState(paper, state) : 'none';
+  const meta = now === 'in' ? 'In hand' : now === 'asked' ? `Asked${paper?.line.due ? ` · due ${paper.line.due}` : ''}` : 'Not asked';
 
   return (
     <Modal
-      open={Boolean(slot)}
-      onClose={() => dispatch({ type: 'view', id: null })}
+      open={Boolean(paper)}
+      onClose={() => dispatch({ type: 'view', viewing: null })}
       width="lg"
       title={
-        slot ? (
+        paper ? (
           <>
             <StateDot state={now} />
-            <span className="ml-2">{slot.line.t}</span>
-            <span className="ml-2 font-normal text-ink-muted">{meta}</span>
+            <span className="ml-2">{paper.line.t}</span>{' '}
+            <span className="ml-1 font-normal text-ink-muted">{meta}</span>
           </>
         ) : null
       }
       footer={
-        !slot ? null : now === 'in' ? (
+        !paper ? null : now === 'in' ? (
           <>
             <Button onClick={() => toast('Downloads the file.')}>Download</Button>
             <Button variant="primary" onClick={() => toast('Opens the file.')}>
@@ -106,15 +126,15 @@ export function DocumentViewer() {
             </Button>
           </>
         ) : now === 'asked' ? (
-          <Button variant="primary" onClick={() => toast('Reminder sent.')}>
+          <Button variant="primary" onClick={() => toast('Sends a reminder.')}>
             Remind
           </Button>
         ) : (
           <Button
             variant="primary"
             onClick={() => {
-              dispatch({ type: 'mark', what: 'asked', ids: [slot.id] });
-              toast('Asked.');
+              dispatch({ type: 'mark', what: 'asked', ids: [paper.id] });
+              toast('Asks for the paper.');
             }}
           >
             Ask for it
@@ -122,7 +142,7 @@ export function DocumentViewer() {
         )
       }
     >
-      {slot ? <Paper slot={slot} read={read} meta={meta} /> : null}
+      {paper ? <Paper paper={paper} read={readFrom(paper)} meta={meta} /> : null}
     </Modal>
   );
 }

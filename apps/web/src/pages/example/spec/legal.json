@@ -59,7 +59,7 @@
         {
          "year": "2024",
          "t": "Mortgage deed",
-         "sub": "Lakeview Developers LLP to Meridian Bank",
+         "sub": "Lakeview Developers LLP to Hosakere Bank",
          "state": "in"
         }
        ]
@@ -341,7 +341,7 @@
        "query": "Survey nos. 41/2 and 41/3, 1994 to 2026",
        "results": [
         {
-         "t": "Mortgage to Meridian Bank",
+         "t": "Mortgage to Hosakere Bank",
          "sub": "Registered 18 Dec 2024",
          "picked": true
         },
@@ -359,12 +359,12 @@
        "query": "Lakeview Developers LLP; survey nos. 41/2 and 41/3",
        "results": [
         {
-         "t": "Security interest, Meridian Bank",
+         "t": "Security interest, Hosakere Bank",
          "sub": "CERSAI, registered 2024",
          "picked": true
         },
         {
-         "t": "Charge, Meridian Bank",
+         "t": "Charge, Hosakere Bank",
          "sub": "MCA, matches the mortgage",
          "picked": true
         },
@@ -453,7 +453,7 @@
         ],
         [
          "Reply 2",
-         "Meridian Bank",
+         "Hosakere Bank",
          "Confirms its mortgage, no claim",
          "9 Sep 2026",
          "Closed"
@@ -564,7 +564,7 @@
         },
         {
          "q": "Is anything registered against the land?",
-         "a": "One mortgage, Meridian Bank",
+         "a": "One mortgage, Hosakere Bank",
          "source": "From a document",
          "proof": "Encumbrance certificate, 1994 to 2026, p. 12",
          "state": "answered"
@@ -2153,7 +2153,7 @@
         ],
         [
          "Loan and mortgage",
-         "Lakeview Developers LLP, Meridian Bank",
+         "Lakeview Developers LLP, Hosakere Bank",
          "₹ 45.0 Cr",
          "Signed 18 Dec 2024",
          "Done",
@@ -2237,7 +2237,7 @@
          "name": "Funding, sales and site",
          "lines": [
           {
-           "t": "Loan agreement, Meridian Bank",
+           "t": "Loan agreement, Hosakere Bank",
            "state": "in",
            "pages": 74
           },
@@ -2424,7 +2424,7 @@
        ],
        "rows": [
         [
-         "Mortgage deed, Meridian Bank",
+         "Mortgage deed, Hosakere Bank",
          "18 Dec 2024",
          "In hand",
          "In hand",
@@ -2497,7 +2497,7 @@
          "state": "Upcoming"
         },
         {
-         "t": "Interest to Meridian Bank",
+         "t": "Interest to Hosakere Bank",
          "due": "5 Nov 2026",
          "who": "A. Menon",
          "state": "Upcoming"

@@ -88,13 +88,13 @@ export interface TableBlock {
   total: boolean;
   /** A comparison: the lowest amount in each row is marked. */
   low: boolean;
+  /** In a comparison, the column the others are set against. It is never the lowest. */
+  estimate?: number | null;
   source: TableSource;
   /** Who or what the rows came from, when they were not typed here. */
   from: string;
   /** The label of the add button; empty when rows cannot be added by hand. */
   add: string;
-  /** Longer than a register usually is. */
-  long?: boolean;
 }
 
 export type PhotoArtKind = 'column' | 'damp' | 'edge' | 'stone' | 'road' | 'drain';
@@ -120,10 +120,18 @@ export interface SearchBlock {
   results: { t: string; sub?: string; picked?: boolean }[];
 }
 
+/** One thing in a chain: on file, missing, or read by the copilot and waiting. */
+export interface TimelineItem {
+  year: string;
+  t: string;
+  sub?: string;
+  state: 'in' | 'gap' | 'sug';
+}
+
 export interface TimelineBlock {
   type: 'timeline';
   title?: string;
-  items: { year: string; t: string; sub?: string; state: 'in' | 'gap' | 'sug' }[];
+  items: TimelineItem[];
 }
 
 export interface FigureBlock {

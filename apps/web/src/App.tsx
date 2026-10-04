@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-do
 import { MotionRoot } from './lib/motion';
 import AppShell from './components/layout/AppShell';
 import { AuthGate } from './components/layout/AuthGate';
-import { ToastHost } from './components/ui/kit';
+import { Spinner, ToastHost } from './components/ui/kit';
 import MyWork from './pages/MyWork';
 import Landing from './pages/Landing';
 
@@ -87,11 +87,13 @@ export default function App() {
         <Route
           path="example/:department?/:fn?"
           element={
-            <Suspense fallback={null}>
+            <Suspense fallback={<div className="grid h-[100dvh] place-items-center bg-page"><Spinner size={18} /></div>}>
               <ExampleWorkspace />
             </Suspense>
           }
         />
+        {/* An address that runs on past a function is still the example's: without this it fell to the app's catch-all, which is the sign-in door for a visitor. */}
+        <Route path="example/*" element={<Navigate to="/example" replace />} />
         {/* The printable report stands outside the shell, so the page that
             prints is the report and not the navigation around it. */}
         <Route

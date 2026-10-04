@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
 import { AiMark, Button, Input, cn, useToast } from '../../components/ui/kit';
-import { TRY, cardAct, cardIds, command, prompts, reply, type Act, type Answer, type ChatMessage, type Here, type Prompt } from './chat';
+import { cardAct, cardIds, command, prompts, reply, tryLine, type Act, type Answer, type ChatMessage, type Here, type Prompt } from './chat';
 import { fieldById, flagById, photoById, slotById } from './engine';
 import { useOpen, usePlace } from './place';
 import { useExample } from './state';
@@ -55,12 +55,14 @@ function ProposalCard({ message, onApprove, onDismiss, onShow }: { message: Card
  * The copilot, down the left of the workspace.
  *
  * It answers from the same files the page is drawn from, and its replies
- * here are scripted. Asked to show something, it moves the work and the
- * proof pane there without asking. Asked to change something, it puts a card
- * in the thread and waits for it to be approved.
+ * here are scripted, which it says in a line that stays in sight. Asked to
+ * show something, it moves the work and the proof pane there without asking.
+ * Asked to change something, it puts a card in the thread and waits for it
+ * to be approved.
  *
- * On a narrow screen it is a drawer: `open` slides it in, and anything it
- * shows closes it again so the thing shown can be seen.
+ * On a narrow screen it is a drawer and, while `open`, a dialog: it takes the
+ * keyboard as it slides in, and anything it shows closes it again so the
+ * thing shown can be seen.
  */
 export function CopilotChat({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { state, dispatch } = useExample();
@@ -69,14 +71,15 @@ export function CopilotChat({ open, onClose }: { open: boolean; onClose: () => v
   const toast = useToast();
   const [text, setText] = useState('');
   const thread = useRef<HTMLDivElement>(null);
-  const close = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLElement>(null);
 
   const picked = state.picked && state.picked.at === place.key ? state.picked : null;
-  const here: Here = { dept: place.dept, stage: place.stage, marks: state, picked: picked?.kind === 'field' ? (fieldById(picked.id) ?? null) : null };
+  const viewing = state.viewing && state.viewing.at === place.key ? state.viewing : null;
+  const here: Here = { dept: place.dept, fn: place.fn, stage: place.stage, marks: state, picked: picked?.kind === 'field' ? (fieldById(picked.id) ?? null) : null };
 
   /** What the person has in front of them: the open paper, or the thing picked. */
-  const looking = state.viewing
-    ? slotById(state.viewing)?.line.t
+  const looking = viewing
+    ? slotById(viewing.id)?.line.t
     : !picked
       ? undefined
       : picked.kind === 'field'
@@ -91,9 +94,9 @@ export function CopilotChat({ open, onClose }: { open: boolean; onClose: () => v
     if (el) el.scrollTop = el.scrollHeight;
   }, [state.chat.length]);
 
-  // An opened drawer takes the keyboard, so Escape and Tab start inside it.
+  // The drawer takes the keyboard as it opens. It is in sight from that moment, so it can.
   useEffect(() => {
-    if (open) close.current?.focus();
+    if (open) panel.current?.focus();
   }, [open]);
 
   const show = (act: Act) => {
@@ -116,11 +119,12 @@ export function CopilotChat({ open, onClose }: { open: boolean; onClose: () => v
     const line = text.trim();
     if (!line) return;
     setText('');
-    answer(line, command(line, here) ?? { t: TRY });
+    answer(line, command(line, here) ?? { t: tryLine(here) });
   };
 
   const approve = (index: number, message: CardMessage) => {
-    const about = cardAct(message.card);
+    // What it is about is settled before the change, so "Show what changed" still finds it after.
+    const about = cardAct(message.card, state);
     dispatch({ type: 'mark', what: message.card.apply === 'papers' ? 'asked' : 'accepted', ids: cardIds(message.card, state) });
     dispatch({ type: 'settle', index, state: 'yes', shown: about });
     show(about);
@@ -129,19 +133,23 @@ export function CopilotChat({ open, onClose }: { open: boolean; onClose: () => v
 
   return (
     <aside
+      ref={panel}
+      tabIndex={-1}
+      role={open ? 'dialog' : undefined}
+      aria-modal={open ? true : undefined}
       aria-label="Copilot"
       className={cn(
         'absolute inset-y-0 left-0 z-20 flex min-h-0 w-[min(304px,88vw)] min-w-0 flex-col gap-2.5 border-r border-hairline bg-surface px-3.5 pb-3.5 pt-4 shadow-pop',
-        'transition-[transform,visibility] duration-base ease-enter motion-reduce:transition-none',
+        'duration-base ease-enter motion-reduce:transition-none',
         'xl:visible xl:static xl:z-auto xl:w-auto xl:translate-x-0 xl:shadow-none',
-        open ? 'visible translate-x-0' : 'invisible -translate-x-[104%]',
+        // Opening, it is in sight at once and slides in. Closing, it stays in sight until it has slid away.
+        open ? 'visible translate-x-0 transition-transform' : 'invisible -translate-x-[104%] transition-[transform,visibility]',
       )}
     >
       <div className="flex items-center gap-2">
         <AiMark size="md" />
         <h2 className="flex-1 text-[15px] font-semibold text-ink">Copilot</h2>
         <button
-          ref={close}
           type="button"
           aria-label="Close the copilot"
           onClick={onClose}
@@ -150,8 +158,9 @@ export function CopilotChat({ open, onClose }: { open: boolean; onClose: () => v
           <X size={15} aria-hidden />
         </button>
       </div>
+      {/* Above the thread and not in it, so it never scrolls out of sight. */}
+      <p className="text-[12px] text-ink-muted">The replies in this example are scripted.</p>
       <div ref={thread} role="log" aria-label="Conversation" className="grid min-h-[60px] flex-1 content-start gap-2 overflow-y-auto py-1">
-        <p className="text-[12px] text-ink-muted">The replies in this example are scripted.</p>
         {state.chat.map((message, i) =>
           message.kind === 'card' ? (
             <ProposalCard
@@ -162,7 +171,7 @@ export function CopilotChat({ open, onClose }: { open: boolean; onClose: () => v
                 dispatch({ type: 'settle', index: i, state: 'no' });
                 toast('Dismissed.');
               }}
-              onShow={() => show(message.shown ?? cardAct(message.card))}
+              onShow={() => show(message.shown ?? cardAct(message.card, state))}
             />
           ) : (
             <div key={i} className="grid gap-2">

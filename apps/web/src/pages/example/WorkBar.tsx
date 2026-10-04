@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { Table2 } from 'lucide-react';
 import { AiMark, Button, cn } from '../../components/ui/kit';
 import { DepartmentPicker, FunctionTabs, StageTrack, type FunctionTab, type PickerItem, type TrackStage } from '../../components/workspace/WorkspaceBar';
-import { fieldState, fieldsIn, summary } from './engine';
+import { summary, waitingIn } from './engine';
 import { examplePath } from './paths';
 import { useOpen, usePlace } from './place';
 import { DEPARTMENTS, PROJECT_NAME, STAGES, fnsOf, runs, when } from './spec';
@@ -14,10 +14,11 @@ const SUMMARY = 'summary';
 /**
  * The top of the work, which stays put while the page under it scrolls.
  *
- * One line says which project this is, that it is an example, and the way
- * back to the app. The next says where you are (the department) and when
- * (the stage being looked at). Under them, one tab for each function the
- * department has work in at that stage.
+ * One line says which project this is, that its data is made up, and the way
+ * to the product itself. The next says where you are (the department) and
+ * when (the stage being looked at). Under them, one tab for each function
+ * the department has work in at that stage. A dot on a department or a tab
+ * means something the copilot suggested there still waits for a person.
  */
 export function WorkBar({ scrolled, copilotOpen, onCopilot }: { scrolled: boolean; copilotOpen: boolean; onCopilot: () => void }) {
   const place = usePlace();
@@ -32,10 +33,7 @@ export function WorkBar({ scrolled, copilotOpen, onCopilot }: { scrolled: boolea
   const stages: TrackStage[] = STAGES.map((stage) => ({ key: stage.key, label: stage.label, when: when(stage.key) }));
   const dept = place.dept;
   const tabs: FunctionTab[] = dept
-    ? [
-        { key: SUMMARY, label: 'Summary' },
-        ...fnsOf(dept, place.stage).map((fn) => ({ key: fn.name, label: fn.name, waiting: fieldsIn(fn).some((x) => fieldState(x, state) === 'sug') })),
-      ]
+    ? [{ key: SUMMARY, label: 'Summary' }, ...fnsOf(dept, place.stage).map((fn) => ({ key: fn.name, label: fn.name, waiting: waitingIn(fn, state).length > 0 }))]
     : [];
 
   return (
@@ -46,7 +44,7 @@ export function WorkBar({ scrolled, copilotOpen, onCopilot }: { scrolled: boolea
       )}
     >
       <div className={cn('mx-auto grid max-w-[1440px] gap-1 px-5 pt-2', !dept && 'pb-2')}>
-        <div className="flex min-w-0 items-center gap-2.5 text-[11px] text-ink-muted">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-ink-muted">
           <Link
             to={examplePath(undefined, undefined, { stage: place.stage })}
             title="Overview of the project"
@@ -54,9 +52,13 @@ export function WorkBar({ scrolled, copilotOpen, onCopilot }: { scrolled: boolea
           >
             {PROJECT_NAME}
           </Link>
-          <span className="min-w-0 truncate">Example, made-up data</span>
-          <Link to="/portfolio" className="ml-auto shrink-0 font-medium text-brand hover:underline">
-            Back to the app
+          {/* Never cut short: on a narrow bar the label is the shorter one, whole. */}
+          <span className="shrink-0 whitespace-nowrap">
+            <span className="[@container(min-width:25rem)]:hidden">Made-up data</span>
+            <span className="hidden [@container(min-width:25rem)]:inline">Example, made-up data</span>
+          </span>
+          <Link to="/" className="ml-auto shrink-0 font-medium text-brand hover:underline">
+            Realytica
           </Link>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -68,7 +70,7 @@ export function WorkBar({ scrolled, copilotOpen, onCopilot }: { scrolled: boolea
             onPick={(key) => open.to(DEPARTMENTS.find((d) => d.key === key) ?? null)}
           />
           {/* On a wide screen the copilot has its own column and needs no button. */}
-          <Button size="sm" className="xl:hidden" icon={<AiMark size="xs" />} aria-label="Open the copilot" aria-expanded={copilotOpen} onClick={onCopilot}>
+          <Button size="sm" className="xl:hidden" icon={<AiMark size="xs" />} aria-haspopup="dialog" aria-expanded={copilotOpen} onClick={onCopilot}>
             Copilot
           </Button>
           <StageTrack

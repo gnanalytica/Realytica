@@ -21,7 +21,7 @@ const CHOSEN: Record<Result, string> = {
   na: 'bg-ink-muted text-ink-inverse',
 };
 
-/** One line of the checklist: met, not met or not applicable. Pressing the mark that is on takes it off. */
+/** One line of the checklist: met, not met or not applicable, and unmarked until a person says. Pressing the mark that is on takes it off. */
 function Expectation({ id, text }: { id: string; text: string }) {
   const { state, dispatch } = useExample();
   const now = expectation(id, state);
@@ -54,10 +54,23 @@ function Expectation({ id, text }: { id: string; text: string }) {
   );
 }
 
+/** Where a link leads, as the name of its site: the reader sees whose page it is before following it. */
+function siteOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The last section of every function's page: what a proper project expects
  * of the function, its flags, what the copilot notices, and the law and
  * standards all of it rests on.
+ *
+ * The checklist starts with nothing marked: what is met is for a person to
+ * say. A standard is named in words, with why it matters here; its link says
+ * which site it opens, because not every one leads to the law itself.
  */
 export function ChecksAndFlags({ dept, fn }: { dept: Department; fn: FunctionSpec }) {
   const { state } = useExample();
@@ -102,18 +115,21 @@ export function ChecksAndFlags({ dept, fn }: { dept: Department; fn: FunctionSpe
       </Group>
       {fn.standards.length ? (
         <Group title="Rests on">
-          <ul className="grid gap-1.5 border-t border-hairline px-3.5 pb-3 pt-2.5 text-[13px] text-ink">
-            {fn.standards.map((standard) => (
-              <li key={standard.name}>
-                {standard.url ? (
-                  <a href={standard.url} target="_blank" rel="noreferrer" className="text-brand-strong underline decoration-1 underline-offset-2 hover:text-brand">
-                    {standard.name}
-                  </a>
-                ) : (
-                  standard.name
-                )}
-              </li>
-            ))}
+          <ul className="grid gap-2.5 border-t border-hairline px-3.5 pb-3 pt-2.5 text-[13px] text-ink">
+            {fn.standards.map((standard) => {
+              const site = siteOf(standard.url);
+              return (
+                <li key={standard.name} className="grid gap-0.5">
+                  {standard.name}
+                  {standard.why ? <span className="text-[12px] text-ink-muted">{standard.why}</span> : null}
+                  {site ? (
+                    <a href={standard.url} target="_blank" rel="noreferrer" className="justify-self-start text-[12px] text-brand-strong underline decoration-1 underline-offset-2 hover:text-brand">
+                      Read at {site}
+                    </a>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </Group>
       ) : null}

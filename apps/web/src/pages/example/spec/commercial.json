@@ -1778,7 +1778,7 @@
      "url": "https://www.incometax.gov.in/iec/foportal/help/all-topics/e-filing-services/form-141-challan-cum-statement-deduction-tax-us-3931-UM"
     },
     {
-     "name": "Godrej Projects Development v Anil Karlekar, Supreme Court, 3 February 2025",
+     "name": "Supreme Court of India, judgment of 3 February 2025, on forfeiting a buyer's earnest money",
      "why": "Forfeiture of 10% of base price reasonable; 20% excessive",
      "url": "https://indiankanoon.org/doc/65254917/"
     }
@@ -2660,8 +2660,7 @@
          "lines": [
           {
            "t": "Lift licence, lifts 1 to 3",
-           "state": "in",
-           "pages": 4,
+           "state": "none",
            "ref": {
             "dept": "legal",
             "fn": "Approvals",

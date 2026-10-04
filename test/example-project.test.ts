@@ -27,7 +27,11 @@ interface Block {
   status?: number | null;
   bar?: number | null;
   money?: number[];
+  low?: boolean;
+  estimate?: number | null;
+  total?: boolean;
   source?: string;
+  from?: string;
   view?: string;
   layers?: string[];
   pins?: Array<{ kind: string; x: number; y: number }>;
@@ -66,6 +70,8 @@ const STAGES = new Set(['land', 'pre', 'build', 'done']);
 const ICONS = new Set('details checks docs photos flags ai report fns links map table calendar money people search timeline shield truck box key chat scale'.split(' '));
 const BLOCKS = new Set(['slots', 'fields', 'table', 'photos', 'map', 'search', 'timeline', 'figure', 'board', 'calendar', 'grid', 'qa', 'outputs']);
 const LAYERS = new Set(['plot', 'survey', 'water', 'planning', 'roads', 'power', 'airport', 'rings']);
+const PINS = new Set(['borehole', 'photo', 'visit', 'comparable', 'competitor', 'amenity']);
+const DEPARTMENT_NAMES = new Set(['legal', 'finance', 'engineering', 'commercial', 'procurement']);
 
 const SPEC: Record<string, Fn[]> = Object.fromEntries(
   Object.keys(EXPECTED).map((dept) => {
@@ -100,6 +106,8 @@ describe('the example project', () => {
       assert.equal(new Set(ids).size, ids.length, `${at}: section ids repeat`);
       for (const sec of fn.sections) {
         assert.match(sec.id, /^[a-z]+$/, `${at}: section id "${sec.id}"`);
+        // The page adds a last section of its own under this id.
+        assert.notEqual(sec.id, 'checks', `${at}: a section takes the id of the page's own Checks and flags`);
         assert.ok(ICONS.has(sec.icon), `${at} › ${sec.name}: icon "${sec.icon}"`);
         assert.ok(sec.blocks.length > 0, `${at} › ${sec.name}: no blocks`);
         for (const block of sec.blocks) assert.ok(BLOCKS.has(block.type), `${at} › ${sec.name}: block "${block.type}"`);
@@ -121,6 +129,51 @@ describe('the example project', () => {
           if (index != null) assert.ok(Number.isInteger(index) && index >= 0 && index < cols, `${where}: column ${index} of ${cols}`);
         }
         assert.ok(['typed', 'import', 'phone', 'link', 'message', 'fetched'].includes(block.source ?? ''), `${where}: source "${block.source}"`);
+        for (const row of block.rows as unknown[][]) for (const cell of row) assert.equal(typeof cell, 'string', `${where}: a cell is not text`);
+      }
+    }
+  });
+
+  it('totals a column only in one unit', () => {
+    for (const { fn, at } of everyFunction) {
+      for (const { sec, block } of blocksOf(fn)) {
+        if (block.type !== 'table' || !block.total) continue;
+        for (const index of block.money ?? []) {
+          const units = new Set((block.rows as string[][]).map((row) => row[index]!.trim().split(' ').at(-1)).filter((unit) => unit === 'L' || unit === 'Cr'));
+          assert.ok(units.size <= 1, `${at} › ${sec.name}: column ${index} mixes lakh and crore, so its total would be wrong`);
+        }
+      }
+    }
+  });
+
+  it('compares bids across at least two columns, with the estimate named where there is one', () => {
+    let comparisons = 0;
+    for (const { fn, at } of everyFunction) {
+      for (const { sec, block } of blocksOf(fn)) {
+        if (block.type !== 'table' || !block.low) continue;
+        comparisons += 1;
+        const cols = block.cols!;
+        const where = `${at} › ${sec.name}`;
+        if (block.estimate != null) assert.ok(Number.isInteger(block.estimate) && block.estimate >= 1 && block.estimate < cols.length, `${where}: estimate column ${block.estimate}`);
+        // A column headed "Estimate" that the data does not name would be compared as if it were a bid.
+        cols.forEach((col, i) => {
+          if (/^estimate$/i.test(col.trim())) assert.equal(block.estimate, i, `${where}: the Estimate column is not named as the estimate`);
+        });
+        assert.ok(cols.length - 1 - (block.estimate != null ? 1 : 0) >= 2, `${where}: nothing to compare`);
+      }
+    }
+    assert.ok(comparisons > 0);
+  });
+
+  it('names a function or a department wherever rows arrive from one', () => {
+    const functions = new Set(everyFunction.map(({ fn }) => fn.name.toLowerCase()));
+    for (const { fn, at } of everyFunction) {
+      for (const { sec, block } of blocksOf(fn)) {
+        if (block.type !== 'table' || block.source !== 'link') continue;
+        assert.equal(typeof block.from, 'string', `${at} › ${sec.name}: rows arrive from nowhere`);
+        for (const name of block.from!.split(/,| and /).map((x) => x.trim().toLowerCase()).filter(Boolean)) {
+          assert.ok(functions.has(name) || DEPARTMENT_NAMES.has(name), `${at} › ${sec.name}: rows arrive from "${name}", which is neither a function nor a department`);
+        }
       }
     }
   });
@@ -148,6 +201,7 @@ describe('the example project', () => {
         const original = linesOf(home).find((l) => l.t === line.ref!.t);
         assert.ok(original, `${at}: "${line.t}" has no original in ${line.ref.dept} · ${line.ref.fn}`);
         assert.equal(original.ref, undefined, `${at}: the original of "${line.t}" is itself a reference`);
+        assert.equal(line.state, original.state, `${at}: "${line.t}" says ${line.state} where its original says ${original.state}`);
       }
     }
     assert.ok(refs > 0, 'the example shows the rule at least once');
@@ -161,8 +215,12 @@ describe('the example project', () => {
         maps += 1;
         const where = `${at} › ${sec.name}`;
         assert.ok(['site', 'area', 'plot'].includes(block.view ?? ''), `${where}: view "${block.view}"`);
+        assert.ok(Array.isArray(block.layers), `${where}: no layers`);
         for (const layer of block.layers ?? []) assert.ok(LAYERS.has(layer), `${where}: layer "${layer}"`);
-        for (const pin of block.pins ?? []) assert.ok(pin.x >= 0 && pin.x <= 100 && pin.y >= 0 && pin.y <= 100, `${where}: a pin is off the map`);
+        for (const pin of block.pins ?? []) {
+          assert.ok(PINS.has(pin.kind), `${where}: pin "${pin.kind}"`);
+          assert.ok(pin.x >= 0 && pin.x <= 100 && pin.y >= 0 && pin.y <= 100, `${where}: a pin is off the map`);
+        }
         for (const measure of block.measures ?? []) assert.ok(['ok', 'warn', 'crit'].includes(measure.tone), `${where}: tone "${measure.tone}"`);
       }
     }
@@ -188,6 +246,8 @@ describe('the example project', () => {
       assert.ok(fn.standards.length > 0, `${at}: no standard named`);
       for (const standard of fn.standards) assert.match(standard.url, /^https:\/\//, `${at}: "${standard.name}" has no https link`);
       for (const flag of fn.flags) assert.ok(['rule', 'person'].includes(flag.by) && ['high', 'medium'].includes(flag.level), `${at}: flag "${flag.t}"`);
+      for (const list of ['indicative', 'certified', 'reports', 'sent']) assert.ok(Array.isArray(fn.outputs[list]), `${at}: outputs.${list} is missing`);
+      for (const insight of fn.insights) assert.ok(Array.isArray(insight.rests), `${at}: the insight "${insight.t}" does not say what it rests on, even as an empty list`);
     }
   });
 });

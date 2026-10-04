@@ -7,7 +7,7 @@ import { useExample } from '../state';
 function RestsOn({ field }: { field: FieldRef }) {
   const { state } = useExample();
   const open = useOpen();
-  const picked = usePicked('field', field.id);
+  const picked = usePicked('field', field.id) > 0;
   return (
     <button
       type="button"

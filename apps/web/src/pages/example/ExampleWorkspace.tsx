@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { cn } from '../../components/ui/kit';
+import { useMediaQuery } from '../../lib/useMediaQuery';
+import { CopilotChat } from './CopilotChat';
+import { DocumentViewer } from './DocumentViewer';
 import { hash } from './engine';
 import { ExampleFoot } from './parts';
 import { PlaceProvider, readPlace, usePlace } from './place';
+import { backToPicked } from './seek';
 import { ExampleProvider, useExample } from './state';
-import { CopilotChat } from './CopilotChat';
-import { DocumentViewer } from './DocumentViewer';
 import { FunctionPage } from './FunctionPage';
 import { Overview } from './Overview';
 import { ProofPane } from './proof/ProofPane';
 import { SummaryPage } from './SummaryPage';
 import { WorkBar } from './WorkBar';
+
+/** From this width the copilot has a column of its own. Below it, it is a drawer. Tailwind's `xl`. */
+const COPILOT_BESIDE = '(min-width: 1280px)';
 
 /**
  * The example project: a whole workspace anybody can open and press, with
@@ -19,8 +24,8 @@ import { WorkBar } from './WorkBar';
  *
  * Three panels. The copilot on the left, the work in the middle, and on the
  * right the proof of whatever is picked, which is there only while something
- * is. On a narrow screen the copilot is a drawer and the proof lies over the
- * lower part of the work.
+ * is. On a narrow screen the copilot is a drawer, and the proof takes the
+ * lower part of the window, at most half of it, with the work above.
  */
 export default function ExampleWorkspace() {
   return (
@@ -37,7 +42,7 @@ function Routed() {
   const location = useLocation();
   const stage = query.get('stage');
   const part = query.get('part');
-  const place = useMemo(() => readPlace(params.department, params.fn, stage), [params.department, params.fn, stage]);
+  const place = useMemo(() => readPlace(params.department, params.fn, stage, part), [params.department, params.fn, stage, part]);
   // A new object for each visit, so going to the same section twice brings it into view twice.
   const jump = useMemo(() => (part ? { id: part, at: hash(location.key) } : null), [part, location.key]);
 
@@ -55,60 +60,101 @@ function Frame({ jump }: { jump: { id: string; at: number } | null }) {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const proofOpen = state.picked !== null && state.picked.at === place.key;
+  const paperOpen = state.viewing !== null && state.viewing.at === place.key;
+  // Open as a drawer: on a wide screen the copilot is a column, always there, and covers nothing.
+  const beside = useMediaQuery(COPILOT_BESIDE);
+  const drawerOpen = copilotOpen && !beside;
+  const behind = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
 
   // Each page starts at its top, with the bar lying flat on it.
   useEffect(() => setScrolled(false), [place.key]);
 
-  // Escape puts away the nearest thing: the copilot's drawer, then the proof. An open paper closes itself.
+  // While the drawer is open nothing behind it can be reached. Set before any effect that moves the keyboard.
+  useLayoutEffect(() => {
+    if (behind.current) behind.current.inert = drawerOpen;
+  }, [drawerOpen]);
+
+  // A drawer that closes hands the keyboard back to what opened it, unless something it showed has taken it.
+  useEffect(() => {
+    if (drawerOpen) return;
+    const held = document.activeElement;
+    if (opener.current && !(held && behind.current?.contains(held))) opener.current.focus();
+    opener.current = null;
+  }, [drawerOpen]);
+
+  // Escape puts away the nearest thing: the copilot's drawer, then the proof. A menu or a paper that took the key closes itself.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || state.viewing) return;
-      if (copilotOpen) setCopilotOpen(false);
-      else if (proofOpen) dispatch({ type: 'close' });
+      if (e.key !== 'Escape' || e.defaultPrevented || paperOpen) return;
+      if (drawerOpen) setCopilotOpen(false);
+      else if (proofOpen) {
+        dispatch({ type: 'close' });
+        backToPicked();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [copilotOpen, proofOpen, state.viewing, dispatch]);
+  }, [drawerOpen, proofOpen, paperOpen, dispatch]);
+
+  const toggleCopilot = () => {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setCopilotOpen((open) => !open);
+  };
 
   return (
     <div
       className={cn(
         'relative grid h-[100dvh] grid-cols-[minmax(0,1fr)] overflow-hidden bg-page text-ink',
-        proofOpen ? 'lg:grid-cols-[minmax(0,1fr)_400px] xl:grid-cols-[304px_minmax(0,1fr)_440px]' : 'xl:grid-cols-[304px_minmax(0,1fr)]',
+        proofOpen
+          ? cn(
+              // Narrow: the proof is a row under the work, as tall as it needs and never more than half the window.
+              // It gives way where the work would be left under 22.5rem (the bar, the row of icons, one field with
+              // its buttons), though not below 12rem of its own.
+              'grid-rows-[minmax(0,1fr)_fit-content(min(50%,max(12rem,100%_-_22.5rem)))]',
+              // A phone held sideways has no height to share: the two stand side by side instead.
+              'max-lg:short:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-lg:short:grid-rows-[minmax(0,1fr)]',
+              'lg:grid-cols-[minmax(0,1fr)_400px] lg:grid-rows-[minmax(0,1fr)] xl:grid-cols-[304px_minmax(0,1fr)_440px]',
+            )
+          : 'grid-rows-[minmax(0,1fr)] xl:grid-cols-[304px_minmax(0,1fr)]',
       )}
     >
       {/* Behind the copilot's drawer on a narrow screen: pressing anywhere outside it puts it away. */}
-      {copilotOpen ? (
+      {drawerOpen ? (
         <button
           type="button"
           tabIndex={-1}
           aria-label="Close the copilot"
           onClick={() => setCopilotOpen(false)}
-          className="absolute inset-0 z-[19] cursor-default bg-[rgba(var(--shadow-tint),0.3)] xl:hidden"
+          className="absolute inset-0 z-[19] cursor-default bg-[rgba(var(--shadow-tint),0.3)]"
         />
       ) : null}
-      <CopilotChat open={copilotOpen} onClose={() => setCopilotOpen(false)} />
-      <main aria-label="Work" className="flex min-h-0 min-w-0 flex-col">
-        <WorkBar scrolled={scrolled} copilotOpen={copilotOpen} onCopilot={() => setCopilotOpen((open) => !open)} />
-        {/* Keyed by the page, so each one starts at its top. It is the container every breakpoint inside it measures. */}
-        <div
-          key={place.key}
-          onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
-          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [container-type:inline-size]"
-        >
-          <div className="mx-auto flex max-w-[1440px] flex-col gap-3.5 px-5 pb-14 pt-3.5">
-            {!place.dept ? (
-              <Overview />
-            ) : place.fn ? (
-              <FunctionPage dept={place.dept} fn={place.fn} jump={jump} />
-            ) : (
-              <SummaryPage dept={place.dept} stage={place.stage} jump={jump} />
-            )}
-            <ExampleFoot />
+      <CopilotChat open={drawerOpen} onClose={() => setCopilotOpen(false)} />
+      {/* The work and its proof: one group, so both go out of reach together while the drawer is open. It adds no box of its own. */}
+      <div ref={behind} className="contents">
+        {/* The container the bar measures itself by. */}
+        <main aria-label="Work" className="flex min-h-0 min-w-0 flex-col [container-type:inline-size]">
+          <WorkBar scrolled={scrolled} copilotOpen={drawerOpen} onCopilot={toggleCopilot} />
+          {/* Keyed by the page, so each one starts at its top. It is the container every breakpoint inside it measures. */}
+          <div
+            key={place.key}
+            onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
+            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [container-type:inline-size]"
+          >
+            <div className="mx-auto flex max-w-[1440px] flex-col gap-3.5 px-5 pb-14 pt-3.5">
+              {!place.dept ? (
+                <Overview />
+              ) : place.fn ? (
+                <FunctionPage dept={place.dept} fn={place.fn} jump={jump} />
+              ) : (
+                <SummaryPage dept={place.dept} stage={place.stage} jump={jump} />
+              )}
+              <ExampleFoot />
+            </div>
           </div>
-        </div>
-      </main>
-      <ProofPane />
+        </main>
+        <ProofPane />
+      </div>
       <DocumentViewer />
     </div>
   );

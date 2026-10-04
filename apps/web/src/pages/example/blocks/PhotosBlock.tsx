@@ -2,7 +2,7 @@ import { Badge, cn } from '../../../components/ui/kit';
 import { photoById, photoOk, type BlockAt, type PhotoRef } from '../engine';
 import { AiChip, DropStrip, Group } from '../parts';
 import { useOpen, usePicked } from '../place';
-import { useSeek } from '../seek';
+import { SEEK, useSeek } from '../seek';
 import { useExample } from '../state';
 import type { PhotosBlock as Spec } from '../types';
 import { PhotoArt } from './PhotoArt';
@@ -15,12 +15,13 @@ import { PhotoArt } from './PhotoArt';
 function Print({ photo, index }: { photo: PhotoRef; index: number }) {
   const { state } = useExample();
   const open = useOpen();
-  const picked = usePicked('photo', photo.id);
-  const frame = useSeek<HTMLLIElement>(picked);
+  const visit = usePicked('photo', photo.id);
+  const picked = visit > 0;
+  const frame = useSeek<HTMLLIElement>(visit);
   const described = photoOk(photo, state);
   return (
     // The arrival is on the frame and the lift on the print, so one does not undo the other.
-    <li ref={frame} className="grid animate-rise-in" style={{ animationDelay: `${index * 30}ms` }}>
+    <li ref={frame} className={cn('grid animate-rise-in', SEEK)} style={{ animationDelay: `${index * 30}ms` }}>
       <button
         type="button"
         aria-pressed={picked}

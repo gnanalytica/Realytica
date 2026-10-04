@@ -61,12 +61,12 @@
         },
         {
          "l": "Appointing authority",
-         "v": "Meridian Bank",
+         "v": "Hosakere Bank",
          "state": "set",
          "from": "Valuation engagement letter",
          "page": 1,
          "options": [
-          "Meridian Bank",
+          "Hosakere Bank",
           "Lakeview Developers LLP"
          ]
         },
@@ -156,7 +156,7 @@
         [
          "Encumbrance certificate, 1994 to 2026",
          "41/2, 41/3",
-         "Mortgage to Meridian Bank, 2024",
+         "Mortgage to Hosakere Bank, 2024",
          "Received"
         ]
        ],
@@ -1108,7 +1108,7 @@
        "title": "Lender term sheets",
        "cols": [
         "Term",
-        "Meridian Bank",
+        "Hosakere Bank",
         "Public sector bank",
         "Housing finance company"
        ],
@@ -2108,7 +2108,7 @@
        ],
        "share": [
         {
-         "l": "Meridian Bank loan",
+         "l": "Hosakere Bank loan",
          "p": 32
         },
         {
@@ -2126,7 +2126,7 @@
        "title": "Sources against uses",
        "cols": [
         "Use",
-        "Meridian Bank loan",
+        "Hosakere Bank loan",
         "Promoter equity",
         "Buyer collections",
         "Total"
@@ -2198,10 +2198,10 @@
      "blocks": [
       {
        "type": "slots",
-       "title": "Papers from Meridian Bank",
+       "title": "Papers from Hosakere Bank",
        "groups": [
         {
-         "name": "Meridian Bank",
+         "name": "Hosakere Bank",
          "lines": [
           {
            "t": "Term sheet",
@@ -2441,7 +2441,7 @@
        "total": true,
        "low": false,
        "source": "message",
-       "from": "Meridian Bank",
+       "from": "Hosakere Bank",
        "add": "Raise a request"
       },
       {
@@ -2520,7 +2520,7 @@
         {
          "t": "Mortgage of land and building: CERSAI filing",
          "due": "9 Jan 2026",
-         "who": "Meridian Bank",
+         "who": "Hosakere Bank",
          "state": "Filed"
         },
         {
@@ -2532,13 +2532,13 @@
         {
          "t": "Hypothecation of receivables: CERSAI filing",
          "due": "9 Jan 2026",
-         "who": "Meridian Bank",
+         "who": "Hosakere Bank",
          "state": "Filed"
         },
         {
          "t": "CERSAI modification: units released in September",
          "due": "20 Oct 2026",
-         "who": "Meridian Bank",
+         "who": "Hosakere Bank",
          "state": "Upcoming"
         }
        ]

@@ -1,6 +1,7 @@
 import { Card, cn } from '../../components/ui/kit';
 import { WaitDot } from '../../components/workspace/WorkspaceBar';
-import { fieldValue, summary } from './engine';
+import { showing } from './chat';
+import { summary } from './engine';
 import { EXAMPLE_STAGE_NOW, type ExampleStage } from './paths';
 import { Bar, Blank, Capped, Group, RowButton, RowText } from './parts';
 import { useOpen } from './place';
@@ -10,7 +11,7 @@ import type { Department } from './types';
 
 const HEADING = 'px-1 text-left text-[12px] font-semibold text-ink-secondary';
 
-/** One department at one stage: how much of its paper is in hand, and whether a value waits there. */
+/** One department at one stage: how much of its paper is in hand, and whether something waits there. */
 function Cell({ dept, stage }: { dept: Department; stage: ExampleStage }) {
   const { state } = useExample();
   const open = useOpen();
@@ -35,10 +36,10 @@ function Cell({ dept, stage }: { dept: Department; stage: ExampleStage }) {
 }
 
 /**
- * The project as a whole: every department against every stage, and the
- * values the copilot has read that still wait for a person. Each cell opens
- * that department at that stage; each waiting value opens where it lives,
- * with its proof.
+ * The project as a whole: every department against every stage, and what
+ * the copilot has suggested that still waits for a person: values it read,
+ * descriptions of photographs, answers, entries in a chain. Each cell opens
+ * that department at that stage; each thing waiting opens where it lives.
  */
 export function Overview() {
   const { state } = useExample();
@@ -83,14 +84,12 @@ export function Overview() {
       <Group title="Waiting to be accepted" note={String(waiting.length)}>
         {waiting.length ? (
           <Capped id="overview:waiting" items={waiting} cap={5}>
-            {(field) => (
-              <li key={field.id} className="border-t border-hairline">
-                <RowButton onClick={() => open.field(field.id)}>
-                  <RowText sub={field.item.from ? `Read from ${field.item.from}${field.item.page ? `, page ${field.item.page}` : ''}` : undefined}>
-                    {field.item.l}: {fieldValue(field, state)}
-                  </RowText>
+            {(waits) => (
+              <li key={waits.id} className="border-t border-hairline">
+                <RowButton onClick={() => open.act(showing(waits))}>
+                  <RowText sub={waits.sub || undefined}>{waits.t}</RowText>
                   <span className="shrink-0 whitespace-nowrap rounded-full bg-sunken px-2.5 py-1 text-[12px] text-ink-secondary">
-                    {field.dept.label} · {field.fn.name}
+                    {waits.dept.label} · {waits.fn.name}
                   </span>
                 </RowButton>
               </li>

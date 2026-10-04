@@ -1,7 +1,10 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
+import { useToast } from '../../components/ui/kit';
 import type { MapLayer } from './MapBlock';
 import type { Act, ChatMessage } from './chat';
-import type { CheckMark, MarkKind, Marks } from './engine';
+import { fnId, type CheckMark, type MarkKind, type Marks } from './engine';
+import { certifiedToday } from './spec';
+import type { CertifiedStanding, Department, FunctionSpec } from './types';
 
 /**
  * Everything a person does to the example project, held in memory.
@@ -16,6 +19,14 @@ export interface Picked {
   kind: 'field' | 'photo' | 'flag';
   id: string;
   at: string;
+  /** Goes up each time something is shown, so showing the same thing again brings it back into view. */
+  visit: number;
+}
+
+/** The paper opened over the workspace, by the id of its original, and the page it was opened on. */
+export interface Viewing {
+  id: string;
+  at: string;
 }
 
 export type ProofTab = 'source' | 'links' | 'history';
@@ -23,23 +34,23 @@ export type ProofTab = 'source' | 'links' | 'history';
 export interface State extends Marks {
   picked: Picked | null;
   proofTab: ProofTab;
-  /** The paper opened over the workspace, by the id of its original. */
-  viewing: string | null;
+  viewing: Viewing | null;
   chat: ChatMessage[];
 }
 
 export type Action =
   | { type: 'mark'; what: MarkKind; ids: string[] }
-  /** A value typed or chosen. Typing over a suggestion accepts the typed value; typing over a rejected one brings it back. */
+  /** A value typed or chosen. It goes on the record as the person's own, whatever was suggested or left out before. */
   | { type: 'value'; id: string; value: string }
   | { type: 'check'; id: string; mark: CheckMark }
-  | { type: 'certify'; fn: string }
+  /** A professional signs a function's result. */
+  | { type: 'certify'; fn: string; standing: CertifiedStanding }
   /** Switch one layer of a map. `initial` is what the map shows before anybody has touched it. */
   | { type: 'layer'; map: string; layer: MapLayer; initial: MapLayer[] }
-  | { type: 'pick'; picked: Picked }
+  | { type: 'pick'; picked: Omit<Picked, 'visit'> }
   | { type: 'close' }
   | { type: 'tab'; tab: ProofTab }
-  | { type: 'view'; id: string | null }
+  | { type: 'view'; viewing: Viewing | null }
   | { type: 'say'; messages: ChatMessage[] }
   /** Approve or dismiss the card at `index` of the thread. */
   | { type: 'settle'; index: number; state: 'yes' | 'no'; shown?: Act };
@@ -53,8 +64,7 @@ const START: State = {
   drafted: {},
   filed: {},
   sent: {},
-  described: {},
-  confirmed: {},
+  chosen: {},
   opened: {},
   values: {},
   checks: {},
@@ -79,19 +89,19 @@ function reduce(state: State, action: Action): State {
     case 'check':
       return { ...state, checks: { ...state.checks, [action.id]: action.mark } };
     case 'certify':
-      return { ...state, certified: { ...state.certified, [action.fn]: { state: 'certified', by: 'N. Rao', role: 'signer', on: '3 Oct 2026', moved: false } } };
+      return { ...state, certified: { ...state.certified, [action.fn]: action.standing } };
     case 'layer': {
       const on = state.layers[action.map] ?? action.initial;
       return { ...state, layers: { ...state.layers, [action.map]: on.includes(action.layer) ? on.filter((l) => l !== action.layer) : [...on, action.layer] } };
     }
     case 'pick':
-      return { ...state, picked: action.picked, proofTab: 'source', viewing: null };
+      return { ...state, picked: { ...action.picked, visit: (state.picked?.visit ?? 0) + 1 }, proofTab: 'source', viewing: null };
     case 'close':
       return state.picked ? { ...state, picked: null } : state;
     case 'tab':
       return { ...state, proofTab: action.tab };
     case 'view':
-      return { ...state, viewing: action.id };
+      return { ...state, viewing: action.viewing };
     case 'say':
       return { ...state, chat: [...state.chat, ...action.messages] };
     case 'settle':
@@ -110,4 +120,19 @@ export function useExample(): { state: State; dispatch: Dispatch<Action> } {
   const value = useContext(ExampleContext);
   if (!value) throw new Error('useExample is used inside the example project page');
   return value;
+}
+
+/**
+ * Signs a function's result. It is the one change behind "Add certified
+ * result" and behind filing the result a function is certified by, so the
+ * standing strip, the list of results and the department's Summary cannot
+ * come to disagree.
+ */
+export function useCertify(dept: Department, fn: FunctionSpec): () => void {
+  const { dispatch } = useExample();
+  const toast = useToast();
+  return () => {
+    dispatch({ type: 'certify', fn: fnId(dept, fn), standing: certifiedToday(dept, fn) });
+    toast('Files the signed result.');
+  };
 }

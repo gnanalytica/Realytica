@@ -1,13 +1,21 @@
 import { cn } from '../../components/ui/kit';
+import { changed, fieldState, type FieldRef, type Marks } from './engine';
 import { useSeek } from './seek';
 import { PROJECT_NAME } from './spec';
 
-/** One value read from the page: accepted, said to be not right, or still waiting for a person. */
+/** One value read from the page, and what a person has done with it since. */
 export interface SheetLine {
   id: string;
   label: string;
+  /** The page's own words, whatever stands on the record now. */
   value: string;
-  state: 'ok' | 'no' | 'wait';
+  state: 'wait' | 'ok' | 'changed' | 'no';
+}
+
+/** A value as it is drawn on the page it was read from. The page always says what the file says. */
+export function sheetLine(x: FieldRef, m: Marks): SheetLine {
+  const now = fieldState(x, m);
+  return { id: x.id, label: x.item.l, value: x.item.v, state: now === 'no' ? 'no' : changed(x, m) ? 'changed' : now === 'sug' ? 'wait' : 'ok' };
 }
 
 /*
@@ -18,22 +26,26 @@ const INK = 'text-[#1F2226]';
 const FAINT = 'text-[#69707A]';
 const RULE = 'border-[#E2E5EA]';
 
-const MARKED: Record<SheetLine['state'], [plain: string, current: string]> = {
-  wait: ['bg-ai/15 shadow-[inset_0_-2px_0_rgb(var(--ai-rgb))]', 'bg-ai/30 shadow-[inset_0_-2px_0_rgb(var(--ai-rgb))] ring-2 ring-ai'],
-  ok: ['bg-good/15 shadow-[inset_0_-2px_0_rgb(var(--status-good-rgb))]', 'bg-good/15 shadow-[inset_0_-2px_0_rgb(var(--status-good-rgb))] ring-2 ring-good'],
-  no: [`${FAINT} line-through`, `${FAINT} line-through ring-2 ring-[#69707A]`],
+/* A mark says where its value stands three ways: by its outline, by its colour, and in words on hover. */
+const MARKED: Record<SheetLine['state'], { look: string; ring: string; says: string }> = {
+  wait: { look: 'border-dashed border-ai bg-ai/15', ring: 'ring-ai', says: 'Read by the copilot. Waiting for a person to accept it' },
+  ok: { look: 'border-solid border-good bg-good/15', ring: 'ring-good', says: 'Accepted by a person' },
+  changed: { look: 'border-dotted border-warning bg-warning/15', ring: 'ring-warning', says: 'What the page says. A person has typed another value' },
+  no: { look: `border-transparent line-through ${FAINT}`, ring: 'ring-[#69707A]', says: 'Left out by a person' },
 };
 
 /** The words a value was read from, marked on the page. Pressing them picks the value. */
-function Mark({ line, current, onPick }: { line: SheetLine; current: boolean; onPick: (id: string) => void }) {
-  const mark = useSeek<HTMLButtonElement>(current, 'pane');
+function Mark({ line, visit, onPick }: { line: SheetLine; visit: number; onPick: (id: string) => void }) {
+  const mark = useSeek<HTMLButtonElement>(visit, false);
+  const { look, ring, says } = MARKED[line.state];
   return (
     <button
       ref={mark}
       type="button"
-      aria-pressed={current}
+      title={says}
+      aria-pressed={visit > 0}
       onClick={() => onPick(line.id)}
-      className={cn('rounded-[3px] px-1 py-px text-left font-mono text-[12px]', MARKED[line.state][current ? 1 : 0])}
+      className={cn('rounded-[3px] border px-1 py-px text-left font-mono text-[12px]', look, visit > 0 && 'ring-2', visit > 0 && ring)}
     >
       {line.value}
     </button>
@@ -52,14 +64,16 @@ export function Sheet({
   page,
   lines,
   current,
+  visit = 0,
   large = false,
   onPick,
 }: {
   title: string;
   page: number;
   lines: SheetLine[];
-  /** The value whose proof this is. */
+  /** The value whose proof this is, and the number of this showing of it. */
   current?: string;
+  visit?: number;
   large?: boolean;
   onPick: (id: string) => void;
 }) {
@@ -76,7 +90,7 @@ export function Sheet({
             <li key={line.id} className="flex items-baseline gap-2">
               {line.label}
               <i aria-hidden className="min-w-3.5 flex-1 -translate-y-1 border-b border-dotted border-[#CDD2DA]" />
-              <Mark line={line} current={line.id === current} onPick={onPick} />
+              <Mark line={line} visit={line.id === current ? visit || 1 : 0} onPick={onPick} />
             </li>
           ))}
         </ul>

@@ -28,9 +28,9 @@ export function BlockView({ at, block }: { at: BlockAt; block: Block }) {
     case 'map':
       return <SiteMap at={at} block={block} />;
     case 'search':
-      return <SearchBlock block={block} />;
+      return <SearchBlock at={at} block={block} />;
     case 'timeline':
-      return <TimelineBlock block={block} />;
+      return <TimelineBlock at={at} block={block} />;
     case 'figure':
       return <FigureBlock block={block} />;
     case 'board':

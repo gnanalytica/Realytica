@@ -1,8 +1,8 @@
 import { Badge, Button, cn, useToast } from '../../components/ui/kit';
 import { SectionPage, type PageSection } from '../../components/workspace/SectionPage';
-import { blockId, fnId, standingOf } from './engine';
+import { blockId, standingOf } from './engine';
 import { SECTION_ICON } from './icons';
-import { useExample } from './state';
+import { useCertify, useExample } from './state';
 import type { Department, FunctionSpec } from './types';
 import { BlockView } from './blocks/Block';
 import { ChecksAndFlags } from './ChecksAndFlags';
@@ -13,8 +13,9 @@ import { ChecksAndFlags } from './ChecksAndFlags';
  * from says so, and offers to ask the signer to look again.
  */
 function StandingStrip({ dept, fn }: { dept: Department; fn: FunctionSpec }) {
-  const { state, dispatch } = useExample();
+  const { state } = useExample();
   const toast = useToast();
+  const certify = useCertify(dept, fn);
   const standing = standingOf(dept, fn, state);
   const certified = standing.state === 'certified';
   return (
@@ -32,17 +33,11 @@ function StandingStrip({ dept, fn }: { dept: Department; fn: FunctionSpec }) {
           : `${standing.basis} · no certified result`}
       </span>
       {standing.state === 'indicative' ? (
-        <Button
-          size="sm"
-          onClick={() => {
-            dispatch({ type: 'certify', fn: fnId(dept, fn) });
-            toast('Certified result added.');
-          }}
-        >
+        <Button size="sm" onClick={certify}>
           Add certified result
         </Button>
       ) : standing.moved ? (
-        <Button size="sm" onClick={() => toast('Asked the signer to revisit.')}>
+        <Button size="sm" onClick={() => toast('Asks the signer to revisit.')}>
           Ask to revisit
         </Button>
       ) : null}

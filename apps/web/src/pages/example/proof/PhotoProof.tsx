@@ -56,7 +56,7 @@ export function PhotoProof({ photo }: { photo: PhotoRef }) {
               title="What was read from it"
               rows={[
                 ['Shows', <span className="font-display text-[14px] leading-normal">{says}</span>],
-                ['Where', `${where} · 13.06° N, 77.59° E`],
+                ['Where', where],
                 ['Taken', '3 Oct 2026, 11:42, on R. Iyer’s phone'],
                 ['Read by', 'The copilot, a model'],
                 ['Standing', <StandingChip standing={described ? 'accepted' : 'waiting'} />],
@@ -70,7 +70,7 @@ export function PhotoProof({ photo }: { photo: PhotoRef }) {
           <Button
             variant="primary"
             onClick={() => {
-              dispatch({ type: 'mark', what: 'described', ids: [photo.id] });
+              dispatch({ type: 'mark', what: 'accepted', ids: [photo.id] });
               toast('Description accepted.');
             }}
           >

@@ -11,8 +11,9 @@ import type { Department, FunctionSpec } from './types';
  * Where the page is, and the ways to go somewhere else.
  *
  * The address holds the department, the function and the stage, so the back
- * button and a link from anywhere land on the same page. What is picked on a
- * page is held with the page's key, so its proof shows there and nowhere else.
+ * button and a link from anywhere land on the same page. What is picked or
+ * opened on a page is held with the page's key, so its proof and its paper
+ * show there and nowhere else.
  */
 
 export interface Place {
@@ -34,20 +35,21 @@ export const placeKey = (dept: Department | null, fn: FunctionSpec | null, stage
  *
  * A function named in a link is opened at a stage it has work in, whatever
  * stage the link carried. A department with no work at the stage gives way to
- * the first one that has.
+ * the first one that has. Either way the section the link asked for is kept.
  */
-export function readPlace(department: string | undefined, fnName: string | undefined, stageParam: string | null): Place | { redirect: string } {
+export function readPlace(department: string | undefined, fnName: string | undefined, stageParam: string | null, part: string | null): Place | { redirect: string } {
   const stage = STAGES.find((s) => s.key === stageParam)?.key ?? EXAMPLE_STAGE_NOW;
+  const keep = part ?? undefined;
   if (!department) return { dept: null, fn: null, stage, key: placeKey(null, null, stage) };
   const dept = departmentOf(department);
   if (!dept) return { redirect: examplePath() };
   const fn = functionOf(dept, fnName);
   if (fn) {
     const at = stageFor(fn, stage);
-    return at === stage ? { dept, fn, stage, key: placeKey(dept, fn, stage) } : { redirect: examplePath(dept.key, fn.name, { stage: at }) };
+    return at === stage ? { dept, fn, stage, key: placeKey(dept, fn, stage) } : { redirect: examplePath(dept.key, fn.name, { stage: at, part: keep }) };
   }
   const running = departmentAt(dept, stage);
-  if (fnName || running !== dept) return { redirect: running ? examplePath(running.key, undefined, { stage }) : examplePath() };
+  if (fnName || running !== dept) return { redirect: running ? examplePath(running.key, undefined, { stage, part: keep }) : examplePath() };
   return { dept, fn: null, stage, key: placeKey(dept, null, stage) };
 }
 
@@ -61,11 +63,14 @@ export function usePlace(): Place {
   return place;
 }
 
-/** Whether this is the thing whose proof is on show. */
-export function usePicked(kind: 'field' | 'photo' | 'flag', id: string): boolean {
+/**
+ * Whether this is the thing whose proof is on show: 0 when it is not,
+ * otherwise the number of this showing, which changes each time it is shown.
+ */
+export function usePicked(kind: 'field' | 'photo' | 'flag', id: string): number {
   const { picked } = useExample().state;
   const place = usePlace();
-  return picked !== null && picked.kind === kind && picked.id === id && picked.at === place.key;
+  return picked !== null && picked.kind === kind && picked.id === id && picked.at === place.key ? picked.visit : 0;
 }
 
 export interface Open {
@@ -125,11 +130,12 @@ export function useOpen(): Open {
   const paper: Open['paper'] = (id, where = 'here') => {
     const x = slotById(id);
     if (!x) return;
-    if (where === 'home') {
-      dispatch({ type: 'close' });
-      go(x.dept, x.fn, stageFor(x.fn, place.stage));
+    if (where === 'here') {
+      dispatch({ type: 'view', viewing: { id, at: place.key } });
+      return;
     }
-    dispatch({ type: 'view', id });
+    dispatch({ type: 'close' });
+    dispatch({ type: 'view', viewing: { id, at: go(x.dept, x.fn, stageFor(x.fn, place.stage)) } });
   };
 
   return {
@@ -143,7 +149,7 @@ export function useOpen(): Open {
       if (dept) to(dept, dept === place.dept && place.fn?.stages.includes(stage) ? place.fn : null, { stage });
     },
     act(act) {
-      dispatch({ type: 'view', id: null });
+      dispatch({ type: 'view', viewing: null });
       if (act.kind === 'summary') to(act.dept, null, { stage: act.stage, part: act.part });
       else if (act.kind === 'fn') to(act.dept, act.fn, { part: act.part });
       else if (act.kind === 'field') field(act.id);
