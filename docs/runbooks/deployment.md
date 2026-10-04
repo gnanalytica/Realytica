@@ -138,6 +138,18 @@ needs it.
 
 → `REALYTICA_GOOGLE_MAPS_API_KEY`
 
+**A second key, for the browser, is optional.** With it the site map draws
+Google's satellite and street layers and opens street view inside the map.
+Without it the map draws Esri imagery and OpenStreetMap, and street view is a
+link to Google Maps. This key is seen by every browser, so restrict it the
+other way round: by website, to the production address and the preview
+addresses, and by API to the Maps JavaScript API alone. It is read when the
+web build is made, so a deployment has to be rebuilt after it is set or
+changed. Each street view a person opens is billed by Google as one panorama
+load on this key.
+
+→ `VITE_GOOGLE_MAPS_BROWSER_KEY`
+
 ## Where each value goes
 
 **Vercel → Project → Settings → Environment Variables**, ticked for

@@ -5,7 +5,6 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
   sheetIsPlaceable,
-  type AmenityKind,
   type DdProject,
   type GisContextFeature,
   type GisOverlayHit,
@@ -15,7 +14,11 @@ import {
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Disclosure, cn } from './ui/kit';
 import { api } from '../lib/api';
 import { useAuthedUrl } from '../lib/useAuthedUrl';
-import { googleMapsKey, loadGoogleMaps } from '../lib/google-maps';
+import { googleMapsKey, loadGoogleMaps, streetViewUrl } from '../lib/google-maps';
+import { addSiteControls, type SiteControls } from './map/controls';
+import { openOnSite, siteFrame, sitePoint, type SiteView } from './map/frame';
+import { placeMarker, siteMarker, words } from './map/markers';
+import { STREET_VIEW_REACH_M, StreetViewPane, findStreetScene, type StreetScene } from './map/StreetView';
 import { RevenueMapPicker } from './RevenueMapPicker';
 import { RevenueMapBrief } from './RevenueMapBrief';
 
@@ -28,30 +31,7 @@ import { RevenueMapBrief } from './RevenueMapBrief';
  */
 
 type Basemap = 'satellite' | 'streets';
-
-/* Nearby places, drawn from what the site reading already fetched — no new calls. */
-const PLACE_LABEL: Record<AmenityKind, string> = {
-  transit: 'Transit',
-  school: 'School',
-  hospital: 'Hospital',
-  market: 'Market',
-  employment: 'Employment',
-  airport: 'Airport',
-};
-const PLACE_COLOUR: Record<AmenityKind, string> = {
-  transit: '#7c3aed',
-  school: '#0e9f6e',
-  hospital: '#dc2626',
-  market: '#d97706',
-  employment: '#2563eb',
-  airport: '#475569',
-};
-
-function placeDistance(metres: number, driving?: number): string {
-  const m = driving ?? metres;
-  const text = m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
-  return driving ? `${text} by road` : `${text} away`;
-}
+type Tiles = Record<Basemap, L.GridLayer>;
 
 const WATER_STYLE: L.PathOptions = { color: '#1d4ed8', weight: 2, fillColor: '#3b82c4', fillOpacity: 0.38 };
 const WATER_FLAG_STYLE: L.PathOptions = { color: '#b91c1c', weight: 3, fillColor: '#ef4444', fillOpacity: 0.28 };
@@ -108,14 +88,16 @@ function isRevenue(feature: GisContextFeature): boolean {
 }
 
 function addFeature(group: L.LayerGroup, feature: GisContextFeature, flagged: boolean): void {
+  // A feature's name is whatever a mapper or a state layer holds, and Leaflet
+  // reads a string as HTML: every tooltip here is set as text.
   if (isRevenue(feature)) {
     const style = REVENUE_STYLE[feature.kind];
     const label = `${feature.name ?? feature.kind.replace('state_', '').replace(/_/g, ' ')} — ${feature.layerKey ?? 'state layer'}${
       feature.distanceM !== undefined ? `, ${Math.round(feature.distanceM)} m` : ''
     } (revenue map, not evidence)`;
-    if (feature.ring) L.polygon(latlngs(feature.ring), style).bindTooltip(label).addTo(group);
-    else if (feature.line) L.polyline(feature.line.map((p) => [p.lat, p.lng] as L.LatLngExpression), style).bindTooltip(label).addTo(group);
-    else if (feature.point) L.circleMarker([feature.point.lat, feature.point.lng], { ...style, radius: 6 }).bindTooltip(label).addTo(group);
+    if (feature.ring) L.polygon(latlngs(feature.ring), style).bindTooltip(words(label)).addTo(group);
+    else if (feature.line) L.polyline(feature.line.map((p) => [p.lat, p.lng] as L.LatLngExpression), style).bindTooltip(words(label)).addTo(group);
+    else if (feature.point) L.circleMarker([feature.point.lat, feature.point.lng], { ...style, radius: 6 }).bindTooltip(words(label)).addTo(group);
     return;
   }
   const water = feature.kind === 'osm_water' || feature.kind === 'osm_waterway';
@@ -146,10 +128,10 @@ function addFeature(group: L.LayerGroup, feature: GisContextFeature, flagged: bo
     .filter(Boolean)
     .join(' — ');
   if (feature.ring) {
-    L.polygon(latlngs(feature.ring), style).bindTooltip(tooltip).addTo(group);
+    L.polygon(latlngs(feature.ring), style).bindTooltip(words(tooltip)).addTo(group);
   } else if (feature.line) {
     L.polyline(latlngs(feature.line), water ? WATERWAY_STYLE : LANDUSE_STYLE)
-      .bindTooltip(tooltip)
+      .bindTooltip(words(tooltip))
       .addTo(group);
   }
 }
@@ -162,7 +144,11 @@ export function GisOverlayCard({
   onChanged: () => Promise<void>;
 }) {
   const mapEl = useRef<HTMLDivElement>(null);
+  /* The box round the map: what goes full screen, with the line that reports on the map's controls inside it. */
+  const boxRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const controlsRef = useRef<SiteControls | null>(null);
+  const siteView = useRef<SiteView>({ frame: null, point: null, opened: null });
   const layersRef = useRef<{
     water?: L.LayerGroup;
     landuse?: L.LayerGroup;
@@ -173,9 +159,13 @@ export function GisOverlayCard({
     revenue?: L.LayerGroup;
     places?: L.LayerGroup;
   }>({});
-  /* The basemaps in use, and — once Google's are drawn — the imagery they replaced, to go back to. */
-  const tilesRef = useRef<{ satellite?: L.GridLayer; streets?: L.GridLayer; fallback?: { satellite?: L.GridLayer; streets?: L.GridLayer } }>({});
+  /* The map's own imagery, and Google's once its script has loaded. */
+  const tilesRef = useRef<{ own?: Tiles; google?: Tiles }>({});
   const [googleTiles, setGoogleTiles] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  /* One line under the map, for what its controls have to report: looking, not found, refused. */
+  const [note, setNote] = useState<string | null>(null);
+  const [scene, setScene] = useState<StreetScene | null>(null);
   const wmsRef = useRef<L.TileLayer.WMS | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -219,54 +209,92 @@ export function GisOverlayCard({
 
   useEffect(() => {
     const el = mapEl.current;
-    if (!el) return undefined;
+    const box = boxRef.current;
+    if (!el || !box) return undefined;
     const map = L.map(el, { scrollWheelZoom: true, attributionControl: true, zoomControl: true });
     mapRef.current = map;
-    tilesRef.current.satellite = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      { attribution: 'Tiles © Esri', maxZoom: 19 },
-    );
-    tilesRef.current.streets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19,
-    });
-    tilesRef.current.satellite.addTo(map);
+    const view = siteView.current;
+    // Made here, put on the map by the basemap effect below.
+    tilesRef.current = {
+      own: {
+        satellite: L.tileLayer(
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          { attribution: 'Tiles © Esri', maxZoom: 19 },
+        ),
+        streets: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors',
+          maxZoom: 19,
+        }),
+      },
+    };
     map.setView([20, 0], 2);
 
     /*
      * The map measures its box when it is made, and the box changes after:
      * the conversation is dragged wider, a phone's work tab is shown. An
      * unmeasured map paints grey or blank until somebody zooms. It measures
-     * again whenever the box does.
+     * again whenever the box does — and frames the site then, if it was made
+     * before it had a size to frame it in.
      */
-    const ro = new ResizeObserver(() => map.invalidateSize());
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize();
+      openOnSite(map, view);
+    });
     ro.observe(el);
+
+    /*
+     * The buttons on the map. The street view is looked for when it is asked
+     * for and not before; a second press, or the map going away, drops the
+     * answer to the first.
+     */
+    let asked = 0;
+    const controls = addSiteControls(map, box, {
+      site: () => openOnSite(map, view, true),
+      note: setNote,
+      fullscreen: setFullscreen,
+      streetView: () => {
+        const site = view.point;
+        if (!site) return;
+        asked += 1;
+        const mine = asked;
+        setNote('Looking for street view…');
+        void findStreetScene(site)
+          .then((found) => {
+            if (mine !== asked) return;
+            setScene(found);
+            setNote(found ? null : `No street view within ${STREET_VIEW_REACH_M} m of ${site.name}.`);
+          })
+          .catch(() => {
+            if (mine === asked) setNote('Street view did not load.');
+          });
+      },
+    });
+    controlsRef.current = controls;
 
     /*
      * Google's map, when a browser key is set: satellite with its road and
      * place labels, and its street map with the places it marks. Only the
      * imagery underneath changes — every layer above is drawn the same. If
-     * Google turns the key away, the imagery goes back to what it was.
+     * Google turns the key away, the imagery goes back to what it was, and a
+     * street view that was open closes with it.
      */
     let cancelled = false;
     const backToOwn = () => {
-      const own = tilesRef.current.fallback;
-      if (!own || mapRef.current !== map) return;
-      for (const layer of [tilesRef.current.satellite, tilesRef.current.streets]) if (layer && map.hasLayer(layer)) map.removeLayer(layer);
-      tilesRef.current = { satellite: own.satellite, streets: own.streets };
+      const { own, google } = tilesRef.current;
+      if (!google || mapRef.current !== map) return;
+      for (const layer of Object.values(google)) if (map.hasLayer(layer)) map.removeLayer(layer);
+      tilesRef.current = { own };
       setGoogleTiles(false);
+      setScene(null);
     };
     if (googleMapsKey()) {
       void loadGoogleMaps(backToOwn)
         .then(() => import('leaflet.gridlayer.googlemutant'))
         .then(({ default: GoogleMutant }) => {
           if (cancelled || mapRef.current !== map) return;
-          const own = { satellite: tilesRef.current.satellite, streets: tilesRef.current.streets };
-          for (const layer of [own.satellite, own.streets]) if (layer && map.hasLayer(layer)) map.removeLayer(layer);
-          tilesRef.current = {
+          tilesRef.current.google = {
             satellite: new GoogleMutant({ type: 'hybrid', maxZoom: 21 }),
             streets: new GoogleMutant({ type: 'roadmap', maxZoom: 21 }),
-            fallback: own,
           };
           setGoogleTiles(true);
         })
@@ -276,33 +304,85 @@ export function GisOverlayCard({
     }
     return () => {
       cancelled = true;
+      asked += 1;
       ro.disconnect();
+      controls.detach();
       map.remove();
       mapRef.current = null;
+      controlsRef.current = null;
       layersRef.current = {};
       tilesRef.current = {};
+      view.opened = null;
       setGoogleTiles(false);
+      setFullscreen(false);
+      setNote(null);
+      setScene(null);
     };
     // Re-runs when the canvas appears, because a project with no pin and no
     // survey does not render one — see the map block below.
   }, [canMap]);
 
+  /*
+   * One basemap at a time, with the map's own imagery left under Google's
+   * until Google's has drawn.
+   *
+   * Google's layer exists the moment it is made and draws some time after:
+   * it starts a hidden map of its own and copies that map's tiles across as
+   * they arrive, which on the deployed app took seconds. Taking the map's
+   * imagery away when the layer was made left a black box with the overlay
+   * shapes floating on it, which read as a broken map. So the two overlap.
+   * Google's goes on top, and what is under it is removed once every tile in
+   * view has arrived. If Google never draws, the map's own imagery is simply
+   * still there.
+   */
   useEffect(() => {
     const map = mapRef.current;
-    const sat = tilesRef.current.satellite;
-    const streets = tilesRef.current.streets;
-    if (!map || !sat || !streets) return;
-    if (basemap === 'satellite') {
-      if (!map.hasLayer(sat)) sat.addTo(map);
-      if (map.hasLayer(streets)) map.removeLayer(streets);
-    } else {
-      if (!map.hasLayer(streets)) streets.addTo(map);
-      if (map.hasLayer(sat)) map.removeLayer(sat);
-    }
-    // The imagery sits under everything drawn on it.
-    if ('bringToBack' in sat) sat.bringToBack();
-    if ('bringToBack' in streets) streets.bringToBack();
-  }, [basemap, googleTiles]);
+    const { own, google } = tilesRef.current;
+    if (!map || !own) return undefined;
+    const other: Basemap = basemap === 'satellite' ? 'streets' : 'satellite';
+    for (const layer of [own[other], google?.[other]]) if (layer && map.hasLayer(layer)) map.removeLayer(layer);
+    const mine = own[basemap];
+    const theirs = google?.[basemap];
+    if (!map.hasLayer(mine)) mine.addTo(map);
+    if (theirs && !map.hasLayer(theirs)) theirs.addTo(map);
+    // The imagery sits under everything drawn on it, and the map's own under Google's.
+    theirs?.bringToBack();
+    mine.bringToBack();
+    if (!theirs) return undefined;
+    let faded: number | undefined;
+    const drawn = () => {
+      // A tile fades in over a fifth of a second; what is under it goes once the last has.
+      faded = window.setTimeout(() => map.removeLayer(mine), 250);
+    };
+    theirs.once('load', drawn);
+    return () => {
+      theirs.off('load', drawn);
+      window.clearTimeout(faded);
+    };
+    // `canMap` because the map, and with it these layers, is made anew when the canvas appears.
+  }, [basemap, googleTiles, canMap]);
+
+  /* Going full screen and coming back changes the box; the map is told, so that it fills the new one. */
+  useEffect(() => {
+    mapRef.current?.invalidateSize();
+  }, [fullscreen]);
+
+  /*
+   * Where the street view looks from. It is drawn here while Google's map is
+   * in use; without a key — or with one Google turned away — the control is a
+   * link that opens Google Maps' own street view at the same point instead.
+   */
+  useEffect(() => {
+    const at = read ? sitePoint(read) : null;
+    siteView.current.point = at;
+    controlsRef.current?.linkStreetView(googleTiles || !at ? null : streetViewUrl(at));
+  }, [read, googleTiles, canMap]);
+
+  /* Closing the street view hands the keyboard back to the control that opened it. */
+  useEffect(() => {
+    if (!scene) return undefined;
+    return () => controlsRef.current?.focusStreetView();
+  }, [scene]);
 
   /* Nearby places from the site reading, each with what it is and how far. */
   useEffect(() => {
@@ -314,17 +394,7 @@ export function GisOverlayCard({
     const amenities = (project.siteContext?.amenities ?? []).filter((a) => a.point);
     if (!amenities.length) return;
     const group = L.layerGroup();
-    for (const a of amenities) {
-      L.circleMarker([a.point.lat, a.point.lng], {
-        radius: 6,
-        color: '#ffffff',
-        weight: 2,
-        fillColor: PLACE_COLOUR[a.kind] ?? '#64748b',
-        fillOpacity: 1,
-      })
-        .bindTooltip(`${PLACE_LABEL[a.kind] ?? a.kind}: ${a.name} · ${placeDistance(a.straightLineMetres, a.drivingMetres)}`)
-        .addTo(group);
-    }
+    for (const a of amenities) placeMarker(a).addTo(group);
     layersRef.current.places = group;
     if (showPlaces) group.addTo(map);
     // Rebuilt when the reading changes or the canvas is made; shown or hidden below.
@@ -350,7 +420,6 @@ export function GisOverlayCard({
     const wards = L.layerGroup();
     const survey = L.layerGroup();
     const revenue = L.layerGroup();
-    const bounds: L.LatLngExpression[] = [];
 
     for (const feature of read.features) {
       const group = isRevenue(feature)
@@ -363,36 +432,22 @@ export function GisOverlayCard({
               ? wards
               : water;
       addFeature(group, feature, flagged.has(feature.id));
-      // Revenue-map features reach 3 km out; the frame follows the parcel,
-      // the pin and the context, not the far end of a rajakaluve.
-      if (!isRevenue(feature)) for (const p of feature.ring ?? feature.line ?? []) bounds.push([p.lat, p.lng]);
     }
 
     if (read.survey?.ring.length) {
       L.polygon(latlngs(read.survey.ring), SURVEY_STYLE)
         .bindTooltip('Supplied survey outline — not product-drawn, not RMP')
         .addTo(survey);
-      for (const p of read.survey.ring) bounds.push([p.lat, p.lng]);
     }
 
-    let pinLayer: L.Layer | undefined;
-    if (read.pin) {
-      pinLayer = L.circleMarker([read.pin.lat, read.pin.lng], {
-        radius: 8,
-        color: '#1c5cab',
-        weight: 2,
-        fillColor: '#2a78d6',
-        fillOpacity: 1,
-      }).bindTooltip(read.pin.resolvedAddress ? `Pin — ${read.pin.resolvedAddress}` : 'Geocoded pin — not a parcel');
-      pinLayer.addTo(map);
-      bounds.push([read.pin.lat, read.pin.lng]);
-    }
+    const pinLayer = read.pin ? siteMarker(read.pin).addTo(map) : undefined;
 
     // Nearby places are drawn from the project, not the overlay; they stay as they are.
     layersRef.current = { places: layersRef.current.places, water, landuse, lakes, wards, survey, revenue, pin: pinLayer };
-    if (bounds.length) {
-      map.fitBounds(L.latLngBounds(bounds), { padding: [28, 28], maxZoom: 16 });
-    }
+
+    // The frame is the site's alone; nothing drawn above widens it. See `siteFrame`.
+    siteView.current.frame = siteFrame(read);
+    openOnSite(map, siteView.current);
   }, [read]);
 
   useEffect(() => {
@@ -705,8 +760,39 @@ export function GisOverlayCard({
           The canvas only exists once there is a pin or a survey to put on it.
         */}
         {canMap ? (
-          <div className="overflow-hidden rounded-lg ring-1 ring-inset ring-[var(--ring)]">
-            <div ref={mapEl} className="gis-map z-0 h-[min(420px,55vh)] w-full" />
+          /*
+            The box is what goes full screen, and the line under the map is
+            inside it for that reason: "no street view here" or a refused
+            location has to be readable from the screen the button was pressed
+            on. The line is always there, empty, so that a screen reader is
+            already listening when something is written into it.
+          */
+          <div ref={boxRef} className={cn(fullscreen && 'flex flex-col bg-surface p-2')}>
+            <div
+              className={cn(
+                'relative overflow-hidden rounded-lg ring-1 ring-inset ring-[var(--ring)]',
+                fullscreen ? 'min-h-0 flex-1' : 'h-[min(420px,55vh)]',
+              )}
+            >
+              {/*
+                Everything that changes is on the elements round the map, never
+                on the map's own. Leaflet writes its classes onto that node by
+                hand, and React, handed a different class string for it, writes
+                the whole attribute again: the map loses its container styles
+                and its tiles collapse. So its class string is one fixed
+                literal, the height comes from the element above, and the one
+                round it is what hides it under the street view — hidden, not
+                removed, so the map keeps its place and its buttons leave the
+                tab order.
+              */}
+              <div className={cn('h-full', scene && 'invisible')}>
+                <div ref={mapEl} className="gis-map z-0 h-full w-full" />
+              </div>
+              {scene ? <StreetViewPane scene={scene} onBack={() => setScene(null)} /> : null}
+            </div>
+            <p role="status" className={cn('text-[12px] text-ink-muted', note && 'mt-2')}>
+              {note}
+            </p>
           </div>
         ) : loading ? (
           <div className="min-h-[120px] rounded-lg bg-sunken ring-1 ring-inset ring-[var(--ring)]" />
