@@ -61,7 +61,29 @@ export function useMeasure<T extends HTMLElement = HTMLDivElement>(): [RefObject
     return holder as RefObject<T>;
   }, [measure]);
 
-  useEffect(() => () => observerRef.current?.disconnect(), []);
+  /*
+   * The observer is let go when the component goes, and taken up again when
+   * it comes back to a node that never left.
+   *
+   * Strict mode does exactly that in development: it runs this cleanup once
+   * and then the effect again, while the ref setter above is never called a
+   * second time because the node is the same one. With only the cleanup here
+   * the observer stayed disconnected, so in development nothing measured this
+   * way followed a resize.
+   */
+  useEffect(() => {
+    const el = nodeRef.current;
+    if (el && !observerRef.current) {
+      measure(el);
+      const ro = new ResizeObserver(() => measure(el));
+      ro.observe(el);
+      observerRef.current = ro;
+    }
+    return () => {
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+    };
+  }, [measure]);
 
   return [ref, size];
 }
