@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Bell, Info, X, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bell, Info, X, XCircle } from 'lucide-react';
 import { openAlerts, type DdProject, type ProjectAlert } from '@realytica/shared';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useMe } from '../../lib/useMe';
@@ -28,8 +28,25 @@ function when(iso: string): string {
  * expiring or lapsed, certified reports to revisit, work logged before it is
  * allowed, late milestones, serious issues from site. Unread ones are counted
  * on the bell; opening one takes you to the workstream it is about.
+ *
+ * It also carries what waits for a decision (values read from documents, what
+ * the copilot proposed), as one row at the head of the list with the way to
+ * walk through them. That used to be a pill of its own in the project bar,
+ * with a count that ran to the hundreds; here it is one more thing that needs
+ * attention, in the place for things that do.
  */
-export function AlertsBell({ project, onChanged, onOpenWorkstream }: { project: DdProject; onChanged: (p: DdProject) => void; onOpenWorkstream: (workstream: string) => void }) {
+export function AlertsBell({
+  project,
+  onChanged,
+  onOpenWorkstream,
+  review,
+}: {
+  project: DdProject;
+  onChanged: (p: DdProject) => void;
+  onOpenWorkstream: (workstream: string) => void;
+  /** How many things wait for a decision, and the way to the next one. */
+  review?: { count: number; onGo: () => void };
+}) {
   const me = useMe();
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -47,10 +64,32 @@ export function AlertsBell({ project, onChanged, onOpenWorkstream }: { project: 
   }
 
   const sheet = useMediaQuery('(max-width: 639px)');
+  const toReview = review?.count ?? 0;
+
+  const reviewRow =
+    review && toReview > 0 ? (
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(false);
+          review.onGo();
+        }}
+        className="group mb-1 flex w-full items-center gap-3 rounded-xl bg-ai/10 px-2.5 py-2.5 text-left ring-1 ring-inset ring-ai/25 transition-colors duration-quick hover:bg-ai/15 coarse:min-h-11"
+      >
+        <span className="grid h-7 min-w-7 shrink-0 place-items-center rounded-lg bg-ai px-1.5 font-mono text-[11px] font-semibold tabular-nums text-white" aria-hidden>
+          {toReview}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-semibold text-ink">{toReview === 1 ? 'One thing waits for your review' : `${toReview} things wait for your review`}</span>
+          <span className="block text-[12px] leading-snug text-ink-secondary">Values read from documents, and what the copilot proposed.</span>
+        </span>
+        <ArrowRight size={14} aria-hidden className="shrink-0 text-ai-ink transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
+      </button>
+    ) : null;
 
   const list =
     alerts.length === 0 ? (
-      <p className="px-2 py-6 text-center text-[13px] text-ink-secondary">Nothing needs attention.</p>
+      reviewRow ? null : <p className="px-2 py-6 text-center text-[13px] text-ink-secondary">Nothing needs attention.</p>
     ) : (
       <Stagger as="ul" className="max-h-[60vh] space-y-0.5 overflow-y-auto">
         {alerts.map((a) => {
@@ -109,7 +148,7 @@ export function AlertsBell({ project, onChanged, onOpenWorkstream }: { project: 
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-label={unread.length ? `${unread.length} unread alerts` : 'Alerts'}
+        aria-label={[unread.length ? `${unread.length} unread alerts` : 'Alerts', toReview ? `${toReview} to review` : ''].filter(Boolean).join(', ')}
         aria-expanded={open}
         className={cn(
           'relative grid size-8 place-items-center rounded-lg text-ink-secondary transition-colors duration-quick hover:bg-sunken hover:text-ink coarse:size-11',
@@ -131,12 +170,16 @@ export function AlertsBell({ project, onChanged, onOpenWorkstream }: { project: 
           <span className="absolute -right-0.5 -top-0.5 min-w-[1.1rem] rounded-full bg-critical px-1 text-center font-mono text-[10px] font-semibold leading-[1.1rem] text-white ring-2 ring-surface tabular-nums">
             {unread.length}
           </span>
+        ) : toReview ? (
+          // Nothing unread, but something waits: the copilot's blue, as a dot and never a count.
+          <span aria-hidden className="absolute right-1 top-1 size-2 rounded-full bg-ai ring-2 ring-surface" />
         ) : null}
       </button>
       {sheet ? (
         <Modal open={open} onClose={() => setOpen(false)} title="Alerts">
           <div className="-mx-2 -mt-2">
             {header}
+            {reviewRow}
             {list}
           </div>
         </Modal>
@@ -153,6 +196,7 @@ export function AlertsBell({ project, onChanged, onOpenWorkstream }: { project: 
                 className="absolute right-0 top-full z-40 mt-2 w-[min(26rem,92vw)] origin-top-right rounded-2xl bg-surface p-2 shadow-pop ring-1 ring-[var(--ring)]"
               >
                 {header}
+                {reviewRow}
                 {list}
               </motion.div>
             </>

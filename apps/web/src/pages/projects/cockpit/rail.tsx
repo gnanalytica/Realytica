@@ -1,6 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowRight,
   Building2,
   ChevronDown,
   ClipboardList,
@@ -288,29 +287,6 @@ function WaitingCount({ n, label }: { n: number; label: string }) {
   );
 }
 
-/** The walk through everything waiting for a decision: blue, because each of them is a reader's proposal. */
-export function ReviewPill({ n, onClick, compact = false }: { n: number; onClick: () => void; compact?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'group relative inline-flex shrink-0 items-center gap-1.5 rounded-full bg-ai/10 font-medium text-ai-ink ring-1 ring-inset ring-ai/30',
-        'transition-[background-color,transform] duration-quick ease-state hover:bg-ai/15 active:scale-[0.97]',
-        compact ? 'h-7 px-2 text-[12px] before:absolute before:-inset-2' : 'h-8 px-3 text-[13px]',
-      )}
-    >
-      <span className="relative flex size-2" aria-hidden>
-        <span className="absolute inset-0 animate-ping-once rounded-full bg-ai/60" />
-        <span className="relative size-2 rounded-full bg-ai" />
-      </span>
-      <span className="tabular-nums">{n}</span>
-      {compact ? null : <span>to review</span>}
-      <ArrowRight size={12} aria-hidden className="transition-transform duration-quick ease-state group-hover:translate-x-0.5" />
-    </button>
-  );
-}
-
 type WaitingByPane = Partial<Record<ProjectCockpitPane, number>>;
 
 function waitingOnTab(tab: CockpitTab, byPane: WaitingByPane): number {
@@ -378,8 +354,8 @@ function placeOf(pane: ProjectCockpitPane, at: { department?: string; workstream
  * The selector that says where in the project you are, and takes you
  * anywhere else in it.
  *
- * It lives in the project bar: beside the way back on a wide screen, under
- * the project's name on a phone.
+ * It lives in the app's top bar on a wide screen, after the project's name,
+ * and under the project's name in the header on a phone.
  */
 export function ProjectPicker({
   pane,
@@ -413,7 +389,9 @@ export function ProjectPicker({
     (key) => enabled.includes(key) || (key === 'construction' && enabled.includes('design')) || key === current,
   ).map((key) => {
     const soon = departmentDefinition(key).status === 'coming_soon';
-    return { key, label: DEPARTMENT_SHORT[key], note: soon ? 'Coming soon' : undefined, muted: soon };
+    // A department is marked for what waits on a page of its own: Valuation's, or the Site record's.
+    const holds = waiting ? departmentDefinition(key).workstreams.some((w) => WORKSTREAM_PANE[w.key] && waiting.byPane[WORKSTREAM_PANE[w.key]!]) : false;
+    return { key, label: DEPARTMENT_SHORT[key], note: soon ? 'Coming soon' : undefined, muted: soon, waiting: holds };
   });
   const shared: PickerItem[] = SECTIONS.filter((section) => section.key !== 'overview' && (!section.staffOnly || staff)).map((section) => ({
     key: section.key,
@@ -427,6 +405,7 @@ export function ProjectPicker({
     <DepartmentPicker
       label={label}
       current={current}
+      waiting={waiting ? Object.values(waiting.byPane).some((n) => (n ?? 0) > 0) : false}
       dense={dense}
       groups={[[{ key: overview.key, label: overview.label, icon: overview.icon }], departments, shared]}
       onPick={(key) => {
@@ -470,7 +449,6 @@ export function CockpitPaneStrip({
   pendingDrafts,
   onGo,
   waiting,
-  onReview,
   wrap = false,
 }: {
   pane: ProjectCockpitPane;
@@ -483,10 +461,8 @@ export function CockpitPaneStrip({
   overdue: number;
   pendingDrafts: number;
   onGo: Go;
-  /** What waits for a decision, by pane: marked on its tab, and summed on the pill that walks them. */
+  /** What waits for a decision, by pane: marked on its tab. */
   waiting?: { total: number; byPane: WaitingByPane };
-  /** Go to the next thing waiting. */
-  onReview?: () => void;
   wrap?: boolean;
 }) {
   const badges = { overdue, pendingDrafts };
@@ -497,7 +473,6 @@ export function CockpitPaneStrip({
   const here = activeDepartment ? null : tabHolding(pane).section;
   const tabs = here ? here.tabs.filter((t) => !HIDDEN_TABS.has(t.pane) || t.pane === pane) : [];
   const assess = here?.key === 'registers' && (pane === 'dd' || pane === 'scope') && project.assessments.length > 0;
-  const review = waiting && waiting.total > 0 && onReview;
 
   const second = menu ? (
     <FunctionTabs
@@ -534,22 +509,12 @@ export function CockpitPaneStrip({
     </div>
   ) : null;
 
-  // Overview has nothing to put here: where you are is said in the project bar.
-  if (!second && !review && !assess) return null;
+  // Overview has nothing to put here: where you are is said in the bar above.
+  if (!second && !assess) return null;
 
   return (
     <div className={cn('shrink-0 border-b border-hairline bg-surface', wrap ? 'px-4' : 'px-3')}>
-      {second || review ? (
-        <div className="flex items-center gap-2">
-          {second ?? <span className="flex-1" />}
-          {/*
-            The way through what is waiting: documents first, then the checks
-            they answer, then the rest — one press at a time, wherever it is.
-            On a wide screen it lives in the project bar instead.
-          */}
-          {review ? <ReviewPill n={waiting.total} onClick={onReview} compact /> : null}
-        </div>
-      ) : null}
+      {second ? <div className="flex items-center gap-2">{second}</div> : null}
       {/* Inside Checks, which assessment and which scope. */}
       {assess ? (
         <div className="border-t border-hairline py-1.5">

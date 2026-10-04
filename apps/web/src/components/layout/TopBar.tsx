@@ -12,6 +12,17 @@ export interface TopBarProps {
   desktopOnly?: boolean;
 }
 
+/**
+ * Where a project puts its own controls in this bar: the selector that says
+ * where in the project you are, the stage track, and what needs attention.
+ *
+ * A project used to draw a second bar of its own under this one, which made
+ * two rows of chrome and eight controls before any work. The project's
+ * workspace fills this element instead (through a portal), so the bar stays
+ * one row and this component still knows nothing about a project.
+ */
+export const PROJECT_BAR_SLOT = 'project-bar-slot';
+
 function pageTitle(pathname: string): string {
   if (pathname.startsWith('/projects')) return '';
   if (pathname.startsWith('/libraries')) return 'Libraries';
@@ -74,6 +85,8 @@ export default function TopBar({ onOpenMobile, desktopOnly = false }: TopBarProp
     applyTheme(next);
   }
 
+  // One project's workspace, as against the list of projects or the form for a new one.
+  const inProject = /^\/projects\/(?!new(?:\/|$))[^/]+/.test(location.pathname);
   const ThemeIcon = THEME_ICON[theme];
   const healthLabel =
     apiStatus === 'offline'
@@ -85,7 +98,19 @@ export default function TopBar({ onOpenMobile, desktopOnly = false }: TopBarProp
         : 'API online';
 
   return (
-    <header className={cn('sticky top-0 z-30 h-14 shrink-0 items-center gap-2 border-b border-hairline bg-surface/90 px-3 backdrop-blur-md sm:gap-3 sm:px-6 lg:px-8', desktopOnly ? 'hidden lg:flex' : 'flex')}>
+    <header
+      className={cn(
+        'sticky top-0 z-30 h-14 shrink-0 items-center gap-2 border-b border-hairline px-3 sm:gap-3 sm:px-6 lg:px-8',
+        /*
+         * Solid inside a project, glass elsewhere. Nothing scrolls under the
+         * bar in a project's workspace, so the blur would show nothing; and a
+         * backdrop filter makes the bar the frame for anything fixed inside
+         * it, which would shrink the alerts' click-away layer to the bar.
+         */
+        inProject ? 'bg-surface' : 'bg-surface/90 backdrop-blur-md',
+        desktopOnly ? 'hidden lg:flex' : 'flex',
+      )}
+    >
       <button
         type="button"
         onClick={onOpenMobile}
@@ -97,7 +122,15 @@ export default function TopBar({ onOpenMobile, desktopOnly = false }: TopBarProp
         <Menu size={17} />
       </button>
 
-      {location.pathname.startsWith('/projects') ? (
+      {inProject ? (
+        <>
+          <div className="min-w-0 max-w-[22rem] shrink">
+            <ProjectSwitcher />
+          </div>
+          <span aria-hidden className="hidden h-6 w-px shrink-0 bg-hairline lg:block" />
+          <div id={PROJECT_BAR_SLOT} className="hidden min-w-0 flex-1 items-center gap-3 lg:flex" />
+        </>
+      ) : location.pathname.startsWith('/projects') ? (
         <div className="min-w-0 flex-1">
           <ProjectSwitcher />
         </div>
@@ -135,7 +168,11 @@ export default function TopBar({ onOpenMobile, desktopOnly = false }: TopBarProp
           onClick={cycleTheme}
           aria-label={`Theme: ${THEME_LABEL[theme]}. Click to change.`}
           title={`Theme: ${THEME_LABEL[theme]}`}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-secondary ring-1 ring-inset ring-[var(--ring)] transition-colors hover:bg-sunken hover:text-ink coarse:h-11 coarse:w-11"
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-sunken hover:text-ink coarse:h-11 coarse:w-11',
+            // Inside a project it stands in a row of plain icons (alerts, command, focus) and dresses as one of them.
+            !inProject && 'ring-1 ring-inset ring-[var(--ring)]',
+          )}
         >
           <ThemeIcon size={15} />
         </button>

@@ -1,8 +1,8 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
 import {
-  PROJECT_HEALTH_LABEL,
   cockpitPath,
   graphNodeLabels,
   isProjectCockpitPane,
@@ -41,16 +41,16 @@ import {
 } from '../../lib/reading';
 import { ReadingDesk } from '../../components/reading/ReadingDesk';
 import { CopilotPanel } from '../../components/CopilotPanel';
-import { Badge, Spinner, cn, useToast } from '../../components/ui/kit';
+import { Spinner, cn, useToast } from '../../components/ui/kit';
 import { SPRING, ScreenEnter, motion } from '../../lib/motion';
 import { DESKTOP_QUERY, useMediaQuery } from '../../lib/useMediaQuery';
 import { EMPTY_CHAT_WIDTH, LAYOUTS, clampChatWidth, readChatWidth, writeChatWidth } from './cockpit/layout';
 import type { CockpitLayout } from './cockpit/layout';
-import { healthTone } from './shared';
 import { RouteErrorBoundary } from '../../components/layout/ErrorBoundary';
 import type { ProjectOutlet } from './ProjectLayout';
 import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
-import { CockpitPaneStrip, ProjectPicker, ReviewPill, WORKSTREAM_PANE, paneLabel } from './cockpit/rail';
+import { CockpitPaneStrip, ProjectPicker, WORKSTREAM_PANE, paneLabel } from './cockpit/rail';
+import { PROJECT_BAR_SLOT } from '../../components/layout/TopBar';
 import { StageTimeline } from '../../components/departments/StageTimeline';
 import { AlertsBell } from '../../components/departments/AlertsBell';
 import type { PhaseOpen } from '../../components/project/PhaseRecord';
@@ -865,6 +865,55 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     </>
   );
 
+  /*
+   * A project's own controls, in the app's one top bar.
+   *
+   * This was a second bar under the first: the way back, the selector, the
+   * stages, a count of things to review, the health of the file, alerts, a
+   * command field and the focus switch, eight controls in five different
+   * dresses. It is now the two things that say where and when (the selector,
+   * the stage track) and three quiet icons. The way back is the sidebar's
+   * Portfolio; the health of the file is the first thing on Overview; what
+   * waits for review is a dot on the selector and the first row under the
+   * bell.
+   */
+  const [barSlot, setBarSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setBarSlot(isDesktop ? document.getElementById(PROJECT_BAR_SLOT) : null);
+  }, [isDesktop]);
+
+  const bell = (
+    <AlertsBell
+      project={project}
+      onChanged={setProject}
+      onOpenWorkstream={(key) => goPane(WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })}
+      review={{ count: waiting.total, onGo: () => goWaiting() }}
+    />
+  );
+
+  const ICON_BUTTON = 'grid size-8 shrink-0 place-items-center rounded-lg text-ink-secondary transition-colors duration-quick hover:bg-sunken hover:text-ink';
+
+  const projectBar = (
+    <>
+      <ProjectPicker pane={pane} project={project} department={params.department} workstream={params.workstream} onGo={goPane} waiting={waiting} />
+      <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} />
+      {bell}
+      <button type="button" onClick={() => setCommandOpen(true)} aria-label="Run a command" title="Command (⌘K)" className={ICON_BUTTON}>
+        <Search size={16} />
+      </button>
+      <button
+        type="button"
+        onClick={() => setFocusMode((v) => !v)}
+        aria-pressed={focusMode}
+        aria-label={focusMode ? 'Leave focus' : 'Focus the conversation'}
+        title={focusMode ? 'Leave focus (⌘.)' : 'Focus the conversation (⌘.)'}
+        className={cn(ICON_BUTTON, focusMode && 'bg-ink text-[var(--text-inverse)] hover:bg-ink hover:text-[var(--text-inverse)]')}
+      >
+        {focusMode ? <PanelRight size={16} /> : <Maximize2 size={16} />}
+      </button>
+    </>
+  );
+
   /* What a phone switches between: the conversation, and the pane it is about. */
   const surfaces = [
     { key: 'chat', label: 'Chat', icon: MessageCircle, go: () => setMobileSurface('chat') },
@@ -882,65 +931,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   return (
     <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden lg:h-[calc(100dvh-56px)]">
       {isDesktop ? (
-        // `relative`: the stage's record hangs from this bar, across its width, rather than from the track inside it.
-        <div className="relative flex shrink-0 items-center gap-3 border-b border-hairline bg-surface px-4 py-2">
-          {/*
-            The reference and the name are NOT repeated here.
-            The top bar's project switcher carries both, permanently, forty
-            pixels above this row — so the cockpit was printing "RYT-0003" and
-            the project name twice, stacked, before a reader reached anything
-            about the project. What this row is for is the way back and the
-            health of the file; the switcher says which file it is.
-          */}
-          <Link
-            to="/portfolio"
-            className="group inline-flex h-8 shrink-0 items-center gap-1 rounded-lg pl-1.5 pr-2.5 text-[13px] font-medium text-ink-secondary ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick hover:bg-sunken hover:text-ink"
-          >
-            <ChevronLeft size={15} className="transition-transform duration-quick ease-state group-hover:-translate-x-0.5" />
-            Portfolio
-          </Link>
-          {/* The name is the top bar's switcher, forty pixels up; this row
-              carries the way back, where in the project you are, the stage
-              it has reached and the state of the file. */}
-          <ProjectPicker pane={pane} project={project} department={params.department} workstream={params.workstream} onGo={goPane} waiting={waiting} />
-          <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} />
-          {waiting.total > 0 ? <ReviewPill n={waiting.total} onClick={() => goWaiting()} /> : null}
-          <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
-          <AlertsBell project={project} onChanged={setProject} onOpenWorkstream={(key) => goPane(WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })} />
-          <button
-            type="button"
-            onClick={() => setCommandOpen(true)}
-            className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg bg-sunken pl-2.5 pr-1.5 text-[12px] text-ink-muted ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick hover:text-ink"
-          >
-            <Search size={13} aria-hidden />
-            Command
-            <kbd className="rounded-md bg-surface px-1.5 py-0.5 font-mono text-[10px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)]">⌘K</kbd>
-          </button>
-          <button
-            type="button"
-            onClick={() => setFocusMode((v) => !v)}
-            title={focusMode ? 'Leave focus' : 'Focus the conversation (⌘.)'}
-            aria-pressed={focusMode}
-            className={cn(
-              'flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12px] ring-1 ring-inset transition-colors duration-quick',
-              focusMode ? 'bg-ink text-[var(--text-inverse)] ring-ink' : 'bg-surface text-ink-secondary ring-[var(--ring)] hover:text-ink',
-            )}
-          >
-            {focusMode ? <PanelRight size={13} /> : <Maximize2 size={13} />}
-            {/*
-              This button toggles focus mode. It used to be labelled with the
-              layout you were already in — "Cockpit" on most tabs, "Study" on
-              the graph, because opening the graph narrows the conversation and
-              that preset has a different name.
-
-              So the label changed for a reason that had nothing to do with the
-              button, and named a state it does not set: pressing it while it
-              read "Study" gave you Focus. A toggle is labelled with what it
-              will do, and `aria-pressed` already carries the state.
-            */}
-            {focusMode ? 'Leave focus' : 'Focus'}
-          </button>
-        </div>
+        barSlot ? createPortal(projectBar, barSlot) : null
       ) : (
         <div className="flex h-14 shrink-0 items-center gap-1 border-b border-hairline bg-surface px-1.5 pt-[env(safe-area-inset-top)] min-[400px]:gap-1.5 min-[400px]:px-2">
           <Link to="/portfolio" aria-label="Back to the portfolio" className="grid size-9 shrink-0 place-items-center rounded-lg text-ink-secondary hover:bg-sunken hover:text-ink coarse:size-11">
@@ -980,7 +971,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             })}
           </div>
           <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} compact />
-          <AlertsBell project={project} onChanged={setProject} onOpenWorkstream={(key) => goPane(WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })} />
+          {bell}
           <button
             type="button"
             onClick={() => setCommandOpen(true)}
@@ -1139,7 +1130,6 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
                   pendingDrafts={pendingDrafts}
                   onGo={goPane}
                   waiting={waiting}
-                  onReview={() => goWaiting()}
                 />
                 {workBody}
               </>

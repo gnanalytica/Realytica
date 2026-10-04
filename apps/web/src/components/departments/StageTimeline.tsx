@@ -30,7 +30,8 @@ const WHEN: Record<TimelineStatus, TrackStage['when']> = { done: 'past', current
  * The record hangs from the bar the track sits in, not from the track: the
  * track ends well short of the bar's right edge, and a panel hung from it
  * ran off the left of a narrower window. So this component is not itself
- * positioned, and the bar that holds it must be (`relative`).
+ * positioned, and the bar that holds it must be. The app's top bar, where a
+ * project puts it, is sticky, which serves.
  */
 export function StageTimeline({ project, onChanged, onOpen, compact = false }: { project: DdProject; onChanged: (p: DdProject) => void; onOpen: PhaseOpen; compact?: boolean }) {
   const timeline = useMemo(() => stageTimeline(project), [project]);

@@ -40,11 +40,14 @@ export function DepartmentPicker({
   groups,
   current,
   onPick,
+  waiting = false,
   dense = false,
   className,
 }: {
   /** What the closed selector says: the department or place you are in. */
   label: string;
+  /** Something in the project waits for a person: a dot on the closed selector, and the menu says where. */
+  waiting?: boolean;
   /** Each group is ruled off from the one before. */
   groups: PickerItem[][];
   current: string;
@@ -123,6 +126,7 @@ export function DepartmentPicker({
         )}
       >
         <span className="truncate">{label}</span>
+        {waiting ? <WaitDot title="Something in the project waits for you" /> : null}
         <ChevronDown size={13} aria-hidden className={cn('shrink-0 text-ink-muted transition-transform duration-base ease-enter', open && 'rotate-180')} />
       </button>
       <AnimatePresence>
