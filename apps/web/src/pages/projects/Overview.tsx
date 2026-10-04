@@ -14,6 +14,7 @@ import {
   projectDepartments,
   quickAssessment,
   stageAndStep,
+  stageOf,
   type DdProject,
   type DepartmentDefinition,
 } from '@realytica/shared';
@@ -25,6 +26,7 @@ import { EngagementsCard } from '../../components/project/EngagementEditor';
 import { VERDICT_TONE } from '../../components/departments/QuickAssessmentCard';
 import { DEPARTMENT_ICON } from '../../components/departments/icons';
 import { DepartmentsControl } from '../../components/departments/DepartmentsControl';
+import { StageRecord } from '../../components/departments/StageTimeline';
 import { WORKSTREAM_PANE } from './cockpit/rail';
 import { formatWhen, healthTone } from './shared';
 import type { ProjectOutlet } from './ProjectLayout';
@@ -189,10 +191,16 @@ function AcrossProject({ project }: { project: DdProject }) {
 /**
  * The project's one summary page: where it stands in each department, the
  * engagements commissioned on it, where the site is, and what needs a person.
- * The stage it is at sits in the timeline at the top of every page.
+ *
+ * The stage it is at sits in the track at the top of every page. The record
+ * of the stage being looked at is here: what was filed, started or recorded
+ * while the project was there, its finer steps, and the control that makes
+ * a step the current one. It is a section of this page and not a panel hung
+ * from the bar, which holds where and when and little else. It sits high on
+ * the page so that pressing a stage on the track changes something in sight.
  */
 export default function Overview() {
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, onOpenFromStage, stage = stageOf(project.currentStage) } = useOutletContext<ProjectOutlet>();
   const enabled = projectDepartments(project);
   const departments = DEPARTMENTS.filter((d) => enabled.includes(d.key));
   const subtitle = [[project.location, project.city].filter(Boolean).join(', '), stageAndStep(project.currentStage)].filter(Boolean).join(' · ');
@@ -214,6 +222,8 @@ export default function Overview() {
       </Reveal>
 
       <AcrossProject project={project} />
+
+      <StageRecord project={project} stage={stage} onChanged={setProject} onOpen={(kind, id) => onOpenFromStage?.(kind, id)} />
 
       <Stagger className="grid grid-cols-1 items-stretch gap-4 [@container(min-width:52rem)]:grid-cols-2 [@container(min-width:84rem)]:grid-cols-3">
         {departments.filter((d) => d.status === 'live').map((d) => (

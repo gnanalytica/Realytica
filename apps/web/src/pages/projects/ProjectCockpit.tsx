@@ -1,20 +1,24 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, LayoutDashboard, Maximize2, MessageCircle, PanelRight, Search } from 'lucide-react';
 import {
+  STAGE_WORD,
   cockpitPath,
   graphNodeLabels,
   isProjectCockpitPane,
   hasSpokenConversation,
   paneFromProjectPath,
   fileIsBare,
+  placeAtStage,
   projectFrameLabels,
   projectNextStep,
   paneForTalk,
   sittingFromCitedId,
   sittingFromTurn,
   sittingWithField,
+  stageInAddress,
+  stageInView,
   waitingOnCanvas,
   type AgentStep,
   type CockpitPathExtra,
@@ -23,6 +27,7 @@ import {
   type EvidenceItem,
   type ProjectCockpitPane,
   type ReadingStreamEvent,
+  type StageKey,
   type TalkSitting,
   type WaitingEntry,
 } from '@realytica/shared';
@@ -50,9 +55,9 @@ import type { CockpitLayout } from './cockpit/layout';
 import { RouteErrorBoundary } from '../../components/layout/ErrorBoundary';
 import type { ProjectOutlet } from './ProjectLayout';
 import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
-import { CockpitPaneStrip, ProjectPicker, WORKSTREAM_PANE, paneLabel } from './cockpit/rail';
+import { CockpitPaneStrip, ProjectPicker, WORKSTREAM_PANE, menuPlaceOf, paneLabel } from './cockpit/rail';
 import { PROJECT_BAR_SLOT } from '../../components/layout/TopBar';
-import { StageTimeline } from '../../components/departments/StageTimeline';
+import { StagePill, StageTimeline } from '../../components/departments/StageTimeline';
 import { AlertsBell } from '../../components/departments/AlertsBell';
 import type { PhaseOpen } from '../../components/project/PhaseRecord';
 import { SittingChip, SittingDock } from './cockpit/SittingPeek';
@@ -165,10 +170,56 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
-  const params = useParams<{ ddId?: string; scopeId?: string; department?: string; workstream?: string }>();
+  const params = useParams<{ projectId?: string; ddId?: string; scopeId?: string; department?: string; workstream?: string }>();
   const [searchParams] = useSearchParams();
   const pane: ProjectCockpitPane = paneFromProjectPath(location.pathname);
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
+
+  /*
+   * The stage being looked at.
+   *
+   * The address says it (`?stage=land`), and says nothing while it is the
+   * project's own. Links inside a project are built in dozens of places and
+   * none of them names a stage, so the stage is carried: an address that
+   * arrives without one is looked at in the stage of the page before it, and
+   * is then given the word, so a reload or a pasted link opens the same
+   * thing. Going back or forward carries nothing. There the address is what
+   * it was when it was left, and one without a word was left at the
+   * project's own stage.
+   *
+   * While another project is loading, the one on screen is not the one the
+   * address names, so nothing is carried to it and its address is left alone.
+   */
+  const navigationType = useNavigationType();
+  const loaded = params.projectId === project.id;
+  const [carried, setCarried] = useState<{ project: string; stage: StageKey } | null>(null);
+  const place = useMemo(() => menuPlaceOf(pane, { department: params.department, workstream: params.workstream }), [pane, params.department, params.workstream]);
+  const stageWord = searchParams.get('stage');
+  const stage = useMemo(
+    () =>
+      stageInView(project, {
+        word: stageWord,
+        carried: loaded && navigationType !== 'POP' && carried?.project === project.id ? carried.stage : undefined,
+        fn: place.fn,
+      }),
+    [project, stageWord, loaded, navigationType, carried, place.fn],
+  );
+  const addressWord = stageInAddress(project, stage) ?? null;
+  useEffect(() => {
+    if (!loaded) return;
+    setCarried((was) => (addressWord === null ? null : was?.project === project.id && was.stage === stage ? was : { project: project.id, stage }));
+    if (stageWord === addressWord) return;
+    // A page under this one may have sent the address elsewhere in this same pass: one that redirects does. The
+    // address is then no longer the one read here, and writing the word onto the old one would undo the redirect
+    // for good. The render that follows reads the new address and gives the word to that.
+    const read = new URL(`${location.pathname}${location.search}`, window.location.origin);
+    if (read.pathname !== window.location.pathname || read.search !== window.location.search) return;
+    const next = new URLSearchParams(location.search);
+    if (addressWord) next.set('stage', addressWord);
+    else next.delete('stage');
+    const search = next.toString();
+    navigate({ pathname: location.pathname, search: search ? `?${search}` : '', hash: location.hash }, { replace: true, state: location.state });
+  }, [loaded, project.id, stage, stageWord, addressWord, location.pathname, location.search, location.hash, location.state, navigate]);
 
   const [focusMode, setFocusMode] = useState(false);
   const layout: CockpitLayout = focusMode ? 'focus' : pane === 'graph' ? 'study' : 'cockpit';
@@ -249,6 +300,35 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       navigate(cockpitPath(project.id, next, extra));
     },
     [navigate, project.id],
+  );
+
+  /*
+   * A stage pressed on the track. The page on screen stays while it shows at
+   * that stage. A function that does not show there gives way to its
+   * department's Summary, and a department with nothing there to Overview.
+   *
+   * The address is given the stage's word even when it is the project's own.
+   * Without it, pressing the project's own stage would look like any link
+   * that names none, and the stage left behind would be carried onto it. The
+   * word for the project's own stage is dropped again once it has been read.
+   */
+  const pickStage = useCallback(
+    (next: StageKey) => {
+      if (next === stage) return;
+      setFocusMode(false);
+      setDeskOpen(false);
+      setMobileSurface('work');
+      const to = placeAtStage(project, place, next);
+      const stays = to.department === place.department && to.fn === place.fn;
+      const search = new URLSearchParams(stays ? location.search : '');
+      search.set('stage', STAGE_WORD[next]);
+      navigate({
+        pathname: stays ? location.pathname : cockpitPath(project.id, to.department ? 'department' : 'overview', { department: to.department }),
+        search: `?${search}`,
+        hash: stays ? location.hash : '',
+      });
+    },
+    [navigate, project, place, stage, location.pathname, location.search, location.hash],
   );
 
   const openCited = useCallback(
@@ -682,6 +762,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
 
   const workOutlet: ProjectOutlet = {
     ...outlet,
+    stage,
+    onOpenFromStage: openFromStage,
     highlightIds,
     onAcceptWaiting: (id, payload) => void acceptWaiting(id, payload),
     onSetAsideWaiting: (id) => void setAsideWaiting(id),
@@ -899,8 +981,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
 
   const projectBar = (
     <>
-      <ProjectPicker pane={pane} project={project} department={params.department} workstream={params.workstream} onGo={goPane} waiting={waiting} />
-      <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} />
+      <ProjectPicker pane={pane} project={project} stage={stage} department={params.department} workstream={params.workstream} onGo={goPane} waiting={waiting} />
+      <StageTimeline project={project} stage={stage} onStage={pickStage} />
       {bell}
       <button type="button" onClick={() => setCommandOpen(true)} aria-label="Run a command" title="Command (⌘K)" className={ICON_BUTTON}>
         <Search size={16} />
@@ -946,7 +1028,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               so the place is named once and is also the way to any other. */}
           <div className="min-w-[4.5rem] flex-1 leading-tight">
             <p className="truncate text-[11px] font-medium text-ink-muted">{project.name}</p>
-            <ProjectPicker pane={pane} project={project} department={params.department} workstream={params.workstream} onGo={goPane} waiting={waiting} dense />
+            <ProjectPicker pane={pane} project={project} stage={stage} department={params.department} workstream={params.workstream} onGo={goPane} waiting={waiting} dense />
           </div>
           {/*
             Held sideways a phone has width to spare and almost no height, so
@@ -974,7 +1056,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
               );
             })}
           </div>
-          <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} compact />
+          <StagePill project={project} stage={stage} onStage={pickStage} onChanged={setProject} onOpen={openFromStage} />
           {bell}
           <button
             type="button"
@@ -1087,6 +1169,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
                   <CockpitPaneStrip
                     pane={pane}
                     project={project}
+                    stage={stage}
                     ddId={params.ddId}
                     scopeId={params.scopeId}
                     department={params.department}
@@ -1126,6 +1209,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
                 <CockpitPaneStrip
                   pane={pane}
                   project={project}
+                  stage={stage}
                   ddId={params.ddId}
                   scopeId={params.scopeId}
                   department={params.department}

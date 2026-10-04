@@ -64,6 +64,7 @@ export * from './value-inputs';
 export * from './value-standing';
 export * from './comparables';
 export * from './departments';
+export * from './stage-view';
 export * from './engagements';
 export * from './approvals';
 export * from './progress';

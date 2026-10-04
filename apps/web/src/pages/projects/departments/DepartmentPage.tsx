@@ -4,17 +4,21 @@ import { ArrowRight } from 'lucide-react';
 import {
   DEPARTMENT_ROLE_LABEL,
   QUICK_VERDICT_LABEL,
-  STAGES,
   cockpitPath,
   currentCertified,
   departmentDefinition,
   departmentRole,
+  menuAt,
+  menuFunctions,
   projectDepartments,
   projectLinks,
   quickAssessment,
+  stageDefinition,
+  stageOf,
   workstreamDefinition,
   type DdProject,
   type DepartmentKey,
+  type StageKey,
   type WorkstreamDefinition,
 } from '@realytica/shared';
 import { Badge, Card, CardBody, CardHeader, TONE_FILL, cn } from '../../../components/ui/kit';
@@ -28,12 +32,23 @@ import { DepartmentDesk } from '../../../components/departments/DepartmentDesk';
 import { exampleOfDepartment } from '../../example/paths';
 import type { ProjectOutlet } from '../ProjectLayout';
 
-function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: WorkstreamDefinition; onOpen: () => void }) {
+/** `ws` is only what the card reads of a workstream. Design's card stands for four of them and has no more than this to give. */
+function WorkstreamCard({
+  project,
+  ws,
+  stage,
+  onOpen,
+}: {
+  project: DdProject;
+  ws: Pick<WorkstreamDefinition, 'key' | 'label' | 'purpose' | 'status' | 'deliverables'>;
+  stage: StageKey;
+  onOpen: () => void;
+}) {
   const live = ws.status === 'live';
   const qa = useMemo(() => (live ? quickAssessment(project, ws.key) : null), [project, ws.key, live]);
   const certified = live ? currentCertified(project, ws.key) : undefined;
-  const stageNow = STAGES.find((s) => s.subStages.includes(project.currentStage))?.key;
-  const due = ws.deliverables.find((d) => d.stage === stageNow) ?? ws.deliverables[0];
+  // What it delivers at the stage being looked at. A function has work at more stages than it hands something over, and at those it says nothing.
+  const due = ws.deliverables.find((d) => d.stage === stage);
   return (
     <button
       type="button"
@@ -52,7 +67,11 @@ function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: Works
       </div>
       {live && qa ? <p className="mt-1.5 line-clamp-2 text-[13px] text-ink">{qa.headline}</p> : <p className="mt-1.5 text-[13px] text-ink-secondary">{ws.purpose}</p>}
       <div className="mt-auto space-y-0.5 pt-3 text-micro text-ink-muted">
-        {due ? <p>Delivers now: {due.title}</p> : null}
+        {due ? (
+          <p>
+            {stage === stageOf(project.currentStage) ? 'Delivers now' : `Delivers at ${stageDefinition(stage).label}`}: {due.title}
+          </p>
+        ) : null}
         {live ? <p>{certified ? `Certified by ${certified.signer.name}${certified.revisit && !certified.revisit.acknowledgedAt ? ' · to revisit' : ''}` : 'No certified report yet'}</p> : null}
       </div>
       <span className="mt-2 inline-flex items-center gap-1 text-[12px] font-medium text-brand opacity-0 transition-[opacity,transform] duration-quick ease-state group-hover:translate-x-0.5 group-hover:opacity-100">
@@ -67,12 +86,13 @@ function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: Works
  * what this department exchanges with the others, and who works in it.
  */
 export default function DepartmentPage() {
-  const { project, setProject, refresh } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, refresh, stage = stageOf(project.currentStage) } = useOutletContext<ProjectOutlet>();
   const { department = '' } = useParams<{ department: string }>();
   const me = useMe();
   const navigate = useNavigate();
   const nav = useWorkstreamNav(project);
   const dept = departmentDefinition(department as DepartmentKey);
+  const at = useMemo(() => menuAt(project, stage), [project, stage]);
   const links = useMemo(
     () =>
       projectLinks(project).filter(
@@ -92,11 +112,19 @@ export default function DepartmentPage() {
   // The example project has this department drawn with made-up data.
   const example = exampleOfDepartment(dept.key);
   /*
+   * A Summary lists the functions its tabs list: those that show at the stage
+   * being looked at and whose own department is switched on.
+   *
    * Design is a function of Engineering in the menu, and a department of its
    * own on the record. So Engineering's summary lists it beside its own
-   * functions, and its page says whose function it is.
+   * functions, and its page says whose function it is. Design's own page
+   * lists its four workstreams whatever the stage: they are one function,
+   * shown or not as a whole.
    */
-  const design = dept.key === 'construction' && projectDepartments(project).includes('design') ? departmentDefinition('design') : null;
+  const enabled = projectDepartments(project);
+  const shown = new Set(menuFunctions(dept.key, at).filter((fn) => enabled.includes(fn.department)).map((fn) => fn.key));
+  const design = dept.key === 'construction' && shown.has('design') ? departmentDefinition('design') : null;
+  const workstreams = dept.key === 'design' ? dept.workstreams : dept.workstreams.filter((ws) => shown.has(ws.key));
 
   return (
     <div className="space-y-4">
@@ -135,14 +163,15 @@ export default function DepartmentPage() {
           <StaggerItem key="design" className="h-full">
             <WorkstreamCard
               project={project}
-              ws={{ key: 'design', department: 'design', label: 'Design', purpose: design.purpose, deliverables: [], signers: [], status: design.status }}
+              ws={{ key: 'design', label: 'Design', purpose: design.purpose, deliverables: [], status: design.status }}
+              stage={stage}
               onOpen={() => navigate(cockpitPath(project.id, 'department', { department: 'design' }))}
             />
           </StaggerItem>
         ) : null}
-        {dept.workstreams.map((ws) => (
+        {workstreams.map((ws) => (
           <StaggerItem key={ws.key} className="h-full">
-            <WorkstreamCard project={project} ws={ws} onOpen={() => nav.openWorkstream(ws.key)} />
+            <WorkstreamCard project={project} ws={ws} stage={stage} onOpen={() => nav.openWorkstream(ws.key)} />
           </StaggerItem>
         ))}
       </Stagger>

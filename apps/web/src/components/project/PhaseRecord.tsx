@@ -77,7 +77,8 @@ export function PhaseRecordCard({
   project: DdProject;
   phase: PhaseRef;
   onOpen: PhaseOpen;
-  onClose: () => void;
+  /** Where the card is something to put away: in a sheet. As a section of a page it stays. */
+  onClose?: () => void;
 }) {
   const record = useMemo(() => phaseRecord(project, phase), [project, phase]);
   const count = phaseCount(record);
@@ -91,9 +92,11 @@ export function PhaseRecordCard({
         title={record.label}
         subtitle={spans || 'The project has not been here yet.'}
         action={
-          <button type="button" onClick={onClose} aria-label="Close the phase" className="rounded-lg p-1.5 text-ink-muted hover:bg-sunken hover:text-ink">
-            <X size={15} />
-          </button>
+          onClose ? (
+            <button type="button" onClick={onClose} aria-label="Close the phase" className="rounded-lg p-1.5 text-ink-muted hover:bg-sunken hover:text-ink">
+              <X size={15} />
+            </button>
+          ) : undefined
         }
       />
       <CardBody>

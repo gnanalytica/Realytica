@@ -1,16 +1,17 @@
 import { useMemo, useState } from 'react';
-import { Flag, X } from 'lucide-react';
+import { Flag } from 'lucide-react';
 import {
   SUB_STAGE_LABEL,
   stageAndStep,
+  stageOf,
   stageTimeline,
   type DdProject,
+  type LifecycleStage,
   type PhaseRef,
   type StageKey,
   type TimelineStatus,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
-import { AnimatePresence, EASE_ENTER, motion } from '../../lib/motion';
 import { Button, Field, Modal, Textarea, cn, useToast } from '../ui/kit';
 import { PhaseRecordCard, type PhaseOpen } from '../project/PhaseRecord';
 import { StageTrack, type TrackStage } from '../workspace/WorkspaceBar';
@@ -19,76 +20,113 @@ import { StageTrack, type TrackStage } from '../workspace/WorkspaceBar';
 const WHEN: Record<TimelineStatus, TrackStage['when']> = { done: 'past', current: 'now', ahead: 'future' };
 
 /**
- * Where the project is in its life, always on screen.
+ * Where the project is in its life, always on screen, and the way to look at
+ * it in another stage.
  *
  * Four stages on one track: Land, Pre-construction, Under construction,
  * Completed. A stage is the state of the property, so the track shows no
- * steps under it. Pressing a stage opens what was filed, checked and decided
- * while the project was there; the finer steps a project moves through are
- * inside that record, and it is where a step is made the current one.
+ * steps under it. Pressing a stage looks at the project in that stage: the
+ * selector, the function tabs and the pages under them follow it. Each stage
+ * keeps the mark of where the project is whichever one is looked at, and
+ * pressing the stage the project is at goes back to it.
  *
- * The record hangs from the bar the track sits in, not from the track: the
- * track ends well short of the bar's right edge, and a panel hung from it
- * ran off the left of a narrower window. So this component is not itself
- * positioned, and the bar that holds it must be. The app's top bar, where a
- * project puts it, is sticky, which serves.
+ * What was filed, checked and decided in a stage, its finer steps and the
+ * control that makes a step the current one are a section of Overview
+ * (`StageRecord`), not a panel hung from this bar.
  */
-export function StageTimeline({ project, onChanged, onOpen, compact = false }: { project: DdProject; onChanged: (p: DdProject) => void; onOpen: PhaseOpen; compact?: boolean }) {
+export function StageTimeline({ project, stage, onStage }: { project: DdProject; stage: StageKey; onStage: (stage: StageKey) => void }) {
+  const timeline = useMemo(() => stageTimeline(project), [project]);
+  return (
+    <StageTrack
+      className="flex-1"
+      stages={timeline.stages.map((s) => ({ key: s.key, label: s.label, when: WHEN[s.status] }))}
+      picked={stage}
+      onPick={(key) => onStage(key as StageKey)}
+    />
+  );
+}
+
+/**
+ * The stages on a phone, where the track is not on screen: a pill naming the
+ * stage being looked at, which opens that stage's record as a sheet. The
+ * sheet's tabs are the four stages, and pressing one looks at the project in
+ * it, as pressing it on the track does.
+ */
+export function StagePill({
+  project,
+  stage,
+  onStage,
+  onChanged,
+  onOpen,
+}: {
+  project: DdProject;
+  stage: StageKey;
+  onStage: (stage: StageKey) => void;
+  onChanged: (p: DdProject) => void;
+  onOpen: PhaseOpen;
+}) {
   const timeline = useMemo(() => stageTimeline(project), [project]);
   const [picked, setPicked] = useState<PhaseRef | null>(null);
-
-  if (compact) {
-    const stage = stageAndStep(timeline.current);
-    const short = timeline.stages.find((s) => s.key === timeline.currentStage)!.label;
-    return (
-      <>
-        <button
-          type="button"
-          onClick={() => setPicked({ kind: 'stage', key: timeline.currentStage })}
-          aria-label={`Where the project is: ${stage}`}
-          /* A 28px pill that still takes a 44px press: the hit area grows, the pill does not.
-             It gives way before the page's name does: on a narrow phone the
-             stage alone says where the project is, and the sheet it opens
-             says the rest. */
-          className="relative inline-flex h-7 min-w-0 max-w-[11rem] shrink items-center gap-1.5 rounded-full bg-surface px-2.5 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] before:absolute before:-inset-2 coarse:before:-inset-y-2"
-        >
-          <span className="size-1.5 shrink-0 rounded-full bg-ink" aria-hidden />
-          <span className="truncate sm:hidden">{short}</span>
-          <span className="hidden truncate sm:inline">{stage}</span>
-        </button>
-        {/* On a phone the record of a stage is a sheet, not a dropdown pinned to a pill. */}
-        <Modal open={picked !== null} onClose={() => setPicked(null)} title="Where the project is" width="lg">
-          {picked ? <StageBody project={project} picked={picked} onPick={setPicked} onChanged={onChanged} onOpen={onOpen} timeline={timeline} /> : null}
-        </Modal>
-      </>
-    );
-  }
-
-  const pickedStage = picked ? timeline.stages.find((s) => (picked.kind === 'stage' ? s.key === picked.key : s.subStages.some((x) => x.key === picked.key)))?.key : null;
-
+  const looking = timeline.stages.find((s) => s.key === stage)!;
+  const own = stage === timeline.currentStage;
+  const standing = stageAndStep(timeline.current);
+  // The step is said with the project's own stage. A stage that is only looked at has no step to say.
+  const full = own ? standing : looking.label;
   return (
-    <div className="flex min-w-[16rem] flex-1">
-      <StageTrack
-        className="flex-1"
-        stages={timeline.stages.map((s) => ({ key: s.key, label: s.label, when: WHEN[s.status] }))}
-        picked={pickedStage}
-        onPick={(key) => setPicked(pickedStage === key ? null : { kind: 'stage', key: key as StageKey })}
-      />
-      <AnimatePresence>
+    <>
+      <button
+        type="button"
+        onClick={() => setPicked({ kind: 'stage', key: stage })}
+        aria-label={own ? `Where the project is: ${standing}` : `Looking at ${looking.label}. The project is at ${standing}`}
+        /* A 28px pill that still takes a 44px press: the hit area grows, the pill does not.
+           It gives way before the page's name does: on a narrow phone the
+           stage alone says where the project is, and the sheet it opens
+           says the rest. */
+        className="relative inline-flex h-7 min-w-0 max-w-[11rem] shrink items-center gap-1.5 rounded-full bg-surface px-2.5 text-[12px] font-medium text-ink ring-1 ring-inset ring-[var(--ring)] before:absolute before:-inset-2 coarse:before:-inset-y-2"
+      >
+        {/* The track's own marks: solid where the project is, green for a stage behind it, hollow for one ahead. */}
+        <span
+          className={cn('size-1.5 shrink-0 rounded-full', own ? 'bg-ink' : looking.status === 'done' ? 'bg-good' : 'ring-1 ring-inset ring-[var(--axis)]')}
+          aria-hidden
+        />
+        <span className="truncate sm:hidden">{looking.label}</span>
+        <span className="hidden truncate sm:inline">{full}</span>
+      </button>
+      {/* On a phone the record of a stage is a sheet, not a section of a page that may not be the one on screen. */}
+      <Modal open={picked !== null} onClose={() => setPicked(null)} title="Stages" width="lg">
         {picked ? (
-          <motion.div
-            key="stage-panel"
-            initial={{ opacity: 0, y: -6, scale: 0.985 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, transition: { duration: 0.14 } }}
-            transition={{ duration: 0.22, ease: EASE_ENTER }}
-            className="absolute right-4 top-full z-40 mt-2 max-h-[70vh] w-[min(44rem,calc(100%-2rem))] origin-top-right overflow-y-auto rounded-2xl bg-surface p-3 shadow-pop ring-1 ring-[var(--ring)]"
-          >
-            <StageBody project={project} picked={picked} onPick={setPicked} onChanged={onChanged} onOpen={onOpen} timeline={timeline} closable />
-          </motion.div>
+          <StageBody
+            project={project}
+            picked={picked}
+            onPick={(next) => {
+              setPicked(next);
+              if (next?.kind === 'stage' && next.key !== stage) onStage(next.key);
+            }}
+            onChanged={onChanged}
+            onOpen={onOpen}
+            timeline={timeline}
+            sheet
+          />
         ) : null}
-      </AnimatePresence>
-    </div>
+      </Modal>
+    </>
+  );
+}
+
+/**
+ * The record of the stage being looked at, as a section of a page: what was
+ * filed, started or recorded while the project was there, the finer steps
+ * inside the stage, and the control that makes a step the current one.
+ */
+export function StageRecord({ project, stage, onChanged, onOpen }: { project: DdProject; stage: StageKey; onChanged: (p: DdProject) => void; onOpen: PhaseOpen }) {
+  const timeline = useMemo(() => stageTimeline(project), [project]);
+  const [step, setStep] = useState<LifecycleStage | null>(null);
+  // A step stays picked only while its own stage is the one looked at. Another stage opens on the whole of it.
+  const picked = useMemo<PhaseRef>(() => (step && stageOf(step) === stage ? { kind: 'step', key: step } : { kind: 'stage', key: stage }), [step, stage]);
+  return (
+    <section aria-label="Stage record">
+      <StageBody project={project} picked={picked} onPick={(next) => setStep(next?.kind === 'step' ? next.key : null)} onChanged={onChanged} onOpen={onOpen} timeline={timeline} />
+    </section>
   );
 }
 
@@ -99,16 +137,17 @@ function StageBody({
   onChanged,
   onOpen,
   timeline,
-  closable = false,
+  sheet = false,
 }: {
   project: DdProject;
   picked: PhaseRef;
+  /** A stage, a step inside it, or nothing: a sheet closes, a page goes back to the whole stage. */
   onPick: (p: PhaseRef | null) => void;
   onChanged: (p: DdProject) => void;
   onOpen: PhaseOpen;
   timeline: ReturnType<typeof stageTimeline>;
-  /** A dropdown carries its own close; a sheet has one in its header already. */
-  closable?: boolean;
+  /** In a phone's sheet, where the four stages are tabs and the record can close it. */
+  sheet?: boolean;
 }) {
   const toast = useToast();
   const [reason, setReason] = useState('');
@@ -137,13 +176,14 @@ function StageBody({
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
         {/* On a phone the four stages are tabs here, since the rule they sit on is not on screen. */}
-        {!closable ? (
+        {sheet ? (
           <div className="mb-1 flex w-full gap-1 overflow-x-auto no-scrollbar">
             {timeline.stages.map((x) => (
               <button
                 key={x.key}
                 type="button"
                 onClick={() => onPick({ kind: 'stage', key: x.key })}
+                aria-pressed={x.key === stage.key}
                 className={cn('shrink-0 rounded-full px-2.5 py-1 text-[12px] coarse:min-h-11', x.key === stage.key ? 'bg-ink font-medium text-[var(--text-inverse)]' : 'text-ink-secondary ring-1 ring-inset ring-[var(--ring)]')}
               >
                 {x.label}
@@ -160,12 +200,6 @@ function StageBody({
             {s.status === 'current' ? ' · now' : ''}
           </button>
         ))}
-        <span className="flex-1" />
-        {closable ? (
-          <button type="button" onClick={() => onPick(null)} aria-label="Close" className="rounded-lg p-1.5 text-ink-muted hover:bg-sunken hover:text-ink">
-            <X size={15} />
-          </button>
-        ) : null}
       </div>
       {markers.length ? (
         <p className="mb-2 text-[12px] text-ink-secondary">
@@ -173,7 +207,7 @@ function StageBody({
           At this {step ? 'step' : 'stage'} on their own: {markers.map((m) => `${m.name} (${SUB_STAGE_LABEL[m.stage]})`).join(', ')}
         </p>
       ) : null}
-      <PhaseRecordCard project={project} phase={picked} onOpen={(kind, id) => { onPick(null); onOpen(kind, id); }} onClose={() => onPick(null)} />
+      <PhaseRecordCard project={project} phase={picked} onOpen={(kind, id) => { onPick(null); onOpen(kind, id); }} onClose={sheet ? () => onPick(null) : undefined} />
       {step && step !== timeline.current ? (
         <div className="mt-3 flex flex-wrap items-end gap-2 rounded-lg bg-sunken p-3">
           <div className="min-w-[16rem] flex-1">

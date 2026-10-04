@@ -17,18 +17,23 @@ import {
 import {
   DEPARTMENT_KEYS,
   DEPARTMENT_SHORT,
-  FUNCTION_SHORT,
   MENU_DEPARTMENTS,
   SCOPE_LABEL,
   departmentDefinition,
+  menuAt,
   menuDepartment,
+  menuDepartmentsOf,
+  menuFunctions,
   projectDepartments,
   reachesEveryProject,
   scopeCompleteness,
   workstreamDefinition,
   type DdProject,
   type DepartmentKey,
+  type MenuPlace,
+  type MenuStage,
   type ProjectCockpitPane,
+  type StageKey,
 } from '@realytica/shared';
 import { cn } from '../../../components/ui/kit';
 import { DepartmentPicker, FunctionTabs, type FunctionTab, type PickerItem } from '../../../components/workspace/WorkspaceBar';
@@ -44,6 +49,12 @@ import { useMe } from '../../../lib/useMe';
  * reports, people and the graph. Inside a department the row under it is its
  * functions, one tab each, with a Summary first for what belongs to the
  * department as a whole.
+ *
+ * Both follow the stage being looked at: a department is listed while one of
+ * its functions shows at that stage, and a function has a tab while it does.
+ * The two lists come from `menuDepartmentsOf` and `menuFunctions`, the same
+ * two the graph is drawn from, so the menu and the graph cannot disagree
+ * about what a department holds.
  *
  * A function that is not built yet is still listed, in a quieter ink, because
  * knowing it will be there is part of knowing what the department is for.
@@ -135,6 +146,17 @@ export function departmentOfPane(pane: ProjectCockpitPane, at: { department?: st
   if (pane === 'department') return DEPARTMENT_KEYS.find((key) => key === at.department);
   const ws = workstreamOfPane(pane, at.workstream);
   return ws ? workstreamDefinition(ws)?.department : undefined;
+}
+
+/**
+ * Where a pane is in the menu: its department there, and its function when
+ * the page is one function's. Design's own pages are the function Design,
+ * under Engineering. Overview and the shared places are neither.
+ */
+export function menuPlaceOf(pane: ProjectCockpitPane, at: { department?: string; workstream?: string }): MenuPlace {
+  const department = departmentOfPane(pane, at);
+  if (!department) return {};
+  return { department: menuDepartment(department), fn: department === 'design' ? 'design' : workstreamOfPane(pane, at.workstream) };
 }
 
 /** Tabs a section shows in its second row: Auto-run is reachable, not listed. */
@@ -317,6 +339,7 @@ function placeOf(pane: ProjectCockpitPane, at: { department?: string; workstream
 export function ProjectPicker({
   pane,
   project,
+  stage,
   department,
   workstream,
   onGo,
@@ -325,6 +348,8 @@ export function ProjectPicker({
 }: {
   pane: ProjectCockpitPane;
   project: DdProject;
+  /** The stage being looked at. */
+  stage: StageKey;
   department?: string;
   workstream?: string;
   onGo: Go;
@@ -337,14 +362,12 @@ export function ProjectPicker({
   // for it gets a 404, so listing People would only be an invitation to find
   // that out.
   const staff = me ? reachesEveryProject(me.role) : false;
-  const enabled = projectDepartments(project);
+  const listed = useMemo(() => menuDepartmentsOf(projectDepartments(project), menuAt(project, stage)), [project, stage]);
   const current = placeOf(pane, { department, workstream });
   const overview = SECTIONS[0]!;
-  // Engineering is listed while either it or Design is switched on, since Design's page is reached through it. The
-  // department you are standing in is listed too, even switched off, so the selector never names somewhere else.
-  const departments: PickerItem[] = MENU_DEPARTMENTS.filter(
-    (key) => enabled.includes(key) || (key === 'construction' && enabled.includes('design')) || key === current,
-  ).map((key) => {
+  // The department you are standing in is listed too, switched off or with nothing at this stage, so the selector
+  // never names somewhere else.
+  const departments: PickerItem[] = MENU_DEPARTMENTS.filter((key) => listed.includes(key) || key === current).map((key) => {
     const soon = departmentDefinition(key).status === 'coming_soon';
     // A department is marked for what waits on a page of its own: Valuation's, or the Site record's.
     const holds = waiting ? departmentDefinition(key).workstreams.some((w) => WORKSTREAM_PANE[w.key] && waiting.byPane[WORKSTREAM_PANE[w.key]!]) : false;
@@ -375,29 +398,34 @@ export function ProjectPicker({
 }
 
 /**
- * A department's functions as tabs: Summary, then each one, with Design
- * leading Engineering's.
+ * A department's functions as tabs: Summary, then each function that shows
+ * at the stage being looked at, with Design leading Engineering's.
  *
- * Design shows while it is switched on, or while you are on one of its
- * pages. The dot marks the functions whose page is a pane of its own
- * (Valuation, Site), the only ones the waiting list is kept by today.
+ * A function has a tab while its own department is switched on: Design's
+ * while Design is, Engineering's own while Engineering is. The one you are
+ * standing on keeps its tab whatever the stage, so the row never leaves out
+ * the page on screen. The dot marks the functions whose page is a pane of
+ * its own (Valuation, Site), the only ones the waiting list is kept by today.
  */
-function functionTabs(menu: DepartmentKey, design: boolean, byPane: WaitingByPane): FunctionTab[] {
+function functionTabs(menu: DepartmentKey, enabled: readonly DepartmentKey[], at: MenuStage, standing: string | undefined, byPane: WaitingByPane): FunctionTab[] {
+  const shown = new Set(menuFunctions(menu, at).filter((fn) => enabled.includes(fn.department)).map((fn) => fn.key));
   return [
     { key: 'summary', label: 'Summary' },
-    ...(menu === 'construction' && design ? [{ key: 'design', label: DEPARTMENT_SHORT.design, muted: true }] : []),
-    ...departmentDefinition(menu).workstreams.map((w) => ({
-      key: w.key,
-      label: FUNCTION_SHORT[w.key] ?? w.label,
-      muted: w.status !== 'live',
-      waiting: Boolean(WORKSTREAM_PANE[w.key] && byPane[WORKSTREAM_PANE[w.key]!]),
-    })),
+    ...menuFunctions(menu)
+      .filter((fn) => shown.has(fn.key) || fn.key === standing)
+      .map((fn) => ({
+        key: fn.key,
+        label: fn.label,
+        muted: !fn.built,
+        waiting: Boolean(WORKSTREAM_PANE[fn.key] && byPane[WORKSTREAM_PANE[fn.key]!]),
+      })),
   ];
 }
 
 export function CockpitPaneStrip({
   pane,
   project,
+  stage,
   ddId,
   scopeId,
   department,
@@ -410,6 +438,8 @@ export function CockpitPaneStrip({
 }: {
   pane: ProjectCockpitPane;
   project: DdProject;
+  /** The stage being looked at. */
+  stage: StageKey;
   ddId?: string;
   scopeId?: string;
   /** From the route, on a department or workstream page. */
@@ -423,19 +453,17 @@ export function CockpitPaneStrip({
   wrap?: boolean;
 }) {
   const badges = { overdue, pendingDrafts };
-  const enabled = projectDepartments(project);
-  const activeDepartment = departmentOfPane(pane, { department, workstream });
-  const activeWorkstream = workstreamOfPane(pane, workstream);
-  const menu = activeDepartment ? menuDepartment(activeDepartment) : undefined;
-  const here = activeDepartment ? null : tabHolding(pane).section;
+  const at = useMemo(() => menuAt(project, stage), [project, stage]);
+  const { department: menu, fn } = menuPlaceOf(pane, { department, workstream });
+  const here = menu ? null : tabHolding(pane).section;
   const tabs = here ? here.tabs.filter((t) => !HIDDEN_TABS.has(t.pane) || t.pane === pane) : [];
   const assess = here?.key === 'registers' && (pane === 'dd' || pane === 'scope') && project.assessments.length > 0;
 
   const second = menu ? (
     <FunctionTabs
       className="min-w-0 flex-1"
-      tabs={functionTabs(menu, enabled.includes('design') || activeDepartment === 'design', waiting?.byPane ?? {})}
-      current={activeDepartment === 'design' ? 'design' : (activeWorkstream ?? 'summary')}
+      tabs={functionTabs(menu, projectDepartments(project), at, fn, waiting?.byPane ?? {})}
+      current={fn ?? 'summary'}
       onPick={(key) => {
         if (key === 'summary') onGo('department', { department: menu });
         else if (key === 'design') onGo('department', { department: 'design' });

@@ -7,11 +7,13 @@ import {
   STAGES,
   cockpitPath,
   departmentDefinition,
+  stageOf,
   titleGraphFromProject,
   workstreamChecks,
   workstreamDefinition,
   workstreamDocuments,
   type DdProject,
+  type StageKey,
   type WorkstreamDefinition,
 } from '@realytica/shared';
 import { Card, CardBody, CardHeader } from '../../../components/ui/kit';
@@ -72,7 +74,7 @@ export function WorkstreamFrame({ project, workstream, setProject, compact = fal
   );
 }
 
-function ComingSoon({ project, workstream }: { project: DdProject; workstream: string }) {
+function ComingSoon({ project, workstream, stage }: { project: DdProject; workstream: string; stage: StageKey }) {
   const ws = workstreamDefinition(workstream)!;
   const checks = workstreamChecks(project, workstream);
   const docs = workstreamDocuments(project, workstream).filter((e) => e.attachments.length);
@@ -84,10 +86,11 @@ function ComingSoon({ project, workstream }: { project: DdProject; workstream: s
       <CardBody className="space-y-3 text-[13px]">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">What it will produce</p>
+          {/* Every stage's, with the one for the stage being looked at in the stronger ink. */}
           <ul className="mt-1 space-y-0.5">
             {ws.deliverables.map((d) => (
-              <li key={`${d.stage}-${d.title}`} className="text-ink">
-                {d.title} <span className="text-ink-muted">· {STAGES.find((s) => s.key === d.stage)?.label}</span>
+              <li key={`${d.stage}-${d.title}`} className={d.stage === stage ? 'font-medium text-ink' : 'text-ink-secondary'}>
+                {d.title} <span className="font-normal text-ink-muted">· {STAGES.find((s) => s.key === d.stage)?.label}</span>
               </li>
             ))}
           </ul>
@@ -134,7 +137,7 @@ function TitleBody({ project, graph }: { project: DdProject; graph: ReturnType<t
 
 /** One workstream: its frame, then the work that is its own. */
 export default function WorkstreamPage() {
-  const { project, setProject, refresh } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, refresh, stage = stageOf(project.currentStage) } = useOutletContext<ProjectOutlet>();
   const { workstream = '' } = useParams<{ workstream: string }>();
   const nav = useWorkstreamNav(project);
   const ws = workstreamDefinition(workstream);
@@ -158,7 +161,7 @@ export default function WorkstreamPage() {
         </div>
       </Reveal>
       {ws.status === 'coming_soon' ? (
-        <ComingSoon project={project} workstream={ws.key} />
+        <ComingSoon project={project} workstream={ws.key} stage={stage} />
       ) : ws.key === 'construction.quality' ? (
         // The technical due diligence is five steps, not one long page.
         <DepartmentDesk

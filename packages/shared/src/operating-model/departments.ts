@@ -14,7 +14,8 @@
  *   and its records.
  * - The **menu** shows five of the six departments, by one word each, and
  *   calls a workstream a function. Design is one function inside Engineering.
- *   The graph draws the same five and the same functions.
+ *   The graph draws the same five and the same functions. Looked at in one
+ *   stage, the menu shows the functions that have work there.
  *
  * Every check in the library belongs to exactly one workstream, so the same
  * title check serves every engagement that needs it.
@@ -44,6 +45,24 @@ export const STAGES: readonly StageDefinition[] = [
 
 /** A step's name. One set of names for the twelve steps, kept with the steps themselves. */
 export const SUB_STAGE_LABEL: Record<LifecycleStage, string> = LIFECYCLE_STAGE_LABEL;
+
+/**
+ * A stage by the word an address carries: the four the example project uses.
+ *
+ * The keys are the record's, kept from when the stages had other names. An
+ * address is read and pasted by people, so it says `?stage=land`.
+ */
+export const STAGE_WORD: Record<StageKey, string> = {
+  pre_development: 'land',
+  design_tender: 'pre',
+  construction: 'build',
+  operations: 'done',
+};
+
+/** The stage a word in an address names. Any other word names none. */
+export function stageOfWord(word: string | null | undefined): StageKey | undefined {
+  return STAGES.find((s) => STAGE_WORD[s.key] === word)?.key;
+}
 
 /**
  * The step a project enters a stage by.
@@ -178,7 +197,18 @@ export interface WorkstreamDefinition {
   label: string;
   /** One line: what this workstream is for. */
   purpose: string;
-  /** What it produces, stage by stage. */
+  /**
+   * The stages it has work in, in order: where its function shows in the
+   * menu. The list is the example project's, function for function, and a
+   * test holds the two together, because the example is the agreed design
+   * for what is worked on when.
+   */
+  stages: StageKey[];
+  /**
+   * What it produces, stage by stage. Narrower than the stages it has work
+   * in: Title is worked on while the building goes up and hands nothing over
+   * then. Every stage named here is one of `stages`.
+   */
   deliverables: Array<{ stage: StageKey; title: string }>;
   /** The professions that sign its certified reports. */
   signers: string[];
@@ -201,9 +231,10 @@ function ws(
   purpose: string,
   status: BuildStatus,
   signers: string[],
+  stages: StageKey[],
   deliverables: Array<[StageKey, string]>,
 ): WorkstreamDefinition {
-  return { key: `${department}.${slug}`, department, label, purpose, status, signers, deliverables: deliverables.map(([stage, title]) => ({ stage, title })) };
+  return { key: `${department}.${slug}`, department, label, purpose, status, signers, stages, deliverables: deliverables.map(([stage, title]) => ({ stage, title })) };
 }
 
 export const DEPARTMENTS: readonly DepartmentDefinition[] = [
@@ -214,25 +245,25 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
     professions: ['CFO', 'Chartered Accountant', 'Underwriter', 'Investment Analyst', 'Registered Valuer'],
     status: 'live',
     workstreams: [
-      ws('finance', 'valuation', 'Valuation', 'What the site, the project or a phase is worth, and what moves it.', 'live', ['Registered Valuer'], [
+      ws('finance', 'valuation', 'Valuation', 'What the site, the project or a phase is worth, and what moves it.', 'live', ['Registered Valuer'], ['pre_development', 'design_tender', 'construction', 'operations'], [
         ['pre_development', 'Indicative valuation and screening'],
         ['design_tender', 'As-completed value'],
         ['construction', 'As-is value'],
         ['operations', 'Market value as is'],
       ]),
-      ws('finance', 'feasibility', 'Feasibility & underwriting', 'Land cost, construction outlay, revenue and returns.', 'coming_soon', ['Chartered Accountant', 'Underwriter'], [
+      ws('finance', 'feasibility', 'Feasibility & underwriting', 'Land cost, construction outlay, revenue and returns.', 'coming_soon', ['Chartered Accountant', 'Underwriter'], ['pre_development', 'design_tender', 'operations'], [
         ['pre_development', 'Techno-economic feasibility report'],
         ['operations', 'Realised return reconciliation'],
       ]),
-      ws('finance', 'budget', 'Budget & cost to complete', 'Budget against committed and actual cost, and what is left to spend.', 'coming_soon', ['Quantity Surveyor', 'Chartered Accountant'], [
+      ws('finance', 'budget', 'Budget & cost to complete', 'Budget against committed and actual cost, and what is left to spend.', 'coming_soon', ['Quantity Surveyor', 'Chartered Accountant'], ['design_tender', 'construction', 'operations'], [
         ['design_tender', 'Approved budget'],
         ['construction', 'Cost-to-complete statement'],
       ]),
-      ws('finance', 'funding', 'Funding & escrow', 'Capital calls, loans and the RERA escrow account.', 'coming_soon', ['Chartered Accountant'], [
+      ws('finance', 'funding', 'Funding & escrow', 'Capital calls, loans and the RERA escrow account.', 'coming_soon', ['Chartered Accountant'], ['design_tender', 'construction', 'operations'], [
         ['design_tender', 'Drawdown plan'],
         ['construction', 'Escrow utilisation statement'],
       ]),
-      ws('finance', 'tax', 'Tax', 'GST and input tax credit.', 'coming_soon', ['Chartered Accountant'], [['construction', 'GST reconciliation']]),
+      ws('finance', 'tax', 'Tax', 'GST and input tax credit.', 'coming_soon', ['Chartered Accountant'], ['pre_development', 'design_tender', 'construction', 'operations'], [['construction', 'GST reconciliation']]),
     ],
   },
   {
@@ -242,21 +273,21 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
     professions: ['Real Estate Advocate', 'RERA Consultant', 'Liaison Officer', 'Environmental Consultant'],
     status: 'live',
     workstreams: [
-      ws('legal', 'title', 'Title & land records', 'Who owns the land, how they came to, and what is charged against it.', 'live', ['Advocate'], [
+      ws('legal', 'title', 'Title & land records', 'Who owns the land, how they came to, and what is charged against it.', 'live', ['Advocate'], ['pre_development', 'design_tender', 'construction', 'operations'], [
         ['pre_development', 'Title search and opinion'],
         ['operations', 'Conveyance to the society'],
       ]),
-      ws('legal', 'approvals', 'Approvals & NOCs', 'Every sanction, clearance and NOC the project needs, with its validity.', 'live', ['Liaison Officer', 'Architect'], [
+      ws('legal', 'approvals', 'Approvals & NOCs', 'Every sanction, clearance and NOC the project needs, with its validity.', 'live', ['Liaison Officer', 'Architect'], ['pre_development', 'design_tender', 'construction', 'operations'], [
         ['design_tender', 'Approvals and NOC status'],
         ['construction', 'Commencement and conditions log'],
         ['operations', 'Occupancy certificate'],
       ]),
-      ws('legal', 'rera', 'RERA', 'Registration, quarterly progress reports and escrow compliance.', 'coming_soon', ['RERA Consultant', 'Chartered Accountant'], [
+      ws('legal', 'rera', 'RERA', 'Registration, quarterly progress reports and escrow compliance.', 'coming_soon', ['RERA Consultant', 'Chartered Accountant'], ['design_tender', 'construction', 'operations'], [
         ['design_tender', 'RERA registration'],
         ['construction', 'Quarterly progress report'],
       ]),
-      ws('legal', 'contracts', 'Contracts & disputes', 'JDAs, agreements for sale and litigation.', 'coming_soon', ['Advocate'], [['pre_development', 'Development agreement review']]),
-      ws('legal', 'handover', 'Handover & society', 'Conveying common areas and the land to the owners’ society.', 'coming_soon', ['Advocate'], [['operations', 'Deed of conveyance']]),
+      ws('legal', 'contracts', 'Contracts & disputes', 'JDAs, agreements for sale and litigation.', 'coming_soon', ['Advocate'], ['pre_development', 'design_tender', 'construction', 'operations'], [['pre_development', 'Development agreement review']]),
+      ws('legal', 'handover', 'Handover & society', 'Conveying common areas and the land to the owners’ society.', 'coming_soon', ['Advocate'], ['construction', 'operations'], [['operations', 'Deed of conveyance']]),
     ],
   },
   {
@@ -266,10 +297,10 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
     professions: ['Architect', 'Structural Engineer', 'MEP Engineer', 'BIM Coordinator'],
     status: 'coming_soon',
     workstreams: [
-      ws('design', 'drawings', 'Drawings & versions', 'The drawing register and what is issued for construction.', 'coming_soon', ['Architect'], [['construction', 'Drawing release log']]),
-      ws('design', 'compliance', 'Design compliance', 'FAR, setbacks and height against the approvals.', 'coming_soon', ['Architect'], [['design_tender', 'FAR and setback compliance']]),
-      ws('design', 'rfis', 'RFIs', 'Questions from site and their answers.', 'coming_soon', ['Architect', 'Structural Engineer'], [['construction', 'RFI log']]),
-      ws('design', 'coordination', 'Coordination', 'Structure and services fitting together.', 'coming_soon', ['Structural Engineer', 'MEP Engineer'], [['design_tender', 'Clash log']]),
+      ws('design', 'drawings', 'Drawings & versions', 'The drawing register and what is issued for construction.', 'coming_soon', ['Architect'], ['pre_development', 'design_tender', 'construction'], [['construction', 'Drawing release log']]),
+      ws('design', 'compliance', 'Design compliance', 'FAR, setbacks and height against the approvals.', 'coming_soon', ['Architect'], ['pre_development', 'design_tender', 'construction'], [['design_tender', 'FAR and setback compliance']]),
+      ws('design', 'rfis', 'RFIs', 'Questions from site and their answers.', 'coming_soon', ['Architect', 'Structural Engineer'], ['pre_development', 'design_tender', 'construction'], [['construction', 'RFI log']]),
+      ws('design', 'coordination', 'Coordination', 'Structure and services fitting together.', 'coming_soon', ['Structural Engineer', 'MEP Engineer'], ['pre_development', 'design_tender', 'construction'], [['design_tender', 'Clash log']]),
     ],
   },
   {
@@ -279,17 +310,17 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
     professions: ['Project Manager', 'Site Engineer', 'Quantity Surveyor', 'Safety Officer'],
     status: 'live',
     workstreams: [
-      ws('construction', 'progress', 'Progress & schedule', 'Milestones, the site log and how far along the work is.', 'live', ['Project Manager', 'Independent Engineer'], [
+      ws('construction', 'progress', 'Progress & schedule', 'Milestones, the site log and how far along the work is.', 'live', ['Project Manager', 'Independent Engineer'], ['design_tender', 'construction'], [
         ['design_tender', 'Baseline schedule'],
         ['construction', 'Progress report'],
       ]),
-      ws('construction', 'quality', 'Technical due diligence', 'The documents, the questions, the site inspection and the observations: structure, services, fire safety and quality.', 'live', ['Structural Engineer', 'Independent Engineer'], [
+      ws('construction', 'quality', 'Technical due diligence', 'The documents, the questions, the site inspection and the observations: structure, services, fire safety and quality.', 'live', ['Structural Engineer', 'Independent Engineer'], ['pre_development', 'construction', 'operations'], [
         ['pre_development', 'Geotechnical and site assessment'],
         ['construction', 'Technical due diligence'],
         ['operations', 'Snag list'],
       ]),
-      ws('construction', 'site', 'Site record', 'Visits, photographs and what the site is next to.', 'live', ['Site Engineer'], [['construction', 'Site visit record']]),
-      ws('construction', 'safety', 'Safety & environment', 'Permits, incidents, training, waste and complaints.', 'coming_soon', ['Safety Officer'], [['construction', 'Safety log']]),
+      ws('construction', 'site', 'Site record', 'Visits, photographs and what the site is next to.', 'live', ['Site Engineer'], ['pre_development', 'design_tender', 'construction', 'operations'], [['construction', 'Site visit record']]),
+      ws('construction', 'safety', 'Safety & environment', 'Permits, incidents, training, waste and complaints.', 'coming_soon', ['Safety Officer'], ['construction'], [['construction', 'Safety log']]),
     ],
   },
   {
@@ -299,10 +330,10 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
     professions: ['Purchase Manager', 'Quantity Surveyor', 'Logistics Coordinator'],
     status: 'coming_soon',
     workstreams: [
-      ws('procurement', 'boq', 'BOQ & tenders', 'Quantities and the bids against them.', 'coming_soon', ['Quantity Surveyor'], [['design_tender', 'Tender comparison']]),
-      ws('procurement', 'orders', 'Purchase orders & commitments', 'Orders placed and the money they commit.', 'coming_soon', ['Purchase Manager'], [['construction', 'Commitment ledger']]),
-      ws('procurement', 'vendors', 'Vendors', 'Who supplies the project, their contracts and securities.', 'coming_soon', ['Purchase Manager'], [['design_tender', 'Vendor register']]),
-      ws('procurement', 'deliveries', 'Deliveries & materials', 'What is due on site and when.', 'coming_soon', ['Logistics Coordinator'], [['construction', 'Delivery tracker']]),
+      ws('procurement', 'boq', 'BOQ & tenders', 'Quantities and the bids against them.', 'coming_soon', ['Quantity Surveyor'], ['design_tender', 'construction'], [['design_tender', 'Tender comparison']]),
+      ws('procurement', 'orders', 'Purchase orders & commitments', 'Orders placed and the money they commit.', 'coming_soon', ['Purchase Manager'], ['design_tender', 'construction'], [['construction', 'Commitment ledger']]),
+      ws('procurement', 'vendors', 'Vendors', 'Who supplies the project, their contracts and securities.', 'coming_soon', ['Purchase Manager'], ['design_tender', 'construction'], [['design_tender', 'Vendor register']]),
+      ws('procurement', 'deliveries', 'Deliveries & materials', 'What is due on site and when.', 'coming_soon', ['Logistics Coordinator'], ['construction'], [['construction', 'Delivery tracker']]),
     ],
   },
   {
@@ -312,11 +343,11 @@ export const DEPARTMENTS: readonly DepartmentDefinition[] = [
     professions: ['Head of Sales', 'Leasing Broker', 'Property Manager', 'Facility Manager'],
     status: 'coming_soon',
     workstreams: [
-      ws('commercial', 'market', 'Market & pricing', 'The micro-market, comparables and the price list.', 'coming_soon', ['Registered Valuer'], [['pre_development', 'Market and pricing benchmark']]),
-      ws('commercial', 'inventory', 'Sales & leasing inventory', 'Every unit and where it stands.', 'coming_soon', [], [['construction', 'Inventory status']]),
-      ws('commercial', 'buyers', 'Buyers & collections', 'Bookings, demands and what has been collected.', 'coming_soon', ['Chartered Accountant'], [['construction', 'Collections ageing']]),
-      ws('commercial', 'handover', 'Handover & defects', 'Walkthroughs, handover and the defect liability period.', 'coming_soon', [], [['operations', 'Handover and defect log']]),
-      ws('commercial', 'operations', 'Property management', 'Running the finished property: maintenance, tenants and condition.', 'coming_soon', ['Facility Manager'], [['operations', 'Condition and maintenance report']]),
+      ws('commercial', 'market', 'Market & pricing', 'The micro-market, comparables and the price list.', 'coming_soon', ['Registered Valuer'], ['pre_development', 'design_tender', 'construction'], [['pre_development', 'Market and pricing benchmark']]),
+      ws('commercial', 'inventory', 'Sales & leasing inventory', 'Every unit and where it stands.', 'coming_soon', [], ['design_tender', 'construction', 'operations'], [['construction', 'Inventory status']]),
+      ws('commercial', 'buyers', 'Buyers & collections', 'Bookings, demands and what has been collected.', 'coming_soon', ['Chartered Accountant'], ['construction', 'operations'], [['construction', 'Collections ageing']]),
+      ws('commercial', 'handover', 'Handover & defects', 'Walkthroughs, handover and the defect liability period.', 'coming_soon', [], ['construction', 'operations'], [['operations', 'Handover and defect log']]),
+      ws('commercial', 'operations', 'Property management', 'Running the finished property: maintenance, tenants and condition.', 'coming_soon', ['Facility Manager'], ['operations'], [['operations', 'Condition and maintenance report']]),
     ],
   },
 ];
@@ -366,13 +397,39 @@ export function menuDepartment(key: DepartmentKey): DepartmentKey {
 }
 
 /**
+ * The stage a menu is looked at in.
+ *
+ * A function shows at a stage when it has work there. `holding` names the
+ * functions that show whatever stage it is. `menuAt` fills it for the stage
+ * a project stands at, with the functions already holding that project's
+ * records; this file knows the frame and no project's records.
+ */
+export interface MenuStage {
+  stage: StageKey;
+  holding?: ReadonlySet<string>;
+}
+
+/**
+ * Whether a function shows at a stage: one of its workstreams has work
+ * there, or it is held on show. What a workstream delivers does not decide
+ * it. A function is worked on at more stages than it hands something over.
+ */
+export function functionShows(fn: Pick<MenuFunction, 'key' | 'workstreams'>, at: MenuStage): boolean {
+  if (at.holding?.has(fn.key)) return true;
+  return fn.workstreams.some((key) => workstreamDefinition(key)?.stages.includes(at.stage));
+}
+
+/**
  * The menu departments that stand for a set of switched-on departments.
  * Engineering is one of them while either it or Design is on, since Design
- * is reached through it. The graph draws these; the menu applies the same
- * rule in its own selector and is to be moved onto this.
+ * is reached through it. The graph draws these, and the menu's selector
+ * lists them.
+ *
+ * Given a stage, only those with a function that shows there: Procurement
+ * has no work at Land, so at Land it is left out.
  */
-export function menuDepartmentsOf(enabled: readonly DepartmentKey[]): DepartmentKey[] {
-  return MENU_DEPARTMENTS.filter((menu) => enabled.some((key) => menuDepartment(key) === menu));
+export function menuDepartmentsOf(enabled: readonly DepartmentKey[], at?: MenuStage): DepartmentKey[] {
+  return MENU_DEPARTMENTS.filter((menu) => menuFunctions(menu, at).some((fn) => enabled.includes(fn.department)));
 }
 
 /** A function's name on its tab: one word. */
@@ -436,9 +493,8 @@ export function withDepartment(key: string, word: string): string {
 }
 
 /**
- * One function of a menu department, as the graph draws it: one node each.
- * The menu shows the same functions as tabs from its own list in `rail.tsx`
- * and is to be moved onto this one.
+ * One function of a menu department: one node in the graph, one tab in the
+ * menu.
  */
 export interface MenuFunction {
   /** A workstream's own key, or `design` for the design workstreams together. */
@@ -461,8 +517,13 @@ export interface MenuFunction {
  * A menu department's functions, in menu order: for Engineering, Design
  * first and then its own. Asked of Design itself, it answers for Engineering,
  * the department its pages sit under.
+ *
+ * Given a stage, only the functions that show there. Whether a function's
+ * own department is switched on is the caller's to ask: Design can be off
+ * while Engineering is on.
  */
-export function menuFunctions(menu: DepartmentKey): MenuFunction[] {
+export function menuFunctions(menu: DepartmentKey, at?: MenuStage): MenuFunction[] {
+  const shown = (all: MenuFunction[]) => (at ? all.filter((fn) => functionShows(fn, at)) : all);
   const under = menuDepartment(menu);
   const own = departmentDefinition(under).workstreams.map((w) => ({
     key: w.key,
@@ -473,9 +534,9 @@ export function menuFunctions(menu: DepartmentKey): MenuFunction[] {
     workstreams: [w.key],
     built: w.status === 'live',
   }));
-  if (under !== menuDepartment('design')) return own;
+  if (under !== menuDepartment('design')) return shown(own);
   const design = departmentDefinition('design');
-  return [
+  return shown([
     {
       key: DESIGN_FUNCTION,
       label: DEPARTMENT_SHORT.design,
@@ -486,7 +547,7 @@ export function menuFunctions(menu: DepartmentKey): MenuFunction[] {
       built: design.workstreams.some((w) => w.status === 'live'),
     },
     ...own,
-  ];
+  ]);
 }
 
 /* ==================================================================== */

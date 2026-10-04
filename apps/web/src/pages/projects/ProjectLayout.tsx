@@ -1,14 +1,19 @@
 import { useParams } from 'react-router-dom';
-import type { DdProject } from '@realytica/shared';
+import type { DdProject, StageKey } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { Callout, Skeleton } from '../../components/ui/kit';
+import type { PhaseOpen } from '../../components/project/PhaseRecord';
 import ProjectCockpit from './ProjectCockpit';
 
 export interface ProjectOutlet {
   project: DdProject;
   refresh: () => Promise<void>;
   setProject: (next: DdProject) => void;
+  /** The stage being looked at: the project's own, unless another was picked on the track. */
+  stage?: StageKey;
+  /** Open a record named in a stage's look-back. */
+  onOpenFromStage?: PhaseOpen;
   /** Accept something waiting where it sits — as proposed, or as corrected in its form. */
   onAcceptWaiting?: (id: string, payload?: Record<string, unknown>) => void;
   onSetAsideWaiting?: (id: string) => void;
