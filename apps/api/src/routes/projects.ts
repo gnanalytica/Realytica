@@ -189,6 +189,7 @@ import { projectComparablesRouter } from './comparables';
 import { projectWorkspaceRouter } from './workspace';
 import { unblockerConfigured } from '../comparables/search';
 import { graphAdapter } from '../graph';
+import { PREVIEW_KEEPS_NO_GRAPH } from '../graph/preview';
 import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
 import {
   changeStageBodySchema,
@@ -607,6 +608,11 @@ projectsRouter.post('/:projectId/graph/annotations', async (req, res) => {
   const linkedNodeId = typeof body.linkedNodeId === 'string' ? body.linkedNodeId.trim() : '';
   if (!nodeId || !text) {
     res.status(400).json({ error: 'nodeId and text are both required.' });
+    return;
+  }
+  // Said before the lookup, which on a preview would report every node as missing.
+  if (graphAdapter.detached) {
+    res.status(503).json({ error: PREVIEW_KEEPS_NO_GRAPH });
     return;
   }
 

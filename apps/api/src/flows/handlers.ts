@@ -1,6 +1,8 @@
 import {
   asText,
+  buildProjectGraph,
   evaluateGroup,
+  extractProjectSubgraph,
   fillTemplate,
   type DdProject,
   type NodeHandler,
@@ -67,8 +69,9 @@ async function runRetrieve(input: NodeHandlerInput, ctx: HandlerContext): Promis
   if (input.dryRun) return { retrieved: [], retrievedFrom: from, retrievedQuery: text };
 
   if (from === 'graph') {
+    // Not indexed is not empty: the registers are the source, so walk them.
     const stored = await graphAdapter.neighbourhood(ctx.project.id, [text], hops ?? 2);
-    const nodes = stored?.nodes ?? [];
+    const nodes = (stored ?? extractProjectSubgraph(buildProjectGraph(ctx.project), [text], hops ?? 2)).nodes;
     return { retrieved: nodes.slice(0, limit ?? 40), retrievedFrom: from, count: nodes.length };
   }
   if (from === 'memory') {

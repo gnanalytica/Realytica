@@ -240,6 +240,18 @@ the outage are refused with a 503 rather than accepted.
 
 Locally the journal is the default and needs no account.
 
+**A preview deployment keeps no graph.** A preview (Vercel's `VERCEL_ENV` is
+`preview`) runs a branch against the same project store and the same Neo4j as
+production. A branch that draws the graph differently would rewrite every
+stored project in its own shape, production would write it back, and a note
+pinned to a node only one of them draws would lose its link for good. So a
+preview writes nothing to Neo4j and reads nothing from it: every graph it
+shows is its own projection of the record, `GET /api/health` answers
+`graph: "projection"`, and a note is refused with a 503. Deleting a project on
+a preview still removes its graph, because the record itself is gone. The
+project record is still shared: what is saved on a preview is saved for
+production too.
+
 ### Alerts by email and push — optional
 
 ```bash

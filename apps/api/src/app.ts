@@ -86,7 +86,8 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     version: ENGINE_VERSION,
     projects: store.data.projects?.length ?? 0,
-    graph: graphAdapter.kind,
+    // A preview keeps no graph and reads the live registers instead.
+    graph: graphAdapter.detached ? 'projection' : graphAdapter.kind,
     upload: UPLOAD_LIMITS,
     auth: { mode: authSettings().mode },
   });

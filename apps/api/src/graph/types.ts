@@ -60,6 +60,13 @@ export interface GraphAdapter {
   readonly kind: 'journal' | 'neo4j';
 
   /**
+   * True on a preview deployment, which keeps no graph: see `preview.ts`.
+   * Nothing is written, and every read answers as if the project were not
+   * indexed, so each caller falls back to the live registers.
+   */
+  readonly detached?: true;
+
+  /**
    * Replace this project's derived half with `snapshot`'s.
    *
    * Authored nodes already stored for the project are left alone — a rebuild
