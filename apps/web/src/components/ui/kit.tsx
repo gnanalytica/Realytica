@@ -431,7 +431,7 @@ export function Badge({
 /**
  * The mark on anything a model wrote.
  *
- * Rose, square, and the two letters, the same everywhere: beside a copilot
+ * Blue, square, and the two letters, the same everywhere: beside a copilot
  * answer, on a proposal that waits for a person, on a value read off a page.
  * A reader learns it once and can then tell, at a glance and at any size,
  * which parts of a screen are the file and which are a machine's suggestion

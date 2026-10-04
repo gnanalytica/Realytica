@@ -48,7 +48,7 @@
    * in a product where colour already carries verdicts, severity and
    * provenance, the strongest neutral says "this acts" without saying
    * anything about the case. Teal stays for what is navigable — links,
-   * citations, the selected thing — and rose for what a model wrote.
+   * citations, the selected thing — and blue for what a model wrote.
    */
   --action: #15171a;
   --action-hover: #2b2f35;
@@ -57,14 +57,17 @@
   /*
    * AI-authored, and waiting on a person.
    *
-   * Rose marks anything a model wrote that nobody has accepted yet: a
+   * Blue marks anything a model wrote that nobody has accepted yet: a
    * proposal card's outline, the "AI" marker, a value read off a page and
    * not yet confirmed. It is deliberately unlike every status colour, so a
-   * proposal is never mistaken for a finding about the property.
+   * proposal is never mistaken for a finding about the property, and it sits
+   * beside the teal as a second quiet accent. It was rose until the
+   * workspace was redrawn in October 2026; rose read as an alarm next to
+   * the red of a critical finding.
    */
-  --ai-rgb: 176 36 90;
-  --ai-soft-rgb: 251 234 241;
-  --ai-text: #9a1f4f;
+  --ai-rgb: 43 95 168;
+  --ai-soft-rgb: 232 239 250;
+  --ai-text: #1f4c8c;
 
   /*
    * Tone colours are declared as space-separated RGB channels so Tailwind can
@@ -106,7 +109,7 @@
   /*
    * Provenance and the marker.
    *
-   * Rose says one thing only: a reader proposed this and no person has
+   * Blue says one thing only: a reader proposed this and no person has
    * accepted it yet — the same colour as every other AI proposal, because it
    * is one. Green — the good tone — is what it turns once someone has. The marker is the highlighter laid over a page's own words,
    * and it is the same in both themes because the page under it is paper in
@@ -208,9 +211,9 @@
     --action: #f3f4f6;
     --action-hover: #ffffff;
     --action-ink: #0e0f12;
-    --ai-rgb: 232 112 160;
-    --ai-soft-rgb: 58 22 38;
-    --ai-text: #f19bbf;
+    --ai-rgb: 122 162 232;
+    --ai-soft-rgb: 26 38 62;
+    --ai-text: #a9c4f5;
 
     /* The same gesture at a tenth of the strength — see `--sheen` above. */
     --sheen: rgba(255, 255, 255, 0.07);
@@ -270,9 +273,9 @@
   --action: #f3f4f6;
   --action-hover: #ffffff;
   --action-ink: #0e0f12;
-  --ai-rgb: 232 112 160;
-  --ai-soft-rgb: 58 22 38;
-  --ai-text: #f19bbf;
+  --ai-rgb: 122 162 232;
+  --ai-soft-rgb: 26 38 62;
+  --ai-text: #a9c4f5;
 
   /* Must mirror the media-query dark block above — see `--sheen`. */
   --sheen: rgba(255, 255, 255, 0.07);
