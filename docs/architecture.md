@@ -112,9 +112,9 @@ Useful queries:
 MATCH (:Ryt {projectId: $p, kind: 'department', key: 'legal'})-[:RYT_EDGE {kind: 'has_workstream'}]->(w)-[h:RYT_EDGE {kind: 'holds'}]->(x)
 WHERE h.closedAt IS NULL RETURN w.label, x.kind, x.label
 
-// What happened while the project was in Construction
+// What happened while the project was Under construction
 MATCH (x:Ryt {projectId: $p})-[:RYT_EDGE {kind: 'in_stage'}]->(s:stage {projectId: $p})
-WHERE s.detail = 'Construction' RETURN s.label, x.kind, x.label
+WHERE s.detail = 'Under construction' RETURN s.label, x.kind, x.label
 
 // Who answers for a workstream
 MATCH (m:member {projectId: $p})-[r:RYT_EDGE]->(:department)-[:RYT_EDGE {kind: 'has_workstream'}]->(w {key: 'finance.valuation'})

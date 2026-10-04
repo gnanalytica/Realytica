@@ -1,10 +1,11 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { FolderTree, Plus, RotateCw } from 'lucide-react';
 import {
-  LIFECYCLE_STAGE_LABEL,
   PROJECT_ARCHETYPE_LABEL,
   PROJECT_HEALTH_LABEL,
   PROJECT_STATUS_LABEL,
+  stageDefinition,
+  stageOf,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
@@ -116,7 +117,7 @@ export default function ProjectList() {
                         <p className="font-mono text-[11px] text-ink-muted">{p.reference}</p>
                         <p className="mt-0.5 text-[15px] font-semibold text-ink">{p.name}</p>
                         <p className="mt-1 text-[13px] text-ink-secondary">
-                          {PROJECT_ARCHETYPE_LABEL[p.type]} · {p.city} · {LIFECYCLE_STAGE_LABEL[p.currentStage]}
+                          {PROJECT_ARCHETYPE_LABEL[p.type]} · {p.city} · {stageDefinition(stageOf(p.currentStage)).label}
                           {/* The portfolio is the heading these cards sit
                               under whenever grouping is on, and repeating it
                               on every card put "Bengaluru" twice in one line:

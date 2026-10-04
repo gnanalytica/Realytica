@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Check, ChevronDown, FolderTree, Plus } from 'lucide-react';
-import { LIFECYCLE_STAGE_LABEL, PROJECT_HEALTH_LABEL, type ProjectHealth, type ProjectSummary } from '@realytica/shared';
+import { PROJECT_HEALTH_LABEL, type ProjectHealth, type ProjectSummary, stageDefinition, stageOf } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { useAsync } from '../../lib/useAsync';
 import { Badge, cn, type Tone } from '../ui/kit';
@@ -130,7 +130,7 @@ export default function ProjectSwitcher() {
                       <Badge tone={healthTone(p.health)}>{PROJECT_HEALTH_LABEL[p.health]}</Badge>
                     </span>
                     <span className="mt-0.5 block truncate font-mono text-[11px] text-ink-muted">
-                      {p.reference} · {LIFECYCLE_STAGE_LABEL[p.currentStage]}
+                      {p.reference} · {stageDefinition(stageOf(p.currentStage)).label}
                     </span>
                   </span>
                 </button>

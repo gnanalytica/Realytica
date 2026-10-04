@@ -40,8 +40,8 @@
  * unstable resolve would make the page flicker between two truths.
  */
 
-import { LIFECYCLE_STAGE_LABEL, SCOPE_LABEL } from './catalogs';
-import type { DepartmentKey } from './departments';
+import { SCOPE_LABEL } from './catalogs';
+import { stageAndStep, type DepartmentKey } from './departments';
 import { CAPTURE_PURPOSE_LABEL } from './capture';
 import { RISK_LABEL, observationStatement, observations, projectPhotos } from './observation-table';
 import { ANSWER_SOURCE_LABEL, questionStatus, questionnairesOf } from './questionnaire';
@@ -176,7 +176,7 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
     case 'particulars': {
       const lines = [
         `${project.name} (${project.reference}) — ${[project.location, project.city].filter(Boolean).join(', ')}.`,
-        `Stage: ${LIFECYCLE_STAGE_LABEL[project.currentStage]}. Health: ${project.health}.`,
+        `Stage: ${stageAndStep(project.currentStage)}. Health: ${project.health}.`,
       ];
       if (project.parcelId) lines.push(`Parcel: ${project.parcelId}.`);
       if (project.landAreaSqm) lines.push(`Land: ${Math.round(project.landAreaSqm).toLocaleString('en-IN')} sqm.`);

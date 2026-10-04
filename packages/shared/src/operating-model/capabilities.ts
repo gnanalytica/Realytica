@@ -6,6 +6,7 @@
 import { REFERENCE_DATA } from '../reference';
 import type { LocalityReference } from '../types';
 import { LIFECYCLE_STAGE_LABEL } from './catalogs';
+import { stageAndStep } from './departments';
 import {
   addAction,
   addDecision,
@@ -420,7 +421,7 @@ export function computeCapabilityRuns(project: DdProject): CapabilityRun[] {
     {
       kind: 'schedule',
       status: 'computed',
-      summary: `Stage ${LIFECYCLE_STAGE_LABEL[project.currentStage]}. ${overdue} overdue actions, ${scheduleFindings.length} open schedule findings.`,
+      summary: `Stage ${stageAndStep(project.currentStage)}. ${overdue} overdue actions, ${scheduleFindings.length} open schedule findings.`,
       metrics: {
         overdue,
         openFindings: scheduleFindings.length,
@@ -700,9 +701,9 @@ export function proposeAiDrafts(project: DdProject, actor = 'operator', source: 
   created.push(
     pushDraft(project, {
       kind: 'orchestrator_plan',
-      title: `DD plan at ${LIFECYCLE_STAGE_LABEL[project.currentStage]}`,
+      title: `DD plan at ${stageAndStep(project.currentStage)}`,
       body: [
-        `Stage: ${LIFECYCLE_STAGE_LABEL[project.currentStage]}.`,
+        `Stage: ${stageAndStep(project.currentStage)}.`,
         `Active DDs: ${project.assessments.filter((a) => a.status === 'active' || a.status === 'in_review').length}.`,
         recommended.length ? `Recommended templates not yet running: ${recommended.map((d) => d.label).join(', ')}.` : 'All recommended templates for this stage have been instantiated.',
         `${gaps.length} evidence gaps, ${material.length} high/critical open findings, ${pending.length} unfinished checks.`,

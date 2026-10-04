@@ -7,7 +7,8 @@
  * Model conclusions stay propose-and-review.
  */
 
-import { CHECK_RESULT_LABEL, LIFECYCLE_STAGE_LABEL, REPORT_KIND_LABEL } from './catalogs';
+import { CHECK_RESULT_LABEL, REPORT_KIND_LABEL } from './catalogs';
+import { stageAndStep } from './departments';
 import { factsAwaitingReview, proposedFacts } from './fact-review';
 import { lastAssistantTurn } from './sitting';
 import { contestedKeys, decideCheckFields, reviewFacts, waitingFieldKeys } from './review';
@@ -690,7 +691,7 @@ export function projectRegisterBriefing(project: DdProject, viewContext?: string
 
   const lines = [
     `Today: ${next.title}. ${next.why}`,
-    `Project ${project.reference} — ${project.name}. Stage ${LIFECYCLE_STAGE_LABEL[project.currentStage]}; health ${project.health}.`,
+    `Project ${project.reference} — ${project.name}. Stage ${stageAndStep(project.currentStage)}; health ${project.health}.`,
     viewContext ? `Reader is looking at: ${viewContext}.` : null,
     `Pack completeness: ${pack.percent}% (${pack.received}/${pack.total} core items${pack.missing ? `; still missing ${pack.missingTitles.slice(0, 4).join(', ')}` : ''}). Library completeness is a separate long-tail figure.`,
     material.length

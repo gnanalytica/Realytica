@@ -5,7 +5,8 @@
  * item, one material finding — then the registers already hold the rest.
  */
 
-import { LIFECYCLE_STAGE_LABEL, SCOPE_LABEL } from './catalogs';
+import { SCOPE_LABEL } from './catalogs';
+import { stageAndStep } from './departments';
 import type { ProjectCockpitPane } from './cockpit';
 import {
   assessmentProgress,
@@ -337,10 +338,10 @@ export function projectNextStep(project: DdProject, actor = 'operator'): NextSte
       return {
         kind: 'start_dd',
         title: `Start ${rec.label}`,
-        why: `You’re at ${LIFECYCLE_STAGE_LABEL[project.currentStage]} with nothing running.`,
+        why: `You’re at ${stageAndStep(project.currentStage)} with nothing running.`,
         text: spoken(
                     `Start the ${rec.label}.`,
-          `You’re at ${LIFECYCLE_STAGE_LABEL[project.currentStage]} with nothing running.`,
+          `You’re at ${stageAndStep(project.currentStage)} with nothing running.`,
           'They are waiting on the right. One at a time — the rest can wait.',
         ),
         proposals: [card],

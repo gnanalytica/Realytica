@@ -2,7 +2,7 @@
 
 One workspace for a property's whole life — land, design, approvals, construction, sales and handover, then running the finished building — and for every profession that works on it.
 
-A project moves through **four stages** (Pre-development, Design & Tender, Construction, Operations), its work is divided into **departments** (Finance, Legal, Design, Construction, Procurement, Commercial), and each department holds **workstreams** — Title, Approvals, Valuation, Progress — with a living **quick assessment**, the **certified reports** professionals sign, their checks, records and documents. One chat works across all of it; the links between departments live in a Neo4j graph.
+A project moves through **four stages** (Land, Pre-construction, Under construction, Completed), its work is divided into **departments** (Legal, Finance, Engineering, Commercial, Procurement, with Design worked inside Engineering), and each department holds **workstreams** — Title, Approvals, Valuation, Progress — with a living **quick assessment**, the **certified reports** professionals sign, their checks, records and documents. One chat works across all of it; the links between departments live in a Neo4j graph.
 
 | | |
 |---|---|

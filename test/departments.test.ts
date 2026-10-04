@@ -12,6 +12,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   DEPARTMENTS,
+  LIFECYCLE_STAGE_LABEL,
+  STAGES,
+  SUB_STAGES,
+  SUB_STAGE_LABEL,
   WORKSTREAMS,
   addEvidence,
   addMilestones,
@@ -32,6 +36,7 @@ import {
   evaluateRevisits,
   fileCertifiedReport,
   graphImpact,
+  interpretConversation,
   logSiteEntry,
   parseDocumentText,
   progressSummary,
@@ -72,6 +77,31 @@ describe('the frame', () => {
     assert.equal(stageAndStep('construction'), 'Under construction');
     assert.equal(stageAndStep('approvals'), 'Pre-construction · Approvals');
     assert.equal(stageAndStep('pre_construction'), 'Under construction · Mobilisation');
+  });
+
+  it('calls no step by the name of a stage, and each step by one name', () => {
+    for (const step of SUB_STAGES) {
+      for (const stage of STAGES) {
+        assert.notEqual(SUB_STAGE_LABEL[step].toLowerCase(), stage.label.toLowerCase(), `the step ${step} carries the name of the stage ${stage.key}`);
+      }
+      assert.equal(LIFECYCLE_STAGE_LABEL[step], SUB_STAGE_LABEL[step], `${step} has two names`);
+    }
+  });
+
+  it('reads a stage named in chat as that stage, not as the step that once had its name', () => {
+    const movedTo = (said: string, from: DdProject['currentStage'] = 'feasibility') => {
+      const move = interpretConversation(project(from), said).proposals.find((x) => x.kind === 'change_stage');
+      return (move?.payload as { stage?: string } | undefined)?.stage;
+    };
+    assert.equal(movedTo('move the project to pre-construction'), 'design', 'the stage is entered by its first step');
+    assert.equal(movedTo('move the project to under construction'), 'construction');
+    assert.equal(movedTo('move the project to completed'), 'handover');
+    assert.equal(movedTo('move the project to land', 'design'), 'opportunity_site');
+    assert.equal(movedTo('move the project to mobilisation'), 'pre_construction', 'the step is reached by its own name');
+    assert.equal(movedTo('move the project to construction'), 'construction');
+    assert.equal(movedTo('move the project to tender & procurement'), 'procurement');
+    assert.equal(movedTo('move the project to approvals'), 'approvals');
+    assert.equal(movedTo('the project moved to the land registry office'), undefined, 'an ordinary word is not a stage');
   });
 
   it('reads the timeline from the project and its phases', () => {

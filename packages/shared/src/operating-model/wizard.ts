@@ -30,7 +30,7 @@ import {
   recommendedDdTypes,
   updateEvidenceStatus,
 } from './operations';
-import { LIFECYCLE_STAGE_LABEL, LIFECYCLE_STAGES, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
+import { LIFECYCLE_STAGES, REPORT_KIND_LABEL, SCOPE_LABEL } from './catalogs';
 import { mergeQuoteLists, proposalExtractionNotes, proposalQuotes, sittingCheckOf, type SittingRef } from './sitting';
 import type {
   CheckResult,
@@ -63,7 +63,7 @@ import type { DocumentFact } from './document-parse';
 import { documentTypeOfKind, setDocumentWorkstream } from './vault';
 import { setProjectDepartments } from './team';
 import { addRequest } from './project-requests';
-import { DEPARTMENT_KEYS, type DepartmentKey } from './departments';
+import { DEPARTMENT_KEYS, STAGES, stageAndStep, stageEntryStep, type DepartmentKey } from './departments';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -268,7 +268,7 @@ export function buildWizardProposals(project: DdProject, actor = 'operator'): Ch
       proposal(
         'add_asset',
         `Add asset: ${hint.name}`,
-        `A ${project.type.replaceAll('_', ' ')} project at ${LIFECYCLE_STAGE_LABEL[project.currentStage]} usually records ${hint.assetType.toLowerCase()} as its own asset so DDs can target it.`,
+        `A ${project.type.replaceAll('_', ' ')} project at ${stageAndStep(project.currentStage)} usually records ${hint.assetType.toLowerCase()} as its own asset so DDs can target it.`,
         'Creates an asset node. Later DDs can target it instead of the whole project.',
         { name: hint.name, assetType: hint.assetType } satisfies CreateAssetInput,
         actor,
@@ -1026,10 +1026,43 @@ function inferAssetType(name: string, extra = ''): string {
   return extra.trim() || 'Asset';
 }
 
+/** Lower case, with every run of punctuation a single space, padded so a name is found only as whole words. */
+function plainWords(text: string): string {
+  return ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
+}
+
+/**
+ * The step a sentence names, by its own name or by the name of its stage.
+ *
+ * A stage's name means the step a project enters it by: "move the project to
+ * pre-construction" is Design, the first step of that stage, and never the
+ * Mobilisation step, which carried that name before the stages were renamed.
+ * Where one name sits inside another the longer one wins, so "under
+ * construction" and "pre-construction" are the stages and not the
+ * Construction step found inside the words.
+ *
+ * "Land" and "Completed" are ordinary words ("add the land parcel", "the
+ * tower completed in 2019"), so they count as a stage only where the
+ * sentence ends on them or calls them a stage.
+ */
 function matchStage(text: string): LifecycleStage | undefined {
-  const t = text.toLowerCase();
-  const byLabel = LIFECYCLE_STAGES.find((s) => t.includes(s.label.toLowerCase()) || t.includes(s.key.replaceAll('_', ' ')));
-  return byLabel?.key;
+  const t = plainWords(text);
+  const names: Array<{ name: string; step: LifecycleStage; common?: boolean }> = [
+    ...STAGES.map((s) => ({ name: s.label, step: stageEntryStep(s.key), common: s.key === 'pre_development' || s.key === 'operations' })),
+    ...LIFECYCLE_STAGES.flatMap((s) => [
+      { name: s.label, step: s.key },
+      { name: s.key.replaceAll('_', ' '), step: s.key },
+    ]),
+  ];
+  let best: { step: LifecycleStage; length: number } | undefined;
+  for (const { name, step, common } of names) {
+    const plain = plainWords(name);
+    const word = plain.trim();
+    const said = common ? new RegExp(` (?:to|at|in|is) (?:the )?${word}(?: stage)? $| ${word} stage `).test(t) : t.includes(plain);
+    // First found keeps a tie: the stages are listed first, so "pre construction" is the stage.
+    if (said && (!best || word.length > best.length)) best = { step, length: word.length };
+  }
+  return best?.step;
 }
 
 function matchExistingAsset(project: DdProject, text: string) {
@@ -1176,7 +1209,7 @@ export function interpretConversation(project: DdProject, question: string, acto
         proposal(
           'add_asset',
           `Add asset: ${name}`,
-          `Chat named “${name}” as ${type.toLowerCase()}${stage ? ` at ${LIFECYCLE_STAGE_LABEL[stage]}` : ''}.`,
+          `Chat named “${name}” as ${type.toLowerCase()}${stage ? ` at ${stageAndStep(stage)}` : ''}.`,
           'Creates the asset on the project tree. Later DDs can target it.',
           { name, assetType: type, currentStage: stage } satisfies CreateAssetInput,
           actor,
@@ -1231,8 +1264,8 @@ export function interpretConversation(project: DdProject, question: string, acto
       out.push(
         proposal(
           'change_stage',
-          `Move ${stagedAsset.name} to ${LIFECYCLE_STAGE_LABEL[stage]}`,
-          `Currently ${LIFECYCLE_STAGE_LABEL[stagedAsset.currentStage]}.`,
+          `Move ${stagedAsset.name} to ${stageAndStep(stage)}`,
+          `Currently ${stageAndStep(stagedAsset.currentStage)}.`,
           'Writes a stage history row on the asset.',
           { subject: 'asset', assetId: stagedAsset.id, stage, reason: q.slice(0, 180) },
           actor,
@@ -1243,8 +1276,8 @@ export function interpretConversation(project: DdProject, question: string, acto
       out.push(
         proposal(
           'change_stage',
-          `Move project to ${LIFECYCLE_STAGE_LABEL[stage]}`,
-          `Currently ${LIFECYCLE_STAGE_LABEL[project.currentStage]}.`,
+          `Move project to ${stageAndStep(stage)}`,
+          `Currently ${stageAndStep(project.currentStage)}.`,
           'Writes a stage history row on the project.',
           { subject: 'project', stage, reason: q.slice(0, 180) },
           actor,

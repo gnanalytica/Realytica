@@ -10,7 +10,7 @@ const LABEL: Record<string, string> = {
   design: 'Design',
   approvals: 'Approvals',
   procurement: 'Tender & procurement',
-  pre_construction: 'Pre-construction',
+  pre_construction: 'Mobilisation',
   construction: 'Construction',
   testing_commissioning: 'Testing & commissioning',
   completion: 'Completion',
@@ -20,7 +20,7 @@ const LABEL: Record<string, string> = {
 
 /**
  * The lifecycle in order, in its four phases. Mirrors STAGES in the same
- * shared file: pre-development, design & tender, construction, operations.
+ * shared file: land, pre-construction, under construction, completed.
  */
 export const STAGE_PHASES: readonly (readonly string[])[] = [
   ['opportunity_site', 'feasibility', 'acquisition'],

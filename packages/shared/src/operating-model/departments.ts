@@ -17,6 +17,7 @@
  * title check serves every engagement that needs it.
  */
 
+import { LIFECYCLE_STAGE_LABEL } from './catalogs';
 import type { DdProject, LifecycleStage } from './types';
 
 /* ==================================================================== */
@@ -38,21 +39,27 @@ export const STAGES: readonly StageDefinition[] = [
   { key: 'operations', label: 'Completed', subStages: ['handover', 'operations'] },
 ];
 
-export const SUB_STAGE_LABEL: Record<LifecycleStage, string> = {
-  opportunity_site: 'Opportunity',
-  feasibility: 'Feasibility',
-  acquisition: 'Acquisition',
-  design: 'Design',
-  approvals: 'Approvals',
-  procurement: 'Tender & procurement',
-  // Not "Pre-construction": that is the name of the stage before this one.
-  pre_construction: 'Mobilisation',
-  construction: 'Construction',
-  testing_commissioning: 'Testing & commissioning',
-  completion: 'Completion',
-  handover: 'Handover',
-  operations: 'Operations',
+/** A step's name. One set of names for the twelve steps, kept with the steps themselves. */
+export const SUB_STAGE_LABEL: Record<LifecycleStage, string> = LIFECYCLE_STAGE_LABEL;
+
+/**
+ * The step a project enters a stage by.
+ *
+ * People name stages ("move it to pre-construction"); the record keeps the
+ * finer step. So a stage's name means this step of it: the first, except for
+ * Under construction, which means the work itself and not the mobilising
+ * before it.
+ */
+const STAGE_ENTRY: Record<StageKey, LifecycleStage> = {
+  pre_development: 'opportunity_site',
+  design_tender: 'design',
+  construction: 'construction',
+  operations: 'handover',
 };
+
+export function stageEntryStep(key: StageKey): LifecycleStage {
+  return STAGE_ENTRY[key];
+}
 
 const STAGE_OF: Record<LifecycleStage, StageKey> = Object.fromEntries(
   STAGES.flatMap((s) => s.subStages.map((sub) => [sub, s.key])),
