@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Reveal } from '../../../lib/motion';
 import { DEPARTMENT_ICON } from '../../../components/departments/icons';
 import { Navigate, useNavigate, useOutletContext, useParams } from 'react-router-dom';
-import { Clock } from 'lucide-react';
+import { Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Stamp, Waypoints } from 'lucide-react';
 import {
   STAGES,
   cockpitPath,
@@ -12,6 +12,7 @@ import {
   workstreamDefinition,
   workstreamDocuments,
   type DdProject,
+  type WorkstreamDefinition,
 } from '@realytica/shared';
 import { Card, CardBody, CardHeader } from '../../../components/ui/kit';
 import { QuickAssessmentCard, useQuickAssessment } from '../../../components/departments/QuickAssessmentCard';
@@ -23,6 +24,7 @@ import { ProgressBoard } from '../../../components/departments/ProgressBoard';
 import { DepartmentDesk } from '../../../components/departments/DepartmentDesk';
 import { TitleChainDiagram } from '../../../components/charts';
 import { ScheduleOfProperty } from '../../../components/ScheduleOfProperty';
+import { SectionPage, type PageSection } from '../../../components/workspace/SectionPage';
 import { WORKSTREAM_PANE } from '../cockpit/rail';
 import type { ProjectOutlet } from '../ProjectLayout';
 
@@ -88,9 +90,7 @@ function ComingSoon({ project, workstream }: { project: DdProject; workstream: s
   );
 }
 
-function TitleBody({ project }: { project: DdProject }) {
-  const graph = useMemo(() => titleGraphFromProject(project), [project]);
-  if (!graph.nodes.length) return null;
+function TitleBody({ project, graph }: { project: DdProject; graph: ReturnType<typeof titleGraphFromProject> }) {
   // Approvals alone are context, not a chain: say what draws one instead.
   if (!graph.nodes.some((n) => n.kind === 'party' || n.kind === 'instrument' || n.kind === 'parcel')) {
     return (
@@ -154,17 +154,61 @@ export default function WorkstreamPage() {
           frame={<WorkstreamFrame project={project} workstream={ws.key} setProject={setProject} />}
         />
       ) : (
-        <>
-          <WorkstreamFrame project={project} workstream={ws.key} setProject={setProject} />
-          {ws.key === 'legal.approvals' ? <ApprovalsRegister project={project} onOpenDocument={nav.openDocument} /> : null}
-          {ws.key === 'construction.progress' ? <ProgressBoard project={project} onChanged={setProject} onPairPhone={nav.pairPhone} /> : null}
-          {ws.key === 'legal.title' ? <TitleBody project={project} /> : null}
-          <div className="grid grid-cols-1 gap-4 [@container(min-width:56rem)]:grid-cols-2">
-            <WorkstreamChecks project={project} workstream={ws.key} onChanged={setProject} onOpenCheck={nav.openCheck} />
-            <WorkstreamDocuments project={project} workstream={ws.key} onOpenDocument={nav.openDocument} />
-          </div>
-        </>
+        <FunctionSections project={project} ws={ws} setProject={setProject} />
       )}
     </div>
   );
+}
+
+/**
+ * A built function as one page with a rail: how it stands, the work that is
+ * its own, then its checks, its documents and what it is joined to.
+ *
+ * The same parts in the same order for every function, with the centrepiece
+ * differing: the approvals register, the progress board, the chain of title.
+ * The rail names them, so a long page is one press from any of its parts.
+ */
+function FunctionSections({ project, ws, setProject }: { project: DdProject; ws: WorkstreamDefinition; setProject: (p: DdProject) => void }) {
+  const nav = useWorkstreamNav(project);
+  const assessment = useQuickAssessment(project, ws.key);
+  const chain = useMemo(() => (ws.key === 'legal.title' ? titleGraphFromProject(project) : null), [project, ws.key]);
+
+  const centre: PageSection | null =
+    ws.key === 'legal.approvals'
+      ? { id: 'approvals', name: 'Approvals', icon: Stamp, body: <ApprovalsRegister project={project} onOpenDocument={nav.openDocument} /> }
+      : ws.key === 'construction.progress'
+        ? { id: 'progress', name: 'Progress', icon: Milestone, body: <ProgressBoard project={project} onChanged={setProject} onPairPhone={nav.pairPhone} /> }
+        : chain?.nodes.length
+          ? { id: 'chain', name: 'Chain of title', icon: GitCommitVertical, body: <TitleBody project={project} graph={chain} /> }
+          : null;
+
+  const sections: PageSection[] = [
+    {
+      id: 'standing',
+      name: 'Estimate and certified',
+      icon: Gauge,
+      body: (
+        <div className="grid grid-cols-1 gap-4 [@container(min-width:56rem)]:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+          <QuickAssessmentCard assessment={assessment} />
+          <CertifiedPanel project={project} workstream={ws.key} onChanged={setProject} />
+        </div>
+      ),
+    },
+    ...(centre ? [centre] : []),
+    { id: 'checks', name: 'Checks', icon: ListChecks, body: <WorkstreamChecks project={project} workstream={ws.key} onChanged={setProject} onOpenCheck={nav.openCheck} /> },
+    { id: 'documents', name: 'Documents', icon: FileStack, body: <WorkstreamDocuments project={project} workstream={ws.key} onOpenDocument={nav.openDocument} /> },
+    {
+      id: 'connections',
+      name: 'Connections',
+      icon: Waypoints,
+      body: (
+        <>
+          <Connections project={project} workstream={ws.key} onOpenWorkstream={nav.openWorkstream} />
+          <WorkstreamEngagements project={project} workstream={ws.key} />
+        </>
+      ),
+    },
+  ];
+
+  return <SectionPage sections={sections} />;
 }

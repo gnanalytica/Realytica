@@ -4,16 +4,16 @@ Realytica is one workspace for a property's whole life — land, design, approva
 
 ## How a project is organised
 
-**Stages (when).** Four stages, each made of finer steps. The timeline sits at the top of every page; clicking a stage shows what happened in it.
+**Stages (when).** Four stages, each the state of the property: Land, Pre-construction, Under construction, Completed. The track of the four sits in the bar of every project page and shows no steps under them. Pressing a stage opens what was filed, checked and decided while the project was there. The finer steps are kept on the record, inside that stage's panel, and that is where a project is moved from one step to the next.
 
-| Stage | Steps |
+| Stage | Steps kept on the record |
 |---|---|
-| Pre-development | Opportunity · Feasibility · Acquisition |
-| Design & Tender | Design · Approvals · Tender & procurement |
-| Construction | Pre-construction · Construction · Testing & commissioning · Completion (OC) |
-| Operations | Handover · Operations (property management) |
+| Land | Opportunity · Feasibility · Acquisition |
+| Pre-construction | Design · Approvals · Tender & procurement |
+| Under construction | Mobilisation · Construction · Testing & commissioning · Completion (OC) |
+| Completed | Handover · Operations (property management) |
 
-A phased project can have each phase at its own step; phases show as markers on the timeline.
+A phased project can have each phase at its own step; the stage's panel lists the phases standing at a step of their own.
 
 **Departments (what kind of work).** Six departments, each a separate module that links to the others. A firm switches on its usual set; each project can override it.
 
@@ -28,6 +28,8 @@ A phased project can have each phase at its own step; phases show as markers on 
 
 Bold workstreams are built; the rest are listed with what they will produce.
 
+The menu shows five departments, by one word each: Legal, Finance, Engineering, Commercial, Procurement. Design & Architecture is worked inside Engineering, as its **Design** function; the record underneath still keeps it as a department with its own people and roles. A workstream is called a function in the menu and carries one word on its tab (Title, Approvals, Valuation, Technical, Site and so on).
+
 A project's departments are chosen when it is made and changed from **Overview › Departments on this project** (a workspace admin's control). Switching one off hides it and deletes nothing. A new project starts from the departments the firm's last project used.
 
 **An engineering-only project.** A firm doing only the technical work runs Engineering & Construction alone. Its technical due diligence is one screen in five steps, each showing its own count: **Documents**, **Questions**, **Site**, **Observations**, **Report**. Four figures sit above them: documents in hand, checks answered, open findings and the cost to remedy. An observation carries its own cost to fix and when the money is needed; that figure is the remedy the cost table sums, so it is entered once. Documents are dropped straight onto the Documents step.
@@ -36,7 +38,11 @@ A project's departments are chosen when it is made and changed from **Overview �
 
 **In the graph.** A questionnaire is a node in its department's work, and every answered question is a node joined to the documents and photographs that prove it; an answer a model suggested is marked until a person confirms it.
 
-**One short menu.** A project's top bar is Overview, its departments, People and Graph. Documents, checks, findings, risks and actions, and reports are worked on inside each department; Overview has one row of links to the same lists across the whole project.
+**One short menu.** A project's bar has one selector that says where you are: Overview, a department, or a place the whole project shares (Documents, Registers, Reports, People, Graph). Beside it is the track of the four stages. Inside a department the row under the bar is its functions, one tab each, sharing the row equally, with **Summary** first for what belongs to the department as a whole; a function that is not built yet is listed in a quieter ink. The tabs carry no counts: a blue dot says something there waits for a person. Documents, checks, findings, risks and actions, and reports are worked on inside each department; Overview has one row of links to the same lists across the whole project.
+
+**A function is one page.** A built function (Title, Approvals, Progress) is one scrolling page with a rail of its parts down the left: the estimate beside the certified report, the work that is its own (the chain of title, the approvals register, the progress board), its checks, its documents and its connections. The rail is a column of icons that opens to show the names on hover; on a phone it lies across the top.
+
+**Colour.** Teal marks what is picked or can be followed; blue marks what the copilot wrote or suggested and no person has accepted yet; green, amber and red are kept for status.
 
 - **Observations and mitigations** (step 4) is the table the report is read for: area by area, what was seen, its risk category, the mitigation, the code it is judged against, and the photographs that show it. An observation is a finding — the same record a check raises or the chat proposes — so nothing is entered twice. Below the table sit the photographs nothing cites yet, from the document register and from the phone's site log, each with what a model saw in it and any finding it suggested; one press starts an observation from a photograph or attaches it to one. A site-log photograph is filed onto the register the first time it is used.
 - **Photographs** (step 3) is a contact sheet of every photograph on the project, from the document register and the phone's site log. Each has a caption and an area to fill in, a description, and one switch for whether it prints in the report. A photograph an observation cites is in the report with that observation, and says so. The description works the way a value read off a document does: a model's reading (what is visible, never a cause or a severity) arrives on the photograph as a suggestion, a person accepts it or edits it, and only then is it the photograph's description and printed in the report. A person can also write it without asking a model.

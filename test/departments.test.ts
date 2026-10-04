@@ -68,9 +68,10 @@ describe('the frame', () => {
     assert.deepEqual(scopesOfWorkstreams(['legal.title']).includes('legal'), true);
   });
 
-  it('names the stage once where the step is named for it', () => {
-    assert.equal(stageAndStep('construction'), 'Construction');
-    assert.equal(stageAndStep('approvals'), 'Design & Tender · Approvals');
+  it('names the stage alone for the step that is the stage itself', () => {
+    assert.equal(stageAndStep('construction'), 'Under construction');
+    assert.equal(stageAndStep('approvals'), 'Pre-construction · Approvals');
+    assert.equal(stageAndStep('pre_construction'), 'Under construction · Mobilisation');
   });
 
   it('reads the timeline from the project and its phases', () => {

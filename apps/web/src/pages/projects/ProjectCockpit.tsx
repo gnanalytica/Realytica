@@ -50,7 +50,7 @@ import { healthTone } from './shared';
 import { RouteErrorBoundary } from '../../components/layout/ErrorBoundary';
 import type { ProjectOutlet } from './ProjectLayout';
 import { ProjectCommandBar } from './cockpit/ProjectCommandBar';
-import { CockpitPaneStrip, ReviewPill, WORKSTREAM_PANE, paneLabel } from './cockpit/rail';
+import { CockpitPaneStrip, ProjectPicker, ReviewPill, WORKSTREAM_PANE, paneLabel } from './cockpit/rail';
 import { StageTimeline } from '../../components/departments/StageTimeline';
 import { AlertsBell } from '../../components/departments/AlertsBell';
 import type { PhaseOpen } from '../../components/project/PhaseRecord';
@@ -899,10 +899,10 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
             Portfolio
           </Link>
           {/* The name is the top bar's switcher, forty pixels up; this row
-              carries the way back and the state of the file. */}
-          <div className="min-w-0 flex-1 px-2">
-            <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} />
-          </div>
+              carries the way back, where in the project you are, the stage
+              it has reached and the state of the file. */}
+          <ProjectPicker pane={pane} project={project} department={params.department} workstream={params.workstream} onGo={goPane} waiting={waiting} />
+          <StageTimeline project={project} onChanged={setProject} onOpen={openFromStage} />
           {waiting.total > 0 ? <ReviewPill n={waiting.total} onClick={() => goWaiting()} /> : null}
           <Badge tone={healthTone(project.health)}>{PROJECT_HEALTH_LABEL[project.health]}</Badge>
           <AlertsBell project={project} onChanged={setProject} onOpenWorkstream={(key) => goPane(WORKSTREAM_PANE[key] ?? 'workstream', { workstream: key })} />
@@ -945,13 +945,12 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
           <Link to="/portfolio" aria-label="Back to the portfolio" className="grid size-9 shrink-0 place-items-center rounded-lg text-ink-secondary hover:bg-sunken hover:text-ink coarse:size-11">
             <ChevronLeft size={18} />
           </Link>
-          {/* The page's name keeps a few words however narrow the phone: the
-              stage pill beside it truncates first. */}
+          {/* Where you are keeps a few words however narrow the phone: the
+              stage pill beside it truncates first. It is the selector itself,
+              so the place is named once and is also the way to any other. */}
           <div className="min-w-[4.5rem] flex-1 leading-tight">
             <p className="truncate text-[11px] font-medium text-ink-muted">{project.name}</p>
-            <p className="truncate text-[14px] font-semibold tracking-tight text-ink">
-              {mobileSurface === 'chat' ? 'Chat' : paneLabel(pane, params)}
-            </p>
+            <ProjectPicker pane={pane} project={project} department={params.department} workstream={params.workstream} onGo={goPane} waiting={waiting} dense />
           </div>
           {/*
             Held sideways a phone has width to spare and almost no height, so

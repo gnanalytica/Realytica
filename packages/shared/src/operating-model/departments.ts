@@ -2,9 +2,10 @@
  * How a project is organised: four stages, six departments, and the
  * workstreams inside each department.
  *
- * - A **stage** is when: Pre-development, Design & Tender, Construction,
- *   Operations, each made of the finer lifecycle stages the project moves
- *   through.
+ * - A **stage** is the state of the property: Land, Pre-construction, Under
+ *   construction, Completed. The menu shows these four and nothing under
+ *   them; the finer lifecycle steps a project moves through are kept on its
+ *   record and in its stage history.
  * - A **department** is what kind of work: Finance, Legal, Design,
  *   Construction, Procurement, Commercial. A firm switches departments on by
  *   default and a project can override that.
@@ -31,10 +32,10 @@ export interface StageDefinition {
 }
 
 export const STAGES: readonly StageDefinition[] = [
-  { key: 'pre_development', label: 'Pre-development', subStages: ['opportunity_site', 'feasibility', 'acquisition'] },
-  { key: 'design_tender', label: 'Design & Tender', subStages: ['design', 'approvals', 'procurement'] },
-  { key: 'construction', label: 'Construction', subStages: ['pre_construction', 'construction', 'testing_commissioning', 'completion'] },
-  { key: 'operations', label: 'Operations', subStages: ['handover', 'operations'] },
+  { key: 'pre_development', label: 'Land', subStages: ['opportunity_site', 'feasibility', 'acquisition'] },
+  { key: 'design_tender', label: 'Pre-construction', subStages: ['design', 'approvals', 'procurement'] },
+  { key: 'construction', label: 'Under construction', subStages: ['pre_construction', 'construction', 'testing_commissioning', 'completion'] },
+  { key: 'operations', label: 'Completed', subStages: ['handover', 'operations'] },
 ];
 
 export const SUB_STAGE_LABEL: Record<LifecycleStage, string> = {
@@ -44,7 +45,8 @@ export const SUB_STAGE_LABEL: Record<LifecycleStage, string> = {
   design: 'Design',
   approvals: 'Approvals',
   procurement: 'Tender & procurement',
-  pre_construction: 'Pre-construction',
+  // Not "Pre-construction": that is the name of the stage before this one.
+  pre_construction: 'Mobilisation',
   construction: 'Construction',
   testing_commissioning: 'Testing & commissioning',
   completion: 'Completion',
@@ -61,11 +63,11 @@ export function stageOf(subStage: LifecycleStage): StageKey {
   return STAGE_OF[subStage] ?? 'pre_development';
 }
 
-/** "Design & Tender · Approvals", or just "Construction" where the step is named for its stage. */
+/** "Pre-construction · Approvals", or just "Under construction" for the step that is the stage itself. */
 export function stageAndStep(subStage: LifecycleStage): string {
   const stage = stageDefinition(stageOf(subStage)).label;
-  const step = SUB_STAGE_LABEL[subStage];
-  return stage === step ? stage : `${stage} · ${step}`;
+  if (subStage === 'construction') return stage;
+  return `${stage} · ${SUB_STAGE_LABEL[subStage]}`;
 }
 
 export function stageDefinition(key: StageKey): StageDefinition {

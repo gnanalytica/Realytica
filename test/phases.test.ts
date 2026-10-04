@@ -79,6 +79,6 @@ describe('what happened in a phase', () => {
     assert.equal(phaseCount(phaseRecord(p, { kind: 'step', key: 'handover' })), 0);
     const pre = phaseRecord(p, { kind: 'stage', key: 'pre_development' });
     assert.deepEqual(pre.findings.map((f) => f.title).sort(), ['Encroachment on the east boundary', 'Khata in a predecessor name'], 'the whole stage holds both steps');
-    assert.equal(pre.label, 'Pre-development');
+    assert.equal(pre.label, 'Land');
   });
 });
