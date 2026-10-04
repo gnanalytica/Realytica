@@ -30,6 +30,20 @@ export function isPreviewDeployment(env: NodeJS.ProcessEnv = process.env): boole
 
 export const PREVIEW_KEEPS_NO_GRAPH = 'A preview keeps no graph of its own, so a note cannot be saved here. Write it on the live site.';
 
+/**
+ * What a graph answer on this deployment is read from, for the responses that
+ * name it: the store, or `projection` on a preview.
+ *
+ * A preview is handed the live site's store and reads nothing from it, so
+ * naming the store there says the answer came from Neo4j when it was built
+ * from the registers a moment ago. Health and the graph routes say the same
+ * word, the one the impact route already answers with when its walk ran over
+ * the registers.
+ */
+export function graphAnsweredBy(adapter: GraphAdapter): GraphAdapter['kind'] | 'projection' {
+  return adapter.detached ? 'projection' : adapter.kind;
+}
+
 /** The same store, with every write but a purge refused and every read unanswered. */
 export function detached(store: GraphAdapter): GraphAdapter {
   return {

@@ -54,26 +54,32 @@ import {
   PROJECT_EDGE_KINDS,
   PROJECT_EDGE_LABEL,
   PROJECT_EDGE_LABEL_AWAITED,
+  PROJECT_EDGE_LABEL_SET_ASIDE,
   PROJECT_NODE_KINDS,
   projectEdgeEndpointsValid,
   projectEdgePhrase,
   projectFrameLabels,
+  projectFrameNames,
   projectLayerFor,
   projectNodeAwaited,
+  projectNodeSetAside,
   proposeAiDrafts,
   seedBdaReferenceProject,
   seedDemoProject,
   setProjectDepartments,
   setTeamMember,
   STAGES,
+  SUB_STAGES,
   SUB_STAGE_LABEL,
   systemLinks,
+  titleGraphFromProject,
   validateProjectGraph,
   WORKSTREAMS,
   workstreamChecks,
   type DdProject,
   type ProjectGraphEdge,
   type ProjectGraphNode,
+  type ProjectLink,
   type TitleGraphSummary,
 } from '@realytica/shared';
 
@@ -552,6 +558,66 @@ describe('the names people still use find something', () => {
       assert.ok(hits.every((n) => n.kind === 'workstream'));
     }
   });
+
+  it('finds the stages, the departments and the functions by the words on the page, one or many', () => {
+    // "Stages" and "Departments" are headings a person reads, and asks by.
+    const graph = buildProjectGraph(bareProject());
+    for (const [word, kind, count] of [
+      ['stage', 'stage', 4],
+      ['stages', 'stage', 4],
+      ['Stages', 'stage', 4],
+      ['department', 'department', 5],
+      ['departments', 'department', 5],
+      ['Departments', 'department', 5],
+      ['workstreams', 'workstream', 24],
+    ] as const) {
+      assert.equal(findProjectNodes(graph, word).filter((n) => n.kind === kind).length, count, `"${word}"`);
+    }
+    // A plural is the word for a kind of the frame and nothing else.
+    assert.deepEqual(findProjectNodes(graph, 'stages').map((n) => n.kind), ['stage', 'stage', 'stage', 'stage']);
+    assert.deepEqual(findProjectNodes(graph, 'departments').map((n) => n.kind), ['department', 'department', 'department', 'department', 'department']);
+  });
+
+  it('puts an id of the frame into words, whether or not the frame draws it', () => {
+    const project = bareProject();
+    const named = (tail: string) => projectFrameNames(`${project.id}::${tail}`);
+
+    // Whatever the frame draws is named, and by the word the frame gives it.
+    const drawn = projectFrameLabels(project);
+    assert.equal(drawn.length, 4 + 5 + 24);
+    for (const { id, label } of drawn) {
+      assert.ok(projectFrameNames(id).some((name) => label === name || label.endsWith(` › ${name}`)), `${id} is drawn as "${label}" and named ${JSON.stringify(projectFrameNames(id))}`);
+    }
+
+    // A step was a node while there were twelve. Two of them share a key with
+    // the stage they are in, and that id is the stage's now.
+    for (const step of SUB_STAGES) {
+      const stage = STAGES.find((s) => s.key === step);
+      assert.deepEqual(named(`stage::${step}`), [stage ? stage.label : SUB_STAGE_LABEL[step]], step);
+    }
+    assert.deepEqual(named('stage::acquisition'), ['Acquisition']);
+    assert.deepEqual(named('stage::construction'), ['Under construction']);
+
+    // Design, as the department it is in the record and as each workstream.
+    assert.deepEqual(named('dept::design'), ['Design', 'Design & Architecture']);
+    assert.deepEqual(named('ws::design'), ['Design & Architecture', 'Design']);
+    assert.deepEqual(named('ws::design.drawings'), ['Drawings & versions']);
+    for (const workstream of WORKSTREAMS) assert.equal(named(`ws::${workstream.key}`)[0], workstream.label, workstream.key);
+
+    // A department switched off is not drawn, and is no less Procurement.
+    setProjectDepartments(project, ['legal'], 'tester');
+    assert.ok(!projectFrameLabels(project).some((row) => row.id.includes('procurement')));
+    assert.deepEqual(named('dept::procurement'), ['Procurement', 'Procurement & Supply Chain']);
+    assert.deepEqual(named('ws::procurement.orders'), ['Purchase orders & commitments', 'Orders']);
+    assert.deepEqual(named('ws::finance.tax'), ['Tax'], 'one name, when the word and the name in full are the same');
+
+    // A key that was never any of them has no name, nor has an id of another shape.
+    for (const id of ['stage::nowhere', 'dept::nobody', 'ws::legal.nothing', 'stage::constructor', 'dept::toString', 'ws::hasOwnProperty', 'approval::fire']) {
+      assert.deepEqual(named(id), [], id);
+    }
+    assert.deepEqual(projectFrameNames(project.id), []);
+    assert.deepEqual(projectFrameNames('legal'), []);
+  });
 });
 
 describe('nothing floats', () => {
@@ -770,14 +836,80 @@ describe('a link drawn by hand', () => {
 
   it('never refuses one of the system’s own', () => {
     // The system draws gates, feeds, cites, certifies and draws_on itself.
-    // Each of its links, drawn by hand, is one the refusal lets through.
+    // Each of its links, drawn by hand on the same file, is one both
+    // refusals let through: the kinds may be joined, and every end is there.
     const project = filledProject();
     const own = systemLinks(project);
     assert.deepEqual([...new Set(own.map((l) => l.type))].sort(), ['certifies', 'cites', 'draws_on', 'feeds', 'gates', 'relates']);
-    const scratch = bareProject();
     for (const link of own) {
-      assert.doesNotThrow(() => addLink(scratch, { from: link.from, to: link.to, type: link.type }, 'tester'), `${link.id} would be refused`);
+      assert.doesNotThrow(() => addLink(project, { from: link.from, to: link.to, type: link.type }, 'tester'), `${link.id} would be refused`);
     }
+    assert.deepEqual(validateProjectGraph(buildProjectGraph(project)), []);
+  });
+
+  it('is refused when an end is not what it is said to be', () => {
+    // The rule about kinds is asked of the kinds the caller declares. A
+    // document's id sent as a certified report's passed it, and the edge the
+    // graph then drew was `certifies` from a document, which the ontology
+    // forbids. So each id is looked up in the register of the kind declared.
+    const project = filledProject();
+    const document = project.evidence[0]!;
+    const report = project.certifiedReports![0]!;
+    const check = project.assessments[0]!.scopes[0]!.checks[0]!;
+    const before = (project.links ?? []).length;
+
+    assert.throws(
+      () => addLink(project, { from: { kind: 'certified', id: document.id }, to: ws('legal.title'), type: 'certifies' }, 'tester'),
+      new RegExp(`“${document.id}” is not a certified report on this project\\.`),
+      'a document passed off as a certified report',
+    );
+    assert.throws(() => addLink(project, { from: { kind: 'document', id: check.id }, to: { kind: 'check', id: check.id }, type: 'cites' }, 'tester'), /is not a document on this project/);
+    assert.throws(() => addLink(project, { from: { kind: 'finding', id: 'fnd_nothing' }, to: ws('legal.title'), type: 'relates' }, 'tester'), /“fnd_nothing” is not a finding on this project/);
+    assert.throws(() => addLink(project, { from: ws('legal.title'), to: ws('legal.nothing'), type: 'feeds' }, 'tester'), /“legal\.nothing” is not a function on this project/);
+    assert.throws(() => addLink(project, { from: { kind: 'approval', id: 'made_up' }, to: ws('legal.title'), type: 'gates' }, 'tester'), /is not an approval on this project/);
+    for (const kind of ['milestone', 'engagement', 'site_entry', 'check'] as const) {
+      assert.throws(() => addLink(project, { from: { kind, id: document.id }, to: ws('legal.title'), type: 'relates' }, 'tester'), /is not an? .+ on this project/, kind);
+    }
+    assert.equal((project.links ?? []).length, before, 'none of them is on the file');
+
+    // The same link with the record that is a certified report is taken.
+    assert.doesNotThrow(() => addLink(project, { from: { kind: 'certified', id: report.id }, to: ws('finance.valuation'), type: 'certifies' }, 'tester'));
+    // A function whose department is switched off is still a function, and an
+    // approval the project does not hold is still one the register knows.
+    const lean = bareProject();
+    setProjectDepartments(lean, ['finance'], 'tester');
+    assert.doesNotThrow(() => addLink(lean, { from: { kind: 'approval', id: 'fire' }, to: ws('construction.safety'), type: 'gates' }, 'tester'));
+    assert.deepEqual(validateProjectGraph(buildProjectGraph(lean)), [], 'it draws nothing while they are not drawn, and breaks nothing');
+  });
+
+  it('is left out of the graph when it was stored before the refusals existed', () => {
+    // A link is a record on the file, and the file is older than the checks.
+    // Whatever is stored, the graph draws a link only between two nodes it
+    // has, by a relation that may join the kinds those nodes really are.
+    const project = filledProject();
+    const document = project.evidence[0]!;
+    const check = project.assessments[0]!.scopes[0]!.checks[0]!;
+    const stored = (id: string, from: ProjectLink['from'], to: ProjectLink['to'], type: ProjectLink['type']): ProjectLink => ({ id, from, to, type, origin: 'person', createdAt: project.createdAt, createdBy: 'somebody' });
+    project.links = [
+      ...(project.links ?? []),
+      // A document's id, declared a certified report's.
+      stored('lnk_old_1', { kind: 'certified', id: document.id }, ws('legal.title'), 'certifies'),
+      // Kinds no relation of this sort joins.
+      stored('lnk_old_2', { kind: 'check', id: check.id }, ws('legal.title'), 'gates'),
+      stored('lnk_old_3', { kind: 'document', id: document.id }, ws('legal.title'), 'cites'),
+      // An id that is nothing.
+      stored('lnk_old_4', { kind: 'finding', id: 'fnd_gone' }, ws('legal.title'), 'relates'),
+      // And one that is fine, to show the others are left out for cause.
+      stored('lnk_old_5', { kind: 'check', id: check.id }, ws('finance.tax'), 'relates'),
+    ];
+    const graph = buildProjectGraph(project);
+    assert.deepEqual(validateProjectGraph(graph), [], 'nothing stored can put an edge in the graph the ontology forbids');
+    const title = `${project.id}::ws::legal.title`;
+    assert.ok(!graph.edges.some((e) => e.rel === 'certifies' && e.from === document.id), 'a document certifies nothing');
+    assert.ok(!graph.edges.some((e) => e.rel === 'gates' && e.from === check.id));
+    assert.ok(!graph.edges.some((e) => e.rel === 'supported_by' && e.from === title));
+    assert.ok(graph.edges.some((e) => e.rel === 'relates' && e.from === check.id && e.to === `${project.id}::ws::finance.tax`), 'a link the graph can draw is drawn');
+    assert.equal(JSON.stringify(buildProjectGraph(project)), JSON.stringify(graph));
   });
 });
 
@@ -930,6 +1062,22 @@ describe('the vocabulary is closed', () => {
     }
   });
 
+  it('labels the title chain diagram’s lines in plain words too', () => {
+    // The diagram shows a line's label when it is pointed at. It used to be
+    // the key with its underscores taken out: "conveyed to", "derives from".
+    const title = titleGraphFromProject(screenedProject());
+    assert.ok(title.edges.length > 0);
+    for (const edge of title.edges) assert.match(edge.label ?? '', /^[a-z]+( [a-z]+)*$/, edge.label);
+    const labelOf = (kind: string) => title.edges.find((e) => e.kind === kind)?.label;
+    assert.equal(labelOf('conveyed_to'), 'passed the land to');
+    assert.equal(labelOf('conveyed_by'), 'passed the land from');
+    assert.equal(labelOf('derives_from'), 'comes from');
+    assert.equal(labelOf('affects'), 'deals with');
+    assert.equal(labelOf('issued_by'), 'was issued by');
+    const keys = new Set(title.edges.map((e) => e.kind.replace(/_/g, ' ')));
+    assert.ok(!title.edges.some((e) => keys.has(e.label ?? '')), 'no key with its underscores removed');
+  });
+
   it('says a paper is still needed while it has not come, and rested on once it has', () => {
     // A check is joined to every document it expects and Approvals to every
     // approval the project needs, in hand or not. On this file almost every
@@ -950,8 +1098,7 @@ describe('the vocabulary is closed', () => {
     assert.equal(projectEdgePhrase('has_record', 'forward', missing), 'still needs');
     assert.equal(projectEdgePhrase('has_record', 'forward', filed), 'has on file');
     assert.equal(projectEdgePhrase('holds', 'forward', filed), 'holds');
-    // Refused is not in hand either; lapsed is on file, and held.
-    assert.equal(projectNodeAwaited({ kind: 'evidence', status: 'rejected' }), true);
+    // A lapsed approval is on file, and held.
     assert.equal(projectNodeAwaited({ kind: 'approval', status: 'expired' }), false);
     // A relation with one pair of words says them whatever it reaches.
     assert.equal(projectEdgePhrase('cites', 'forward', expected), 'refers to');
@@ -968,6 +1115,50 @@ describe('the vocabulary is closed', () => {
       }
     }
     assert.ok(awaited > 700, 'and that is most of the edges to a paper on this file');
+  });
+
+  it('says a paper set aside was cited, never that anything rests on it or still needs it', () => {
+    // A superseded or a rejected paper is on file and no longer relied on. It
+    // has come, so nothing still needs it; nobody stands on it, so nothing
+    // rests on it and no function holds it as the register means held.
+    const project = bareProject();
+    ensureWorkstreamChecks(project, ['legal.title'], 'tester');
+    const check = workstreamChecks(project, 'legal.title')[0]!;
+    const file = (title: string, status: 'superseded' | 'rejected' | 'received') => {
+      const row = addEvidence(project, { title, kind: 'document', status, checkIds: [check.id] });
+      row.workstream = 'legal.title';
+      return row;
+    };
+    const old = file('Sale deed, first copy', 'superseded');
+    const refused = file('Sale deed, illegible scan', 'rejected');
+    const good = file('Sale deed, certified copy', 'received');
+    const finding = addFinding(project, { title: 'Scan cannot be read', description: 'Pages 3 to 5 are blank.', severity: 'low', discipline: 'legal', evidenceIds: [refused.id] });
+
+    const graph = buildProjectGraph(project);
+    assert.deepEqual(validateProjectGraph(graph), []);
+    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+    const said = (rel: 'supported_by' | 'holds', from: string, to: string) => {
+      assert.ok(graph.edges.some((e) => e.rel === rel && e.from === from && e.to === to), `${rel} is drawn to ${byId.get(to)!.label}`);
+      return [projectEdgePhrase(rel, 'forward', byId.get(to)!), projectEdgePhrase(rel, 'backward', byId.get(to)!)];
+    };
+    const title = `${project.id}::ws::legal.title`;
+    for (const paper of [old, refused]) {
+      assert.deepEqual([projectNodeSetAside(byId.get(paper.id)!), projectNodeAwaited(byId.get(paper.id)!)], [true, false], paper.status);
+      assert.deepEqual(said('supported_by', check.id, paper.id), ['cited', 'was cited by'], paper.status);
+      assert.deepEqual(said('holds', title, paper.id), ['keeps on file', 'is kept on file by'], paper.status);
+    }
+    // The finding names the rejected scan. It does not need it, and does not rest on it.
+    assert.deepEqual(said('supported_by', finding.id, refused.id), ['cited', 'was cited by']);
+    // The copy that was taken is rested on and held, as before.
+    assert.deepEqual(said('supported_by', check.id, good.id), ['rests on', 'supports']);
+    assert.deepEqual(said('holds', title, good.id), ['holds', 'is held by']);
+    // It is on file either way, and a relation with one pair of words keeps it.
+    assert.equal(projectEdgePhrase('has_record', 'forward', byId.get(old.id)!), 'has on file');
+    assert.equal(projectEdgePhrase('cites', 'backward', byId.get(refused.id)!), 'is referred to by');
+    for (const [kind, words] of Object.entries(PROJECT_EDGE_LABEL_SET_ASIDE)) {
+      assert.ok((PROJECT_EDGE_KINDS as readonly string[]).includes(kind), `${kind} is not a relation`);
+      for (const phrase of [words.forward, words.backward]) assert.match(phrase, /^[a-z]+( [a-z]+)*$/, `${kind} reads "${phrase}"`);
+    }
   });
 
   it('names the frame for the chat by the ids the graph draws it under', () => {

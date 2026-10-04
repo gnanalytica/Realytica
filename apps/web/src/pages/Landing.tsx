@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { EXAMPLE_HOME } from './example/paths';
 import { ArrowRight, Check, CheckCircle2, CloudOff, FileText, Lock, Menu, Minus, Plus, Smartphone, Sparkles, Waypoints, X } from 'lucide-react';
-import { DEPARTMENTS, STAGES, SUB_STAGE_LABEL, type DepartmentKey, type StageKey } from '@realytica/shared';
+import { DEPARTMENTS, DEPARTMENT_SHORT, MENU_DEPARTMENTS, STAGES, SUB_STAGE_LABEL, menuDepartment, type DepartmentKey, type StageKey } from '@realytica/shared';
 import { AnimatePresence, EASE_ENTER, SPRING, motion } from '../lib/motion';
 import { AiMark, cn } from '../components/ui/kit';
 import { DEPARTMENT_ICON } from '../components/departments/icons';
@@ -736,7 +736,7 @@ export default function Landing() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, ease: EASE_ENTER, delay: 0.35 }}
             >
-              Every project moves through {inWords(STAGES.length)} stages, and its work through {inWords(DEPARTMENTS.length)} departments. Realytica gives each its place — title and approvals, progress and the site, the valuation — reads the documents for you, Kannada included, with the page behind every value, and keeps a copilot beside every view.
+              Every project moves through {inWords(STAGES.length)} stages, and its work through {inWords(MENU_DEPARTMENTS.length)} departments. Realytica gives each its place — title and approvals, progress and the site, the valuation — reads the documents for you, Kannada included, with the page behind every value, and keeps a copilot beside every view.
             </motion.p>
             <motion.div
               className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center"
@@ -781,7 +781,7 @@ export default function Landing() {
             title="Organised the way the work is."
             note={
               <>
-                {inWords(STAGES.length).replace(/^./, (c) => c.toUpperCase())} stages, {inWords(DEPARTMENTS.length)} departments and the functions inside them. {live.map((d) => d.label.split(' ')[0]).join(', ')} are live; the rest are listed with what they will hold.
+                {inWords(STAGES.length).replace(/^./, (c) => c.toUpperCase())} stages, {inWords(MENU_DEPARTMENTS.length)} departments and the functions inside them. {DEPARTMENT_SHORT.design} is worked inside {DEPARTMENT_SHORT[menuDepartment('design')]} and is shown on its own here. {live.map((d) => d.label.split(' ')[0]).join(', ')} are live; the rest are listed with what they will hold.
                 <span className="hidden lg:inline"> Point at a department to follow its work across the life of the project.</span>
                 <span className="lg:hidden"> Pick a stage to see what each department produces in it.</span>
               </>

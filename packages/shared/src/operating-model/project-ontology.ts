@@ -631,30 +631,52 @@ export const PROJECT_EDGE_LABEL_AWAITED: Partial<Record<ProjectGraphEdgeKind, { 
 };
 
 /**
+ * What a relation reads as when the paper it reaches is on file and not
+ * relied on: superseded by a later one, or rejected.
+ *
+ * Such a paper is neither of the other two things. It has come, so nothing
+ * "still needs" it. And nobody stands on it, so nothing "rests on" it and no
+ * function "holds" it in the sense the approvals register means by held. The
+ * edge is drawn all the same, because the check did name the paper and the
+ * function does keep it, and that is all these words say.
+ */
+export const PROJECT_EDGE_LABEL_SET_ASIDE: Partial<Record<ProjectGraphEdgeKind, { forward: string; backward: string }>> = {
+  holds: { forward: 'keeps on file', backward: 'is kept on file by' },
+  supported_by: { forward: 'cited', backward: 'was cited by' },
+};
+
+/**
  * Whether a node stands for something the file does not have in hand: a
- * document expected, asked for, missing or refused, or an approval with
- * nothing on file for it.
+ * document expected, asked for or missing, or an approval with nothing on
+ * file for it.
  */
 export function projectNodeAwaited(node: { kind: ProjectGraphNodeKind; status?: string }): boolean {
-  if (node.kind === 'evidence') return node.status === 'expected' || node.status === 'requested' || node.status === 'missing' || node.status === 'rejected';
+  if (node.kind === 'evidence') return node.status === 'expected' || node.status === 'requested' || node.status === 'missing';
   if (node.kind === 'approval') return node.status === 'missing';
   return false;
+}
+
+/** Whether a node stands for a paper that is on file and no longer relied on: superseded, or rejected. */
+export function projectNodeSetAside(node: { kind: ProjectGraphNodeKind; status?: string }): boolean {
+  return node.kind === 'evidence' && (node.status === 'superseded' || node.status === 'rejected');
 }
 
 /**
  * A relation in plain words, said of one end of one edge.
  *
  * `forward` is said of the node the edge leaves and `backward` of the node it
- * reaches. `to` is the node it reaches, whichever end is being read: when
- * that is still awaited, the words for an awaited record are the ones used.
+ * reaches. `to` is the node it reaches, whichever end is being read, and its
+ * standing picks the words: those for a record still awaited, those for a
+ * paper set aside, or the relation's own when the record is in hand or the
+ * relation says the same of all three.
  */
 export function projectEdgePhrase(
   kind: ProjectGraphEdgeKind,
   direction: 'forward' | 'backward',
   to: { kind: ProjectGraphNodeKind; status?: string },
 ): string {
-  const words = (projectNodeAwaited(to) ? PROJECT_EDGE_LABEL_AWAITED[kind] : undefined) ?? PROJECT_EDGE_LABEL[kind];
-  return words[direction];
+  const standing = projectNodeAwaited(to) ? PROJECT_EDGE_LABEL_AWAITED : projectNodeSetAside(to) ? PROJECT_EDGE_LABEL_SET_ASIDE : undefined;
+  return (standing?.[kind] ?? PROJECT_EDGE_LABEL[kind])[direction];
 }
 
 /**

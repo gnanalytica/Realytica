@@ -189,7 +189,7 @@ import { projectComparablesRouter } from './comparables';
 import { projectWorkspaceRouter } from './workspace';
 import { unblockerConfigured } from '../comparables/search';
 import { graphAdapter } from '../graph';
-import { PREVIEW_KEEPS_NO_GRAPH } from '../graph/preview';
+import { PREVIEW_KEEPS_NO_GRAPH, graphAnsweredBy } from '../graph/preview';
 import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
 import {
   changeStageBodySchema,
@@ -541,7 +541,7 @@ projectsRouter.get('/:projectId/graph', (req, res) => {
   // a picture of the whole file is a better disclosure of it than the
   // registers are, because it shows what connects to what.
   const built = buildProjectGraph(projectFor(req, project));
-  res.json({ ...built, adapter: graphAdapter.kind });
+  res.json({ ...built, adapter: graphAnsweredBy(graphAdapter) });
 });
 
 /**
@@ -567,7 +567,7 @@ projectsRouter.get('/:projectId/graph/stored', async (req, res) => {
     return;
   }
   if (!stored) {
-    res.status(200).json({ graph: null, reason: 'not_indexed', adapter: graphAdapter.kind });
+    res.status(200).json({ graph: null, reason: 'not_indexed', adapter: graphAnsweredBy(graphAdapter) });
     return;
   }
   res.json({ graph: stored, adapter: graphAdapter.kind, asOf: asOf ?? null });
@@ -695,7 +695,7 @@ projectsRouter.get('/:projectId/graph/neighbourhood', async (req, res) => {
       nodes: [],
       edges: [],
       source: 'live',
-      adapter: graphAdapter.kind,
+      adapter: graphAnsweredBy(graphAdapter),
       standing: 'this_file',
       error: query.trim() ? `Nothing in this file's graph matches "${query}".` : 'query is required.',
     });
@@ -734,7 +734,7 @@ projectsRouter.get('/:projectId/graph/neighbourhood', async (req, res) => {
     nodes: graph.nodes,
     edges: graph.edges,
     source,
-    adapter: graphAdapter.kind,
+    adapter: graphAnsweredBy(graphAdapter),
     standing: 'this_file',
   });
 });
@@ -751,7 +751,7 @@ projectsRouter.get('/:projectId/graph/trace/:nodeId', (req, res) => {
     res.status(404).json({ error: `No node "${req.params.nodeId}" in this file's graph.` });
     return;
   }
-  res.json({ ...cone, standing: 'this_file', adapter: graphAdapter.kind });
+  res.json({ ...cone, standing: 'this_file', adapter: graphAnsweredBy(graphAdapter) });
 });
 
 projectsRouter.post('/:projectId/screen', async (req, res) => {

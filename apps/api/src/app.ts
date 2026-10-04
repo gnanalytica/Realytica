@@ -20,6 +20,7 @@ import { portfolioRouter } from './routes/portfolio';
 import { flowsRouter } from './routes/flows';
 import { promptsRouter } from './routes/prompts';
 import { graphAdapter } from './graph';
+import { graphAnsweredBy } from './graph/preview';
 import { authenticate, authSettings, initAuth, needs } from './auth/middleware';
 import { corsPolicy, rateLimits, securityHeaders } from './http/hardening';
 import { reportOperators } from './auth/operator';
@@ -87,7 +88,7 @@ app.get('/api/health', (_req, res) => {
     version: ENGINE_VERSION,
     projects: store.data.projects?.length ?? 0,
     // A preview keeps no graph and reads the live registers instead.
-    graph: graphAdapter.detached ? 'projection' : graphAdapter.kind,
+    graph: graphAnsweredBy(graphAdapter),
     upload: UPLOAD_LIMITS,
     auth: { mode: authSettings().mode },
   });

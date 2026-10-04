@@ -20,6 +20,8 @@
  * closed: headings, bullets, numbers, tables, and inline emphasis/code.
  */
 
+import { projectFrameNames } from '@realytica/shared';
+
 export type Inline =
   | { kind: 'text'; text: string }
   | { kind: 'bold'; text: string }
@@ -58,28 +60,66 @@ const CODE = /`([^`]+)`/;
  * function, written `<project>::stage::<key>`, `::dept::<key>` or
  * `::ws::<key>`.
  *
- * It is the one id that is taken out of the sentence when it resolves to
- * nothing, where a record's id is kept and marked. The difference is what
- * each is. A record's id is a reference the answer made, and hiding one we
- * cannot follow would present an unsupported claim as a clean one. A frame
- * id supports nothing: it names where in the project the sentence is
- * talking about, and the sentence has already said so in words.
+ * One the graph has is a node like any other. One it does not have is still,
+ * nearly always, something with a name. The frame was redrawn to match the
+ * menu: twelve steps became four stages, and Design became one function of
+ * Engineering. An answer written before quotes `…::stage::acquisition` or
+ * `…::ws::design.drawings`, which is no node now and is as much the
+ * Acquisition step and Drawings & versions as it ever was. A department the
+ * project has switched off is the same. So the name is printed where the id
+ * stood, as plain words, because there is nothing to open.
  *
- * And they do stop resolving, without anything being wrong. The frame was
- * redrawn to match the menu: twelve steps became four stages, and Design
- * became one function of Engineering. An answer written before quotes
- * `…::stage::acquisition` or `…::ws::design.drawings`, which is no longer
- * anything. Printed, that is a key nobody can read in the middle of a
- * sentence about the Acquisition step.
+ * Taking the id out instead left a hole wherever the sentence leaned on it:
+ * "It moved from to in March."
+ *
+ * It is taken out in two cases. The words just before it are its name ("the
+ * Acquisition step […]"), where printing it would say the name twice. Or
+ * nothing can name it: a key that was never a stage, a step, a department or
+ * a workstream. That is not how a record's id is treated, which is kept and
+ * marked when it resolves to nothing, and the difference is what each is. A
+ * record's id is a reference the answer made, and hiding one we cannot follow
+ * would present an unsupported claim as a clean one. A frame id supports
+ * nothing: it says where in the project the sentence is talking about.
  */
 const FRAME_TOKEN = /\[([A-Za-z0-9][A-Za-z0-9_-]*::(?:stage|dept|ws)::[A-Za-z0-9_.-]+)\]/;
 
+/** The words for what a name of the frame is, which may stand between the name and its id. */
+const FRAME_NOUNS = ['step', 'stage', 'department', 'function', 'workstream'];
+
+/** Lower case, with everything that is not a letter or a digit read as a space. */
+function wordsOf(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
 /**
- * The stretch to take out with an id that is gone: the token, the round
- * brackets when it stood alone in them, and the space before, so that
- * "the Acquisition step ([…]) is done" closes up as a sentence.
+ * Whether the words just before an id are already its name: the name alone,
+ * or the name and the one word for what it is ("the Acquisition step").
+ *
+ * Just before, and in the same breath. A name said a sentence or a clause
+ * earlier does not count: "The file is at Acquisition. […] closes when the
+ * deed is registered" still needs its subject.
  */
-function stretchOf(text: string, at: number, len: number): { at: number; len: number } {
+function saidJustBefore(before: string, names: readonly string[]): boolean {
+  const lead = before.replace(/[\s(*`]+$/, '');
+  if (/[.!?,;:]$/.test(lead)) return false;
+  const said = ` ${wordsOf(lead)}`;
+  return names.some((name) => {
+    const words = ` ${wordsOf(name)}`;
+    return said.endsWith(words) || FRAME_NOUNS.some((noun) => said.endsWith(`${words} ${noun}`));
+  });
+}
+
+/**
+ * The stretch to take out with an id that is not printed: the token, the
+ * round brackets when it stood alone in them, and the space before, so that
+ * "the Acquisition step ([…]) is done" closes up as a sentence. At the start
+ * of the line it is the space after that goes, so the line does not open on
+ * one.
+ */
+function stretchOf(text: string, at: number, len: number, opensLine: boolean): { at: number; len: number } {
   let from = at;
   let to = at + len;
   if (text[from - 1] === '(' && text[to] === ')') {
@@ -87,6 +127,7 @@ function stretchOf(text: string, at: number, len: number): { at: number; len: nu
     to += 1;
   }
   while (from > 0 && text[from - 1] === ' ') from -= 1;
+  if (opensLine && from === 0) while (text[to] === ' ') to += 1;
   return { at: from, len: to - from };
 }
 
@@ -101,8 +142,10 @@ function stretchOf(text: string, at: number, len: number): { at: number; len: nu
 export function parseInline(text: string, isNode: (id: string) => boolean): Inline[] {
   const out: Inline[] = [];
   let rest = text;
-  // Text joins the text before it, so a sentence an id was taken out of is
-  // one run of words again and not two with a seam.
+  // The frame ids taken out because nothing could name them.
+  const unnamed: string[] = [];
+  // Text joins the text before it, so a sentence an id was named in or taken
+  // out of is one run of words again and not two with a seam.
   const say = (words: string): void => {
     const last = out[out.length - 1];
     if (last?.kind === 'text') last.text += words;
@@ -110,7 +153,7 @@ export function parseInline(text: string, isNode: (id: string) => boolean): Inli
   };
 
   while (rest.length > 0) {
-    const candidates: { at: number; len: number; span: Inline | null }[] = [];
+    const candidates: { at: number; len: number; span: Inline | null; unnamed?: string }[] = [];
 
     const ev = EVIDENCE_TOKEN.exec(rest);
     if (ev) candidates.push({ at: ev.index, len: ev[0].length, span: { kind: 'evidence', id: ev[1] } });
@@ -122,15 +165,26 @@ export function parseInline(text: string, isNode: (id: string) => boolean): Inli
     if (code) candidates.push({ at: code.index, len: code[0].length, span: { kind: 'code', text: code[1] } });
 
     // A frame id is looked for by its own shape, wherever it stands on the
-    // line. One the graph has is a node like any other; one it no longer has
-    // leaves the sentence, with nothing in its place.
+    // line. One the graph has is a node like any other. One it does not have
+    // is printed as its name, unless the sentence has just said the name or
+    // there is none to say, and then it leaves the sentence.
     const frame = FRAME_TOKEN.exec(rest);
     if (frame) {
-      candidates.push(
-        isNode(frame[1])
-          ? { at: frame.index, len: frame[0].length, span: { kind: 'node', id: frame[1] } }
-          : { ...stretchOf(rest, frame.index, frame[0].length), span: null },
-      );
+      const id = frame[1];
+      const at = frame.index;
+      const len = frame[0].length;
+      if (isNode(id)) {
+        candidates.push({ at, len, span: { kind: 'node', id } });
+      } else {
+        // `rest` is always the end of `text`, so what was read is the start.
+        const read = text.length - rest.length;
+        const names = projectFrameNames(id);
+        if (names.length > 0 && !saidJustBefore(text.slice(0, read + at), names)) {
+          candidates.push({ at, len, span: { kind: 'text', text: names[0] } });
+        } else {
+          candidates.push({ ...stretchOf(rest, at, len, read === 0), span: null, ...(names.length === 0 ? { unnamed: id } : {}) });
+        }
+      }
     }
 
     // Checked last and gated on the graph, so `[ev:…]` is never also read as a
@@ -149,11 +203,19 @@ export function parseInline(text: string, isNode: (id: string) => boolean): Inli
     candidates.sort((a, b) => a.at - b.at);
     const first = candidates[0];
     if (first.at > 0) say(rest.slice(0, first.at));
-    if (first.span) out.push(first.span);
+    if (first.span?.kind === 'text') say(first.span.text);
+    else if (first.span) out.push(first.span);
+    if (first.unnamed) unnamed.push(first.unnamed);
     rest = rest.slice(first.at + first.len);
   }
 
   if (rest.length > 0) say(rest);
+
+  // A line that was nothing but ids no one can name has no word left on it,
+  // and a bullet would show as a dot beside nothing. There the id is marked,
+  // as a record's is: the answer pointed at something and this is all it said.
+  const hasWords = out.some((span) => span.kind !== 'text' || /[\p{L}\p{N}]/u.test(span.text));
+  if (!hasWords && unnamed.length > 0) return unnamed.map((id) => ({ kind: 'dangling', id }));
   return out;
 }
 

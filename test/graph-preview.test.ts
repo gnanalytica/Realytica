@@ -9,16 +9,19 @@
  *
  * Run against the real journal in a temporary directory rather than a stand-in
  * store: what is asserted is what is on disk afterwards.
+ *
+ * The routes a preview answers are asked over HTTP in
+ * `graph-preview-routes.test.ts`.
  */
 
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { after, before, beforeEach, describe, it } from 'node:test';
-import type { ProjectGraphNode } from '@realytica/shared';
+import { after, before, beforeEach, describe, it, mock } from 'node:test';
+import { createProject, type DdProject, type NodeHandlerInput, type ProjectGraphNode } from '@realytica/shared';
 import type { GraphAdapter, ProjectGraphSnapshot } from '../apps/api/src/graph/types';
-import { PREVIEW_KEEPS_NO_GRAPH, detached, isPreviewDeployment } from '../apps/api/src/graph/preview';
+import { PREVIEW_KEEPS_NO_GRAPH, detached, graphAnsweredBy, isPreviewDeployment } from '../apps/api/src/graph/preview';
 
 const PROJECT = 'prj-preview-test';
 
@@ -30,26 +33,52 @@ function note(id: string): ProjectGraphNode {
   return { id, kind: 'thought', layer: 'deliberation', origin: 'authored', label: 'why this matters' };
 }
 
-function snapshot(nodes: ProjectGraphNode[]): ProjectGraphSnapshot {
-  return { projectId: PROJECT, builtAt: '2026-10-04T00:00:00.000Z', nodes, edges: [] };
+function snapshot(nodes: ProjectGraphNode[], projectId = PROJECT): ProjectGraphSnapshot {
+  return { projectId, builtAt: '2026-10-04T00:00:00.000Z', nodes, edges: [] };
 }
 
-describe('a preview deployment and the graph store', () => {
-  let dataDir: string;
-  let store: GraphAdapter;
-  let preview: GraphAdapter;
+function file(name: string): DdProject {
+  return createProject({ name, type: 'residential', location: 'Balagere', city: 'Bengaluru' }, 'RYT-PV1');
+}
 
-  before(async () => {
-    dataDir = await mkdtemp(path.join(tmpdir(), 'ryt-preview-graph-'));
-    process.env.REALYTICA_DATA_DIR = dataDir;
-    ({ journalAdapter: store } = await import('../apps/api/src/graph/journal'));
-    preview = detached(store);
+/**
+ * A project that reports what was read of it.
+ *
+ * A graph cannot be built without reading the registers, so what the sync
+ * loop read is how a test sees whether it built one.
+ */
+function watched(project: DdProject): { project: DdProject; read: Set<string> } {
+  const read = new Set<string>();
+  const seen = new Proxy(project, {
+    get(target, key, receiver) {
+      if (typeof key === 'string') read.add(key);
+      return Reflect.get(target, key, receiver);
+    },
   });
+  return { project: seen, read };
+}
+
+/*
+ * One directory for the file. The journal fixes where it writes when it is
+ * first loaded, so it is loaded once, after the directory is named.
+ */
+let dataDir: string;
+let store: GraphAdapter;
+let preview: GraphAdapter;
+
+before(async () => {
+  dataDir = await mkdtemp(path.join(tmpdir(), 'ryt-preview-graph-'));
+  process.env.REALYTICA_DATA_DIR = dataDir;
+  ({ journalAdapter: store } = await import('../apps/api/src/graph/journal'));
+  preview = detached(store);
+});
+after(async () => {
+  await rm(dataDir, { recursive: true, force: true });
+});
+
+describe('a preview deployment and the graph store', () => {
   beforeEach(async () => {
     await store.purgeProject(PROJECT);
-  });
-  after(async () => {
-    await rm(dataDir, { recursive: true, force: true });
   });
 
   it('is a preview only where Vercel says so', () => {
@@ -101,5 +130,92 @@ describe('a preview deployment and the graph store', () => {
     assert.equal(preview.detached, true);
     assert.equal(store.detached, undefined);
     assert.equal(preview.kind, store.kind);
+  });
+
+  it('is reported as the projection, not as the store it reads nothing from', () => {
+    assert.equal(graphAnsweredBy(preview), 'projection');
+    assert.equal(graphAnsweredBy(store), 'journal');
+  });
+});
+
+describe('the sync loop on a preview', () => {
+  let syncGraph: typeof import('../apps/api/src/graph/sync').syncGraph;
+
+  before(async () => {
+    ({ syncGraph } = await import('../apps/api/src/graph/sync'));
+  });
+
+  it('builds no graph for a store that would drop it', async () => {
+    const { project, read } = watched(file('Preview sync'));
+    // What the live site stored for this project, in the live site's shape.
+    await store.syncProject(snapshot([parcel('old-shape')], project.id));
+
+    await syncGraph([project], preview);
+
+    assert.deepEqual([...read].sort(), ['id', 'updatedAt'], 'nothing of the file was read but which it is and when it changed');
+    const held = await store.readProject(project.id);
+    assert.deepEqual(held?.nodes.map((n) => n.id), ['old-shape'], 'the stored graph is as the live site left it');
+
+    await store.purgeProject(project.id);
+    await syncGraph([], preview);
+  });
+
+  it('still drops the graph of a project deleted on the preview', async () => {
+    const project = file('Preview delete');
+    await store.syncProject(snapshot([parcel('old-shape')], project.id));
+
+    // Seen on one save, gone from the list on the next: that is a deletion.
+    await syncGraph([project], preview);
+    assert.ok(await store.readProject(project.id), 'not while the project is there');
+    await syncGraph([], preview);
+
+    assert.equal(await store.readProject(project.id), null);
+  });
+
+  it('builds and stores the graph where the store is the deployment’s own', async () => {
+    // The same loop, not on a preview: the difference is the whole point.
+    const { project, read } = watched(file('Live sync'));
+
+    await syncGraph([project], store);
+
+    assert.ok(read.has('evidence') && read.has('findings'), 'the registers were read');
+    const held = await store.readProject(project.id);
+    assert.ok(held?.nodes.some((n) => n.id === project.id && n.kind === 'project'));
+
+    await syncGraph([], store);
+    assert.equal(await store.readProject(project.id), null);
+  });
+});
+
+describe('a flow reading the graph', () => {
+  it('reads the live registers when the store throws', async () => {
+    // A store that is down is an incident the product survives: the registers
+    // are the source, and a flow's step must not fail because an index did.
+    const { graphAdapter } = await import('../apps/api/src/graph');
+    const { handlersFor } = await import('../apps/api/src/flows/handlers');
+    const project = file('Flow retrieve');
+    const down = mock.method(graphAdapter, 'neighbourhood', async () => {
+      throw new Error('the store is down');
+    });
+    const warned = mock.method(console, 'warn', () => {});
+    try {
+      const input: NodeHandlerInput = {
+        node: { id: 'read', kind: 'retrieve', position: { x: 0, y: 0 }, config: { kind: 'retrieve', from: 'graph', query: project.id, hops: 1 } },
+        payload: {},
+        dryRun: false,
+        note: () => {},
+      };
+      const out = await handlersFor({ tenantId: 'tenant', project, actor: 'tester' })(input);
+
+      assert.equal(down.mock.callCount(), 1, 'the store was asked first');
+      const retrieved = out.retrieved as ProjectGraphNode[];
+      assert.ok(retrieved.some((n) => n.id === project.id), 'and the answer came from the projection');
+      assert.ok(retrieved.length > 1);
+      assert.equal(out.retrievedFrom, 'graph');
+      assert.match(String(warned.mock.calls[0]?.arguments[0]), /fell back to the projection: the store is down/);
+    } finally {
+      down.mock.restore();
+      warned.mock.restore();
+    }
   });
 });

@@ -15,6 +15,12 @@
  * It is logged once per file rather than silently, because a graph quietly
  * months out of date is worse than one obviously missing.
  *
+ * A preview deployment stores no graph (see `preview.ts`), so none is built
+ * for it either: the projection would be worked out on every save and handed
+ * to a store that drops it. Its projects are still noted here, because that
+ * is how a deletion is noticed, and dropping a deleted project's graph is the
+ * one write a preview makes.
+ *
  * This used to take a `cases` array too and project a second graph family from
  * it. That array is always empty — no mounted route creates a `PropertyCase`
  * and the demo reset clears it outright — so the loop ran over nothing on
@@ -24,18 +30,24 @@
 
 import { buildProjectGraph, type DdProject } from '@realytica/shared';
 import { graphAdapter } from './index';
+import type { GraphAdapter } from './types';
 
-/** projectId -> the `updatedAt` the stored graph was built from. */
+/** projectId -> the `updatedAt` the stored graph was built from, or on a preview the one the project was last seen at. */
 const synced = new Map<string, string>();
 
-export async function syncGraph(projects: DdProject[]): Promise<void> {
+/** `adapter` is this deployment's store unless a caller names another, which is how the loop is tested. */
+export async function syncGraph(projects: DdProject[], adapter: GraphAdapter = graphAdapter): Promise<void> {
   const live = new Set(projects.map(p => p.id));
 
   for (const project of projects) {
     if (synced.get(project.id) === project.updatedAt) continue;
+    if (adapter.detached) {
+      synced.set(project.id, project.updatedAt);
+      continue;
+    }
     try {
       const built = buildProjectGraph(project);
-      await graphAdapter.syncProject({
+      await adapter.syncProject({
         projectId: project.id,
         builtAt: project.updatedAt,
         nodes: built.nodes,
@@ -52,7 +64,7 @@ export async function syncGraph(projects: DdProject[]): Promise<void> {
   for (const projectId of [...synced.keys()]) {
     if (live.has(projectId)) continue;
     try {
-      await graphAdapter.purgeProject(projectId);
+      await adapter.purgeProject(projectId);
       synced.delete(projectId);
     } catch (err) {
       console.warn(`[graph] could not purge project ${projectId}: ${(err as Error).message}`);

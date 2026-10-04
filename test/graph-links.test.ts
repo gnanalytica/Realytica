@@ -95,6 +95,34 @@ describe('a node’s links, in words', () => {
     assert.equal(`${gate.phrase} → ${gate.label}`, 'is needed before → Engineering › Progress');
   });
 
+  it('says a paper that was superseded or rejected was cited, and is kept on file', () => {
+    // On file and no longer relied on: it is not needed, and nothing rests on it.
+    const graph = {
+      nodes: [
+        node('c1', 'check', 'Title chain'),
+        node('w1', 'workstream', 'Title', { key: 'legal.title' }),
+        node('old', 'evidence', 'Sale deed, first copy', { status: 'superseded' }),
+        node('bad', 'evidence', 'Sale deed, illegible scan', { status: 'rejected' }),
+        node('good', 'evidence', 'Sale deed, certified copy', { status: 'received' }),
+      ],
+      edges: [
+        { id: '1', from: 'c1', to: 'old', rel: 'supported_by' as const },
+        { id: '2', from: 'c1', to: 'bad', rel: 'supported_by' as const },
+        { id: '3', from: 'c1', to: 'good', rel: 'supported_by' as const },
+        { id: '4', from: 'w1', to: 'old', rel: 'holds' as const },
+        { id: '5', from: 'w1', to: 'good', rel: 'holds' as const },
+      ],
+    };
+    assert.deepEqual(lines(panel(graph, 'c1')), [
+      ['evidence', ['cited → Sale deed, first copy', 'cited → Sale deed, illegible scan', 'rests on → Sale deed, certified copy']],
+    ]);
+    assert.deepEqual(lines(panel(graph, 'old')), [
+      ['workstream', ['is kept on file by → Legal › Title']],
+      ['check', ['was cited by → Title chain']],
+    ]);
+    assert.deepEqual(lines(panel(graph, 'w1')), [['evidence', ['keeps on file → Sale deed, first copy', 'holds → Sale deed, certified copy']]]);
+  });
+
   it('puts the sources first, then the lanes’ order, and drops no link whose kind the order leaves out', () => {
     const graph = {
       nodes: [

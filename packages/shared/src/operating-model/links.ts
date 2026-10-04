@@ -10,7 +10,8 @@
 
 import type { DdProject } from './types';
 import { recordAuditEvent } from './operations';
-import { approvalsRegister } from './approvals';
+import { APPROVAL_KINDS, approvalsRegister } from './approvals';
+import { workstreamDefinition } from './departments';
 import { allChecks } from './engagements';
 import { projectEdgeEndpointsValid, type ProjectGraphEdgeKind, type ProjectGraphNodeKind } from './project-ontology';
 
@@ -135,13 +136,57 @@ export function linkEdge(link: { from: LinkEnd; to: LinkEnd; type: LinkType }): 
 }
 
 /**
+ * Whether an end names what it says it names, on this project.
+ *
+ * A link carries an id and the kind the caller says that id is. The two can
+ * disagree: a document's id sent as a certified report's. The kind decides
+ * which relations the link may use, so a wrong one buys a relation the record
+ * could never have. The id is looked up in the register of the kind declared,
+ * and nowhere else.
+ *
+ * A workstream and an approval are not records a project adds. A workstream
+ * is one the product defines, whether or not its department is switched on;
+ * an approval is one of the kinds the approvals register knows.
+ */
+function endIsOnFile(project: DdProject, end: LinkEnd): boolean {
+  switch (end.kind) {
+    case 'workstream':
+      return workstreamDefinition(end.id) !== undefined;
+    case 'approval':
+      return APPROVAL_KINDS.some((kind) => kind.key === end.id);
+    case 'check':
+      return allChecks(project).some((check) => check.id === end.id);
+    case 'document':
+      return project.evidence.some((row) => row.id === end.id);
+    case 'certified':
+      return (project.certifiedReports ?? []).some((report) => report.id === end.id);
+    case 'milestone':
+      return (project.milestones ?? []).some((milestone) => milestone.id === end.id);
+    case 'engagement':
+      return (project.engagements ?? []).some((engagement) => engagement.id === end.id);
+    case 'finding':
+      return project.findings.some((finding) => finding.id === end.id);
+    case 'site_entry':
+      return (project.siteLog ?? []).some((entry) => entry.id === end.id);
+  }
+}
+
+/**
  * Draw a link by hand.
  *
- * A link the graph cannot draw is refused. The ontology says which kinds
- * each relation may join: a check cannot gate a function, a milestone cannot
- * feed a document. Taken as it came, such a link would be on the file and
- * break the graph every time it was built. `relates` joins any two things,
- * so it is what the refusal offers instead.
+ * A link the graph cannot draw is refused, for either of two reasons.
+ *
+ * The relation does not join those kinds. The ontology says which kinds each
+ * relation may join: a check cannot gate a function, a milestone cannot feed
+ * a document. `relates` joins any two things, so it is what the refusal
+ * offers instead.
+ *
+ * Or an end is not what it is said to be. The rule above is asked of the
+ * kinds the caller declares, so it is only worth anything if each id is a
+ * record of that kind on this project.
+ *
+ * Taken as it came, such a link would sit on the file and be one the graph
+ * has to leave out every time it is built.
  */
 export function addLink(project: DdProject, input: { from: LinkEnd; to: LinkEnd; type: LinkType; note?: string }, actor: string): ProjectLink {
   if (input.from.kind === input.to.kind && input.from.id === input.to.id) throw new Error('A link joins two different things.');
@@ -150,6 +195,9 @@ export function addLink(project: DdProject, input: { from: LinkEnd; to: LinkEnd;
     throw new Error(
       `“${LINK_TYPE_LABEL[input.type]}” cannot join ${LINK_END_WORD[input.from.kind]} to ${LINK_END_WORD[input.to.kind]}. To say two things belong together, link them with “relates”.`,
     );
+  }
+  for (const end of [input.from, input.to]) {
+    if (!endIsOnFile(project, end)) throw new Error(`“${end.id}” is not ${LINK_END_WORD[end.kind]} on this project.`);
   }
   const held = (project.links ?? []).find((l) => l.type === input.type && l.from.id === input.from.id && l.to.id === input.to.id);
   if (held) return held;

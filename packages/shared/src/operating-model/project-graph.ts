@@ -61,6 +61,7 @@ import { REMEDIAL_BAND_LABEL, ricsConditionRating } from './standards';
 import { ensureProjectShape } from './operations';
 import {
   PROJECT_EDGE_KINDS,
+  PROJECT_EDGE_LABEL,
   PROJECT_NODE_KINDS,
   projectEdgeDirectionValid,
   projectEdgeEndpointsValid,
@@ -70,9 +71,12 @@ import {
 } from './project-ontology';
 import type { DdProject, ProjectGraphEdge, ProjectGraphNode } from './types';
 import {
+  DEPARTMENT_KEYS,
   DEPARTMENT_ROLE_LABEL,
   DEPARTMENT_SHORT,
+  MENU_DEPARTMENTS,
   STAGES,
+  SUB_STAGES,
   SUB_STAGE_LABEL,
   departmentDefinition,
   departmentHomeWorkstream,
@@ -108,6 +112,8 @@ interface Builder {
   node(kind: ProjectGraphNodeKind, id: string, label: string, detail?: string, tags?: { key?: string; status?: string }): string;
   edge(from: string, to: string, rel: ProjectGraphEdgeKind): void;
   has(id: string): boolean;
+  /** The kind of the node written under an id, if one has been. */
+  kindOf(id: string): ProjectGraphNodeKind | undefined;
 }
 
 export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode[]; edges: ProjectGraphEdge[] } {
@@ -153,6 +159,9 @@ export function buildProjectGraph(project: DdProject): { nodes: ProjectGraphNode
     },
     has(id) {
       return byId.has(id);
+    },
+    kindOf(id) {
+      return byId.get(id)?.kind;
     },
   };
 
@@ -320,9 +329,10 @@ function addRegisters(project: DdProject, b: Builder): void {
       .filter(Boolean)
       .join(' · ');
     // Its standing travels as the node's status as well as in the meta line.
-    // A check is joined to every paper it expects, and whether "rests on" is
-    // true of one depends on whether the paper has come: `projectNodeAwaited`
-    // reads it here.
+    // A check is joined to every paper it names, and whether "rests on" is
+    // true of one depends on whether the paper has come and whether it is
+    // still relied on: `projectNodeAwaited` and `projectNodeSetAside` read it
+    // here.
     b.node('evidence', row.id, row.title, meta, { status: row.status });
     for (const assessmentId of row.assessmentIds) b.edge(assessmentId, row.id, 'supported_by');
     for (const checkId of row.checkIds) b.edge(checkId, row.id, 'supported_by');
@@ -626,8 +636,9 @@ function drawnDepartments(project: DdProject): Array<{ menu: DepartmentKey; func
  * For whatever has to turn one of these ids back into words without building
  * the graph. The chat does: an answer quotes `[…::ws::legal.title]` from what
  * the copilot read, and the renderer shows the name in its place. An id that
- * is not here is one the frame no longer has (a step, the Design department,
- * one of Design's workstreams) and the renderer drops it.
+ * is not here is one the frame does not draw (a step, the Design department,
+ * one of Design's workstreams, a department switched off): the renderer says
+ * it in words, from `projectFrameNames`, and opens nothing.
  *
  * A function is named with its department, because Legal and Commercial each
  * have a Handover.
@@ -640,6 +651,45 @@ export function projectFrameLabels(project: DdProject): Array<{ id: string; labe
       ...functions.map((fn) => ({ id: functionNodeId(project.id, fn.key), label: withDepartment(fn.key, fn.label) })),
     ]),
   ];
+}
+
+/**
+ * An id of the frame in words, from the id alone: the names a person knows
+ * the stage, step, department or function by. The first is the one to print.
+ *
+ * `projectFrameLabels` names what one project's frame draws now. This names
+ * whatever an id of the frame's shape has stood for, drawn or not: a step,
+ * which was a node while there were twelve of them; the Design department and
+ * each of its four workstreams; a department the project has switched off. An
+ * answer that quotes one of those has still said where it is talking about,
+ * and the chat prints the name where the id stood.
+ *
+ * The names after the first are the other ways the same thing is said
+ * ("Legal", "Legal & Compliance"). The chat uses them to tell that the
+ * sentence had already named it, and so not to say it twice.
+ *
+ * Empty for an id of any other shape, and for a key that was never a stage, a
+ * step, a department or a workstream.
+ */
+export function projectFrameNames(id: string): string[] {
+  const match = /::(stage|dept|ws)::([^:]+)$/.exec(id);
+  const kind = match?.[1];
+  const key = match?.[2];
+  if (!kind || !key) return [];
+  if (kind === 'stage') {
+    const stage = STAGES.find((s) => s.key === key);
+    if (stage) return [stage.label];
+    const step = SUB_STAGES.find((s) => s === key);
+    return step ? [SUB_STAGE_LABEL[step]] : [];
+  }
+  if (kind === 'dept') {
+    const department = DEPARTMENT_KEYS.find((d) => d === key);
+    return department ? [DEPARTMENT_SHORT[department], departmentDefinition(department).label] : [];
+  }
+  const fn = MENU_DEPARTMENTS.flatMap((menu) => menuFunctions(menu)).find((f) => f.key === key);
+  if (fn) return [...new Set([fn.name, fn.label])];
+  const workstream = workstreamDefinition(key);
+  return workstream ? [workstream.label] : [];
 }
 
 /** The node id each kind of link end is drawn as. A link names a workstream; the node is its function. */
@@ -846,12 +896,25 @@ function addStructure(project: DdProject, b: Builder): void {
     }
   }
 
-  // The links between departments: the system's own and those people drew.
-  // `linkEdge` says which way round each is drawn and by which relation, the
-  // same reading `addLink` checks a hand-drawn link against before taking it.
+  /*
+   * The links between departments: the system's own and those people drew.
+   * `linkEdge` says which way round each is drawn and by which relation.
+   *
+   * A link is drawn only when both its ends are nodes and the relation may
+   * join the kinds those nodes really are. `addLink` refuses a link that
+   * could not be, but a link is a stored record and the refusal is newer
+   * than some of them: one taken before it existed, or one whose end was a
+   * document's id sent as a certified report's, is still on the file. It is
+   * left out here, so nothing stored can put an edge in the graph that the
+   * ontology forbids. Every node a link can name has been written by now.
+   */
   for (const link of projectLinks(project)) {
     const edge = linkEdge(link);
-    b.edge(linkEndId(project, edge.from), linkEndId(project, edge.to), edge.rel);
+    const from = linkEndId(project, edge.from);
+    const to = linkEndId(project, edge.to);
+    const fromKind = b.kindOf(from);
+    const toKind = b.kindOf(to);
+    if (fromKind && toKind && projectEdgeEndpointsValid(edge.rel, fromKind, toKind)) b.edge(from, to, edge.rel);
   }
 }
 
@@ -1008,7 +1071,10 @@ export function titleGraphFromProject(project: DdProject): TitleGraph {
         kind: REL[e.rel]!,
         fromNodeId: e.from,
         toNodeId: e.to,
-        label: e.rel.replace(/_/g, ' '),
+        // What the diagram shows when a line is pointed at. The relation in
+        // plain words, said of the end the line leaves: "passed the land to",
+        // not the key with its underscores taken out.
+        label: PROJECT_EDGE_LABEL[e.rel].forward,
         // Every edge here came out of the projection rather than a document
         // read, so there is nothing to cite and nothing to be less than sure
         // about. Claiming a confidence below 1 would invent a doubt.

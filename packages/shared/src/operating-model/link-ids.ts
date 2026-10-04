@@ -24,7 +24,8 @@
  * shows the title and opens the record. An id belonging to no record on this
  * project is left exactly as written — inventing a link to nothing would be
  * worse than an ugly string, and a reader who sees the raw id can at least
- * tell somebody about it.
+ * tell somebody about it. The id of a stage, a department or a function is
+ * the project's id with a tail, and is wrapped whole, tail and all.
  *
  * **A parenthesis holding only an id the sentence already named is deleted.**
  * "the Approval / Compliance DD (dd_1a06…)" says the same thing twice, once in
@@ -44,8 +45,27 @@ import { graphNodeLabels } from './sitting';
  */
 const ID = String.raw`(?:prj|ast|dd|scp|chk|fnd|rsk|act|ev|dec|rep|val|prp|cht|aud|flw|run)_[A-Za-z0-9][A-Za-z0-9_-]*`;
 
-/** A bare id, not already inside a `[…]` token. */
-const BARE_ID = new RegExp(String.raw`(?<!\[)(?<!\[ev:)\b(${ID})\b(?!\])`, 'g');
+/**
+ * What follows the project's id in the id of a stage, a department or a
+ * function: `::stage::construction`, `::dept::legal`, `::ws::legal.title`.
+ * The key ends on a letter, a digit or an underscore, so the full stop that
+ * closes a sentence is not taken for part of it.
+ */
+const FRAME_TAIL = String.raw`::(?:stage|dept|ws)::[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_])?`;
+
+/**
+ * A bare id, not already inside a `[…]` token, with the frame tail when it
+ * has one.
+ *
+ * The graph mints longer ids under the project's own: a function is
+ * `<project>::ws::legal.title`, an approval `<project>::approval::fire`. The
+ * project's id is the front of each, and matched alone it turned
+ * "prj_1::stage::construction" into a chip for the project followed by
+ * "::stage::construction" as text. So a frame id is matched whole, and an id
+ * that runs on into any other `::` is not matched at all: it is somebody
+ * else's id, not the project's.
+ */
+const BARE_ID = new RegExp(String.raw`(?<!\[)(?<!\[ev:)\b(${ID})(${FRAME_TAIL})?\b(?!\])(?!::)`, 'g');
 
 /** A parenthesis whose entire content is one id, with the space before it. */
 const PARENTHESISED_ID = new RegExp(String.raw`\s*\((${ID})\)`, 'g');
@@ -85,6 +105,15 @@ export function linkRecordIds(project: DdProject, text: string): string {
     return said(text.slice(Math.max(0, at - LOOKBACK), at), label) ? '' : whole;
   });
 
-  out = out.replace(BARE_ID, (whole, id: string) => (labels.has(id) ? `[${id}]` : whole));
+  // A frame id is wrapped whole when it is this project's, whether or not the
+  // frame still has it: the renderer shows a stage, a department or a function
+  // by name, and says in words or leaves out one that is no longer drawn. It
+  // can do neither for an id left bare.
+  out = out.replace(BARE_ID, (whole, id: string, frame: string | undefined, at: number, all: string) => {
+    if (!frame) return labels.has(id) ? `[${id}]` : whole;
+    // A key that runs on past the match is some longer id, not this one.
+    if (/^[.-][A-Za-z0-9_]/.test(all.slice(at + whole.length))) return whole;
+    return id === project.id ? `[${whole}]` : whole;
+  });
   return out;
 }

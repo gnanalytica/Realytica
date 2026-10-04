@@ -69,8 +69,12 @@ async function runRetrieve(input: NodeHandlerInput, ctx: HandlerContext): Promis
   if (input.dryRun) return { retrieved: [], retrievedFrom: from, retrievedQuery: text };
 
   if (from === 'graph') {
-    // Not indexed is not empty: the registers are the source, so walk them.
-    const stored = await graphAdapter.neighbourhood(ctx.project.id, [text], hops ?? 2);
+    // Not indexed is not empty, and neither is a store that did not answer:
+    // the registers are the source, so walk them.
+    const stored = await graphAdapter.neighbourhood(ctx.project.id, [text], hops ?? 2).catch((err: Error) => {
+      console.warn(`[graph] a flow's retrieve fell back to the projection: ${err.message}`);
+      return null;
+    });
     const nodes = (stored ?? extractProjectSubgraph(buildProjectGraph(ctx.project), [text], hops ?? 2)).nodes;
     return { retrieved: nodes.slice(0, limit ?? 40), retrievedFrom: from, count: nodes.length };
   }

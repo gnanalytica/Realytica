@@ -1143,7 +1143,7 @@ export function createProjectTools(
   const getSubgraph = betaTool({
     name: 'get_subgraph',
     description:
-      "Query THIS FILE's register graph: assets, DDs, scopes, checks, evidence, findings, risks, actions, each placed in one of the four stages and in a department's function. A `workstream` node is what the person calls a function (Title, Approvals, Design): say function. Pass a term or an id and hops (1-3). The result is the neighbourhood as [id] lines. Prefer this when asked how things connect. Graph hits are this project's registers — never treat them as a statute. For IBBI/NBC/acts use lookup_reference, which is catalogue-only and is not evidence.",
+      "Query THIS FILE's register graph: assets, DDs, scopes, checks, evidence, findings, risks, actions, each placed in one of the four stages and in a department's function. A `workstream` node is what the person calls a function (Title, Approvals, Design): say function. Pass a term or an id and hops (1-3). The result is the neighbourhood as [id] lines: one for each record, then one for each link between two, said in plain words (rests on, still needs, is needed before) that you can repeat as they are. Prefer this when asked how things connect. Graph hits are this project's registers — never treat them as a statute. For IBBI/NBC/acts use lookup_reference, which is catalogue-only and is not evidence.",
     inputSchema: {
       type: 'object',
       additionalProperties: false,

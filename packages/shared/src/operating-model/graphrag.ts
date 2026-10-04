@@ -12,7 +12,7 @@
  */
 
 import { buildProjectGraph } from './project-graph';
-import type { ProjectGraphEdgeKind } from './project-ontology';
+import { PROJECT_EDGE_LABEL, isProjectEdgeKind, projectEdgePhrase, type ProjectGraphEdgeKind } from './project-ontology';
 import type { DdProject, ProjectGraphEdge, ProjectGraphNode } from './types';
 
 export interface ProjectGraphView {
@@ -80,11 +80,23 @@ export function clampGraphHops(hops: number): number {
 }
 
 /**
+ * The words that find every node of a kind in the frame, besides the kind's
+ * own name: one or many, and for a function the reader's word as well as the
+ * record's. The menu calls a workstream a function and the graph keeps the
+ * kind `workstream`.
+ */
+const FRAME_KIND_WORDS: Partial<Record<ProjectGraphNode['kind'], readonly string[]>> = {
+  stage: ['stages'],
+  department: ['departments'],
+  workstream: ['workstreams', 'function', 'functions'],
+};
+
+/**
  * Case-insensitive id or label search — how a question's words become seeds.
  *
- * A kind's name finds every node of that kind. The menu calls a workstream a
- * function and the graph keeps the kind `workstream`, so the reader's word
- * finds them too, one or many: "function" and "functions".
+ * A kind's name finds every node of that kind. For the frame, which a person
+ * asks for by the words on the page ("stages", "departments", "functions"),
+ * so do the words in `FRAME_KIND_WORDS`.
  *
  * The names the frame no longer draws are found through the detail of what
  * stands for them: a step on its stage, a department's name in full on the
@@ -100,7 +112,7 @@ export function findProjectNodes(graph: ProjectGraphView, query: string): Projec
       n.label.toLowerCase().includes(needle) ||
       (n.detail ?? '').toLowerCase().includes(needle) ||
       n.kind.toLowerCase() === needle ||
-      (n.kind === 'workstream' && (needle === 'function' || needle === 'functions')),
+      (FRAME_KIND_WORDS[n.kind]?.includes(needle) ?? false),
   );
 }
 
@@ -181,16 +193,32 @@ export function traceProjectNode(graph: ProjectGraphView, nodeId: string): Proje
   };
 }
 
+/**
+ * A neighbourhood as the copilot reads it: one line a node, one line a link.
+ *
+ * A link is written in the relation's plain words, never its key. What the
+ * copilot reads it repeats, and "`[chk_1] -supported_by-> [ev_9]`" comes back
+ * to a person as "supported_by". The words also carry what a key cannot: a
+ * check "still needs" a deed the file is waiting for and "rests on" one it
+ * holds, where the key is `supported_by` both times and the copilot would
+ * have to work out from a status which it meant.
+ *
+ * A stored graph can hold a relation this build does not know, written by
+ * other code against the same store. It is said as a link and no more.
+ */
 export function serializeProjectSubgraph(sub: ProjectGraphView, source: ProjectGraphRagSource = 'live'): string {
   const lines: string[] = [
     'THIS FILE — register neighbourhood. Not the statute library. Do not treat a reference URL as evidence on this project.',
     `source=${source} nodes=${sub.nodes.length} edges=${sub.edges.length}`,
   ];
+  const byId = new Map(sub.nodes.map((n) => [n.id, n]));
   for (const node of sub.nodes) {
     lines.push(`[${node.id}] ${node.kind}: ${node.label}${node.detail ? ` (${node.detail})` : ''}`);
   }
   for (const edge of sub.edges) {
-    lines.push(`[${edge.from}] -${edge.rel}-> [${edge.to}]`);
+    const to = byId.get(edge.to);
+    const says = isProjectEdgeKind(edge.rel) ? (to ? projectEdgePhrase(edge.rel, 'forward', to) : PROJECT_EDGE_LABEL[edge.rel].forward) : 'is linked to';
+    lines.push(`[${edge.from}] ${says} [${edge.to}]`);
   }
   return lines.join('\n');
 }

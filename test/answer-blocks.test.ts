@@ -77,22 +77,83 @@ describe('inline spans', () => {
     assert.deepEqual(spans.map(s => s.kind), ['text', 'bold', 'text', 'code', 'text']);
   });
 
-  it('takes an id of the frame that no longer resolves out of the sentence', () => {
+  it('says an id of the frame that the graph no longer has in words, where it stood', () => {
     // The project graph's frame was redrawn to match the menu: twelve steps
     // became four stages and Design became one function of Engineering. An
-    // answer written before quotes `…::stage::acquisition`, which is nothing
-    // now. It names where the sentence is talking about and supports nothing,
-    // so it leaves the sentence rather than printing as a key or as a broken
-    // reference to something that was never one.
-    const gone = (line: string) => text(parseInline(line, NO_NODES));
-    assert.equal(gone('The file is at the Acquisition step [prj_1a-2b::stage::acquisition] and Legal is open.'), 'The file is at the Acquisition step and Legal is open.');
-    assert.equal(gone('Design keeps the drawing register [prj_1a-2b::ws::design.drawings].'), 'Design keeps the drawing register.');
-    assert.equal(gone('The Design department ([prj_1a-2b::dept::design]) is switched on.'), 'The Design department is switched on.');
-    assert.equal(gone('It moved from [prj_1a-2b::stage::design] to [prj_1a-2b::stage::approvals] in March.'), 'It moved from to in March.');
-    // One run of words again, not two with a seam where the id was.
-    assert.deepEqual(parseInline('At the step [prj_1a-2b::stage::acquisition] now.', NO_NODES), [{ kind: 'text', text: 'At the step now.' }]);
+    // answer written before quotes `…::stage::design`, which is no node now
+    // and is still the Design step. Taken out, it left "It moved from to in
+    // March." Printed as a key it is unreadable. So it is printed as its
+    // name, in plain words, because there is nothing to open.
+    const said = (line: string) => text(parseInline(line, NO_NODES));
+    assert.equal(said('It moved from [prj_1a-2b::stage::design] to [prj_1a-2b::stage::approvals] in March.'), 'It moved from Design to Approvals in March.');
+    assert.equal(said('Design keeps the drawing register [prj_1a-2b::ws::design.drawings].'), 'Design keeps the drawing register Drawings & versions.');
+    // A department the project has switched off, and a function under it.
+    assert.equal(said('Nothing is bought until [prj_1a-2b::dept::procurement] is switched on.'), 'Nothing is bought until Procurement is switched on.');
+    assert.equal(said('Orders would sit in [prj_1a-2b::ws::procurement.orders].'), 'Orders would sit in Purchase orders & commitments.');
+    // One run of words again, not three with seams where the id was.
+    assert.deepEqual(parseInline('At the step [prj_1a-2b::stage::acquisition] now.', NO_NODES), [{ kind: 'text', text: 'At the step Acquisition now.' }]);
     // Found by its own shape, so prose in brackets earlier on the line does not hide it.
-    assert.equal(gone('As noted [see above], at [prj_1a-2b::stage::feasibility] still.'), 'As noted [see above], at still.');
+    assert.equal(said('As noted [see above], at [prj_1a-2b::stage::feasibility] still.'), 'As noted [see above], at Feasibility still.');
+  });
+
+  it('opens a sentence with the name when the sentence opened with the id', () => {
+    const said = (line: string) => text(parseInline(line, NO_NODES));
+    assert.equal(said('[prj_1a-2b::stage::acquisition] closed in March.'), 'Acquisition closed in March.');
+    assert.equal(said('Legal is open. [prj_1a-2b::dept::design] is not.'), 'Legal is open. Design is not.');
+    // The name said a sentence or a clause earlier is not the name said just
+    // before: the second sentence still needs its subject.
+    assert.equal(
+      said('The file is at Acquisition. [prj_1a-2b::stage::acquisition] closes when the deed is registered.'),
+      'The file is at Acquisition. Acquisition closes when the deed is registered.',
+    );
+    assert.equal(said('Acquisition is done, so [prj_1a-2b::stage::acquisition] needs no more work.'), 'Acquisition is done, so Acquisition needs no more work.');
+  });
+
+  it('does not say a name twice when the words just before the id were the name', () => {
+    const said = (line: string) => text(parseInline(line, NO_NODES));
+    assert.equal(said('The file is at the Acquisition step [prj_1a-2b::stage::acquisition] and Legal is open.'), 'The file is at the Acquisition step and Legal is open.');
+    assert.equal(said('The Design department ([prj_1a-2b::dept::design]) is switched on.'), 'The Design department is switched on.');
+    // By its one word or its name in full, whichever the sentence used.
+    assert.equal(said('Legal & Compliance ([prj_1a-2b::dept::legal]) is off.'), 'Legal & Compliance is off.');
+    assert.equal(said('The Title function [prj_1a-2b::ws::legal.title] is off.'), 'The Title function is off.');
+    assert.equal(said('Title & land records [prj_1a-2b::ws::legal.title] is off.'), 'Title & land records is off.');
+    // And through emphasis, which is not part of the words.
+    assert.equal(text(parseInline('At the **Acquisition** step [prj_1a-2b::stage::acquisition] now.', NO_NODES)), 'At the Acquisition step now.');
+    // A name that is only near is not the name just before.
+    assert.equal(said('Acquisition and the rest [prj_1a-2b::stage::acquisition].'), 'Acquisition and the rest Acquisition.');
+  });
+
+  it('takes out only a frame id that nothing can name', () => {
+    // A key that was never a stage, a step, a department or a workstream. It
+    // supports nothing and says nothing, so it leaves the sentence.
+    const said = (line: string) => text(parseInline(line, NO_NODES));
+    assert.equal(said('It is at [prj_1a-2b::stage::nowhere] still.'), 'It is at still.');
+    assert.equal(said('It is with the team ([prj_1a-2b::dept::nobody]) now.'), 'It is with the team now.');
+    assert.equal(said('It sits in [prj_1a-2b::ws::legal.nothing].'), 'It sits in.');
+    // At the start of a line the space after it goes with it.
+    assert.deepEqual(parseInline('[prj_1a-2b::stage::nowhere] is done.', NO_NODES), [{ kind: 'text', text: 'is done.' }]);
+    // A word that only looks like a key of the language is not a name either.
+    assert.equal(said('It is at [prj_1a-2b::stage::constructor] still.'), 'It is at still.');
+  });
+
+  it('never leaves a line empty where an id was all it had', () => {
+    const said = (line: string) => text(parseInline(line, NO_NODES));
+    assert.equal(said('[prj_1a-2b::ws::design.rfis]'), 'RFIs');
+    assert.equal(said('[prj_1a-2b::dept::procurement]'), 'Procurement');
+    // Nothing names this one, and taking it out would leave nothing at all.
+    // It is marked, as a record's id is, and not dropped.
+    assert.deepEqual(parseInline('[prj_1a-2b::stage::nowhere]', NO_NODES), [{ kind: 'dangling', id: 'prj_1a-2b::stage::nowhere' }]);
+    assert.deepEqual(parseInline('([prj_1a-2b::stage::nowhere]).', NO_NODES), [{ kind: 'dangling', id: 'prj_1a-2b::stage::nowhere' }]);
+    assert.deepEqual(parseInline('[prj_1a-2b::stage::nowhere] [prj_1a-2b::ws::legal.nothing]', NO_NODES), [
+      { kind: 'dangling', id: 'prj_1a-2b::stage::nowhere' },
+      { kind: 'dangling', id: 'prj_1a-2b::ws::legal.nothing' },
+    ]);
+
+    // As bullets, which is where a line is most often one id and no more.
+    const blocks = parseAnswer('Still open:\n- [prj_1a-2b::ws::design.rfis]\n- [prj_1a-2b::dept::procurement]\n- [prj_1a-2b::stage::nowhere]', NO_NODES);
+    const list = blocks[1] as Extract<Block, { kind: 'bullets' }>;
+    assert.deepEqual(list.items.map(text), ['RFIs', 'Procurement', '<dangling:prj_1a-2b::stage::nowhere>']);
+    assert.ok(list.items.every((item) => item.length > 0));
   });
 
   it('shows a frame id the graph still has as a node, by name', () => {
@@ -102,15 +163,15 @@ describe('inline spans', () => {
       spans.filter(s => s.kind === 'node').map(s => (s as { id: string }).id),
       ['prj_1a-2b::stage::construction', 'prj_1a-2b::ws::legal.title'],
     );
-    assert.equal(text(spans), 'At <node:prj_1a-2b::stage::construction>, with <node:prj_1a-2b::ws::legal.title> and the old.');
+    assert.equal(text(spans), 'At <node:prj_1a-2b::stage::construction>, with <node:prj_1a-2b::ws::legal.title> and the old RFIs.');
   });
 
   it('still marks a record’s id that resolves to nothing, and still prints what is not ours', () => {
-    // Only the frame's ids are dropped. A record is a reference the answer
-    // made, and one we cannot follow stays visible.
+    // Only the frame's ids are put into words. A record is a reference the
+    // answer made, and one we cannot follow stays visible as one.
     const spans = parseInline('See [dd-risk-9] and [prj_1a-2b::approval::fire] and [prj_1a-2b::stage::acquisition].', NO_NODES);
     assert.equal(spans.filter(s => s.kind === 'dangling').length, 1);
-    assert.equal(text(spans), 'See <dangling:dd-risk-9> and [prj_1a-2b::approval::fire] and.');
+    assert.equal(text(spans), 'See <dangling:dd-risk-9> and [prj_1a-2b::approval::fire] and Acquisition.');
   });
 });
 

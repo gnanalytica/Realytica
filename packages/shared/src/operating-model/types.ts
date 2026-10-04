@@ -1228,7 +1228,8 @@ export interface ProjectGraphNode {
    * `current` or `ahead`; a function's `live` or `coming_soon`; an
    * approval's `in_force`, `expired` or `missing`; a document's `expected`,
    * `received` or `rejected`; a quick assessment's verdict. It is what says
-   * whether a paper an edge reaches is in hand (`projectNodeAwaited`).
+   * whether a paper an edge reaches is in hand, still awaited or set aside
+   * (`projectNodeAwaited`, `projectNodeSetAside`).
    */
   status?: string;
 }

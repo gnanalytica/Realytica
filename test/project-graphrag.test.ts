@@ -110,6 +110,39 @@ describe('project GraphRAG', () => {
     assert.match(ref.tool.description ?? '', /not this project's evidence/i);
   });
 
+  it('hands the copilot each link in plain words, never a relation key', () => {
+    // What the copilot reads it repeats. A line written `-supported_by->`
+    // comes back to a person as "supported_by"; one written "rests on" comes
+    // back as that. And the words say what the key cannot: whether the paper
+    // a check names has come.
+    const project = seedDemoProject();
+    const graph = projectGraphOf(project);
+    const text = serializeProjectSubgraph(graph);
+    const links = text.split('\n').filter((line) => /^\[[^\]]+\] [^:[\]]+ \[[^\]]+\]$/.test(line));
+    assert.equal(links.length, graph.edges.length, 'every link is a line');
+    for (const line of links) {
+      const said = line.replace(/^\[[^\]]+\] /, '').replace(/ \[[^\]]+\]$/, '');
+      assert.match(said, /^[a-z]+( [a-z]+)*$/, line);
+    }
+    assert.doesNotMatch(text, /->/, 'no arrow with a key inside it');
+    for (const key of ['supported_by', 'has_check', 'has_scope', 'has_workstream', 'in_stage', 'assessed_by']) {
+      assert.ok(!text.includes(key), `${key} reaches the copilot`);
+    }
+    assert.match(text, /\] rests on \[/);
+    assert.match(text, /\] still needs \[/, 'a paper the file is waiting for is said to be needed, not rested on');
+    assert.match(text, /\] is needed before \[/);
+
+    // A stored graph can hold a relation written by other code. It is said as a link and no more.
+    const stored = {
+      nodes: [
+        { id: 'a', kind: 'check' as const, layer: 'judgement' as const, origin: 'derived' as const, label: 'A check' },
+        { id: 'b', kind: 'evidence' as const, layer: 'evidence' as const, origin: 'derived' as const, label: 'A paper' },
+      ],
+      edges: [{ id: 'x', from: 'a', to: 'b', rel: 'uses_evidence' as never }],
+    };
+    assert.match(serializeProjectSubgraph(stored), /^\[a\] is linked to \[b\]$/m);
+  });
+
   it('tells a copilot that read Design off the graph which workstreams a document can go to', async () => {
     // The graph draws Design as one function, under the key `design`. A
     // document is given to a workstream, and Design is four of them, so the
