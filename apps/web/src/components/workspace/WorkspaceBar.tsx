@@ -206,7 +206,7 @@ export interface TrackStage {
   when: 'past' | 'now' | 'future';
 }
 
-const WHEN_WORD: Record<TrackStage['when'], string> = { past: 'done', now: 'current stage', future: 'not yet due' };
+const WHEN_WORD: Record<TrackStage['when'], string> = { past: 'done', now: 'live', future: 'not yet due' };
 
 /**
  * The four stages on one line, joined by a rule that is green as far as the
@@ -215,12 +215,18 @@ const WHEN_WORD: Record<TrackStage['when'], string> = { past: 'done', now: 'curr
  * Every stage can be pressed: what a press does (look at that stage's work,
  * open what was filed in it) is the caller's business.
  *
+ * Two things are said at once and must not be mistaken for each other. The
+ * stage being looked at is the picked one, in the colour of everything
+ * picked, and a press moves it freely. The stage the project is at is the
+ * live one, and there is only ever one: it carries the word, whichever stage
+ * is being looked at, and no press here changes it.
+ *
  * The track measures itself: give it the free space of its row (`flex-1`) and
  * it sits at the right-hand end of it. Where that space is too short for four
  * names, only the stage in view keeps its name; the rings alone still say how
  * far along the project is, and each says its name on hover. It never gets
- * narrower than four rings and the longest name, so it cannot be squeezed
- * onto its neighbours.
+ * narrower than four rings, the longest name and the word "Live", so it
+ * cannot be squeezed onto its neighbours.
  */
 export function StageTrack({
   stages,
@@ -235,7 +241,7 @@ export function StageTrack({
   className?: string;
 }) {
   return (
-    <div className={cn('min-w-[16rem] [container-type:inline-size]', className)}>
+    <div className={cn('min-w-[18.5rem] [container-type:inline-size]', className)}>
       <nav aria-label="Stages" className="flex min-w-0 items-center justify-end">
         {stages.map((stage, i) => {
           const on = picked === stage.key;
@@ -258,7 +264,7 @@ export function StageTrack({
                 className={cn(
                   'inline-flex min-h-[30px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full py-1 pl-[5px] pr-[9px] text-[12px]',
                   'transition-colors duration-quick ease-state hover:bg-sunken hover:text-ink coarse:min-h-11',
-                  on ? 'bg-sunken font-semibold text-ink' : stage.when === 'future' ? 'text-ink-muted' : 'text-ink-secondary',
+                  on ? 'bg-brand-soft font-semibold text-brand' : stage.when === 'future' ? 'text-ink-muted' : 'text-ink-secondary',
                 )}
               >
                 <span
@@ -273,6 +279,7 @@ export function StageTrack({
                   {stage.when === 'past' ? <Check size={10} strokeWidth={3} /> : null}
                 </span>
                 <span className={cn(named ? 'inline' : 'hidden [@container(min-width:34rem)]:inline')}>{stage.label}</span>
+                {stage.when === 'now' ? <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand">Live</span> : null}
               </button>
             </span>
           );

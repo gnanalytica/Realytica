@@ -26,9 +26,9 @@ const WHEN: Record<TimelineStatus, TrackStage['when']> = { done: 'past', current
  * Four stages on one track: Land, Pre-construction, Under construction,
  * Completed. A stage is the state of the property, so the track shows no
  * steps under it. Pressing a stage looks at the project in that stage: the
- * selector, the function tabs and the pages under them follow it. Each stage
- * keeps the mark of where the project is whichever one is looked at, and
- * pressing the stage the project is at goes back to it.
+ * selector, the function tabs and the pages under them follow it. Looking
+ * changes nothing on the record: the project is at one stage, marked Live
+ * whichever one is looked at, and pressing it goes back to it.
  *
  * What was filed, checked and decided in a stage, its finer steps and the
  * control that makes a step the current one are a section of Overview
@@ -91,6 +91,8 @@ export function StagePill({
         />
         <span className="truncate sm:hidden">{looking.label}</span>
         <span className="hidden truncate sm:inline">{full}</span>
+        {/* Only the stage the project is at carries the word. A stage that is only looked at never does. */}
+        {own ? <span className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.06em] text-brand">Live</span> : null}
       </button>
       {/* On a phone the record of a stage is a sheet, not a section of a page that may not be the one on screen. */}
       <Modal open={picked !== null} onClose={() => setPicked(null)} title="Stages" width="lg">
@@ -187,6 +189,7 @@ function StageBody({
                 className={cn('shrink-0 rounded-full px-2.5 py-1 text-[12px] coarse:min-h-11', x.key === stage.key ? 'bg-ink font-medium text-[var(--text-inverse)]' : 'text-ink-secondary ring-1 ring-inset ring-[var(--ring)]')}
               >
                 {x.label}
+                {x.status === 'current' ? ' · live' : ''}
               </button>
             ))}
           </div>
