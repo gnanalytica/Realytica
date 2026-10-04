@@ -7,10 +7,10 @@ import { cn } from '../ui/kit';
  * left that says which one you are in and takes you to any of them.
  *
  * The rail is thirty-eight pixels of icons that opens over the page to show
- * the names, on hover or on keyboard focus, so it costs the work no width.
- * Where the work column is too narrow for a rail (a phone, or the work beside
- * an open proof pane) it lies across the top instead, with only the current
- * section named.
+ * the names, on hover or on keyboard focus, so the names cost the work no
+ * width. Where the work column is too narrow for a rail (a phone, or the work
+ * beside an open proof pane) it lies across the top instead, with only the
+ * current section named.
  *
  * It measures the nearest scrolling ancestor, so it works wherever it is
  * dropped: inside the project's work surface or the example's.
@@ -50,9 +50,10 @@ export function SectionPage({
   const root = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState<string | undefined>(sections[0]?.id);
   /*
-   * After a jump the section asked for stays marked until the person scrolls
-   * for themselves. A short last section can never reach the top of the
-   * scroller, so measuring straight after the jump would mark its neighbour.
+   * After a jump the section asked for stays marked until the page has come
+   * to rest and the person scrolls for themselves. A short last section can
+   * never reach the top of the scroller, so measuring while the jump is
+   * still travelling, or straight after it, would mark its neighbour.
    */
   const held = useRef(false);
   const ids = sections.map((s) => s.id).join('|');
@@ -70,22 +71,28 @@ export function SectionPage({
       for (const part of parts) {
         if (part.getBoundingClientRect().top - top <= SPY_LINE) at = part;
       }
-      if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) at = parts[parts.length - 1]!;
+      // At the foot of a page that scrolls, the last section is the one in view however short it is.
+      const scrolls = scroller.scrollHeight > scroller.clientHeight + 2;
+      if (scrolls && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) at = parts[parts.length - 1]!;
       setCurrent(at.dataset.section);
     };
+    /*
+     * What lets go of a held section: anything a person does to scroll for
+     * themselves. A wheel, a finger and a key each say so directly; a press
+     * on the scroller covers dragging its scrollbar, which fires none of
+     * those. `scrollend` covers the jump itself coming to rest, where the
+     * browser has it.
+     */
     const release = () => {
       held.current = false;
     };
     measure();
     scroller.addEventListener('scroll', measure, { passive: true });
-    scroller.addEventListener('wheel', release, { passive: true });
-    scroller.addEventListener('touchmove', release, { passive: true });
-    scroller.addEventListener('keydown', release);
+    const lets = ['wheel', 'touchmove', 'keydown', 'pointerdown', 'scrollend'] as const;
+    for (const type of lets) scroller.addEventListener(type, release, { passive: true });
     return () => {
       scroller.removeEventListener('scroll', measure);
-      scroller.removeEventListener('wheel', release);
-      scroller.removeEventListener('touchmove', release);
-      scroller.removeEventListener('keydown', release);
+      for (const type of lets) scroller.removeEventListener(type, release);
     };
   }, [ids]);
 
@@ -112,6 +119,8 @@ export function SectionPage({
         className={cn(
           // Narrow: a row of icons across the top, only the current one named.
           'sticky top-0 z-[4] -my-1.5 flex gap-0.5 overflow-x-auto bg-page py-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          // A scroller's own padding stays above a sticky child, and the page would show through it: the row's ground reaches up to cover that strip.
+          'shadow-[0_-16px_0_0_var(--page)] [@container(min-width:35rem)]:shadow-none',
           // Wide: the rail, which opens over the page.
           '[@container(min-width:35rem)]:top-3 [@container(min-width:35rem)]:my-0 [@container(min-width:35rem)]:grid [@container(min-width:35rem)]:w-[38px] [@container(min-width:35rem)]:grid-cols-1 [@container(min-width:35rem)]:overflow-hidden [@container(min-width:35rem)]:rounded-[11px] [@container(min-width:35rem)]:bg-transparent [@container(min-width:35rem)]:p-[3px]',
           '[@container(min-width:35rem)]:transition-[width,background-color,box-shadow] [@container(min-width:35rem)]:delay-75 [@container(min-width:35rem)]:duration-base [@container(min-width:35rem)]:ease-state motion-reduce:transition-none',
@@ -143,8 +152,14 @@ export function SectionPage({
       </nav>
       <div className="flex min-w-0 flex-col gap-3.5">
         {lead}
+        {/* A section brought into view stops clear of what stays put above it: the row of icons where the page is narrow, nothing but a margin where the rail stands beside it. */}
         {sections.map((section) => (
-          <section key={section.id} data-section={section.id} aria-label={section.name} className="flex scroll-mt-3 flex-col gap-3.5">
+          <section
+            key={section.id}
+            data-section={section.id}
+            aria-label={section.name}
+            className="flex scroll-mt-16 flex-col gap-3.5 [@container(min-width:35rem)]:scroll-mt-3"
+          >
             {section.body}
           </section>
         ))}

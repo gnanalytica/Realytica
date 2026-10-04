@@ -11,10 +11,10 @@ The interface follows the **Copilot Desk** direction chosen on 29 September 2026
 | Sunken | `#EEF0F3` | `#111317` | Tracks, chips, hover |
 | Ink | `#15171A` | `#F3F4F6` | Text, and the **action** colour: a primary button commits something |
 | Teal | `#0B6464` | `rgb(86 190 184)` | Links, citations, the selected thing, focus |
-| Rose | `#B0245A` | `rgb(232 112 160)` | Anything a model wrote that no person has accepted: the AI mark, proposal outlines, values waiting on a page |
+| Blue | `#2B5FA8` | `rgb(86 133 214)` | Anything a model wrote that no person has accepted: the AI mark, proposal outlines, values waiting on a page |
 | Good / Warning / Serious / Critical | `#16794A` · `#E0A100` · `#D8692F` · `#B42318` | lighter equivalents | Verdicts and statuses only. Amber and orange each have a darker text colour (`--status-warning-text`, `--status-serious-text`) |
 
-All of them are CSS custom properties in `apps/web/src/index.css`, exposed through Tailwind as `page`, `surface`, `sunken`, `ink`, `action`, `brand`, `ai`, `good`, `warning`, `serious`, `critical` and `provenance` (which is rose). Never write a hex value in a component; a colour that exists only in one theme is the classic unreadable-in-dark-mode bug.
+All of them are CSS custom properties in `apps/web/src/index.css`, exposed through Tailwind as `page`, `surface`, `sunken`, `ink`, `action`, `brand`, `ai`, `good`, `warning`, `serious`, `critical` and `provenance` (which is the same blue). Never write a hex value in a component; a colour that exists only in one theme is the classic unreadable-in-dark-mode bug.
 
 **Type.** Schibsted Grotesk for everything, DM Mono for figures, codes, counts and citations. Both are bundled (`@fontsource`), so the app makes no font request of its own. Kannada and Telugu come from Google Fonts for the originals a deed is written in. Sizes stay on an integer ladder of 10, 11, 12, 13, 14 and 15 px, with larger sizes for display; `pnpm lint:type` fails the build on half-pixel sizes.
 
@@ -42,7 +42,7 @@ Folds stay `<details>`, so find-in-page and print reach inside them, and they op
 - **Card** and **CardHeader**: icons sit in a small tile.
 - **Button**: primary is ink; presses scale.
 - **Badge**: chips coloured by tone.
-- **AiMark**: the rose "AI" square, on everything a model wrote.
+- **AiMark**: the blue "AI" square, on everything a model wrote.
 - **Tabs**: the underline travels between tabs.
 - **Modal**: a spring dialog on wide screens; below 640 px a bottom sheet, dragged down by its handle or header to close.
 - **Tooltip**: appears after the pointer rests for 140 ms; on focus it appears at once.

@@ -10,7 +10,7 @@ import { Text } from './text';
 import { Touchable } from './touchable';
 
 /**
- * `info` is teal; `ai` (rose) marks something waiting on the person's own
+ * `info` is teal; `ai` (blue) marks something waiting on the person's own
  * decision — an item the server refused, which only they can retry or drop.
  */
 export type Tone = 'info' | 'good' | 'warning' | 'serious' | 'critical' | 'ai';

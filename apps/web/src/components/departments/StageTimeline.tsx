@@ -26,6 +26,11 @@ const WHEN: Record<TimelineStatus, TrackStage['when']> = { done: 'past', current
  * steps under it. Pressing a stage opens what was filed, checked and decided
  * while the project was there; the finer steps a project moves through are
  * inside that record, and it is where a step is made the current one.
+ *
+ * The record hangs from the bar the track sits in, not from the track: the
+ * track ends well short of the bar's right edge, and a panel hung from it
+ * ran off the left of a narrower window. So this component is not itself
+ * positioned, and the bar that holds it must be (`relative`).
  */
 export function StageTimeline({ project, onChanged, onOpen, compact = false }: { project: DdProject; onChanged: (p: DdProject) => void; onOpen: PhaseOpen; compact?: boolean }) {
   const timeline = useMemo(() => stageTimeline(project), [project]);
@@ -61,7 +66,7 @@ export function StageTimeline({ project, onChanged, onOpen, compact = false }: {
   const pickedStage = picked ? timeline.stages.find((s) => (picked.kind === 'stage' ? s.key === picked.key : s.subStages.some((x) => x.key === picked.key)))?.key : null;
 
   return (
-    <div className="relative flex min-w-0 flex-1">
+    <div className="flex min-w-[16rem] flex-1">
       <StageTrack
         className="flex-1"
         stages={timeline.stages.map((s) => ({ key: s.key, label: s.label, when: WHEN[s.status] }))}
@@ -76,7 +81,7 @@ export function StageTimeline({ project, onChanged, onOpen, compact = false }: {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, transition: { duration: 0.14 } }}
             transition={{ duration: 0.22, ease: EASE_ENTER }}
-            className="absolute right-0 top-full z-40 mt-2 max-h-[70vh] w-[min(44rem,92vw)] origin-top-right overflow-y-auto rounded-2xl bg-surface p-3 shadow-pop ring-1 ring-[var(--ring)]"
+            className="absolute right-4 top-full z-40 mt-2 max-h-[70vh] w-[min(44rem,calc(100%-2rem))] origin-top-right overflow-y-auto rounded-2xl bg-surface p-3 shadow-pop ring-1 ring-[var(--ring)]"
           >
             <StageBody project={project} picked={picked} onPick={setPicked} onChanged={onChanged} onOpen={onOpen} timeline={timeline} closable />
           </motion.div>

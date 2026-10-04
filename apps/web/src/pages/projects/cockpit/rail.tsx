@@ -16,6 +16,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import {
+  DEPARTMENT_KEYS,
   SCOPE_LABEL,
   departmentDefinition,
   projectDepartments,
@@ -29,6 +30,7 @@ import {
 import { cn } from '../../../components/ui/kit';
 import { DepartmentPicker, FunctionTabs, type FunctionTab, type PickerItem } from '../../../components/workspace/WorkspaceBar';
 import { SPRING, motion } from '../../../lib/motion';
+import { useEdges } from '../../../lib/useEdges';
 import { useMe } from '../../../lib/useMe';
 
 /**
@@ -173,7 +175,8 @@ export function workstreamOfPane(pane: ProjectCockpitPane, workstream?: string):
 
 /** Which department a pane belongs to, when it belongs to one. */
 export function departmentOfPane(pane: ProjectCockpitPane, at: { department?: string; workstream?: string }): DepartmentKey | undefined {
-  if (pane === 'department') return at.department as DepartmentKey | undefined;
+  // An address can name anything. One that names no department is none: its page sends the reader to Overview, and the bar must not fall over first.
+  if (pane === 'department') return DEPARTMENT_KEYS.find((key) => key === at.department);
   const ws = workstreamOfPane(pane, at.workstream);
   return ws ? workstreamDefinition(ws)?.department : undefined;
 }
@@ -226,45 +229,6 @@ const CHIP_SCROLL =
 /** Wide enough to wrap; narrow enough that a row has to scroll. */
 function chipRow(wrap: boolean): string {
   return wrap ? 'flex flex-wrap gap-1.5' : CHIP_SCROLL;
-}
-
-/**
- * Whether a scroller has more to show, on each side.
- *
- * The chip row hides its scrollbar on purpose — a visible one across a
- * five-item tab strip is uglier than the problem it solves — but hiding it
- * removed the only thing saying the row scrolled at all. On a phone that put
- * Report off the right edge of Overview / Assess / Records / Value with
- * nothing to suggest it was there, so the last tab in the product's own
- * workflow order was invisible unless you happened to swipe.
- *
- * Measured rather than assumed: a fade painted unconditionally would sit at
- * the edge of a row that fits, implying content that does not exist.
- */
-function useEdges(): [React.RefObject<HTMLDivElement>, { start: boolean; end: boolean }] {
-  const ref = useRef<HTMLDivElement>(null);
-  const [edges, setEdges] = useState({ start: false, end: false });
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const measure = () => {
-      // A couple of pixels of slack: sub-pixel widths otherwise leave a fade
-      // showing at a scroll position that is visually the end.
-      const maxScroll = el.scrollWidth - el.clientWidth;
-      setEdges({ start: el.scrollLeft > 2, end: el.scrollLeft < maxScroll - 2 });
-    };
-    measure();
-    el.addEventListener('scroll', measure, { passive: true });
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => {
-      el.removeEventListener('scroll', measure);
-      observer.disconnect();
-    };
-  }, []);
-
-  return [ref, edges];
 }
 
 /** The chip row, with a fade wherever it continues past the edge. */
@@ -356,17 +320,17 @@ function waitingOnTab(tab: CockpitTab, byPane: WaitingByPane): number {
 type Go = (pane: ProjectCockpitPane, extra?: { ddId?: string; scopeId?: string; department?: string; workstream?: string }) => void;
 
 /**
- * The second row: a segmented control whose selection slides.
+ * A shared place's own tabs (Checks, Findings, Risks and actions…): a
+ * segmented control whose selection slides.
  *
- * Workstreams, and a section's own tabs, are siblings of one thing — the pill
- * travelling between them says that, where a row of separately-highlighted
- * words did not.
+ * They are siblings of one thing — the pill travelling between them says
+ * that, where a row of separately-highlighted words did not.
  */
 function Segments({
   items,
   wrap,
 }: {
-  items: Array<{ key: string; label: ReactNode; on: boolean; muted?: boolean; go: () => void; extra?: ReactNode }>;
+  items: Array<{ key: string; label: ReactNode; on: boolean; go: () => void; extra?: ReactNode }>;
   wrap: boolean;
 }) {
   const group = useId();
@@ -382,7 +346,7 @@ function Segments({
             className={cn(
               'relative inline-flex shrink-0 items-center gap-1.5 rounded-[10px] px-2.5 py-1 text-[12px] coarse:min-h-11',
               'transition-colors duration-quick ease-state',
-              item.on ? 'font-semibold text-ink' : item.muted ? 'text-ink-muted hover:text-ink-secondary' : 'text-ink-secondary hover:text-ink',
+              item.on ? 'font-semibold text-ink' : 'text-ink-secondary hover:text-ink',
             )}
           >
             {item.on ? (
@@ -443,7 +407,11 @@ export function ProjectPicker({
   const enabled = projectDepartments(project);
   const current = placeOf(pane, { department, workstream });
   const overview = SECTIONS[0]!;
-  const departments: PickerItem[] = MENU_DEPARTMENTS.filter((key) => enabled.includes(key)).map((key) => {
+  // Engineering is listed while either it or Design is switched on, since Design's page is reached through it. The
+  // department you are standing in is listed too, even switched off, so the selector never names somewhere else.
+  const departments: PickerItem[] = MENU_DEPARTMENTS.filter(
+    (key) => enabled.includes(key) || (key === 'construction' && enabled.includes('design')) || key === current,
+  ).map((key) => {
     const soon = departmentDefinition(key).status === 'coming_soon';
     return { key, label: DEPARTMENT_SHORT[key], note: soon ? 'Coming soon' : undefined, muted: soon };
   });
@@ -470,11 +438,18 @@ export function ProjectPicker({
   );
 }
 
-/** A department's functions as tabs: Summary, then each one, with Design leading Engineering's. */
-function functionTabs(menu: DepartmentKey, enabled: readonly DepartmentKey[], byPane: WaitingByPane): FunctionTab[] {
+/**
+ * A department's functions as tabs: Summary, then each one, with Design
+ * leading Engineering's.
+ *
+ * Design shows while it is switched on, or while you are on one of its
+ * pages. The dot marks the functions whose page is a pane of its own
+ * (Valuation, Site), the only ones the waiting list is kept by today.
+ */
+function functionTabs(menu: DepartmentKey, design: boolean, byPane: WaitingByPane): FunctionTab[] {
   return [
     { key: 'summary', label: 'Summary' },
-    ...(menu === 'construction' && enabled.includes('design') ? [{ key: 'design', label: DEPARTMENT_SHORT.design, muted: true }] : []),
+    ...(menu === 'construction' && design ? [{ key: 'design', label: DEPARTMENT_SHORT.design, muted: true }] : []),
     ...departmentDefinition(menu).workstreams.map((w) => ({
       key: w.key,
       label: FUNCTION_SHORT[w.key] ?? w.label,
@@ -527,7 +502,7 @@ export function CockpitPaneStrip({
   const second = menu ? (
     <FunctionTabs
       className="min-w-0 flex-1"
-      tabs={functionTabs(menu, enabled, waiting?.byPane ?? {})}
+      tabs={functionTabs(menu, enabled.includes('design') || activeDepartment === 'design', waiting?.byPane ?? {})}
       current={activeDepartment === 'design' ? 'design' : (activeWorkstream ?? 'summary')}
       onPick={(key) => {
         if (key === 'summary') onGo('department', { department: menu });

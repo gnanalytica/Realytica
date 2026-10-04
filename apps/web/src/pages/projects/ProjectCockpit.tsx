@@ -882,7 +882,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   return (
     <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden lg:h-[calc(100dvh-56px)]">
       {isDesktop ? (
-        <div className="flex shrink-0 items-center gap-3 border-b border-hairline bg-surface px-4 py-2">
+        // `relative`: the stage's record hangs from this bar, across its width, rather than from the track inside it.
+        <div className="relative flex shrink-0 items-center gap-3 border-b border-hairline bg-surface px-4 py-2">
           {/*
             The reference and the name are NOT repeated here.
             The top bar's project switcher carries both, permanently, forty
