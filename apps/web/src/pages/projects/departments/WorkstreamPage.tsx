@@ -20,7 +20,7 @@ import { Connections } from '../../../components/departments/Connections';
 import { WorkstreamChecks, WorkstreamDocuments, WorkstreamEngagements } from '../../../components/departments/WorkstreamRecords';
 import { ApprovalsRegister } from '../../../components/departments/ApprovalsRegister';
 import { ProgressBoard } from '../../../components/departments/ProgressBoard';
-import { TechnicalDueDiligence } from '../../../components/departments/TechnicalDueDiligence';
+import { DepartmentDesk } from '../../../components/departments/DepartmentDesk';
 import { TitleChainDiagram } from '../../../components/charts';
 import { ScheduleOfProperty } from '../../../components/ScheduleOfProperty';
 import { WORKSTREAM_PANE } from '../cockpit/rail';
@@ -144,8 +144,10 @@ export default function WorkstreamPage() {
         <ComingSoon project={project} workstream={ws.key} />
       ) : ws.key === 'construction.quality' ? (
         // The technical due diligence is five steps, not one long page.
-        <TechnicalDueDiligence
+        <DepartmentDesk
           project={project}
+          department="construction"
+          workstream={ws.key}
           setProject={setProject}
           refresh={refresh}
           nav={{ ...nav, openSite: () => nav.openWorkstream('construction.site') }}

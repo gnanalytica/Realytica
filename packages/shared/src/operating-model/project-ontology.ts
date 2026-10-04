@@ -101,9 +101,13 @@ export type ProjectGraphNodeKind =
   | 'sheet'
   /** A day's entry in the site log: manpower, work done, photographs, issues. */
   | 'site_entry'
+  /** A list of questions put about the property, as the client or lender sent it. */
+  | 'questionnaire'
   /* --- claims: what the evidence says ---------------------------- */
   /** Two sources disagreeing about the same subject, kept as its own node. */
   | 'contradiction'
+  /** One question on a questionnaire with the answer given to it: what a source says, and what proves it. */
+  | 'answer'
   /* --- judgements: what we concluded ----------------------------- */
   | 'assessment'
   | 'scope'
@@ -141,7 +145,9 @@ export const PROJECT_NODE_KINDS: readonly ProjectGraphNodeKind[] = [
   'site_visit',
   'sheet',
   'site_entry',
+  'questionnaire',
   'contradiction',
+  'answer',
   'assessment',
   'scope',
   'check',
@@ -178,7 +184,11 @@ const LAYER_BY_KIND: Record<ProjectGraphNodeKind, ProjectGraphLayer> = {
   // An entry is an occasion of looking, like a visit: what it could not see
   // bounds what rests on it.
   site_entry: 'evidence',
+  // The sheet is something received, like a document; each answer on it is a
+  // claim, because it is what somebody said and may or may not be proven.
+  questionnaire: 'evidence',
   contradiction: 'claim',
+  answer: 'claim',
   // An assessment and a scope are containers for judgement rather than
   // judgements themselves, but they carry a status that IS a conclusion
   // ("this DD is complete"), and every traversal that walks conclusions wants
@@ -312,6 +322,7 @@ export type ProjectGraphEdgeKind =
   | 'contradicts'
   /** check | finding | risk -> the parcel or asset it is about. */
   | 'about'
+  | 'answers'
   /* --- judgement flow -------------------------------------------- */
   | 'produces'
   | 'found'
@@ -375,6 +386,7 @@ export const PROJECT_EDGE_KINDS: readonly ProjectGraphEdgeKind[] = [
   'supported_by',
   'contradicts',
   'about',
+  'answers',
   'produces',
   'found',
   'raises',
@@ -403,12 +415,12 @@ export const PROJECT_EDGE_ENDPOINT_RULES: Record<
   at_stage: { from: ['project'], to: ['stage'] },
   precedes: { from: ['stage'], to: ['stage'] },
   in_stage: {
-    from: ['evidence', 'check', 'finding', 'risk', 'decision', 'report', 'site_visit', 'site_entry', 'certified_report', 'engagement'],
+    from: ['evidence', 'check', 'finding', 'risk', 'decision', 'report', 'site_visit', 'site_entry', 'certified_report', 'engagement', 'questionnaire'],
     to: ['stage'],
   },
   has_department: { from: ['project'], to: ['department'] },
   has_workstream: { from: ['department'], to: ['workstream'] },
-  holds: { from: ['workstream'], to: ['check', 'evidence', 'approval', 'milestone', 'site_visit', 'site_entry', 'finding', 'encumbrance', 'instrument'] },
+  holds: { from: ['workstream'], to: ['check', 'evidence', 'approval', 'milestone', 'site_visit', 'site_entry', 'finding', 'encumbrance', 'instrument', 'questionnaire'] },
   assesses: { from: ['quick_assessment'], to: ['workstream'] },
   certifies: { from: ['certified_report'], to: ['workstream'] },
   draws_on: { from: ['engagement'], to: ['workstream'] },
@@ -445,9 +457,10 @@ export const PROJECT_EDGE_ENDPOINT_RULES: Record<
   issued_by: { from: ['approval', 'encumbrance', 'instrument'], to: ['authority'] },
   governed_by: { from: ['parcel', 'project'], to: ['authority'] },
 
-  supported_by: { from: ['check', 'finding', 'risk', 'action', 'report', 'assessment', 'quick_assessment', 'certified_report', 'approval'], to: ['evidence'] },
+  supported_by: { from: ['check', 'finding', 'risk', 'action', 'report', 'assessment', 'quick_assessment', 'certified_report', 'approval', 'answer'], to: ['evidence'] },
   contradicts: { from: ['contradiction'] },
   about: { from: ['check', 'finding', 'risk', 'action'], to: ['parcel', 'asset'] },
+  answers: { from: ['answer'], to: ['questionnaire'] },
 
   produces: { from: ['check'], to: ['finding'] },
   found: { from: ['assessment'], to: ['finding'] },

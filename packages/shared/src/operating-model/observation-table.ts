@@ -5,8 +5,9 @@
  */
 
 import { SCOPE_LABEL } from './catalogs';
-import { workstreamOfCheck, type DepartmentKey } from './departments';
-import type { DdProject, FindingRecord, FindingSeverity, ScopeKey } from './types';
+import { DEPARTMENTS, scopesOfDepartments, workstreamOfCheck, type DepartmentKey } from './departments';
+import { REMEDIAL_BAND_LABEL, type RemedialBand } from './standards';
+import type { ActionRecord, DdProject, FindingRecord, FindingSeverity, ScopeKey } from './types';
 
 /** Severity in the words an engineer's table uses. */
 export const RISK_LABEL: Record<FindingSeverity, string> = {
@@ -20,15 +21,26 @@ const CLOSED: ReadonlySet<string> = new Set(['rejected', 'duplicate', 'supersede
 const RISK_ORDER: readonly FindingSeverity[] = ['critical', 'high', 'medium', 'low'];
 
 /** The disciplines a department's checks cover, plus the technical one engineering always owns. */
-function disciplinesOf(project: DdProject, department: DepartmentKey): Set<ScopeKey> {
+/**
+ * The disciplines a department's findings are written in: the library scopes
+ * whose checks sit in it, and any scope this project's own assessments put
+ * there. Engineering's own two come first, as its table is mostly those.
+ */
+export function departmentDisciplines(project: DdProject, department: DepartmentKey): ScopeKey[] {
   const out = new Set<ScopeKey>(department === 'construction' ? ['technical', 'quality'] : []);
+  for (const scope of scopesOfDepartments([department])) out.add(scope as ScopeKey);
   for (const a of project.assessments ?? []) {
     if (a.status === 'archived') continue;
     for (const s of a.scopes) {
       if (s.checks.some((c) => workstreamOfCheck(c.definitionId).split('.')[0] === department)) out.add(s.scopeKey);
     }
   }
-  return out;
+  return [...out];
+}
+
+/** Every department a discipline is worked in: whoever may edit one of them may edit a finding in it. */
+export function departmentsOfDiscipline(project: DdProject, discipline: ScopeKey): DepartmentKey[] {
+  return DEPARTMENTS.map((d) => d.key).filter((key) => departmentDisciplines(project, key).includes(discipline));
 }
 
 /**
@@ -37,7 +49,7 @@ function disciplinesOf(project: DdProject, department: DepartmentKey): Set<Scope
  * first written, then by risk.
  */
 export function observations(project: DdProject, department: DepartmentKey = 'construction'): FindingRecord[] {
-  const disciplines = disciplinesOf(project, department);
+  const disciplines = new Set(departmentDisciplines(project, department));
   const rows = project.findings.filter((f) => !CLOSED.has(f.status) && disciplines.has(f.discipline));
   const areaOrder = new Map<string, number>();
   // The register keeps the order things were written in; a timestamp can tie.
@@ -72,6 +84,17 @@ export function observationStatement(f: Pick<FindingRecord, 'title' | 'descripti
 /* ==================================================================== */
 /* The table, as it is handed over                                       */
 /* ==================================================================== */
+
+/** The remedy an observation's cost sits on: its open remediation action, when it has one. */
+export function observationRemedy(project: DdProject, findingId: string): ActionRecord | undefined {
+  return project.actions.find((x) => x.kind === 'remediation' && x.status !== 'closed' && x.findingIds.includes(findingId));
+}
+
+/** What the mitigation costs and how soon it is needed, read off that remedy. */
+export function observationCost(project: DdProject, findingId: string): { cost?: number; band?: RemedialBand } {
+  const remedy = observationRemedy(project, findingId);
+  return { cost: remedy?.costEstimate, band: remedy?.costBand };
+}
 
 export interface ObservationSummary {
   total: number;
@@ -114,10 +137,18 @@ function proofTitles(project: DdProject, f: FindingRecord): string {
 
 /** The observations and mitigations table: serial number, area, description, risk, mitigation, reference, proof. */
 export function observationsCsv(project: DdProject, rows: readonly FindingRecord[]): string {
-  const lines = [['S. No', 'Area', 'Description', 'Risk category', 'Mitigation', 'Reference', 'Discipline', 'Photographs and documents'].join(',')];
+  const lines = [['S. No', 'Area', 'Description', 'Risk category', 'Mitigation', 'Cost', 'Needed', 'Reference', 'Discipline', 'Photographs and documents'].join(',')];
+  const cost = (f: FindingRecord) => {
+    const c = observationCost(project, f.id).cost;
+    return typeof c === 'number' ? String(Math.round(c)) : '';
+  };
+  const needed = (f: FindingRecord) => {
+    const b = observationCost(project, f.id).band;
+    return b ? REMEDIAL_BAND_LABEL[b] : '';
+  };
   rows.forEach((f, i) => {
     lines.push(
-      [String(i + 1), f.area ?? '', observationStatement(f), RISK_LABEL[f.severity], f.mitigation ?? '', f.standardRef ?? '', SCOPE_LABEL[f.discipline] ?? f.discipline, proofTitles(project, f)]
+      [String(i + 1), f.area ?? '', observationStatement(f), RISK_LABEL[f.severity], f.mitigation ?? '', cost(f), needed(f), f.standardRef ?? '', SCOPE_LABEL[f.discipline] ?? f.discipline, proofTitles(project, f)]
         .map(csvCell)
         .join(','),
     );
@@ -244,7 +275,7 @@ export function projectPhotos(project: DdProject, department: DepartmentKey = 'c
  * Photographs on the file that prove nothing yet: no observation cites them
  * and no questionnaire answer rests on them. Newest first.
  */
-export function unusedPhotos(project: DdProject): PhotoCandidate[] {
+export function unusedPhotos(project: DdProject, department: DepartmentKey = 'construction'): PhotoCandidate[] {
   const used = usedEvidence(project);
-  return projectPhotos(project).filter((p) => !p.evidenceId || !used.has(p.evidenceId));
+  return projectPhotos(project, department).filter((p) => !p.evidenceId || !used.has(p.evidenceId));
 }

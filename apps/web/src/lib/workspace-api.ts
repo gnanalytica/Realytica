@@ -110,7 +110,7 @@ export const workspaceApi = {
   removeLink: (projectId: string, linkId: string) =>
     request<{ project: DdProject }>(`/projects/${projectId}/links/${encodeURIComponent(linkId)}`, { method: 'DELETE' }),
 
-  addObservation: (projectId: string, body: ObservationInput) => request<{ project: DdProject; findingId: string }>(`/projects/${projectId}/observations`, json(body)),
+  addObservation: (projectId: string, body: ObservationInput & { department?: DepartmentKey }) => request<{ project: DdProject; findingId: string }>(`/projects/${projectId}/observations`, json(body)),
 
   patchObservation: (projectId: string, findingId: string, body: ObservationPatch) =>
     request<{ project: DdProject }>(`/projects/${projectId}/observations/${findingId}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -127,10 +127,11 @@ export const workspaceApi = {
     request<{ project: DdProject; evidenceId: string }>(`/projects/${projectId}/site-log/${entryId}/photos/${index}/file`, { method: 'POST' }),
 
   /** Import a questionnaire: a Word, CSV or text file, or the questions pasted as text. */
-  importQuestionnaire: (projectId: string, input: { file: File; title?: string } | { title: string; text: string }) => {
+  importQuestionnaire: (projectId: string, input: ({ file: File; title?: string } | { title: string; text: string }) & { department?: DepartmentKey }) => {
     if ('file' in input) {
       const form = new FormData();
       form.append('file', input.file);
+      if (input.department) form.append('department', input.department);
       if (input.title) form.append('title', input.title);
       return request<{ project: DdProject; questionnaireId: string }>(`/projects/${projectId}/questionnaires`, { method: 'POST', body: form });
     }

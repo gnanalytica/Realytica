@@ -61,17 +61,25 @@ export interface CockpitSection {
   tabs: CockpitTab[];
   /** Only for staff; a collaborator asking for it gets a 404. */
   staffOnly?: boolean;
+  /**
+   * Reached from Overview and from inside the departments, not from the top
+   * bar: a department's own documents, records and reports sit on its pages,
+   * and these are the same things for the whole project. The tab shows only
+   * while you are on it, so you can see where you are.
+   */
+  tucked?: boolean;
 }
 
 /** The shared places, after the departments. */
 export const SECTIONS: CockpitSection[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard, home: 'overview', tabs: [{ pane: 'overview', label: 'Overview', icon: LayoutDashboard }] },
-  { key: 'documents', label: 'Documents', icon: FileStack, home: 'evidence', tabs: [{ pane: 'evidence', label: 'Documents', icon: FileStack }] },
+  { key: 'documents', label: 'Documents', icon: FileStack, home: 'evidence', tucked: true, tabs: [{ pane: 'evidence', label: 'Documents', icon: FileStack }] },
   {
     key: 'registers',
     label: 'Registers',
     icon: ClipboardList,
     home: 'dd',
+    tucked: true,
     tabs: [
       { pane: 'dd', label: 'Checks', icon: ClipboardList, also: ['scope'] },
       { pane: 'findings', label: 'Findings', icon: Search },
@@ -85,6 +93,7 @@ export const SECTIONS: CockpitSection[] = [
     label: 'Reports',
     icon: FileText,
     home: 'reports',
+    tucked: true,
     tabs: [
       { pane: 'reports', label: 'Reports', icon: FileText },
       { pane: 'drafts', label: 'AI drafts', icon: Sparkles },
@@ -469,8 +478,8 @@ export function CockpitPaneStrip({
   const departments = DEPARTMENTS.filter((d) => enabled.includes(d.key));
   const activeDepartment = departmentOfPane(pane, { department, workstream });
   const activeWorkstream = workstreamOfPane(pane, workstream);
-  const shared = SECTIONS.filter((section) => section.key !== 'overview' && (!section.staffOnly || staff));
   const here = activeDepartment ? null : tabHolding(pane).section;
+  const shared = SECTIONS.filter((section) => section.key !== 'overview' && (!section.staffOnly || staff) && (!section.tucked || here?.key === section.key));
   const tabs = here ? here.tabs.filter((t) => !HIDDEN_TABS.has(t.pane) || t.pane === pane) : [];
 
   const group = useId();

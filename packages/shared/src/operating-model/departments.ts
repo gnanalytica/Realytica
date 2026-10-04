@@ -412,6 +412,16 @@ export function scopesOfWorkstreams(workstreams: readonly string[]): string[] {
   return [...scopes].sort();
 }
 
+/**
+ * The workstream a department's questionnaires and observations are filed
+ * under. Engineering's is the technical due diligence; every other
+ * department's is its first live workstream.
+ */
+export function departmentHomeWorkstream(department: DepartmentKey): string | undefined {
+  if (department === 'construction') return 'construction.quality';
+  return DEPARTMENTS.find((d) => d.key === department)?.workstreams.find((w) => w.status === 'live')?.key;
+}
+
 /** The library scopes whose checks sit in any of these departments. */
 export function scopesOfDepartments(departments: readonly DepartmentKey[]): string[] {
   const scopes = new Set<string>();

@@ -5,6 +5,8 @@ import {
   ANSWER_SOURCE_LABEL,
   departmentRole,
   questionStatus,
+  questionnairesOf,
+  type DepartmentKey,
   questionnaireCsv,
   questionnaireSummary,
   questionnaireText,
@@ -47,7 +49,7 @@ function download(name: string, text: string, type: string) {
 /* Importing                                                             */
 /* ==================================================================== */
 
-function ImportDialog({ project, open, onClose, onDone }: { project: DdProject; open: boolean; onClose: () => void; onDone: (next: DdProject) => void }) {
+function ImportDialog({ project, department, open, onClose, onDone }: { project: DdProject; department: DepartmentKey; open: boolean; onClose: () => void; onDone: (next: DdProject) => void }) {
   const toast = useToast();
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -59,8 +61,8 @@ function ImportDialog({ project, open, onClose, onDone }: { project: DdProject; 
     setBusy(true);
     try {
       const res = file
-        ? await workspaceApi.importQuestionnaire(project.id, { file, title: title.trim() || undefined })
-        : await workspaceApi.importQuestionnaire(project.id, { title: title.trim() || 'Questionnaire', text });
+        ? await workspaceApi.importQuestionnaire(project.id, { file, title: title.trim() || undefined, department })
+        : await workspaceApi.importQuestionnaire(project.id, { title: title.trim() || 'Questionnaire', text, department });
       const made = (res.project.questionnaires ?? []).find((q) => q.id === res.questionnaireId);
       onDone(res.project);
       toast(made ? `${made.questions.length} questions · ${made.questions.filter((q) => q.answer).length} answered` : 'Imported.', 'good');
@@ -416,13 +418,23 @@ function QuestionRow({
  * suggestion from the chat is marked until a person confirms it. The sheet
  * goes back out in the order it came in.
  */
-export function QuestionnaireCard({ project, onChanged, onOpenDocument }: { project: DdProject; onChanged: (next: DdProject) => void; onOpenDocument: (evidenceId: string) => void }) {
+export function QuestionnaireCard({
+  project,
+  department = 'construction',
+  onChanged,
+  onOpenDocument,
+}: {
+  project: DdProject;
+  department?: DepartmentKey;
+  onChanged: (next: DdProject) => void;
+  onOpenDocument: (evidenceId: string) => void;
+}) {
   const me = useMe();
   const toast = useToast();
-  const role = me ? departmentRole(project, { email: me.email, workspaceRole: me.role }, 'construction') : undefined;
+  const role = me ? departmentRole(project, { email: me.email, workspaceRole: me.role }, department) : undefined;
   const mayEdit = roleCanEdit(role);
   const mayDecide = roleCanDecide(role);
-  const all = project.questionnaires ?? [];
+  const all = useMemo(() => questionnairesOf(project, department), [project, department]);
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
@@ -432,7 +444,7 @@ export function QuestionnaireCard({ project, onChanged, onOpenDocument }: { proj
   const questionnaire = all.find((q) => q.id === pickedId) ?? all[all.length - 1];
   const summary = useMemo(() => (questionnaire ? questionnaireSummary(questionnaire) : null), [questionnaire]);
 
-  const importDialog = <ImportDialog project={project} open={importing} onClose={() => setImporting(false)} onDone={(next) => (onChanged(next), setPickedId(null))} />;
+  const importDialog = <ImportDialog project={project} department={department} open={importing} onClose={() => setImporting(false)} onDone={(next) => (onChanged(next), setPickedId(null))} />;
 
   if (!questionnaire || !summary) {
     return (

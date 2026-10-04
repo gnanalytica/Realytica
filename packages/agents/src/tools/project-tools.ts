@@ -829,7 +829,7 @@ export function createProjectTools(
       const sheet = questionnaireId ? all.find((q) => q.id === questionnaireId) : all[all.length - 1];
       if (!sheet) {
         bag.toolCalls.push({ name: 'get_questionnaire', summary: 'No questionnaire on the file' });
-        return JSON.stringify({ questionnaires: [], note: 'No questionnaire has been imported. A person imports one from Engineering › Technical due diligence.' });
+        return JSON.stringify({ questionnaires: [], note: 'No questionnaire has been imported. A person imports one from the Questions step of a department.' });
       }
       const summary = questionnaireSummary(sheet);
       const questions = sheet.questions

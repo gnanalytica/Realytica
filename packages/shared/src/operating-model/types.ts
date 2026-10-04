@@ -222,7 +222,11 @@ export type ReportKind =
   | 'indicative_valuation'
   | 'handover_readiness'
   /** The engineer's report: building information, observations and mitigations, documents. */
-  | 'technical_dd';
+  | 'technical_dd'
+  /** The lawyer's report: title, requisitions answered, findings, documents. */
+  | 'legal_dd'
+  /** The financial report: valuation, questions answered, findings, documents. */
+  | 'financial_dd';
 
 export type ReportStatus = 'draft' | 'generated' | 'reviewed' | 'issued' | 'superseded' | 'archived';
 
@@ -975,6 +979,8 @@ export interface ReportBoundSource {
   openOnly?: boolean;
   /** Narrow findings to one discipline. */
   discipline?: ScopeKey;
+  /** Whose observations, questionnaire or requirement sheet: Engineering's when absent. */
+  department?: import('./departments').DepartmentKey;
 }
 
 export type ReportBlockOrigin = 'derived' | 'authored';

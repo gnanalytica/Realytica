@@ -19,7 +19,9 @@
  */
 
 import { attachEvidenceFile } from './capabilities';
-import { addEvidence, addFinding } from './operations';
+import { addAction, addEvidence, addFinding } from './operations';
+import { observationRemedy } from './observation-table';
+import { REMEDIAL_BANDS, type RemedialBand } from './standards';
 import type { DdProject, EvidenceRecord, FindingRecord, FindingSeverity, ScopeKey } from './types';
 
 export * from './observation-table';
@@ -44,6 +46,9 @@ export interface ObservationInput {
   /** A short title; taken from the description when left out. */
   title?: string;
   evidenceIds?: string[];
+  /** What the mitigation costs, and how soon the money is needed. */
+  cost?: number | null;
+  costBand?: RemedialBand | null;
 }
 
 function titleFrom(description: string): string {
@@ -77,6 +82,7 @@ export function addObservation(project: DdProject, input: ObservationInput, acto
   record.area = input.area?.trim() || undefined;
   record.mitigation = input.mitigation?.trim() || undefined;
   record.standardRef = input.standardRef?.trim() || undefined;
+  if (input.cost != null || input.costBand != null) setObservationCost(project, record.id, { cost: input.cost ?? null, band: input.costBand ?? null }, actor);
   return record;
 }
 
@@ -91,6 +97,8 @@ export interface ObservationPatch {
   evidenceIds?: string[];
   /** Whether it prints in the report. Leaving one out does not close it. */
   includeInReport?: boolean;
+  cost?: number | null;
+  costBand?: RemedialBand | null;
 }
 
 export function patchObservation(project: DdProject, findingId: string, patch: ObservationPatch, actor: string): FindingRecord {
@@ -112,6 +120,10 @@ export function patchObservation(project: DdProject, findingId: string, patch: O
   if (patch.standardRef !== undefined) record.standardRef = patch.standardRef?.trim() || undefined;
   if (patch.evidenceIds !== undefined) record.evidenceIds = knownEvidence(project, patch.evidenceIds);
   if (patch.includeInReport !== undefined) record.includeInReport = patch.includeInReport;
+  if (patch.cost !== undefined || patch.costBand !== undefined) {
+    const held = observationRemedy(project, record.id);
+    setObservationCost(project, record.id, { cost: patch.cost !== undefined ? patch.cost : (held?.costEstimate ?? null), band: patch.costBand !== undefined ? patch.costBand : (held?.costBand ?? null) }, actor);
+  }
   record.updatedAt = at;
   project.updatedAt = at;
   project.audit.push({ id: newId('aud'), at, actor, action: 'update', entityType: 'finding', entityId: record.id, newValue: record.title });
@@ -179,4 +191,37 @@ export function setPhotoDescription(project: DdProject, evidenceId: string, text
   project.updatedAt = at;
   project.audit.push({ id: newId('aud'), at, actor, action: words ? 'photo_described' : 'photo_description_cleared', entityType: 'evidence', entityId: row.id, newValue: words || undefined });
   return row;
+}
+
+/**
+ * What an observation's mitigation costs and when the money is needed.
+ *
+ * The figure lives on a remediation action, not on the finding: that is the
+ * record the remedial cost table already sums, so a cost entered beside an
+ * observation and one entered on the action register are the same number.
+ * The action is made the first time a cost is given, and keeps the
+ * mitigation as its title.
+ */
+export function setObservationCost(project: DdProject, findingId: string, input: { cost: number | null; band: RemedialBand | null }, actor: string): void {
+  const finding = project.findings.find((f) => f.id === findingId);
+  if (!finding) throw new Error('No observation by that id.');
+  if (input.cost != null && (!Number.isFinite(input.cost) || input.cost < 0)) throw new Error('A cost is a number, zero or more.');
+  if (input.band != null && !(REMEDIAL_BANDS as readonly string[]).includes(input.band)) throw new Error('Unknown period for the cost.');
+  const at = nowIso();
+  const held = observationRemedy(project, findingId);
+  if (!held) {
+    if (input.cost == null && input.band == null) return;
+    addAction(
+      project,
+      { title: finding.mitigation?.trim() || `Remedy: ${finding.title}`, kind: 'remediation', owner: finding.owner?.trim() || 'Unassigned', priority: finding.severity, costEstimate: input.cost ?? undefined, costBand: input.band ?? undefined, findingIds: [findingId] },
+      actor,
+    );
+    return;
+  }
+  held.costEstimate = input.cost ?? undefined;
+  held.costBand = input.band ?? undefined;
+  if (finding.mitigation?.trim() && held.title.startsWith('Remedy: ')) held.title = finding.mitigation.trim();
+  held.updatedAt = at;
+  project.updatedAt = at;
+  project.audit.push({ id: newId('aud'), at, actor, action: 'update', entityType: 'action', entityId: held.id, newValue: input.cost != null ? String(input.cost) : 'cost cleared' });
 }

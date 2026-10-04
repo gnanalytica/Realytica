@@ -41,9 +41,10 @@
  */
 
 import { LIFECYCLE_STAGE_LABEL, SCOPE_LABEL } from './catalogs';
+import type { DepartmentKey } from './departments';
 import { CAPTURE_PURPOSE_LABEL } from './capture';
 import { RISK_LABEL, observationStatement, observations, projectPhotos } from './observation-table';
-import { ANSWER_SOURCE_LABEL, questionStatus } from './questionnaire';
+import { ANSWER_SOURCE_LABEL, questionStatus, questionnairesOf } from './questionnaire';
 import { remedialCostSummary } from './remedial';
 import { REQUIREMENT_STATUS_LABEL, requirementSheet } from './requirement-sheet';
 import { VISIT_LIMITATION_LABEL } from './site-visit';
@@ -167,6 +168,10 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
   }
   const scoped = inScope(project, source.assessmentIds);
 
+  // Three of the tables are one department's: Engineering's unless the block says otherwise.
+  const dept = source.department ?? 'construction';
+  const engineering = dept === 'construction';
+  const noun = engineering ? 'observation' : 'finding';
   switch (source.kind) {
     case 'particulars': {
       const lines = [
@@ -229,17 +234,17 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
     }
 
     case 'observations': {
-      const rows = observations(project, 'construction')
+      const rows = observations(project, dept)
         .filter((f) => scoped(f.assessmentIds) || !source.assessmentIds?.length)
         .filter((f) => f.includeInReport !== false)
         .filter((f) => (source.materialOnly ? MATERIAL.has(f.severity) : true));
-      if (!rows.length) return { lines: [], recordIds: [], note: 'No observations are recorded yet. This table fills from Technical due diligence › Observations.' };
+      if (!rows.length) return { lines: [], recordIds: [], note: engineering ? 'No observations are recorded yet. This table fills from Technical due diligence › Observations.' : 'No findings are recorded yet. This table fills from the department’s Findings step.' };
       const unmitigated = rows.filter((f) => !f.mitigation).length;
       return {
         lines: rows.map((f, i) => `${i + 1}. ${f.area ? `${f.area}: ` : ''}${observationStatement(f)} [${RISK_LABEL[f.severity]}]${f.mitigation ? ` Mitigation: ${f.mitigation}` : ''}${f.standardRef ? ` (${f.standardRef})` : ''}`),
         recordIds: rows.map((f) => f.id),
         table: {
-          columns: ['S. No', 'Area', 'Description', 'Risk category', 'Mitigation', 'Reference'],
+          columns: engineering ? ['S. No', 'Area', 'Description', 'Risk category', 'Mitigation', 'Reference'] : ['S. No', 'Matter', 'Finding', 'Risk category', 'What to do', 'Reference'],
           rows: rows.map((f, i) => ({
             cells: [String(i + 1), f.area ?? '', observationStatement(f), RISK_LABEL[f.severity], f.mitigation ?? '', f.standardRef ?? ''],
             recordId: f.id,
@@ -247,23 +252,23 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
           })),
         },
         // An observation with no mitigation is unfinished work, and the report says so rather than leaving a blank cell to be read as "none needed".
-        note: unmitigated ? `${plural(unmitigated, 'observation')} ${unmitigated === 1 ? 'has' : 'have'} no mitigation recorded yet.` : undefined,
+        note: unmitigated ? `${plural(unmitigated, noun)} ${unmitigated === 1 ? 'has' : 'have'} ${engineering ? 'no mitigation' : 'nothing to do'} recorded yet.` : undefined,
       };
     }
 
     case 'risk_summary': {
-      const rows = observations(project, 'construction')
+      const rows = observations(project, dept)
         .filter((f) => scoped(f.assessmentIds) || !source.assessmentIds?.length)
         .filter((f) => f.includeInReport !== false);
-      if (!rows.length) return { lines: [], recordIds: [], note: 'No observations are recorded yet.' };
+      if (!rows.length) return { lines: [], recordIds: [], note: `No ${noun}s are recorded yet.` };
       const order = ['critical', 'high', 'medium', 'low'] as const;
       const counted = order.map((s) => ({ label: RISK_LABEL[s], n: rows.filter((f) => f.severity === s).length })).filter((c) => c.n > 0);
       const areas = new Set(rows.map((f) => (f.area ?? '').toLowerCase()).filter(Boolean)).size;
       return {
         lines: counted.map((c) => `${c.label}: ${c.n}`),
         recordIds: [],
-        table: { columns: ['Risk category', 'Observations'], bars: true, rows: counted.map((c) => ({ cells: [c.label, String(c.n)] })) },
-        note: `${plural(rows.length, 'observation')}${areas ? ` across ${plural(areas, 'area')}` : ''}.`,
+        table: { columns: ['Risk category', engineering ? 'Observations' : 'Findings'], bars: true, rows: counted.map((c) => ({ cells: [c.label, String(c.n)] })) },
+        note: `${plural(rows.length, noun)}${areas ? ` across ${plural(areas, engineering ? 'area' : 'matter')}` : ''}.`,
       };
     }
 
@@ -294,8 +299,9 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
     }
 
     case 'questionnaire': {
-      const sheet = (project.questionnaires ?? []).slice(-1)[0];
-      if (!sheet) return { lines: [], recordIds: [], note: 'No questionnaire has been imported for this building.' };
+      // Each department prints its own sheet: a lawyer's requisitions are not building information.
+      const sheet = questionnairesOf(project, dept).slice(-1)[0];
+      if (!sheet) return { lines: [], recordIds: [], note: engineering ? 'No questionnaire has been imported for this building.' : 'No questionnaire has been imported in this department.' };
       // A question left out of the report stays on the sheet; it is simply not printed.
       const ordered = sheet.questions.filter((q) => !q.omitFromReport).sort((a, b) => a.order - b.order);
       const answer = (q: (typeof ordered)[number]) => (questionStatus(q) === 'answered' ? q.answer! : '');
@@ -325,8 +331,8 @@ export function resolveReportBlock(project: DdProject, block: ReportBlock): Reso
     }
 
     case 'requirement_sheet': {
-      const sheet = requirementSheet(project, { department: 'construction' });
-      if (!sheet.total) return { lines: [], recordIds: [], note: 'No documents are expected yet: no technical checks are on the file.' };
+      const sheet = requirementSheet(project, { department: dept });
+      if (!sheet.total) return { lines: [], recordIds: [], note: `No documents are expected yet: none of this department’s checks ${engineering ? '(the technical ones) ' : ''}are on the file.` };
       const rows = sheet.groups.flatMap((g) => g.items.map((item) => ({ group: g.label, item })));
       const status = (item: (typeof rows)[number]['item']) =>
         item.status === 'received' ? 'Received' : item.status === 'requested' ? `Asked for${item.askedOf ? ` (${item.askedOf})` : ''}, not received` : 'Not received';
@@ -570,6 +576,11 @@ function bound(kind: ReportBoundSourceKind, extra: Partial<ReportBoundSource> = 
   return { kind, ...extra };
 }
 
+/** The report a department hands over from its own steps. */
+export function departmentReportKind(department: DepartmentKey): 'technical_dd' | 'legal_dd' | 'financial_dd' | undefined {
+  return department === 'construction' ? 'technical_dd' : department === 'legal' ? 'legal_dd' : department === 'finance' ? 'financial_dd' : undefined;
+}
+
 /**
  * What each report kind opens as.
  *
@@ -627,6 +638,42 @@ export function reportTemplate(kind: string): Array<{ heading: string; source?: 
         {
           heading: 'Limitations',
           text: 'The observations are those visible on the dates of inspection. Statements attributed to the seller have been taken as given except where a document or our own inspection is cited beside them. Where a document was asked for and not received, the matters it would evidence remain unverified.',
+        },
+        { heading: 'Opinion', text: '' },
+      ];
+    case 'legal_dd':
+      return [
+        opening,
+        {
+          heading: 'Scope and basis',
+          text: 'This report records a legal due diligence of the property: a review of the title documents, approvals and records made available, and of the information given in answer to our requisitions. Registers and court records were searched only where stated.',
+        },
+        { heading: 'At a glance', source: bound('risk_summary', { department: 'legal' }) },
+        { heading: 'Chain of title', source: bound('title_chain') },
+        { heading: 'Requisitions and answers', source: bound('questionnaire', { department: 'legal' }) },
+        { heading: 'Findings and what to do', source: bound('observations', { department: 'legal' }) },
+        { heading: 'Documents reviewed and outstanding', source: bound('requirement_sheet', { department: 'legal' }) },
+        {
+          heading: 'Limitations',
+          text: 'Statements attributed to the seller have been taken as given except where a document is cited beside them. Where a document was asked for and not received, the matters it would evidence remain unverified.',
+        },
+        { heading: 'Opinion', text: '' },
+      ];
+    case 'financial_dd':
+      return [
+        opening,
+        {
+          heading: 'Scope and basis',
+          text: 'This report records a financial due diligence of the property: a review of the cost, revenue and valuation records made available, and of the information given in answer to our questions. Figures supplied by the seller have not been audited unless stated.',
+        },
+        { heading: 'At a glance', source: bound('risk_summary', { department: 'finance' }) },
+        { heading: 'Indicative valuation', source: bound('valuation') },
+        { heading: 'Questions and answers', source: bound('questionnaire', { department: 'finance' }) },
+        { heading: 'Findings and what to do', source: bound('observations', { department: 'finance' }) },
+        { heading: 'Documents reviewed and outstanding', source: bound('requirement_sheet', { department: 'finance' }) },
+        {
+          heading: 'Limitations',
+          text: 'The valuation is indicative and is not a certified valuation. Where a document was asked for and not received, the matters it would evidence remain unverified.',
         },
         { heading: 'Opinion', text: '' },
       ];

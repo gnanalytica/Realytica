@@ -23,6 +23,7 @@ import { Reveal, Stagger, StaggerItem } from '../../../lib/motion';
 import { useMe } from '../../../lib/useMe';
 import { useWorkstreamNav } from './WorkstreamPage';
 import { SupportingDocumentsCard } from '../../../components/departments/EngineeringDesk';
+import { DepartmentDesk } from '../../../components/departments/DepartmentDesk';
 import type { ProjectOutlet } from '../ProjectLayout';
 
 function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: WorkstreamDefinition; onOpen: () => void }) {
@@ -64,7 +65,7 @@ function WorkstreamCard({ project, ws, onOpen }: { project: DdProject; ws: Works
  * what this department exchanges with the others, and who works in it.
  */
 export default function DepartmentPage() {
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, refresh } = useOutletContext<ProjectOutlet>();
   const { department = '' } = useParams<{ department: string }>();
   const me = useMe();
   const nav = useWorkstreamNav(project);
@@ -120,7 +121,12 @@ export default function DepartmentPage() {
         ))}
       </Stagger>
 
-      {dept.status === 'live' ? <SupportingDocumentsCard project={project} department={dept.key} onChanged={setProject} onOpenDocument={nav.openDocument} /> : null}
+      {/* Engineering runs these steps inside its technical due diligence; every other live department runs them here. */}
+      {dept.status !== 'live' ? null : dept.key === 'construction' ? (
+        <SupportingDocumentsCard project={project} department={dept.key} onChanged={setProject} onOpenDocument={nav.openDocument} />
+      ) : (
+        <DepartmentDesk project={project} department={dept.key} setProject={setProject} refresh={refresh} nav={nav} />
+      )}
 
       <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-2">
         <Card>

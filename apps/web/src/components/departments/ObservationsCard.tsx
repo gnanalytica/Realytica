@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Camera, Copy, Download, ImagePlus, Pencil, Plus, ShieldAlert, Sparkles, X } from 'lucide-react';
 import {
+  REMEDIAL_BANDS,
   RISK_LABEL,
   SCOPE_LABEL,
   departmentRole,
+  observationCost,
   observationStatement,
   observationSummary,
   observations,
@@ -11,14 +13,18 @@ import {
   observationsText,
   roleCanEdit,
   unusedPhotos,
+  departmentDisciplines,
+  type DepartmentKey,
   type DdProject,
   type FindingRecord,
   type FindingSeverity,
   type ObservationInput,
   type PhotoCandidate,
+  type RemedialBand,
   type ScopeKey,
 } from '@realytica/shared';
 import { evidenceFileUrl } from '../../lib/api';
+import { money } from '../../lib/format';
 import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { useMe } from '../../lib/useMe';
@@ -27,7 +33,7 @@ import { Badge, Button, Card, CardBody, CardHeader, Input, Select, Textarea, cn,
 const RISKS: readonly FindingSeverity[] = ['critical', 'high', 'medium', 'low'];
 const RISK_TONE: Record<FindingSeverity, Tone> = { critical: 'critical', high: 'serious', medium: 'warning', low: 'neutral' };
 const RISK_SHORT: Record<FindingSeverity, string> = { critical: 'Critical', high: 'High', medium: 'Moderate', low: 'Low' };
-const DISCIPLINES: readonly ScopeKey[] = ['technical', 'quality', 'hse', 'condition_operations', 'regulatory'];
+const BAND_SHORT: Record<RemedialBand, string> = { immediate: 'Immediately', year_1: 'Within a year', years_1_5: 'Years 1–5', years_5_10: 'Years 5–10' };
 
 function download(name: string, text: string, type: string) {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -74,6 +80,17 @@ export function CandidateThumb({ project, photo, size = 'md' }: { project: DdPro
   );
 }
 
+function CostLine({ project, findingId }: { project: DdProject; findingId: string }) {
+  const { cost, band } = observationCost(project, findingId);
+  if (cost == null && !band) return null;
+  return (
+    <p className="text-micro text-ink-secondary">
+      {cost != null ? money(cost, project.currency, { compact: true }) : 'Not costed'}
+      {band ? ` · ${BAND_SHORT[band]}` : ''}
+    </p>
+  );
+}
+
 /* ==================================================================== */
 /* The form                                                              */
 /* ==================================================================== */
@@ -86,12 +103,15 @@ interface Draft {
   standardRef: string;
   discipline: ScopeKey;
   evidenceIds: string[];
+  cost: string;
+  costBand: RemedialBand | '';
 }
 
-const BLANK: Draft = { area: '', description: '', severity: 'medium', mitigation: '', standardRef: '', discipline: 'technical', evidenceIds: [] };
+const BLANK: Draft = { area: '', description: '', severity: 'medium', mitigation: '', standardRef: '', discipline: 'technical', evidenceIds: [], cost: '', costBand: '' };
 
 function ObservationForm({
   project,
+  department,
   areas,
   initial,
   busy,
@@ -100,6 +120,7 @@ function ObservationForm({
   onCancel,
 }: {
   project: DdProject;
+  department: DepartmentKey;
   areas: string[];
   initial: Draft;
   busy: boolean;
@@ -107,6 +128,8 @@ function ObservationForm({
   onSave: (draft: Draft) => void;
   onCancel: () => void;
 }) {
+  // The department's disciplines, and the one this row already carries if it came from elsewhere.
+  const disciplines = [...new Set([...departmentDisciplines(project, department), initial.discipline])];
   const [draft, setDraft] = useState<Draft>(initial);
   const [attach, setAttach] = useState('');
   const files = useMemo(() => project.evidence.filter((e) => e.attachments.length > 0 && !draft.evidenceIds.includes(e.id)), [project, draft.evidenceIds]);
@@ -159,10 +182,25 @@ function ObservationForm({
           Reference
           <Input value={draft.standardRef} onChange={(e) => set('standardRef', e.target.value)} placeholder="NBC 2016 Part 4, cl. 4.16.1" className="mt-1" />
         </label>
+        <label className="w-32 text-micro text-ink-secondary">
+          Cost to fix
+          <Input value={draft.cost} onChange={(e) => set('cost', e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="₹" className="mt-1" />
+        </label>
+        <label className="text-micro text-ink-secondary">
+          Needed
+          <Select value={draft.costBand} onChange={(e) => set('costBand', e.target.value as RemedialBand | '')} className="mt-1 w-auto">
+            <option value="">—</option>
+            {REMEDIAL_BANDS.map((b) => (
+              <option key={b} value={b}>
+                {BAND_SHORT[b]}
+              </option>
+            ))}
+          </Select>
+        </label>
         <label className="text-micro text-ink-secondary">
           Discipline
           <Select value={draft.discipline} onChange={(e) => set('discipline', e.target.value as ScopeKey)} className="mt-1 w-auto">
-            {DISCIPLINES.map((d) => (
+            {disciplines.map((d) => (
               <option key={d} value={d}>
                 {SCOPE_LABEL[d]}
               </option>
@@ -223,11 +261,14 @@ function toInput(draft: Draft): ObservationInput {
     standardRef: draft.standardRef.trim() || undefined,
     discipline: draft.discipline,
     evidenceIds: draft.evidenceIds,
+    cost: draft.cost.trim() ? Number(draft.cost) : null,
+    costBand: draft.costBand || null,
   };
 }
 
-function toDraft(f: FindingRecord): Draft {
-  return { area: f.area ?? '', description: f.description || f.title, severity: f.severity, mitigation: f.mitigation ?? '', standardRef: f.standardRef ?? '', discipline: f.discipline, evidenceIds: f.evidenceIds };
+function toDraft(project: DdProject, f: FindingRecord): Draft {
+  const { cost, band } = observationCost(project, f.id);
+  return { area: f.area ?? '', description: f.description || f.title, severity: f.severity, mitigation: f.mitigation ?? '', standardRef: f.standardRef ?? '', discipline: f.discipline, evidenceIds: f.evidenceIds, cost: typeof cost === 'number' ? String(cost) : '', costBand: band ?? '' };
 }
 
 /* ==================================================================== */
@@ -241,13 +282,27 @@ type Filter = 'all' | FindingSeverity;
  * matters, what to do, the code it is judged against, and the photographs
  * that show it. Below it, the photographs nothing cites yet.
  */
-export function ObservationsCard({ project, onChanged, onOpenDocument }: { project: DdProject; onChanged: (next: DdProject) => void; onOpenDocument: (evidenceId: string) => void }) {
+export function ObservationsCard({
+  project,
+  department = 'construction',
+  onChanged,
+  onOpenDocument,
+}: {
+  project: DdProject;
+  department?: DepartmentKey;
+  onChanged: (next: DdProject) => void;
+  onOpenDocument: (evidenceId: string) => void;
+}) {
   const me = useMe();
   const toast = useToast();
-  const mayEdit = me ? roleCanEdit(departmentRole(project, { email: me.email, workspaceRole: me.role }, 'construction')) : false;
-  const rows = useMemo(() => observations(project, 'construction'), [project]);
+  const mayEdit = me ? roleCanEdit(departmentRole(project, { email: me.email, workspaceRole: me.role }, department)) : false;
+  const rows = useMemo(() => observations(project, department), [project, department]);
+  // Engineers record observations; every other department records findings.
+  const noun = department === 'construction' ? 'observation' : 'finding';
+  const Noun = noun[0]!.toUpperCase() + noun.slice(1);
+  const blank: Draft = { ...BLANK, discipline: departmentDisciplines(project, department)[0] ?? 'technical' };
   const summary = useMemo(() => observationSummary(project, rows), [project, rows]);
-  const photos = useMemo(() => unusedPhotos(project), [project]);
+  const photos = useMemo(() => unusedPhotos(project, department), [project, department]);
   const [filter, setFilter] = useState<Filter>('all');
   const [adding, setAdding] = useState<Draft | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -281,14 +336,14 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
   }
 
   async function create(draft: Draft) {
-    const res = await run(() => workspaceApi.addObservation(project.id, toInput(draft)), 'Observation recorded.');
+    const res = await run(() => workspaceApi.addObservation(project.id, { ...toInput(draft), department }), `${Noun} recorded.`);
     if (res) setAdding(null);
   }
 
   async function save(findingId: string, draft: Draft) {
     const res = await run(
       () => workspaceApi.patchObservation(project.id, findingId, { ...toInput(draft), area: draft.area.trim() || null, mitigation: draft.mitigation.trim() || null, standardRef: draft.standardRef.trim() || null }),
-      'Observation updated.',
+      `${Noun} updated.`,
     );
     if (res) setEditing(null);
   }
@@ -314,7 +369,7 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
     const got = await filed(photo);
     if (!got) return;
     setEditing(null);
-    setAdding({ ...BLANK, area: photo.area ?? '', description: suggestion?.description ?? photo.seen ?? '', severity: suggestion?.severity ?? 'medium', evidenceIds: [got.evidenceId] });
+    setAdding({ ...blank, area: photo.area ?? '', description: suggestion?.description ?? photo.shows ?? photo.seen ?? '', severity: suggestion?.severity ?? 'medium', evidenceIds: [got.evidenceId] });
   }
 
   async function attachTo(photo: PhotoCandidate, findingId: string) {
@@ -339,7 +394,7 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
       <Card>
         <CardHeader
           icon={<ShieldAlert size={15} />}
-          title="Observations and mitigations"
+          title={department === 'construction' ? 'Observations and mitigations' : 'Findings and what to do'}
           subtitle={
             summary.total
               ? `${summary.total} · ${material} critical or high${unmitigated ? ` · ${unmitigated} no mitigation` : ''} · ${summary.withPhoto} with photo`
@@ -352,14 +407,14 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
                   <Button size="sm" variant="ghost" icon={<Copy size={13} />} onClick={() => void copy()}>
                     Copy
                   </Button>
-                  <Button size="sm" variant="ghost" icon={<Download size={13} />} onClick={() => download(`${project.reference}-observations.csv`, observationsCsv(project, rows), 'text/csv')}>
+                  <Button size="sm" variant="ghost" icon={<Download size={13} />} onClick={() => download(`${project.reference}-${department}-${noun}s.csv`, observationsCsv(project, rows), 'text/csv')}>
                     Export
                   </Button>
                 </>
               ) : null}
               {mayEdit ? (
-                <Button size="sm" variant="primary" icon={<Plus size={13} />} onClick={() => (setEditing(null), setAdding({ ...BLANK }))}>
-                  Add observation
+                <Button size="sm" variant="primary" icon={<Plus size={13} />} onClick={() => (setEditing(null), setAdding({ ...blank }))}>
+                  Add {noun}
                 </Button>
               ) : null}
             </div>
@@ -391,7 +446,7 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
             </div>
           ) : null}
 
-          {adding ? <ObservationForm project={project} areas={summary.areas} initial={adding} busy={busy} saveLabel="Record" onSave={(d) => void create(d)} onCancel={() => setAdding(null)} /> : null}
+          {adding ? <ObservationForm project={project} department={department} areas={summary.areas} initial={adding} busy={busy} saveLabel="Record" onSave={(d) => void create(d)} onCancel={() => setAdding(null)} /> : null}
 
           {!summary.total && !adding ? (
             <p className="text-[13px] text-ink-secondary">Nothing recorded yet.</p>
@@ -407,7 +462,7 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
                 {group.items.map((f) =>
                   editing === f.id ? (
                     <li key={f.id} className="p-2">
-                      <ObservationForm project={project} areas={summary.areas} initial={toDraft(f)} busy={busy} saveLabel="Save" onSave={(d) => void save(f.id, d)} onCancel={() => setEditing(null)} />
+                      <ObservationForm project={project} department={department} areas={summary.areas} initial={toDraft(project, f)} busy={busy} saveLabel="Save" onSave={(d) => void save(f.id, d)} onCancel={() => setEditing(null)} />
                     </li>
                   ) : (
                     <li key={f.id} className="px-3 py-2.5">
@@ -423,6 +478,7 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
                             <p className="text-micro text-ink-muted">No mitigation yet</p>
                           )}
                           {f.standardRef ? <p className="font-mono text-micro text-ink-secondary">{f.standardRef}</p> : null}
+                          <CostLine project={project} findingId={f.id} />
                           {f.evidenceIds.length ? (
                             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                               {f.evidenceIds.map((id) => (
@@ -495,7 +551,7 @@ export function ObservationsCard({ project, onChanged, onOpenDocument }: { proje
                   {mayEdit ? (
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Button size="sm" variant="secondary" icon={<Plus size={13} />} disabled={busy} onClick={() => void startFrom(photo)}>
-                        New observation
+                        New {noun}
                       </Button>
                       {rows.length ? (
                         <Select aria-label={`Attach ${photo.title} to an observation`} value="" disabled={busy} onChange={(e) => e.target.value && void attachTo(photo, e.target.value)} className="w-auto max-w-[14rem]">

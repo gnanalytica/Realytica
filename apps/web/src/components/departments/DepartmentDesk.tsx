@@ -1,20 +1,26 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Camera, ClipboardList, Download, FileOutput, FileStack, MapPin, ShieldAlert, Smartphone } from 'lucide-react';
+import { Camera, ClipboardList, Download, FileOutput, FileStack, MapPin, ShieldAlert, Smartphone, Upload } from 'lucide-react';
 import {
+  departmentDefinition,
+  departmentHomeWorkstream,
+  departmentReportKind,
   observations,
   observationsCsv,
   questionnaireCsv,
   questionnaireSummary,
+  questionnairesOf,
   requirementSheet,
   requirementSheetCsv,
   unusedPhotos,
   type DdProject,
+  type DepartmentKey,
 } from '@realytica/shared';
 import { api } from '../../lib/api';
+import { EvidenceDropZone } from '../EvidenceDropZone';
 import { useMe } from '../../lib/useMe';
 import { Button, Card, CardBody, CardHeader, StatTile, cn, useToast } from '../ui/kit';
-import { EngineeringDashboard, RequirementSheetCard } from './EngineeringDesk';
+import { EngineeringDashboard, RequirementSheetCard, SupportingDocumentsCard } from './EngineeringDesk';
 import { ObservationsCard } from './ObservationsCard';
 import { QuestionnaireCard } from './QuestionnaireCard';
 import { SitePhotos } from './SitePhotos';
@@ -23,7 +29,6 @@ import { WorkstreamChecks, WorkstreamDocuments } from './WorkstreamRecords';
 type StepKey = 'documents' | 'questions' | 'site' | 'observations' | 'report';
 
 const STEP_KEYS: readonly StepKey[] = ['documents', 'questions', 'site', 'observations', 'report'];
-const WORKSTREAM = 'construction.quality';
 
 function download(name: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
@@ -34,71 +39,87 @@ function download(name: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
-export interface TechnicalDdNav {
+export interface DepartmentDeskNav {
   openDocument: (evidenceId: string) => void;
   openCheck: (where: { ddId: string; scopeId: string; checkId: string }) => void;
   openFindings: () => void;
   openActions: () => void;
-  openSite: () => void;
+  /** The site record, for a department that inspects one. */
+  openSite?: () => void;
   openReports: () => void;
   openReport: (reportId: string) => void;
   pairPhone: () => void;
 }
 
 /**
- * A technical due diligence as the five things it is, in the order they
- * happen: ask for the documents, put the questions, inspect the site, record
- * what was observed, hand over the report. One step on screen at a time, each
- * tab carrying its own count, so the page is a place to work and not a scroll.
+ * A department's work as the steps it is, in the order they happen: ask for
+ * the documents, put the questions, inspect the site where there is one,
+ * record what was found, hand over the report. One step on screen at a time,
+ * each tab carrying its own count, so the page is a place to work and not a
+ * scroll. Engineering's is its technical due diligence; Finance and Legal
+ * run the same steps over their own documents, questions and findings.
  */
-export function TechnicalDueDiligence({
+export function DepartmentDesk({
   project,
+  department,
+  workstream,
   setProject,
   refresh,
   nav,
   frame,
 }: {
   project: DdProject;
+  department: DepartmentKey;
+  /** Shown inside one workstream: its own documents and checks sit in the steps too. */
+  workstream?: string;
   setProject: (next: DdProject) => void;
   refresh: () => Promise<void>;
-  nav: TechnicalDdNav;
-  /** The quick assessment, certified report and connections every workstream carries. */
-  frame: React.ReactNode;
+  nav: DepartmentDeskNav;
+  /** The quick assessment, certified report and connections a workstream carries. */
+  frame?: React.ReactNode;
 }) {
   const me = useMe();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const asked = params.get('step') as StepKey | null;
-  const step: StepKey = asked && STEP_KEYS.includes(asked) ? asked : 'documents';
+  const engineering = department === 'construction';
+  const stepKeys = engineering ? STEP_KEYS : STEP_KEYS.filter((k) => k !== 'site');
+  const step: StepKey = asked && stepKeys.includes(asked) ? asked : 'documents';
+  const home = workstream ?? departmentHomeWorkstream(department);
+  const found = engineering ? 'Observations' : 'Findings';
 
-  const sheet = useMemo(() => requirementSheet(project, { department: 'construction' }), [project]);
-  const questionnaires = project.questionnaires ?? [];
+  const sheet = useMemo(() => requirementSheet(project, { department }), [project, department]);
+  const questionnaires = useMemo(() => questionnairesOf(project, department), [project, department]);
   const latest = questionnaires[questionnaires.length - 1];
   const answers = useMemo(() => (latest ? questionnaireSummary(latest) : null), [latest]);
-  const rows = useMemo(() => observations(project, 'construction'), [project]);
-  const photos = useMemo(() => unusedPhotos(project), [project]);
+  const rows = useMemo(() => observations(project, department), [project, department]);
+  const photos = useMemo(() => unusedPhotos(project, department), [project, department]);
   const sitePhotos = (project.siteLog ?? []).reduce((n, e) => n + e.photos.length, 0) + project.evidence.filter((e) => e.kind === 'photograph' && e.attachments.length).length;
   const log = (project.siteLog ?? []).slice().sort((a, b) => b.date.localeCompare(a.date));
 
-  const steps: Array<{ key: StepKey; label: string; count: string; icon: React.ReactNode }> = [
+  const allSteps: Array<{ key: StepKey; label: string; count: string; icon: React.ReactNode }> = [
     { key: 'documents', label: 'Documents', count: sheet.total ? `${sheet.received}/${sheet.total}` : '—', icon: <FileStack size={14} /> },
     { key: 'questions', label: 'Questions', count: answers ? `${answers.answered}/${answers.total}` : '—', icon: <ClipboardList size={14} /> },
     { key: 'site', label: 'Site', count: sitePhotos ? `${sitePhotos} photo${sitePhotos === 1 ? '' : 's'}` : '—', icon: <MapPin size={14} /> },
-    { key: 'observations', label: 'Observations', count: rows.length ? String(rows.length) : '—', icon: <ShieldAlert size={14} /> },
+    { key: 'observations', label: found, count: rows.length ? String(rows.length) : '—', icon: <ShieldAlert size={14} /> },
     { key: 'report', label: 'Report', count: '', icon: <FileOutput size={14} /> },
   ];
+  const steps = allSteps.filter((s) => stepKeys.includes(s.key));
 
-  // The engineer's report: one per project is the usual case, so an existing draft is opened rather than a second made.
-  const existing = project.reports.find((r) => r.kind === 'technical_dd' && r.status !== 'superseded' && r.status !== 'archived');
+  // The department's own report: one per project is the usual case, so an existing draft is opened rather than a second made.
+  const reportKind = departmentReportKind(department);
+  const existing = project.reports.find((r) => r.kind === reportKind && r.status !== 'superseded' && r.status !== 'archived');
   const [creating, setCreating] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   async function createReport() {
     if (existing) {
       nav.openReport(existing.id);
       return;
     }
+    if (!reportKind) return;
     setCreating(true);
     try {
-      const made = await api.generateReport(project.id, { kind: 'technical_dd', generatedBy: me?.name ?? me?.email ?? 'operator' });
+      const made = await api.generateReport(project.id, { kind: reportKind, generatedBy: me?.name ?? me?.email ?? 'operator' });
       await refresh();
       nav.openReport(made.id);
     } catch (e) {
@@ -116,9 +137,9 @@ export function TechnicalDueDiligence({
 
   return (
     <div className="space-y-4">
-      <EngineeringDashboard project={project} department="construction" show="figures" onOpenFindings={() => go('observations')} onOpenActions={nav.openActions} />
+      <EngineeringDashboard project={project} department={department} show="figures" onOpenFindings={() => go('observations')} onOpenActions={nav.openActions} />
 
-      <div role="tablist" aria-label="Technical due diligence" className="flex gap-1 overflow-x-auto rounded-2xl bg-sunken/70 p-1 ring-1 ring-inset ring-[var(--ring)]">
+      <div role="tablist" aria-label={`${departmentDefinition(department)?.label ?? 'Department'} steps`} className="flex gap-1 overflow-x-auto rounded-2xl bg-sunken/70 p-1 ring-1 ring-inset ring-[var(--ring)]">
         {steps.map((s, i) => {
           const on = s.key === step;
           return (
@@ -148,14 +169,28 @@ export function TechnicalDueDiligence({
 
       {step === 'documents' ? (
         <>
-          <RequirementSheetCard project={project} department="construction" startWorkstream={WORKSTREAM} onChanged={refresh} onOpenDocument={nav.openDocument} onOpenCheck={nav.openCheck} />
-          <WorkstreamDocuments project={project} workstream={WORKSTREAM} onOpenDocument={nav.openDocument} />
+          {/* Dropping a file anywhere on the step files it: read, typed, and matched to the line on the sheet it answers. */}
+          <EvidenceDropZone projectId={project.id} rows={project.evidence} onFiled={refresh}>
+            {(pick) => (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-[var(--axis)] px-3 py-2.5">
+                  <p className="min-w-0 flex-1 text-[13px] text-ink-secondary">Drop documents here, or</p>
+                  <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => (pick(Array.from(e.target.files ?? [])), (e.target.value = ''))} />
+                  <Button size="sm" variant="primary" icon={<Upload size={13} />} onClick={() => fileInput.current?.click()}>
+                    Add documents
+                  </Button>
+                </div>
+                <RequirementSheetCard project={project} department={department} startWorkstream={home} onChanged={refresh} onOpenDocument={nav.openDocument} onOpenCheck={nav.openCheck} />
+                {workstream ? <WorkstreamDocuments project={project} workstream={workstream} onOpenDocument={nav.openDocument} /> : <SupportingDocumentsCard project={project} department={department} onChanged={setProject} onOpenDocument={nav.openDocument} />}
+              </div>
+            )}
+          </EvidenceDropZone>
         </>
       ) : null}
 
-      {step === 'questions' ? <QuestionnaireCard project={project} onChanged={setProject} onOpenDocument={nav.openDocument} /> : null}
+      {step === 'questions' ? <QuestionnaireCard project={project} department={department} onChanged={setProject} onOpenDocument={nav.openDocument} /> : null}
 
-      {step === 'site' ? (
+      {step === 'site' && nav.openSite ? (
         <>
         <Card>
           <CardHeader
@@ -212,9 +247,9 @@ export function TechnicalDueDiligence({
 
       {step === 'observations' ? (
         <>
-          <ObservationsCard project={project} onChanged={setProject} onOpenDocument={nav.openDocument} />
-          <EngineeringDashboard project={project} department="construction" show="charts" onOpenFindings={nav.openFindings} onOpenActions={nav.openActions} />
-          <WorkstreamChecks project={project} workstream={WORKSTREAM} onChanged={setProject} onOpenCheck={nav.openCheck} />
+          <ObservationsCard project={project} department={department} onChanged={setProject} onOpenDocument={nav.openDocument} />
+          <EngineeringDashboard project={project} department={department} show="charts" onOpenFindings={nav.openFindings} onOpenActions={nav.openActions} />
+          {workstream ? <WorkstreamChecks project={project} workstream={workstream} onChanged={setProject} onOpenCheck={nav.openCheck} /> : null}
         </>
       ) : null}
 
@@ -230,9 +265,11 @@ export function TechnicalDueDiligence({
                   <Button size="sm" variant="ghost" onClick={nav.openReports}>
                     Open Reports
                   </Button>
-                  <Button size="sm" variant="primary" loading={creating} onClick={() => void createReport()}>
-                    {existing ? 'Open the report' : 'Create the report'}
-                  </Button>
+                  {reportKind ? (
+                    <Button size="sm" variant="primary" loading={creating} onClick={() => void createReport()}>
+                      {existing ? 'Open the report' : 'Create the report'}
+                    </Button>
+                  ) : null}
                 </div>
               }
             />
@@ -240,10 +277,10 @@ export function TechnicalDueDiligence({
               <ul className="divide-y divide-hairline">
                 <li className="flex flex-wrap items-center gap-3 py-2">
                   <span className="min-w-0 flex-1 text-[13px] text-ink">
-                    Observations and mitigations
-                    <span className="block text-micro text-ink-muted">{rows.length ? `${rows.length} observation${rows.length === 1 ? '' : 's'}` : 'None recorded yet'}</span>
+                    {engineering ? 'Observations and mitigations' : 'Findings and what to do about them'}
+                    <span className="block text-micro text-ink-muted">{rows.length ? `${rows.length} recorded` : 'None recorded yet'}</span>
                   </span>
-                  <Button size="sm" variant="secondary" icon={<Download size={13} />} disabled={!rows.length} onClick={() => download(`${project.reference}-observations.csv`, observationsCsv(project, rows))}>
+                  <Button size="sm" variant="secondary" icon={<Download size={13} />} disabled={!rows.length} onClick={() => download(`${project.reference}-${department}-${engineering ? 'observations' : 'findings'}.csv`, observationsCsv(project, rows))}>
                     Export
                   </Button>
                 </li>
@@ -252,7 +289,7 @@ export function TechnicalDueDiligence({
                     Answered questionnaire
                     <span className="block text-micro text-ink-muted">{latest && answers ? `${latest.title}: ${answers.answered} of ${answers.total} answered` : 'No questionnaire imported'}</span>
                   </span>
-                  <Button size="sm" variant="secondary" icon={<Download size={13} />} disabled={!latest} onClick={() => latest && download(`${project.reference}-questionnaire.csv`, questionnaireCsv(project, latest))}>
+                  <Button size="sm" variant="secondary" icon={<Download size={13} />} disabled={!latest} onClick={() => latest && download(`${project.reference}-${department}-questionnaire.csv`, questionnaireCsv(project, latest))}>
                     Export
                   </Button>
                 </li>
@@ -261,7 +298,7 @@ export function TechnicalDueDiligence({
                     Document requirement sheet
                     <span className="block text-micro text-ink-muted">{sheet.total ? `${sheet.received} of ${sheet.total} in hand` : 'Nothing expected yet'}</span>
                   </span>
-                  <Button size="sm" variant="secondary" icon={<Download size={13} />} disabled={!sheet.total} onClick={() => download(`${project.reference}-requirement-sheet.csv`, requirementSheetCsv(sheet))}>
+                  <Button size="sm" variant="secondary" icon={<Download size={13} />} disabled={!sheet.total} onClick={() => download(`${project.reference}-${department}-requirement-sheet.csv`, requirementSheetCsv(sheet))}>
                     Export
                   </Button>
                 </li>

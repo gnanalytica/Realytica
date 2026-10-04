@@ -57,7 +57,8 @@ import {
   type ProjectGraphNodeKind,
 } from './project-ontology';
 import type { DdProject, ProjectGraphEdge, ProjectGraphNode } from './types';
-import { DEPARTMENTS, DEPARTMENT_ROLE_LABEL, STAGES, SUB_STAGES, SUB_STAGE_LABEL, stageAt, workstreamOfCheck, type DepartmentRole } from './departments';
+import { DEPARTMENTS, DEPARTMENT_ROLE_LABEL, STAGES, SUB_STAGES, SUB_STAGE_LABEL, departmentHomeWorkstream, stageAt, workstreamOfCheck, type DepartmentRole } from './departments';
+import { questionStatus, questionnaireDepartment, questionnaireSummary } from './questionnaire';
 import { projectDepartments } from './team';
 import { quickAssessment, QUICK_VERDICT_LABEL } from './quick-assessments';
 import { approvalsRegister, APPROVAL_STATUS_LABEL } from './approvals';
@@ -579,6 +580,23 @@ function addStructure(project: DdProject, b: Builder): void {
     holds('construction.progress', entry.id);
     inStage(entry.id, `${entry.date}T12:00:00.000Z`);
     for (const update of entry.milestoneUpdates) b.edge(entry.id, update.milestoneId, 'advances');
+  }
+
+  // A questionnaire sits in its department's work. Each question that has an
+  // answer is a node of its own, joined to what proves it, so "what does this
+  // answer rest on" and "which answers cite this photograph" are both one hop.
+  for (const sheet of project.questionnaires ?? []) {
+    const summary = questionnaireSummary(sheet);
+    b.node('questionnaire', sheet.id, sheet.title, `${summary.answered} of ${summary.total} answered`, { key: questionnaireDepartment(sheet), status: summary.unanswered ? 'open' : 'answered' });
+    holds(departmentHomeWorkstream(questionnaireDepartment(sheet)), sheet.id);
+    inStage(sheet.id, sheet.createdAt);
+    for (const question of sheet.questions) {
+      const status = questionStatus(question);
+      if (status === 'unanswered') continue;
+      b.node('answer', question.id, question.text.slice(0, 120), (question.answer ?? '').slice(0, 160), { key: question.source, status: status === 'suggested' ? 'suggested' : question.proof.length ? 'proven' : 'unproven' });
+      b.edge(question.id, sheet.id, 'answers');
+      for (const proof of question.proof) b.edge(question.id, proof.evidenceId, 'supported_by');
+    }
   }
 
   // A living estimate on every live workstream, and the certified reports beside it.

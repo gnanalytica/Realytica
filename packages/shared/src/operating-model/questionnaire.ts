@@ -16,6 +16,7 @@
  * A model's answer is marked as the model's until a person confirms it.
  */
 
+import type { DepartmentKey } from './departments';
 import type { DdProject } from './types';
 
 /** Where an answer came from, weakest claim first. */
@@ -66,6 +67,8 @@ export interface QuestionnaireQuestion {
 export interface Questionnaire {
   id: string;
   title: string;
+  /** The department whose work it is. One imported before departments had their own is Engineering's. */
+  department?: DepartmentKey;
   /** The file it was read from, when it was. */
   fileName?: string;
   /** The facts at the head of the sheet: property, developer, city. */
@@ -230,6 +233,16 @@ function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** The department a questionnaire belongs to. */
+export function questionnaireDepartment(questionnaire: Pick<Questionnaire, 'department'>): DepartmentKey {
+  return questionnaire.department ?? 'construction';
+}
+
+/** One department's questionnaires, in the order they were imported. */
+export function questionnairesOf(project: DdProject, department: DepartmentKey): Questionnaire[] {
+  return (project.questionnaires ?? []).filter((q) => questionnaireDepartment(q) === department);
+}
+
 function list(project: DdProject): Questionnaire[] {
   if (!project.questionnaires) project.questionnaires = [];
   return project.questionnaires;
@@ -255,6 +268,7 @@ function findQuestion(questionnaire: Questionnaire, questionId: string): Questio
 
 export interface AddQuestionnaireInput {
   title: string;
+  department?: DepartmentKey;
   fileName?: string;
   parsed: ParsedQuestionnaire;
 }
@@ -271,6 +285,7 @@ export function addQuestionnaire(project: DdProject, input: AddQuestionnaireInpu
   const questionnaire: Questionnaire = {
     id: newId('qnr'),
     title,
+    department: input.department && input.department !== 'construction' ? input.department : undefined,
     fileName: input.fileName,
     header: input.parsed.header.filter((h) => h.label && h.value),
     questions: input.parsed.questions.map((q, i) => ({

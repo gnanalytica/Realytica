@@ -150,6 +150,43 @@ function StandingFigures({ project }: { project: DdProject }) {
 }
 
 /**
+ * The whole project's documents, records and reports, one press away.
+ *
+ * Each department keeps its own on its pages. These are the same things
+ * across every department, which is a question asked from here and not a
+ * place to live, so they are links on Overview and not tabs in the bar.
+ */
+function AcrossProject({ project }: { project: DdProject }) {
+  const navigate = useNavigate();
+  const filed = project.evidence.filter((e) => e.attachments.length > 0).length;
+  const openFindings = project.findings.filter((f) => f.status === 'open' || f.status === 'under_review' || f.status === 'accepted').length;
+  const openActions = project.actions.filter((a) => a.status !== 'closed').length;
+  const links: Array<{ label: string; count: number; pane: 'evidence' | 'dd' | 'findings' | 'risks' | 'reports' }> = [
+    { label: 'Documents', count: filed, pane: 'evidence' },
+    { label: 'Checks', count: project.assessments.reduce((n, a) => n + a.scopes.reduce((m, s) => m + s.checks.length, 0), 0), pane: 'dd' },
+    { label: 'Findings', count: openFindings, pane: 'findings' },
+    { label: 'Risks and actions', count: openActions, pane: 'risks' },
+    { label: 'Reports', count: project.reports.length, pane: 'reports' },
+  ];
+  return (
+    <nav aria-label="Across the project" className="flex flex-wrap items-center gap-1.5">
+      <span className="mr-1 text-[12px] text-ink-muted">All of the project</span>
+      {links.map((l) => (
+        <button
+          key={l.pane}
+          type="button"
+          onClick={() => navigate(cockpitPath(project.id, l.pane))}
+          className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[12px] text-ink-secondary ring-1 ring-inset ring-[var(--ring)] transition-colors duration-quick ease-state hover:text-ink coarse:min-h-11"
+        >
+          {l.label}
+          <span className="font-mono tabular-nums text-ink-muted">{l.count}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+/**
  * The project's one summary page: where it stands in each department, the
  * engagements commissioned on it, where the site is, and what needs a person.
  * The stage it is at sits in the timeline at the top of every page.
@@ -175,6 +212,8 @@ export default function Overview() {
       <Reveal delay={0.05}>
         <StandingFigures project={project} />
       </Reveal>
+
+      <AcrossProject project={project} />
 
       <Stagger className="grid grid-cols-1 items-stretch gap-4 [@container(min-width:52rem)]:grid-cols-2 [@container(min-width:84rem)]:grid-cols-3">
         {departments.filter((d) => d.status === 'live').map((d) => (

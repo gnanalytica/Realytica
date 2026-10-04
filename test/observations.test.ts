@@ -16,6 +16,10 @@ import {
   addObservation,
   addQuestionnaire,
   answerQuestion,
+  buildProjectGraph,
+  departmentDisciplines,
+  departmentReportKind,
+  departmentsOfDiscipline,
   commitChatProposal,
   createChatProposal,
   createProject,
@@ -24,6 +28,9 @@ import {
   generateReport,
   issueReport,
   logSiteEntry,
+  observationCost,
+  questionnaireDepartment,
+  questionnairesOf,
   observationSummary,
   observations,
   observationsCsv,
@@ -31,12 +38,14 @@ import {
   patchObservation,
   projectPhotos,
   readReportBlock,
+  remedialCostSummary,
   reportTemplate,
   resolveReportBlock,
   setPhotoDescription,
   setPhotoInReport,
   suggestAnswers,
   unusedPhotos,
+  validateProjectGraph,
   type DdProject,
 } from '@realytica/shared';
 
@@ -104,7 +113,7 @@ describe('an observation', () => {
     addObservation(p, { area: 'Terrace', description: 'The terrace drain is blocked.', severity: 'medium' }, 'engineer');
     const rows = observations(p);
     const csv = observationsCsv(p, rows).trim().split('\n');
-    assert.equal(csv[0], 'S. No,Area,Description,Risk category,Mitigation,Reference,Discipline,Photographs and documents');
+    assert.equal(csv[0], 'S. No,Area,Description,Risk category,Mitigation,Cost,Needed,Reference,Discipline,Photographs and documents');
     assert.ok(csv[1]!.startsWith('1,Lift core,"The machine room has no ventilation, so the drive may overheat.",High risk,Add an exhaust fan.'));
     assert.ok(csv[1]!.endsWith('Machine room'));
     assert.ok(csv[2]!.includes(RISK_LABEL.medium));
@@ -294,5 +303,124 @@ describe('choosing what the report prints', () => {
     assert.deepEqual(section.table!.rows.map((r) => r.cells[1]), ['How many lifts?']);
     assert.equal(q.questions.length, 2);
     assert.equal(q.questions[0]!.answer, 'Confidential');
+  });
+});
+
+describe('what a mitigation costs', () => {
+  it('sits on the remedy the cost table already sums, so there is one figure', () => {
+    const p = project();
+    const o = addObservation(p, { area: 'Plant room', description: 'Two chillers are past their service life.', severity: 'high', mitigation: 'Replace both chillers.', cost: 18500000, costBand: 'immediate' }, 'engineer');
+    assert.equal(p.actions.length, 1);
+    assert.equal(p.actions[0]!.title, 'Replace both chillers.');
+    assert.deepEqual(observationCost(p, o.id), { cost: 18500000, band: 'immediate' });
+    assert.equal(remedialCostSummary(p).total, 18500000);
+
+    patchObservation(p, o.id, { cost: 20000000 }, 'engineer');
+    assert.equal(p.actions.length, 1, 'changed in place, not added again');
+    assert.deepEqual(observationCost(p, o.id), { cost: 20000000, band: 'immediate' });
+    assert.equal(remedialCostSummary(p).total, 20000000);
+
+    patchObservation(p, o.id, { cost: null, costBand: null }, 'engineer');
+    assert.deepEqual(observationCost(p, o.id), { cost: undefined, band: undefined });
+    assert.throws(() => patchObservation(p, o.id, { cost: -1 }, 'engineer'), /zero or more/);
+    const csv = observationsCsv(p, observations(p)).trim().split('\n');
+    assert.ok(csv[1]!.includes('Replace both chillers.,,,'), 'no cost prints as an empty cell, not a zero');
+  });
+
+  it('makes no remedy when no cost is given', () => {
+    const p = project();
+    addObservation(p, { description: 'Exit signage is missing.', severity: 'medium', mitigation: 'Fix signage.' }, 'engineer');
+    assert.equal(p.actions.length, 0);
+  });
+});
+
+describe('the graph, with a technical due diligence on it', () => {
+  it('stays well formed and ties an observation to the photograph that shows it', () => {
+    const p = project();
+    ensureWorkstreamChecks(p, ['construction.quality'], 'engineer');
+    const shot = photo(p, 'Plant room');
+    const o = addObservation(p, { area: 'Plant room', description: 'Two chillers are past their service life.', severity: 'high', mitigation: 'Replace both.', cost: 100, costBand: 'year_1', evidenceIds: [shot.id] }, 'engineer');
+    const q = addQuestionnaire(p, { title: 'Sheet', parsed: { header: [], questions: [{ text: 'How many chillers?' }] } }, 'engineer');
+    answerQuestion(p, q.id, q.questions[0]!.id, { answer: 'Three', source: 'site', proof: [{ evidenceId: shot.id }] }, 'engineer');
+    setPhotoInReport(p, shot.id, true, 'engineer');
+    const graph = buildProjectGraph(p);
+    assert.deepEqual(validateProjectGraph(graph), []);
+    const ids = new Set(graph.nodes.map((n) => n.id));
+    const has = (recordId: string) => [...ids].some((id) => id.endsWith(recordId));
+    assert.ok(has(o.id), 'the observation is a node');
+    assert.ok(has(shot.id), 'its photograph is a node');
+    assert.ok(has(p.actions[0]!.id), 'its remedy is a node');
+    const findingNode = graph.nodes.find((n) => n.id.endsWith(o.id))!;
+    const photoNode = graph.nodes.find((n) => n.id.endsWith(shot.id))!;
+    assert.ok(graph.edges.some((e) => (e.from === findingNode.id && e.to === photoNode.id) || (e.from === photoNode.id && e.to === findingNode.id)), 'and the two are joined');
+
+    const sheetNode = graph.nodes.find((n) => n.kind === 'questionnaire')!;
+    const answerNode = graph.nodes.find((n) => n.kind === 'answer')!;
+    assert.equal(sheetNode.label, 'Sheet');
+    assert.equal(answerNode.status, 'proven');
+    assert.ok(graph.edges.some((e) => e.rel === 'answers' && e.from === answerNode.id && e.to === sheetNode.id), 'the answer belongs to its sheet');
+    assert.ok(graph.edges.some((e) => e.rel === 'supported_by' && e.from === answerNode.id && e.to === photoNode.id), 'and rests on the photograph that proves it');
+    assert.ok(graph.edges.some((e) => e.rel === 'holds' && e.to === sheetNode.id), 'the sheet sits in a workstream');
+  });
+
+  it('leaves an unanswered question off, and marks a suggestion as one', () => {
+    const p = project();
+    const q = addQuestionnaire(p, { title: 'Sheet', parsed: { header: [], questions: [{ text: 'How many lifts?' }, { text: 'Is there a basement?' }] } }, 'engineer');
+    suggestAnswers(p, q.id, [{ questionId: q.questions[1]!.id, answer: 'Two levels', source: 'document', proof: [] }], 'AI');
+    const graph = buildProjectGraph(p);
+    assert.deepEqual(validateProjectGraph(graph), []);
+    const answers = graph.nodes.filter((n) => n.kind === 'answer');
+    assert.equal(answers.length, 1);
+    assert.equal(answers[0]!.status, 'suggested');
+  });
+});
+
+describe('the same steps in another department', () => {
+  it('hands over its own report, from its own sheet and findings', () => {
+    const p = project();
+    addQuestionnaire(p, { title: 'Building sheet', parsed: { header: [], questions: [{ text: 'How many lifts?', answer: 'Four' }] } }, 'engineer');
+    const sheet = addQuestionnaire(p, { title: 'Title requisitions', department: 'legal', parsed: { header: [], questions: [{ text: 'Is the parent deed on file?' }] } }, 'lawyer');
+    answerQuestion(p, sheet.id, sheet.questions[0]!.id, { answer: 'No', source: 'document' }, 'lawyer');
+    addObservation(p, { area: 'Title', description: 'The 1998 sale deed is not on file.', severity: 'high', discipline: 'legal', mitigation: 'Obtain a certified copy.' }, 'lawyer');
+    addObservation(p, { area: 'Plant room', description: 'Two chillers are past their service life.', severity: 'high' }, 'engineer');
+
+    assert.equal(departmentReportKind('legal'), 'legal_dd');
+    assert.equal(departmentReportKind('finance'), 'financial_dd');
+    assert.equal(departmentReportKind('design'), undefined);
+    const report = generateReport(p, { kind: 'legal_dd', generatedBy: 'lawyer' });
+    assert.deepEqual(reportTemplate('legal_dd').map((b) => b.heading).slice(1, 6), ['Scope and basis', 'At a glance', 'Chain of title', 'Requisitions and answers', 'Findings and what to do']);
+    const read = (heading: string) => readReportBlock(p, p.reports.find((r) => r.id === report.id)!.body.blocks.find((b) => b.heading === heading)!, false);
+    const findings = read('Findings and what to do');
+    assert.deepEqual(findings.table!.columns.slice(1, 3), ['Matter', 'Finding']);
+    assert.equal(findings.table!.rows.length, 1, 'the engineer’s observation is not the lawyer’s finding');
+    assert.match(findings.table!.rows[0]!.cells[2]!, /1998 sale deed/);
+    const answers = read('Requisitions and answers');
+    assert.ok(answers.lines.some((l) => l.includes('parent deed')));
+    assert.ok(!answers.lines.some((l) => l.includes('lifts')));
+    assert.match(read('At a glance').note ?? '', /1 finding across 1 matter/);
+  });
+
+  it('keeps each department to its own questionnaires and findings', () => {
+    const p = project();
+    addQuestionnaire(p, { title: 'Building sheet', parsed: { header: [], questions: [{ text: 'How many lifts?' }] } }, 'engineer');
+    const legal = addQuestionnaire(p, { title: 'Title requisitions', department: 'legal', parsed: { header: [], questions: [{ text: 'Is the parent deed on file?' }] } }, 'lawyer');
+    assert.deepEqual(questionnairesOf(p, 'construction').map((q) => q.title), ['Building sheet']);
+    assert.deepEqual(questionnairesOf(p, 'legal').map((q) => q.title), ['Title requisitions']);
+    assert.equal(questionnaireDepartment(legal), 'legal');
+
+    assert.ok(departmentDisciplines(p, 'legal').includes('legal'));
+    assert.ok(!departmentDisciplines(p, 'finance').includes('legal'));
+    addObservation(p, { description: 'The 1998 sale deed is not on file.', severity: 'high', discipline: 'legal', mitigation: 'Obtain a certified copy.' }, 'lawyer');
+    addObservation(p, { area: 'Plant room', description: 'Two chillers are past their service life.', severity: 'high' }, 'engineer');
+    assert.deepEqual(observations(p, 'legal').map((f) => f.discipline), ['legal']);
+    assert.deepEqual(observations(p, 'construction').map((f) => f.discipline), ['technical']);
+    assert.deepEqual(observations(p, 'finance'), []);
+    assert.deepEqual(departmentsOfDiscipline(p, 'legal'), ['legal']);
+
+    const graph = buildProjectGraph(p);
+    assert.deepEqual(validateProjectGraph(graph), []);
+    const legalSheet = graph.nodes.find((n) => n.kind === 'questionnaire' && n.label === 'Title requisitions')!;
+    const holder = graph.edges.find((e) => e.rel === 'holds' && e.to === legalSheet.id)!;
+    assert.ok(holder.from.endsWith('legal.title'), 'filed under the department it belongs to');
   });
 });
