@@ -94,8 +94,16 @@ export interface Sitting {
  */
 export function mintSitting(projectId: string, continues?: string): Sitting {
   const now = Date.now();
-  const chance = Math.random().toString(36).slice(2, 6).padEnd(4, '0');
-  return { project: projectId, id: `ses_${projectId.slice(-6)}_${now.toString(36)}${chance}`, startedAt: new Date(now).toISOString(), ...(continues ? { continues } : {}) };
+  return { project: projectId, id: `ses_${projectId.slice(-6)}_${now.toString(36)}${chance()}`, startedAt: new Date(now).toISOString(), ...(continues ? { continues } : {}) };
+}
+
+/**
+ * Eight characters of chance. Four were too few: of two hundred ids minted in
+ * one millisecond, two matched about once in eighty tries.
+ */
+function chance(): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(8));
+  return Array.from(bytes, (byte) => (byte % 36).toString(36)).join('');
 }
 
 /**
