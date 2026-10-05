@@ -15,12 +15,14 @@
  * with nothing written, not even the node it took. An entry is created and
  * never changed: every property is set when the node is made and none when
  * it is found, so an entry offered twice is one entry, and no write can give
- * a node to another project.
+ * a node to another project. What changes an entry is a write that starts
+ * the project's memory over (`shapeRule`): it lets every entry go, and tells
+ * them again, in the one transaction.
  */
 
 import type { MemEntry, MemPlace, MemWatermark } from '@realytica/shared';
 import { WRITE_TIMEOUT_MS, openSession } from '../neo4j';
-import { memProjectId, ownEntries, shapeRefused, standsFor, type MemBatch, type MemCount, type MemoryPort, type MemWriteAnswer } from './types';
+import { memProjectId, ownEntries, shapeRule, type MemBatch, type MemCount, type MemoryPort, type MemWriteAnswer } from './types';
 
 /**
  * How long the database gives a read of memory before it ends it. A read
@@ -72,8 +74,17 @@ const CLAIM = `
     ON CREATE SET m.projectId = $projectId, m.tenantId = $tenantId
   SET m.asked = $at
   WITH m
-  RETURN m.schema AS schema, m.auditThrough AS auditThrough, m.turnThrough AS turnThrough
+  RETURN m.schema AS schema, m.auditThrough AS auditThrough, m.turnThrough AS turnThrough, m.live AS live
 `;
+
+/**
+ * Put a project's memory node back to what it is made with, for a write that
+ * starts the project's memory over: whatever another shape kept on it goes,
+ * the mark that says whose memory it is included, and the write that follows
+ * sets what this one keeps. The node keeps its own id, project and
+ * workspace: nothing here is taken from the writer.
+ */
+const RESET = 'MATCH (m:MemProject { id: $id }) SET m = { id: m.id, projectId: m.projectId, tenantId: m.tenantId }';
 
 /**
  * Let go of the project's entries of these kinds. Run before the entries of
@@ -81,10 +92,16 @@ const CLAIM = `
  */
 const FORGET = 'MATCH (e:MemEntry { projectId: $projectId }) WHERE e.kind IN $kinds DETACH DELETE e';
 
-/** Move the watermark and write the entries. With no entries the watermark still moves. */
+/**
+ * Move the watermark and write the entries. With no entries the watermark
+ * still moves. `$live` is true from the live site and null from every other
+ * writer, which leaves the mark as it was: only the live site sets it, and
+ * nothing takes it off.
+ */
 const WRITE = `
   MATCH (m:MemProject { id: $id })
-  SET m.schema = $schema, m.auditThrough = $auditThrough, m.turnThrough = $turnThrough, m.writtenAt = $at
+  SET m.schema = $schema, m.auditThrough = $auditThrough, m.turnThrough = $turnThrough, m.writtenAt = $at,
+      m.live = coalesce($live, m.live)
   WITH m
   UNWIND $entries AS entry
   MERGE (e:MemEntry { id: entry.id })
@@ -104,7 +121,7 @@ const ENTRIES = `
 
 const WATERMARKS = `
   MATCH (m:MemProject) WHERE m.id IN $ids
-  RETURN m.projectId AS projectId, m.schema AS schema, m.auditThrough AS auditThrough, m.turnThrough AS turnThrough
+  RETURN m.projectId AS projectId, m.schema AS schema, m.auditThrough AS auditThrough, m.turnThrough AS turnThrough, m.live AS live
 `;
 
 const PROJECTS = 'MATCH (m:MemProject) RETURN m.projectId AS projectId, m.tenantId AS tenantId';
@@ -150,6 +167,7 @@ function watermarkOf(row: Row): MemWatermark {
     ...(schema === null || schema === undefined ? {} : { schema: Number(schema) }),
     ...(typeof auditThrough === 'string' ? { auditThrough } : {}),
     ...(typeof turnThrough === 'string' ? { turnThrough } : {}),
+    ...(row.get('live') === true ? { live: true } : {}),
   };
 }
 
@@ -207,11 +225,18 @@ export const neo4jMemory: MemoryPort = {
         if (!row) throw new Error(`the memory of ${batch.projectId} did not answer`);
         const held = watermarkOf(row);
         const schema = batch.through.schema ?? 0;
-        const refused = shapeRefused(held.schema ?? 0, schema, batch.mayRaise);
-        if (refused) throw new TurnedAway(refused);
-        const stands = standsFor(held, schema);
+        const ruling = shapeRule(held, { schema, live: batch.live });
+        if (typeof ruling === 'object') throw new TurnedAway(ruling);
+        const stands = ruling === 'carry-on' ? held : {};
         if ((stands.auditThrough ?? '') !== (batch.from.auditThrough ?? '') || (stands.turnThrough ?? '') !== (batch.from.turnThrough ?? '')) {
           throw new TurnedAway({ moved: held });
+        }
+        // Starting over: every node memory keeps for the project goes, whichever shape made it, and the project's own node is made again.
+        if (ruling === 'start-over') {
+          for (const label of MEM_LABELS) {
+            if (label !== 'MemProject') await tx.run(`MATCH (n:${label} { projectId: $projectId }) DETACH DELETE n`, { projectId: batch.projectId });
+          }
+          await tx.run(RESET, { id });
         }
         if (batch.forget?.length) await tx.run(FORGET, { projectId: batch.projectId, kinds: batch.forget });
         const entries = ownEntries(batch);
@@ -221,6 +246,7 @@ export const neo4jMemory: MemoryPort = {
           tenantId: batch.tenantId,
           at,
           schema,
+          live: batch.live ? true : null,
           auditThrough: batch.through.auditThrough ?? null,
           turnThrough: batch.through.turnThrough ?? null,
           entries: entries.map((entry) => ({

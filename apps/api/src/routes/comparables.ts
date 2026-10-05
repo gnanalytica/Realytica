@@ -77,6 +77,7 @@ projectComparablesRouter.post<ProjectParams>('/search', async (req, res) => {
     outcome.search.found
       ? `Searched 99acres and MagicBricks near ${outcome.search.localities[0] ?? project.location}: ${outcome.search.found} comparable${outcome.search.found === 1 ? '' : 's'} within ${outcome.search.radiusKm} km.`
       : `Searched 99acres and MagicBricks near ${outcome.search.localities[0] ?? project.location} and found no comparable.`,
+    { actor: actorOf(principalOf(req)) },
   );
   await store.save();
   res.json({ project, found: outcome.search.found, added: outcome.added.map((c) => c.id), ...(outcome.search.empty ? { empty: outcome.search.empty } : {}) });
@@ -95,7 +96,7 @@ projectComparablesRouter.post<ProjectParams>('/', async (req, res) => {
   }
   try {
     const comparable = addComparable(project, parsed.data, actorOf(principalOf(req)));
-    noteProjectEdit(project, `Added a comparable: ${comparable.title}.`);
+    noteProjectEdit(project, `Added a comparable: ${comparable.title}.`, { actor: actorOf(principalOf(req)) });
     await store.save();
     res.status(201).json({ project, comparable });
   } catch (err) {
@@ -136,7 +137,7 @@ projectComparablesRouter.post<ProjectParams>('/decide', async (req, res) => {
   }
   const n = decideComparables(project, parsed.data.ids, parsed.data.decision, actorOf(principalOf(req)));
   if (n) {
-    noteProjectEdit(project, `${parsed.data.decision === 'accept' ? 'Accepted' : 'Set aside'} ${n} comparable${n === 1 ? '' : 's'}.`);
+    noteProjectEdit(project, `${parsed.data.decision === 'accept' ? 'Accepted' : 'Set aside'} ${n} comparable${n === 1 ? '' : 's'}.`, { actor: actorOf(principalOf(req)) });
     await store.save();
   }
   res.json({ project, changed: n });

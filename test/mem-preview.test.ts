@@ -7,9 +7,12 @@
  * entry is told from the record by a rule that gives every build the same id
  * for the same event, and an entry found is never changed. So a preview
  * writes memory, into the database the live site uses, and still writes no
- * graph. What it may not do is raise the shape a project's memory holds: a
- * branch with a later shape would leave the live site telling that project
- * nothing, so every write a preview makes says it is not the one to raise.
+ * graph. What it may not do is pass for the live site: every write it makes
+ * says it is not, so the store never marks a project's memory the live
+ * site's for a preview's writing, and never lets a preview write a later
+ * shape over what the live site wrote. Only the deployment Vercel calls
+ * production is the live site: not a preview, and not a machine that is not
+ * on Vercel at all, whatever database it is pointed at.
  *
  * Booted the way a preview is: Vercel's name for the deployment, and the
  * live site's graph database configured. Nothing here reaches a database.
@@ -23,7 +26,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import type { Driver } from 'neo4j-driver';
-import { addFinding, createProject, type MemEntry } from '@realytica/shared';
+import { MEM_SCHEMA, addFinding, createProject, type MemEntry } from '@realytica/shared';
 import type { MemBatch, MemoryPort } from '../apps/api/src/graph/mem/types';
 
 interface Asked {
@@ -86,12 +89,31 @@ describe('a preview deployment', () => {
     assert.equal(memoryPort.kind, 'neo4j', 'memory is kept where the live site keeps it');
   });
 
-  it('says of every write that it is not the deployment to raise the shape of a project’s memory', async () => {
+  it('says of every write that it is not the live site', async () => {
     const { writeMemory } = await import('../apps/api/src/graph/mem/write');
     const offered: MemBatch[] = [];
     const port = { write: async (batch: MemBatch) => (offered.push(batch), { written: 0 }) } as unknown as MemoryPort;
     await writeMemory(port, 'tnt_preview_memory', {}, { projectId: 'prj_preview_write', entries: [], through: {} });
-    assert.equal(offered[0]!.mayRaise, false);
+    assert.equal(offered[0]!.live, false);
+  });
+
+  it('is not the live site, and neither is anything but the deployment Vercel runs as production', async () => {
+    const { memWriter } = await import('../apps/api/src/graph/mem/write');
+    assert.deepEqual(memWriter(), { schema: MEM_SCHEMA, live: false }, 'this deployment, a preview');
+    const address = 'the-deployment.vercel.app';
+    assert.equal(memWriter({ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_URL: address }).live, true, 'named production, at the address Vercel serves it from');
+    const others: NodeJS.ProcessEnv[] = [
+      { VERCEL: '1', VERCEL_ENV: 'preview', VERCEL_URL: address },
+      { VERCEL: '1', VERCEL_ENV: 'development', VERCEL_URL: address },
+      { VERCEL: '1', VERCEL_URL: address },
+      // A machine handed production's settings, as `vercel env pull` writes them: the name, and an address that is empty.
+      { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_URL: '', REALYTICA_NEO4J_URL: 'bolt://the-live-sites-database' },
+      { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_URL: '  ' },
+      { VERCEL_ENV: 'production' },
+      { REALYTICA_NEO4J_URL: 'bolt://the-live-sites-database' },
+      {},
+    ];
+    for (const env of others) assert.equal(memWriter(env).live, false, `${JSON.stringify(env)} is not the live site`);
   });
 
   it('asks the memory store nothing while it holds no project', async () => {
@@ -116,6 +138,7 @@ describe('a preview deployment', () => {
     assert.ok(write, 'the entries were written');
     assert.equal(write.params.projectId, project.id);
     assert.equal(write.params.tenantId, 'tnt_preview_memory');
+    assert.equal(write.params.live, null, 'and it leaves whose memory it is as it found it: a preview never marks one the live site’s');
     const entries = write.params.entries as Array<Pick<MemEntry, 'id' | 'kind' | 'about'>>;
     assert.deepEqual(
       entries.map((entry) => [entry.id, entry.kind, entry.about]),

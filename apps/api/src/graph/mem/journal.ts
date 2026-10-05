@@ -10,7 +10,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { MemEntry, MemWatermark } from '@realytica/shared';
 import { DATA_DIR } from '../../storage/filesystem';
-import { ownEntries, shapeRefused, standsFor, type MemBatch, type MemCount, type MemoryPort, type MemWriteAnswer } from './types';
+import { ownEntries, shapeRule, type MemBatch, type MemCount, type MemoryPort, type MemWriteAnswer } from './types';
 
 interface ProjectMemory extends MemWatermark {
   tenantId: string;
@@ -53,6 +53,7 @@ function watermarkOf(held: ProjectMemory): MemWatermark {
     ...(held.schema === undefined ? {} : { schema: held.schema }),
     ...(held.auditThrough === undefined ? {} : { auditThrough: held.auditThrough }),
     ...(held.turnThrough === undefined ? {} : { turnThrough: held.turnThrough }),
+    ...(held.live ? { live: true } : {}),
   };
 }
 
@@ -69,14 +70,16 @@ export const journalMemory: MemoryPort = {
   async write(batch: MemBatch): Promise<MemWriteAnswer> {
     return serialise<MemWriteAnswer>(async () => {
       const all = await readAll();
-      const held = all[batch.projectId] ?? { tenantId: batch.tenantId, entries: {} };
+      const found = all[batch.projectId] ?? { tenantId: batch.tenantId, entries: {} };
       const schema = batch.through.schema ?? 0;
-      const refused = shapeRefused(held.schema ?? 0, schema, batch.mayRaise);
-      if (refused) return refused;
-      const stands = standsFor(watermarkOf(held), schema);
+      const ruling = shapeRule(watermarkOf(found), { schema, live: batch.live });
+      if (typeof ruling === 'object') return ruling;
+      const stands = ruling === 'carry-on' ? watermarkOf(found) : {};
       if ((stands.auditThrough ?? '') !== (batch.from.auditThrough ?? '') || (stands.turnThrough ?? '') !== (batch.from.turnThrough ?? '')) {
-        return { moved: watermarkOf(held) };
+        return { moved: watermarkOf(found) };
       }
+      // Starting over, the record is made again: every entry and everything said about where memory stood goes. Otherwise only the kinds the write names.
+      const held: ProjectMemory = ruling === 'start-over' ? { tenantId: found.tenantId, entries: {} } : found;
       for (const [id, entry] of Object.entries(held.entries)) if (batch.forget?.includes(entry.kind)) delete held.entries[id];
       // An entry already held is the event as it was first told. It stays.
       const entries = ownEntries(batch);
@@ -84,6 +87,8 @@ export const journalMemory: MemoryPort = {
       held.schema = schema;
       held.auditThrough = batch.through.auditThrough;
       held.turnThrough = batch.through.turnThrough;
+      // Set by the live site and by no other writer, and never taken off.
+      if (batch.live) held.live = true;
       all[batch.projectId] = held;
       await writeAll(all);
       return { written: entries.length };

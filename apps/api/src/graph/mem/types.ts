@@ -23,7 +23,14 @@
  * Writing goes through `writeMemory` in `write.ts` and through nothing else.
  */
 
-import { MEM_SCHEMA_FIRST, type MemEntry, type MemEntryKind, type MemWatermark } from '@realytica/shared';
+import type { MemEntry, MemEntryKind, MemWatermark } from '@realytica/shared';
+
+/** Who is writing: the shape its build writes memory in, and whether it is the live site. */
+export interface MemWriter {
+  schema: number;
+  /** True on the live site and nowhere else: not on a preview, a laptop, a test or a probe. */
+  live: boolean;
+}
 
 /** One write to a project's memory: its entries, and the watermark that moves with them. */
 export interface MemBatch {
@@ -36,8 +43,8 @@ export interface MemBatch {
   entries: MemEntry[];
   /** Kinds of entry the project's memory lets go of before these are written, in the same write. */
   forget?: MemEntryKind[];
-  /** Whether this deployment may raise the schema a project's memory holds. Only the live site may; see `shapeRefused`. */
-  mayRaise: boolean;
+  /** Whether the writer is the live site. What it may write over depends on it; see `shapeRule`. */
+  live: boolean;
 }
 
 /** What became of a write. Only the first has written anything. */
@@ -48,7 +55,7 @@ export type MemWriteAnswer =
   | { moved: MemWatermark }
   /** Memory was last written by a build with a higher schema. This one stands down. */
   | { newer: number }
-  /** Memory holds a lower schema, and this deployment is not the one that may raise it. */
+  /** The live site wrote this memory in a lower schema, and only the live site raises its own. */
   | { lower: number }
   /** The store has no room for another node. Its own words for it. */
   | { full: string };
@@ -72,10 +79,12 @@ export interface MemoryPort {
    * Write the entries and move the watermark, together or not at all.
    *
    * An entry already in memory is left exactly as it is: an entry is an
-   * event, and an event does not change. Nothing is written when the batch's
-   * schema may not be written over the one memory holds (`shapeRefused`),
-   * when memory stands somewhere other than `from`, or when the store has no
-   * room. The entries of the kinds in `forget` go first, in the same write.
+   * event, and an event does not change. Nothing is written when the writer
+   * may not write over what memory holds (`shapeRule`), when memory stands
+   * somewhere other than `from`, or when the store has no room. Where the
+   * rule says to start over, everything the project's memory holds goes
+   * first, and the entries of the kinds in `forget` go first in any case, in
+   * the same write.
    */
   write(batch: MemBatch): Promise<MemWriteAnswer>;
 
@@ -107,30 +116,48 @@ export function ownEntries(batch: MemBatch): MemEntry[] {
   return batch.entries.filter((entry) => entry.id.startsWith(`${batch.projectId}::mem::`));
 }
 
-/**
- * What a store answers a write whose shape it will not take over the one a
- * project's memory holds, or nothing when it may be written.
- *
- * Never a lower shape over a higher: an older build stands down. And only
- * the live site raises the shape a project's memory holds. A preview runs a
- * branch against the live site's database, and a branch with a later shape
- * that told a project first would leave the live site, which has the earlier
- * one, telling that project nothing from then on. So a deployment that may
- * not raise writes a shape only where memory already holds it, or where it
- * is the first shape there ever was, which shuts no build out.
- */
-export function shapeRefused(held: number, schema: number, mayRaise: boolean): { newer: number } | { lower: number } | undefined {
-  if (held > schema) return { newer: held };
-  if (!mayRaise && schema > Math.max(held, MEM_SCHEMA_FIRST)) return { lower: held };
-  return undefined;
-}
+/** What a store does with a write, given what the project's memory holds and who is writing. */
+export type ShapeRuling =
+  /** Memory is in the writer's shape, and the writer adds to it from where it stands. */
+  | 'carry-on'
+  /** Everything the project's memory holds is let go, and the whole record is told again in the writer's shape. */
+  | 'start-over'
+  /** Memory is in a later shape. The writer stands down. */
+  | { newer: number }
+  /** The live site wrote this memory in an earlier shape. The writer is turned away. */
+  | { lower: number };
 
 /**
- * Where memory stands for a writer of this schema.
+ * Which writer may write what over a project's memory.
  *
- * Memory written in a lower schema stands nowhere for a higher one: the
- * higher one tells the whole record again, in its own shape.
+ * A project's memory says which shape it is in and whether the live site
+ * wrote it. The live site is the deployment people use. Every other writer
+ * is a preview of a branch, a laptop, a test or a probe, and may share the
+ * live site's database.
+ *
+ * 1. The live site, over memory it did not write, starts it over: whatever
+ *    another writer left, in whatever shape, is let go, and the live site
+ *    tells the record again. So nothing a preview writes makes the live
+ *    site stand down.
+ * 2. The live site, over memory it wrote: a later shape is a later live
+ *    build's, and this one stands down; an earlier shape it raises, by
+ *    starting over; the same shape it carries on.
+ * 3. Any other writer, over memory the live site wrote: it carries on in
+ *    the same shape, stands down to a later one, and is turned away from an
+ *    earlier one. Only the live site raises what the live site wrote.
+ * 4. Any other writer, over memory the live site has not written: it raises
+ *    an earlier shape by starting over, carries on in the same, and stands
+ *    down to a later. Until the live site writes a project's memory, that
+ *    memory is the previews'.
+ *
+ * Starting over is what keeps an entry from staying as an earlier rule wrote
+ * it: an entry is never rewritten, so a new shape lets the old entries go
+ * and tells every event again.
  */
-export function standsFor(held: MemWatermark, schema: number): MemWatermark {
-  return (held.schema ?? 0) < schema ? {} : held;
+export function shapeRule(held: MemWatermark, writer: MemWriter): ShapeRuling {
+  const shape = held.schema ?? 0;
+  if (writer.live && !held.live) return 'start-over';
+  if (shape > writer.schema) return { newer: shape };
+  if (shape === writer.schema) return 'carry-on';
+  return held.live && !writer.live ? { lower: shape } : 'start-over';
 }

@@ -1461,10 +1461,11 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     if (last?.id === result.assistantTurn.id) last.unanswered = unanswered;
   }
   mergeConversation(project, canvas, actor, turnsBefore);
-  // Who asked and where is written after the turn was first saved: the record has to count as changed for that to reach storage.
-  project.updatedAt = new Date().toISOString();
   if (result.commands.some((c) => /approved|accepted/i.test(c))) await rememberProject(project);
   const undo = undoBefore ? await keepUndo(project, undoBefore, result.commands[0] ?? 'the last change') : undefined;
+  // Who asked and where is written after the turn was first saved, and the undo after memory's own save:
+  // the record has to count as changed for both to reach storage.
+  project.updatedAt = new Date().toISOString();
   await store.save();
   line({ type: 'result', ...result, project: canvas, ...(undo ? { undo } : {}) });
   res.end();

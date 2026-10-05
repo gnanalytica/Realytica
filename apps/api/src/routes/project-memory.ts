@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { can } from '@realytica/shared';
+import { principalOf } from '../auth/middleware';
 import { workspaceOnly } from '../auth/project-guard';
 import { memoryPort } from '../graph/mem';
 import { readMemory } from '../graph/mem/read';
@@ -11,9 +13,12 @@ import { store } from '../store';
  * reached it, which can be a moment behind the record. An entry points at the
  * record by id, and the titles here are the record's as it stands now.
  *
- * With it, how many nodes the project's memory is and how many the whole
- * database holds. A database with an allowance of nodes counts the graph's
- * and memory's together, and this is where the number can be watched.
+ * With it, how many nodes the project's memory is. And, for the workspace's
+ * admins, how many the whole database holds: a database with an allowance of
+ * nodes counts the graph's and memory's together, and this is where the
+ * number can be watched. It is every workspace's nodes and not this one's,
+ * so nobody else is shown it. The count is asked beside the entries and is
+ * not part of them: one that fails is left out of the answer and logged.
  *
  * For the firm's own people. The titles are taken from the whole record, so
  * `workspaceOnly` stands in front of the one route: somebody outside the
@@ -31,10 +36,17 @@ projectMemoryRouter.get('/', workspaceOnly, async (req, res) => {
     return;
   }
   const limit = Number(req.query.limit);
+  let entries: Awaited<ReturnType<typeof readMemory>>;
   try {
-    const entries = await readMemory(project, Number.isFinite(limit) ? limit : undefined);
-    res.json({ entries, nodes: await memoryPort.count(project.id) });
+    entries = await readMemory(project, Number.isFinite(limit) ? limit : undefined);
   } catch (err) {
     res.status(503).json({ error: `The memory store did not answer: ${(err as Error).message}` });
+    return;
   }
+  const counted = await memoryPort.count(project.id).catch((err: unknown) => {
+    console.warn(`[memory] could not count the nodes of ${project.id}: ${(err as Error).message}`);
+    return undefined;
+  });
+  const nodes = counted && (can(principalOf(req).role, 'admin') ? counted : { project: counted.project });
+  res.json({ entries, ...(nodes ? { nodes } : {}) });
 });

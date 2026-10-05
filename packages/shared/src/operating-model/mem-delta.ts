@@ -17,10 +17,12 @@
  *
  * What an entry holds is who, when, what kind of event, and the ids of the
  * records it is about. It never holds what a page says, what was said in a
- * chat, a file, or a value, and it holds no words of the record's at all:
- * the only words in an entry are ones from this product's own fixed lists,
- * the name the list of value keys gives a key and the names the menu gives
- * its pages. A reader gets titles by looking the ids up on the record as it
+ * chat, a file, or a value, and it holds no words of the record's, with one
+ * exception: the key of a parcel read off the public map, which the record
+ * itself keeps the read under and which names land and no person. Every
+ * other word in an entry is one of this product's own fixed lists, the name
+ * the list of value keys gives a key and the names the menu gives its
+ * pages. A reader gets titles by looking the ids up on the record as it
  * stands, so a title corrected on the record is corrected in every entry
  * that points at it, and a record a reader may not see stays an id they
  * cannot resolve. `scrubMemEntry` is what keeps an entry to that. It is
@@ -30,24 +32,23 @@
 import { menuPlaceOfWords } from './chat-places';
 import { isProjectCockpitPane } from './cockpit';
 import { STANDARD_FACT_KEYS } from './document-parse';
+import { isPaneWriteReply } from './sitting';
 import type { AuditEvent, DdProject, ProjectChatTurn } from './types';
 
 /**
- * The shape of memory this build writes. A project's memory keeps the highest
- * it has been written in. A build with a lower one stands down rather than
- * write an older shape over a newer, and a build with a higher one tells the
- * whole record again, because the shape it is in may tell events the older
- * one passed over.
+ * The shape of memory this build writes. It is raised with every change to
+ * what an entry holds or to which events are told. A project's memory says
+ * which shape it holds. A build with a lower one stands down rather than
+ * write an older shape over a newer. A build with a higher one that may
+ * raise it lets the project's entries go and tells the whole record again,
+ * so that no entry stays as an earlier rule wrote it. Which build may raise
+ * is `shapeRule` in the API's `graph/mem/types.ts`.
+ *
+ * 2: a work-pane note is one entry of its own kind, where it was a question
+ * and an answer; a map read points at a parcel only by a key of the fixed
+ * form.
  */
-export const MEM_SCHEMA = 1;
-
-/**
- * The first shape memory was ever written in. Every build that keeps memory
- * writes this one or a later one, so memory in this shape shuts none of them
- * out. It is the one shape a preview may write where the live site has not
- * written first; see `shapeRefused` in the API's `graph/mem/types.ts`.
- */
-export const MEM_SCHEMA_FIRST = 1;
+export const MEM_SCHEMA = 2;
 
 /**
  * How many audit events and chat turns one delta tells. A record that holds
@@ -81,12 +82,17 @@ export const MEM_ENTRY_KINDS = [
   'map_read_kept',
   'map_read_removed',
   'undone',
+  'edit_noted',
 ] as const;
 
 export type MemEntryKind = (typeof MEM_ENTRY_KINDS)[number];
 
-/** The entries a chat turn is told as. They go when the chats do; see `memoryReplay`. */
-export const MEM_CHAT_KINDS: readonly MemEntryKind[] = ['chat_asked', 'chat_answered'];
+/**
+ * The entries told from the conversation: a question, an answer, and the
+ * note a work-pane write leaves there. They go when the conversation is
+ * deleted; see `memoryReplay`.
+ */
+export const MEM_TURN_KINDS: readonly MemEntryKind[] = ['chat_asked', 'chat_answered', 'edit_noted'];
 
 /** Where a question was asked: the words the chat keeps on a turn, and no others. */
 export interface MemPlace {
@@ -124,6 +130,8 @@ export interface MemWatermark {
   auditThrough?: string;
   /** The last chat turn told. A turn has no audit event of its own. */
   turnThrough?: string;
+  /** True when the live site wrote this project's memory. No other deployment sets it. */
+  live?: boolean;
 }
 
 export interface MemDelta {
@@ -223,6 +231,19 @@ function memPlace(place: MemPlace | undefined): MemPlace {
   return { ...(pane ? { pane } : {}), ...menuPlaceOfWords({ department: words('department'), fn: words('fn'), stage: words('stage') }) };
 }
 
+/**
+ * The key the record keeps a parcel read off the public map under: the map
+ * it came from, a code for the place, and for a survey its number. It is the
+ * one thing an entry points at that is made of what the record says, and it
+ * is kept only in this form, which is the map reader's own
+ * (`PARCEL_REF_PATTERN` in `packages/site-intel/src/cadastre.ts`; a test
+ * holds the two together). It names land and no person.
+ */
+export const MEM_PARCEL_REF = /^((ulb|rural):\d{1,12}|kgis:\d{10}:[0-9]{1,5}([/-][0-9A-Za-z]{1,6}){0,3})$/;
+
+/** The kinds of entry that point at a parcel by its key, and at nothing else. */
+const MAP_READ_KINDS: readonly MemEntryKind[] = ['map_read_kept', 'map_read_removed'];
+
 /** The name the fixed list of value keys gives a key, or nothing for a key that is not on it. */
 function nameOfKey(key: unknown): string | undefined {
   return typeof key === 'string' && Object.hasOwn(STANDARD_FACT_KEYS, key) ? STANDARD_FACT_KEYS[key]!.label : undefined;
@@ -233,9 +254,10 @@ function nameOfKey(key: unknown): string | undefined {
  *
  * Only the properties an entry has are carried: anything else a caller hung
  * on it, a turn's words or a page's, is left behind. Ids stay ids and a
- * person stays an id that is not an email. A label is never taken from the
- * caller: it is the fixed list's name for the entry's key, so no name, no
- * number and no other word of the record's can be one. A place is the
+ * person stays an id that is not an email. A map read points at a parcel by
+ * a key of the fixed form and at nothing else. A label is never taken from
+ * the caller: it is the fixed list's name for the entry's key, so no name,
+ * no number and no other word of the record's can be one. A place is the
  * product's own words for its pages.
  */
 export function scrubMemEntry(projectId: string, entry: MemEntry): MemEntry | undefined {
@@ -243,7 +265,10 @@ export function scrubMemEntry(projectId: string, entry: MemEntry): MemEntry | un
   if (typeof entry.id !== 'string' || !entry.id.startsWith(`${projectId}::mem::`) || !ID.test(entry.id)) return undefined;
   if (typeof entry.sourceId !== 'string' || !ID.test(entry.sourceId)) return undefined;
   if (typeof entry.at !== 'string' || Number.isNaN(Date.parse(entry.at))) return undefined;
-  const about = [...new Set((Array.isArray(entry.about) ? entry.about : []).map((id) => memPointer(projectId, id)).filter((id): id is string => id !== undefined))].slice(0, 40);
+  const parcelOnly = MAP_READ_KINDS.includes(entry.kind);
+  const about = [...new Set((Array.isArray(entry.about) ? entry.about : []).map((id) => memPointer(projectId, id)).filter((id): id is string => id !== undefined))]
+    .filter((id) => !parcelOnly || MEM_PARCEL_REF.test(id))
+    .slice(0, 40);
   const label = nameOfKey(entry.key);
   const place = memPlace(entry.place);
   return {
@@ -321,10 +346,12 @@ function entriesOfEvent(project: DdProject, event: AuditEvent): MemEntry[] {
     return [];
   }
   if (event.entityType === 'project' && event.action === 'patch') {
+    // The parcel's key as the trail writes it. Whether it is one an entry may keep is the scrub's to say.
+    const parcel = (key: string | undefined): string[] => (key ? [key] : []);
     const kept = event.newValue?.match(MAP_READ);
-    if (kept) return [tell('map_read_kept', kept[1] ? [kept[1]] : [])];
+    if (kept) return [tell('map_read_kept', parcel(kept[1]))];
     const removed = event.oldValue?.match(MAP_READ);
-    if (removed) return [tell('map_read_removed', removed[1] ? [removed[1]] : [])];
+    if (removed) return [tell('map_read_removed', parcel(removed[1]))];
   }
   // What an instruction changed was put back. The events it wrote stay in the trail, and so in memory: this says they no longer stand.
   if (event.entityType === 'project' && event.action === 'undo') return [tell('undone', [])];
@@ -341,6 +368,22 @@ function entryOfTurn(project: DdProject, turn: ProjectChatTurn): MemEntry {
     sourceId: turn.id,
     about: [...turn.citedEvidenceIds, ...(turn.citedNodeIds ?? []), ...(turn.proposalIds ?? [])],
     ...(turn.place ? { place: turn.place } : {}),
+  };
+}
+
+/**
+ * A work-pane note as an entry: who made the write, when, and what it cites.
+ * The note is a pair of turns, the line that says what changed and a one-word
+ * reply, and is one entry, told from the line. Not what the line says.
+ */
+function entryOfNote(project: DdProject, note: ProjectChatTurn): MemEntry {
+  return {
+    id: `${project.id}::mem::${note.id}`,
+    kind: 'edit_noted',
+    at: note.at,
+    by: memWho(project.id, note.actor ?? NOBODY),
+    sourceId: note.id,
+    about: [...note.citedEvidenceIds, ...(note.citedNodeIds ?? [])],
   };
 }
 
@@ -371,6 +414,11 @@ export interface MemDeltaOptions {
  * with no author waits, and every turn after it waits behind it, because
  * the watermark is a place in the conversation and cannot pass one turn to
  * tell the next.
+ *
+ * A work-pane note does not wait. It is written whole, with its author or
+ * without, and nothing comes back to name it: one with no author is told at
+ * once, as nobody's. The reply that marks a pair as a note (`pane_write`) is
+ * what tells it from a question still waiting for its answer.
  */
 export function memoryDelta(project: DdProject, watermark: MemWatermark, options: MemDeltaOptions = {}): MemDelta {
   const held = watermark.schema ?? 0;
@@ -388,25 +436,38 @@ export function memoryDelta(project: DdProject, watermark: MemWatermark, options
   const { now } = options;
   // Named, or past the time anybody would have named it. A time that cannot be read is not waited on.
   const tellable = (turn: ProjectChatTurn): boolean => Boolean(turn.actor) || (now !== undefined && !(now - Date.parse(turn.at) <= MEM_TURN_WAIT_MS));
+  // A work-pane note: a line, and straight after it the reply that marks the two as one.
+  const isNote = (at: number): boolean => turns[at]?.role === 'user' && isPaneWriteReply(turns[at + 1]);
   const most = Math.max(1, options.atMost ?? MEM_AT_MOST);
   const events = audit.slice(auditAt + 1, auditAt + 1 + most);
-  const asked: ProjectChatTurn[] = [];
-  for (const turn of turns.slice(turnAt + 1, turnAt + 1 + most - events.length)) {
-    if (!tellable(turn)) break;
-    asked.push(turn);
-  }
   const entries = new Map<string, MemEntry>();
   const keep = (entry: MemEntry): void => {
     const clean = scrubMemEntry(project.id, entry);
     if (clean && !entries.has(clean.id)) entries.set(clean.id, clean);
   };
   for (const event of events) for (const entry of entriesOfEvent(project, event)) keep(entry);
-  for (const turn of asked) keep(entryOfTurn(project, turn));
+
+  // The turns after the watermark, a note's two as one, for as many as there is room for and no further than a turn that waits.
+  let next = turnAt + 1;
+  let turnThrough = from.turnThrough;
+  for (let room = most - events.length; room > 0 && next < turns.length; room -= 1) {
+    const turn = turns[next]!;
+    if (isNote(next)) {
+      keep(entryOfNote(project, turn));
+      // Past the reply too: memory never stands between a note's two turns.
+      turnThrough = turns[next + 1]!.id;
+      next += 2;
+    } else if (tellable(turn)) {
+      keep(entryOfTurn(project, turn));
+      turnThrough = turn.id;
+      next += 1;
+    } else {
+      break;
+    }
+  }
 
   const auditThrough = events.length ? events[events.length - 1]!.id : from.auditThrough;
-  const turnThrough = asked.length ? asked[asked.length - 1]!.id : from.turnThrough;
-  const next = turns[turnAt + 1 + asked.length];
-  const more = auditAt + 1 + events.length < audit.length || (next !== undefined && tellable(next));
+  const more = auditAt + 1 + events.length < audit.length || (next < turns.length && (isNote(next) || tellable(turns[next]!)));
   return {
     projectId: project.id,
     entries: [...entries.values()],
@@ -421,16 +482,17 @@ export function memoryDelta(project: DdProject, watermark: MemWatermark, options
  * still holds this very copy.
  *
  * An audit event the record has lost happened all the same, and its entry
- * stays. A chat is different. When the turn memory was told through is gone
- * from the record, the chats were deleted, or the last of two writers wrote
- * over them, and a person who deleted a chat does not expect memory to go on
- * saying a question was asked at 10:42 on Approvals. So the entries of chat
- * turns are let go (`forget`) before the turns the record holds now are told.
+ * stays. The conversation is different. When the turn memory was told
+ * through is gone from the record, the conversation was deleted, or the last
+ * of two writers wrote over it, and a person who deleted a chat does not
+ * expect memory to go on saying a question was asked at 10:42 on Approvals.
+ * So the entries told from the conversation are let go (`forget`) before the
+ * turns the record holds now are told.
  */
 export function memoryReplay(project: DdProject, watermark: MemWatermark, options: MemDeltaOptions = {}): MemDelta {
   const delta = memoryDelta(project, {}, options);
   const turnLost = watermark.turnThrough !== undefined && !(project.conversation ?? []).some((turn) => turn.id === watermark.turnThrough);
-  return turnLost ? { ...delta, forget: [...MEM_CHAT_KINDS] } : delta;
+  return turnLost ? { ...delta, forget: [...MEM_TURN_KINDS] } : delta;
 }
 
 /** Whether two watermarks say the same thing. */

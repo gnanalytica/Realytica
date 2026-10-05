@@ -24,19 +24,33 @@
  * keeps its copy), and everything the record holds now is told. When it is
  * the chats the record has lost, the entries of their turns go first.
  *
+ * And a conversation is told from its start only by the copy the project
+ * store holds. Audit events are only ever added, so an older copy tells
+ * nothing a later one would not. A conversation can be deleted: an instance
+ * that read the project before that still holds the turns, and memory, which
+ * has let their entries go, stands at no turn, exactly as it does for a
+ * conversation never told. So before turns are told from the start, the
+ * project store is asked whether it still holds this copy.
+ *
+ * Which shape of memory a deployment may write over is the store's to say
+ * (`shapeRule`). The pass works it out first from where it last knew memory
+ * to stand, so that a deployment the rule turns away makes no call. A
+ * refusal is never kept: the next pass over the project asks the store
+ * again.
+ *
  * Two answers from the store are not failures and are said once in the log,
- * not once a pass. A deployment that may not raise the shape of a project's
- * memory, a preview, is told that memory holds an earlier one: there is
- * nothing for it to tell until the live site has raised it. And a store with
- * no room for another node says so: nothing more is written until a write
- * is taken again, and the graph, which is offered apart from this, goes on
- * being drawn.
+ * not once a pass. A deployment that is not the live site is told that the
+ * live site wrote a project's memory in an earlier shape: there is nothing
+ * for it to tell until the live site has raised it. And a store with no room
+ * for another node says so: nothing more is written until a write is taken
+ * again, and the graph, which is offered apart from this, goes on being
+ * drawn.
  */
 
 import { MEM_SCHEMA, memoryDelta, memoryReplay, sameMemWatermark, type DdProject, type MemWatermark } from '@realytica/shared';
 import { memoryPort } from './index';
-import { standsFor, type MemoryPort } from './types';
-import { writeMemory } from './write';
+import { shapeRule, type MemoryPort, type MemWriter } from './types';
+import { memWriter, writeMemory } from './write';
 
 /** How long one pass goes on starting calls to the memory store. */
 export const MEMORY_WAIT_MS = 2_000;
@@ -78,18 +92,20 @@ export interface MemoryPassed {
 /** Whether the log has been told, since the last write that was taken, that the store has no room. */
 let saidFull = false;
 
-/** Whether the log has been told that this deployment may not raise the shape of some projects' memory. */
+/** Whether the log has been told that the live site wrote some projects' memory in an earlier shape than this deployment writes. */
 let saidLower = false;
 
 /**
  * One pass over what memory is owed.
  *
- * `port` is this deployment's store unless a caller names another, which is
- * how the pass is tested.
+ * `port` is this deployment's store, and `live` whether this deployment is
+ * the live site, unless a caller says otherwise, which is how the pass is
+ * tested.
  */
-export async function syncMemory(work: MemoryWork, port: MemoryPort = memoryPort): Promise<MemoryPassed> {
+export async function syncMemory(work: MemoryWork, port: MemoryPort = memoryPort, live: boolean = memWriter().live): Promise<MemoryPassed> {
   const passed: MemoryPassed = { settled: [], purged: [], made: 0, failed: 0 };
   if (work.owed.length === 0 && work.gone.length === 0) return passed;
+  const writer: MemWriter = { schema: MEM_SCHEMA, live };
 
   let waiting = true;
   const timer = setTimeout(() => {
@@ -103,39 +119,52 @@ export async function syncMemory(work: MemoryWork, port: MemoryPort = memoryPort
     said = true;
   };
 
+  /**
+   * This deployment may not write over what the project's memory holds. The
+   * copy has nothing to tell, which settles it. Where memory stood is not
+   * kept: the rule's answer changes when the live site writes, so the store
+   * is asked again the next time the project is told.
+   */
+  const refused = (projectId: string, ruling: { newer: number } | { lower: number }): true => {
+    work.known.delete(projectId);
+    // Not this deployment's to tell until the live site has raised the shape: said once, and not an error.
+    if ('lower' in ruling && !saidLower) {
+      console.warn(
+        `[memory] this deployment writes memory in a later shape (${MEM_SCHEMA}) than the live site wrote a project's memory in (${ruling.lower}), and only the live site raises its own: nothing is written for such projects`,
+      );
+      saidLower = true;
+    }
+    return true;
+  };
+
   /** True when memory holds what this copy tells, or the copy has nothing to tell. */
   const tell = async ({ project, tenantId }: OwedMemory, builtAt: string): Promise<boolean> => {
     // Turned away twice at most: as this instance believed memory stood, then as the store says it stands.
     let turnedAway = 0;
+    // Whether the project store has said, in this telling, that it still holds this very copy.
+    let stored = false;
     while (turnedAway < 2) {
       // Changed in memory since it was chosen: what it holds now is not in the project store yet.
       if (project.updatedAt !== builtAt) return false;
       const held = work.known.get(project.id) ?? {};
+      const ruling = shapeRule(held, writer);
+      if (typeof ruling === 'object') return refused(project.id, ruling);
+      // Carrying on, memory stands where it holds. Starting over it stands nowhere, and the whole record is told.
+      const stands = ruling === 'carry-on' ? held : {};
       const now = Date.now();
-      let delta = memoryDelta(project, held, { now });
-      if (delta.standsDown === 'newer') return true;
-      if (delta.standsDown === 'behind') {
+      let delta = memoryDelta(project, stands, { now });
+      const behind = delta.standsDown === 'behind';
+      // Only the copy the project store holds tells everything again, or tells a conversation from its start.
+      if (!stored && (behind || (stands.turnThrough === undefined && delta.through.turnThrough !== undefined))) {
         if (!(await work.stillStored(project.id, builtAt))) return true;
         if (project.updatedAt !== builtAt) return false;
-        delta = memoryReplay(project, held, { now });
+        stored = true;
       }
-      if (delta.entries.length === 0 && !delta.more && sameMemWatermark(delta.through, held)) return true;
+      if (behind) delta = memoryReplay(project, stands, { now });
+      if (delta.entries.length === 0 && !delta.more && sameMemWatermark(delta.through, stands)) return true;
       passed.made += 1;
-      const answer = await writeMemory(port, tenantId, standsFor(held, MEM_SCHEMA), delta);
-      if ('newer' in answer) {
-        work.known.set(project.id, { ...held, schema: answer.newer });
-        return true;
-      }
-      if ('lower' in answer) {
-        // Not this deployment's to tell until the live site has raised the shape: said once, and not an error.
-        if (!saidLower) {
-          console.warn(
-            `[memory] this deployment writes memory in a later shape (${MEM_SCHEMA}) than a project's memory holds (${answer.lower}), and only the live site may raise it: nothing is written for such projects`,
-          );
-        }
-        saidLower = true;
-        return true;
-      }
+      const answer = await writeMemory(port, tenantId, stands, delta, live);
+      if ('newer' in answer || 'lower' in answer) return refused(project.id, answer);
       if ('full' in answer) {
         // Said once, until a write is taken again: every write would be turned away the same way.
         if (!saidFull) console.warn(`[memory] the graph database has no room for more nodes, so memory is not being written: ${answer.full}`);
@@ -149,7 +178,8 @@ export async function syncMemory(work: MemoryWork, port: MemoryPort = memoryPort
         continue;
       }
       saidFull = false;
-      work.known.set(project.id, delta.through);
+      // The live site's mark is set by its own write and stays under anybody else's.
+      work.known.set(project.id, { ...delta.through, ...(live || held.live ? { live: true } : {}) });
       if (!delta.more) return true;
       // A long record is told a write at a time. What this pass has no time left for, the next one tells.
       if (!waiting) return false;

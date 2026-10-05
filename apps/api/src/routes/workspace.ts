@@ -266,7 +266,7 @@ projectWorkspaceRouter.post<Params & { key: string }>('/workstreams/:key/checks'
     res.status(400).json({ error: `${ws.label} has no checks in the library yet.` });
     return;
   }
-  noteProjectEdit(project, `Put the ${ws.label} checks on the project record.`);
+  noteProjectEdit(project, `Put the ${ws.label} checks on the project record.`, { actor: actorOf(principalOf(req)) });
   touch(project);
   await store.save();
   res.status(201).json({ project });
@@ -286,7 +286,7 @@ projectWorkspaceRouter.post<Params>('/engagements', async (req, res) => {
   }
   try {
     const engagement = createEngagement(project, parsed.data, actorOf(principalOf(req)));
-    noteProjectEdit(project, `Opened an engagement: ${engagement.title}${engagement.client ? ` for ${engagement.client}` : ''}.`);
+    noteProjectEdit(project, `Opened an engagement: ${engagement.title}${engagement.client ? ` for ${engagement.client}` : ''}.`, { actor: actorOf(principalOf(req)) });
     touch(project);
     await store.save();
     res.status(201).json({ project, engagement });
@@ -369,7 +369,7 @@ projectWorkspaceRouter.post<Params>('/certified', async (req, res) => {
   if (!allowed(req, res, project, ws.department, 'decide')) return;
   try {
     const report = fileCertifiedReport(project, parsed.data, actorOf(principalOf(req)));
-    noteProjectEdit(project, `Filed ${report.title} by ${report.signer.name} as the figure of record for ${ws.label}.`, { citedEvidenceIds: [report.evidenceId] });
+    noteProjectEdit(project, `Filed ${report.title} by ${report.signer.name} as the figure of record for ${ws.label}.`, { citedEvidenceIds: [report.evidenceId], actor: actorOf(principalOf(req)) });
     touch(project);
     await store.save();
     res.status(201).json({ project, report });
@@ -534,7 +534,7 @@ projectWorkspaceRouter.post<Params>('/site-log', async (req, res) => {
     const me = principalOf(req);
     const { entry, duplicate } = logSiteEntry(project, parsed.data, me.name ? `${me.name} (${me.email})` : me.email);
     if (!duplicate) {
-      noteProjectEdit(project, `Site log for ${entry.date}: ${entry.workDone.slice(0, 120) || 'entry filed'}${entry.issues.length ? ` · ${entry.issues.length} issue${entry.issues.length === 1 ? '' : 's'}` : ''}.`);
+      noteProjectEdit(project, `Site log for ${entry.date}: ${entry.workDone.slice(0, 120) || 'entry filed'}${entry.issues.length ? ` · ${entry.issues.length} issue${entry.issues.length === 1 ? '' : 's'}` : ''}.`, { actor: actorOf(me) });
       touch(project);
       await store.save();
     }
@@ -825,7 +825,7 @@ projectWorkspaceRouter.post<Params & { uploadId: string }>('/uploads/:uploadId/c
   // A large scan is read for as long as a request can wait; asking the chat to
   // read the filed documents carries on from there, with a model if one is set.
   await readOntoRegister(project, [{ evidenceId, buffer: bytes, fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey }], actor, { deadline: Date.now() + READ_BUDGET_MS }).catch(() => ({ read: 0 }));
-  noteProjectEdit(project, `Filed ${upload.fileName} (${(bytes.length / 1048576).toFixed(1)} MB) in the vault.`, { citedEvidenceIds: [evidenceId] });
+  noteProjectEdit(project, `Filed ${upload.fileName} (${(bytes.length / 1048576).toFixed(1)} MB) in the vault.`, { citedEvidenceIds: [evidenceId], actor });
   touch(project);
   await store.save();
   // The parts and the manifest have done their job.
@@ -887,7 +887,7 @@ projectWorkspaceRouter.post<Params>('/questionnaires', questionnaireUpload.singl
       const looksCsv = /^[^\n]*\b(question|query)\b[^\n]*[,\t]/i.test(parsed.data.text);
       record = addQuestionnaire(project, { title: parsed.data.title, department, parsed: looksCsv ? parseQuestionnaireCsv(parsed.data.text) : parseQuestionnaireText(parsed.data.text) }, actorOf(principalOf(req)));
     }
-    noteProjectEdit(project, `Imported the questionnaire “${record.title}”: ${record.questions.length} question(s).`);
+    noteProjectEdit(project, `Imported the questionnaire “${record.title}”: ${record.questions.length} question(s).`, { actor: actorOf(principalOf(req)) });
     touch(project);
     await store.save();
     res.status(201).json({ project, questionnaireId: record.id });
@@ -988,7 +988,7 @@ projectWorkspaceRouter.delete<QParams>('/questionnaires/:questionnaireId', async
   try {
     const title = findQuestionnaire(project, req.params.questionnaireId).title;
     removeQuestionnaire(project, req.params.questionnaireId, actorOf(principalOf(req)));
-    noteProjectEdit(project, `Removed the questionnaire “${title}”.`);
+    noteProjectEdit(project, `Removed the questionnaire “${title}”.`, { actor: actorOf(principalOf(req)) });
     touch(project);
     await store.save();
     res.json({ project });
@@ -1049,7 +1049,7 @@ projectWorkspaceRouter.post<Params>('/observations', async (req, res) => {
   if (!allowed(req, res, project, department, 'edit')) return;
   try {
     const record = addObservation(project, { ...input, discipline } as Parameters<typeof addObservation>[1], actorOf(principalOf(req)));
-    noteProjectEdit(project, `Recorded an observation: ${record.title}`);
+    noteProjectEdit(project, `Recorded an observation: ${record.title}`, { actor: actorOf(principalOf(req)) });
     touch(project);
     await store.save();
     res.status(201).json({ project, findingId: record.id });

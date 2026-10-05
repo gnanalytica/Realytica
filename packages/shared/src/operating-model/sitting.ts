@@ -498,11 +498,17 @@ function paneTurn(role: ProjectChatTurn['role'], text: string, extra: Partial<Pr
   };
 }
 
-/** A work-pane write belongs in the same thread the copilot reads. */
+/**
+ * A work-pane write belongs in the same thread the copilot reads.
+ *
+ * `actor` is who made the write. A note is written whole, here, and nothing
+ * comes back later to say whose it was, so the caller that knows says so now:
+ * both turns of the pair carry it. Left out, the note is nobody's.
+ */
 export function noteProjectEdit(
   project: DdProject,
   summary: string,
-  extra?: { citedNodeIds?: string[]; citedEvidenceIds?: string[] },
+  extra?: { citedNodeIds?: string[]; citedEvidenceIds?: string[]; actor?: string },
 ): void {
   const text = summary.trim();
   if (!text) return;
@@ -521,6 +527,10 @@ export function noteProjectEdit(
       toolCalls: [{ name: 'pane_write', summary: text }],
     },
   );
+  if (extra?.actor) {
+    user.actor = extra.actor;
+    assistant.actor = extra.actor;
+  }
   project.conversation.push(user, assistant);
   project.updatedAt = assistant.at;
 }
@@ -570,7 +580,7 @@ export interface ThreadSplit {
 }
 
 /** Whether an assistant turn is the acknowledgement half of a pane write. */
-function isPaneWriteReply(turn: ProjectChatTurn | undefined): boolean {
+export function isPaneWriteReply(turn: ProjectChatTurn | undefined): boolean {
   return turn?.role === 'assistant' && (turn.toolCalls ?? []).some((call) => call.name === 'pane_write');
 }
 

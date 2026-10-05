@@ -10,17 +10,22 @@
  * document. A write that fails is told again by the next save or the next
  * read of the project, on any instance, and an entry told twice is one entry.
  * A write goes through only if memory stands where the writer believed. A
- * copy older than the one memory was told from tells nothing, a record that
- * has lost what memory was told from is told whole, and a memory written in
- * a later shape is left alone, and only a deployment that may raise the
- * shape does. A long record is told a write at a time. A question is told
+ * copy older than the one memory was told from tells nothing, and a record
+ * that has lost what memory was told from is told whole. Which shape of
+ * memory a deployment may write over: a later one is left alone, an earlier
+ * one is started over, every entry let go and the whole record told again,
+ * by the live site always and by any other deployment only where the live
+ * site has not written, and the live site starts over whatever it did not
+ * write itself. A long record is told a write at a time. A question is told
  * once the request that asked has named who asked, though the project was
- * saved before that. Deleting the chats takes the entries of their turns. A
- * store with no room is left alone, quietly, and the graph is drawn all the
- * same. A project that is gone, document and all, takes its memory with it,
- * whichever build removed it and in the order the delete route removes it,
- * and a project whose document is still in storage keeps it. Reading memory
- * back gives each entry the titles the record has now.
+ * saved before that, and a work-pane note at once. Deleting the chats takes
+ * the entries of their turns, and an instance that read the project before
+ * they were deleted does not put them back. A store with no room is left
+ * alone, quietly, and the graph is drawn all the same. A project that is
+ * gone, document and all, takes its memory with it, whichever build removed
+ * it and in the order the delete route removes it, and a project whose
+ * document is still in storage keeps it. Reading memory back gives each
+ * entry the titles the record has now.
  *
  * Run against the real filesystem store and the file the memory is kept in
  * on a machine with no graph database, in a temporary directory. Two `Store`
@@ -36,9 +41,8 @@ import path from 'node:path';
 import { after, afterEach, before, describe, it, mock } from 'node:test';
 import {
   MEM_AT_MOST,
-  MEM_CHAT_KINDS,
   MEM_SCHEMA,
-  MEM_SCHEMA_FIRST,
+  MEM_TURN_KINDS,
   STANDARD_FACT_KEYS,
   addEvidence,
   addFinding,
@@ -47,12 +51,13 @@ import {
   createProject,
   memWho,
   memoryDelta,
+  noteProjectEdit,
   type DdProject,
   type MemEntry,
   type MemWatermark,
 } from '@realytica/shared';
 import type { GraphAdapter } from '../apps/api/src/graph/types';
-import type { MemBatch, MemoryPort, MemWriteAnswer } from '../apps/api/src/graph/mem/types';
+import type { MemBatch, MemoryPort, MemWriteAnswer, MemWriter, ShapeRuling } from '../apps/api/src/graph/mem/types';
 
 type StoreModule = typeof import('../apps/api/src/store');
 type Instance = InstanceType<StoreModule['Store']>;
@@ -71,7 +76,7 @@ let SWEEP_AT_MOST: number;
 let writeMemory: typeof import('../apps/api/src/graph/mem/write').writeMemory;
 let readMemory: typeof import('../apps/api/src/graph/mem/read').readMemory;
 let storage: typeof import('../apps/api/src/storage').storageAdapter;
-let shapeRefused: typeof import('../apps/api/src/graph/mem/types').shapeRefused;
+let shapeRule: typeof import('../apps/api/src/graph/mem/types').shapeRule;
 /** This deployment's graph store, which with nothing configured is the journal. */
 let graph: GraphAdapter;
 
@@ -84,6 +89,8 @@ const TENANT = 'tnt_memory_tests';
 before(async () => {
   root = await mkdtemp(path.join(tmpdir(), 'realytica-mem-sync-'));
   process.env.REALYTICA_DATA_DIR = root;
+  // Whatever the shell says, this machine is not the live site. A test that is, says so where it applies.
+  delete process.env.VERCEL_ENV;
   const storeModule = await import('../apps/api/src/store');
   Store = storeModule.Store;
   dataDir = storeModule.DATA_DIR;
@@ -92,7 +99,7 @@ before(async () => {
   ({ writeMemory } = await import('../apps/api/src/graph/mem/write'));
   ({ readMemory } = await import('../apps/api/src/graph/mem/read'));
   ({ storageAdapter: storage } = await import('../apps/api/src/storage'));
-  ({ shapeRefused } = await import('../apps/api/src/graph/mem/types'));
+  ({ shapeRule } = await import('../apps/api/src/graph/mem/types'));
   ({ graphAdapter: graph } = await import('../apps/api/src/graph'));
 });
 
@@ -205,12 +212,23 @@ function said(warned: { mock: { calls: Array<{ arguments: unknown[] }> } }, patt
   return warned.mock.calls.map((call) => String(call.arguments[0])).filter((line) => pattern.test(line));
 }
 
-/** One pass over these copies, as an instance that has asked the memory store nothing yet. */
-function pass(owed: DdProject[], opts: { known?: Map<string, MemWatermark>; stillStored?: boolean; gone?: string[] } = {}) {
-  return syncMemory(
-    { owed: owed.map((project) => ({ project, tenantId: TENANT })), gone: opts.gone ?? [], known: opts.known ?? new Map(), stillStored: async () => opts.stillStored ?? true },
-    memory,
-  );
+/**
+ * One pass over these copies, as an instance that has asked the memory store
+ * nothing yet, on a deployment that is not the live site unless the test
+ * says it is. `asked` counts how often the project store was asked whether
+ * it still holds a copy.
+ */
+function pass(owed: DdProject[], opts: { known?: Map<string, MemWatermark>; stillStored?: boolean; gone?: string[]; live?: boolean; asked?: { times: number } } = {}) {
+  const stillStored = async (): Promise<boolean> => {
+    if (opts.asked) opts.asked.times += 1;
+    return opts.stillStored ?? true;
+  };
+  return syncMemory({ owed: owed.map((project) => ({ project, tenantId: TENANT })), gone: opts.gone ?? [], known: opts.known ?? new Map(), stillStored }, memory, opts.live ?? false);
+}
+
+/** An entry as a store is handed one, about a made-up finding. */
+function madeUp(projectId: string, sourceId: string, more: Partial<MemEntry> = {}): MemEntry {
+  return { id: `${projectId}::mem::${sourceId}`, kind: 'finding_raised', at: '2026-10-05T09:00:00.000Z', by: 'who_00000000000000', sourceId, about: ['fnd_1'], ...more };
 }
 
 describe('a save and the project’s memory', () => {
@@ -240,10 +258,10 @@ describe('a save and the project’s memory', () => {
     }
 
     assert.deepEqual(order, ['document', 'memory']);
-    assert.equal((writing.mock.calls[0]!.arguments[0] as MemBatch).mayRaise, true, 'a deployment that is not a preview may raise the shape');
+    assert.equal((writing.mock.calls[0]!.arguments[0] as MemBatch).live, false, 'a machine that is not the live site does not say it is');
     const entries = await entriesOf(project);
     assert.deepEqual(entries.map((entry) => [entry.kind, entry.about]), [['finding_raised', [finding.id]]]);
-    assert.deepEqual(await standsAt(project), { schema: MEM_SCHEMA, auditThrough: project.audit.at(-1)!.id });
+    assert.deepEqual(await standsAt(project), { schema: MEM_SCHEMA, auditThrough: project.audit.at(-1)!.id }, 'in this build’s shape, and not marked the live site’s');
     assert.deepEqual((await memory.projects()).find((row) => row.projectId === project.id), { projectId: project.id, tenantId: TENANT });
 
     const stored = await documentOf(project);
@@ -531,7 +549,7 @@ describe('an entry told twice', () => {
       from: {},
       through: { schema: MEM_SCHEMA, auditThrough: 'aud_2' },
       entries: [{ ...kept!, about: ['taken'] }],
-      mayRaise: true,
+      live: false,
     });
     assert.deepEqual(direct, { written: 0 });
     assert.deepEqual(await entriesOf('prj_another'), []);
@@ -659,7 +677,7 @@ describe('a memory written in a later shape', () => {
     const project = file('Later shape plot');
     raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
     const later = { schema: MEM_SCHEMA + 1, auditThrough: 'aud_from_a_later_build' };
-    assert.deepEqual(await memory.write({ projectId: project.id, tenantId: TENANT, from: {}, through: later, entries: [], mayRaise: true }), { written: 0 });
+    assert.deepEqual(await memory.write({ projectId: project.id, tenantId: TENANT, from: {}, through: later, entries: [], live: false }), { written: 0 });
 
     const instance = await boot();
     instance.data.projects = [project];
@@ -679,65 +697,251 @@ describe('a memory written in a later shape', () => {
     assert.deepEqual(await standsAt(project), later);
     assert.deepEqual(await entriesOf(project), []);
   });
+
+  it('is left alone by an instance that believed memory stood in its own shape, once the store says otherwise', async () => {
+    const project = file('Raised meanwhile plot');
+    raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
+    const known = new Map<string, MemWatermark>();
+    await pass([project], { known });
+    // A later build raises this project's memory, and this instance does not hear of it.
+    const later = { schema: MEM_SCHEMA + 1, auditThrough: 'aud_from_a_later_build' };
+    assert.deepEqual(await memory.write({ projectId: project.id, tenantId: TENANT, from: {}, through: later, entries: [], live: false }), { written: 0 });
+
+    raise(project, 'Boundary is open', '2026-10-05T10:00:00.000Z');
+    const written = mock.method(memory, 'write');
+    try {
+      const passed = await pass([project], { known });
+      assert.equal(written.mock.callCount(), 1, 'it offered what came after, as it believed it could');
+      assert.deepEqual([passed.settled.length, passed.failed], [1, 0], 'and was told to stand down, which settles the copy and is no failure');
+    } finally {
+      written.mock.restore();
+    }
+    assert.equal(known.has(project.id), false, 'what it believed is not kept');
+    assert.deepEqual(await standsAt(project), later);
+    assert.deepEqual(await entriesOf(project), [], 'and nothing was written');
+  });
+
+  it('is asked about again the next time the project is told: standing down is not kept', async () => {
+    const project = file('Stood down plot');
+    const finding = raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
+    // A preview of a later branch wrote this project's memory first.
+    await memory.write({ projectId: project.id, tenantId: TENANT, from: {}, through: { schema: MEM_SCHEMA + 1, auditThrough: 'aud_later' }, entries: [madeUp(project.id, 'aud_later')], live: false });
+    const known = new Map<string, MemWatermark>();
+    const asked = mock.method(memory, 'watermarks');
+    const written = mock.method(memory, 'write');
+    try {
+      const stoodDown = await pass([project], { known });
+      assert.deepEqual(stoodDown.settled, [{ projectId: project.id, builtAt: project.updatedAt }], 'the copy has nothing to tell');
+      assert.deepEqual([stoodDown.made, stoodDown.failed], [1, 0], 'one read of where memory stands, and no write');
+      assert.equal(written.mock.callCount(), 0);
+      assert.equal(known.has(project.id), false, 'where memory stood is not kept from a pass that was turned away');
+
+      // The live site, in this build's shape, tells the project: it does not stand down for a preview's writing.
+      const told = await pass([project], { live: true });
+      assert.equal(told.settled.length, 1);
+      assert.deepEqual(await standsAt(project), { schema: MEM_SCHEMA, auditThrough: project.audit.at(-1)!.id, live: true });
+      assert.deepEqual(await findingsTold(project), [finding.id], 'what the preview wrote is let go, and the record is told');
+
+      // The deployment that stood down asks again, finds memory in its own shape, and carries on.
+      const second = raise(project, 'Boundary is open', '2026-10-05T10:00:00.000Z');
+      const reads = asked.mock.callCount();
+      const carried = await pass([project], { known });
+      assert.equal(asked.mock.callCount() - reads, 1, 'it read where memory stands again, having kept nothing');
+      assert.equal(carried.settled.length, 1);
+      assert.deepEqual((await findingsTold(project)).sort(), [finding.id, second.id].sort());
+      assert.equal((await standsAt(project))?.live, true, 'and the live site’s mark stays under another deployment’s write');
+      assert.equal(known.get(project.id)?.live, true, 'as this instance now knows');
+    } finally {
+      asked.mock.restore();
+      written.mock.restore();
+    }
+  });
 });
 
-describe('a deployment that may not raise the shape of a project’s memory', () => {
-  const batch = (projectId: string, schema: number, mayRaise: boolean): MemBatch => ({
-    projectId,
-    tenantId: TENANT,
-    from: {},
-    through: { schema, auditThrough: 'aud_1' },
-    entries: [{ id: `${projectId}::mem::aud_1`, kind: 'finding_raised', at: '2026-10-05T09:00:00.000Z', by: 'who_00000000000000', sourceId: 'aud_1', about: ['fnd_1'] }],
-    mayRaise,
+describe('which deployment may write what over a project’s memory', () => {
+  const S = MEM_SCHEMA;
+  const preview: MemWriter = { schema: S, live: false };
+  const liveSite: MemWriter = { schema: S, live: true };
+
+  it('is one rule, which both stores keep', () => {
+    const rule = (held: MemWatermark, writer: MemWriter): ShapeRuling => shapeRule({ ...held, auditThrough: 'aud_1' }, writer);
+    const table: Array<[string, MemWatermark, MemWriter, ShapeRuling]> = [
+      ['a preview carries on memory in its own shape', { schema: S }, preview, 'carry-on'],
+      ['and the live site’s too, in that shape', { schema: S, live: true }, preview, 'carry-on'],
+      ['a preview raises what the live site has not written, by starting it over', { schema: S - 1 }, preview, 'start-over'],
+      ['and does not raise what the live site wrote', { schema: S - 1, live: true }, preview, { lower: S - 1 }],
+      ['a preview stands down to a later shape, another preview’s', { schema: S + 1 }, preview, { newer: S + 1 }],
+      ['or the live site’s', { schema: S + 1, live: true }, preview, { newer: S + 1 }],
+      ['the live site starts over what it did not write: in its own shape', { schema: S }, liveSite, 'start-over'],
+      ['in an earlier one', { schema: S - 1 }, liveSite, 'start-over'],
+      ['and in a later one, so that it never stands down for a preview’s writing', { schema: S + 1 }, liveSite, 'start-over'],
+      ['the live site carries on its own memory', { schema: S, live: true }, liveSite, 'carry-on'],
+      ['raises its own, by starting it over', { schema: S - 1, live: true }, liveSite, 'start-over'],
+      ['and stands down to a later live build', { schema: S + 1, live: true }, liveSite, { newer: S + 1 }],
+    ];
+    for (const [what, held, writer, ruling] of table) assert.deepEqual(rule(held, writer), ruling, what);
+    assert.equal(shapeRule({}, preview), 'start-over', 'a memory never written stands nowhere, whoever writes it first');
+    assert.equal(shapeRule({}, liveSite), 'start-over');
   });
 
-  it('is the rule both stores keep: never lower over higher, and a later shape only where it is held or the live site writes it', () => {
-    const first = MEM_SCHEMA_FIRST;
-    assert.deepEqual(shapeRefused(first + 1, first, true), { newer: first + 1 }, 'an older build stands down, wherever it runs');
-    assert.deepEqual(shapeRefused(first + 1, first, false), { newer: first + 1 });
-    assert.deepEqual(shapeRefused(first, first + 1, false), { lower: first }, 'a preview does not raise what the live site wrote');
-    assert.deepEqual(shapeRefused(0, first + 1, false), { lower: 0 }, 'nor write a later shape where nothing is written yet');
-    assert.equal(shapeRefused(0, first, false), undefined, 'the first shape shuts no build out, so a preview may write it first');
-    assert.equal(shapeRefused(first + 1, first + 1, false), undefined, 'and it writes a shape the live site has already raised memory to');
-    assert.equal(shapeRefused(first, first + 1, true), undefined, 'the live site raises');
-    assert.equal(shapeRefused(0, first + 1, true), undefined);
+  /** A write straight to the store, in a shape and as a writer the test names. */
+  const write = (projectId: string, schema: number, live: boolean, more: Partial<MemBatch> = {}): Promise<MemWriteAnswer> =>
+    memory.write({ projectId, tenantId: TENANT, from: {}, through: { schema, auditThrough: 'aud_2' }, entries: [madeUp(projectId, 'aud_2')], live, ...more });
+
+  it('starts a memory over by letting every entry go, so that none stays as an earlier shape told it', async () => {
+    const projectId = 'prj_started_over';
+    // Two entries in an earlier shape. The second is one the later rule tells differently.
+    const earlier = [madeUp(projectId, 'aud_1'), madeUp(projectId, 'aud_2', { kind: 'chat_asked', about: [] })];
+    assert.deepEqual(await write(projectId, S - 1, false, { entries: earlier }), { written: 2 });
+
+    // A writer that is to start over and believes memory stands somewhere is told where, and nothing is let go.
+    assert.deepEqual(await write(projectId, S, false, { from: { auditThrough: 'aud_2' } }), { moved: { schema: S - 1, auditThrough: 'aud_2' } });
+    assert.equal((await entriesOf(projectId)).length, 2);
+
+    assert.deepEqual(await write(projectId, S, false), { written: 1 });
+    assert.deepEqual(await entriesOf(projectId), [madeUp(projectId, 'aud_2')], 'the entry the later shape tells, as it tells it, and no other');
+    assert.deepEqual(await standsAt(projectId), { schema: S, auditThrough: 'aud_2' });
+
+    // The earlier build finds a later shape and stands down, with nothing written.
+    assert.deepEqual(await write(projectId, S - 1, false, { entries: earlier }), { newer: S });
+    assert.deepEqual(await entriesOf(projectId), [madeUp(projectId, 'aud_2')]);
+    await memory.purge(projectId);
   });
 
-  it('writes nothing over memory in an earlier shape, and is told which it holds', async () => {
-    const live = 'prj_live_wrote_first';
-    assert.deepEqual(await memory.write(batch(live, MEM_SCHEMA, true)), { written: 1 });
-    const stood = await standsAt(live);
+  it('lets the live site start over what a preview left, whatever its shape, and marks the memory its own', async () => {
+    for (const left of [S, S + 1]) {
+      const projectId = `prj_preview_left_${left}`;
+      assert.deepEqual(await write(projectId, left, false, { entries: [madeUp(projectId, 'aud_1'), madeUp(projectId, 'aud_2', { about: ['fnd_from_the_preview'] })] }), { written: 2 });
 
-    assert.deepEqual(await memory.write(batch(live, MEM_SCHEMA + 1, false)), { lower: MEM_SCHEMA });
-    assert.deepEqual(await standsAt(live), stood, 'the watermark and the shape are as the live site left them');
-    assert.equal((await entriesOf(live)).length, 1);
+      assert.deepEqual(await write(projectId, S, true), { written: 1 }, `the live site is not turned away by shape ${left}`);
+      assert.deepEqual(await entriesOf(projectId), [madeUp(projectId, 'aud_2')], 'nothing the preview wrote is trusted: its entries go, and the live site’s are written');
+      assert.deepEqual(await standsAt(projectId), { schema: S, auditThrough: 'aud_2', live: true });
 
-    const never = 'prj_nothing_written_yet';
-    assert.deepEqual(await memory.write(batch(never, MEM_SCHEMA + 1, false)), { lower: 0 });
-    assert.deepEqual(await entriesOf(never), [], 'and it does not write a later shape first');
-
-    // The live site may, and from then on a preview with that shape writes it too.
-    assert.deepEqual(await memory.write(batch(live, MEM_SCHEMA + 1, true)), { written: 1 });
-    assert.deepEqual(await memory.write({ ...batch(live, MEM_SCHEMA + 1, false), from: { auditThrough: 'aud_1' } }), { written: 1 });
-    for (const id of [live, never]) await memory.purge(id);
+      // From the first live write on, only the live site raises.
+      assert.deepEqual(await write(projectId, S + 1, false), { lower: S });
+      assert.deepEqual(await standsAt(projectId), { schema: S, auditThrough: 'aud_2', live: true }, 'the shape and the place are as the live site left them');
+      assert.deepEqual(await entriesOf(projectId), [madeUp(projectId, 'aud_2')]);
+      // A preview in the live site's shape adds to it, and the mark stays.
+      assert.deepEqual(await write(projectId, S, false, { from: { auditThrough: 'aud_2' }, through: { schema: S, auditThrough: 'aud_3' }, entries: [madeUp(projectId, 'aud_3')] }), { written: 1 });
+      assert.deepEqual(await standsAt(projectId), { schema: S, auditThrough: 'aud_3', live: true });
+      assert.equal((await entriesOf(projectId)).length, 2);
+      // The live site raises its own by starting over, and an earlier live build then stands down.
+      assert.deepEqual(await write(projectId, S + 1, true), { written: 1 });
+      assert.deepEqual(await standsAt(projectId), { schema: S + 1, auditThrough: 'aud_2', live: true });
+      assert.equal((await entriesOf(projectId)).length, 1);
+      assert.deepEqual(await write(projectId, S, true), { newer: S + 1 });
+      await memory.purge(projectId);
+    }
   });
 
-  it('settles the copy and says so once, however many projects and passes there are', async () => {
+  it('has a deployment that is not the live site raise an earlier shape by telling the whole record again', async () => {
+    const project = file('Raised plot');
+    const first = raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
+    const second = raise(project, 'Boundary is open', '2026-10-05T09:30:00.000Z');
+    const turns = applyProjectChat(project, 'what is missing?');
+    for (const turn of [turns.userTurn, turns.assistantTurn]) turn.actor = LEAD;
+    // As a build with an earlier shape left it: told through the record's end, one event told as the later rule does not tell it, and one it does not tell at all.
+    const told = memoryDelta(project, {});
+    const toldBefore = [
+      ...told.entries.map((entry) => (entry.about[0] === first.id ? { ...entry, kind: 'action_recorded' as const } : entry)),
+      madeUp(project.id, 'aud_only_the_earlier_shape_told'),
+    ];
+    assert.deepEqual(await memory.write({ projectId: project.id, tenantId: TENANT, from: {}, through: { ...told.through, schema: MEM_SCHEMA - 1 }, entries: toldBefore, live: false }), { written: toldBefore.length });
+
+    const asked = { times: 0 };
+    const passed = await pass([project], { asked });
+    assert.equal(passed.settled.length, 1);
+    assert.deepEqual(await standsAt(project), told.through, 'in this build’s shape, where the record ends');
+    const byId = (a: MemEntry, b: MemEntry): number => (a.id < b.id ? -1 : 1);
+    assert.deepEqual((await entriesOf(project)).sort(byId), [...told.entries].sort(byId), 'every entry is as this build tells it, and there is no other');
+    assert.deepEqual((await findingsTold(project)).sort(), [first.id, second.id].sort());
+    assert.equal(asked.times, 1, 'the conversation is told from its start, so the project store was asked whether it still holds this copy');
+  });
+
+  it('turns a deployment that is not the live site away from memory the live site wrote in an earlier shape, quietly', async () => {
     const projects = [file('First held back plot'), file('Second held back plot')];
+    for (const project of projects) {
+      raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
+      assert.deepEqual(await memory.write({ projectId: project.id, tenantId: TENANT, from: {}, through: { schema: MEM_SCHEMA - 1, auditThrough: 'aud_live' }, entries: [madeUp(project.id, 'aud_live')], live: true }), { written: 1 });
+    }
+    const warned = mock.method(console, 'warn', () => {});
+    const written = mock.method(memory, 'write');
+    const known = new Map<string, MemWatermark>();
+    try {
+      const first = await pass(projects, { known });
+      assert.equal(first.settled.length, 2, 'there is nothing for this deployment to tell, so the copies are not owed');
+      assert.deepEqual([first.made, first.failed], [1, 0], 'it read where memory stands and made no write: not a failure of the store');
+      await pass(projects, { known });
+      assert.equal(written.mock.callCount(), 0);
+      assert.equal(said(warned, /^\[memory\].*only the live site raises its own/).length, 1, 'said once, however many projects and passes');
+      assert.equal(known.size, 0, 'and asked again each time, so that it is told once the live site has raised it');
+    } finally {
+      written.mock.restore();
+      warned.mock.restore();
+    }
+    for (const project of projects) {
+      assert.deepEqual(await standsAt(project), { schema: MEM_SCHEMA - 1, auditThrough: 'aud_live', live: true }, 'the live site’s memory is as it left it');
+
+      // The live site, on this build, raises it: the whole record, told again.
+      await pass([project], { live: true });
+      assert.deepEqual(await standsAt(project), { schema: MEM_SCHEMA, auditThrough: project.audit.at(-1)!.id, live: true });
+      assert.equal((await findingsTold(project)).length, 1);
+      assert.ok(!(await entriesOf(project)).some((entry) => entry.sourceId === 'aud_live'), 'what the earlier shape held is let go');
+    }
+  });
+
+  it('settles a copy the store turns away, though this instance believed it could write', async () => {
+    const projects = [file('First turned away plot'), file('Second turned away plot')];
     for (const project of projects) raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
     const warned = mock.method(console, 'warn', () => {});
-    // A store whose every project the live site has left in an earlier shape.
+    // The live site wrote each of them in an earlier shape after this instance last asked.
     const held: MemoryPort = { ...memory, write: async () => ({ lower: MEM_SCHEMA - 1 }) };
     try {
-      const work = () => ({ owed: projects.map((project) => ({ project, tenantId: TENANT })), gone: [], known: new Map<string, MemWatermark>(), stillStored: async () => true });
-      const first = await syncMemory(work(), held);
-      assert.equal(first.settled.length, 2, 'there is nothing for this deployment to tell, so the copies are not owed');
-      assert.equal(first.failed, 0, 'and it is not a failure of the store');
-      await syncMemory(work(), held);
-      assert.equal(said(warned, /^\[memory\].*only the live site may raise it/).length, 1);
+      const known = new Map<string, MemWatermark>();
+      const work = () => ({ owed: projects.map((project) => ({ project, tenantId: TENANT })), gone: [], known, stillStored: async () => true });
+      const first = await syncMemory(work(), held, false);
+      assert.equal(first.settled.length, 2);
+      assert.equal(first.failed, 0);
+      assert.equal(known.size, 0, 'what it believed is not kept');
+      await syncMemory(work(), held, false);
+      assert.ok(said(warned, /^\[memory\].*only the live site raises its own/).length <= 1, 'and it is said once a process at most');
     } finally {
       warned.mock.restore();
     }
+  });
+
+  it('starts over, as the live site, memory a preview wrote in the same shape and to the same place', async () => {
+    const project = file('Untrusted plot');
+    const finding = raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
+    // A preview told this very record, in this shape. One of its entries is not what the record tells.
+    const told = memoryDelta(project, {});
+    await memory.write({ projectId: project.id, tenantId: TENANT, from: {}, through: told.through, entries: [{ ...told.entries[0]!, about: ['fnd_from_the_preview'] }], live: false });
+    assert.deepEqual(await findingsTold(project), ['fnd_from_the_preview']);
+
+    const known = new Map<string, MemWatermark>();
+    const passed = await pass([project], { live: true, known });
+    assert.deepEqual([passed.settled.length, passed.failed], [1, 0]);
+    assert.deepEqual(await findingsTold(project), [finding.id], 'the first live write does not trust what a preview left');
+    assert.deepEqual(await standsAt(project), { ...told.through, live: true });
+
+    // Its own memory it carries on: the same record again writes nothing, on the instance that wrote it and on another.
+    const written = mock.method(memory, 'write');
+    try {
+      await pass([project], { live: true, known });
+      await pass([project], { live: true });
+      assert.equal(written.mock.callCount(), 0);
+    } finally {
+      written.mock.restore();
+    }
+  });
+
+  it('marks an empty record’s memory the live site’s too, though there is no entry to tell', async () => {
+    const project = file('Empty plot');
+    project.audit = [];
+    await memory.write({ projectId: project.id, tenantId: TENANT, from: {}, through: { schema: MEM_SCHEMA }, entries: [madeUp(project.id, 'aud_from_the_preview')], live: false });
+    await pass([project], { live: true });
+    assert.deepEqual(await standsAt(project), { schema: MEM_SCHEMA, live: true });
+    assert.deepEqual(await entriesOf(project), [], 'and what the preview left under it is gone');
   });
 });
 
@@ -753,7 +957,7 @@ describe('a question asked in chat', () => {
     mine.updatedAt = '2026-10-05T10:00:00.000Z';
     await instance!.save();
     await instance!.graphCaughtUp();
-    const chats = async (): Promise<MemEntry[]> => (await entriesOf(project)).filter((entry) => MEM_CHAT_KINDS.includes(entry.kind));
+    const chats = async (): Promise<MemEntry[]> => (await entriesOf(project)).filter((entry) => MEM_TURN_KINDS.includes(entry.kind));
     assert.deepEqual(await chats(), [], 'a turn with no author yet is not told');
 
     // Any other instance telling from the document it reads waits the same way.
@@ -785,7 +989,7 @@ describe('a question asked in chat', () => {
     for (const turn of [turns.userTurn, turns.assistantTurn]) turn.at = '2026-10-01T09:00:00.000Z';
     project.updatedAt = '2026-10-01T09:00:00.000Z';
     await pass([project]);
-    const told = (await entriesOf(project)).filter((entry) => MEM_CHAT_KINDS.includes(entry.kind));
+    const told = (await entriesOf(project)).filter((entry) => MEM_TURN_KINDS.includes(entry.kind));
     assert.deepEqual(told.map((entry) => entry.by), [memWho(project.id, 'nobody'), memWho(project.id, 'nobody')], 'told, and not as the server’s or as anybody’s');
   });
 
@@ -801,16 +1005,19 @@ describe('a question asked in chat', () => {
     };
     ask('2026-10-05T10:00:00.000Z');
     ask('2026-10-05T10:05:00.000Z');
+    // And a write made on a work pane, which leaves its note in the same thread.
+    noteProjectEdit(mine, 'Added a comparable.', { actor: LEAD });
+    mine.updatedAt = '2026-10-05T10:10:00.000Z';
     await instance!.save();
     await instance!.graphCaughtUp();
     const kinds = async (): Promise<string[]> => (await entriesOf(project)).map((entry) => entry.kind).sort();
-    assert.deepEqual(await kinds(), ['chat_answered', 'chat_answered', 'chat_asked', 'chat_asked', 'finding_raised']);
+    assert.deepEqual(await kinds(), ['chat_answered', 'chat_answered', 'chat_asked', 'chat_asked', 'edit_noted', 'finding_raised']);
 
     clearProjectConversation(mine);
     mine.updatedAt = '2026-10-05T11:00:00.000Z';
     await instance!.save();
     await instance!.graphCaughtUp();
-    assert.deepEqual(await kinds(), ['finding_raised'], 'the entries of the chat turns went with the chats');
+    assert.deepEqual(await kinds(), ['finding_raised'], 'the entries of the chat turns went with the chats, the note’s with them');
     assert.deepEqual(await findingsTold(project), [finding.id]);
     assert.equal((await standsAt(project))?.turnThrough, undefined);
 
@@ -819,6 +1026,179 @@ describe('a question asked in chat', () => {
     await instance!.save();
     await instance!.graphCaughtUp();
     assert.deepEqual(await kinds(), ['chat_answered', 'chat_asked', 'finding_raised']);
+  });
+});
+
+describe('a note left in the thread by a work-pane write', () => {
+  it('is told by the save that writes it, named or not, and holds back no question asked after it', async () => {
+    const project = file('Noted plot');
+    raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
+    const [instance] = await instances([project]);
+    const mine = held(instance!, project);
+
+    // A route that names nobody on its note, and then a person's question, in one save: nothing here has waited a moment.
+    noteProjectEdit(mine, 'Filed a deed in the vault.');
+    const note = mine.conversation.at(-2)!;
+    const turns = applyProjectChat(mine, 'what is missing?');
+    for (const turn of [turns.userTurn, turns.assistantTurn]) turn.actor = LEAD;
+    mine.updatedAt = new Date().toISOString();
+    await instance!.save();
+    await instance!.graphCaughtUp();
+
+    const told = (await entriesOf(project)).filter((entry) => MEM_TURN_KINDS.includes(entry.kind));
+    assert.deepEqual(
+      told.map((entry) => [entry.kind, entry.sourceId, entry.by]).sort(),
+      [
+        ['chat_answered', turns.assistantTurn.id, memWho(project.id, LEAD)],
+        ['chat_asked', turns.userTurn.id, memWho(project.id, LEAD)],
+        ['edit_noted', note.id, memWho(project.id, 'nobody')],
+      ],
+      'the note is nobody’s, and the question behind it is told with it',
+    );
+    assert.equal((await standsAt(project))?.turnThrough, turns.assistantTurn.id);
+
+    // One that says who wrote is theirs.
+    noteProjectEdit(mine, 'Added a comparable.', { actor: LEAD });
+    await instance!.save();
+    await instance!.graphCaughtUp();
+    const named = (await entriesOf(project)).filter((entry) => entry.kind === 'edit_noted' && entry.sourceId !== note.id);
+    assert.deepEqual(named.map((entry) => entry.by), [memWho(project.id, LEAD)]);
+  });
+});
+
+describe('a conversation told from its start', () => {
+  /** A project with a finding told, and two questions asked and told. */
+  async function asked(name: string): Promise<{ project: DdProject; a: Instance; b: Instance }> {
+    const project = file(name);
+    raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
+    const other = file(`${name}, the other project`);
+    raise(other, 'Access is unclear', '2026-10-05T09:00:00.000Z');
+    const [a] = await instances([project, other]);
+    const mine = held(a!, project);
+    for (const at of ['2026-10-05T10:00:00.000Z', '2026-10-05T10:05:00.000Z']) {
+      const turns = applyProjectChat(mine, 'what is missing?');
+      for (const turn of [turns.userTurn, turns.assistantTurn]) turn.actor = LEAD;
+      mine.updatedAt = at;
+    }
+    await a!.save();
+    await a!.graphCaughtUp();
+    // A second instance boots now, and reads the project with its chats.
+    const b = await boot();
+    return { project, a: a!, b };
+  }
+  const chats = async (project: DdProject): Promise<number> => (await entriesOf(project)).filter((entry) => MEM_TURN_KINDS.includes(entry.kind)).length;
+
+  it('is not told by an instance that read the project before its chats were deleted', async () => {
+    const { project, a, b } = await asked('Stale chats plot');
+    assert.equal(await chats(project), 4);
+
+    const mine = held(a, project);
+    clearProjectConversation(mine);
+    mine.updatedAt = '2026-10-05T11:00:00.000Z';
+    await a.save();
+    await a.graphCaughtUp();
+    assert.equal(await chats(project), 0, 'the chats are deleted, and memory lets go of their entries');
+    assert.equal((await standsAt(project))?.turnThrough, undefined, 'and stands at no turn, as it does for a conversation never told');
+
+    // The second instance saves another project. It has not read this one again: the copy it holds still has the turns.
+    assert.equal(held(b, project).conversation.length, 4);
+    const elsewhere = b.data.projects!.find((other) => other.id !== project.id)!;
+    raise(elsewhere, 'Boundary is open', '2026-10-05T11:30:00.000Z');
+    const written = mock.method(memory, 'write');
+    try {
+      await b.save();
+      await b.graphCaughtUp();
+      assert.deepEqual(written.mock.calls.map((call) => (call.arguments[0] as MemBatch).projectId), [elsewhere.id], 'it wrote the project it saved, and nothing of the one it holds an old copy of');
+    } finally {
+      written.mock.restore();
+    }
+    assert.equal(await chats(project), 0, 'the entries are not put back');
+
+    // And once it reads the project as stored, it has nothing to tell.
+    await b.syncProject(project.id, { force: true });
+    await b.graphCaughtUp();
+    assert.equal(held(b, project).conversation.length, 0);
+    assert.equal(await chats(project), 0);
+  });
+
+  it('asks the project store before it is told, once, and only then', async () => {
+    const project = file('Asked first plot');
+    raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
+    const known = new Map<string, MemWatermark>();
+    const asked_ = { times: 0 };
+    await pass([project], { known, asked: asked_ });
+    assert.equal(asked_.times, 0, 'audit events are only ever added: a copy that tells them needs no asking');
+
+    const turns = applyProjectChat(project, 'what is missing?');
+    for (const turn of [turns.userTurn, turns.assistantTurn]) turn.actor = LEAD;
+    project.updatedAt = '2026-10-05T10:00:00.000Z';
+    // The project store no longer holds this copy: it is an older one.
+    const older = await pass([project], { known, asked: asked_, stillStored: false });
+    assert.equal(asked_.times, 1);
+    assert.deepEqual(older.settled, [{ projectId: project.id, builtAt: project.updatedAt }], 'it has nothing to tell, and is not asked about again');
+    assert.equal(older.made, 0, 'and the memory store was asked nothing');
+    assert.equal(await chats(project), 0);
+
+    await pass([project], { known, asked: asked_ });
+    assert.equal(asked_.times, 2, 'the copy the project store holds is asked about and told');
+    assert.equal(await chats(project), 2);
+
+    const more = applyProjectChat(project, 'what is missing?');
+    for (const turn of [more.userTurn, more.assistantTurn]) turn.actor = LEAD;
+    project.updatedAt = '2026-10-05T10:05:00.000Z';
+    await pass([project], { known, asked: asked_ });
+    assert.equal(asked_.times, 2, 'turns told after a turn memory holds need no asking: a copy that holds that turn is not an older conversation');
+    assert.equal(await chats(project), 4);
+  });
+
+  it('asks the project store once in a telling, though the memory store sends the writer round again', async () => {
+    const project = file('Asked once plot');
+    raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
+    const known = new Map<string, MemWatermark>();
+    await pass([project], { known });
+    const believed = new Map(known);
+    // Another instance tells memory more, and this one does not hear of it.
+    raise(project, 'Boundary is open', '2026-10-05T09:30:00.000Z');
+    await pass([project]);
+    const turns = applyProjectChat(project, 'what is missing?');
+    for (const turn of [turns.userTurn, turns.assistantTurn]) turn.actor = LEAD;
+    project.updatedAt = '2026-10-05T10:00:00.000Z';
+
+    const asked_ = { times: 0 };
+    const written = mock.method(memory, 'write');
+    try {
+      const passed = await pass([project], { known: believed, asked: asked_ });
+      assert.equal(written.mock.callCount(), 2, 'turned away once, then taken');
+      assert.equal(passed.settled.length, 1);
+    } finally {
+      written.mock.restore();
+    }
+    assert.equal(asked_.times, 1, 'the copy was the stored one a moment ago, and is not asked about twice');
+    assert.equal(await chats(project), 2);
+  });
+
+  it('is not told from a copy that changed while the project store was asked', async () => {
+    const project = file('Changed while asked plot');
+    const turns = applyProjectChat(project, 'what is missing?');
+    for (const turn of [turns.userTurn, turns.assistantTurn]) turn.actor = LEAD;
+    project.updatedAt = '2026-10-05T10:00:00.000Z';
+    const builtAt = project.updatedAt;
+    const passed = await syncMemory(
+      {
+        owed: [{ project, tenantId: TENANT }],
+        gone: [],
+        known: new Map(),
+        stillStored: async () => {
+          // A request changes the project in memory while storage is read.
+          project.updatedAt = '2026-10-05T10:00:01.000Z';
+          return true;
+        },
+      },
+      memory,
+      false,
+    );
+    assert.deepEqual(passed.settled, [], `the copy of ${builtAt} stays owed: the save that writes the change tells it`);
+    assert.equal(await chats(project), 0);
   });
 });
 
@@ -1067,7 +1447,7 @@ describe('memory left behind while storage cannot say whether its project is gon
     raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
     const [instance] = await instances([project], 1, workspace);
     const silent = 'prj_storage_is_silent';
-    await memory.write({ projectId: silent, tenantId: workspace, from: {}, through: { schema: MEM_SCHEMA, auditThrough: 'aud_1' }, entries: [], mayRaise: true });
+    await memory.write({ projectId: silent, tenantId: workspace, from: {}, through: { schema: MEM_SCHEMA, auditThrough: 'aud_1' }, entries: [], live: false });
     const read = storage.getDocument.bind(storage);
     let askedOf = 0;
     const failing = mock.method(storage, 'getDocument', async (caseId: string, key: string) => {
@@ -1105,7 +1485,7 @@ describe('looking for memory whose project is gone', () => {
     sweepMemory({ tenantIds: new Set([tenantId]), held: new Set(heldIds), gone: async (projectId) => gone(projectId), looks: carried }, memory);
 
   async function remembered(projectId: string, tenantId: string): Promise<void> {
-    await memory.write({ projectId, tenantId, from: {}, through: { schema: MEM_SCHEMA, auditThrough: 'aud_1' }, entries: [], mayRaise: true });
+    await memory.write({ projectId, tenantId, from: {}, through: { schema: MEM_SCHEMA, auditThrough: 'aud_1' }, entries: [], live: false });
   }
 
   it('removes it on the second look and not the first, and not if it was there in between', async () => {

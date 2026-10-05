@@ -234,7 +234,7 @@ projectGisOverlayRouter.post<ProjectParams>('/revenue', async (req, res) => {
   // press would be a dozen pairs of them, burying what was said there; the
   // audit entry each read leaves is the record of it.
   if (body.several !== true) {
-    noteProjectEdit(project, `Read the revenue map for Sy. ${read.surveyNo}, ${[read.village, read.mandal].filter(Boolean).join(', ')}.`);
+    noteProjectEdit(project, `Read the revenue map for Sy. ${read.surveyNo}, ${[read.village, read.mandal].filter(Boolean).join(', ')}.`, { actor });
   }
   await store.save();
   const supplied = project.surveyBoundary && project.surveyBoundary.source !== 'revenue_map';
@@ -267,7 +267,7 @@ projectGisOverlayRouter.post<ProjectParams>('/revenue/file', async (req, res) =>
     const before = project.evidence.length;
     const record = fileRevenueMapAsEvidence(project, actorOf(principalOf(req)));
     if (project.evidence.length > before) {
-      noteProjectEdit(project, `Filed the revenue-map read for Sy. ${project.revenueMap?.surveyNo} as evidence.`, { citedEvidenceIds: [record.id] });
+      noteProjectEdit(project, `Filed the revenue-map read for Sy. ${project.revenueMap?.surveyNo} as evidence.`, { citedEvidenceIds: [record.id], actor: actorOf(principalOf(req)) });
       await store.save();
     }
     res.status(201).json({ evidence: record, project });
@@ -289,7 +289,7 @@ projectGisOverlayRouter.delete<ParcelParams>('/revenue/:parcelRef', async (req, 
     res.status(404).json({ error: 'No read of that parcel is kept on this project.' });
     return;
   }
-  noteProjectEdit(project, `Removed the revenue-map read for Sy. ${read.surveyNo}.`);
+  noteProjectEdit(project, `Removed the revenue-map read for Sy. ${read.surveyNo}.`, { actor: actorOf(principalOf(req)) });
   await store.save();
   res.status(204).end();
 });
@@ -304,7 +304,7 @@ projectGisOverlayRouter.delete<ProjectParams>('/revenue', async (req, res) => {
   const kept = revenueReads(project).length;
   clearRevenueMap(project, actorOf(principalOf(req)));
   // Cleared already, by another instance or by the code before this: there is nothing to say was done here.
-  if (kept) noteProjectEdit(project, kept > 1 ? `Cleared the ${kept} revenue-map reads.` : 'Cleared the revenue-map read.');
+  if (kept) noteProjectEdit(project, kept > 1 ? `Cleared the ${kept} revenue-map reads.` : 'Cleared the revenue-map read.', { actor: actorOf(principalOf(req)) });
   await store.save();
   res.status(204).end();
 });
@@ -323,7 +323,7 @@ projectGisOverlayRouter.put<ProjectParams>('/survey', async (req, res) => {
   }
   try {
     const boundary = applySurveyBoundary(project, fileText, body?.note, actorOf(principalOf(req)));
-    noteProjectEdit(project, 'Supplied a survey outline for the GIS overlay.');
+    noteProjectEdit(project, 'Supplied a survey outline for the GIS overlay.', { actor: actorOf(principalOf(req)) });
     await store.save();
     res.json({
       boundary,
@@ -342,7 +342,7 @@ projectGisOverlayRouter.delete<ProjectParams>('/survey', async (req, res) => {
     return;
   }
   clearSurveyBoundary(project, actorOf(principalOf(req)));
-  noteProjectEdit(project, 'Cleared the supplied survey outline.');
+  noteProjectEdit(project, 'Cleared the supplied survey outline.', { actor: actorOf(principalOf(req)) });
   await store.save();
   res.status(204).end();
 });

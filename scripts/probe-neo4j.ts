@@ -14,23 +14,35 @@
  * It is a CLI and not a test because it needs a live database, and it drives
  * the production adapter rather than statements of its own: a probe that
  * exercises its own Cypher proves nothing about the Cypher the app runs. Its
- * own statements are two reads, of the labels the adapter left and of how
- * many memory nodes a project has, and the older build's statements below.
+ * own statements are three reads, of the labels the adapter left, of how
+ * many memory nodes a project has and of the properties its memory's own
+ * node holds, one write of a property onto that node of its own project, and
+ * the older build's statements below.
  *
  * It then does the same for the project's memory, which is kept in the same
  * database under labels of its own (`apps/api/src/graph/mem/`): that entries
  * written twice are there once and as first told, that the watermark moves
- * with them, that a write from where memory no longer stands is turned away
- * and so is one over a later shape, that a deployment which may not raise
- * the shape writes nothing over an earlier one, that a value is kept under
- * its key with the fixed list's name for it, that a write which lets go of
- * the chat turns takes those entries and no other, that the nodes of a
- * project's memory and of the whole database are counted, that two writers
- * of one project's memory at once leave one write, and that a write cannot
- * move a node to another project. And it runs the statements of the build the live site runs, which
- * knows only the graph, against the same project: its sync and its purge,
- * copied from `apps/api/src/graph/neo4j.ts` on `main`. They must leave every
- * memory node as it was, and this build's purge must then remove them all.
+ * with them, that a write from where memory no longer stands is turned away,
+ * that a value is kept under its key with the fixed list's name for it, that
+ * a write which lets go of the turns of a conversation takes those entries
+ * and no other, that the nodes of a project's memory and of the whole
+ * database are counted, that two writers of one project's memory at once
+ * leave one write, and that a write cannot move a node to another project.
+ * Then which writer may write what over a project's memory (`shapeRule`):
+ * that a later shape starts memory over, every entry gone and the node made
+ * again, where the live site has not written, that an earlier shape then
+ * stands down, that the live site starts over what it did not write and
+ * marks the memory its own, that only the live site raises from then on,
+ * and that the mark stays under another deployment's write. And it runs the
+ * statements of the build the live site runs, which knows only the graph,
+ * against the same project: its sync and its purge, copied from
+ * `apps/api/src/graph/neo4j.ts` on `main`. They must leave every memory node
+ * as it was, and this build's purge must then remove them all.
+ *
+ * The probe is not the live site and never writes as one but where it says
+ * so, to its own made-up project: the mark that says the live site wrote a
+ * project's memory is kept on that project's own node, which the probe
+ * removes, and there is no mark for the database as a whole.
  *
  *   pnpm probe:neo4j bolt://localhost:7687
  *
@@ -63,8 +75,8 @@
 import neo4j from 'neo4j-driver';
 import {
   MEM_AT_MOST,
-  MEM_CHAT_KINDS,
   MEM_SCHEMA,
+  MEM_TURN_KINDS,
   PROJECT_NODE_KINDS,
   STANDARD_FACT_KEYS,
   addEvidence,
@@ -83,6 +95,8 @@ const PROJECT = `prj_probe_${Date.now().toString(16)}`;
 const TIMED = `${PROJECT}_timed`;
 /** A second project, for the write that tries to take a node of the first. */
 const OTHER = `${PROJECT}_other`;
+/** A third, whose memory nothing has written before a later shape does. */
+const UNWRITTEN = `${PROJECT}_unwritten`;
 /** The workspace the probe's memory is written under. No project store holds it, so nothing looks for it. */
 const TENANT = 'tnt_probe';
 
@@ -248,6 +262,25 @@ async function main(): Promise<void> {
       await session.close();
     }
   };
+  /** The names of the properties the node that says where a project's memory stands holds. */
+  const memoryProperties = async (projectId: string): Promise<string[]> => {
+    const session = database ? reader.session({ database }) : reader.session();
+    try {
+      const result = await session.executeRead((tx) => tx.run('MATCH (m:MemProject { projectId: $projectId }) RETURN keys(m) AS names', { projectId }));
+      return result.records.length === 1 ? (result.records[0]!.get('names') as string[]).sort() : [];
+    } finally {
+      await session.close();
+    }
+  };
+  /** A property on a project's memory node that no shape of this build sets, as a later shape might keep one there. The probe's one write of its own to memory. */
+  const plantProperty = async (projectId: string): Promise<void> => {
+    const session = database ? reader.session({ database }) : reader.session();
+    try {
+      await session.executeWrite((tx) => tx.run('MATCH (m:MemProject { projectId: $projectId }) SET m.keptByAnotherShape = $value', { projectId, value: 'planted' }));
+    } finally {
+      await session.close();
+    }
+  };
   /** The older build's sync of a project, statement for statement, in one transaction as it runs them. */
   const mainSync = async (projectId: string, names: string[], links: ProjectGraphEdge[]): Promise<void> => {
     const rows = names.map((name) => ({ projectId, id: at(name), kind: 'parcel', layer: 'entity', origin: 'derived', label: name, detail: null, key: null, status: null }));
@@ -351,50 +384,53 @@ async function main(): Promise<void> {
     console.log('\nThe project’s memory:');
     const project = record();
     const told = memoryDelta(project, {});
-    check('a first write of memory is taken', same(await writeMemory(memory, TENANT, {}, told), { written: 3 }));
+    // Whatever the shell this runs in says of itself, the probe is not the live site, and says so on every write.
+    const notLive = false;
+    check('a first write of memory is taken', same(await writeMemory(memory, TENANT, {}, told, notLive), { written: 3 }));
     const first = await memory.entries(PROJECT, 100);
     check('and its entries are stored, newest first', same(first.map((e) => e.id).sort(), told.entries.map((e) => e.id).sort()) && first.every((e, i) => i === 0 || first[i - 1]!.at >= e.at), first.map((e) => e.kind));
     check('each as it was told, with nothing added', same([...first].sort((a, b) => a.id.localeCompare(b.id)), [...told.entries].sort((a, b) => a.id.localeCompare(b.id))), first[0]);
     check('one node a project and one an entry, and no other', same(await memoryNodes(PROJECT), { MemEntry: 3, MemProject: 1 }), await memoryNodes(PROJECT));
     check('the watermark stands where the write ended', same((await memory.watermarks([PROJECT])).get(PROJECT), told.through), [...(await memory.watermarks([PROJECT]))]);
 
-    check('the same entries written again are taken', same(await writeMemory(memory, TENANT, told.through, memoryDelta(project, {})), { written: 3 }));
+    check('the same entries written again are taken', same(await writeMemory(memory, TENANT, told.through, memoryDelta(project, {}), notLive), { written: 3 }));
     check('and are there once, as they were first told', same(await memory.entries(PROJECT, 100), first) && same(await memoryNodes(PROJECT), { MemEntry: 3, MemProject: 1 }), await memoryNodes(PROJECT));
     const changed = { ...told, entries: told.entries.map((e) => ({ ...e, kind: 'paper_read' as const, label: 'Changed' })) };
-    await writeMemory(memory, TENANT, told.through, changed);
+    await writeMemory(memory, TENANT, told.through, changed, notLive);
     check('an entry offered again saying something else is left as it was first told', same(await memory.entries(PROJECT, 100), first));
 
     addFinding(project, { title: 'A later finding', description: 'Made up.', severity: 'low', discipline: 'legal' }, 'probe@example.com');
     const next = memoryDelta(project, told.through);
-    check('a write of what came after is taken', next.entries.length === 1 && same(await writeMemory(memory, TENANT, told.through, next), { written: 1 }));
+    check('a write of what came after is taken', next.entries.length === 1 && same(await writeMemory(memory, TENANT, told.through, next, notLive), { written: 1 }));
     check('and the watermark moves with it', same((await memory.watermarks([PROJECT])).get(PROJECT), next.through) && (await memory.entries(PROJECT, 100)).length === 4);
-    const stale = await writeMemory(memory, TENANT, told.through, { ...next, entries: [entry(PROJECT, 'stale')] });
+    const stale = await writeMemory(memory, TENANT, told.through, { ...next, entries: [entry(PROJECT, 'stale')] }, notLive);
     check('a write from where memory no longer stands is turned away, and told where it stands', same(stale, { moved: next.through }), stale);
     check('and writes nothing', (await memory.entries(PROJECT, 100)).length === 4 && same((await memory.watermarks([PROJECT])).get(PROJECT), next.through));
 
-    // A value accepted, and a question and its answer.
+    // A value accepted, a question and its answer, and the note of a work-pane write.
     const valued: MemEntry = { ...entry(PROJECT, 'aud_probe_value'), kind: 'value_accepted', key: 'extent_khata', label: 'words of the caller’s own' };
-    const chats: MemEntry[] = [
+    const turns: MemEntry[] = [
       { ...entry(PROJECT, 'cht_probe_1'), kind: 'chat_asked', about: [] },
       { ...entry(PROJECT, 'cht_probe_2'), kind: 'chat_answered', about: [] },
+      { ...entry(PROJECT, 'cht_probe_3'), kind: 'edit_noted', about: [] },
     ];
-    const asked = { ...next.through, turnThrough: 'cht_probe_2' };
-    check('a write of a value and two chat turns is taken', same(await writeMemory(memory, TENANT, next.through, { projectId: PROJECT, through: asked, entries: [valued, ...chats] }), { written: 3 }));
+    const asked = { ...next.through, turnThrough: 'cht_probe_4' };
+    check('a write of a value, two chat turns and a note is taken', same(await writeMemory(memory, TENANT, next.through, { projectId: PROJECT, through: asked, entries: [valued, ...turns] }, notLive), { written: 4 }));
     const kept = (await memory.entries(PROJECT, 100)).find((e) => e.id === valued.id);
     check('the value is stored under its key, with the fixed list’s name for it and not the caller’s words', kept?.key === 'extent_khata' && kept.label === STANDARD_FACT_KEYS.extent_khata!.label, kept);
     const counted = await memory.count(PROJECT);
-    check('the project’s memory is counted: seven entries and the node that says where it stands', counted.project === 8, counted);
+    check('the project’s memory is counted: eight entries and the node that says where it stands', counted.project === 9, counted);
     check('and so is every node the database holds, the graph’s included', counted.database > counted.project, counted);
-    const forgotten = await writeMemory(memory, TENANT, asked, { projectId: PROJECT, through: next.through, entries: [], forget: [...MEM_CHAT_KINDS] });
-    check('a write that lets go of the chat turns is taken', same(forgotten, { written: 0 }), forgotten);
+    const forgotten = await writeMemory(memory, TENANT, asked, { projectId: PROJECT, through: next.through, entries: [], forget: [...MEM_TURN_KINDS] }, notLive);
+    check('a write that lets go of what was told from the conversation is taken', same(forgotten, { written: 0 }), forgotten);
     const left = await memory.entries(PROJECT, 100);
-    check('and takes those entries and no other', left.length === 5 && left.every((e) => !MEM_CHAT_KINDS.includes(e.kind)) && left.some((e) => e.id === valued.id), left.map((e) => e.kind));
+    check('and takes those entries, the note with the turns, and no other', left.length === 5 && left.every((e) => !MEM_TURN_KINDS.includes(e.kind)) && left.some((e) => e.id === valued.id), left.map((e) => e.kind));
     check('and the watermark stands at no turn', same((await memory.watermarks([PROJECT])).get(PROJECT), next.through), [...(await memory.watermarks([PROJECT]))]);
 
-    const taking = await memory.write({ projectId: OTHER, tenantId: TENANT, from: {}, through: { schema: MEM_SCHEMA, auditThrough: 'aud_other' }, entries: [{ ...first[0]!, about: ['taken'] }, entry(PROJECT, 'not_yet_told')], mayRaise: true });
+    const taking = await memory.write({ projectId: OTHER, tenantId: TENANT, from: {}, through: { schema: MEM_SCHEMA, auditThrough: 'aud_other' }, entries: [{ ...first[0]!, about: ['taken'] }, entry(PROJECT, 'not_yet_told')], live: notLive });
     const mine = await memory.entries(PROJECT, 100);
     check('a write for another project that names this one’s entries writes none of them', same(taking, { written: 0 }) && same(await memoryNodes(OTHER), { MemProject: 1 }), [taking, await memoryNodes(OTHER)]);
-    const away = await memory.write({ projectId: `${OTHER}_away`, tenantId: TENANT, from: { auditThrough: 'aud_nowhere' }, through: { schema: MEM_SCHEMA, auditThrough: 'aud_1' }, entries: [], mayRaise: true });
+    const away = await memory.write({ projectId: `${OTHER}_away`, tenantId: TENANT, from: { auditThrough: 'aud_nowhere' }, through: { schema: MEM_SCHEMA, auditThrough: 'aud_1' }, entries: [], live: notLive });
     check('a write that is turned away leaves nothing behind, not even the node it took', same(away, { moved: {} }) && same(await memoryNodes(`${OTHER}_away`), {}), [away, await memoryNodes(`${OTHER}_away`)]);
     check('and this project’s entries are as they were', mine.length === 5 && mine.some((e) => e.id === first[0]!.id && same(e.about, first[0]!.about)), mine.length);
 
@@ -405,7 +441,7 @@ async function main(): Promise<void> {
     let oneTaken = true;
     for (let round = 0; round < 10 && oneTaken; round += 1) {
       const writers = ['a', 'b'].map((name) => ({ schema: MEM_SCHEMA, auditThrough: `aud_race_${round}_${name}`, ...(stands.turnThrough ? { turnThrough: stands.turnThrough } : {}) }));
-      const answers = await Promise.all(writers.map((through) => memory.write({ projectId: PROJECT, tenantId: TENANT, from: stands, through, entries: [entry(PROJECT, `${through.auditThrough}`)], mayRaise: true })));
+      const answers = await Promise.all(writers.map((through) => memory.write({ projectId: PROJECT, tenantId: TENANT, from: stands, through, entries: [entry(PROJECT, `${through.auditThrough}`)], live: notLive })));
       const taken = writers.filter((_, i) => 'written' in answers[i]!);
       const after = (await memory.watermarks([PROJECT])).get(PROJECT);
       const turnedAway = answers.filter((answer) => 'moved' in answer);
@@ -438,18 +474,48 @@ async function main(): Promise<void> {
     const afterPurge = refusal(await graph.syncProject(snapshot(2, ['a', 'b'])));
     check('this build draws the same copy again after it: the marker alone does not call it drawn', afterPurge === null && same(await stored(), ['a', 'b']), await stored());
 
-    // A build with a later shape. To it, memory in this build's shape stands nowhere. On a preview it may not raise it.
-    const raised = { ...stands, schema: MEM_SCHEMA + 1 };
-    const preview = await memory.write({ projectId: PROJECT, tenantId: TENANT, from: {}, through: raised, entries: [entry(PROJECT, 'preview')], mayRaise: false });
-    check('a deployment that may not raise the shape is turned away, and told which shape memory holds', same(preview, { lower: MEM_SCHEMA }), preview);
-    check('and writes nothing', (await memory.entries(PROJECT, 100)).length === 15 && same((await memory.watermarks([PROJECT])).get(PROJECT), stands));
-    const unwritten = await memory.write({ projectId: TIMED, tenantId: TENANT, from: {}, through: { schema: MEM_SCHEMA + 1, auditThrough: 'aud_preview' }, entries: [entry(TIMED, 'preview')], mayRaise: false });
-    check('nor does it write a later shape where nothing is written yet, or leave a node behind for having asked', same(unwritten, { lower: 0 }) && same(await memoryNodes(TIMED), {}), [unwritten, await memoryNodes(TIMED)]);
-    const later = await memory.write({ projectId: PROJECT, tenantId: TENANT, from: {}, through: raised, entries: [], mayRaise: true });
-    check('the live site’s write in a later shape is taken over memory in this one', same(later, { written: 0 }), later);
-    const lower = await writeMemory(memory, TENANT, stands, { projectId: PROJECT, through: stands, entries: [entry(PROJECT, 'lower')] });
-    check('a write in a lower shape than memory holds is turned away, and told which shape it holds', same(lower, { newer: MEM_SCHEMA + 1 }), lower);
-    check('and writes nothing', (await memory.entries(PROJECT, 100)).length === 15);
+    // Which writer may write what over a project's memory. Everything so far was written as a deployment that is not the live site.
+    const standing = async (): Promise<unknown> => (await memory.watermarks([PROJECT])).get(PROJECT);
+    const ids = (entries: MemEntry[]): string[] => entries.map((e) => e.id).sort();
+    check('memory the live site has not written is not marked as its own', same(await standing(), stands), await standing());
+
+    // A build with a later shape, on a deployment that is not the live site. It starts over memory the live site has not written.
+    const raised = { schema: MEM_SCHEMA + 1, auditThrough: 'aud_raised' };
+    const retold: MemEntry = { ...first[0]!, about: ['as_the_later_shape_tells_it'] };
+    const believing = await memory.write({ projectId: PROJECT, tenantId: TENANT, from: stands, through: raised, entries: [retold], live: notLive });
+    check('a write in a later shape that believes memory stands somewhere is told where it stands', same(believing, { moved: stands }), believing);
+    check('and lets go of nothing', (await memory.entries(PROJECT, 100)).length === 15 && same(await standing(), stands), await standing());
+    await plantProperty(PROJECT);
+    const raising = await memory.write({ projectId: PROJECT, tenantId: TENANT, from: {}, through: raised, entries: [retold, entry(PROJECT, 'raised')], live: notLive });
+    check('a later shape is taken over an earlier one the live site has not written', same(raising, { written: 2 }), raising);
+    const startedOver = await memory.entries(PROJECT, 100);
+    check('and starts memory over: every entry the earlier shape wrote is gone, and its own are there', same(ids(startedOver), ids([retold, entry(PROJECT, 'raised')])) && same(await memoryNodes(PROJECT), { MemEntry: 2, MemProject: 1 }), await memoryNodes(PROJECT));
+    check('an entry it tells under an id the earlier shape held is as the later shape tells it', same(startedOver.find((e) => e.id === retold.id)?.about, retold.about), startedOver.find((e) => e.id === retold.id));
+    check('the project’s own node is made again: it holds what this write set and nothing from before it', same(await memoryProperties(PROJECT), ['auditThrough', 'id', 'projectId', 'schema', 'tenantId', 'writtenAt']) && same(await standing(), raised), [await memoryProperties(PROJECT), await standing()]);
+    const lower = await writeMemory(memory, TENANT, stands, { projectId: PROJECT, through: stands, entries: [entry(PROJECT, 'lower')] }, notLive);
+    check('a write in an earlier shape than memory holds is turned away, and told which shape it holds', same(lower, { newer: MEM_SCHEMA + 1 }), lower);
+    check('and writes nothing', (await memory.entries(PROJECT, 100)).length === 2 && same(await standing(), raised), await standing());
+
+    // The live site, on this build. Written as one to the probe's own project only: the mark is kept on that project's node, which the probe removes.
+    const whole = memoryDelta(project, {});
+    const live = await writeMemory(memory, TENANT, {}, whole, true);
+    check('the live site’s write is taken over a later shape it did not write: it does not stand down for another deployment’s writing', same(live, { written: 4 }), live);
+    check('it starts memory over in its own shape, and what the other deployment wrote is gone', same(ids(await memory.entries(PROJECT, 100)), ids(whole.entries)) && same(await memoryNodes(PROJECT), { MemEntry: 4, MemProject: 1 }), await memoryNodes(PROJECT));
+    const marked = { ...whole.through, live: true };
+    check('and marks the project’s memory the live site’s', same(await standing(), marked), await standing());
+    const turned = await memory.write({ projectId: PROJECT, tenantId: TENANT, from: {}, through: raised, entries: [entry(PROJECT, 'preview')], live: notLive });
+    check('from then on a later shape from any other deployment is turned away, and told which shape the live site wrote', same(turned, { lower: MEM_SCHEMA }), turned);
+    check('and writes nothing', (await memory.entries(PROJECT, 100)).length === 4 && same(await standing(), marked), await standing());
+    const adding = { ...whole.through, auditThrough: 'aud_added' };
+    const added = await writeMemory(memory, TENANT, whole.through, { projectId: PROJECT, through: adding, entries: [entry(PROJECT, 'added')] }, notLive);
+    check('another deployment in the live site’s shape adds to its memory', same(added, { written: 1 }) && (await memory.entries(PROJECT, 100)).length === 5, added);
+    check('and the mark stays under its write', same(await standing(), { ...adding, live: true }), await standing());
+    const liveRaised = await memory.write({ projectId: PROJECT, tenantId: TENANT, from: {}, through: raised, entries: [entry(PROJECT, 'live_raised')], live: true });
+    check('the live site raises its own memory, by starting it over', same(liveRaised, { written: 1 }) && same(ids(await memory.entries(PROJECT, 100)), [entry(PROJECT, 'live_raised').id]) && same(await standing(), { ...raised, live: true }), [liveRaised, await standing()]);
+    const earlierLive = await writeMemory(memory, TENANT, {}, whole, true);
+    check('and an earlier build of the live site then stands down', same(earlierLive, { newer: MEM_SCHEMA + 1 }) && (await memory.entries(PROJECT, 100)).length === 1, earlierLive);
+    const unwritten = await memory.write({ projectId: UNWRITTEN, tenantId: TENANT, from: {}, through: { schema: MEM_SCHEMA + 1, auditThrough: 'aud_unwritten' }, entries: [entry(UNWRITTEN, 'unwritten')], live: notLive });
+    check('where nothing is written yet, any deployment writes first, in its own shape', same(unwritten, { written: 1 }) && same(await memoryNodes(UNWRITTEN), { MemEntry: 1, MemProject: 1 }), [unwritten, await memoryNodes(UNWRITTEN)]);
 
     await memory.purge(PROJECT);
     check('this build’s purge removes every memory node of the project', same(await memoryNodes(PROJECT), {}), await memoryNodes(PROJECT));
@@ -475,14 +541,17 @@ async function main(): Promise<void> {
     console.log(`\nOne write of memory of ${MEM_AT_MOST} entries, the most one write holds, from this machine:`);
     const many = Array.from({ length: MEM_AT_MOST }, (_, i) => entry(TIMED, `aud_${i}`));
     const through = { schema: MEM_SCHEMA, auditThrough: `aud_${MEM_AT_MOST - 1}` };
-    await timed('written for the first time (2 statements)', () => memory.write({ projectId: TIMED, tenantId: TENANT, from: {}, through, entries: many, mayRaise: true }));
-    await timed('written again, every entry already there (2 statements)', () => memory.write({ projectId: TIMED, tenantId: TENANT, from: through, through, entries: many, mayRaise: true }));
+    await timed('written for the first time (6 statements: a first write starts memory over)', () => memory.write({ projectId: TIMED, tenantId: TENANT, from: {}, through, entries: many, live: false }));
+    await timed('written again, every entry already there (2 statements)', () => memory.write({ projectId: TIMED, tenantId: TENANT, from: through, through, entries: many, live: false }));
+    await timed(`started over in a later shape, ${MEM_AT_MOST} entries let go and ${MEM_AT_MOST} written (6 statements)`, () =>
+      memory.write({ projectId: TIMED, tenantId: TENANT, from: {}, through: { ...through, schema: MEM_SCHEMA + 1 }, entries: many, live: false }),
+    );
     await timed('counted, with every node in the database (5 statements)', () => memory.count(TIMED));
     await timed('read back, newest first', () => memory.entries(TIMED, MEM_AT_MOST));
     check(`and all of it is stored: ${MEM_AT_MOST} entries`, same(await memoryNodes(TIMED), { MemEntry: MEM_AT_MOST, MemProject: 1 }), await memoryNodes(TIMED));
     await timed('removed (4 statements)', () => memory.purge(TIMED));
   } finally {
-    for (const project of [PROJECT, TIMED, OTHER, `${OTHER}_away`]) {
+    for (const project of [PROJECT, TIMED, OTHER, `${OTHER}_away`, UNWRITTEN]) {
       await graph.purgeProject(project).catch((err: Error) => console.error(`Could not remove the graph of ${project}: ${err.message}`));
       await memory.purge(project).catch((err: Error) => console.error(`Could not remove the memory of ${project}: ${err.message}`));
     }

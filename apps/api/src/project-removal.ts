@@ -9,6 +9,11 @@
  * in storage, where the next instance to look found it and listed the
  * project again.
  *
+ * While the documents go the project is off this instance's list, and the
+ * store reads none of them back onto it (`Store.takeOff`): a page left open
+ * on the project asks for it about once a second, and removing a project's
+ * files can take longer than that.
+ *
  * When the documents will not go, the project stays as it was and the caller
  * is told so, in words to pass on to the person who asked.
  */
@@ -26,15 +31,13 @@ export const PROJECT_KEPT = 'This project has not been deleted, because its file
  * here.
  */
 export async function removeProject(projectId: string): Promise<'removed' | 'absent' | 'kept'> {
-  const projects = store.data.projects ?? [];
-  const at = projects.findIndex((project) => project.id === projectId);
-  if (at < 0) return 'absent';
-  // Off the list while its documents go, so that nothing on this instance writes one of them back.
-  const [project] = projects.splice(at, 1);
+  // Off the list while its documents go, so that nothing on this instance writes one of them back or reads one back.
+  const taken = store.takeOff(projectId);
+  if (!taken) return 'absent';
   try {
     await storageAdapter.deleteCaseDocuments(projectId);
   } catch (err) {
-    projects.splice(at, 0, project!);
+    store.putBack(taken);
     console.warn(`[projects] could not remove the documents of ${projectId}: ${(err as Error).message}`);
     return 'kept';
   }

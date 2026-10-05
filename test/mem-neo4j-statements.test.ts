@@ -8,13 +8,16 @@
  * draws a relationship at all. The rest is what makes a write safe when
  * several instances make it: the project's memory node is taken first and
  * locked before it is read, the entries and the watermark go in the same
- * transaction or not at all, nothing is written when memory stands elsewhere,
- * in a later shape, or in an earlier one this deployment may not raise, and
- * an entry found is never changed, so no write can give a node to another
- * project. The entries of chat turns are let go only by a write that says
- * so, before its own entries, in its own transaction. A database with no
- * room answers that, and is not taken for one that failed. Every read has a
- * time after which the database ends it.
+ * transaction or not at all, nothing is written when memory stands elsewhere
+ * or in a shape the writer may not write over, and an entry found is never
+ * changed, so no write can give a node to another project. A write that
+ * starts a project's memory over lets go of every node memory keeps for it
+ * and makes its own node again, before its entries and in its transaction.
+ * The mark that says the live site wrote a project's memory is set by the
+ * live site's write and by no other. The entries of chat turns are let go
+ * only by a write that says so, before its own entries, in its own
+ * transaction. A database with no room answers that, and is not taken for
+ * one that failed. Every read has a time after which the database ends it.
  *
  * Nothing here reaches a database. The suite is forbidden one (see
  * `no-ambient-credentials.ts`), so the store is handed a driver whose
@@ -54,7 +57,7 @@ let transactions: number;
 /** The transactions that ended with nothing written: the ones whose work threw. */
 let rolledBack: number[];
 /** Where the project's memory stands, as its node answers: a property never set comes back null. */
-let stands: { schema: number | null; auditThrough: string | null; turnThrough: string | null };
+let stands: { schema: number | null; auditThrough: string | null; turnThrough: string | null; live?: boolean | null };
 /** What the reads answer. */
 let rows: Row[];
 /** Transactions still to fail before any statement of theirs runs. */
@@ -121,10 +124,14 @@ function batch(more: Partial<MemBatch> = {}): MemBatch {
       entry('aud_2', { kind: 'value_accepted', key: 'extent_khata', label: 'Extent per khata', about: ['ev_1'] }),
       entry('aud_3', { kind: 'chat_asked', place: { pane: 'evidence', stage: 'pre_development' }, about: [] }),
     ],
-    mayRaise: true,
+    live: false,
     ...more,
   };
 }
+
+/** What a write that starts a project's memory over asks, after it has taken the node and before it writes. */
+const LET_GO = ['MemEntry', 'MemFact', 'MemPage'].map((label) => `MATCH (n:${label} { projectId: $projectId }) DETACH DELETE n`);
+const MADE_AGAIN = 'MATCH (m:MemProject { id: $id }) SET m = { id: m.id, projectId: m.projectId, tenantId: m.tenantId }';
 
 /** The statements of the transactions that wrote data, leaving out the one that makes the constraints. */
 const written = (): Asked[] => asked.filter((statement) => statement.kind === 'write' && !/^CREATE /.test(statement.query.trim()));
@@ -192,6 +199,7 @@ describe('a write to the project’s memory', () => {
     assert.equal(claim!.params.projectId, PROJECT);
     assert.equal(claim!.params.tenantId, TENANT);
 
+    assert.match(claim!.query, /RETURN m\.schema AS schema, m\.auditThrough AS auditThrough, m\.turnThrough AS turnThrough, m\.live AS live/, 'it reads the shape, the place and whose memory it is');
     assert.match(write!.query, /MATCH \(m:MemProject \{ id: \$id \}\)\s+SET m\.schema = \$schema, m\.auditThrough = \$auditThrough, m\.turnThrough = \$turnThrough/);
     assert.match(write!.query, /UNWIND \$entries AS entry\s+MERGE \(e:MemEntry \{ id: entry\.id \}\)/);
     assert.ok(write!.query.indexOf('SET m.schema') < write!.query.indexOf('UNWIND'), 'the watermark moves even when there is no entry to write');
@@ -205,6 +213,7 @@ describe('a write to the project’s memory', () => {
       projectId: PROJECT,
       tenantId: TENANT,
       schema: MEM_SCHEMA,
+      live: null,
       auditThrough: 'aud_3',
       turnThrough: null,
       entries: [
@@ -274,37 +283,90 @@ describe('a write to the project’s memory', () => {
     assert.deepEqual(await memory.write(batch()), { newer: MEM_SCHEMA + 1 });
     assert.equal(written().length, 1);
     assert.equal(rolledBack.length, 1);
+
+    // Nor does the live site over a later shape it wrote itself: that is a later live build's.
+    asked = [];
+    stands = { schema: MEM_SCHEMA + 1, auditThrough: 'aud_1', turnThrough: null, live: true };
+    assert.deepEqual(await memory.write(batch({ live: true })), { newer: MEM_SCHEMA + 1 });
+    assert.equal(written().length, 1);
   });
 
-  it('writes nothing in a later shape over an earlier one, unless the deployment is one that may raise it', async () => {
+  it('writes nothing in a later shape over what the live site wrote, unless the writer is the live site', async () => {
     const later = { schema: MEM_SCHEMA + 1, auditThrough: 'aud_3' };
-    stands = { schema: MEM_SCHEMA, auditThrough: 'aud_1', turnThrough: null };
-    assert.deepEqual(await memory.write(batch({ from: {}, through: later, mayRaise: false, forget: ['chat_asked'] })), { lower: MEM_SCHEMA });
+    stands = { schema: MEM_SCHEMA, auditThrough: 'aud_1', turnThrough: null, live: true };
+    assert.deepEqual(await memory.write(batch({ from: {}, through: later, forget: ['chat_asked'] })), { lower: MEM_SCHEMA });
     assert.equal(written().length, 1, 'a preview takes the node, reads the shape it holds, and writes nothing');
     assert.equal(rolledBack.length, 1, 'nothing at all: the transaction is ended unwritten');
 
     asked = [];
-    stands = { schema: null, auditThrough: null, turnThrough: null };
-    assert.deepEqual(await memory.write(batch({ from: {}, through: later, mayRaise: false })), { lower: 0 }, 'nor does it write a later shape where nothing is written yet');
-    assert.equal(written().length, 1);
-
-    asked = [];
-    assert.deepEqual(await memory.write(batch({ from: {}, mayRaise: false })), { written: 2 }, 'the first shape it may write first');
-
-    asked = [];
-    stands = { schema: MEM_SCHEMA, auditThrough: 'aud_1', turnThrough: null };
-    assert.deepEqual(await memory.write(batch({ from: {}, through: later, mayRaise: true })), { written: 2 }, 'the live site raises');
-    assert.equal(written()[1]!.params.schema, MEM_SCHEMA + 1);
+    assert.deepEqual(await memory.write(batch({ from: {}, through: later, live: true })), { written: 2 }, 'the live site raises its own');
+    assert.equal(written().at(-1)!.params.schema, MEM_SCHEMA + 1);
+    assert.deepEqual(rolledBack.length, 1, 'and nothing more was turned away');
   });
 
-  it('takes a memory never written, or written in an earlier shape, as standing nowhere', async () => {
-    stands = { schema: null, auditThrough: null, turnThrough: null };
+  it('starts a memory over by letting go of every node kept for the project and making its own again, before it writes', async () => {
+    // Written by a preview in an earlier shape. Another preview raises it.
+    stands = { schema: MEM_SCHEMA - 1, auditThrough: 'aud_7', turnThrough: 'cht_2' };
+    assert.deepEqual(await memory.write(batch({ from: {}, forget: ['chat_asked'] })), { written: 2 }, 'the whole record is told again in this shape');
+    assert.deepEqual(rolledBack, []);
+
+    const statements = written();
+    assert.deepEqual(
+      statements.slice(1, -1).map((statement) => statement.query),
+      [...LET_GO, MADE_AGAIN, 'MATCH (e:MemEntry { projectId: $projectId }) WHERE e.kind IN $kinds DETACH DELETE e'],
+      'every label memory has or is to have but the project’s own node, then that node as it was made',
+    );
+    assert.equal(new Set(statements.map((statement) => statement.transaction)).size, 1, 'in the transaction that writes the entries, so memory is never seen empty');
+    for (const statement of statements.slice(1, 4)) assert.deepEqual(statement.params, { projectId: PROJECT }, 'this project’s and no other’s');
+    assert.deepEqual(statements[4]!.params, { id: `${PROJECT}::mem` });
+    assert.doesNotMatch(MADE_AGAIN, /\$projectId|\$tenantId/, 'the node keeps the project and the workspace it was made with: no write gives it another');
+    assert.match(statements.at(-1)!.query, /MERGE \(e:MemEntry \{ id: entry\.id \}\)/, 'an entry the record still tells is made again after, as this build tells it');
+    assert.equal(statements.at(-1)!.params.schema, MEM_SCHEMA);
+  });
+
+  it('starts over a memory never written, which stands nowhere', async () => {
+    stands = { schema: null, auditThrough: null, turnThrough: null, live: null };
     assert.deepEqual(await memory.write(batch({ from: {} })), { written: 2 });
+    assert.deepEqual(written().slice(1, -1).map((statement) => statement.query), [...LET_GO, MADE_AGAIN]);
+  });
+
+  it('lets go of nothing when the writer that is to start over believed memory stood somewhere', async () => {
+    stands = { schema: MEM_SCHEMA - 1, auditThrough: 'aud_7', turnThrough: null };
+    assert.deepEqual(await memory.write(batch()), { moved: { schema: MEM_SCHEMA - 1, auditThrough: 'aud_7' } }, 'for a writer that starts over, memory stands nowhere');
+    assert.equal(written().length, 1);
+    assert.equal(rolledBack.length, 1);
+  });
+
+  it('starts over, as the live site, whatever another deployment left: its own shape or a later one', async () => {
+    for (const left of [MEM_SCHEMA, MEM_SCHEMA + 1]) {
+      asked = [];
+      stands = { schema: left, auditThrough: 'aud_1', turnThrough: null, live: null };
+      assert.deepEqual(await memory.write(batch({ from: {}, live: true })), { written: 2 }, `the live site does not stand down for shape ${left} written by a preview`);
+      const statements = written();
+      assert.deepEqual(statements.slice(1, -1).map((statement) => statement.query), [...LET_GO, MADE_AGAIN], 'what the preview left is let go');
+      assert.equal(statements.at(-1)!.params.schema, MEM_SCHEMA);
+      assert.equal(statements.at(-1)!.params.live, true, 'and the memory is marked the live site’s');
+    }
+    assert.deepEqual(rolledBack, []);
+
+    // Its own memory in its own shape it carries on, from where it stands.
+    asked = [];
+    stands = { schema: MEM_SCHEMA, auditThrough: 'aud_1', turnThrough: null, live: true };
+    assert.deepEqual(await memory.write(batch({ live: true })), { written: 2 });
+    assert.equal(written().length, 2, 'nothing is let go');
+  });
+
+  it('marks a memory the live site’s only by the live site’s write, and no write takes the mark off', async () => {
+    stands = { schema: MEM_SCHEMA, auditThrough: 'aud_1', turnThrough: null, live: true };
+    await memory.write(batch());
+    const carried = written().at(-1)!;
+    assert.match(carried.query, /m\.live = coalesce\(\$live, m\.live\)/, 'a writer that is not the live site leaves the mark as it finds it');
+    assert.equal(carried.params.live, null);
+    assert.deepEqual([...carried.query.matchAll(/m\.live\b/g)].length, 2, 'and the mark is set nowhere else in the statement');
 
     asked = [];
-    stands = { schema: MEM_SCHEMA - 1, auditThrough: 'aud_7', turnThrough: null };
-    assert.deepEqual(await memory.write(batch({ from: {} })), { written: 2 }, 'the whole record is told again in this shape');
-    assert.equal(written()[1]!.params.schema, MEM_SCHEMA);
+    await memory.write(batch({ live: true }));
+    assert.equal(written().at(-1)!.params.live, true);
   });
 
   it('writes no entry under an id that begins with another project’s', async () => {
@@ -361,11 +423,22 @@ describe('reading memory', () => {
   });
 
   it('reads where the memory of several projects stands in one statement, and leaves out one never written', async () => {
-    rows = [{ projectId: PROJECT, schema: MEM_SCHEMA, auditThrough: 'aud_3', turnThrough: null }];
-    const found = await memory.watermarks([PROJECT, 'prj-never-told']);
-    assert.deepEqual([...found], [[PROJECT, { schema: MEM_SCHEMA, auditThrough: 'aud_3' }]]);
+    rows = [
+      { projectId: PROJECT, schema: MEM_SCHEMA, auditThrough: 'aud_3', turnThrough: null, live: null },
+      { projectId: 'prj-live-wrote', schema: MEM_SCHEMA, auditThrough: null, turnThrough: 'cht_1', live: true },
+    ];
+    const found = await memory.watermarks([PROJECT, 'prj-live-wrote', 'prj-never-told']);
+    assert.deepEqual(
+      [...found],
+      [
+        [PROJECT, { schema: MEM_SCHEMA, auditThrough: 'aud_3' }],
+        ['prj-live-wrote', { schema: MEM_SCHEMA, turnThrough: 'cht_1', live: true }],
+      ],
+      'with whether the live site wrote it',
+    );
     assert.equal(asked.length, 1);
-    assert.deepEqual(asked[0]!.params, { ids: [`${PROJECT}::mem`, 'prj-never-told::mem'] });
+    assert.match(asked[0]!.query, /m\.live AS live/);
+    assert.deepEqual(asked[0]!.params, { ids: [`${PROJECT}::mem`, 'prj-live-wrote::mem', 'prj-never-told::mem'] });
 
     asked = [];
     assert.deepEqual([...(await memory.watermarks([]))], []);
@@ -406,12 +479,15 @@ describe('reading memory', () => {
 describe('every statement memory asks', () => {
   it('names neither the graph’s label, its relationship nor its marker, and draws no relationship', async () => {
     await memory.write(batch({ forget: ['chat_asked', 'chat_answered'] }));
+    // And a write that starts the project's memory over.
+    stands = { schema: MEM_SCHEMA - 1, auditThrough: null, turnThrough: null };
+    await memory.write(batch({ from: {} }));
     await memory.purge(PROJECT);
     await memory.entries(PROJECT, 10);
     await memory.watermarks([PROJECT]);
     await memory.projects();
     await memory.count(PROJECT);
-    assert.ok(asked.length >= 14);
+    assert.ok(asked.length >= 20);
     for (const { query, kind } of asked) {
       assert.doesNotMatch(query, /Ryt|RYT_EDGE|GraphSync/, 'the graph is not memory’s to touch');
       assert.doesNotMatch(query, /-\[|\]-|-->|<--|--\(/, 'an entry points at the record by ids it holds, not by a relationship a redraw could take away');

@@ -398,6 +398,12 @@ export class Store {
   private memorySweepAt = 0;
   private readonly memoryLooks: MemoryLooks = { seenGone: new Set(), from: 0 };
 
+  /**
+   * Projects this instance has taken off its list to remove; see `takeOff`.
+   * No read of storage lists one of them again.
+   */
+  private removing = new Set<string>();
+
   /** Load persisted state via the active adapter. Must be awaited once at
    * boot, before any route handler runs — after that, `data` is
    * synchronously readable exactly as it always was. */
@@ -494,7 +500,8 @@ export class Store {
     const missing = [...stored].filter((id) => !held.has(id));
     const shards = (await Promise.all(missing.map((id) => this.readShard(id)))).filter((shard): shard is Shard => shard !== null);
     for (const { project, revision } of shards) {
-      if (projects.some((other) => other.id === project.id)) continue;
+      // Not one this instance is removing: what was read is a document on its way out.
+      if (this.removing.has(project.id) || projects.some((other) => other.id === project.id)) continue;
       projects.push(project);
       this.persistedAt.set(project.id, project.updatedAt);
       this.owe(project, revision);
@@ -521,7 +528,9 @@ export class Store {
     for (const id of [...this.persistedAt.keys()]) if (!live.has(id)) this.forget(id);
     // Only the ids this instance holds. One the index names and this
     // instance could not read is not this instance's to drop from the index.
-    this.indexed = new Set([...stored].filter((id) => live.has(id)));
+    // And the ids it is removing, which stay here until the save that ends
+    // the removal has taken them out of the index.
+    this.indexed = new Set([...stored].filter((id) => live.has(id) || this.removing.has(id)));
   }
 
   /**
@@ -592,6 +601,8 @@ export class Store {
     const projects = this.data.projects ?? (this.data.projects = []);
     let held = projects.find((project) => project.id === id);
     if (!held) {
+      // Not one this instance is removing: what was read is a document on its way out.
+      if (this.removing.has(id)) return;
       held = stored;
       projects.push(stored);
       this.persistedAt.set(id, stored.updatedAt);
@@ -605,6 +616,32 @@ export class Store {
     }
     // Newly held, replaced or the same: the copy held is the one storage has.
     this.owe(held, revision);
+  }
+
+  /**
+   * Take a project off this instance's list, to remove it: the project and
+   * where it stood, or nothing when the list has none by that id.
+   *
+   * Removing a project's documents is not done in an instant, and requests
+   * about the project go on arriving while it is. Each reads the project
+   * from storage first. One that found the document still there put the
+   * project back on the list, and the removal ended with the project listed,
+   * in the index and served, and no document behind it. So from here on no
+   * read of storage lists the project again, on this instance, unless the
+   * removal fails and it is put back.
+   */
+  takeOff(projectId: string): { project: DdProject; at: number } | undefined {
+    const projects = this.data.projects ?? [];
+    const at = projects.findIndex((project) => project.id === projectId);
+    if (at < 0) return undefined;
+    this.removing.add(projectId);
+    return { project: projects.splice(at, 1)[0]!, at };
+  }
+
+  /** Put back a project that was taken off and could not be removed, where it stood. Storage is read for it again. */
+  putBack(taken: { project: DdProject; at: number }): void {
+    this.removing.delete(taken.project.id);
+    (this.data.projects ?? (this.data.projects = [])).splice(taken.at, 0, taken.project);
   }
 
   /**

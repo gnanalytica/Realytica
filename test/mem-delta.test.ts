@@ -9,15 +9,18 @@
  * What is pinned here. Each kind of event is told once, from the operation
  * that really records it, and points at the record by id. Telling the same
  * record again tells nothing. A long record is told in pieces that add up to
- * the whole. A chat turn is told once it has its author, and not before.
- * Memory written in a higher shape is left alone, and one written in a lower
- * shape is told again whole. A copy of the project that does not hold what
- * memory was last told from tells nothing, and a record that has lost the
- * chats lets go of their entries. And no word of the record's gets into an
- * entry: not from a chat or a page, not a file name, a value, a name, an
- * email, or an identity, phone or account number however it is written. The
- * only words in an entry are the product's own, for a value's key and for a
- * page. The last test pins the shape itself, so that a change to what is
+ * the whole. A chat turn is told once it has its author, and not before. A
+ * note left by a work-pane write is one entry, told at once whether or not
+ * it names who wrote, and holds nothing back. Memory written in a higher
+ * shape is left alone, and one written in a lower shape is told again whole.
+ * A copy of the project that does not hold what memory was last told from
+ * tells nothing, and a record that has lost the chats lets go of their
+ * entries. And no word of the record's gets into an entry: not from a chat
+ * or a page, not a file name, a value, a name, an email, or an identity,
+ * phone or account number however it is written. The only words in an entry
+ * are the product's own, for a value's key and for a page, and the key of a
+ * parcel read off the public map, in the map reader's own fixed form and no
+ * other. The last test pins the shape itself, so that a change to what is
  * told is made with the schema and not beside it.
  *
  * The stores' side of the same rules is in `mem-sync.test.ts` and
@@ -27,9 +30,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  MEM_CHAT_KINDS,
   MEM_ENTRY_KINDS,
+  MEM_PARCEL_REF,
   MEM_SCHEMA,
+  MEM_TURN_KINDS,
   MEM_TURN_WAIT_MS,
   STANDARD_FACT_KEYS,
   addAction,
@@ -46,6 +50,7 @@ import {
   memWho,
   memoryDelta,
   memoryReplay,
+  noteProjectEdit,
   recordAuditEvent,
   removeRevenueMapRead,
   reviewFacts,
@@ -58,9 +63,14 @@ import {
   type MemEntryKind,
   type RevenueMapRead,
 } from '@realytica/shared';
+import { PARCEL_REF_PATTERN } from '../packages/site-intel/src/cadastre';
 
 const VALUER = 'valuer@example.com';
 const LEAD = 'lead@example.com';
+
+/** Two parcels as the public map's reader keys them: the map, a ten-digit code for the village, the survey number. */
+const PARCEL = 'kgis:2003010043:10';
+const NEXT_PARCEL = 'kgis:2003010043:11/2A';
 
 const fact = (key: string, value: string | number, display = String(value)): DocumentFact => ({
   key,
@@ -162,16 +172,20 @@ function lived() {
   const decision = addDecision(project, { title: 'Hold the advance', decisionType: 'hold_payment', decisionMaker: 'Lead', rationale: 'Waiting on a paper.' }, LEAD);
   const action = addAction(project, { title: 'Ask for the earlier deed', kind: 'evidence_request', owner: 'operator', priority: 'high' }, LEAD);
   const finding = addFinding(project, { title: 'Extent differs', description: 'Two papers disagree.', severity: 'high', discipline: 'legal' }, LEAD);
-  applyRevenueMap(project, mapRead('kgis:1:10', '2026-09-06T06:00:00.000Z'), LEAD);
-  applyRevenueMap(project, mapRead('kgis:1:11', '2026-09-06T06:05:00.000Z'), LEAD);
-  removeRevenueMapRead(project, 'kgis:1:11', LEAD);
+  applyRevenueMap(project, mapRead(PARCEL, '2026-09-06T06:00:00.000Z'), LEAD);
+  applyRevenueMap(project, mapRead(NEXT_PARCEL, '2026-09-06T06:05:00.000Z'), LEAD);
+  removeRevenueMapRead(project, NEXT_PARCEL, LEAD);
   // An undo, as the route that makes one records it: what was put back is named in words, which memory does not keep.
   recordAuditEvent(project, { actor: LEAD, action: 'undo', entityType: 'project', entityId: project.id, oldValue: 'Accepted the extent' });
+  // A write made on a work pane, as its route notes it in the thread.
+  noteProjectEdit(project, 'Filed the revenue-map read as evidence.', { citedEvidenceIds: [row.id], actor: LEAD });
+  const noted = project.conversation.slice(-2);
   const asked = ask(project, 'what is missing?', VALUER, { pane: 'evidence', department: 'legal', stage: 'pre_development' });
-  return { project, row, decision, action, finding, dropped, asked };
+  return { project, row, decision, action, finding, dropped, noted, asked };
 }
 
-const isChat = (entry: MemEntry): boolean => MEM_CHAT_KINDS.includes(entry.kind);
+/** Told from the conversation: a question, an answer, or the note of a work-pane write. */
+const isTurn = (entry: MemEntry): boolean => MEM_TURN_KINDS.includes(entry.kind);
 
 const ofKind = (entries: MemEntry[], kind: MemEntryKind): MemEntry[] => entries.filter((entry) => entry.kind === kind);
 
@@ -183,7 +197,7 @@ function only(entries: MemEntry[], kind: MemEntryKind): MemEntry {
 
 describe('what memory is told of a project', () => {
   it('is one entry for each event, told from the operation that records it', () => {
-    const { project, row, decision, action, finding, asked } = lived();
+    const { project, row, decision, action, finding, noted, asked } = lived();
     const { entries } = memoryDelta(project, {});
 
     assert.deepEqual([...new Set(entries.map((entry) => entry.kind))].sort(), [...MEM_ENTRY_KINDS].sort(), 'every kind of event was told');
@@ -222,13 +236,18 @@ describe('what memory is told of a project', () => {
     assert.deepEqual(only(entries, 'finding_raised').about, [finding.id]);
     assert.equal(only(entries, 'finding_raised').by, memWho(project.id, LEAD));
 
-    assert.deepEqual(ofKind(entries, 'map_read_kept').map((entry) => entry.about), [['kgis:1:10'], ['kgis:1:11']], 'a map read points at its parcel');
-    assert.deepEqual(only(entries, 'map_read_removed').about, ['kgis:1:11']);
+    assert.deepEqual(ofKind(entries, 'map_read_kept').map((entry) => entry.about), [[PARCEL], [NEXT_PARCEL]], 'a map read points at its parcel');
+    assert.deepEqual(only(entries, 'map_read_removed').about, [NEXT_PARCEL]);
 
     const undone = only(entries, 'undone');
     assert.equal(undone.sourceId, project.audit.find((event) => event.action === 'undo')!.id, 'an undo is an event of its own');
     assert.equal(undone.by, memWho(project.id, LEAD));
     assert.deepEqual([undone.about, undone.label], [[], undefined], 'and holds none of the words that say what was put back');
+
+    const note = only(entries, 'edit_noted');
+    assert.equal(note.sourceId, noted[0]!.id, 'a work-pane note is told from the line that says what changed');
+    assert.deepEqual([note.at, note.by, note.about], [noted[0]!.at, memWho(project.id, LEAD), [row.id]], 'when, who made the write, and what it cites');
+    assert.ok(!entries.some((entry) => entry.sourceId === noted[1]!.id), 'and its one-word reply is no entry of its own');
 
     const question = ofKind(entries, 'chat_asked').find((entry) => entry.sourceId === asked.userTurn.id)!;
     assert.deepEqual(question.place, { pane: 'evidence', department: 'legal', stage: 'pre_development' }, 'the page it was asked on');
@@ -244,7 +263,7 @@ describe('what memory is told of a project', () => {
 
   it('tells every map read removed at once as one event with no parcel', () => {
     const project = fresh();
-    applyRevenueMap(project, mapRead('kgis:1:10', '2026-09-06T06:00:00.000Z'), LEAD);
+    applyRevenueMap(project, mapRead(PARCEL, '2026-09-06T06:00:00.000Z'), LEAD);
     clearRevenueMap(project, LEAD);
     assert.deepEqual(only(memoryDelta(project, {}).entries, 'map_read_removed').about, []);
   });
@@ -334,7 +353,7 @@ describe('a chat turn nobody has named the author of yet', () => {
     const later = ask(project, 'what is missing?', LEAD, { pane: 'overview' });
 
     const delta = memoryDelta(project, {});
-    assert.deepEqual(delta.entries.filter(isChat).map((entry) => entry.sourceId), [first.userTurn.id, first.assistantTurn.id]);
+    assert.deepEqual(delta.entries.filter(isTurn).map((entry) => entry.sourceId), [first.userTurn.id, first.assistantTurn.id]);
     assert.equal(delta.through.turnThrough, first.assistantTurn.id, 'memory stands before the turn that waits');
     assert.equal(delta.more, undefined, 'and there is nothing more to tell now');
     assert.deepEqual(memoryDelta(project, delta.through).entries, []);
@@ -387,6 +406,110 @@ describe('a chat turn nobody has named the author of yet', () => {
   });
 });
 
+describe('a note left by a work-pane write', () => {
+  /** The last note written: the line that says what changed, and its one-word reply. */
+  const lastNote = (project: DdProject) => project.conversation.slice(-2) as [DdProject['conversation'][number], DdProject['conversation'][number]];
+
+  it('is told at once when nobody is named on it, as nobody’s, and holds back no question behind it', () => {
+    const project = fresh();
+    // What a route that does not say who wrote leaves in the thread, and then a question from a person.
+    noteProjectEdit(project, 'Filed Deed.pdf (1.2 MB) in the vault.');
+    const [line, reply] = lastNote(project);
+    assert.deepEqual([line.actor, reply.actor], [undefined, undefined], 'nothing names its turns');
+    const asked = ask(project, 'what is missing?', VALUER, { pane: 'overview' });
+
+    // No time is given: nothing here has waited.
+    const delta = memoryDelta(project, {});
+    assert.deepEqual(
+      delta.entries.filter(isTurn).map((entry) => [entry.kind, entry.sourceId, entry.by]),
+      [
+        ['edit_noted', line.id, memWho(project.id, 'nobody')],
+        ['chat_asked', asked.userTurn.id, memWho(project.id, VALUER)],
+        ['chat_answered', asked.assistantTurn.id, memWho(project.id, VALUER)],
+      ],
+    );
+    assert.equal(delta.through.turnThrough, asked.assistantTurn.id);
+    assert.equal(delta.more, undefined);
+  });
+
+  it('is its author’s when the write names one, on both of its turns', () => {
+    const project = fresh();
+    noteProjectEdit(project, 'Added a comparable.', { actor: LEAD });
+    const [line, reply] = lastNote(project);
+    assert.deepEqual([line.actor, reply.actor], [LEAD, LEAD]);
+    assert.equal(only(memoryDelta(project, {}).entries, 'edit_noted').by, memWho(project.id, LEAD));
+  });
+
+  it('is one entry and one place in a piece, and memory stands past both of its turns', () => {
+    const project = fresh();
+    noteProjectEdit(project, 'Supplied a survey outline.', { actor: LEAD });
+    const [first, firstReply] = lastNote(project);
+    // The second names nobody, and is as ready to be told as the first.
+    noteProjectEdit(project, 'Cleared the survey outline.');
+    const [second, secondReply] = lastNote(project);
+
+    // A project made and a diligence started are two events, and leave room for one more thing.
+    const piece = memoryDelta(project, {}, { atMost: 3 });
+    assert.deepEqual(piece.entries.map((entry) => entry.sourceId), [first.id]);
+    assert.equal(piece.through.turnThrough, firstReply.id, 'never between a note’s two turns');
+    assert.equal(piece.more, true, 'the second note can be told now, though nobody is named on it');
+    const rest = memoryDelta(project, piece.through, { atMost: 3 });
+    assert.deepEqual(rest.entries.map((entry) => [entry.kind, entry.sourceId]), [['edit_noted', second.id]]);
+    assert.equal(rest.through.turnThrough, secondReply.id);
+    assert.equal(rest.more, undefined);
+    assert.deepEqual(memoryDelta(project, rest.through).entries, []);
+  });
+
+  it('waits behind a question that is still waiting for its author, as every turn does', () => {
+    const project = fresh();
+    const waiting = applyProjectChat(project, 'what is missing?');
+    noteProjectEdit(project, 'Added a comparable.', { actor: LEAD });
+    const delta = memoryDelta(project, {});
+    assert.deepEqual(delta.entries.filter(isTurn), []);
+    assert.equal(delta.through.turnThrough, undefined);
+    assert.equal(delta.more, undefined);
+
+    for (const turn of [waiting.userTurn, waiting.assistantTurn]) turn.actor = VALUER;
+    assert.deepEqual(memoryDelta(project, delta.through).entries.map((entry) => entry.kind), ['chat_asked', 'chat_answered', 'edit_noted']);
+  });
+
+  it('holds none of the words that say what changed', () => {
+    const project = fresh();
+    noteProjectEdit(project, 'Read the revenue map for Sy. 42/1A, Seller Person Village.', { actor: LEAD, citedNodeIds: [`${project.id}::evidence::kept`] });
+    const note = only(memoryDelta(project, {}).entries, 'edit_noted');
+    assert.deepEqual(Object.keys(note).sort(), ['about', 'at', 'by', 'id', 'kind', 'sourceId']);
+    assert.deepEqual(note.about, [`${project.id}::evidence::kept`]);
+    for (const word of ['42/1A', 'Seller', 'revenue map', 'Recorded']) assert.ok(!JSON.stringify(note).includes(word), `${word} is not in memory`);
+  });
+});
+
+describe('the parcel a map read points at', () => {
+  it('is kept in the map reader’s own form for a parcel’s key, and that is the one form there is', () => {
+    assert.equal(MEM_PARCEL_REF.source, PARCEL_REF_PATTERN.source, 'memory keeps what the reader of the public map makes, and the two patterns are one');
+    assert.equal(MEM_PARCEL_REF.flags, PARCEL_REF_PATTERN.flags);
+  });
+
+  it('is not kept when what the trail names is anything else', () => {
+    const project = fresh();
+    const said = (newValue: string) => recordAuditEvent(project, { actor: LEAD, action: 'patch', entityType: 'project', entityId: project.id, newValue });
+    // A key in no form the reader makes, a name where the key should be, and a real key.
+    said('revenueMap kgis:1:10');
+    said('revenueMap SellerPersonName');
+    said(`revenueMap ${PARCEL}`);
+    recordAuditEvent(project, { actor: LEAD, action: 'patch', entityType: 'project', entityId: project.id, oldValue: 'revenueMap 9876543210' });
+    const { entries } = memoryDelta(project, {});
+    assert.deepEqual(ofKind(entries, 'map_read_kept').map((entry) => entry.about), [[], [], [PARCEL]], 'the read is told all the same, pointing at nothing');
+    assert.deepEqual(only(entries, 'map_read_removed').about, []);
+  });
+
+  it('is held to that form on the way into a store too, whoever made the entry', () => {
+    const entry: MemEntry = { id: 'prj_one::mem::aud_1', kind: 'map_read_kept', at: '2026-09-06T06:00:00.000Z', by: memWho('prj_one', LEAD), sourceId: 'aud_1', about: ['SellerPersonName', PARCEL, 'ev_1', 'ulb:4412'] };
+    assert.deepEqual(scrubMemEntry('prj_one', entry)!.about, [PARCEL, 'ulb:4412'], 'a map read points at parcels and at nothing else');
+    assert.deepEqual(scrubMemEntry('prj_one', { ...entry, kind: 'map_read_removed' })!.about, [PARCEL, 'ulb:4412']);
+    assert.deepEqual(scrubMemEntry('prj_one', { ...entry, kind: 'finding_raised' })!.about, ['SellerPersonName', PARCEL, 'ev_1', 'ulb:4412'], 'the ids of any other entry are left as they are');
+  });
+});
+
 describe('a memory written in another shape', () => {
   it('is left alone when the shape is a later one', () => {
     const { project } = lived();
@@ -433,11 +556,12 @@ describe('a record that has lost what memory was told from', () => {
     const again = ask(project, 'what is missing?', LEAD, { pane: 'overview' });
 
     const replay = memoryReplay(project, whole.through);
-    assert.deepEqual(replay.forget, [...MEM_CHAT_KINDS], 'the entries of chat turns go before anything is written');
-    assert.deepEqual(replay.entries.filter(isChat).map((entry) => entry.sourceId), [again.userTurn.id, again.assistantTurn.id]);
+    assert.deepEqual(replay.forget, ['chat_asked', 'chat_answered', 'edit_noted'], 'the entries told from the conversation go before anything is written, a note’s with the rest');
+    assert.deepEqual(replay.forget, [...MEM_TURN_KINDS]);
+    assert.deepEqual(replay.entries.filter(isTurn).map((entry) => entry.sourceId), [again.userTurn.id, again.assistantTurn.id]);
     assert.deepEqual(
-      replay.entries.filter((entry) => !isChat(entry)),
-      whole.entries.filter((entry) => !isChat(entry)),
+      replay.entries.filter((entry) => !isTurn(entry)),
+      whole.entries.filter((entry) => !isTurn(entry)),
       'and every other event is told again as it was',
     );
     assert.equal(replay.through.turnThrough, again.assistantTurn.id);
@@ -448,8 +572,8 @@ describe('a record that has lost what memory was told from', () => {
     const whole = memoryDelta(project, {});
     clearProjectConversation(project);
     const replay = memoryReplay(project, whole.through);
-    assert.deepEqual(replay.forget, [...MEM_CHAT_KINDS]);
-    assert.deepEqual(replay.entries.filter(isChat), []);
+    assert.deepEqual(replay.forget, [...MEM_TURN_KINDS]);
+    assert.deepEqual(replay.entries.filter(isTurn), []);
     assert.equal(replay.through.turnThrough, undefined, 'and memory stands at no turn');
   });
 
@@ -460,7 +584,7 @@ describe('a record that has lost what memory was told from', () => {
     lost.audit = lost.audit.slice(0, -1);
     const replay = memoryReplay(lost, whole.through);
     assert.equal(replay.forget, undefined, 'an event the record lost happened all the same');
-    assert.equal(replay.entries.filter(isChat).length, whole.entries.filter(isChat).length);
+    assert.equal(replay.entries.filter(isTurn).length, whole.entries.filter(isTurn).length);
   });
 });
 
@@ -613,7 +737,7 @@ describe('the shape memory is told in', () => {
    * with the change, and only then change what is expected here.
    */
   it(`is the one schema ${MEM_SCHEMA} was pinned to`, () => {
-    assert.equal(MEM_SCHEMA, 1);
+    assert.equal(MEM_SCHEMA, 2);
     const project = createProject({ name: 'Pinned plot', type: 'residential', location: 'Northfield', city: 'Bengaluru' }, 'RYT-PIN');
     project.id = 'prj_pinned';
     const row = addEvidence(project, { title: 'Khata certificate', kind: 'document' }, LEAD);
@@ -624,11 +748,17 @@ describe('the shape memory is told in', () => {
       { id: 'aud_1', at: '2026-10-01T09:00:00.000Z', actor: LEAD, action: 'create', entityType: 'evidence', entityId: 'ev_1' },
       { id: 'aud_2', at: '2026-10-01T09:05:00.000Z', actor: VALUER, action: 'accept_fact', entityType: 'evidence', entityId: 'ev_1', newValue: 'Extent per khata: 11,850 sq ft' },
       { id: 'aud_3', at: '2026-10-01T09:10:00.000Z', actor: LEAD, action: 'create', entityType: 'finding', entityId: 'fnd_1' },
-      { id: 'aud_4', at: '2026-10-01T09:15:00.000Z', actor: LEAD, action: 'patch', entityType: 'project', entityId: 'prj_pinned', newValue: 'revenueMap kgis:1:10' },
+      { id: 'aud_4', at: '2026-10-01T09:15:00.000Z', actor: LEAD, action: 'patch', entityType: 'project', entityId: 'prj_pinned', newValue: 'revenueMap kgis:2003010043:10' },
       { id: 'aud_5', at: '2026-10-01T09:20:00.000Z', actor: LEAD, action: 'undo', entityType: 'project', entityId: 'prj_pinned', oldValue: 'the last change' },
+      { id: 'aud_6', at: '2026-10-01T09:22:00.000Z', actor: LEAD, action: 'patch', entityType: 'project', entityId: 'prj_pinned', newValue: 'revenueMap kgis:1:10' },
     ];
     project.conversation = [
       { id: 'cht_1', role: 'user', text: 'What does the khata say?', at: '2026-10-01T09:25:00.000Z', actor: VALUER, place: { pane: 'evidence', stage: 'pre_development' }, citedEvidenceIds: ['ev_1'] },
+      // Two work-pane notes: one that names who wrote, one that does not.
+      { id: 'cht_2', role: 'user', text: 'Filed the revenue-map read as evidence.', at: '2026-10-01T09:30:00.000Z', actor: LEAD, citedEvidenceIds: ['ev_1'] },
+      { id: 'cht_3', role: 'assistant', text: 'Recorded.', at: '2026-10-01T09:30:00.000Z', actor: LEAD, citedEvidenceIds: ['ev_1'], toolCalls: [{ name: 'pane_write', summary: 'Filed the revenue-map read as evidence.' }] },
+      { id: 'cht_4', role: 'user', text: 'Added a comparable.', at: '2026-10-01T09:35:00.000Z', citedEvidenceIds: [] },
+      { id: 'cht_5', role: 'assistant', text: 'Recorded.', at: '2026-10-01T09:35:00.000Z', citedEvidenceIds: [], toolCalls: [{ name: 'pane_write', summary: 'Added a comparable.' }] },
     ];
 
     assert.deepEqual(memoryDelta(project, {}), {
@@ -638,11 +768,14 @@ describe('the shape memory is told in', () => {
         { id: 'prj_pinned::mem::ev_1', kind: 'paper_read', at: '2026-10-01T09:00:00.000Z', by: 'who_0d97ea4d1cf009', sourceId: 'ev_1', about: ['ev_1'] },
         { id: 'prj_pinned::mem::aud_2', kind: 'value_accepted', at: '2026-10-01T09:05:00.000Z', by: 'who_1444ecd6141d3b', sourceId: 'aud_2', about: ['ev_1'], key: 'extent_khata', label: 'Extent per khata' },
         { id: 'prj_pinned::mem::aud_3', kind: 'finding_raised', at: '2026-10-01T09:10:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_3', about: ['fnd_1'] },
-        { id: 'prj_pinned::mem::aud_4', kind: 'map_read_kept', at: '2026-10-01T09:15:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_4', about: ['kgis:1:10'] },
+        { id: 'prj_pinned::mem::aud_4', kind: 'map_read_kept', at: '2026-10-01T09:15:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_4', about: ['kgis:2003010043:10'] },
         { id: 'prj_pinned::mem::aud_5', kind: 'undone', at: '2026-10-01T09:20:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_5', about: [] },
+        { id: 'prj_pinned::mem::aud_6', kind: 'map_read_kept', at: '2026-10-01T09:22:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'aud_6', about: [] },
         { id: 'prj_pinned::mem::cht_1', kind: 'chat_asked', at: '2026-10-01T09:25:00.000Z', by: 'who_1444ecd6141d3b', sourceId: 'cht_1', about: ['ev_1'], place: { pane: 'evidence', stage: 'pre_development' } },
+        { id: 'prj_pinned::mem::cht_2', kind: 'edit_noted', at: '2026-10-01T09:30:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'cht_2', about: ['ev_1'] },
+        { id: 'prj_pinned::mem::cht_4', kind: 'edit_noted', at: '2026-10-01T09:35:00.000Z', by: 'who_1995cea6e537b6', sourceId: 'cht_4', about: [] },
       ],
-      through: { schema: 1, auditThrough: 'aud_5', turnThrough: 'cht_1' },
+      through: { schema: 2, auditThrough: 'aud_6', turnThrough: 'cht_5' },
     });
   });
 });
