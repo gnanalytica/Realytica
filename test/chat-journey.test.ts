@@ -113,11 +113,17 @@ describe('answering from the file', () => {
     const project = readFile();
     const at = new Date().toISOString();
     // Two more papers that name an owner, so the answer runs to five lines before it is folded.
-    for (const [title, type, name] of [['RTC extract', 'RTC (record of rights)', 'Sunrise Estates Private Limited'], ['Khata extract, earlier', 'Khata certificate and extract', 'Sunrise Estates Private Limited']] as const) {
+    // The answer names the paper touched last first. These two are dated before the papers already on file, in a set
+    // order, so which line is folded into which does not turn on how many milliseconds the lines above took to run.
+    for (const [title, type, name, touched] of [
+      ['RTC extract', 'RTC (record of rights)', 'Sunrise Estates Private Limited', '2020-02-02T00:00:00.000Z'],
+      ['Khata extract, earlier', 'Khata certificate and extract', 'Sunrise Estates Private Limited', '2020-01-01T00:00:00.000Z'],
+    ] as const) {
       const row = addEvidence(project, { title, kind: 'document', status: 'received' });
       row.documentType = type;
       row.attachments.push({ id: `a-${title}`, fileName: `${title}.pdf`, mimeType: 'application/pdf', sizeBytes: 1, storageKey: `k-${title}`, uploadedAt: at } as never);
       row.facts = [fact('owner', 'Owner', name, name, 1, `Name of the owner: ${name}`)];
+      row.updatedAt = touched;
     }
     const lines = answerFromFile(project, 'who owns the property?')!.text.split('\n');
     assert.equal(lines.length, 4, lines.join(' | '));
