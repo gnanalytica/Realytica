@@ -145,30 +145,48 @@ describe('the sync loop on a preview', () => {
     ({ syncGraph } = await import('../apps/api/src/graph/sync'));
   });
 
+  /** What the loop reports back to the project store, kept for a test to read. */
+  function told(): { synced: string[]; purged: string[]; settle: import('../apps/api/src/graph/sync').GraphSettlement } {
+    const synced: string[] = [];
+    const purged: string[] = [];
+    return {
+      synced,
+      purged,
+      settle: {
+        synced: (owed) => { synced.push(owed.project.id); },
+        purged: (projectId) => { purged.push(projectId); },
+        refused: async () => undefined,
+      },
+    };
+  }
+
   it('builds no graph for a store that would drop it', async () => {
     const { project, read } = watched(file('Preview sync'));
     // What the live site stored for this project, in the live site's shape.
     await store.syncProject(snapshot([parcel('old-shape')], project.id));
 
-    await syncGraph([project], preview);
+    const heard = told();
+    await syncGraph([{ project, revision: 1 }], [], heard.settle, preview).finished;
 
     assert.deepEqual([...read].sort(), ['id', 'updatedAt'], 'nothing of the file was read but which it is and when it changed');
+    assert.deepEqual(heard.synced, [project.id], 'and a store that keeps no graph is owed none, so it is not offered again');
     const held = await store.readProject(project.id);
     assert.deepEqual(held?.nodes.map((n) => n.id), ['old-shape'], 'the stored graph is as the live site left it');
 
     await store.purgeProject(project.id);
-    await syncGraph([], preview);
   });
 
   it('still drops the graph of a project deleted on the preview', async () => {
     const project = file('Preview delete');
     await store.syncProject(snapshot([parcel('old-shape')], project.id));
 
-    // Seen on one save, gone from the list on the next: that is a deletion.
-    await syncGraph([project], preview);
+    await syncGraph([{ project, revision: 1 }], [], told().settle, preview).finished;
     assert.ok(await store.readProject(project.id), 'not while the project is there');
-    await syncGraph([], preview);
+    // The project store says which projects have gone; the loop does not guess it.
+    const heard = told();
+    await syncGraph([], [project.id], heard.settle, preview).finished;
 
+    assert.deepEqual(heard.purged, [project.id]);
     assert.equal(await store.readProject(project.id), null);
   });
 
@@ -176,13 +194,13 @@ describe('the sync loop on a preview', () => {
     // The same loop, not on a preview: the difference is the whole point.
     const { project, read } = watched(file('Live sync'));
 
-    await syncGraph([project], store);
+    await syncGraph([{ project, revision: 1 }], [], told().settle, store).finished;
 
     assert.ok(read.has('evidence') && read.has('findings'), 'the registers were read');
     const held = await store.readProject(project.id);
     assert.ok(held?.nodes.some((n) => n.id === project.id && n.kind === 'project'));
 
-    await syncGraph([], store);
+    await syncGraph([], [project.id], told().settle, store).finished;
     assert.equal(await store.readProject(project.id), null);
   });
 });

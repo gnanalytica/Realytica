@@ -51,8 +51,28 @@ import type { GraphImpact, ProjectGraphEdge, ProjectGraphNode } from '@realytica
 export interface ProjectGraphSnapshot {
   projectId: string;
   builtAt: string;
+  /**
+   * Which copy of the project this was built from: the number the project
+   * store raised when it wrote that copy. A graph store refuses a snapshot
+   * whose revision is lower than the one it already holds. A snapshot built
+   * outside a save carries none, which counts as the lowest.
+   */
+  revision?: number;
   nodes: ProjectGraphNode[];
   edges: ProjectGraphEdge[];
+}
+
+/**
+ * What a sync answers when the store turned the snapshot away: it already
+ * holds this project built from revision `held`, which is later.
+ *
+ * `drawn` says the graph it holds is the one this snapshot would have drawn,
+ * so only the number differs and nothing is behind.
+ */
+export interface GraphSyncRefused {
+  refused: true;
+  held: number;
+  drawn: boolean;
 }
 
 export interface GraphAdapter {
@@ -72,8 +92,18 @@ export interface GraphAdapter {
    * Authored nodes already stored for the project are left alone — a rebuild
    * is about what the registers say, and must not be able to delete a note
    * somebody wrote down.
+   *
+   * A snapshot built from an older copy of the project than the one stored
+   * is refused: nothing is written, and the refusal is the answer rather
+   * than an error. Several instances hold the same project, and the one
+   * holding an old copy must not be able to delete what a newer copy drew.
+   *
+   * A snapshot that would draw what is already stored is taken and writes
+   * nothing but its revision (see `drawing.ts`), so offering a project again
+   * is cheap. At the revision held, a different drawing replaces the stored
+   * one: the same copy drawn by newer code.
    */
-  syncProject(snapshot: ProjectGraphSnapshot): Promise<void>;
+  syncProject(snapshot: ProjectGraphSnapshot): Promise<GraphSyncRefused | void>;
 
   /**
    * Add authored nodes and their edges. Never overwrites.
