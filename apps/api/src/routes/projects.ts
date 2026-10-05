@@ -177,7 +177,7 @@ import { applyReviewedPayload } from '../proposal-review';
  * decision they take with the first bill in front of them.
  */
 const PHOTO_READ_CAP = 12;
-import { forgetProjects, memoryReadableBy, memoryStore } from '../memory';
+import { memoryReadableBy, memoryStore } from '../memory';
 import { gatherChatSides, pullWebForProject } from '../project-chat-sides';
 import { ensureIdentitySiteContext, projectSiteQuery, refreshSiteContextIfMoved } from '../site-context';
 import { beginRun, listRuns } from '../runs/journal';
@@ -187,6 +187,7 @@ import { store } from '../store';
 import { mergeModelReading, needsModelReading, readIngestLocally } from '../documents/intake';
 import { readOntoRegister, type RegisterUpload } from '../documents/register-read';
 import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS, rowsToRead } from '../documents/reread';
+import { PROJECT_KEPT, removeProject } from '../project-removal';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { UPLOAD_LIMITS } from '../uploads';
@@ -1356,6 +1357,8 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         sayWhatIsMissing(seen, question, result);
         stampSession(result, ownSitting(project, parsed.data.sessionId, actor), { continues, place });
         mergeConversation(project, canvas, actor, turnsBefore);
+        // Who asked and where is written after the turn was first saved: the record has to count as changed for that to reach storage.
+        project.updatedAt = new Date().toISOString();
         await store.save();
         journalTail = journalTail.then(() =>
           journal.finish(
@@ -1458,6 +1461,8 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     if (last?.id === result.assistantTurn.id) last.unanswered = unanswered;
   }
   mergeConversation(project, canvas, actor, turnsBefore);
+  // Who asked and where is written after the turn was first saved: the record has to count as changed for that to reach storage.
+  project.updatedAt = new Date().toISOString();
   if (result.commands.some((c) => /approved|accepted/i.test(c))) await rememberProject(project);
   const undo = undoBefore ? await keepUndo(project, undoBefore, result.commands[0] ?? 'the last change') : undefined;
   await store.save();
@@ -1920,6 +1925,8 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
   }
   stampSession(result, ownSitting(project, fields.sessionId, actorOf(req)), { continues, place: fields.place });
   mergeConversation(project, canvas, actorOf(req), turnsBefore);
+  // Who asked and where is written after the turn was first saved: the record has to count as changed for that to reach storage.
+  project.updatedAt = new Date().toISOString();
   await store.save();
   line({ type: 'result', ...result, project: canvas });
   res.end();
@@ -2187,30 +2194,16 @@ projectsRouter.post('/:projectId/ai/drafts/:draftId/commit', async (req, res) =>
 });
 
 projectsRouter.delete('/:projectId', needs('admin'), async (req, res) => {
-  const idx = projects().findIndex((p) => p.id === req.params.projectId);
-  if (idx < 0) {
+  // "Deleted" has to mean deleted. The project's documents go first, and what is kept about it only once they have.
+  const outcome = await removeProject(req.params.projectId);
+  if (outcome === 'absent') {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
-  const [removed] = projects().splice(idx, 1);
-  // The project's own documents — its shard, its run journal, its evidence
-  // files — go with it, and so do the grants written against it and what it
-  // taught memory. "Deleted" has to mean deleted: all of these hold owner
-  // names, document titles and uploaded bytes.
-  if (removed) {
-    await forgetProjects([removed.id]);
-    try {
-      await graphAdapter.purgeProject(removed.id);
-    } catch (err) {
-      console.warn(`[projects] could not purge the graph for ${removed.id}: ${(err as Error).message}`);
-    }
-    try {
-      await storageAdapter.deleteCaseDocuments(removed.id);
-    } catch (err) {
-      console.warn(`[projects] could not remove documents for ${removed.id}: ${(err as Error).message}`);
-    }
+  if (outcome === 'kept') {
+    res.status(503).json({ error: PROJECT_KEPT });
+    return;
   }
-  await store.save();
   res.status(204).end();
 });
 

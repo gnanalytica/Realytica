@@ -210,10 +210,14 @@ describe('what a granted collaborator can see through the API', () => {
   });
 
   it('is refused the workspace’s own thinking about the file', async () => {
-    for (const route of ['runs', 'ai/drafts', 'capabilities', 'graph/stored']) {
+    for (const route of ['runs', 'ai/drafts', 'capabilities', 'graph/stored', 'memory']) {
       const res = await call('GET', `/api/projects/${theirs.id}/${route}`, { token: sam() });
       assert.equal(res.status, 404, `/${route} leaked`);
     }
+    // What memory has been told is mounted beside the project routes, not
+    // inside them: the firm's own people read it, and nobody who has not signed in.
+    assert.equal((await call('GET', `/api/projects/${theirs.id}/memory`, { token: dev() })).status, 200);
+    assert.equal((await call('GET', `/api/projects/${theirs.id}/memory`)).status, 401);
   });
 });
 

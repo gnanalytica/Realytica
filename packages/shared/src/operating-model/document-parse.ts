@@ -84,6 +84,15 @@ export interface DocumentFact {
   /** For a model's fact, how its page was verified. */
   pageCheck?: import('../types').PageCheck;
   /**
+   * What stands behind a model's value, for a screen to say: its quote is in
+   * the words this server read from the page; a second reader, shown the page
+   * alone, copied the same words off it; or neither, and the value is the
+   * model's word for it. Absent on a value the rules read, whose words are
+   * the page's own. An unverified value is never among a paper's facts: it is
+   * kept apart, on the reading (`ReadingCoverage.unverified`).
+   */
+  proof?: FactProof;
+  /**
    * Where the quote, and the value inside it, sit on `page` — found by
    * matching the quote back to the words the page was read from, so a person
    * can see the words themselves rather than take the quote's word for it.
@@ -106,9 +115,19 @@ export interface DocumentFact {
   readAs?: { value: string | number | boolean; display: string };
   /** The value this one replaced when accepted — kept so the decision can be undone. */
   replaced?: DocumentFact;
+  /**
+   * What the other reader read for the same thing, where the two differ and
+   * each found its words on a page: the rules read 73/4, a model 73/1. Both
+   * wait, side by side, for a person to keep one; neither is taken for them.
+   * The fact itself stays this server's own reading, so everything that reads
+   * a paper's facts by key sees one value a key, as it always did.
+   */
+  otherReading?: Omit<DocumentFact, 'otherReading'>;
 }
 
 export type FactReview = 'proposed' | 'accepted' | 'rejected';
+
+export type FactProof = 'page_text' | 'page_image' | 'unverified';
 
 /** A box on a page, each side a fraction of the page's width or height from its top left. */
 export interface MarkRect {
@@ -604,6 +623,21 @@ function areaToSqm(value: string, unit: string): number | null {
 
 const AREA_UNIT = String.raw`(square\s*met(?:re|er)s?|sq\.?\s*m(?:trs?|eters?|etres?)?\.?|sqm|m2|m²|square\s*f(?:ee|oo)t|sq\.?\s*ft\.?|sft|acres?|hectares?)`;
 const NUMBER = String.raw`(\d[\d,]*(?:\.\d+)?)`;
+
+/**
+ * An area written out, in square metres as these rules keep one: "2,450 square
+ * metres", "1 acre 22 guntas", "12 guntas". Null where the unit is not one they
+ * know, so a value read elsewhere is converted exactly as one read here.
+ */
+function areaInSqm(written: string): number | null {
+  const text = normalise(written).trim();
+  const mixed = /^(\d+)\s*acres?\s*(?:and\s+)?(\d+(?:\.\d+)?)\s*gunt(?:a|ha)s?$/i.exec(text);
+  if (mixed) return Math.round(Number(mixed[1]) * SQM_PER_ACRE + Number(mixed[2]) * SQM_PER_GUNTA);
+  const guntas = new RegExp(`^${NUMBER}\\s*gunt(?:a|ha)s?$`, 'i').exec(text);
+  if (guntas) return Math.round((parseAmount(guntas[1]!) ?? 0) * SQM_PER_GUNTA) || null;
+  const plain = new RegExp(`^${NUMBER}\\s*${AREA_UNIT}$`, 'i').exec(text);
+  return plain ? areaToSqm(plain[1]!, plain[2]!) : null;
+}
 
 function fmtSqm(n: number): string {
   return `${Math.round(n).toLocaleString('en-IN')} sqm`;
@@ -1426,6 +1460,15 @@ function summarise(type: ReadDocumentType, label: string, facts: DocumentFact[],
 }
 
 /**
+ * The one line for a reading whose facts have changed since the rules wrote
+ * it: a value left out because its words could not be made out, or replaced
+ * by one read off the page by another reader, must leave the line as well.
+ */
+export function summariseReading(type: ReadDocumentType, facts: DocumentFact[], flags: DocumentFlag[]): string {
+  return summarise(type, (type === 'other' ? OTHER : PROFILES[type]).label, facts, flags);
+}
+
+/**
  * What a document is and what it says.
  *
  * `pages` is the text of each page in order — from the text layer, or OCR.
@@ -1479,4 +1522,208 @@ export function documentAnswers(label: string, title: string): boolean {
   if (!profile) return false;
   const t = title.toLowerCase();
   return profile.rowHints.some((h) => h.length > 2 && (t.includes(h) || (h.includes(t) && t.length > 5)));
+}
+
+/* ==================================================================== */
+/* The same keys, for a reader that is not these rules                   */
+/* ==================================================================== */
+
+/** The form a value under a key is kept in, whoever read it. */
+export type FactForm = 'words' | 'lower' | 'identifier' | 'date' | 'rupees' | 'sqm' | 'feet' | 'number' | 'yes_no';
+
+/** The papers a standard key can be read off, in the rules' own names for them. */
+export const STANDARD_PAPERS = [
+  'sale_deed',
+  'mother_deed',
+  'encumbrance_certificate',
+  'khata',
+  'property_tax_receipt',
+  'zoning_certificate',
+  'conversion_order',
+  'building_sanction',
+  'survey_sketch',
+  'occupancy_certificate',
+  'rtc',
+  'rera_registration',
+] as const satisfies readonly ReadDocumentType[];
+
+export type StandardPaper = (typeof STANDARD_PAPERS)[number];
+
+const ANY_LAND_PAPER: StandardPaper[] = STANDARD_PAPERS.filter((paper) => paper !== 'property_tax_receipt');
+
+interface StandardFactKey {
+  label: string;
+  form: FactForm;
+  /**
+   * The papers that carry the key. A key is taken only on one of them: the
+   * date on a khata is not a deed's registration date, and the applicant on
+   * an encumbrance certificate is not the owner.
+   */
+  papers: readonly StandardPaper[];
+  /** What the key means, as a reader is told it. */
+  says: string;
+  /** The only values it takes, where it takes a few. */
+  choices?: string[];
+}
+
+/**
+ * The keys these rules file a fact under, for a reader that is not them.
+ *
+ * The rules know English labels, so a Kannada deed gives them nothing and a
+ * model reads it instead. A model left to name its own fields calls the same
+ * registration number `registrationNumber`, `docNo` or `deedNumber`, and a
+ * value under a name of its own answers no check, cannot be set beside the
+ * value the rules read, and cannot be scored. So the model is told these keys
+ * (`standardKeyGuide`) and its values are put in the rules' own forms
+ * (`standardFact`): a date as YYYY-MM-DD, an amount in rupees, an area in
+ * square metres. Only keys whose meaning fits in a line are here; anything
+ * else a model reads keeps the name the model gave it.
+ */
+export const STANDARD_FACT_KEYS: Record<string, StandardFactKey> = {
+  survey_numbers: { label: 'Survey number', form: 'identifier', papers: ANY_LAND_PAPER, says: 'the survey number the document is about, as written (73/4); never a neighbour named in its boundaries' },
+  extent_title: { label: 'Extent per title', form: 'sqm', papers: ['sale_deed', 'rtc'], says: 'the extent of land a deed conveys or a record of rights records' },
+  registration_date: { label: 'Registered on', form: 'date', papers: ['sale_deed'], says: 'the date the document itself was registered or executed, not the date of an earlier deed it recites' },
+  document_number: { label: 'Document number', form: 'identifier', papers: ['sale_deed', 'mother_deed'], says: 'the registration number of the document itself, not of an earlier deed it recites' },
+  sub_registrar: { label: 'Sub-Registrar', form: 'words', papers: ['sale_deed'], says: 'where the document itself was registered: the place of the Sub-Registrar office, the place name alone' },
+  consideration: { label: 'Sale consideration', form: 'rupees', papers: ['sale_deed', 'mother_deed'], says: 'the price paid' },
+  stamp_duty: { label: 'Stamp duty', form: 'rupees', papers: ['sale_deed'], says: 'the stamp duty paid' },
+  vendor: { label: 'Vendor', form: 'words', papers: ['sale_deed'], says: 'the seller: the name alone, without address or description' },
+  purchaser: { label: 'Purchaser', form: 'words', papers: ['sale_deed'], says: 'the buyer: the name alone, without address or description' },
+  boundary_north: { label: 'North boundary', form: 'words', papers: ['sale_deed'], says: 'what lies to the north, as the schedule writes it' },
+  boundary_south: { label: 'South boundary', form: 'words', papers: ['sale_deed'], says: 'what lies to the south' },
+  boundary_east: { label: 'East boundary', form: 'words', papers: ['sale_deed'], says: 'what lies to the east' },
+  boundary_west: { label: 'West boundary', form: 'words', papers: ['sale_deed'], says: 'what lies to the west' },
+  access_type: { label: 'Access', form: 'lower', papers: ['sale_deed'], says: 'how the land is reached', choices: ['public road', 'private road', 'right of way'] },
+  ec_from: { label: 'EC searched from', form: 'date', papers: ['encumbrance_certificate'], says: 'the first day of the period an encumbrance certificate searched' },
+  ec_to: { label: 'EC searched to', form: 'date', papers: ['encumbrance_certificate'], says: 'the last day of that period' },
+  ec_transactions: { label: 'Transactions in the period', form: 'number', papers: ['encumbrance_certificate'], says: 'how many transactions an encumbrance certificate lists' },
+  ec_nil: { label: 'Nil result', form: 'yes_no', papers: ['encumbrance_certificate'], says: 'yes when an encumbrance certificate certifies nil encumbrance; no when it lists a mortgage, charge, lien or attachment that nothing in it releases' },
+  subsisting_charges: { label: 'Charges still subsisting', form: 'number', papers: ['encumbrance_certificate'], says: 'how many mortgages, charges, liens or attachments it lists that nothing in it releases' },
+  khata_number: { label: 'Khata number', form: 'identifier', papers: ['khata'], says: 'the khata number' },
+  khata_type: { label: 'Khata type', form: 'words', papers: ['khata'], says: 'the kind of khata', choices: ['A-Khata', 'B-Khata', 'E-Khata'] },
+  owner: { label: 'Owner on record', form: 'words', papers: ['khata', 'rtc'], says: 'the owner a khata or a record of rights names: the name alone' },
+  pid: { label: 'PID', form: 'identifier', papers: ['khata', 'property_tax_receipt'], says: 'the property identification number (PID)' },
+  extent_khata: { label: 'Extent per khata', form: 'sqm', papers: ['khata'], says: 'the site area a khata records' },
+  sas_number: { label: 'SAS application number', form: 'identifier', papers: ['property_tax_receipt'], says: 'the SAS application number on a property tax receipt' },
+  tax_year: { label: 'Assessment year', form: 'words', papers: ['property_tax_receipt'], says: 'the assessment year, as written (2024-25)' },
+  tax_paid: { label: 'Tax paid', form: 'rupees', papers: ['property_tax_receipt'], says: 'the amount of property tax paid' },
+  tax_paid_on: { label: 'Paid on', form: 'date', papers: ['property_tax_receipt'], says: 'the date it was paid' },
+  zoning: { label: 'Zoning in the plan in force', form: 'words', papers: ['zoning_certificate'], says: 'the land use the plan gives the land, as written' },
+  permissible_far: { label: 'FAR permissible', form: 'number', papers: ['zoning_certificate'], says: 'the FAR the plan permits' },
+  plan_in_force: { label: 'Plan in force', form: 'words', papers: ['zoning_certificate'], says: 'the plan a zoning certificate reads from, as written (Revised Master Plan 2031)' },
+  road_width_ft: { label: 'Abutting road width', form: 'feet', papers: ['zoning_certificate', 'survey_sketch'], says: 'the width of the road the land abuts' },
+  conversion_status: { label: 'DC conversion', form: 'lower', papers: ['conversion_order'], says: 'what a conversion order decides: converted when it grants conversion to non-agricultural use, agricultural when it refuses', choices: ['converted', 'agricultural'] },
+  order_number: { label: 'Order number', form: 'identifier', papers: ['conversion_order'], says: 'the number of a conversion order' },
+  conversion_date: { label: 'Date of the conversion order', form: 'date', papers: ['conversion_order'], says: 'the date of that order' },
+  converted_use: { label: 'Converted to', form: 'lower', papers: ['conversion_order'], says: 'the use the land is converted to, in one English word (residential, commercial, industrial)' },
+  sanction_number: { label: 'Sanction number', form: 'identifier', papers: ['building_sanction'], says: 'the number of a building plan sanction (LP number)' },
+  sanction_date: { label: 'Date of sanction', form: 'date', papers: ['building_sanction'], says: 'the date of that sanction' },
+  sanctioned_area: { label: 'Built-up area sanctioned', form: 'sqm', papers: ['building_sanction'], says: 'the built-up area sanctioned' },
+  sanctioned_far: { label: 'FAR sanctioned', form: 'number', papers: ['building_sanction'], says: 'the FAR sanctioned' },
+  sanctioned_extent: { label: 'Extent per sanctioned layout', form: 'sqm', papers: ['building_sanction'], says: 'the site area a sanction is for' },
+  refuge_area_provided: { label: 'Refuge area provided', form: 'sqm', papers: ['building_sanction'], says: 'the refuge area a sanctioned plan provides' },
+  extent_survey: { label: 'Extent per survey sketch', form: 'sqm', papers: ['survey_sketch'], says: 'the extent a survey sketch measures' },
+  survey_date: { label: 'Surveyed on', form: 'date', papers: ['survey_sketch'], says: 'the date a survey sketch was prepared or measured' },
+  oc_issued: { label: 'Occupancy certificate issued', form: 'yes_no', papers: ['occupancy_certificate'], says: 'yes when the document is an occupancy certificate that was issued; no when it says one was refused or not issued' },
+  oc_date: { label: 'Date of the OC', form: 'date', papers: ['occupancy_certificate'], says: 'the date of an occupancy certificate' },
+  rera_number: { label: 'RERA registration number', form: 'identifier', papers: ['rera_registration'], says: 'the RERA registration number of the project' },
+  rera_valid_until: { label: 'Registration valid until', form: 'date', papers: ['rera_registration'], says: 'the last day a RERA registration is valid' },
+};
+
+/** Whether a paper of this kind carries the key. A kind that is none of the standard papers carries none of them. */
+export function standardKeyFits(key: string, paper: string | null | undefined): boolean {
+  return Boolean(STANDARD_FACT_KEYS[key]?.papers.includes(paper as StandardPaper));
+}
+
+/** The standard keys as a reader is told them: how to use them and write a value, the keys each paper carries, then what each key means. */
+export function standardKeyGuide(): string {
+  const how =
+    'Say in "paper" which of the papers below the document is, or "other". Use only that paper\'s keys, each for exactly what it says; ' +
+    'anything else the document states keeps a key of your own. ' +
+    'Dates as DD-MM-YYYY. An amount as its digits in rupees. An area or a width as the number in "value" and its unit, in English, ' +
+    'in "unit" (sqm, sqft, acres, guntas, ft, m); acres and guntas together as "1 acre 22 guntas". A count as a number. Yes or no as "yes" or "no".';
+  const carried = STANDARD_PAPERS.map((paper) => `  - ${paper} (${PROFILES[paper].label}): ${Object.keys(STANDARD_FACT_KEYS).filter((key) => standardKeyFits(key, paper)).join(', ')}`);
+  const keys = Object.entries(STANDARD_FACT_KEYS).map(([key, k]) => `  - ${key}: ${k.says}${k.choices ? `; one of: ${k.choices.join(', ')}` : ''}`);
+  return [how, '  The papers and the keys each carries:', ...carried, '  What each key means:', ...keys].join('\n');
+}
+
+/** The standard paper a document of this kind is, where the rules have that kind by name. */
+export function standardPaperOfKind(kind: DocumentKind): StandardPaper | undefined {
+  return kind === 'other' ? undefined : STANDARD_PAPERS.find((paper) => PROFILES[paper].documentKind === kind);
+}
+
+/** The form a value under a standard key is kept in; undefined for a key that is not one. */
+export function standardKeyForm(key: string): FactForm | undefined {
+  return STANDARD_FACT_KEYS[key]?.form;
+}
+
+/**
+ * An identifier without the label a page prints before it: "Survey No. 73/4"
+ * and "ಸರ್ವೆ ನಂಬರ್ 73/4" are both filed as 73/4, as the rules file one.
+ *
+ * A label in English ends in "No." or "Number". A label in another script is
+ * words of that script standing before the first Latin letter or digit; a
+ * page's "exact words" for a number are handed over with theirs still on.
+ */
+function identifierAlone(text: string): string {
+  return text
+    .replace(/^(?:(?!\p{Script=Latin})[\p{L}\p{M}\u200c\u200d]+[\s:.,-]*)+(?=[\p{Script=Latin}\p{N}(])/u, '')
+    .replace(/^[A-Za-z.\s]*\b(?:nos?|number)\b\.?\s*[:-]?\s*(?=\S)/i, '');
+}
+
+/** Letters and digits only, lower-cased: what two spellings of one value have in common. */
+function bare(text: string): string {
+  return text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, '');
+}
+
+/**
+ * A value another reader read under a standard key, in the form the rules keep
+ * that key in. Null when it cannot be put in that form: a date that is not a
+ * date is not filed as one.
+ */
+export function standardFact(key: string, value: string, unit?: string | null): Pick<DocumentFact, 'label' | 'value' | 'unit' | 'display'> | null {
+  const known = STANDARD_FACT_KEYS[key];
+  const text = normalise(value).trim();
+  if (!known || !text) return null;
+  const { label, form, choices } = known;
+  const first = /\d[\d,]*(?:\.\d+)?/.exec(text)?.[0];
+  switch (form) {
+    case 'date': {
+      const iso = parseIndianDate(text);
+      return iso ? { label, value: iso, display: displayDate(iso) } : null;
+    }
+    case 'rupees': {
+      const amount = first ? parseAmount(first) : null;
+      if (amount === null) return null;
+      // "3.18 crore" is thirty-one million, not three.
+      const rupees = Math.round(amount * (/\bcrores?\b|\bcr\b/i.test(text) ? 1e7 : /\blakhs?\b|\blacs?\b/i.test(text) ? 1e5 : 1));
+      return { label, value: rupees, unit: 'INR', display: displayInr(rupees) };
+    }
+    case 'sqm': {
+      const sqm = areaInSqm(unit && /\d\s*$/.test(text) ? `${text} ${unit}` : text);
+      return sqm === null ? null : { label, value: sqm, unit: 'sqm', display: fmtSqm(sqm) };
+    }
+    case 'feet': {
+      const n = first ? parseAmount(first) : null;
+      if (n === null) return null;
+      const ft = /^m(?:et|\b|$)/i.test((unit ?? '').trim()) || /\d\s*m(?:et(?:re|er)s?)?\b/i.test(text) ? Math.round(n * 3.28084) : n;
+      return { label, value: ft, unit: 'ft', display: `${ft} ft` };
+    }
+    case 'number': {
+      const n = first ? Number(first.replace(/,/g, '')) : NaN;
+      return Number.isFinite(n) ? { label, value: n, display: String(n) } : null;
+    }
+    case 'yes_no': {
+      const yes = /^(?:yes|true)\b/i.test(text);
+      return yes || /^(?:no|false)\b/i.test(text) ? { label, value: yes, display: yes ? 'yes' : 'no' } : null;
+    }
+    default: {
+      if (choices) {
+        const chosen = choices.find((choice) => bare(text).includes(bare(choice)));
+        return chosen ? { label, value: chosen, display: chosen } : null;
+      }
+      const words = form === 'lower' ? text.toLowerCase() : form === 'identifier' ? identifierAlone(text) : text;
+      return { label, value: words, display: words };
+    }
+  }
 }

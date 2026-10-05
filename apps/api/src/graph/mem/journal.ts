@@ -1,0 +1,120 @@
+/**
+ * The project's memory as a file, for a machine with no graph database.
+ *
+ * In a file of its own beside the graph's journal, so that neither rewrites
+ * the other and the suite needs no database to hold memory to its rules. One
+ * record a project: where its memory stands, and its entries by id.
+ */
+
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import type { MemEntry, MemWatermark } from '@realytica/shared';
+import { DATA_DIR } from '../../storage/filesystem';
+import { ownEntries, shapeRefused, standsFor, type MemBatch, type MemCount, type MemoryPort, type MemWriteAnswer } from './types';
+
+interface ProjectMemory extends MemWatermark {
+  tenantId: string;
+  /** Keyed by id, so an entry offered twice is held once. */
+  entries: Record<string, MemEntry>;
+}
+
+type MemoryFile = Record<string, ProjectMemory>;
+
+const FILE = path.join(DATA_DIR, 'project-memory-journal.json');
+
+async function readAll(): Promise<MemoryFile> {
+  try {
+    return JSON.parse(await readFile(FILE, 'utf8')) as MemoryFile;
+  } catch {
+    // A missing or unreadable file is an empty memory. Every entry is told
+    // from the record, so the next write tells them again.
+    return {};
+  }
+}
+
+// One chain for every write, as the graph's journal has: two writes resolving
+// close together would otherwise both read, both write, and lose one.
+let queue: Promise<void> = Promise.resolve();
+function serialise<T>(work: () => Promise<T>): Promise<T> {
+  const run = queue.then(work, work);
+  queue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+async function writeAll(data: MemoryFile): Promise<void> {
+  await mkdir(path.dirname(FILE), { recursive: true });
+  const tmp = `${FILE}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify(data), 'utf8');
+  await rename(tmp, FILE);
+}
+
+function watermarkOf(held: ProjectMemory): MemWatermark {
+  return {
+    ...(held.schema === undefined ? {} : { schema: held.schema }),
+    ...(held.auditThrough === undefined ? {} : { auditThrough: held.auditThrough }),
+    ...(held.turnThrough === undefined ? {} : { turnThrough: held.turnThrough }),
+  };
+}
+
+export const journalMemory: MemoryPort = {
+  kind: 'journal',
+
+  async watermarks(projectIds): Promise<Map<string, MemWatermark>> {
+    const all = await readAll();
+    const found = new Map<string, MemWatermark>();
+    for (const id of projectIds) if (all[id]) found.set(id, watermarkOf(all[id]));
+    return found;
+  },
+
+  async write(batch: MemBatch): Promise<MemWriteAnswer> {
+    return serialise<MemWriteAnswer>(async () => {
+      const all = await readAll();
+      const held = all[batch.projectId] ?? { tenantId: batch.tenantId, entries: {} };
+      const schema = batch.through.schema ?? 0;
+      const refused = shapeRefused(held.schema ?? 0, schema, batch.mayRaise);
+      if (refused) return refused;
+      const stands = standsFor(watermarkOf(held), schema);
+      if ((stands.auditThrough ?? '') !== (batch.from.auditThrough ?? '') || (stands.turnThrough ?? '') !== (batch.from.turnThrough ?? '')) {
+        return { moved: watermarkOf(held) };
+      }
+      for (const [id, entry] of Object.entries(held.entries)) if (batch.forget?.includes(entry.kind)) delete held.entries[id];
+      // An entry already held is the event as it was first told. It stays.
+      const entries = ownEntries(batch);
+      for (const entry of entries) if (!(entry.id in held.entries)) held.entries[entry.id] = entry;
+      held.schema = schema;
+      held.auditThrough = batch.through.auditThrough;
+      held.turnThrough = batch.through.turnThrough;
+      all[batch.projectId] = held;
+      await writeAll(all);
+      return { written: entries.length };
+    });
+  },
+
+  async entries(projectId, limit): Promise<MemEntry[]> {
+    const held = (await readAll())[projectId];
+    if (!held) return [];
+    return Object.values(held.entries)
+      .sort((a, b) => (a.at === b.at ? (a.id < b.id ? 1 : -1) : a.at < b.at ? 1 : -1))
+      .slice(0, limit);
+  },
+
+  async count(projectId): Promise<MemCount> {
+    const all = await readAll();
+    const nodes = (held: ProjectMemory | undefined): number => (held ? 1 + Object.keys(held.entries).length : 0);
+    // This file is all of the store there is: the graph's journal is another, and has no allowance to count against.
+    return { project: nodes(all[projectId]), database: Object.values(all).reduce((sum, held) => sum + nodes(held), 0) };
+  },
+
+  async purge(projectId): Promise<void> {
+    await serialise(async () => {
+      const all = await readAll();
+      if (!(projectId in all)) return;
+      delete all[projectId];
+      await writeAll(all);
+    });
+  },
+
+  async projects(): Promise<Array<{ projectId: string; tenantId: string }>> {
+    return Object.entries(await readAll()).map(([projectId, held]) => ({ projectId, tenantId: held.tenantId }));
+  },
+};

@@ -21,10 +21,12 @@ import { createProject, seedBdaReferenceProject, seedDemoProject, type DdProject
 
 type StoreModule = typeof import('../apps/api/src/store');
 let Store: StoreModule['Store'];
+let storageAdapter: typeof import('../apps/api/src/storage').storageAdapter;
 
 before(async () => {
   process.env.REALYTICA_DATA_DIR = await mkdtemp(path.join(tmpdir(), 'realytica-sync-'));
   Store = (await import('../apps/api/src/store')).Store;
+  ({ storageAdapter } = await import('../apps/api/src/storage'));
 });
 
 async function twoInstances(projects: DdProject[]): Promise<[InstanceType<StoreModule['Store']>, InstanceType<StoreModule['Store']>]> {
@@ -88,6 +90,8 @@ describe('two instances over one store', () => {
     a.data.projects!.push(created);
     await a.save();
 
+    // Removed the way the delete route removes one: its documents first, then the list.
+    await storageAdapter.deleteCaseDocuments(gone.id);
     b.data.projects = b.data.projects!.filter((p) => p.id !== gone.id);
     await b.save();
 

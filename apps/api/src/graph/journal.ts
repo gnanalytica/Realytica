@@ -30,8 +30,6 @@ interface ProjectRecord {
   builtAt: string;
   /** The revision of the project copy the derived half was built from. A record written before revisions has none. */
   revision?: number;
-  /** What the derived half draws, as `drawingOf` says it. A record written before it has none and is redrawn once. */
-  drawing?: string;
 }
 
 type ProjectJournalFile = Record<string, ProjectRecord>;
@@ -86,8 +84,13 @@ export const journalAdapter: GraphAdapter = {
       const authoredIds = new Set(snapshot.nodes.filter(n => n.origin === 'authored').map(n => n.id));
       const derived = snapshot.nodes.filter(n => n.origin === 'derived');
       const incoming = snapshot.edges.filter(e => !authoredIds.has(e.from) && !authoredIds.has(e.to));
-      const drawing = drawingOf(derived, incoming);
-      const drawn = record.drawing === drawing;
+      // Whether the record already draws this, taken from what it holds now
+      // and not from a note of what it was last given: a build that keeps no
+      // such note would rewrite the derived half and leave the note standing.
+      // A project the journal holds nothing for is drawn, whatever it draws.
+      const drawn =
+        snapshot.projectId in all
+        && drawingOf(record.derived.nodes, record.derived.edges.filter(e => !e.closedAt)) === drawingOf(derived, incoming);
       // An older copy of the project than the one this half was built from
       // is turned away before anything is touched. Read and written inside
       // the one queue, so two syncs cannot both pass the comparison.
@@ -122,7 +125,6 @@ export const journalAdapter: GraphAdapter = {
 
       record.derived = { nodes: derived, edges: [...reopened, ...closed] };
       record.builtAt = snapshot.builtAt;
-      record.drawing = drawing;
       if (snapshot.revision !== undefined) record.revision = snapshot.revision;
       all[snapshot.projectId] = record;
       await writeAll(all);

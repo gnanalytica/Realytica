@@ -7,6 +7,7 @@ import type {
   Membership,
   ProjectGrant,
   DdProject,
+  MemWatermark,
   Tenant,
 } from '@realytica/shared';
 import { deriveHealth, evaluateRevisits, migrateWorkspaceRole, syncAlerts, type ProjectAlert } from '@realytica/shared';
@@ -14,6 +15,7 @@ import type { PromptStoreData } from '@realytica/agents';
 import { storageAdapter } from './storage';
 import type { DeviceRecord, PairCode } from './devices';
 import type { GraphSettlement, GraphSyncRun, OwedGraph } from './graph/sync';
+import type { MemoryLooks } from './graph/mem/sync';
 import type { GraphSyncRefused } from './graph/types';
 import { finishAfterReply } from './runs/background';
 
@@ -340,9 +342,9 @@ export class Store {
   private catchingUp: Promise<void> | undefined;
 
   /**
-   * True from a call the graph store failed until one it answers. While it
-   * is, only a save asks: a store that is down is not asked again by every
-   * request that reads a project.
+   * True from a pass in which the graph store failed every call, until one
+   * in which it answers any. While it is, only a save asks: a store that is
+   * down is not asked again by every request that reads a project.
    */
   private graphDown = false;
 
@@ -358,8 +360,43 @@ export class Store {
     purged: (projectId) => {
       this.graphGone.delete(projectId);
     },
-    refused: (owed, answer) => this.offerAbove(owed, answer),
+    refused: (owed, answer, builtAt) => this.offerAbove(owed, answer, builtAt),
   };
+
+  /**
+   * Projects whose memory may not hold what this instance's copy of them
+   * tells: every copy it writes and every copy it reads, until a pass has
+   * told memory or found it told. Memory is kept in the graph store, apart
+   * from the graph; see `graph/mem/sync.ts`. A copy read again is owed
+   * again, which costs the memory store nothing: the pass knows where its
+   * memory stands and finds nothing after it.
+   */
+  private memoryOwed = new Set<string>();
+
+  /** projectId -> where this instance last knew the project's memory to stand. */
+  private memoryKnown = new Map<string, MemWatermark>();
+
+  /** Projects that are gone, document and all, whose memory has not been seen to go with them. */
+  private memoryGone = new Set<string>();
+
+  /** The pass now telling memory what it is owed, when there is one. */
+  private remembering: Promise<void> | undefined;
+
+  /** True when a save asked for a pass while one was running. The pass goes round again before it ends. */
+  private rememberAgain = false;
+
+  /** True from a pass in which the memory store failed every call, until one in which it answers any. */
+  private memoryDown = false;
+
+  /** True once the memory store has answered this instance, until a pass in which it fails every call. */
+  private memoryAnswers = false;
+
+  /** True from a pass the memory store answered that it has no room, until one in which it takes a write. Only a save asks it then. */
+  private memoryFull = false;
+
+  /** When this instance next looks for memory whose project is gone, and what it carries from one look to the next. */
+  private memorySweepAt = 0;
+  private readonly memoryLooks: MemoryLooks = { seenGone: new Set(), from: 0 };
 
   /** Load persisted state via the active adapter. Must be awaited once at
    * boot, before any route handler runs — after that, `data` is
@@ -426,7 +463,10 @@ export class Store {
       .catch((err: unknown) => {
         console.warn(`[store] could not sync the workspace: ${(err as Error).message}`);
       })
-      .then(() => this.catchUpGraph());
+      .then(() => {
+        this.catchUpGraph();
+        this.remember();
+      });
     this.indexSync = { at: now, promise };
     return promise;
   }
@@ -459,11 +499,24 @@ export class Store {
       this.persistedAt.set(project.id, project.updatedAt);
       this.owe(project, revision);
     }
-    // Removed through another instance: this one knew it as stored, storage
-    // no longer names it, and nothing about it here is waiting to be written.
-    this.data.projects = projects.filter(
-      (project) => stored.has(project.id) || !this.indexed.has(project.id) || this.persistedAt.get(project.id) !== project.updatedAt,
+    /*
+     * A project this instance knew as stored, that the index no longer names,
+     * with nothing about it here waiting to be written.
+     *
+     * Removed through another instance, if its document went too: a removal
+     * takes the document first and the index entry after. If the document is
+     * still there, nothing removed the project. The index is read, merged and
+     * written with nothing between, so two instances writing it at once can
+     * lose an entry one of them added. Such a project stays in this
+     * instance's list, and because the index does not name it, this
+     * instance's next save names it there again.
+     */
+    const unnamed = projects.filter(
+      (project) => !stored.has(project.id) && this.indexed.has(project.id) && this.persistedAt.get(project.id) === project.updatedAt,
     );
+    const there = await Promise.all(unnamed.map((project) => this.hasShard(project.id)));
+    const removed = new Set(unnamed.filter((_, at) => there[at] === false).map((project) => project.id));
+    this.data.projects = projects.filter((project) => !removed.has(project.id));
     const live = new Set(this.data.projects.map((project) => project.id));
     for (const id of [...this.persistedAt.keys()]) if (!live.has(id)) this.forget(id);
     // Only the ids this instance holds. One the index names and this
@@ -476,8 +529,9 @@ export class Store {
    * about it goes, and its graph is dropped by this instance's next save,
    * whichever instance removed the project: the one that did may not have
    * reached the graph store. By a save and not sooner, and only if the
-   * project is still gone then: a project that left the list and came back
-   * keeps its graph and the notes written on it.
+   * project is still gone then, document and all: a project that left the
+   * list and came back, or whose document is still in storage, keeps its
+   * graph and the notes written on it.
    */
   private forget(id: string): void {
     this.persistedAt.delete(id);
@@ -485,6 +539,22 @@ export class Store {
     this.graphOwed.delete(id);
     this.graphSeen.delete(id);
     this.graphGone.add(id);
+    this.memoryOwed.delete(id);
+    this.memoryKnown.delete(id);
+  }
+
+  /**
+   * Whether a project's document is still in storage, or nothing when
+   * storage cannot say. A project is taken for gone only on a clear answer,
+   * because what follows from gone, dropping its graph, its notes and its
+   * memory, is not undone.
+   */
+  private async hasShard(id: string): Promise<boolean | undefined> {
+    try {
+      return (await storageAdapter.getDocument(id, PROJECT_KEY)) !== null;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -507,7 +577,10 @@ export class Store {
       .catch((err: unknown) => {
         console.warn(`[store] could not sync project ${id}: ${(err as Error).message}`);
       })
-      .then(() => this.catchUpGraph());
+      .then(() => {
+        this.catchUpGraph();
+        this.remember();
+      });
     this.projectSyncs.set(id, { at: now, promise });
     return promise;
   }
@@ -517,22 +590,20 @@ export class Store {
     if (!shard) return;
     const { project: stored, revision } = shard;
     const projects = this.data.projects ?? (this.data.projects = []);
-    const held = projects.find((project) => project.id === id);
+    let held = projects.find((project) => project.id === id);
     if (!held) {
+      held = stored;
       projects.push(stored);
       this.persistedAt.set(id, stored.updatedAt);
-      this.owe(stored, revision);
-      return;
+    } else if (stored.updatedAt !== held.updatedAt) {
+      // A change of this instance's own, not written yet: its save is about to write it.
+      if (held.updatedAt !== this.persistedAt.get(id)) return;
+      const target = held as unknown as Record<string, unknown>;
+      for (const key of Object.keys(target)) delete target[key];
+      Object.assign(target, stored);
+      this.persistedAt.set(id, stored.updatedAt);
     }
-    if (stored.updatedAt === held.updatedAt) {
-      this.owe(held, revision);
-      return;
-    }
-    if (held.updatedAt !== this.persistedAt.get(id)) return;
-    const target = held as unknown as Record<string, unknown>;
-    for (const key of Object.keys(target)) delete target[key];
-    Object.assign(target, stored);
-    this.persistedAt.set(id, stored.updatedAt);
+    // Newly held, replaced or the same: the copy held is the one storage has.
     this.owe(held, revision);
   }
 
@@ -543,6 +614,8 @@ export class Store {
    * `updatedAt` moves with every write, so the same one is the same copy.
    */
   private owe(project: DdProject, revision: number): void {
+    // And memory is owed whatever this copy tells.
+    this.memoryOwed.add(project.id);
     if (this.graphSeen.get(project.id) === project.updatedAt) return;
     this.graphOwed.set(project.id, Math.max(this.graphOwed.get(project.id) ?? 0, revision));
   }
@@ -720,6 +793,7 @@ export class Store {
       );
       this.persistedAt.set(project.id, project.updatedAt);
       this.graphOwed.set(project.id, revision);
+      this.memoryOwed.add(project.id);
     }
     // Shards for projects that are gone are dropped from the index here; the
     // documents themselves go with the project's own delete.
@@ -736,21 +810,37 @@ export class Store {
     //
     // A save waits, for a bounded time, on two things only: the copies it
     // wrote, and the graphs of projects that are gone. A project is gone only
-    // if it is still out of this instance's list now: one that left the list
-    // and came back before this save keeps its graph and its notes. Whatever
-    // else the graph store is owed is offered once the save is out of the way.
-    for (const id of [...this.graphGone]) if (live.has(id)) this.graphGone.delete(id);
+    // if it is out of this instance's list now and its document is out of
+    // storage: one that left the list and came back, or that the index lost
+    // while its document stayed, keeps its graph and its notes. Whatever else
+    // the graph store is owed is offered once the save is out of the way.
+    // A project that is gone takes its memory with it too, once the reply is
+    // out. One whose document is still there, or that storage could not
+    // answer for, stays as it is and is asked about again by the next save:
+    // a delete saves before it removes the documents, and that save must
+    // not be the last time the project is looked for. While one stays, each
+    // save reads its document to ask.
+    const gone: string[] = [];
+    for (const id of [...this.graphGone]) {
+      if (live.has(id)) {
+        this.graphGone.delete(id);
+      } else if ((await this.hasShard(id)) === false) {
+        gone.push(id);
+        this.memoryGone.add(id);
+      }
+    }
     const run = await this.offerGraph(
       changed.flatMap(project => {
         const revision = this.graphOwed.get(project.id);
         return revision === undefined ? [] : [{ project, revision }];
       }),
-      [...this.graphGone],
+      gone,
     );
     if (!(await run.waited)) {
       console.warn('[graph] the store had not answered in time: the save went on without it, and what it has not taken stays owed');
     }
     this.catchUpGraph(true);
+    this.remember(true);
 
     // Then tell people. Sent after the write, so an alert nobody can open is never mailed.
     if (raised.size) {
@@ -812,9 +902,11 @@ export class Store {
     const { syncGraph } = await import('./graph/sync');
     for (const { project } of owed) this.graphOffering.add(project.id);
     const run = syncGraph(owed, gone, this.graphSettlement);
-    void run.finished.then((answered) => {
+    void run.finished.then(({ made, failed }) => {
       for (const { project } of owed) this.graphOffering.delete(project.id);
-      if (owed.length > 0 || gone.length > 0) this.graphDown = !answered;
+      // Down when every call of the pass failed. One project the graph store
+      // will not take must not stop the others being caught up.
+      if (made > 0) this.graphDown = failed === made;
     });
     return run;
   }
@@ -858,12 +950,96 @@ export class Store {
   }
 
   /**
-   * Settles when the pass now catching the graph up, if there is one, has
-   * finished. For a caller that has to see the graph store as this instance
-   * leaves it: a script, a test.
+   * Tell memory what it is owed, with nothing waiting on it: once the reply
+   * is out, one pass at a time, each for a bounded time of its own and kept
+   * alive past the reply by the platform. A failure is logged by the pass
+   * and leaves the copy owed, for the next save or read of it on any
+   * instance. A read asks only while the memory store is answering; a save
+   * asks either way, and a save that finds a pass running has it go round
+   * again, because what the save wrote may have missed it.
+   */
+  private remember(afterSave = false): void {
+    if (this.remembering) {
+      if (!afterSave) return;
+      this.rememberAgain = true;
+      finishAfterReply(this.remembering);
+      return;
+    }
+    if ((this.memoryDown || this.memoryFull) && !afterSave) return;
+    if (this.memoryOwed.size === 0 && this.memoryGone.size === 0 && !this.lookDue()) return;
+    const rounds = async (): Promise<void> => {
+      do {
+        this.rememberAgain = false;
+        await this.tellMemory().catch((err: unknown) => {
+          console.warn(`[memory] could not tell memory: ${(err as Error).message}`);
+        });
+      } while (this.rememberAgain);
+    };
+    this.remembering = rounds().finally(() => {
+      this.remembering = undefined;
+    });
+    finishAfterReply(this.remembering);
+  }
+
+  /**
+   * Whether it is time to look for memory left behind by a project that is
+   * gone: now and then, and only once the memory store has answered this
+   * instance. One that holds no project has asked it nothing, and does not
+   * start by asking it this; one it is failing does not ask it more.
+   */
+  private lookDue(): boolean {
+    return this.memoryAnswers && Date.now() >= this.memorySweepAt;
+  }
+
+  private async tellMemory(): Promise<void> {
+    // Not before the code that read or wrote the project has gone on with its own work.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const { syncMemory, sweepMemory, MEMORY_SWEEP_MS } = await import('./graph/mem/sync');
+    const projects = this.data.projects ?? [];
+    const bootstrap = this.data.tenants?.[0]?.id ?? '';
+    // Only a copy as stored: a change this instance has not written yet is not in the project store.
+    const owed = projects.flatMap((project) =>
+      this.memoryOwed.has(project.id) && this.persistedAt.get(project.id) === project.updatedAt ? [{ project, tenantId: project.tenantId ?? bootstrap }] : [],
+    );
+    const passed = await syncMemory({
+      owed,
+      gone: [...this.memoryGone],
+      known: this.memoryKnown,
+      stillStored: async (projectId, updatedAt) => (await this.readShard(projectId))?.project.updatedAt === updatedAt,
+    });
+    for (const { projectId, builtAt } of passed.settled) {
+      // Only if the copy told is still the copy stored here: a save or a read may have moved the project on since.
+      if (this.persistedAt.get(projectId) === builtAt) this.memoryOwed.delete(projectId);
+    }
+    for (const projectId of passed.purged) this.memoryGone.delete(projectId);
+    if (passed.made > 0) {
+      this.memoryDown = passed.failed === passed.made;
+      this.memoryAnswers = !this.memoryDown;
+      this.memoryFull = passed.full === true;
+    }
+
+    if (!this.lookDue()) return;
+    this.memorySweepAt = Date.now() + MEMORY_SWEEP_MS;
+    try {
+      await sweepMemory({
+        tenantIds: new Set((this.data.tenants ?? []).map((tenant) => tenant.id)),
+        held: new Set((this.data.projects ?? []).map((project) => project.id)),
+        gone: async (projectId) => (await this.hasShard(projectId)) === false,
+        looks: this.memoryLooks,
+      });
+    } catch (err) {
+      console.warn(`[memory] could not look for memory left behind: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Settles when the passes now catching the graph up and telling memory, if
+   * there are any, have finished. For a caller that has to see the graph
+   * store as this instance leaves it: a script, a test.
    */
   async graphCaughtUp(): Promise<void> {
     await this.catchingUp;
+    await this.remembering;
   }
 
   /**
@@ -879,12 +1055,14 @@ export class Store {
    * the copy that was offered, the graph is of a copy the project store no
    * longer has, and this one is owed again above the number held.
    */
-  private async offerAbove({ project, revision }: OwedGraph, { held, drawn }: GraphSyncRefused): Promise<number | undefined> {
+  private async offerAbove({ project, revision }: OwedGraph, { held, drawn }: GraphSyncRefused, builtAt: string): Promise<number | undefined> {
     // Whatever this instance next writes of the project is numbered above it.
     if (held > (this.revisions.get(project.id) ?? 0)) this.revisions.set(project.id, held);
     if (drawn) return undefined;
     const stored = await this.readShard(project.id);
-    if (!stored || stored.project.updatedAt !== project.updatedAt || this.graphOwed.get(project.id) !== revision) return undefined;
+    // Against the copy as it was offered, not as the project stands now: a
+    // request may have changed the project in memory since it was drawn.
+    if (!stored || stored.project.updatedAt !== builtAt || this.graphOwed.get(project.id) !== revision) return undefined;
     const above = held + 1;
     this.revisions.set(project.id, Math.max(this.revisions.get(project.id) ?? 0, above));
     this.graphOwed.set(project.id, above);

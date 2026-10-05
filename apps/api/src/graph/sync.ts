@@ -74,20 +74,27 @@ export interface GraphSettlement {
    * later revision. Answers the revision to offer the same copy at instead,
    * when the project store still holds this copy and so the later revision
    * can only be of one it no longer has. Otherwise answers nothing, and the
-   * refusal stands.
+   * refusal stands. `builtAt` is the `updatedAt` of the copy as it was
+   * offered, which is the copy the project store is asked about.
    */
-  refused(owed: OwedGraph, answer: GraphSyncRefused): Promise<number | undefined>;
+  refused(owed: OwedGraph, answer: GraphSyncRefused, builtAt: string): Promise<number | undefined>;
+}
+
+/** How many calls a pass made to the graph store, and how many of them failed. */
+export interface GraphCalls {
+  made: number;
+  failed: number;
 }
 
 /** One pass over what the graph store is owed. Neither promise rejects. */
 export interface GraphSyncRun {
   /** Settles when every call has answered or the wait has run out, whichever is first. True when it was the answers. */
   waited: Promise<boolean>;
-  /** Settles when the last call started has answered, which may be after the wait. True when no call failed. */
-  finished: Promise<boolean>;
+  /** Settles when the last call started has answered, which may be after the wait. */
+  finished: Promise<GraphCalls>;
 }
 
-const SETTLED: GraphSyncRun = { waited: Promise.resolve(true), finished: Promise.resolve(true) };
+const SETTLED: GraphSyncRun = { waited: Promise.resolve(true), finished: Promise.resolve({ made: 0, failed: 0 }) };
 
 /**
  * Offer the graph store the copies it is owed, and drop the projects that
@@ -105,7 +112,7 @@ export function syncGraph(owed: OwedGraph[], gone: string[], settle: GraphSettle
   if (owed.length === 0 && gone.length === 0) return SETTLED;
 
   let waiting = true;
-  let answered = true;
+  const calls: GraphCalls = { made: 0, failed: 0 };
   let timer: ReturnType<typeof setTimeout> | undefined;
   const gaveUp = new Promise<false>((resolve) => {
     timer = setTimeout(() => {
@@ -122,7 +129,7 @@ export function syncGraph(owed: OwedGraph[], gone: string[], settle: GraphSettle
       settle.synced({ project, revision }, snapshot.builtAt);
       return;
     }
-    const above = await settle.refused({ project, revision }, answer);
+    const above = await settle.refused({ project, revision }, answer, snapshot.builtAt);
     if (above === undefined) {
       // Turned away is settled: the store holds a newer copy's graph, and
       // offering this one again would only be turned away again.
@@ -134,37 +141,40 @@ export function syncGraph(owed: OwedGraph[], gone: string[], settle: GraphSettle
     }
     // Owed at the higher revision now; offered at it in this run if there is still time.
     if (!waiting) return;
+    calls.made += 1;
     if (await adapter.syncProject({ ...snapshot, revision: above })) {
       console.warn(`[graph] kept the stored graph of ${project.id}: another copy was drawn while this one was offered again`);
     }
     settle.synced({ project, revision: above }, snapshot.builtAt);
   };
 
-  const finished = (async (): Promise<boolean> => {
+  const finished = (async (): Promise<GraphCalls> => {
     try {
       for (const item of owed) {
         if (!waiting) break;
+        calls.made += 1;
         try {
           await offer(item);
         } catch (err) {
-          answered = false;
+          calls.failed += 1;
           console.warn(`[graph] could not sync project ${item.project.id}: ${(err as Error).message}`);
         }
       }
       for (const projectId of gone) {
         if (!waiting) break;
+        calls.made += 1;
         try {
           await adapter.purgeProject(projectId);
           settle.purged(projectId);
         } catch (err) {
-          answered = false;
+          calls.failed += 1;
           console.warn(`[graph] could not purge project ${projectId}: ${(err as Error).message}`);
         }
       }
     } finally {
       clearTimeout(timer);
     }
-    return answered;
+    return calls;
   })();
 
   finishAfterReply(finished);

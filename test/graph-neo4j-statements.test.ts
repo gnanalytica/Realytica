@@ -33,6 +33,8 @@ interface Asked {
   params: Record<string, unknown>;
   /** Which transaction of the session the statement ran in, counted from one. */
   transaction: number;
+  /** What the transaction was opened with. */
+  config: unknown;
 }
 
 /** What the marker's statement answers. */
@@ -47,12 +49,12 @@ let useNeo4jDriver: Neo4jModule['useNeo4jDriver'];
 /** A driver whose every session writes down what it is asked. */
 function recordingDriver(): Driver {
   const session = {
-    async executeWrite<T>(work: (tx: { run: (query: string, params?: Record<string, unknown>) => Promise<unknown> }) => Promise<T>): Promise<T> {
+    async executeWrite<T>(work: (tx: { run: (query: string, params?: Record<string, unknown>) => Promise<unknown> }) => Promise<T>, config?: unknown): Promise<T> {
       transactions += 1;
       const transaction = transactions;
       return work({
         run: async (query, params = {}) => {
-          asked.push({ query, params, transaction });
+          asked.push({ query, params, transaction, config });
           // The marker's is the only statement whose answer the adapter reads.
           const answers = /RETURN held/.test(query) ? [{ get: (key: string) => (marker as Record<string, unknown>)[key] }] : [];
           return { records: answers };
@@ -103,7 +105,7 @@ describe('the Neo4j adapter syncing a project', () => {
     const [first, ...rest] = asked;
     assert.match(first!.query, /MERGE \(s:GraphSync \{ projectId: \$projectId \}\)/);
     const { nodes, edges } = snapshot();
-    assert.deepEqual(first!.params, { projectId: PROJECT, revision: 7, drawing: drawingOf(nodes, edges) });
+    assert.deepEqual(first!.params, { projectId: PROJECT, revision: 7, drawing: drawingOf(nodes, edges), nodes: 2 });
     assert.ok(rest.length > 0, 'the graph was written after it');
     assert.ok(asked.every((statement) => statement.transaction === 1), 'and in the one transaction, so the marker and the graph move together');
     assert.equal(rest.some((statement) => /GraphSync/.test(statement.query)), false, 'the marker is asked once');
@@ -124,6 +126,28 @@ describe('the Neo4j adapter syncing a project', () => {
     assert.match(claim, /SET s\.revision = CASE WHEN \$revision < held THEN held ELSE \$revision END/, 'a lower revision leaves the marker’s revision as it was');
     assert.match(claim, /s\.drawing = CASE WHEN \$revision < held THEN s\.drawing ELSE \$drawing END/, 'and its drawing');
     assert.match(claim, /RETURN held, \$revision >= held AS current, drawn/);
+  });
+
+  it('calls a copy drawn only if the project still holds as many nodes as the copy draws', async () => {
+    marker = { current: true, held: 0, drawn: false };
+    await adapter.syncProject(snapshot(1));
+
+    // A build that does not know the marker purges or redraws the graph and
+    // leaves the marker saying what it said. The count is what notices.
+    const claim = asked[0]!.query;
+    assert.match(claim, /OPTIONAL MATCH \(n:Ryt \{ projectId: \$projectId, origin: 'derived' \}\)\s+WITH s, held, count\(n\) AS stored/);
+    assert.match(claim, /coalesce\(s\.drawing = \$drawing, false\) AND stored = toInteger\(\$nodes\) AS drawn/);
+    assert.ok(claim.indexOf('count(n)') > claim.indexOf('SET s.asked = $revision'), 'counted under the marker’s lock');
+  });
+
+  it('gives every write a time after which the database ends it', async () => {
+    marker = { current: true, held: 0, drawn: false };
+    await adapter.syncProject(snapshot(1));
+    await adapter.appendProject(PROJECT, [{ id: 'note-1', kind: 'thought', layer: 'deliberation', origin: 'authored', label: 'a note' }], []);
+    await adapter.purgeProject(PROJECT);
+
+    assert.equal(transactions, 3);
+    assert.ok(asked.every((statement) => (statement.config as { timeout?: number } | undefined)?.timeout === 10_000));
   });
 
   it('writes nothing when the marker holds a later copy, and answers the refusal', async () => {
@@ -228,9 +252,12 @@ describe('the Neo4j adapter and the marker’s lifetime', () => {
     await adapter.purgeProject(PROJECT);
 
     // A build that predates the marker matches `:Ryt` and `RYT_EDGE` alone,
-    // and must go on reading and rebuilding the graph without meeting it.
+    // and must go on reading and rebuilding the graph without meeting it. The
+    // marker's own statement counts the project's nodes; it never labels the
+    // marker as one, and never joins it to one.
     for (const { query } of asked.filter((statement) => /GraphSync/.test(statement.query))) {
-      assert.equal(/Ryt|RYT_EDGE/.test(query), false);
+      assert.equal(/\(s:[^)]*Ryt/.test(query), false, 'the marker is never a :Ryt node');
+      assert.equal(/RYT_EDGE|\(s\)\s*-|-\s*\(s\)/.test(query), false, 'and no relationship touches it');
     }
   });
 });

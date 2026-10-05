@@ -46,6 +46,8 @@ let Store: StoreModule['Store'];
 let graph: GraphAdapter;
 let syncGraph: typeof import('../apps/api/src/graph/sync').syncGraph;
 let GRAPH_WAIT_MS: number;
+/** Where the project store keeps its documents. */
+let storage: typeof import('../apps/api/src/storage').storageAdapter;
 
 /** Every instance a test boots, so that what it offers in the background is over before the next test. */
 const booted: Instance[] = [];
@@ -59,6 +61,7 @@ before(async () => {
   dataDir = storeModule.DATA_DIR;
   ({ graphAdapter: graph } = await import('../apps/api/src/graph'));
   ({ syncGraph, GRAPH_WAIT_MS } = await import('../apps/api/src/graph/sync'));
+  ({ storageAdapter: storage } = await import('../apps/api/src/storage'));
 });
 
 afterEach(async () => {
@@ -112,11 +115,25 @@ async function instances(projects: DdProject[], count = 1): Promise<Instance[]> 
   return made;
 }
 
+/**
+ * Removes a project in the order the delete route does: off the list and
+ * saved, which is what forgetting its grants does, then its documents, then
+ * saved again.
+ */
+async function remove(instance: Instance, project: DdProject): Promise<void> {
+  instance.data.projects = instance.data.projects!.filter((other) => other.id !== project.id);
+  await instance.save();
+  await storage.deleteCaseDocuments(project.id);
+  await instance.save();
+}
+
 function held(instance: Instance, project: DdProject): DdProject {
   const found = instance.data.projects!.find((p) => p.id === project.id);
   assert.ok(found, 'the instance holds the project');
   return found;
 }
+
+const lists = (instance: Instance, project: DdProject): boolean => instance.data.projects!.some((p) => p.id === project.id);
 
 async function hasNode(project: DdProject, nodeId: string): Promise<boolean> {
   const stored = await graph.readProject(project.id);
@@ -300,6 +317,26 @@ describe('an older copy of a project and the graph store', () => {
   });
 });
 
+describe('a graph written by a build that keeps no drawing', () => {
+  it('is redrawn by the next copy offered, though that copy draws what was drawn before', async () => {
+    const project = file('Rewritten underneath');
+    const at = (revision: number, nodes: ProjectGraphNode[]) =>
+      graph.syncProject({ projectId: project.id, builtAt: project.updatedAt, revision, nodes, edges: [] });
+    await at(1, [parcel('rewritten-p1')]);
+
+    // What such a build does: it replaces the derived half and leaves everything else on the record as it found it.
+    const journal = JSON.parse(await readFile(journalFile(), 'utf-8')) as Record<string, { derived: { nodes: ProjectGraphNode[] } }>;
+    journal[project.id]!.derived.nodes = [parcel('rewritten-older-shape')];
+    await writeFile(journalFile(), JSON.stringify(journal));
+
+    await at(2, [parcel('rewritten-p1')]);
+
+    const stored = await graph.readProject(project.id);
+    assert.deepEqual(stored?.nodes.map((n) => n.id), ['rewritten-p1'], 'what is stored is compared, not what was last given');
+    await graph.purgeProject(project.id);
+  });
+});
+
 describe('what a save waits for, and what an instance offers of what it has read', () => {
   it('waits for the one project it wrote, drops none, and cannot put an older copy over a newer graph', async () => {
     const [p, q] = [file('Plot P'), file('Plot Q')];
@@ -343,11 +380,64 @@ describe('what a save waits for, and what an instance offers of what it has read
     const [a] = await instances([keep, gone]);
     assert.ok(await graph.readProject(gone.id));
 
-    a!.data.projects = a!.data.projects!.filter((project) => project.id !== gone.id);
-    await a!.save();
+    await remove(a!, gone);
 
     assert.equal(await graph.readProject(gone.id), null);
     assert.ok(await graph.readProject(keep.id), 'the project it was not asked about is still there');
+  });
+
+  it('keeps the graph of a project that left its list while its document is still in storage', async () => {
+    const [keep, listed] = [file('Kept'), file('Out of the list, still stored')];
+    const [a] = await instances([keep, listed]);
+
+    // Out of the list and saved, with nothing having removed its document.
+    a!.data.projects = a!.data.projects!.filter((project) => project.id !== listed.id);
+    await a!.save();
+    await a!.graphCaughtUp();
+
+    assert.ok(await graph.readProject(listed.id), 'a project is gone when its document is, and not before');
+  });
+
+  it('neither drops a graph nor forgets it may have to, while storage cannot say whether the document is there', async () => {
+    const [keep, removed] = [file('Kept through an outage'), file('Removed during an outage')];
+    const [a] = await instances([keep, removed]);
+    const read = storage.getDocument.bind(storage);
+    let down = true;
+    const failing = mock.method(storage, 'getDocument', async (caseId: string, key: string) => {
+      if (down && caseId === removed.id) throw new Error('storage did not answer');
+      return read(caseId, key);
+    });
+    try {
+      await remove(a!, held(a!, removed));
+      await a!.graphCaughtUp();
+      assert.ok(await graph.readProject(removed.id), 'no answer is not the answer that it is gone');
+
+      down = false;
+      await a!.save();
+      await a!.graphCaughtUp();
+      assert.equal(await graph.readProject(removed.id), null, 'and the next save asks again, and drops it');
+      assert.ok(await graph.readProject(keep.id));
+    } finally {
+      failing.mock.restore();
+    }
+  });
+
+  it('keeps a project the index does not name while storage cannot say whether its document is there', async () => {
+    const [keep, unnamed] = [file('Named in the index'), file('Not named, and storage is silent')];
+    const [a] = await instances([keep, unnamed]);
+    await rewriteIndex((ids) => ids.filter((id) => id !== unnamed.id));
+    const read = storage.getDocument.bind(storage);
+    const failing = mock.method(storage, 'getDocument', async (caseId: string, key: string) => {
+      if (caseId === unnamed.id) throw new Error('storage did not answer');
+      return read(caseId, key);
+    });
+    try {
+      await a!.syncIndex();
+      await a!.graphCaughtUp();
+      assert.ok(lists(a!, unnamed), 'the instance still lists it');
+    } finally {
+      failing.mock.restore();
+    }
   });
 
   it('drops the graph of a project another instance removed, at its own next save', async () => {
@@ -360,8 +450,7 @@ describe('what a save waits for, and what an instance offers of what it has read
     });
     const warned = mock.method(console, 'warn', () => {});
     try {
-      b!.data.projects = b!.data.projects!.filter((project) => project.id !== gone.id);
-      await b!.save();
+      await remove(b!, gone);
     } finally {
       down.mock.restore();
       warned.mock.restore();
@@ -385,16 +474,19 @@ describe('what a save waits for, and what an instance offers of what it has read
     const [a] = await instances([p, other]);
     const note: ProjectGraphNode = { id: `${p.id}::note`, kind: 'thought', layer: 'deliberation', origin: 'authored', label: 'why this matters' };
     await graph.appendProject(p.id, [note], [{ id: `${p.id}::note>project`, from: note.id, to: p.id, rel: 'cites' }]);
+    const document = (await storage.getDocument(p.id, 'project.json'))!;
 
     const purged = mock.method(graph, 'purgeProject');
     mock.timers.enable({ apis: ['Date'], now: Date.now() });
     try {
-      // The index stops naming the project, though nobody deleted it, and A sees that.
+      // Its document and its index entry go, and A sees that.
+      await storage.deleteDocument(p.id, 'project.json');
       await rewriteIndex((ids) => ids.filter((id) => id !== p.id));
       await a!.syncIndex();
       assert.equal(a!.data.projects!.some((project) => project.id === p.id), false, 'it has left A’s list');
 
-      // The index names it again, and A sees that too, before A has saved anything.
+      // Both are put back, and A sees that too, before A has saved anything.
+      await storage.putDocument(p.id, 'project.json', document, 'application/json');
       await rewriteIndex((ids) => [...ids, p.id]);
       mock.timers.tick(2_001);
       await a!.syncIndex();
@@ -412,6 +504,57 @@ describe('what a save waits for, and what an instance offers of what it has read
     const stored = await graph.readProject(p.id);
     assert.ok(stored?.nodes.some((n) => n.id === note.id), 'the note written on it is still there');
     assert.ok(stored?.edges.some((e) => e.id === `${p.id}::note>project`), 'and still joined to it');
+  });
+
+  it('keeps a project the index lost to two instances writing it at once, with its graph and its notes', async () => {
+    const held0 = file('Held by both');
+    const [a, b] = await instances([held0], 2);
+
+    // B reads the workspace document and is about to write it back. Between
+    // the two, A creates a project and saves. B's write then carries the list
+    // as B read it, and the project A created is not in it.
+    const write = storage.writeStore.bind(storage);
+    const reading = deferred();
+    const gate = deferred();
+    let writes = 0;
+    const slowed = mock.method(storage, 'writeStore', async (data: Parameters<typeof storage.writeStore>[0]) => {
+      writes += 1;
+      if (writes === 1) {
+        reading.resolve();
+        await gate.promise;
+      }
+      return write(data);
+    });
+    const purged = mock.method(graph, 'purgeProject');
+    const created = file('Created through A');
+    const note: ProjectGraphNode = { id: `${created.id}::note`, kind: 'thought', layer: 'deliberation', origin: 'authored', label: 'why this matters' };
+    try {
+      b!.data.nextProjectSeq = (b!.data.nextProjectSeq ?? 1) + 1;
+      const bSaving = b!.save();
+      await reading.promise;
+      a!.data.projects!.push(created);
+      await a!.save();
+      await graph.appendProject(created.id, [note], [{ id: `${created.id}::note>project`, from: note.id, to: created.id, rel: 'cites' }]);
+      gate.resolve();
+      await bSaving;
+      assert.equal((JSON.parse(await readFile(indexFile(), 'utf-8')) as { projectIds: string[] }).projectIds.includes(created.id), false, 'the index has lost it');
+      assert.ok(await storage.getDocument(created.id, 'project.json'), 'and its document is still there');
+
+      // A looks at the index. The project is not named, and nothing removed it.
+      await a!.syncIndex();
+      assert.ok(a!.data.projects!.some((project) => project.id === created.id), 'A keeps it');
+      await a!.save();
+      await a!.graphCaughtUp();
+
+      assert.ok((JSON.parse(await readFile(indexFile(), 'utf-8')) as { projectIds: string[] }).projectIds.includes(created.id), 'and its next save names it in the index again');
+      assert.equal(purged.mock.callCount(), 0, 'its graph was not dropped');
+    } finally {
+      slowed.mock.restore();
+      purged.mock.restore();
+    }
+    const stored = await graph.readProject(created.id);
+    assert.ok(stored?.nodes.some((n) => n.id === note.id), 'the note written on it is still there');
+    assert.ok(lists(await boot(), created), 'and an instance booting now lists the project');
   });
 });
 
@@ -479,6 +622,136 @@ describe('a graph that was left behind', () => {
     }
   });
 
+  it('is caught up for a project this instance learns of from the index', async () => {
+    const held0 = file('Held');
+    const [a, b] = await instances([held0], 2);
+
+    // B creates a project while the graph store is down, and is not heard from again.
+    const created = file('Created while the graph was down');
+    b!.data.projects!.push(created);
+    const down = mock.method(graph, 'syncProject', async () => {
+      throw new Error('the store is down');
+    });
+    const warned = mock.method(console, 'warn', () => {});
+    try {
+      await b!.save();
+      await b!.graphCaughtUp();
+    } finally {
+      down.mock.restore();
+      warned.mock.restore();
+    }
+    assert.equal(await graph.readProject(created.id), null);
+
+    await a!.syncIndex();
+    await a!.graphCaughtUp();
+
+    assert.ok(await hasNode(created, created.id), 'the copy A read off the index was offered');
+  });
+
+  it('is caught up for a project this instance is asked for by id and did not hold', async () => {
+    const held0 = file('Held');
+    const [a, b] = await instances([held0], 2);
+    const created = file('Asked for by id');
+    b!.data.projects!.push(created);
+    const down = mock.method(graph, 'syncProject', async () => {
+      throw new Error('the store is down');
+    });
+    const warned = mock.method(console, 'warn', () => {});
+    try {
+      await b!.save();
+      await b!.graphCaughtUp();
+    } finally {
+      down.mock.restore();
+      warned.mock.restore();
+    }
+
+    // Before A has looked at the index again: the page of a project just created is opened.
+    await a!.syncProject(created.id);
+    await a!.graphCaughtUp();
+
+    assert.ok(await hasNode(created, created.id));
+  });
+
+  it('holds no request about a project, though the graph store has answered nothing', async () => {
+    const p = file('Asked about');
+    const [a] = await instances([p]);
+    const reached = deferred();
+    const hung = deferred<never>();
+    const silent = mock.method(graph, 'syncProject', () => {
+      reached.resolve();
+      return hung.promise;
+    });
+    const warned = mock.method(console, 'warn', () => {});
+    try {
+      await a!.syncProject(p.id);
+      await reached.promise;
+      assert.equal(silent.mock.callCount(), 1, 'the read came back while the offer was still out');
+      hung.reject(new Error('the connection was lost'));
+      await a!.graphCaughtUp();
+    } finally {
+      silent.mock.restore();
+      warned.mock.restore();
+    }
+  });
+
+  it('does not offer a copy with a change not yet written, and leaves it to the save that writes it', async () => {
+    const p = file('Changed and not saved');
+    const [a] = await instances([p]);
+    const project = held(a!, p);
+    const tower = addAsset(project, { name: 'Tower A', assetType: 'Residential tower' });
+    touch(project, '2026-10-05T10:00:00.000Z');
+
+    const offered = mock.method(graph, 'syncProject');
+    try {
+      // A read on this instance while the change is still only in memory.
+      await a!.syncIndex();
+      await a!.graphCaughtUp();
+      assert.equal(offered.mock.callCount(), 0, 'what the graph store would be shown is not in the project store yet');
+      assert.equal(await hasNode(p, tower.id), false);
+
+      await a!.save();
+      assert.equal(offered.mock.callCount(), 1);
+    } finally {
+      offered.mock.restore();
+    }
+    assert.ok(await hasNode(p, tower.id), 'the save that wrote the change offered it');
+  });
+
+  it('goes on catching up the other projects when the graph store will not take one', async () => {
+    const [refused, other] = [file('Refused by the graph'), file('Taken')];
+    const [a, b] = await instances([refused, other], 2);
+    const answer = graph.syncProject.bind(graph);
+    // The graph store fails this one project, every time, and answers for every other.
+    let down = false;
+    const partial = mock.method(graph, 'syncProject', async (snapshot: Parameters<GraphAdapter['syncProject']>[0]) => {
+      if (down) throw new Error('the store is down');
+      if (snapshot.projectId === refused.id) throw new Error('this project cannot be written');
+      return answer(snapshot);
+    });
+    const warned = mock.method(console, 'warn', () => {});
+    try {
+      await a!.syncIndex();
+      await a!.graphCaughtUp();
+
+      // Another instance writes the other project and is not heard from again.
+      const tower = addAsset(held(b!, other), { name: 'Tower A', assetType: 'Residential tower' });
+      touch(held(b!, other), '2026-10-05T10:00:00.000Z');
+      down = true;
+      await b!.save();
+      await b!.graphCaughtUp();
+      down = false;
+      assert.equal(await hasNode(other, tower.id), false);
+
+      // A reads it. One failing project has not stopped A asking.
+      await a!.syncProject(other.id);
+      await a!.graphCaughtUp();
+      assert.ok(await hasNode(other, tower.id));
+    } finally {
+      partial.mock.restore();
+      warned.mock.restore();
+    }
+  });
+
   it('holds no read, and is asked for nothing more once the wait has run out', async () => {
     const [p, q] = [file('Read P'), file('Read Q')];
     const [a] = await instances([p, q]);
@@ -539,6 +812,42 @@ describe('a later write the graph store turned away', () => {
       assert.ok((await documentOf(p)).storeRevision! > ahead);
     } finally {
       mock.timers.reset();
+    }
+  });
+});
+
+describe('a refused copy and a project changed since it was offered', () => {
+  it('is judged by the copy that was offered, not by the project as it stands now', async () => {
+    const p = file('Changed while it was offered');
+    const [a, b] = await instances([p], 2);
+    const now = Date.now();
+    const answer = graph.syncProject.bind(graph);
+    mock.timers.enable({ apis: ['Date'], now });
+    let changed: (() => void) | undefined;
+    const interrupted = mock.method(graph, 'syncProject', async (snapshot: Parameters<GraphAdapter['syncProject']>[0]) => {
+      const answered = await answer(snapshot);
+      // A request changes the project in memory while the offer is out.
+      changed?.();
+      changed = undefined;
+      return answered;
+    });
+    try {
+      mock.timers.setTime(now + 3_000);
+      held(a!, p).description = 'Written through A';
+      touch(held(a!, p), '2026-10-05T10:00:00.000Z');
+      await a!.save();
+
+      mock.timers.setTime(now);
+      const onB = held(b!, p);
+      const tower = addAsset(onB, { name: 'Tower A', assetType: 'Residential tower' });
+      touch(onB, '2026-10-05T10:01:00.000Z');
+      changed = () => touch(onB, '2026-10-05T10:01:30.000Z');
+      await b!.save();
+
+      assert.ok(await hasNode(p, tower.id), 'the copy B wrote, which storage still holds, was offered again and drawn');
+    } finally {
+      mock.timers.reset();
+      interrupted.mock.restore();
     }
   });
 });
@@ -774,6 +1083,87 @@ describe('a graph store that does not answer', () => {
 });
 
 describe('two saves of one project that overlap', () => {
+  it('number the later write higher though the earlier one is still being written', () => clockStopped(async () => {
+    const p = file('Written twice at once');
+    const [a] = await instances([p]);
+    const project = held(a!, p);
+    const put = storage.putDocument.bind(storage);
+    const reached = deferred();
+    const gate = deferred();
+    const numbers: number[] = [];
+    const slowed = mock.method(storage, 'putDocument', async (...args: Parameters<typeof storage.putDocument>) => {
+      numbers.push((JSON.parse(args[2].toString('utf-8')) as { storeRevision: number }).storeRevision);
+      // The first write is still on its way to storage when the second save starts.
+      if (numbers.length === 1) {
+        reached.resolve();
+        await gate.promise;
+      }
+      return put(...args);
+    });
+    try {
+      touch(project, '2026-10-05T11:00:00.000Z');
+      const first = a!.save();
+      await reached.promise;
+      touch(project, '2026-10-05T11:01:00.000Z');
+      const second = a!.save();
+      gate.resolve();
+      await Promise.all([first, second]);
+
+      assert.equal(numbers.length, 2);
+      assert.equal(numbers[1], numbers[0]! + 1, 'the clock has not moved, and the second write is still numbered after the first');
+    } finally {
+      slowed.mock.restore();
+    }
+  }));
+
+  it('keep the later write owed when the earlier write’s offer is the one that is taken', async () => {
+    const p = file('Owed after an overlap');
+    const [a] = await instances([p]);
+    const project = held(a!, p);
+    const answer = graph.syncProject.bind(graph);
+    const reached = deferred();
+    const gate = deferred();
+    let offers = 0;
+    let down = true;
+    const slow = mock.method(graph, 'syncProject', async (snapshot: Parameters<GraphAdapter['syncProject']>[0]) => {
+      offers += 1;
+      if (offers === 1) {
+        // The first save's offer is out while the second save comes and goes.
+        reached.resolve();
+        await gate.promise;
+        return answer(snapshot);
+      }
+      // Every offer of the second save's write fails, for now.
+      if (down) throw new Error('the store is down');
+      return answer(snapshot);
+    });
+    const warned = mock.method(console, 'warn', () => {});
+    try {
+      touch(project, '2026-10-05T11:00:00.000Z');
+      const first = a!.save();
+      await reached.promise;
+      const tower = addAsset(project, { name: 'Tower A', assetType: 'Residential tower' });
+      touch(project, '2026-10-05T11:01:00.000Z');
+      await a!.save();
+      await a!.graphCaughtUp();
+
+      // The first save's offer is answered, and taken: it is the only one that was.
+      gate.resolve();
+      await first;
+      await a!.graphCaughtUp();
+      assert.equal(await hasNode(p, tower.id), false, 'the graph is the earlier write’s');
+
+      // That answer did not clear what the later write is owed.
+      down = false;
+      await a!.save();
+      await a!.graphCaughtUp();
+      assert.ok(await hasNode(p, tower.id), 'the later write is offered again, and drawn');
+    } finally {
+      slow.mock.restore();
+      warned.mock.restore();
+    }
+  });
+
   it('number the later write higher, and leave the graph and the debt as the later one has them', async () => {
     const p = file('Overlapping');
     const [a] = await instances([p]);

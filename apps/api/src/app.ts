@@ -12,6 +12,7 @@ import { initTelemetry } from './telemetry';
 import { UPLOAD_LIMITS } from './uploads';
 import { referenceRouter } from './routes/reference';
 import { librariesRouter, projectsRouter } from './routes/projects';
+import { projectMemoryRouter } from './routes/project-memory';
 import { agentsCapabilityRouter } from './routes/agents';
 import { sourcesRouter } from './routes/knowledge';
 import { telemetryRouter } from './routes/telemetry';
@@ -152,6 +153,8 @@ app.use('/api/projects/:projectId/gis-overlay/revenue', (req, res, next) =>
 app.use('/api/projects/:projectId/ai/drafts', limits.expensive);
 app.use('/api/projects/:projectId/photographs/read', limits.expensive);
 app.use('/api/projects/:projectId/evidence', limits.upload);
+// What the project's memory has been told: one read, with its own guard.
+app.use('/api/projects/:projectId/memory', projectMemoryRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/agents', needs('read'), agentsCapabilityRouter);
 app.use('/api/sources', needs('read'), sourcesRouter);

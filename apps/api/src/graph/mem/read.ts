@@ -1,0 +1,101 @@
+/**
+ * Reading a project's memory back.
+ *
+ * An entry holds ids and no titles: who did it as an id that is not their
+ * email, and what it is about as the ids of records. The titles are looked up
+ * here, on the record as it stands when the entry is read. So a paper renamed
+ * since is shown by its name now, and a record that has since been removed is
+ * shown as the id it was, with no title.
+ *
+ * For the firm's own people. Titles are taken from the whole record, which a
+ * collaborator does not see the whole of.
+ */
+
+import {
+  buildProjectGraph,
+  chatLinkLabels,
+  memPointer,
+  memWho,
+  parcelLabels,
+  revenueReads,
+  type DdProject,
+  type MemEntry,
+  type MemEntryKind,
+  type MemPlace,
+} from '@realytica/shared';
+import { memoryPort } from './index';
+import type { MemoryPort } from './types';
+
+/** How many entries one read answers with, at most. */
+export const MEMORY_READ_AT_MOST = 200;
+
+export interface MemoryLine {
+  id: string;
+  kind: MemEntryKind;
+  at: string;
+  /** Who did it, as the record names them. Absent when the record names nobody this id stands for. */
+  by?: string;
+  /** What the entry was told from: an audit event, a chat turn or a paper. */
+  sourceId: string;
+  /** On an entry about a value, the value's key and the name the fixed list of keys gives it. */
+  key?: string;
+  label?: string;
+  /** The page a question was asked on. */
+  place?: MemPlace;
+  /** What the entry is about. `title` is absent when the record no longer holds the id. */
+  about: Array<{ id: string; title?: string }>;
+}
+
+/** What the server is called where it, and not a person, did something. */
+const SERVER = 'system';
+
+/**
+ * Every id on the record an entry can point at, with the words the record
+ * has for it now, keyed as memory keeps the id: a node whose id is made from
+ * an email or from a name on a paper is found under the token for it.
+ */
+function titlesOf(project: DdProject): Map<string, string> {
+  const titles = new Map<string, string>();
+  const name = (id: string, title: string): void => {
+    const pointer = memPointer(project.id, id);
+    if (pointer) titles.set(pointer, title);
+  };
+  for (const node of buildProjectGraph(project).nodes) name(node.id, node.label);
+  for (const { id, label } of chatLinkLabels(project)) name(id, label);
+  for (const proposal of project.chatProposals ?? []) name(proposal.id, proposal.title);
+  for (const [parcelRef, label] of parcelLabels(revenueReads(project))) name(parcelRef, `Sy. ${label}`);
+  return titles;
+}
+
+/** The people the record names, by the id memory keeps for each on this project. */
+function peopleOf(project: DdProject): Map<string, string> {
+  const people = new Map<string, string>([[memWho(project.id, SERVER), SERVER]]);
+  const named = [...(project.audit ?? []).map((event) => event.actor), ...(project.conversation ?? []).map((turn) => turn.actor)];
+  for (const actor of named) if (actor) people.set(memWho(project.id, actor), actor);
+  return people;
+}
+
+/** A project's entries, newest first, each with what it points at resolved to its title. */
+export async function readMemory(project: DdProject, limit = 50, port: MemoryPort = memoryPort): Promise<MemoryLine[]> {
+  const most = Math.min(MEMORY_READ_AT_MOST, Math.max(1, Math.floor(limit) || 1));
+  const entries: MemEntry[] = await port.entries(project.id, most);
+  const titles = titlesOf(project);
+  const people = peopleOf(project);
+  return entries.map((entry) => {
+    const by = people.get(entry.by);
+    return {
+      id: entry.id,
+      kind: entry.kind,
+      at: entry.at,
+      ...(by ? { by } : {}),
+      sourceId: entry.sourceId,
+      ...(entry.key ? { key: entry.key } : {}),
+      ...(entry.label ? { label: entry.label } : {}),
+      ...(entry.place ? { place: entry.place } : {}),
+      about: entry.about.map((id) => {
+        const title = titles.get(id);
+        return title ? { id, title } : { id };
+      }),
+    };
+  });
+}
