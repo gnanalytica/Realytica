@@ -249,6 +249,8 @@ export function RevenueMapBrief({ project, className }: { project: DdProject; cl
   const places = [...new Set(brief.parcels.map((p) => p.place))];
   const readOn = brief.parcels.reduce((latest, p) => (p.readOn > latest ? p.readOn : latest), '');
   const classes = [...new Set(brief.parcels.map((p) => p.classification).filter(Boolean))];
+  // Karnataka's map gives a parcel's hobli and no class of land. A hobli is a place, and is said as one.
+  const hoblis = [...new Set(brief.parcels.map((p) => p.hobli).filter(Boolean))];
   const nothingFound = !brief.warnings.length && !brief.planned.length && !brief.zoning.length && !brief.nearby.length && !brief.positives.length;
 
   return (
@@ -289,6 +291,16 @@ export function RevenueMapBrief({ project, className }: { project: DdProject; cl
               {classes.length === 1
                 ? classes[0]
                 : classes.map((c) => `${c} (${surveyNumbersLabel(brief.parcels.filter((p) => p.classification === c).map((p) => p.label))})`).join(' · ')}
+            </span>
+          </li>
+        ) : null}
+        {hoblis.length ? (
+          <li>
+            <span className="text-ink-muted">Hobli: </span>
+            <span className="text-ink">
+              {hoblis.length === 1
+                ? hoblis[0]
+                : hoblis.map((h) => `${h} (${surveyNumbersLabel(brief.parcels.filter((p) => p.hobli === h).map((p) => p.label))})`).join(' · ')}
             </span>
           </li>
         ) : null}

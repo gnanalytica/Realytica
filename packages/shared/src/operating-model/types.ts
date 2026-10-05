@@ -7,7 +7,7 @@
  * on these same records; nothing here requires a model to function.
  */
 
-import type { RevenueMapRead } from './revenue-map';
+import type { RevenueMapRead, RevenueShape } from './revenue-map';
 import type {
   ChatChoice,
   ChatMetric,
@@ -1931,9 +1931,18 @@ export interface DdProject {
    * one per parcel, in the order read. `revenueMap` above is always the first
    * of them, so code that knows of one read keeps working, and that field is
    * the one trusted when the two disagree. Absent while there is one read or
-   * none. Read it through `revenueReads` in `revenue-map.ts`, never directly.
+   * none. Read it through `revenueReads` in `revenue-map.ts`, never directly:
+   * the first place only stands for the read `revenueMap` holds, and the
+   * reads after it keep their shapes in `revenueShapes` below.
    */
   revenueMaps?: RevenueMapRead[];
+  /**
+   * The shapes of the state's layers that the reads in `revenueMaps` share
+   * and the first read does not hold, each kept once. A tank beside seventy
+   * parcels is one outline here, not seventy. Absent while there is one read,
+   * or while the first read holds every shape the others need.
+   */
+  revenueShapes?: Record<string, RevenueShape>;
   /**
    * Value inputs the file offered that a person set aside, by offer id. An
    * offer's id carries its value and source, so a new document or a corrected

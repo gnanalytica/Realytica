@@ -22,7 +22,7 @@
  * captured offline and dated, so the portal policy in `portals.ts` holds.
  */
 
-import { acceptedFacts, revenueReads, splitSurveyNumbers, surveyNoFromParcelId, type DdProject } from '@realytica/shared';
+import { acceptedFacts, applyRevenueMap, revenueReads, splitSurveyNumbers, surveyNoFromParcelId, type DdProject } from '@realytica/shared';
 import type { RevenueMapFactor, RevenueMapFeature, RevenueMapFeatureKind, RevenueMapRead } from '@realytica/shared';
 import { kaVillageByCode } from '@realytica/site-intel/karnataka/village-index';
 import { kaPickerLabel, kaVillageFromAddress } from '@realytica/site-intel/karnataka/place-match';
@@ -179,6 +179,45 @@ async function readParcel(parcelRef: string, landAreaSqm: number | null | undefi
 export async function rereadRevenueMap(input: { parcelRef: string; landAreaSqm?: number | null; kept: readonly string[] }): Promise<RevenueReadOutcome> {
   const alone = !input.kept.some((ref) => ref !== input.parcelRef);
   return readParcel(input.parcelRef, alone ? input.landAreaSqm : null);
+}
+
+/* ------------------------------------------------------------------ */
+/* Room on the file                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How heavy a project's record may be and still take another parcel's read.
+ *
+ * A project is stored, and sent to the page, as one piece. The host will not
+ * send a piece much over four megabytes, so a record that grows past that
+ * stops loading — here and in production, which read the same store — and
+ * nothing on the page can then take a read off again. A read is refused well
+ * short of it: everything else on the file goes on growing too.
+ */
+export const PROJECT_RECORD_CEILING_BYTES = 2_500_000;
+
+/** The project's record as it is stored and sent, in bytes. */
+export function recordBytes(project: DdProject): number {
+  return Buffer.byteLength(JSON.stringify(project), 'utf8');
+}
+
+/**
+ * Whether the file has room to keep this read, worked out by keeping it on a
+ * copy and weighing the copy. A parcel already kept, read again, takes the
+ * place of its earlier read and is never refused: it is not what filled the
+ * file.
+ */
+export function roomForRead(project: DdProject, read: RevenueMapRead, askedAs?: string): { fits: true } | { fits: false; error: string } {
+  const kept = revenueReads(project);
+  if (kept.some((r) => r.parcelRef === read.parcelRef)) return { fits: true };
+  const copy = JSON.parse(JSON.stringify(project)) as DdProject;
+  applyRevenueMap(copy, read, 'weighing', askedAs);
+  if (recordBytes(copy) <= PROJECT_RECORD_CEILING_BYTES) return { fits: true };
+  const ceiling = (PROJECT_RECORD_CEILING_BYTES / 1_000_000).toFixed(1);
+  return {
+    fits: false,
+    error: `${kept.length === 0 ? 'No parcel is' : kept.length === 1 ? '1 parcel is' : `${kept.length} parcels are`} kept on this project. Sy. ${read.surveyNo} was read from the map and is not kept: with it the project’s record would weigh over ${ceiling} MB, and a record much heavier than that stops opening. Remove a read that is not needed to make room.`,
+  };
 }
 
 /* ------------------------------------------------------------------ */

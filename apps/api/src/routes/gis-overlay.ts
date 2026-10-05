@@ -27,7 +27,7 @@ import { ensureIdentitySiteContext } from '../site-context';
 import { pullPinForProject } from '../project-chat-sides';
 import { fetchOsmContext } from '../gis/overpass';
 import { loadCivicLayers, loadWithdrawnRmpSheets } from '../gis/civic-cache';
-import { isStateKey, readRevenueMap, rereadRevenueMap, revenueLevelLabels, revenueLevels, suggestRevenuePlace } from '../gis/revenue-map';
+import { isStateKey, readRevenueMap, rereadRevenueMap, revenueLevelLabels, revenueLevels, roomForRead, suggestRevenuePlace } from '../gis/revenue-map';
 
 function findProject(id: string | undefined) {
   if (!id) return undefined;
@@ -214,6 +214,13 @@ projectGisOverlayRouter.post<ProjectParams>('/revenue', async (req, res) => {
   // person who removed it did so after this was asked for.
   if (again && !revenueReads(project).some((r) => r.parcelRef === again)) {
     res.status(409).json({ error: 'That parcel was taken off this project while it was being read again. It has not been put back.' });
+    return;
+  }
+  // A record too heavy to send is a project nobody can open, so a read that would make it one is not kept. `full` tells
+  // the picker that the numbers after this one would be turned away the same way, and need not be asked for.
+  const room = roomForRead(project, outcome.read, again ? undefined : surveyNo);
+  if (!room.fits) {
+    res.status(507).json({ error: room.error, full: true });
     return;
   }
   const boundary = applyRevenueMap(project, outcome.read, actor, again ? undefined : surveyNo);

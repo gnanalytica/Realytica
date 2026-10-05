@@ -942,6 +942,7 @@ export const api = {
       already?: boolean;
       error?: string;
       near?: string[];
+      full?: boolean;
     };
     if (res.ok && answer.read) {
       return { ok: true, read: answer.read, boundary: answer.boundary ?? null, note: answer.note ?? '', ...(answer.already ? { already: true } : {}) };
@@ -953,6 +954,7 @@ export const api = {
       status: res.status,
       error: answer.error ?? `${res.status} ${res.statusText}`,
       ...(answer.near ? { near: answer.near } : {}),
+      ...(answer.full ? { full: true } : {}),
       ...(Number.isFinite(retryAfterS) && retryAfterS > 0 ? { retryAfterS } : {}),
     };
   },

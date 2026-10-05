@@ -4,7 +4,7 @@ import { Landmark, Square, Trash2, X } from 'lucide-react';
 import { revenueReads, surveyNumberLines, surveyPieces, type DdProject, type RevenueMapRead, type SurveyNumberLine } from '@realytica/shared';
 import { Button, Callout, Checkbox, Field, Input, Select, Spinner, cn } from './ui/kit';
 import { api } from '../lib/api';
-import { isTicked, lineKey, lineSource, readInTurn, readsAgain, runPlan, settled, ticksAfter, type ReadState } from '../lib/revenue-run';
+import { isTicked, lineDoubt, lineKey, lineSource, readInTurn, readsAgain, runPlan, settled, ticksAfter, type ReadState } from '../lib/revenue-run';
 
 /**
  * The survey numbers, the way the revenue record keys them: state, district,
@@ -78,9 +78,13 @@ function NumberLine({
     ? { word: 'Not read', detail: line.unreadable }
     : state?.phase === 'absent'
       ? { word: 'Not in the published map', detail: state.near.length ? `Starts the same way: ${state.near.join(', ')}` : null }
-      : state?.phase === 'failed'
-        ? { word: read ? 'Not read again' : 'Failed', detail: state.reason }
-        : null;
+      : state?.phase === 'full'
+        ? { word: 'Not kept', detail: state.reason }
+        : state?.phase === 'failed'
+          ? { word: read ? 'Not read again' : 'Failed', detail: state.reason }
+          : null;
+  // A number that may be another one misread says so until it is read, in the colour of what a machine suggests.
+  const doubt = trouble ? null : lineDoubt(line);
   // The state's map can hold a number under another: Karnataka's has whole survey numbers, so 41/2 is read as 41.
   const under = answered && keyOf(answered.surveyNo) !== keyOf(line.surveyNo) ? ` as Sy. ${answered.surveyNo}` : '';
   const status: ReactNode =
@@ -133,6 +137,7 @@ function NumberLine({
         />
       ) : null}
       {detail ? <p className="basis-full pl-6 text-[12px] leading-snug text-ink-secondary">{detail}</p> : null}
+      {doubt ? <p className="basis-full pl-6 text-[12px] leading-snug text-ai-ink">{doubt}</p> : null}
     </li>
   );
 }

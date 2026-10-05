@@ -25,8 +25,10 @@ import {
   type SurveyNumberLine,
 } from '@realytica/shared';
 import {
+  FULL,
   GIVE_UP_AFTER,
   isTicked,
+  lineDoubt,
   lineKey,
   lineSource,
   readInTurn,
@@ -98,7 +100,7 @@ describe('a line of the picker', () => {
     applyRevenueMap(p, read('71'), 'tester', '71/1');
     applyRevenueMap(p, read('71', { readAt: '2026-10-01T06:01:00.000Z', parcelRef: `${KALYANI}:71`, village: 'Kalyani' }), 'tester');
     const keys = surveyNumberLines(p, '72a').map(lineKey);
-    assert.deepEqual(keys, [`71/1|${HOSAKERE}:71`, '72A|', `71|${KALYANI}:71`]);
+    assert.deepEqual(keys, ['72A|', `71|${KALYANI}:71`, `71/1|${HOSAKERE}:71`]);
     assert.equal(new Set(keys).size, keys.length, 'a tick or a state set on one line is never another line’s');
   });
 
@@ -109,11 +111,11 @@ describe('a line of the picker', () => {
     applyRevenueMap(p, read('71'), 'tester');
     const lines = surveyNumberLines(p, '74');
     assert.deepEqual(lines.map((l) => [l.surveyNo, isTicked(l, {})]), [
+      ['74', true],
       ['71', false],
       ['72', true],
       ['73', false],
       ['81 to 85', false],
-      ['74', true],
     ]);
   });
 
@@ -159,6 +161,53 @@ describe('a line of the picker', () => {
   });
 });
 
+describe('a number that may be another one misread', () => {
+  /** A township's papers, read by a model: the parts of three survey numbers, and three numbers that have lost a stroke. */
+  function papers(review: 'proposed' | 'accepted' = 'proposed'): DdProject {
+    const p = township();
+    file(p, 'RERA certificate', [fact('survey_numbers', '77/3, 77/10, 67/1, 67/2, 6712, 47/2, 47/3, 4712, 472', { review, source: 'model' })]);
+    return p;
+  }
+
+  it('is not ticked, though the reading it came off is accepted, and says what it may be', () => {
+    const lines = surveyNumberLines(papers('accepted'));
+    assert.deepEqual(
+      lines.map((l) => [l.surveyNo, isTicked(l, {}), l.offered?.maybe ?? null]),
+      [
+        ['47/2', true, null],
+        ['47/3', true, null],
+        ['67/1', true, null],
+        ['67/2', true, null],
+        ['77/3', true, null],
+        ['77/10', true, null],
+        ['472', false, '47/2'],
+        // Nothing on the file states 47/12 or 67/12, so nothing is guessed of these two.
+        ['4712', true, null],
+        ['6712', true, null],
+      ],
+    );
+    assert.equal(
+      lineDoubt(lineFor(lines, '472')),
+      'May be Sy. 47/2 with its stroke lost in reading: the papers state that number too, and no whole survey number this long. Tick it to read it as it stands.',
+    );
+    assert.equal(lineDoubt(lineFor(lines, '47/2')), null);
+    assert.equal(lineDoubt(lineFor(lines, '4712')), null);
+  });
+
+  it('is read when a person ticks it, and says nothing more of itself once the map has answered', () => {
+    const p = papers('accepted');
+    const lines = surveyNumberLines(p);
+    const doubtful = lineFor(lines, '472');
+    const plan = runPlan(lines, { [lineKey(doubtful)]: true });
+    assert.equal(plan.some((step) => step.line === doubtful), true);
+
+    applyRevenueMap(p, read('472'), 'tester');
+    const after = lineFor(surveyNumberLines(p), '472');
+    assert.equal(after.read?.surveyNo, '472');
+    assert.equal(lineDoubt(after), null);
+  });
+});
+
 describe('what a run asks for', () => {
   it('is one request to a ticked line, in the order of the lines', () => {
     const p = township({ parcelId: 'Sy. No. 71' });
@@ -166,7 +215,7 @@ describe('what a run asks for', () => {
     applyRevenueMap(p, read('71'), 'tester');
     const lines = surveyNumberLines(p, '74');
     const plan = runPlan(lines, { [lineKey(lineFor(lines, '73'))]: false });
-    assert.deepEqual(plan.map((step) => [step.key, step.also, readsAgain(step.line)]), [['72|', [], false], ['74|', [], false]]);
+    assert.deepEqual(plan.map((step) => [step.key, step.also, readsAgain(step.line)]), [['74|', [], false], ['72|', [], false]]);
   });
 
   it('reads a kept parcel again once, however many of its numbers are ticked', () => {
@@ -197,8 +246,8 @@ describe('what a run asks for', () => {
     // Ticked beside the kept parcel's own line, they are two requests: one by reference, one by place.
     const plan = runPlan(lines, { [lineKey(lineFor(lines, '71/1'))]: true });
     assert.deepEqual(plan.map((step) => [step.key, readsAgain(step.line), step.also]), [
-      [`71/1|${HOSAKERE}:71`, true, []],
       [`71|${HOSAKERE}:71`, false, []],
+      [`71/1|${HOSAKERE}:71`, true, []],
     ]);
   });
 });
@@ -211,8 +260,9 @@ describe('what the lines show once the file has been fetched again', () => {
       c: { phase: 'failed', reason: 'Not responding.' },
       d: { phase: 'reading' },
       e: { phase: 'waiting', seconds: 20 },
+      f: { phase: 'full', reason: 'No room.' },
     };
-    assert.deepEqual(settled(states), { b: states.b, c: states.c });
+    assert.deepEqual(settled(states), { b: states.b, c: states.c, f: states.f });
   });
 
   it('does not go on calling a number read after its read is removed', () => {
@@ -379,6 +429,25 @@ describe('reading several numbers in turn', () => {
       assert.equal(outcome.ended, 'You do not have access to this project.');
       assert.deepEqual(states.at(-1), ['71', null]);
     }
+  });
+
+  it('ends when the file can keep no more parcels, and the line it ended at says why', async () => {
+    const noRoom =
+      '2 parcels are kept on this project. Sy. 73 was read from the map and is not kept: with it the project’s record would weigh over 2.5 MB, and a record much heavier than that stops opening. Remove a read that is not needed to make room.';
+    const seen: Array<[string, ReadState | null]> = [];
+    const asked: string[] = [];
+    const outcome = await readInTurn(
+      ['71', '72', '73', '74', '75'],
+      async (line) => {
+        asked.push(line);
+        return line === '73' ? { ok: false, status: 507, error: noRoom, full: true } : ok(line);
+      },
+      { state: (line, state) => seen.push([line, state]) },
+    );
+    assert.deepEqual(asked, ['71', '72', '73'], 'the numbers after it are not each read from a slow map to be turned away the same');
+    assert.deepEqual(outcome.done, ['71', '72']);
+    assert.equal(outcome.ended, FULL);
+    assert.deepEqual(seen.at(-1), ['73', { phase: 'full', reason: noRoom }], 'not “failed”, and not taken down: the line keeps the server’s own words');
   });
 
   it('gives up when the map does not answer three numbers running', async () => {

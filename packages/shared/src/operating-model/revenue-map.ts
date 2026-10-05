@@ -80,6 +80,21 @@ export interface RevenueMapFeature {
   ring?: GeoPoint[];
   line?: GeoPoint[];
   point?: GeoPoint;
+  /**
+   * Only on a read as it is stored after the first: where this feature's
+   * shape is kept, in place of the shape itself. `^` and a feature's id is
+   * that feature of the first read; anything else is a key into the
+   * project's `revenueShapes`. Never on a read handed out by `revenueReads`,
+   * which puts the shape back.
+   */
+  shape?: string;
+}
+
+/** The shape of a feature of the state's layers: its outline, its line or its point. */
+export interface RevenueShape {
+  ring?: GeoPoint[];
+  line?: GeoPoint[];
+  point?: GeoPoint;
 }
 
 /** Whether a factor pushes the value up, down, or only warns. */
@@ -166,6 +181,31 @@ export interface RevenueMapRead {
    * it once. Absent on a read nobody asked for under another number.
    */
   askedAs?: string[];
+  /**
+   * Only on a read as it is stored after the first: which first read the
+   * shapes it notes as `^…` are on, as that read's parcel and moment. A shape
+   * is taken from the first read only while the first read is still that
+   * one. Never on a read handed out by `revenueReads`.
+   */
+  shapesOn?: string;
+}
+
+/**
+ * The hobli a parcel lies in, where that is what its read holds in place of a
+ * class of land.
+ *
+ * A read's `classification` is the register's class for the parcel where the
+ * state's map gives one. Karnataka's gives none; the engine puts the hobli
+ * there, a revenue circle between the taluk and the village. A hobli is a
+ * place, and is told as one: never as the land's class.
+ */
+export function hobliOf(read: Pick<RevenueMapRead, 'classification'>): string | null {
+  return /^(.*\S)\s+hobli$/i.exec((read.classification ?? '').trim())?.[1] ?? null;
+}
+
+/** The class of land the register records for the parcel, where it records one. Never a hobli. */
+export function landClassOf(read: Pick<RevenueMapRead, 'classification'>): string | null {
+  return hobliOf(read) ? null : read.classification?.trim() || null;
 }
 
 export const REVENUE_MAP_CAVEAT =
@@ -191,35 +231,104 @@ function id(prefix: string): string {
 const QUOTED_AREA_CHECK = 'parcel_extent_mismatch';
 
 function withoutQuotedAreaCheck(read: RevenueMapRead): RevenueMapRead {
-  return read.factors.some((f) => f.code === QUOTED_AREA_CHECK) ? { ...read, factors: read.factors.filter((f) => f.code !== QUOTED_AREA_CHECK) } : read;
+  const factors = read.factors ?? [];
+  return factors.some((f) => f.code === QUOTED_AREA_CHECK) ? { ...read, factors: factors.filter((f) => f.code !== QUOTED_AREA_CHECK) } : read;
+}
+
+/*
+ * How several reads are stored.
+ *
+ * A read of a parcel carries the state's layers round it: the tanks within a
+ * kilometre, the streams beside it, each with its whole outline. On a real
+ * site that is most of a read's sixty-odd kilobytes — and the parcel next
+ * door is read against the same tanks. Seventy parcels each carrying their
+ * own copy of one lake is a project record too large to load, on this branch
+ * and on the one in production, which read the same store.
+ *
+ * So the first read is stored whole, in `revenueMap`, exactly as the code
+ * that knows only that field expects it. Every read after it is stored in
+ * `revenueMaps` with what is its own — its outline, its area, what the
+ * register and the engine say of it, how far each feature lies from it — and,
+ * in place of each feature's shape, a note of where that shape is kept: on
+ * the first read where the first read holds it, otherwise once in
+ * `revenueShapes`. The first place in `revenueMaps` stands for the first read
+ * without repeating it: which parcel, and when it was read.
+ *
+ * Nothing is lost by this. `storedReads` puts every shape back, and a read
+ * taken out of the store is the read the engine gave. A record stored before
+ * this, with every read whole, is read the same way: a shape that is on the
+ * feature is simply used.
+ */
+
+/** A feature's own shape, where it carries one. */
+function shapeOf(f: RevenueMapFeature | undefined): RevenueShape | null {
+  if (!f) return null;
+  return f.ring ? { ring: f.ring } : f.line ? { line: f.line } : f.point ? { point: f.point } : null;
+}
+
+/** How a stored read names the first read its shapes are on: that read's parcel, and the moment it was made. */
+function stampOf(first: RevenueMapRead): string {
+  return `${first.parcelRef}@${first.readAt}`;
 }
 
 /**
- * The reads as they are stored, each as the engine gave it, the one
+ * A read as the engine gave it: each feature with its shape on it, from
+ * wherever it is kept. A shape noted as being on the first read is taken
+ * from it only where the first read is the one the note was written against.
+ * Where it is not — a build that knows the list and not this way of keeping
+ * it took the first read off — the feature comes back without a shape, and
+ * is not drawn: never with the outline of some other tank.
+ */
+function withShapes(read: RevenueMapRead, first: RevenueMapRead | undefined, shapes: Readonly<Record<string, RevenueShape>> | undefined): RevenueMapRead {
+  // A read is taken as it is found: one that holds no features at all is still a read.
+  const features = read.features ?? [];
+  if (read.shapesOn === undefined && !features.some((f) => f.shape)) return read;
+  const { shapesOn, ...own } = read;
+  const onFirst = first && shapesOn === stampOf(first) ? first : undefined;
+  return {
+    ...own,
+    features: features.map((f) => {
+      if (!f.shape) return f;
+      const { shape, ...rest } = f;
+      const kept = shape.startsWith('^') ? shapeOf((onFirst?.features ?? []).find((held) => held.id === shape.slice(1))) : (shapes?.[shape] ?? null);
+      return kept ? { ...rest, ...kept } : rest;
+    }),
+  };
+}
+
+/** What stands in `revenueMaps` for the first read: which parcel it is and when it was read, and none of what it found. */
+function standsForFirst(first: RevenueMapRead): RevenueMapRead {
+  return { ...first, rings: [], features: [], factors: [], insights: [], anchor: null, emptyLayers: [], unreadLayers: [] };
+}
+
+/**
+ * The reads as they are kept, each as the engine gave it, the one
  * `revenueMap` holds first.
  *
  * `revenueMap` is the field the code before this knew, and that code still
  * runs against the same store: it reads one parcel, replaces it, clears it,
  * and has never heard of the list. So the list is believed only while its
- * first read is still the very read `revenueMap` holds — the same parcel,
- * read at the same moment. Once they differ, that code has written since,
- * and what it wrote is all there is: the one read it holds, or none. A list
- * it cleared without seeing, and then read another parcel beside, must not
- * come back as parcels of a site that was cleared.
+ * first place still stands for the very read `revenueMap` holds — the same
+ * parcel, read at the same moment. Once they differ, that code has written
+ * since, and what it wrote is all there is: the one read it holds, or none. A
+ * list it cleared without seeing, and then read another parcel beside, must
+ * not come back as parcels of a site that was cleared.
  *
  * What a parcel was asked for as is a fact about the parcel, not about one
  * read of it, so it is carried over to a read that code made of the same
  * parcel: it does not record it.
  */
-function storedReads(project: Pick<DdProject, 'revenueMap' | 'revenueMaps'>): RevenueMapRead[] {
+function storedReads(project: Pick<DdProject, 'revenueMap' | 'revenueMaps' | 'revenueShapes'>): RevenueMapRead[] {
   const held = project.revenueMap;
   if (!held) return [];
   const list = project.revenueMaps ?? [];
   const was = list.find((r) => r.parcelRef === held.parcelRef);
-  const first = !held.askedAs?.length && was?.askedAs?.length ? { ...held, askedAs: was.askedAs } : held;
+  // The first read is stored whole. Should a build that stored reads another way ever have left it otherwise, its shapes are put back too.
+  const whole = withShapes(held, undefined, project.revenueShapes);
+  const first = !whole.askedAs?.length && was?.askedAs?.length ? { ...whole, askedAs: was.askedAs } : whole;
   const head = list[0];
   if (!head || head.parcelRef !== held.parcelRef || head.readAt !== held.readAt) return [first];
-  return [first, ...list.slice(1)];
+  return [first, ...list.slice(1).map((read) => withShapes(read, whole, project.revenueShapes))];
 }
 
 /**
@@ -228,14 +337,52 @@ function storedReads(project: Pick<DdProject, 'revenueMap' | 'revenueMaps'>): Re
  * check of the quoted area against that one parcel. The check stays in the
  * store, so it is told again if the site goes back to one parcel.
  */
-export function revenueReads(project: Pick<DdProject, 'revenueMap' | 'revenueMaps'>): RevenueMapRead[] {
+export function revenueReads(project: Pick<DdProject, 'revenueMap' | 'revenueMaps' | 'revenueShapes'>): RevenueMapRead[] {
   const reads = storedReads(project);
   return reads.length > 1 ? reads.map(withoutQuotedAreaCheck) : reads;
 }
 
-/** "41/2a" and "41 / 2A" are one survey number. */
+/**
+ * A survey number as it is kept: without its spaces, and without a zero
+ * before the digits of a part. "77/03" is how one clerk writes 77/3, and a
+ * list that holds both holds one number.
+ */
+function tidyNumber(surveyNo: string): string {
+  return surveyNo
+    .replace(/\s+/g, '')
+    .split(/([/-])/)
+    .map((part) => part.replace(/^0+(?=\d)/, ''))
+    .join('');
+}
+
+/** "41/2a", "41 / 2A" and "41/02A" are one survey number. */
 function surveyKey(surveyNo: string): string {
-  return surveyNo.replace(/\s+/g, '').toUpperCase();
+  return tidyNumber(surveyNo).toUpperCase();
+}
+
+/**
+ * Survey numbers in the order a register lists them: each part by its
+ * number, then by its letters, so 77/3, 77/4, 77/5 and 77/10 sit together
+ * and in that order, and 77 comes before any part of it.
+ */
+export function bySurveyNumber(a: string, b: string): number {
+  const parts = (surveyNo: string) =>
+    surveyKey(surveyNo)
+      .split(/[/-]/)
+      .map((part) => {
+        const [, digits, letters] = /^(\d*)(.*)$/.exec(part) ?? [];
+        return { n: digits ? Number(digits) : Infinity, letters: letters ?? '' };
+      });
+  const x = parts(a);
+  const y = parts(b);
+  for (let at = 0; at < Math.max(x.length, y.length); at += 1) {
+    const p = x[at];
+    const q = y[at];
+    if (!p || !q) return p ? 1 : -1;
+    if (p.n !== q.n) return p.n < q.n ? -1 : 1;
+    if (p.letters !== q.letters) return p.letters < q.letters ? -1 : 1;
+  }
+  return 0;
 }
 
 /** The kept read that answers a survey number: by the parcel's own number, or by one it was asked for as. */
@@ -244,10 +391,47 @@ export function revenueReadFor(reads: readonly RevenueMapRead[], surveyNo: strin
   return reads.find((r) => surveyKey(r.surveyNo) === key || (r.askedAs ?? []).some((a) => surveyKey(a) === key));
 }
 
-/** The first read is the one the old field holds; the list is only kept once there is more than one. */
+/**
+ * Store these reads, each given whole: the first where the old field holds
+ * it, and — only once there is more than one — the rest in the list, each
+ * shape kept once. See "How several reads are stored" above.
+ */
 function keepReads(project: DdProject, reads: RevenueMapRead[]): void {
-  project.revenueMap = reads[0];
-  project.revenueMaps = reads.length > 1 ? reads : undefined;
+  const first = reads[0];
+  project.revenueMap = first;
+  if (reads.length < 2) {
+    project.revenueMaps = undefined;
+    project.revenueShapes = undefined;
+    return;
+  }
+  // A shape is the same shape when its points are the same points: the state's layer hands each parcel the same outline of a tank.
+  const written = (shape: RevenueShape) => JSON.stringify(shape);
+  const onFirst = new Map<string, string>();
+  for (const f of first.features ?? []) {
+    const shape = shapeOf(f);
+    if (shape && !onFirst.has(written(shape))) onFirst.set(written(shape), `^${f.id}`);
+  }
+  const once = new Map<string, string>();
+  const shapes: Record<string, RevenueShape> = {};
+  const rest = reads.slice(1).map((read) => ({
+    ...read,
+    shapesOn: stampOf(first),
+    features: (read.features ?? []).map((f) => {
+      const shape = shapeOf(f);
+      if (!shape) return f;
+      const key = written(shape);
+      let at = onFirst.get(key) ?? once.get(key);
+      if (!at) {
+        at = `s${once.size}`;
+        once.set(key, at);
+        shapes[at] = shape;
+      }
+      const { ring: _ring, line: _line, point: _point, ...own } = f;
+      return { ...own, shape: at };
+    }),
+  }));
+  project.revenueMaps = [standsForFirst(first), ...rest];
+  project.revenueShapes = once.size ? shapes : undefined;
 }
 
 /** What a parcel was asked for as, with one more number when it is not the parcel's own. */
@@ -361,6 +545,7 @@ export function clearRevenueMap(project: DdProject, actor = 'operator'): void {
   const at = nowIso();
   project.revenueMap = undefined;
   project.revenueMaps = undefined;
+  project.revenueShapes = undefined;
   if (project.surveyBoundary?.source === 'revenue_map') project.surveyBoundary = undefined;
   project.updatedAt = at;
   project.audit.push({
@@ -383,8 +568,10 @@ export function surveyNoFromParcelId(parcelId: string | undefined | null): strin
 
 /** One piece of a list of survey numbers: a number, or words that cannot be read as one. */
 export interface SurveyPiece {
-  /** The number without its spaces — or, where the piece is not one number, the piece as it was written. */
+  /** The number without its spaces or a part's leading zero — or, where the piece is not one number, the piece as it was written. */
   surveyNo: string;
+  /** The number as the page or the person spelt it, where that is not how it is kept: "77/03" for 77/3. */
+  written?: string;
   /** Why the piece is not read as a survey number. Absent on a number. */
   unreadable?: string;
 }
@@ -431,7 +618,9 @@ export function surveyPieces(text: string | undefined | null): SurveyPiece[] {
     } else if (!one) {
       add({ surveyNo: piece, unreadable: 'Not read as a survey number.' });
     } else {
-      add({ surveyNo: one[1]!.replace(/\s+/g, '') });
+      const written = one[1]!.replace(/\s+/g, '');
+      const surveyNo = tidyNumber(written);
+      add({ surveyNo, ...(written === surveyNo ? {} : { written }) });
     }
   }
   return out;
@@ -451,7 +640,8 @@ export function splitSurveyNumbers(text: string | undefined | null): string[] {
 function parcelIdNumbers(parcelId: string | undefined | null): string[] {
   const out: string[] = [];
   for (const piece of String(parcelId ?? '').split(SURVEY_LIST_SEPARATOR)) {
-    const number = new RegExp(SURVEY_NUMBER).exec(piece)?.[0].replace(/\s+/g, '');
+    const found = new RegExp(SURVEY_NUMBER).exec(piece)?.[0];
+    const number = found ? tidyNumber(found) : undefined;
     if (number && !out.some((n) => surveyKey(n) === surveyKey(number))) out.push(number);
   }
   return out;
@@ -474,19 +664,38 @@ export interface OfferedSurveyNumber {
    * neither was read by machine and still waits for a person.
    */
   accepted: boolean;
+  /**
+   * Set when this looks like another number the papers state, read without
+   * its stroke — "472" beside 47/2: the number it may be. It is offered,
+   * said to be doubtful, and not ticked; a person can still have it read.
+   */
+  maybe?: string;
 }
 
 /**
- * Every survey number the file states, for the picker to offer.
+ * Every survey number the file states, for the picker to offer, in the order
+ * of the numbers.
  *
- * The project's own parcel first, then each number a document on the register
- * was read as stating — its own number, the list an approval covers — whether
- * that reading was accepted or still waits. A number two documents state is
- * offered once, naming both. A reading a person set aside offers nothing, and
- * neither does a document that was replaced or refused.
+ * The project's own parcel, and each number a document on the register was
+ * read as stating — its own number, the list an approval covers — whether
+ * that reading was accepted or still waits. A number two documents state, or
+ * one document spells two ways, is offered once, naming each. A reading a
+ * person set aside offers nothing, and neither does a document that was
+ * replaced or refused. What could not be read as a number comes last.
+ *
+ * A page read by machine loses a stroke now and then, and 47/2 comes off it
+ * as 472. Such a number is marked as a likely misreading only where the file
+ * itself says so twice over: the papers state the other number, stroke and
+ * all, and state no whole survey number as long as this one. A whole number
+ * is what stands before a stroke, or a number written without one — unless
+ * that number begins with one of those and runs on, for it may be a part
+ * with its stroke lost too, and is no witness. Where either is missing the
+ * number is offered as any other: nothing is guessed at.
  */
 export function offeredSurveyNumbers(project: DdProject): OfferedSurveyNumber[] {
   const out: OfferedSurveyNumber[] = [];
+  /** Each number the papers write with a stroke, by what it reads as when the stroke is lost. */
+  const strokeless = new Map<string, string>();
   const offer = (piece: SurveyPiece): OfferedSurveyNumber => {
     let held = out.find((o) => surveyKey(o.surveyNo) === surveyKey(piece.surveyNo));
     if (!held) {
@@ -511,10 +720,40 @@ export function offeredSurveyNumbers(project: DdProject): OfferedSurveyNumber[] 
         if (said) said.accepted = said.accepted || accepted;
         else held.documents.push({ evidenceId: row.id, document: row.documentType ?? row.title, page: fact.page, accepted, byModel: fact.source === 'model' });
         if (accepted) held.accepted = true;
+        if (piece.unreadable) continue;
+        for (const spelt of [piece.surveyNo, ...(piece.written ? [piece.written] : [])]) {
+          const lost = spelt.replace(/[/-]/g, '').toUpperCase();
+          if (lost !== spelt.toUpperCase() && !strokeless.has(lost)) strokeless.set(lost, held.surveyNo);
+        }
       }
     }
   }
-  return out;
+
+  const numbers = out.filter((o) => !o.unreadable);
+  const hasStroke = (surveyNo: string) => /[/-]/.test(surveyNo);
+  const digits = (surveyNo: string) => /^\d*/.exec(surveyNo)?.[0] ?? '';
+  const beforeStroke = [...new Set(numbers.filter((o) => hasStroke(o.surveyNo)).map((o) => digits(o.surveyNo.split(/[/-]/)[0] ?? '')))];
+  const runsOn = (surveyNo: string) => beforeStroke.some((base) => base && surveyNo.length > base.length && surveyNo.startsWith(base));
+  const longestWhole = Math.max(
+    0,
+    ...beforeStroke.map((base) => base.length),
+    ...numbers.filter((o) => !hasStroke(o.surveyNo) && !runsOn(o.surveyNo)).map((o) => digits(o.surveyNo).length),
+  );
+  for (const o of numbers) {
+    if (o.onProject || hasStroke(o.surveyNo)) continue;
+    const other = strokeless.get(o.surveyNo.toUpperCase());
+    if (other && digits(o.surveyNo).length > longestWhole) o.maybe = other;
+  }
+  return [...numbers.sort((a, b) => bySurveyNumber(a.surveyNo, b.surveyNo)), ...out.filter((o) => o.unreadable)];
+}
+
+/**
+ * The numbers a file states, for whatever waits until each is read. A number
+ * that is likely another one misread is not one of them: it is on no map,
+ * and waiting for it would be waiting for ever.
+ */
+export function statedNumbers(offered: readonly OfferedSurveyNumber[]): string[] {
+  return offered.filter((o) => !o.unreadable && !o.maybe).map((o) => o.surveyNo);
 }
 
 export interface SurveyNumberLine {
@@ -530,29 +769,36 @@ export interface SurveyNumberLine {
 }
 
 /**
- * The picker's lines: every number the file states, then the ones a person
- * typed beside them, then any parcel kept that neither accounts for — each
- * with the read that answers it, when one is kept.
+ * The picker's lines, each with the read that answers it when one is kept.
+ *
+ * First what a person typed that the file does not state, as they typed it:
+ * it is theirs, and belongs under the field they typed it into. Then every
+ * number the file states and every parcel kept, in the order of the numbers,
+ * so the parts of one survey number sit together. What could not be read as
+ * a number comes last.
  */
 export function surveyNumberLines(project: DdProject, typed = ''): SurveyNumberLine[] {
   const reads = revenueReads(project);
-  const lines: SurveyNumberLine[] = offeredSurveyNumbers(project).map((offered) => ({
+  const stated: SurveyNumberLine[] = offeredSurveyNumbers(project).map((offered) => ({
     surveyNo: offered.surveyNo,
     ...(offered.unreadable ? { unreadable: offered.unreadable } : {}),
     offered,
     typed: false,
     ...(offered.unreadable ? {} : { read: revenueReadFor(reads, offered.surveyNo) }),
   }));
+  const own: SurveyNumberLine[] = [];
   for (const piece of surveyPieces(typed)) {
-    const held = lines.find((l) => surveyKey(l.surveyNo) === surveyKey(piece.surveyNo));
+    const held = stated.find((l) => surveyKey(l.surveyNo) === surveyKey(piece.surveyNo));
     if (held) held.typed = true;
-    else if (piece.unreadable) lines.push({ surveyNo: piece.surveyNo, unreadable: piece.unreadable, typed: true });
-    else lines.push({ surveyNo: piece.surveyNo, typed: true, read: revenueReadFor(reads, piece.surveyNo) });
+    else if (piece.unreadable) own.push({ surveyNo: piece.surveyNo, unreadable: piece.unreadable, typed: true });
+    else own.push({ surveyNo: piece.surveyNo, typed: true, read: revenueReadFor(reads, piece.surveyNo) });
   }
+  const kept: SurveyNumberLine[] = [];
   for (const read of reads) {
-    if (!lines.some((l) => l.read === read)) lines.push({ surveyNo: read.surveyNo, typed: false, read });
+    if (![...own, ...stated].some((l) => l.read === read)) kept.push({ surveyNo: read.surveyNo, typed: false, read });
   }
-  return lines;
+  const numbers = [...stated.filter((l) => !l.unreadable), ...kept].sort((a, b) => bySurveyNumber(a.surveyNo, b.surveyNo));
+  return [...own, ...numbers, ...stated.filter((l) => l.unreadable)];
 }
 
 /** A short human label for a layer key, for the hit text. */
@@ -591,7 +837,10 @@ export interface RevenueMapBrief {
     readOn: string;
     extentSqm: number;
     registerExtent: string | null;
+    /** The class of land the register records, where the state's map gives one. */
     classification: string | null;
+    /** The hobli the parcel lies in, where the state's map gives that. */
+    hobli: string | null;
   };
   /** The prohibited register, in one word a reader can act on. */
   register: { state: 'listed'; category: string } | { state: 'unjoined' } | { state: 'clear' };
@@ -775,7 +1024,8 @@ export function revenueMapBrief(read: RevenueMapRead): RevenueMapBrief {
       readOn: read.readAt.slice(0, 10),
       extentSqm: Math.round(read.areaSqm),
       registerExtent: read.registerExtent,
-      classification: read.classification,
+      classification: landClassOf(read),
+      hobli: hobliOf(read),
     },
     register,
     warnings: warnings.slice(0, MAX_BRIEF_ITEMS_PER_SECTION),
@@ -1025,7 +1275,7 @@ export function statedLand(project: DdProject, which: 'accepted' | 'live' = 'acc
       };
     }
     // Every number the file states, accepted or still waiting: a site is not set against the map while one of them is unread.
-    return { sources, others, sqm: sources[0].sqm, from: sources[0].from, numbers: offered.map((o) => o.surveyNo), named: false };
+    return { sources, others, sqm: sources[0].sqm, from: sources[0].from, numbers: statedNumbers(offered), named: false };
   }
   // Told in the order the file states them, whichever document was counted first.
   const stands = (n: string) => {
@@ -1242,7 +1492,7 @@ export function revenueExtent(
   });
   const totalSqm = sum(parcels.map((p) => p.areaSqm));
   const land = totalSqm > 0 ? statedLand(project, which) : null;
-  return { parcels, totalSqm, documents: land ? againstTheMap(land, reads, labels, totalSqm, offered.map((o) => o.surveyNo)) : null };
+  return { parcels, totalSqm, documents: land ? againstTheMap(land, reads, labels, totalSqm, statedNumbers(offered)) : null };
 }
 
 /**
@@ -1653,7 +1903,8 @@ export function fileRevenueMapAsEvidence(project: DdProject, actor = 'operator',
     read.askedAs?.length
       ? `The state's map holds the whole survey number. It was asked for as ${read.askedAs.join(', ')}, and the outline and extent here are all of Sy. ${read.surveyNo}, which may be more land than the part asked for.`
       : '',
-    read.classification ? `Classification on the register: ${read.classification}.` : '',
+    landClassOf(read) ? `Classification on the register: ${landClassOf(read)}.` : '',
+    hobliOf(read) ? `Hobli: ${hobliOf(read)}.` : '',
     read.prohibitedCategory ? `On the prohibited register: ${read.prohibitedCategory}.` : '',
     ...read.factors.map((f) => `${f.label}: ${f.headline}`),
     read.anchor ? `Guidance value as published: ₹${read.anchor.guidancePerUnit.toLocaleString('en-IN')} per ${read.anchor.unit === 'sqft' ? 'sq ft' : 'sq yd'}${read.anchor.locality ? ` (${read.anchor.locality})` : ''}.` : '',

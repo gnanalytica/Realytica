@@ -407,3 +407,38 @@ describe('a read that lands on a file another instance changed while the map was
     assert.equal(gone.conversation.some((turn) => /^Cleared the revenue-map read/.test(turn.text)), false, 'the thread is not told this instance cleared a read that was already gone');
   });
 });
+
+describe('a read the project’s record has no room for', () => {
+  it('is not kept, says how many parcels are and why, and leaves the file as it was', async () => {
+    const { PROJECT_RECORD_CEILING_BYTES, recordBytes } = await import('../apps/api/src/gis/revenue-map');
+    const p = await seeded();
+    await read(p.id, '91');
+    // A record fills with everything a project holds. Here a document's notes take it to within a hundred bytes or so of
+    // what it may weigh, so that one more parcel is the one too many — and so is one more line on the audit trail.
+    const notes = addEvidence(p, { title: 'A long document', kind: 'document', status: 'received' }, 'tester');
+    notes.extractionNotes = 'x'.repeat(PROJECT_RECORD_CEILING_BYTES - recordBytes(p) - 150);
+    const before = recordBytes(p);
+    assert.ok(before < PROJECT_RECORD_CEILING_BYTES);
+
+    const refused = await read(p.id, '92', { several: true, unlessKept: true });
+    assert.equal(refused.status, 507);
+    assert.equal(refused.body.full, true, 'the picker is told the numbers after this one would be turned away the same');
+    assert.equal(
+      refused.body.error,
+      '1 parcel is kept on this project. Sy. 92 was read from the map and is not kept: with it the project’s record would weigh over 2.5 MB, and a record much heavier than that stops opening. Remove a read that is not needed to make room.',
+    );
+    assert.deepEqual(revenueReads(p).map((r) => r.surveyNo), ['91']);
+    assert.equal(recordBytes(p), before, 'nothing was added to the record');
+
+    // A parcel already kept, read again, takes the place of its read and is not what fills a file.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const again = await call('POST', `/api/projects/${p.id}/gis-overlay/revenue`, { parcelRef: p.revenueMap!.parcelRef, several: true });
+    assert.equal(again.status, 200);
+
+    // With room made, the parcel that was turned away is kept.
+    notes.extractionNotes = '';
+    const kept = await read(p.id, '92', { several: true, unlessKept: true });
+    assert.equal(kept.status, 200);
+    assert.deepEqual(revenueReads(p).map((r) => r.surveyNo), ['91', '92']);
+  });
+});

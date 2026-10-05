@@ -437,7 +437,7 @@ function prohibited(project: DdProject): ValueCheck | null {
   // A number the file states, accepted by a person, with no parcel read for it: the register has not been asked about that
   // land, and the parcels that were read cannot answer for it.
   const unread = offeredSurveyNumbers(project)
-    .filter((o) => o.accepted && !o.unreadable && !revenueReadFor(reads, o.surveyNo))
+    .filter((o) => o.accepted && !o.unreadable && !o.maybe && !revenueReadFor(reads, o.surveyNo))
     .map((o) => o.surveyNo);
   if (unread.length) {
     const found = silence ?? (reads.length === 1 ? 'The revenue map read found the parcel on no prohibited register.' : `The revenue map read found none of the ${reads.length} parcels on a prohibited register.`);

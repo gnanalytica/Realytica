@@ -30,6 +30,8 @@ export type RevenueReadResult =
       near?: string[];
       /** How many seconds the server asked to be left alone for, when it turned the request away as one too many. */
       retryAfterS?: number;
+      /** The parcel was read and not kept: the project's record has no room for another. Every number after would meet the same. */
+      full?: boolean;
     };
 
 /** Where one number's line stands, while a run is going and after it. */
@@ -39,6 +41,8 @@ export type ReadState =
   | { phase: 'waiting'; seconds: number }
   | { phase: 'read'; surveyNo: string; areaSqm: number }
   | { phase: 'absent'; near: string[] }
+  /** Read from the map and not kept, for want of room on the file. */
+  | { phase: 'full'; reason: string }
   | { phase: 'failed'; reason: string };
 
 export interface ReadRun {
@@ -55,6 +59,9 @@ const REFUSED = new Set([401, 403]);
 
 /** How many lines running the map may fail to answer before the run gives up on it. */
 export const GIVE_UP_AFTER = 3;
+
+/** What a run says when it ends because the file can keep no more parcels. The line it ended on says why. */
+export const FULL = 'This project can keep no more parcels, so the numbers after that one were not asked for.';
 
 /** The longest the run waits when the server asks for a pause, whatever it asks for. */
 const LONGEST_WAIT_S = 90;
@@ -73,13 +80,15 @@ function pause(seconds: number): Promise<void> {
  * number the map does not hold, and a read that fails, are that number's own
  * outcome, and the next is read all the same.
  *
- * Three things end a run early. A person stopping it. The server refusing
- * this person, which it would do for every line after. And the map failing
- * to answer three lines running: one failure is one number's, three in a row
- * is the map being down, and sixty numbers at a quarter of a minute each is
- * a long time to be told so. When the server says it has had too many
- * requests for the minute it is not a refusal: the run waits as long as it
- * was asked to, once, and reads the same line again.
+ * Four things end a run early. A person stopping it. The server refusing
+ * this person, which it would do for every line after. The file having no
+ * room for another parcel: the line says so, and each number after it would
+ * be read from a slow map only to be turned away the same. And the map
+ * failing to answer three lines running: one failure is one number's, three
+ * in a row is the map being down, and sixty numbers at a quarter of a minute
+ * each is a long time to be told so. When the server says it has had too
+ * many requests for the minute it is not a refusal: the run waits as long as
+ * it was asked to, once, and reads the same line again.
  *
  * `lines` are whatever keys the caller knows its lines by — a survey number,
  * or a number and its parcel — and `readOne` reads the line a key stands for.
@@ -133,6 +142,9 @@ export async function readInTurn(
     } else if (REFUSED.has(result.status) || result.status === 429) {
       on.state(line, null);
       return run(result.error);
+    } else if (result.full) {
+      on.state(line, { phase: 'full', reason: result.error });
+      return run(FULL);
     } else if (result.status === 404 && result.near) {
       unanswered = 0;
       on.state(line, { phase: 'absent', near: result.near });
@@ -172,12 +184,25 @@ export function readsAgain(line: SurveyNumberLine): boolean {
 /**
  * Whether a line is ticked. A person's own tick or untick stands. A line
  * they have not touched is ticked when they typed it, or when the file
- * states it, that is accepted, and it is not yet read. A piece that is not
- * one survey number cannot be read and is never ticked.
+ * states it, that is accepted, and it is not yet read — unless the number
+ * looks like another one misread, which waits for a person to say it is
+ * wanted. A piece that is not one survey number cannot be read and is never
+ * ticked.
  */
 export function isTicked(line: SurveyNumberLine, choices: Readonly<Record<string, boolean>>): boolean {
   if (line.unreadable) return false;
-  return choices[lineKey(line)] ?? (line.typed || (!line.read && Boolean(line.offered?.accepted)));
+  return choices[lineKey(line)] ?? (line.typed || (!line.read && Boolean(line.offered?.accepted) && !line.offered?.maybe));
+}
+
+/**
+ * What a line says of a number that looks like another the papers state,
+ * read without its stroke. Nothing once it is read: the map has then
+ * answered for it.
+ */
+export function lineDoubt(line: SurveyNumberLine): string | null {
+  const other = line.offered?.maybe;
+  if (!other || line.read) return null;
+  return `May be Sy. ${other} with its stroke lost in reading: the papers state that number too, and no whole survey number this long. Tick it to read it as it stands.`;
 }
 
 /** One request of a run: the line it is asked for, and the other lines the same request answers. */
@@ -215,7 +240,7 @@ export function runPlan(lines: readonly SurveyNumberLine[], choices: Readonly<Re
  * a number is not on the map, or why a read failed — stays.
  */
 export function settled(states: Readonly<Record<string, ReadState>>): Record<string, ReadState> {
-  return Object.fromEntries(Object.entries(states).filter(([, state]) => state.phase === 'absent' || state.phase === 'failed'));
+  return Object.fromEntries(Object.entries(states).filter(([, state]) => state.phase === 'absent' || state.phase === 'failed' || state.phase === 'full'));
 }
 
 /**

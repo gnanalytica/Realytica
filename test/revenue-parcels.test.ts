@@ -22,6 +22,7 @@ import {
   applyRevenueMap,
   applySurveyBoundary,
   buildBoundary,
+  bySurveyNumber,
   clearRevenueMap,
   compareProjectGis,
   createAssessment,
@@ -217,17 +218,18 @@ describe('the survey numbers a file offers', () => {
   it('shows a range as it was written, on a line of its own that cannot be read', () => {
     const p = township();
     file(p, 'Fire NOC', 'Fire NOC', [fact('covered_survey_numbers', '81 to 85, 86')]);
-    assert.deepEqual(offeredSurveyNumbers(p).map((o) => [o.surveyNo, Boolean(o.unreadable)]), [['81 to 85', true], ['86', false]]);
+    assert.deepEqual(offeredSurveyNumbers(p).map((o) => [o.surveyNo, Boolean(o.unreadable)]), [['86', false], ['81 to 85', true]]);
 
+    // What a person typed comes first, as they typed it; then the file's numbers; then what the file states that is not a number.
     const lines = surveyNumberLines(p, '87-89, 90');
     assert.deepEqual(lines.map((l) => [l.surveyNo, Boolean(l.unreadable), l.typed]), [
-      ['81 to 85', true, false],
-      ['86', false, false],
       ['87-89', true, true],
       ['90', false, true],
+      ['86', false, false],
+      ['81 to 85', true, false],
     ]);
-    assert.equal(lines[0]!.unreadable, 'A range is not read. Write each number, with commas between.', 'the line says why, and how to write it');
-    assert.match(lines[2]!.unreadable ?? '', /For a part of a number write 87\/89; for a run of numbers write each, with commas between\.$/);
+    assert.equal(lines[3]!.unreadable, 'A range is not read. Write each number, with commas between.', 'the line says why, and how to write it');
+    assert.match(lines[0]!.unreadable ?? '', /For a part of a number write 87\/89; for a run of numbers write each, with commas between\.$/);
   });
 
   it('offers every number the documents state, accepted or waiting, and says which', () => {
@@ -258,6 +260,69 @@ describe('the survey numbers a file offers', () => {
     assert.deepEqual(offered[4]!.documents.map((d) => d.evidenceId), [noc.id], 'an approval’s covered numbers are offered too');
   });
 
+  it('takes a zero before a part for the same number, on one line that names each paper', () => {
+    const p = township();
+    const rera = file(p, 'RERA', 'RERA certificate', [fact('survey_numbers', '77/03, 77/05 and 77/10', { review: 'proposed', source: 'model', page: 2 })]);
+    const deed = file(p, 'Sale deed', 'Sale deed', [fact('survey_numbers', '77/3 and 77/5')]);
+    const offered = offeredSurveyNumbers(p);
+    assert.deepEqual(offered.map((o) => o.surveyNo), ['77/3', '77/5', '77/10'], 'not 77/03 and 77/3 as two numbers');
+    assert.deepEqual(offered[0]!.documents.map((d) => [d.evidenceId, d.accepted]), [[rera.id, false], [deed.id, true]]);
+    assert.equal(offered[0]!.accepted, true, 'accepted on the deed, however the certificate spelt it');
+
+    assert.deepEqual(surveyPieces('077/03, 77/3 & 77/030'), [{ surveyNo: '77/3', written: '077/03' }, { surveyNo: '77/30', written: '77/030' }]);
+    assert.deepEqual(splitSurveyNumbers('77/0, 77/00, 70/1, 77/03A'), ['77/0', '70/1', '77/3A'], 'a zero that is the part, or ends a number, stays');
+
+    // A parcel read as 77/3 answers for 77/03, and the number is not asked of the map twice.
+    applyRevenueMap(p, read('77/3', 0), 'tester');
+    assert.equal(revenueReadFor(revenueReads(p), '77/03')?.surveyNo, '77/3');
+    assert.equal(surveyNumberLines(p, '77/03').filter((l) => l.read).length, 1);
+  });
+
+  it('marks a number as likely another one misread only where the file says so twice over', () => {
+    const numbers = (stated: string) => {
+      const p = township();
+      file(p, 'RERA', 'RERA certificate', [fact('survey_numbers', stated, { review: 'proposed', source: 'model' })]);
+      return offeredSurveyNumbers(p).map((o) => [o.surveyNo, o.maybe ?? null]);
+    };
+    // 47/2 is stated, and no whole survey number in these papers runs to three digits: 472 is likely 47/2 with its stroke lost.
+    assert.deepEqual(numbers('47/2, 47/3, 472, 67/1, 67/2'), [['47/2', null], ['47/3', null], ['67/1', null], ['67/2', null], ['472', '47/2']]);
+    // 6712 is doubted where the papers state 67/12, and not where they do not: nothing is guessed at.
+    assert.deepEqual(numbers('67/1, 67/2, 6712'), [['67/1', null], ['67/2', null], ['6712', null]]);
+    assert.deepEqual(numbers('67/1, 67/12, 6712'), [['67/1', null], ['67/12', null], ['6712', '67/12']]);
+    // Where the papers state whole numbers as long, 472 may well be one of them.
+    assert.deepEqual(numbers('47/2, 472, 118, 245/1'), [['47/2', null], ['118', null], ['245/1', null], ['472', null]]);
+    // A number that runs on from one written before a stroke is no witness that numbers are that long: 4712 does not clear 472.
+    assert.deepEqual(numbers('47/2, 47/3, 472, 4712'), [['47/2', null], ['47/3', null], ['472', '47/2'], ['4712', null]]);
+    // The stroke lost from a number spelt with a zero.
+    assert.deepEqual(numbers('77/03, 7703'), [['77/3', null], ['7703', '77/3']]);
+
+    // A number on the project's own record is a person's, and is never doubted.
+    const own = township({ parcelId: 'Sy. No. 472' });
+    file(own, 'RERA', 'RERA certificate', [fact('survey_numbers', '47/2 and 472', { review: 'proposed', source: 'model' })]);
+    assert.deepEqual(offeredSurveyNumbers(own).map((o) => [o.surveyNo, o.maybe ?? null]), [['47/2', null], ['472', null]]);
+  });
+
+  it('lists the numbers in the order of the numbers, the parts of one together', () => {
+    assert.deepEqual(['77/10', '9', '77/3', '78', '77', '77/5', '77/3A', '77/4', '47/2', '472'].sort(bySurveyNumber), ['9', '47/2', '77', '77/3', '77/3A', '77/4', '77/5', '77/10', '78', '472']);
+    const p = township({ parcelId: 'Sy. No. 77/10' });
+    file(p, 'RERA', 'RERA certificate', [fact('survey_numbers', '77/5, 67/2, 77/3, 81 to 85, 67/1 and 77/4', { review: 'proposed', source: 'model' })]);
+    applyRevenueMap(p, read('70', 0), 'tester');
+    assert.deepEqual(surveyNumberLines(p, '99, 12').map((l) => l.surveyNo), ['99', '12', '67/1', '67/2', '70', '77/3', '77/4', '77/5', '77/10', '81 to 85']);
+  });
+
+  it('does not wait on a number that is likely a misreading, for what waits until every number is read', () => {
+    const p = township();
+    file(p, 'RERA', 'RERA certificate', [fact('survey_numbers', '47/2, 47/3 and 472', { source: 'model' })]);
+    file(p, 'Sale deed', 'Sale deed', [fact('extent_title', 4800)]);
+    const joined = { prohibitedRegisterUnjoined: false };
+    applyRevenueMap(p, read('47/2', 0, joined), 'tester');
+    applyRevenueMap(p, read('47/3', 80, { readAt: '2026-10-01T06:01:00.000Z', ...joined }), 'tester');
+    // 472 is on no map. The site's extent is set against the two parcels, and the register check answers for them.
+    const stated = revenueExtent(p)!.documents!;
+    assert.deepEqual([stated.numbers, stated.read, stated.compared?.mapSqm], [['47/2', '47/3'], 2, 4800]);
+    assert.equal(lenderCheck(p, 'prohibited')!.verdict, 'clear');
+  });
+
   it('offers nothing from a reading a person set aside, or a document that was replaced', () => {
     const p = township();
     file(p, 'Khata', 'Khata certificate', [fact('survey_numbers', '81', { review: 'rejected' })]);
@@ -274,13 +339,15 @@ describe('the survey numbers a file offers', () => {
 
     const lines = surveyNumberLines(p, '72, 75 and 71/2');
     assert.deepEqual(lines.map((l) => [l.surveyNo, l.typed, l.read?.surveyNo ?? null]), [
-      ['71/1', false, '71'],
-      ['72', true, null],
+      // What a person typed that the file does not state, first and as typed.
       ['75', true, null],
       ['71/2', true, null],
+      // Then what the file states and what is kept, in the order of the numbers.
+      ['71/1', false, '71'],
+      ['72', true, null],
       ['90', false, '90'],
     ]);
-    assert.equal(lines[1]!.offered?.accepted, true, 'a typed number the file also states keeps its source');
+    assert.equal(lines[3]!.offered?.accepted, true, 'a typed number the file also states keeps its source, and its place among the file’s numbers');
     assert.equal(lines[4]!.offered, undefined, 'a parcel nothing on the file names still has its line');
   });
 });
@@ -460,6 +527,33 @@ describe('several reads kept on one project', () => {
     // Two villages of one name: the taluk tells them apart.
     const twins = [read('71', 0), read('71', 500, { parcelRef: 'kgis:2999999997:71', mandal: 'Hoskote' })];
     assert.deepEqual([...parcelLabels(twins).values()], ['71 (Hosakere, Anekal)', '71 (Hosakere, Hoskote)']);
+  });
+});
+
+describe('a hobli, which is a place and not a class of land', () => {
+  it('is told as the hobli it is, under the map and on the row a read is filed as', () => {
+    // Karnataka's map gives no class of land for a parcel. The engine hands over the hobli in that place.
+    const p = township();
+    applyRevenueMap(p, read('71', 0, { classification: 'Hosakere-2 hobli' }), 'tester');
+    const told = revenueSiteBrief(p)!.parcels[0]!;
+    assert.deepEqual([told.classification, told.hobli], [null, 'Hosakere-2'], 'not “Revenue class: Hosakere-2 hobli”');
+    assert.deepEqual([revenueMapBrief(p.revenueMap!).parcel.classification, revenueMapBrief(p.revenueMap!).parcel.hobli], [null, 'Hosakere-2']);
+    const filed = fileRevenueMapAsEvidence(p, 'tester').description ?? '';
+    assert.match(filed, /\nHobli: Hosakere-2\.\n/);
+    assert.doesNotMatch(filed, /Classification on the register/);
+    assert.equal(p.revenueMap?.classification, 'Hosakere-2 hobli', 'what is stored is what the engine gave, where the code in production reads it');
+  });
+
+  it('leaves a class of land a class, where the state’s register records one', () => {
+    const p = township();
+    applyRevenueMap(p, read('71', 0, { state: 'TS', classification: 'Patta land (dry)' }), 'tester');
+    const told = revenueSiteBrief(p)!.parcels[0]!;
+    assert.deepEqual([told.classification, told.hobli], ['Patta land (dry)', null]);
+    assert.match(fileRevenueMapAsEvidence(p, 'tester').description ?? '', /\nClassification on the register: Patta land \(dry\)\.\n/);
+
+    const none = township();
+    applyRevenueMap(none, read('72', 80), 'tester');
+    assert.deepEqual([revenueSiteBrief(none)!.parcels[0]!.classification, revenueSiteBrief(none)!.parcels[0]!.hobli], [null, null], 'and nothing where the map gives neither');
   });
 });
 
@@ -1504,9 +1598,10 @@ describe('a finding about one parcel names it', () => {
       return valueChecks(p, working, valueSummary(p, working)).find((c) => c.key === 'prohibited')!;
     };
     assert.equal(check().verdict, 'unknown', 'three parcels the register is not joined to');
-    for (const r of revenueReads(p)) r.prohibitedRegisterUnjoined = false;
+    // Each read again, from a layer that is joined to the register.
+    for (const r of revenueReads(p)) applyRevenueMap(p, { ...r, prohibitedRegisterUnjoined: false }, 'tester');
     assert.equal(check().verdict, 'clear');
-    revenueReads(p)[2]!.prohibitedCategory = 'Inam land';
+    applyRevenueMap(p, { ...revenueReads(p)[2]!, prohibitedCategory: 'Inam land' }, 'tester');
     assert.equal(check().verdict, 'blocker');
     assert.equal(check().headline, 'Sy. 73 listed');
   });
