@@ -1,9 +1,9 @@
 import L from 'leaflet';
-import type { AmenityKind, GisOverlayRead, NearbyAmenity } from '@realytica/shared';
+import type { AmenityKind, GisOverlayParcel, GisOverlayRead, NearbyAmenity } from '@realytica/shared';
 import { AIRPORT, EMPLOYMENT, HOSPITAL, MARKET, SCHOOL, TRANSIT, drawn } from './icons';
 
 /*
- * The site pin and the places near it.
+ * The site pin, the places near it, and the number on each parcel.
  *
  * Black and white, and the same in both themes. These are drawn on imagery,
  * and imagery does not change with the theme — which is also why Leaflet's
@@ -72,6 +72,60 @@ export function siteMarker(pin: NonNullable<GisOverlayRead['pin']>): L.Marker {
     // Over every place near it: the site is the one mark on this map that must never be hidden.
     zIndexOffset: 1000,
   }).bindTooltip(words(pin.resolvedAddress ? `Pin — ${pin.resolvedAddress}` : 'Geocoded pin — not a parcel'));
+}
+
+/** A parcel's label on the map, and what is needed to tell whether it fits on the outline it names. */
+export interface ParcelLabel {
+  marker: L.Marker;
+  /** The extent of the outline the label sits on. */
+  bounds: L.LatLngBounds;
+  text: string;
+}
+
+/**
+ * A parcel's survey number, set on its outline.
+ *
+ * A site on a dozen survey numbers is a dozen outlines, and without a number
+ * on each there is no telling which one a warning about Sy. 42 is about. The
+ * number is whatever the state's map holds, so it is set as text. The label
+ * sits at the middle of the outline's extent and takes no click: it must not
+ * stand between a finger and the parcel under it.
+ */
+export function parcelLabel(parcel: GisOverlayParcel): ParcelLabel {
+  const bounds = L.latLngBounds(parcel.ring.map((p) => [p.lat, p.lng] as L.LatLngTuple));
+  const text = `Sy. ${parcel.label}`;
+  // The icon is a point; the words are centred on it, whatever their width.
+  const face = document.createElement('div');
+  face.className = 'relative';
+  face.append(
+    words(text, 'absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-black/80 px-1 text-[11px] font-medium leading-4 text-white'),
+  );
+  const marker = L.marker(bounds.getCenter(), { icon: L.divIcon({ className: '', html: face, iconSize: [0, 0] }), interactive: false, keyboard: false });
+  return { marker, bounds, text };
+}
+
+/*
+ * A label is 16 px tall, and about 6 px wide for each letter with a little
+ * at either end. An outline smaller than that on screen cannot carry it.
+ */
+const LABEL_HEIGHT_PX = 16;
+const LABEL_WIDTH_PX = (text: string) => text.length * 6 + 10;
+
+/**
+ * Show each label only while its outline is big enough on screen to carry it.
+ *
+ * Zoomed out to a whole township, sixty labels are one black smear over
+ * sixty outlines a few pixels across. A label that does not fit is put away
+ * until the map is zoomed to where it does; the outline's own tooltip still
+ * names it.
+ */
+export function showLabelsThatFit(map: L.Map, labels: readonly ParcelLabel[]): void {
+  for (const label of labels) {
+    const a = map.latLngToContainerPoint(label.bounds.getNorthWest());
+    const b = map.latLngToContainerPoint(label.bounds.getSouthEast());
+    const fits = Math.abs(b.x - a.x) >= LABEL_WIDTH_PX(label.text) && Math.abs(b.y - a.y) >= LABEL_HEIGHT_PX;
+    label.marker.setOpacity(fits ? 1 : 0);
+  }
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   isHttpsUrl,
   siteFrame,
   type GeoPoint,
+  type GisOverlayParcel,
   type GisOverlayRead,
   type SiteFrame,
 } from '@realytica/shared';
@@ -42,6 +43,13 @@ function pinAt(point: GeoPoint): GisOverlayRead['pin'] {
 
 function outline(ring: GeoPoint[]): GisOverlayRead['survey'] {
   return { ring, source: 'uploaded_geojson', computedAreaSqm: 0, caveat: 'Supplied outline.' };
+}
+
+/** A parcel read from the state's map: a plot of this size, its south-west corner this far from the origin. */
+function parcel(surveyNo: string, northM: number, eastM: number, widthM = 40, heightM = 60): GisOverlayParcel {
+  const corner = moved(ORIGIN, northM, eastM);
+  const ring = [corner, moved(corner, 0, widthM), moved(corner, heightM, widthM), moved(corner, heightM, 0)];
+  return { parcelRef: `made-up:${surveyNo}`, surveyNo, label: surveyNo, ring, areaSqm: widthM * heightM };
 }
 
 /** How far the frame runs, east to west and north to south, in metres. */
@@ -127,6 +135,50 @@ describe('where the site map opens', () => {
   it('has nowhere to open with an empty ring and no pin, or with neither', () => {
     assert.equal(siteFrame({ pin: null, survey: outline([]) }), null);
     assert.equal(siteFrame({ pin: null, survey: null }), null);
+  });
+
+  it('holds every parcel of a site on several survey numbers, and not the pin', () => {
+    const parcels = [parcel('31', 0, 0), parcel('32', 0, 500), parcel('33', 400, 250)];
+    const pin = moved(ORIGIN, 2000, 2000);
+    const frame = siteFrame({ pin: pinAt(pin), survey: null, parcels });
+    assert.ok(frame);
+    assert.equal(frame.from, 'outlines');
+    for (const p of parcels) for (const corner of p.ring) assert.ok(holds(frame, corner), `Sy. ${p.surveyNo}`);
+    assert.equal(holds(frame, pin), false);
+    // 540 m across and 460 m up, with a tenth of each as room on every side.
+    const { ew, ns } = across(frame);
+    near(ew, 540 * 1.2, 1);
+    near(ns, 460 * 1.2, 1);
+    near(haversineMetres(frame.point, moved(ORIGIN, 230, 270)), 0, 0.5);
+  });
+
+  it('frames one parcel as it frames one outline', () => {
+    const one = parcel('31', 0, 0);
+    const asParcel = siteFrame({ pin: null, survey: null, parcels: [one] });
+    const asOutline = siteFrame({ pin: null, survey: outline(one.ring) });
+    assert.deepEqual(asParcel, asOutline);
+    assert.equal(asParcel?.from, 'outline');
+  });
+
+  it('counts an outline the revenue map supplied once, and a person’s own beside the parcels', () => {
+    const parcels = [parcel('31', 0, 0), parcel('32', 0, 500)];
+    const fromTheMap: GisOverlayRead['survey'] = { ring: parcels[0]!.ring, source: 'revenue_map', computedAreaSqm: 2400, caveat: 'Supplied outline.' };
+    assert.deepEqual(siteFrame({ pin: null, survey: fromTheMap, parcels }), siteFrame({ pin: null, survey: null, parcels }));
+
+    const own = outline(plot(40, 60).map((p) => moved(p, -800, 0)));
+    const both = siteFrame({ pin: null, survey: own, parcels });
+    assert.ok(both);
+    assert.equal(both.from, 'outlines');
+    for (const corner of [...own!.ring, ...parcels.flatMap((p) => p.ring)]) assert.ok(holds(both, corner));
+  });
+
+  it('looks for a street view from the middle of the parcels as far as their furthest corner', () => {
+    const parcels = [parcel('31', 0, 0), parcel('32', 0, 500)];
+    const frame = siteFrame({ pin: null, survey: null, parcels });
+    assert.ok(frame);
+    // 540 m by 60 m: half the diagonal is 272 m.
+    assert.equal(frame.reachM, Math.round(STREET_VIEW_REACH_M + haversineMetres(frame.point, parcels[1]!.ring[2]!)));
+    assert.ok(frame.reachM > STREET_VIEW_REACH_M + 265 && frame.reachM < STREET_VIEW_REACH_M + 280);
   });
 
   it('frames a pin with no outline by the distance the overlay reads context for', () => {

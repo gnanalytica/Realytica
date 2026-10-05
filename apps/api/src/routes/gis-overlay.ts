@@ -18,13 +18,16 @@ import {
   compareProjectGis,
   noteProjectEdit,
   projectToIdentity,
+  rememberAskedSurveyNo,
+  removeRevenueMapRead,
+  revenueReads,
 } from '@realytica/shared';
 import { store } from '../store';
 import { ensureIdentitySiteContext } from '../site-context';
 import { pullPinForProject } from '../project-chat-sides';
 import { fetchOsmContext } from '../gis/overpass';
 import { loadCivicLayers, loadWithdrawnRmpSheets } from '../gis/civic-cache';
-import { isStateKey, readRevenueMap, revenueLevelLabels, revenueLevels, suggestRevenuePlace } from '../gis/revenue-map';
+import { isStateKey, readRevenueMap, rereadRevenueMap, revenueLevelLabels, revenueLevels, suggestRevenuePlace } from '../gis/revenue-map';
 
 function findProject(id: string | undefined) {
   if (!id) return undefined;
@@ -32,6 +35,7 @@ function findProject(id: string | undefined) {
 }
 
 type ProjectParams = { projectId: string };
+type ParcelParams = ProjectParams & { parcelRef: string };
 
 export const projectGisOverlayRouter = Router({ mergeParams: true });
 
@@ -68,7 +72,7 @@ projectGisOverlayRouter.get<ProjectParams>('/', async (req, res) => {
       error: civic.errors.length ? civic.errors.join('; ') : undefined,
     },
     withdrawnSheets: sheets,
-    revenue: project.revenueMap,
+    revenue: revenueReads(project),
   });
   res.json(read);
 });
@@ -77,16 +81,37 @@ projectGisOverlayRouter.get<ProjectParams>('/', async (req, res) => {
  * The revenue map — Kshetra's engine, on this file.
  *
  * GET    /revenue/levels?state=&district=&mandal=   the picker, one level at a time
- * POST   /revenue  { state, district, mandal, village, surveyNo }
- * DELETE /revenue
+ * POST   /revenue  { state, district, mandal, village, surveyNo, unlessKept?, several? }
+ *                  { parcelRef, several? }          a kept parcel, read afresh
+ * DELETE /revenue/:parcelRef                        one parcel's read
+ * DELETE /revenue                                   every read
  *
- * The read is stored on the project and the parcel ring becomes the boundary
- * when no person has supplied one. It is a government record read by
- * machine, not evidence — see `revenue-map.ts` in shared.
+ * One survey number to a request. A site on many is read by asking for each
+ * in turn: the state's servers are slow, and a request that read twelve
+ * would outlive the function that serves it and say nothing until it ended.
+ *
+ * Every read is kept on the project, one per parcel, and the first parcel's
+ * ring becomes the boundary when no person has supplied one. Each is a
+ * government record read by machine, not evidence — see `revenue-map.ts` in
+ * shared.
  */
 
 function str(v: unknown, max = 80): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
+}
+
+/**
+ * The file as storage holds it at this moment, before a read is filed,
+ * removed or cleared.
+ *
+ * The sync every request gets is held to once a second for a project. That
+ * second is long enough for the code in production to clear the reads and
+ * for a removal here, made from the copy this instance still holds, to write
+ * them back over the clear. These three change or rely on the reads, so they
+ * look again first.
+ */
+function asStoredNow(projectId: string): Promise<void> {
+  return store.syncProject(projectId, { force: true });
 }
 
 projectGisOverlayRouter.get<ProjectParams>('/revenue/levels', async (req, res) => {
@@ -124,34 +149,96 @@ projectGisOverlayRouter.post<ProjectParams>('/revenue', async (req, res) => {
     return;
   }
   const body = (req.body ?? {}) as Record<string, unknown>;
+  const kept = revenueReads(project).map((r) => r.parcelRef);
+  const again = str(body.parcelRef, 120);
   const state = isStateKey(body.state) ? body.state : null;
   const district = str(body.district);
   const mandal = str(body.mandal);
   const village = str(body.village);
   const surveyNo = str(body.surveyNo, 24).replace(/\s+/g, '');
-  if (!state || !district || !mandal || !village || !surveyNo) {
+  if (again && !kept.includes(again)) {
+    res.status(404).json({ error: 'That parcel is not kept on this project, so there is nothing to read again.' });
+    return;
+  }
+  if (!again && (!state || !district || !mandal || !village || !surveyNo)) {
     res.status(400).json({ error: 'Pick the state, district, mandal or taluk, and village, and give the survey number.' });
     return;
   }
-  const outcome = await readRevenueMap({ state, district, mandal, village, surveyNo, landAreaSqm: project.landAreaSqm });
+  // Without a parcel to read again the place was required just above, so `state` is set on the other branch.
+  const outcome =
+    again || !state
+      ? await rereadRevenueMap({ parcelRef: again, landAreaSqm: project.landAreaSqm, kept })
+      : await readRevenueMap({
+          state,
+          district,
+          mandal,
+          village,
+          surveyNo,
+          landAreaSqm: project.landAreaSqm,
+          kept,
+          unlessKept: body.unlessKept === true,
+          several: body.several === true,
+        });
   if (!outcome.ok) {
-    res.status(outcome.status).json({ error: outcome.error });
+    res.status(outcome.status).json({ error: outcome.error, ...(outcome.near ? { near: outcome.near } : {}) });
     return;
   }
+  /*
+   * A read can take the better part of a minute and a run of numbers takes
+   * several, long enough for the file to move on another instance. The read
+   * lands on the file as it stands now, not as it stood when it was asked for.
+   */
+  await store.syncProject(project.id, { force: true });
   // Whoever is signed in reads the map; the body never names them.
-  const boundary = applyRevenueMap(project, outcome.read, actorOf(principalOf(req)));
-  noteProjectEdit(
-    project,
-    `Read the revenue map for Sy. ${outcome.read.surveyNo}, ${[outcome.read.village, outcome.read.mandal].filter(Boolean).join(', ')}.`,
-  );
+  const actor = actorOf(principalOf(req));
+  if ('already' in outcome) {
+    const answered = rememberAskedSurveyNo(project, outcome.already, surveyNo);
+    if (!answered) {
+      res.status(409).json({ error: `The parcel for Sy. ${surveyNo} was taken off this project while it was being looked up. Read it again.` });
+      return;
+    }
+    await store.save();
+    res.json({
+      read: answered,
+      boundary: null,
+      already: true,
+      notEvidence: true,
+      note:
+        surveyNo.toUpperCase() === answered.surveyNo.toUpperCase()
+          ? `Sy. ${answered.surveyNo} is already read.`
+          : `Sy. ${surveyNo} is the parcel already read as Sy. ${answered.surveyNo}: the state’s map holds it under that number.`,
+    });
+    return;
+  }
+  // A parcel taken off the file while it was being read again stays off: the
+  // person who removed it did so after this was asked for.
+  if (again && !revenueReads(project).some((r) => r.parcelRef === again)) {
+    res.status(409).json({ error: 'That parcel was taken off this project while it was being read again. It has not been put back.' });
+    return;
+  }
+  const boundary = applyRevenueMap(project, outcome.read, actor, again ? undefined : surveyNo);
+  const reads = revenueReads(project);
+  const read = reads.find((r) => r.parcelRef === outcome.read.parcelRef) ?? outcome.read;
+  // A read a person asked for on its own is one line in the thread the
+  // copilot reads, as any edit made in a pane is. A run of numbers from one
+  // press would be a dozen pairs of them, burying what was said there; the
+  // audit entry each read leaves is the record of it.
+  if (body.several !== true) {
+    noteProjectEdit(project, `Read the revenue map for Sy. ${read.surveyNo}, ${[read.village, read.mandal].filter(Boolean).join(', ')}.`);
+  }
   await store.save();
+  const supplied = project.surveyBoundary && project.surveyBoundary.source !== 'revenue_map';
   res.json({
-    read: outcome.read,
+    read,
     boundary,
     notEvidence: true,
     note: boundary
-      ? 'Parcel from the revenue map is now the project boundary. A machine-read record, not a survey; attach the extract to file it as evidence.'
-      : 'Revenue map read. Your uploaded outline stays as the boundary; the register’s parcel is compared against it below.',
+      ? reads.length === 1
+        ? 'Parcel from the revenue map is now the project boundary. A machine-read record, not a survey; attach the extract to file it as evidence.'
+        : `Sy. ${reads[0].surveyNo} from the revenue map is the project boundary, and the other parcels are drawn beside it. A machine-read record, not a survey; attach the extract to file it as evidence.`
+      : supplied
+        ? `Revenue map read. Your uploaded outline stays as the boundary; the register’s parcel${reads.length === 1 ? ' is' : 's are'} compared against it below.`
+        : `Sy. ${read.surveyNo} is kept with the other parcels. A machine-read record, not a survey; attach the extract to file it as evidence.`,
   });
 });
 
@@ -165,6 +252,7 @@ projectGisOverlayRouter.post<ProjectParams>('/revenue/file', async (req, res) =>
     res.status(404).json({ error: 'Project not found' });
     return;
   }
+  await asStoredNow(project.id);
   try {
     const before = project.evidence.length;
     const record = fileRevenueMapAsEvidence(project, actorOf(principalOf(req)));
@@ -178,14 +266,35 @@ projectGisOverlayRouter.post<ProjectParams>('/revenue/file', async (req, res) =>
   }
 });
 
+/** Take one parcel's read off the project. The others, and what they add up to, stay. */
+projectGisOverlayRouter.delete<ParcelParams>('/revenue/:parcelRef', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  await asStoredNow(project.id);
+  const read = revenueReads(project).find((r) => r.parcelRef === req.params.parcelRef);
+  if (!read || !removeRevenueMapRead(project, read.parcelRef, actorOf(principalOf(req)))) {
+    res.status(404).json({ error: 'No read of that parcel is kept on this project.' });
+    return;
+  }
+  noteProjectEdit(project, `Removed the revenue-map read for Sy. ${read.surveyNo}.`);
+  await store.save();
+  res.status(204).end();
+});
+
 projectGisOverlayRouter.delete<ProjectParams>('/revenue', async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
+  await asStoredNow(project.id);
+  const kept = revenueReads(project).length;
   clearRevenueMap(project, actorOf(principalOf(req)));
-  noteProjectEdit(project, 'Cleared the revenue-map read.');
+  // Cleared already, by another instance or by the code before this: there is nothing to say was done here.
+  if (kept) noteProjectEdit(project, kept > 1 ? `Cleared the ${kept} revenue-map reads.` : 'Cleared the revenue-map read.');
   await store.save();
   res.status(204).end();
 });

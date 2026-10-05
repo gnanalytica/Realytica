@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom';
 import {
   cockpitPath,
   currentEngagement,
+  parcelLabels,
+  revenueGuidance,
+  revenueReads,
   waitingOn,
   type DdProject,
   type FindingRecord,
@@ -75,7 +78,10 @@ function Avatar({ name, className }: { name: string; className?: string }) {
 /* ==================================================================== */
 
 export function KeyFacts({ project, className }: { project: DdProject; className?: string }) {
-  const guidance = project.revenueMap?.anchor;
+  // One published value, from the first parcel read that carries one. On a site of several it says which parcel that is.
+  const parcels = revenueReads(project);
+  const published = revenueGuidance(parcels);
+  const guidance = published?.anchor;
   const rows: Array<[string, ReactNode]> = [];
   if (project.parcelId) rows.push(['Survey Nos.', <span className="font-mono">{project.parcelId}</span>]);
   rows.push(['Location', [project.siteAddress || project.location, project.city].filter(Boolean).join(', ')]);
@@ -90,7 +96,11 @@ export function KeyFacts({ project, className }: { project: DdProject; className
   if (guidance) {
     rows.push([
       'Guidance value',
-      `₹${guidance.guidancePerUnit.toLocaleString('en-IN')} per ${guidance.unit === 'sqft' ? 'sq ft' : 'sq yd'}, as published${guidance.locality ? ` (${guidance.locality})` : ''}`,
+      `₹${guidance.guidancePerUnit.toLocaleString('en-IN')} per ${guidance.unit === 'sqft' ? 'sq ft' : 'sq yd'}, as published${guidance.locality ? ` (${guidance.locality})` : ''}${
+        published && parcels.length > 1
+          ? `, for Sy. ${parcelLabels(parcels).get(published.read.parcelRef) ?? published.read.surveyNo}${published.differing.length ? '; other parcels carry other values' : ''}`
+          : ''
+      }`,
     ]);
   }
   return (

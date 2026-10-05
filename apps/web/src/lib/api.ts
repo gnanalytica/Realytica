@@ -97,6 +97,7 @@ import type {
   FlowNodeType,
 } from '@realytica/shared';
 import { authHeader, renewToken, signOut } from './auth';
+import type { RevenueReadResult } from './revenue-run';
 
 const BASE = '/api';
 
@@ -918,16 +919,52 @@ export const api = {
       from: 'last read' | 'address' | null;
       note?: string;
     }>(`/projects/${projectId}/gis-overlay/revenue/suggest`),
-  readRevenueMap: (
+  /**
+   * Read one survey number off the state's map. A number the map does not
+   * hold, and a read that failed, are answers here and not throws: a run of
+   * several shows each number's own outcome and goes on to the next.
+   * `unlessKept` answers from the parcel already kept when the number turns
+   * out to be one; `several` says the request is one of a run of them. A
+   * parcel that is kept is read again by its own reference, not by a place.
+   */
+  readRevenueMap: async (
     projectId: string,
-    body: { state: 'TS' | 'KA'; district: string; mandal: string; village: string; surveyNo: string },
-  ) =>
-    request<{ read: RevenueMapRead; boundary: ParcelBoundary | null; notEvidence: true; note: string }>(
-      `/projects/${projectId}/gis-overlay/revenue`,
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
+    body:
+      | { state: 'TS' | 'KA'; district: string; mandal: string; village: string; surveyNo: string; unlessKept?: boolean; several?: boolean }
+      | { parcelRef: string; several?: boolean },
+  ): Promise<RevenueReadResult> => {
+    const res = await fetchWithAuth(`${BASE}/projects/${projectId}/gis-overlay/revenue`, { method: 'POST', body: JSON.stringify(body) });
+    const answer = (await res.json().catch(() => ({}))) as {
+      read?: RevenueMapRead;
+      boundary?: ParcelBoundary | null;
+      note?: string;
+      already?: boolean;
+      error?: string;
+      near?: string[];
+    };
+    if (res.ok && answer.read) {
+      return { ok: true, read: answer.read, boundary: answer.boundary ?? null, note: answer.note ?? '', ...(answer.already ? { already: true } : {}) };
+    }
+    // A server that has had too many requests for the minute says how long to leave it alone.
+    const retryAfterS = Number(res.headers.get('Retry-After'));
+    return {
+      ok: false,
+      status: res.status,
+      error: answer.error ?? `${res.status} ${res.statusText}`,
+      ...(answer.near ? { near: answer.near } : {}),
+      ...(Number.isFinite(retryAfterS) && retryAfterS > 0 ? { retryAfterS } : {}),
+    };
+  },
   fileRevenueMap: (projectId: string) =>
     request<{ evidence: EvidenceRecord; project: DdProject }>(`/projects/${projectId}/gis-overlay/revenue/file`, { method: 'POST' }),
+  /**
+   * Take one parcel's read off the project; the others stay. A parcel has to
+   * be named: with none, the address would be the one that clears every read.
+   */
+  removeRevenueRead: (projectId: string, parcelRef: string) =>
+    parcelRef
+      ? request<void>(`/projects/${projectId}/gis-overlay/revenue/${encodeURIComponent(parcelRef)}`, { method: 'DELETE' })
+      : Promise.reject(new ApiRequestError('No parcel was named to remove.', 400)),
   clearRevenueMap: (projectId: string) =>
     request<void>(`/projects/${projectId}/gis-overlay/revenue`, { method: 'DELETE' }),
   projectGraphNeighbourhood: (projectId: string, query: string, hops = 2) =>

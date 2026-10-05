@@ -22,7 +22,7 @@
  * captured offline and dated, so the portal policy in `portals.ts` holds.
  */
 
-import { acceptedFacts, surveyNoFromParcelId, type DdProject } from '@realytica/shared';
+import { acceptedFacts, revenueReads, splitSurveyNumbers, surveyNoFromParcelId, type DdProject } from '@realytica/shared';
 import type { RevenueMapFactor, RevenueMapFeature, RevenueMapFeatureKind, RevenueMapRead } from '@realytica/shared';
 import { kaVillageByCode } from '@realytica/site-intel/karnataka/village-index';
 import { kaPickerLabel, kaVillageFromAddress } from '@realytica/site-intel/karnataka/place-match';
@@ -44,7 +44,10 @@ export interface RevenueLevelResult {
 
 export type RevenueReadOutcome =
   | { ok: true; read: RevenueMapRead }
-  | { ok: false; status: 400 | 404 | 502; error: string };
+  /** The number resolved to a parcel already kept for the project, by this reference; nothing was read. */
+  | { ok: true; already: string }
+  /** `near` is set when the number is not in the published map: the numbers there that start the same way. */
+  | { ok: false; status: 400 | 404 | 502; error: string; near?: string[] };
 
 export { isStateKey };
 export type { StateKey };
@@ -78,6 +81,36 @@ export interface RevenueReadInput {
   surveyNo: string;
   /** The land area on the project, so the engine's extent check has something to compare. */
   landAreaSqm?: number | null;
+  /** The parcels already kept for the project, by reference. */
+  kept?: readonly string[];
+  /**
+   * Answer from what is kept when the number resolves to a kept parcel,
+   * instead of reading it afresh. Off unless asked for: a caller that knows
+   * nothing of kept parcels gets a fresh read, as it always did.
+   */
+  unlessKept?: boolean;
+  /** The number is one of several being read for the same site. */
+  several?: boolean;
+}
+
+/**
+ * The parcel the map answers a survey number with, among what its search
+ * found — or none.
+ *
+ * The number itself, whatever the case of a letter in it. Failing that, a
+ * lone result is taken only when it is the survey number the asked one is a
+ * part of: "41/2" answered by "41", as Karnataka's map does, which holds
+ * whole numbers. A lone result of any other kind is a neighbour the search
+ * happened to find — "412" for "41", where the village has no 41 — and
+ * reading it would put a stranger's parcel on the file under the number
+ * that was asked for.
+ */
+export function parcelAnswering<T extends { parcelNo: string }>(found: readonly T[], surveyNo: string): T | undefined {
+  const asked = surveyNo.toUpperCase();
+  const exact = found.find((p) => p.parcelNo.toUpperCase() === asked);
+  if (exact || found.length !== 1) return exact;
+  const whole = found[0]!.parcelNo.toUpperCase();
+  return asked.startsWith(`${whole}/`) || asked.startsWith(`${whole}-`) ? found[0] : undefined;
 }
 
 /**
@@ -97,7 +130,7 @@ export async function readRevenueMap(input: RevenueReadInput): Promise<RevenueRe
     if (found.reason === 'parse') return { ok: false, status: 400, error: found.detail ?? 'That place could not be matched.' };
     return { ok: false, status: 502, error: mapDown(input.state, found.detail) };
   }
-  const exact = found.data.find((p) => p.parcelNo === input.surveyNo) ?? (found.data.length === 1 ? found.data[0] : undefined);
+  const exact = parcelAnswering(found.data, input.surveyNo);
   if (!exact) {
     const near = found.data.slice(0, 6).map((p) => p.parcelNo);
     return {
@@ -106,19 +139,46 @@ export async function readRevenueMap(input: RevenueReadInput): Promise<RevenueRe
       error: near.length
         ? `Sy. ${input.surveyNo} is not in the published map for ${input.village}. Numbers that start the same way: ${near.join(', ')}.`
         : `Sy. ${input.surveyNo} is not in the published map for ${input.village}.`,
+      near,
     };
   }
+  // Two numbers can be one parcel: Karnataka's map holds whole survey numbers,
+  // so 41/1 and 41/2 both resolve to 41. The second is not read a second time.
+  const kept = input.kept ?? [];
+  if (input.unlessKept && kept.includes(exact.ref)) return { ok: true, already: exact.ref };
 
+  // The engine holds the area quoted for the site against the parcel it reads.
+  // That is asked only of a parcel that stands alone: a site's area is all of
+  // its parcels. Where it was asked and others are read later, the shared
+  // package leaves the check out as it reads them.
+  const alone = !input.several && !kept.some((ref) => ref !== exact.ref);
+  return readParcel(exact.ref, alone ? input.landAreaSqm : null);
+}
+
+/** Everything round one parcel, by the engine's own reference to it. */
+async function readParcel(parcelRef: string, landAreaSqm: number | null | undefined): Promise<RevenueReadOutcome> {
   const outcome = await runSiteIntel({
-    parcelRef: exact.ref,
+    parcelRef,
     kind: 'open_plot',
-    area: input.landAreaSqm && input.landAreaSqm > 0 ? input.landAreaSqm : null,
+    area: landAreaSqm && landAreaSqm > 0 ? landAreaSqm : null,
     areaUnit: 'sqm',
   });
   if (!outcome.ok) {
     return { ok: false, status: outcome.reason === 'not_found' ? 502 : 400, error: outcome.message };
   }
   return { ok: true, read: toRevenueMapRead(outcome.report) };
+}
+
+/**
+ * Read a kept parcel afresh, by its own reference.
+ *
+ * Not by its number in whatever village the picker now shows: a site can
+ * span two villages that each hold a survey number 41, and reading "41"
+ * again in the wrong one adds a stranger's parcel in place of renewing ours.
+ */
+export async function rereadRevenueMap(input: { parcelRef: string; landAreaSqm?: number | null; kept: readonly string[] }): Promise<RevenueReadOutcome> {
+  const alone = !input.kept.some((ref) => ref !== input.parcelRef);
+  return readParcel(input.parcelRef, alone ? input.landAreaSqm : null);
 }
 
 /* ------------------------------------------------------------------ */
@@ -269,8 +329,8 @@ export interface RevenuePlaceSuggestion {
 function surveyNoFromDocuments(project: DdProject): string {
   for (const e of project.evidence) {
     const fact = acceptedFacts(e).find((f) => f.key === 'survey_numbers');
-    const first = fact ? String(fact.value).split(/\s*(?:,|&|\band\b)\s*/i)[0] : '';
-    if (first?.trim()) return first.trim().replace(/\s+/g, '');
+    const first = fact ? splitSurveyNumbers(String(fact.value))[0] : undefined;
+    if (first) return first;
   }
   return '';
 }
@@ -280,10 +340,13 @@ function surveyNoFromDocuments(project: DdProject): string {
  * reference names the exact village — otherwise the village the site address
  * names, matched against the Karnataka index. The survey number comes from
  * the project's parcel, else from a document accepted as stating one.
+ *
+ * With several parcels kept, the last read is the most recent of them: a
+ * person working down a list of numbers is still in that village.
  */
 export function suggestRevenuePlace(project: DdProject): RevenuePlaceSuggestion {
   const surveyNo = surveyNoFromParcelId(project.parcelId) || surveyNoFromDocuments(project) || undefined;
-  const last = project.revenueMap;
+  const last = revenueReads(project).reduce<RevenueMapRead | undefined>((latest, r) => (latest && latest.readAt >= r.readAt ? latest : r), undefined);
   if (last) {
     const code = last.state === 'KA' ? /^kgis:(\d+):/.exec(last.parcelRef)?.[1] : undefined;
     const v = code ? kaVillageByCode(code) : null;

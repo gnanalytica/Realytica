@@ -1,7 +1,7 @@
 import { Suspense, lazy, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { FileCheck2 } from 'lucide-react';
-import { REVENUE_MAP_CAVEAT, revenueMapEvidenceCode } from '@realytica/shared';
+import { REVENUE_MAP_CAVEAT, revenueMapEvidenceCode, revenueReads } from '@realytica/shared';
 import { api } from '../../lib/api';
 import { Badge, Button, Card, CardBody, CardHeader, Skeleton, useToast } from '../../components/ui/kit';
 import SiteRecord from './SiteRecord';
@@ -27,13 +27,19 @@ const SEVERITY_TONE = { critical: 'critical', high: 'serious', medium: 'warning'
  * A read stays a record until a person files it: a machine reading of
  * published layers, with its own survey error, is not a certified extract.
  * Filing it puts it on the evidence register, where a report can cite it.
+ *
+ * One read is filed here, the first. On a site of several survey numbers the
+ * card says so, and the button names the parcel it files: the others are in
+ * the brief under the map.
  */
 function RevenueReadCard() {
   const { project, setProject } = useOutletContext<ProjectOutlet>();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-  const read = project.revenueMap;
+  const reads = revenueReads(project);
+  const read = reads[0];
   if (!read) return null;
+  const several = reads.length > 1;
   const filed = project.evidence.find((e) => e.screenCode === revenueMapEvidenceCode(read));
   const place = [read.village, read.mandal, read.district].filter(Boolean).join(', ');
 
@@ -42,7 +48,7 @@ function RevenueReadCard() {
     try {
       const out = await api.fileRevenueMap(project.id);
       setProject(out.project);
-      toast('Filed the map read as evidence', 'good');
+      toast(several ? `Filed the read of Sy. ${read.surveyNo} as evidence` : 'Filed the map read as evidence', 'good');
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not file the read', 'critical');
     } finally {
@@ -54,14 +60,14 @@ function RevenueReadCard() {
     <Card>
       <CardHeader
         title={`State map read · Sy. ${read.surveyNo}`}
-        subtitle={`${place || read.sourceLabel} · read ${new Date(read.readAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+        subtitle={`${place || read.sourceLabel} · read ${new Date(read.readAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}${several ? ` · the first of ${reads.length} parcels` : ''}`}
         info={REVENUE_MAP_CAVEAT}
         action={
           filed ? (
             <Badge tone="good" icon={<FileCheck2 size={11} />}>On the evidence register</Badge>
           ) : (
             <Button size="sm" variant="primary" onClick={() => void file()} loading={busy}>
-              File as evidence
+              {several ? `File Sy. ${read.surveyNo} as evidence` : 'File as evidence'}
             </Button>
           )
         }

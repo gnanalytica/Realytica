@@ -3,8 +3,11 @@ import { useOutletContext } from 'react-router-dom';
 import { Landmark, Sparkles } from 'lucide-react';
 import {
   computeIndicativeValuation,
+  parcelLabels,
+  revenueReads,
   rule8Summary,
   runValuationApproaches,
+  surveyNumbersLabel,
   valueChecks,
   valueDrivers,
   valueInputCheckId,
@@ -219,13 +222,15 @@ export default function Valuation() {
 
   const documentsRead = project.evidence.filter((e) => (e.facts ?? []).length > 0 && e.status !== 'superseded' && e.status !== 'rejected').length;
   const stateName = screen?.stateCompliance?.state ?? project.jurisdiction?.split('/')[0]?.trim() ?? 'state';
+  // Every parcel read goes into the figure, so the step names them all, or the first few and how many more.
+  const onMap = [...parcelLabels(revenueReads(project)).values()];
   const steps: ReadingStep[] = [
     { label: `Read ${documentsRead} document${documentsRead === 1 ? '' : 's'}`, state: 'done' },
     { label: `Title against the ${stateName} rules`, state: fill.phase === 'checking' && stage === 'title' ? 'active' : 'done' },
     ...(portalsConfigured
       ? [{ label: 'Comparables · 99acres, MagicBricks', state: stage === 'portals' ? ('active' as const) : stage === 'title' ? ('waiting' as const) : ('done' as const) }]
       : []),
-    ...(project.revenueMap ? [{ label: `Revenue map · Sy. ${project.revenueMap.surveyNo}`, state: fill.phase === 'checking' ? ('waiting' as const) : ('done' as const) }] : []),
+    ...(onMap.length ? [{ label: `Revenue map · ${surveyNumbersLabel(onMap, 3)}`, state: fill.phase === 'checking' ? ('waiting' as const) : ('done' as const) }] : []),
     {
       label: fill.phase === 'filling' ? `Filling ${fill.progress.done} of ${fill.progress.total} inputs` : 'Fill the inputs',
       state: fill.phase === 'filling' ? 'active' : 'waiting',

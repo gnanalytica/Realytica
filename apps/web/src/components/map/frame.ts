@@ -32,9 +32,10 @@ export interface SiteView {
 export function siteOf(read: GisOverlayRead): Site | null {
   const frame = siteFrame(read);
   if (!frame) return null;
+  const name = frame.from === 'pin' ? 'the pin' : frame.from === 'outlines' ? 'the middle of the outlines' : 'the outline centre';
   return {
     bounds: L.latLngBounds([frame.south, frame.west], [frame.north, frame.east]),
-    point: { ...frame.point, name: frame.from === 'outline' ? 'the outline centre' : 'the pin', reachM: frame.reachM },
+    point: { ...frame.point, name, reachM: frame.reachM },
   };
 }
 

@@ -5,6 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
   isHttpsUrl,
+  revenueReads,
   sheetIsPlaceable,
   type DdProject,
   type GisContextFeature,
@@ -18,7 +19,7 @@ import { useAuthedUrl } from '../lib/useAuthedUrl';
 import { googleMapsKey, googleMapsRefused, loadGoogleMaps, streetViewUrl } from '../lib/google-maps';
 import { addSiteControls, type NoteFrom, type SiteControls } from './map/controls';
 import { openOnSite, siteOf, type SiteView } from './map/frame';
-import { placeMarker, siteMarker, words } from './map/markers';
+import { parcelLabel, placeMarker, showLabelsThatFit, siteMarker, words, type ParcelLabel } from './map/markers';
 import { StreetViewPane, findStreetScene, noStreetView, type StreetScene } from './map/StreetView';
 import { RevenueMapPicker } from './RevenueMapPicker';
 import { RevenueMapBrief } from './RevenueMapBrief';
@@ -56,6 +57,12 @@ const WATER_FLAG_STYLE: L.PathOptions = { color: '#b91c1c', weight: 3, fillColor
 const WATERWAY_STYLE: L.PathOptions = { color: '#1d4ed8', weight: 2.5, opacity: 0.9 };
 const LANDUSE_STYLE: L.PathOptions = { color: '#a16207', weight: 1, dashArray: '4 3', fillColor: '#fbbf24', fillOpacity: 0.18 };
 const SURVEY_STYLE: L.PathOptions = { color: '#c2410c', weight: 2.5, fillColor: '#fb923c', fillOpacity: 0.12 };
+/*
+ * A parcel off the state's map is drawn as the outline always was. Beside an
+ * outline a person supplied it is broken instead, so the two can be told
+ * apart where they lie on the same land: the solid line is the surveyor's.
+ */
+const PARCEL_BESIDE_OUTLINE_STYLE: L.PathOptions = { ...SURVEY_STYLE, weight: 2, dashArray: '6 4', fillOpacity: 0.06 };
 
 function latlngs(points: { lat: number; lng: number }[]): L.LatLngExpression[] {
   const closed =
@@ -93,6 +100,7 @@ const REVENUE_KINDS = new Set(Object.keys(REVENUE_STYLE));
 /** Hit codes the brief under the map already says, as points. */
 const BRIEF_COVERS = new Set<GisOverlayHit['code']>([
   'revenue_parcel',
+  'revenue_documents_extent',
   'revenue_prohibited',
   'revenue_register_unjoined',
   'revenue_factor',
@@ -105,13 +113,24 @@ function isRevenue(feature: GisContextFeature): boolean {
   return REVENUE_KINDS.has(feature.kind);
 }
 
+/**
+ * The outline on file that is drawn as itself: a person's, or — from an
+ * overlay that lists no parcels — the one the revenue map supplied. Where the
+ * parcels are listed, an outline the revenue map supplied is one of them.
+ */
+function ownOutline(read: GisOverlayRead): GisOverlayRead['survey'] {
+  if (!read.survey?.ring.length) return null;
+  return read.survey.source === 'revenue_map' && read.parcels?.length ? null : read.survey;
+}
+
 function addFeature(group: L.LayerGroup, feature: GisContextFeature, flagged: boolean): void {
   // A feature's name is whatever a mapper or a state layer holds, and Leaflet
   // reads a string as HTML: every tooltip here is set as text.
   if (isRevenue(feature)) {
     const style = REVENUE_STYLE[feature.kind];
+    // With several parcels read, the distance is from the nearest of them, and says which.
     const label = `${feature.name ?? feature.kind.replace('state_', '').replace(/_/g, ' ')} — ${feature.layerKey ?? 'state layer'}${
-      feature.distanceM !== undefined ? `, ${Math.round(feature.distanceM)} m` : ''
+      feature.distanceM !== undefined ? `, ${Math.round(feature.distanceM)} m${feature.nearestSurveyNo ? ` from Sy. ${feature.nearestSurveyNo}` : ''}` : ''
     } (revenue map, not evidence)`;
     if (feature.ring) L.polygon(latlngs(feature.ring), style).bindTooltip(words(label)).addTo(group);
     else if (feature.line) L.polyline(feature.line.map((p) => [p.lat, p.lng] as L.LatLngExpression), style).bindTooltip(words(label)).addTo(group);
@@ -171,12 +190,15 @@ export function GisOverlayCard({
     water?: L.LayerGroup;
     landuse?: L.LayerGroup;
     survey?: L.LayerGroup;
+    parcels?: L.LayerGroup;
     pin?: L.Layer;
     lakes?: L.LayerGroup;
     wards?: L.LayerGroup;
     revenue?: L.LayerGroup;
     places?: L.LayerGroup;
   }>({});
+  /* The survey number on each parcel, kept so that each can be shown or put away as the zoom changes. */
+  const labelsRef = useRef<ParcelLabel[]>([]);
   /* The map's own imagery, Google's once its script has loaded, and which of Google's layers have drawn at least once. */
   const tilesRef = useRef<{ own?: Tiles; google?: Tiles; drawn?: Set<L.GridLayer> }>({});
   const [googleTiles, setGoogleTiles] = useState(false);
@@ -209,6 +231,7 @@ export function GisOverlayCard({
   const [showWater, setShowWater] = useState(true);
   const [showLanduse, setShowLanduse] = useState(true);
   const [showSurvey, setShowSurvey] = useState(true);
+  const [showParcels, setShowParcels] = useState(true);
   const [showBbmp, setShowBbmp] = useState(true);
   const [showLakes, setShowLakes] = useState(true);
   const [showWards, setShowWards] = useState(true);
@@ -286,6 +309,8 @@ export function GisOverlayCard({
       openOnSite(map, view);
     });
     ro.observe(el);
+    // A parcel's number is shown only while its outline is big enough on screen to carry it.
+    map.on('zoomend', () => showLabelsThatFit(map, labelsRef.current));
 
     /*
      * The buttons on the map. The street view is looked for when it is asked
@@ -358,6 +383,7 @@ export function GisOverlayCard({
       mapRef.current = null;
       controlsRef.current = null;
       layersRef.current = {};
+      labelsRef.current = [];
       tilesRef.current = {};
       view.opened = null;
       setGoogleTiles(false);
@@ -477,7 +503,7 @@ export function GisOverlayCard({
     const map = mapRef.current;
     if (!map || !read) return;
 
-    for (const key of ['water', 'landuse', 'survey', 'pin', 'lakes', 'wards', 'revenue'] as const) {
+    for (const key of ['water', 'landuse', 'survey', 'parcels', 'pin', 'lakes', 'wards', 'revenue'] as const) {
       const layer = layersRef.current[key];
       if (layer) {
         map.removeLayer(layer);
@@ -491,6 +517,7 @@ export function GisOverlayCard({
     const lakes = L.layerGroup();
     const wards = L.layerGroup();
     const survey = L.layerGroup();
+    const parcels = L.layerGroup();
     const revenue = L.layerGroup();
 
     for (const feature of read.features) {
@@ -506,16 +533,36 @@ export function GisOverlayCard({
       addFeature(group, feature, flagged.has(feature.id));
     }
 
-    if (read.survey?.ring.length) {
-      L.polygon(latlngs(read.survey.ring), SURVEY_STYLE)
+    /*
+     * Every parcel read from the state's map, each with its survey number on
+     * it. The outline on file is drawn too when it is a person's; when the
+     * revenue map supplied it, it is the first of the parcels and is not
+     * drawn a second time under them.
+     */
+    const own = ownOutline(read);
+    if (own) {
+      L.polygon(latlngs(own.ring), SURVEY_STYLE)
         .bindTooltip('Supplied survey outline — not product-drawn, not RMP')
         .addTo(survey);
     }
+    const labels: ParcelLabel[] = [];
+    for (const parcel of read.parcels ?? []) {
+      // An overlay built before parcels were told apart by village carries the number alone.
+      const named = { ...parcel, label: parcel.label ?? parcel.surveyNo };
+      L.polygon(latlngs(parcel.ring), own ? PARCEL_BESIDE_OUTLINE_STYLE : SURVEY_STYLE)
+        .bindTooltip(words(`Sy. ${named.label} — ${Math.round(parcel.areaSqm).toLocaleString()} sqm on the state’s map (a record, not a survey)`))
+        .addTo(parcels);
+      const label = parcelLabel(named);
+      label.marker.addTo(parcels);
+      labels.push(label);
+    }
+    labelsRef.current = labels;
+    showLabelsThatFit(map, labels);
 
     const pinLayer = read.pin ? siteMarker(read.pin).addTo(map) : undefined;
 
     // Nearby places are drawn from the project, not the overlay; they stay as they are.
-    layersRef.current = { places: layersRef.current.places, water, landuse, lakes, wards, survey, revenue, pin: pinLayer };
+    layersRef.current = { places: layersRef.current.places, water, landuse, lakes, wards, survey, parcels, revenue, pin: pinLayer };
   }, [read]);
 
   useEffect(() => {
@@ -531,9 +578,10 @@ export function GisOverlayCard({
     sync(layersRef.current.lakes, showLakes);
     sync(layersRef.current.wards, showWards);
     sync(layersRef.current.survey, showSurvey);
+    sync(layersRef.current.parcels, showParcels);
     sync(layersRef.current.revenue, showRevenue);
     sync(layersRef.current.places, showPlaces);
-  }, [read, showWater, showLanduse, showLakes, showWards, showSurvey, showRevenue, showPlaces]);
+  }, [read, showWater, showLanduse, showLakes, showWards, showSurvey, showParcels, showRevenue, showPlaces]);
 
   useEffect(() => {
     let live = true;
@@ -664,6 +712,8 @@ export function GisOverlayCard({
   const lakeCount = read?.features.filter((f) => f.kind === 'civic_lake').length ?? 0;
   const wardCount = read?.features.filter((f) => f.kind === 'civic_ward').length ?? 0;
   const revenueCount = read?.features.filter(isRevenue).length ?? 0;
+  const parcelCount = read?.parcels?.length ?? 0;
+  const supplied = read ? ownOutline(read) : null;
   const placeCount = (project.siteContext?.amenities ?? []).filter((a) => a.point).length;
   // The reference shelf — where to get the real sheet, and what must never be
   // filed as one. It belongs on the file, but it is reading for the land-use
@@ -736,14 +786,22 @@ export function GisOverlayCard({
             <LayerToggle on={showWards} onClick={() => setShowWards((v) => !v)}>GBA wards {wardCount}
             </LayerToggle>
           ) : null}
-          <LayerToggle
-            on={showSurvey}
-            onClick={() => setShowSurvey((v) => !v)}
-            disabled={!read?.survey}
-            disabledReason="No survey sketch on file — upload a GeoJSON or KML and it draws here."
-          >
-            {read?.survey?.source === 'revenue_map' ? 'Revenue-map parcel' : 'Survey sketch'}
-          </LayerToggle>
+          {/* One switch for each outline there is to draw. With neither, the sketch's own, off, saying what would put one there. */}
+          {supplied || !parcelCount ? (
+            <LayerToggle
+              on={showSurvey}
+              onClick={() => setShowSurvey((v) => !v)}
+              disabled={!supplied}
+              disabledReason="No survey sketch on file — upload a GeoJSON or KML and it draws here."
+            >
+              {supplied?.source === 'revenue_map' ? 'Revenue-map parcel' : 'Survey sketch'}
+            </LayerToggle>
+          ) : null}
+          {parcelCount > 0 ? (
+            <LayerToggle on={showParcels} onClick={() => setShowParcels((v) => !v)}>
+              {parcelCount === 1 ? 'Revenue-map parcel' : `Revenue-map parcels ${parcelCount}`}
+            </LayerToggle>
+          ) : null}
           {revenueCount > 0 ? (
             <LayerToggle on={showRevenue} onClick={() => setShowRevenue((v) => !v)}>State layers {revenueCount}
             </LayerToggle>
@@ -798,9 +856,10 @@ export function GisOverlayCard({
           </p>
         ) : null}
 
+        {/* A picker of its own for each project: the place, the ticks and a run under way belong to one file. */}
         <RevenueMapPicker
+          key={project.id}
           project={project}
-          read={read?.revenue}
           onRead={async () => {
             await onChanged();
             await load();
@@ -880,7 +939,7 @@ export function GisOverlayCard({
 
         {loading && !read ? <p className="text-[13px] text-ink-muted">Building the overlay…</p> : null}
 
-        {project.revenueMap ? <RevenueMapBrief read={project.revenueMap} /> : null}
+        {revenueReads(project).length ? <RevenueMapBrief project={project} /> : null}
 
         {flags.length ? (
           <ul className="space-y-1.5">

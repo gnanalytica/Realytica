@@ -741,6 +741,13 @@ function commonParcel(pages: string[], facts: DocumentFact[], extentKey?: string
 const SURVEY_NO = String.raw`\d{1,4}(?:\/[0-9A-Z]{1,4}){0,3}`;
 
 /**
+ * What stands between two survey numbers in a list: a comma, an ampersand or
+ * the word. One definition, so a list a person types is split exactly as one
+ * read off a page.
+ */
+export const SURVEY_LIST_SEPARATOR = /\s*(?:,|&|\band\b)\s*/i;
+
+/**
  * Every survey number in a document's list, in order, once each.
  *
  * An approval names the whole property it covers — a RERA certificate the
@@ -757,7 +764,7 @@ function surveyList(pages: string[]): (Hit & { values: string[] }) | null {
   const values = [
     ...new Set(
       hit.match[1]!
-        .split(/\s*(?:,|&|\band\b)\s*/i)
+        .split(SURVEY_LIST_SEPARATOR)
         .map((v) => v.trim().toUpperCase())
         .filter((v) => new RegExp(`^${SURVEY_NO}$`).test(v)),
     ),

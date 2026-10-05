@@ -40,7 +40,17 @@ import { isBlank } from './check-fields';
 import { factReview, liveFacts } from './fact-review';
 import { createAssessment, recordAuditEvent, recordCheckFields } from './operations';
 import { patchProject } from './capabilities';
-import { fileRevenueMapAsEvidence, type RevenueMapAnchor } from './revenue-map';
+import {
+  fileRevenueMapAsEvidence,
+  parcelLabels,
+  revenueExtent,
+  revenueGuidance,
+  revenueReads,
+  surveyNumbersLabel,
+  unacceptedWords,
+  wholeNumberWords,
+  type RevenueMapAnchor,
+} from './revenue-map';
 import { COMPARABLE_SOURCE_LABEL, MIN_SCHEDULE, comparableSchedule, fileComparableSchedule } from './comparables';
 import { reviewFacts } from './review';
 import { REFERENCE_DATA, resolveStatePack } from '../reference';
@@ -367,13 +377,30 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
       2,
     );
   }
-  const read = project.revenueMap;
-  if (read && read.areaSqm > 0) {
+  // A site on several survey numbers is all of its parcels: the outlines the
+  // state publishes are added up, and the offer names the numbers it adds.
+  const kept = revenueReads(project);
+  const labels = parcelLabels(kept);
+  const reads = kept.filter((r) => r.areaSqm > 0);
+  if (reads.length) {
+    const village = reads[0].village && reads.every((r) => r.village === reads[0].village) ? `, ${reads[0].village}` : '';
+    // What the figure is not: a parcel that is the whole of a number asked for
+    // by a part may hold more land than the site, and a number off a reading
+    // nobody has accepted is a machine's word that the parcel is the site's.
+    const counted = (revenueExtent(project, kept)?.parcels ?? []).filter((p) => p.areaSqm > 0);
+    const parcels = counted.flatMap((p) => [
+      ...(p.askedAs.length ? [` Sy. ${p.label} is the ${wholeNumberWords(p.askedAs)}: its outline may hold more land than the site.`] : []),
+      ...(p.unaccepted ? [` Sy. ${p.label} is ${unacceptedWords(p.unaccepted)}.`] : []),
+    ]);
     add(
       'land_area',
-      read.areaSqm,
-      { kind: 'revenue_map', label: 'State revenue map', detail: `Sy. ${read.surveyNo}${read.village ? `, ${read.village}` : ''}` },
-      'The parcel outline the state publishes for this survey number. Machine-read, and the register carries its own survey error.',
+      reads.reduce((sum, r) => sum + r.areaSqm, 0),
+      { kind: 'revenue_map', label: 'State revenue map', detail: `${surveyNumbersLabel(reads.map((r) => labels.get(r.parcelRef) ?? r.surveyNo), 12)}${village}` },
+      `${
+        reads.length === 1
+          ? 'The parcel outline the state publishes for this survey number.'
+          : `The ${reads.length} parcel outlines the state publishes for these survey numbers, added up.`
+      } Machine-read, and the register carries its own survey error.${parcels.join('')}`,
       5,
     );
   }
@@ -463,14 +490,28 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
 
   /* ---- cost: the guidance rate, and the building's age ----------------- */
 
-  if (read?.anchor && read.anchor.guidancePerUnit > 0) {
-    const perSqm = guidancePerSqm(read.anchor);
-    const unit = read.anchor.unit === 'sqft' ? 'sq ft' : 'sq yd';
+  // One value, from one parcel, and the offer says which. Where the parcels
+  // carry different published values the others are named and none is
+  // averaged: an average is a rate the state never published.
+  const guidance = revenueGuidance(kept);
+  if (guidance) {
+    const { read, anchor, differing } = guidance;
+    const several = kept.length > 1;
+    const from = labels.get(read.parcelRef) ?? read.surveyNo;
+    const perUnit = (a: RevenueMapAnchor) => `₹${grouped(a.guidancePerUnit)} per ${a.unit === 'sqft' ? 'sq ft' : 'sq yd'}`;
+    const others = differing.length
+      ? ` ${differing.map((r) => `Sy. ${labels.get(r.parcelRef) ?? r.surveyNo} carries ${r.anchor ? perUnit(r.anchor) : ''}`).join('; ')}: the published values differ by parcel, and this is the one for Sy. ${from}, not an average.`
+      : '';
+    const none = several && guidance.unpriced.length ? ` The map published no value for ${surveyNumbersLabel(guidance.unpriced.map((r) => labels.get(r.parcelRef) ?? r.surveyNo), 12)}.` : '';
     add(
       'land_rate_per_sqm',
-      perSqm,
-      { kind: 'revenue_map', label: 'State revenue map', detail: `Guidance value${read.anchor.locality ? `, ${read.anchor.locality}` : `, Sy. ${read.surveyNo}`}` },
-      `The guidance value the state publishes here: ₹${grouped(read.anchor.guidancePerUnit)} per ${unit}. The statutory floor, not a market rate — most sites transact above it, so replace it with land comparables where you hold them.`,
+      guidancePerSqm(anchor),
+      {
+        kind: 'revenue_map',
+        label: 'State revenue map',
+        detail: `Guidance value${anchor.locality ? `, ${anchor.locality}` : ''}${several || !anchor.locality ? `, Sy. ${from}` : ''}`,
+      },
+      `The guidance value the state publishes here: ${perUnit(anchor)}.${several ? ` Read for Sy. ${from}.` : ''}${others}${none} The statutory floor, not a market rate — most sites transact above it, so replace it with land comparables where you hold them.`,
       1,
     );
   }
@@ -771,7 +812,8 @@ export function acceptValueOffers(project: DdProject, ids: readonly string[], ac
           offer.source.kind === 'document'
             ? offer.source.evidenceId
             : offer.source.kind === 'revenue_map'
-              ? fileRevenueMapAsEvidence(project, actor).id
+              ? // The one rate the map offers is the guidance value, cited to the read of the parcel it came from.
+                fileRevenueMapAsEvidence(project, actor, revenueGuidance(revenueReads(project))?.read).id
               : offer.source.kind === 'comparables'
                 ? fileComparableSchedule(project, actor).id
                 : undefined;

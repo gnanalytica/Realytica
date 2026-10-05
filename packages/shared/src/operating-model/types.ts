@@ -1883,6 +1883,14 @@ export interface DdProject {
    */
   revenueMap?: RevenueMapRead;
   /**
+   * Every read kept for a site that stands on more than one survey number,
+   * one per parcel, in the order read. `revenueMap` above is always the first
+   * of them, so code that knows of one read keeps working, and that field is
+   * the one trusted when the two disagree. Absent while there is one read or
+   * none. Read it through `revenueReads` in `revenue-map.ts`, never directly.
+   */
+  revenueMaps?: RevenueMapRead[];
+  /**
    * Value inputs the file offered that a person set aside, by offer id. An
    * offer's id carries its value and source, so a new document or a corrected
    * reading is a new offer and comes back. See `value-inputs.ts`.
