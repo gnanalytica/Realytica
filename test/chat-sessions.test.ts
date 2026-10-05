@@ -203,15 +203,20 @@ describe('the list of chats', () => {
     turn('user', 'is the title clean?', '2026-09-05T09:00:00.000Z', { sessionId: 'a', place: { pane: 'workstream', department: 'legal', fn: 'legal.title', stage: 'pre_development' } }),
     turn('assistant', 'Two encumbrances.', '2026-09-05T09:00:05.000Z', { sessionId: 'a' }),
     turn('user', 'what is the stamp duty?', '2026-09-06T09:00:00.000Z', { sessionId: 'b', sessionName: 'Stamp duty' }),
-    turn('assistant', 'Read the deed.', '2026-09-07T09:00:00.000Z'),
+    // The note the file wrote when this person filed a deed on the register. It names no sitting, and is signed by them.
+    turn('assistant', 'Read the deed.', '2026-09-07T09:00:00.000Z', { actor: 'me@example.com' }),
     turn('user', 'and now?', '2026-09-07T09:01:00.000Z', { sessionId: 'c' }),
   ];
   const sessions = chatSessions(thread);
 
-  it('shows this sitting’s turns, with what the file wrote during it', () => {
-    const live = liveTurns(thread, sessions, { sessionId: 'c', startedAt: '2026-09-07T08:59:00.000Z' });
-    assert.deepEqual(live.map((t) => t.text), ['Read the deed.', 'and now?'], 'a turn that names no sitting belongs to the chat open when it was written');
-    assert.deepEqual(liveTurns(thread, sessions, { sessionId: 'new', startedAt: '2026-09-08T00:00:00.000Z' }), [], 'a new chat opens empty');
+  it('shows this sitting’s turns, with what the file wrote for this person during it', () => {
+    const live = liveTurns(thread, sessions, { sessionId: 'c', startedAt: '2026-09-07T08:59:00.000Z', actor: 'me@example.com' });
+    assert.deepEqual(live.map((t) => t.text), ['Read the deed.', 'and now?'], 'a turn that names no sitting belongs to the chat its person had open when it was written');
+    // A colleague with a chat open at the same time is not who it was written for.
+    const theirs = liveTurns(thread, sessions, { sessionId: 'c', startedAt: '2026-09-07T08:59:00.000Z', actor: 'colleague@example.com' });
+    assert.deepEqual(theirs.map((t) => t.text), ['and now?']);
+    assert.deepEqual(liveTurns(thread, sessions, { sessionId: 'c', startedAt: '2026-09-07T08:59:00.000Z' }).map((t) => t.text), ['and now?'], 'nor a page that does not yet know who is signed in');
+    assert.deepEqual(liveTurns(thread, sessions, { sessionId: 'new', startedAt: '2026-09-08T00:00:00.000Z', actor: 'me@example.com' }), [], 'a new chat opens empty');
     assert.equal(liveTurns(thread, sessions, {}).length, thread.length, 'a caller that mints no sitting sees the whole thread');
   });
 
@@ -224,7 +229,7 @@ describe('the list of chats', () => {
   });
 
   it('lists the chat on screen first, then the earlier ones by when they were last spoken in', () => {
-    const live = liveTurns(thread, sessions, { sessionId: 'c', startedAt: '2026-09-07T08:59:00.000Z' });
+    const live = liveTurns(thread, sessions, { sessionId: 'c', startedAt: '2026-09-07T08:59:00.000Z', actor: 'me@example.com' });
     const rows = chatRows(sessions, live, 'c');
     assert.deepEqual(rows.map((r) => [r.id, r.current]), [['c', true], ['b', false], ['a', false]]);
     assert.deepEqual(rows.map((r) => r.title), ['and now?', 'Stamp duty', 'is the title clean?']);
@@ -235,6 +240,18 @@ describe('the list of chats', () => {
     assert.equal(rows.some((r) => r.id.startsWith('ses:')), false);
     // A new chat with nothing in it has no row of its own.
     assert.equal(chatRows(sessions, [], 'new').some((r) => r.current), false);
+  });
+
+  it('lists a note the file wrote for somebody else by what it read', () => {
+    // A colleague filed a deed on the register while this chat was open. The note is theirs, so here it is an earlier chat.
+    const note = turn('assistant', 'Read the deed you filed on the register.\nWhat it states is waiting on the row.', '2026-09-07T09:00:00.000Z', {
+      actor: 'colleague@example.com',
+      toolCalls: [{ name: 'ingest', summary: 'Read 1 document filed on the register' }],
+    });
+    const mine = [note, turn('user', 'and now?', '2026-09-07T09:01:00.000Z', { sessionId: 'c' })];
+    const all = chatSessions(mine);
+    const live = liveTurns(mine, all, { sessionId: 'c', startedAt: '2026-09-07T08:59:00.000Z', actor: 'me@example.com' });
+    assert.deepEqual(chatRows(all, live, 'c').map((r) => [r.title, r.current]), [['and now?', true], ['Read the deed you filed on the register', false]]);
   });
 
   it('finds a chat by its name, the page it began on, or its day', () => {
@@ -271,7 +288,7 @@ describe('the list of chats', () => {
     ] as unknown as WaitingEntry[];
     const carried = [
       turn('user', 'here is the khata', '2026-09-05T09:00:00.000Z', { sessionId: 'a' }),
-      turn('assistant', 'Read the khata.', '2026-09-05T09:00:05.000Z', { sessionId: 'a', proposalIds: ['p-old'], citedEvidenceIds: ['ev-old'] }),
+      turn('assistant', 'Read the khata.', '2026-09-05T09:00:05.000Z', { sessionId: 'a', proposalIds: ['p-old'], citedEvidenceIds: ['ev-old'], toolCalls: [{ name: 'ingest', summary: 'Filed 1 file' }] }),
       turn('user', 'and this one', '2026-09-08T09:00:00.000Z', { sessionId: 'd', continues: 'a' }),
       turn('assistant', 'Read it.', '2026-09-08T09:00:05.000Z', { sessionId: 'd', continues: 'a', proposalIds: ['p-new'] }),
     ];
@@ -280,6 +297,9 @@ describe('the list of chats', () => {
     assert.deepEqual(waitingElsewhere(entries, liveTurns(carried, all, { sessionId: 'd', startedAt: '2026-09-08T08:59:00.000Z', continues: 'a' })), []);
     // In a new chat they are what is still waiting from earlier.
     assert.deepEqual(waitingElsewhere(entries, liveTurns(carried, all, { sessionId: 'e', startedAt: '2026-09-09T00:00:00.000Z' })).map((e) => e.count), [2, 3, 1]);
+    // An answer that quotes the paper filed nothing: what waits on the paper is still somewhere else.
+    const quoted = [turn('user', 'what does the khata say?', '2026-09-10T09:00:00.000Z', { sessionId: 'f' }), turn('assistant', 'It names A. Example.', '2026-09-10T09:00:05.000Z', { sessionId: 'f', citedEvidenceIds: ['ev-old'], toolCalls: [{ name: 'answer_from_file', summary: 'Khata' }] })];
+    assert.deepEqual(waitingElsewhere(entries, liveTurns(quoted, chatSessions(quoted), { sessionId: 'f', startedAt: '2026-09-10T08:59:00.000Z' })).map((e) => e.count), [2, 3, 1]);
   });
 
   it('names a chat that opens with papers dropped in by what was read', () => {

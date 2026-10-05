@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, SearchX, X } from 'lucide-react';
-import { askedOn, chatSessions, groupActivity, splitThread } from '@realytica/shared';
-import type { AgentStep, ChatTurnPlace, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, VerificationSummary } from '@realytica/shared';
+import { askedOn, chatSessions, choiceMayBePressed, groupActivity, splitThread } from '@realytica/shared';
+import type { AgentStep, ChatChoice, ChatTurnPlace, ChoicePin, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { AiMark, Badge, Button, Modal, cn } from './ui/kit';
 import { EASE_ENTER, SPRING, motion } from '../lib/motion';
@@ -62,6 +62,7 @@ function TurnBubble({
   screenResult,
   askingPrice,
   onPick,
+  mayPress,
   verification,
   onOpenNode,
   onOpenEvidence,
@@ -78,7 +79,9 @@ function TurnBubble({
   screenResult?: ScreenResult;
   askingPrice?: number | null;
   /** Send a message on the person's behalf when they pick an offered choice. */
-  onPick?: (text: string, sitting?: { ddId?: string; scopeId?: string; checkId?: string; evidenceId?: string }) => void;
+  onPick?: (text: string, sitting?: ChoicePin) => void;
+  /** Whether a choice under this turn is a button. One that may not be pressed is drawn as the words it says. */
+  mayPress?: (choice: ChatChoice) => boolean;
   verification?: VerificationSummary;
   onOpenNode?: (nodeId: string) => void;
   onOpenEvidence?: (id: string) => void;
@@ -270,7 +273,19 @@ function TurnBubble({
            * its own.
            */
           <ul className="mt-2 flex flex-col gap-1.5">
-            {turn.choices.map((choice) => (
+            {turn.choices.map((choice) =>
+              mayPress && !mayPress(choice) ? (
+                /*
+                 * A choice that accepts or sets aside, under a reply that is
+                 * no longer the last thing said, or in an earlier chat being
+                 * read. It stays as the words it offered and is not a button:
+                 * pressed here it would read as part of what was said then.
+                 */
+                <li key={choice.id} className="flex flex-col gap-0.5 px-3 py-1">
+                  <span className="text-[13px] text-ink-secondary">{choice.label}</span>
+                  {choice.detail ? <span className="text-mini leading-snug text-ink-muted">{choice.detail}</span> : null}
+                </li>
+              ) : (
               <li key={choice.id}>
                 <button
                   type="button"
@@ -292,7 +307,8 @@ function TurnBubble({
                   ) : null}
                 </button>
               </li>
-            ))}
+              ),
+            )}
           </ul>
         ) : null}
         {applied && applied.length > 0 ? (
@@ -424,6 +440,7 @@ export function CopilotPanel({
   fallback,
   sessionId,
   sessionStartedAt,
+  sessionActor,
   continues,
   place,
   draft,
@@ -487,6 +504,8 @@ export function CopilotPanel({
    * sitting, and still belongs in the chat the person has open.
    */
   sessionStartedAt?: string;
+  /** The person signed in, as their turns are signed. A note the server wrote for somebody else's upload is not in this chat. */
+  sessionActor?: string;
   /** The earlier chat this sitting carries on, by its id: its turns are the top of the chat on screen. */
   continues?: string;
   /** The page on screen, so a question asked on another one can say which. */
@@ -536,7 +555,7 @@ export function CopilotPanel({
    * can carry checks with identical titles and the text alone cannot say
    * which one was on the button.
    */
-  onPickChoice?: (text: string, sitting?: { ddId?: string; scopeId?: string; checkId?: string; evidenceId?: string }) => void;
+  onPickChoice?: (text: string, sitting?: ChoicePin) => void;
   emptyTitle?: string;
   emptyHint?: string;
   placeholder?: string;
@@ -608,7 +627,8 @@ export function CopilotPanel({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      void submit(text);
+      // A held key repeats, and a repeat is nobody's decision to send: words handed in from outside wait in the box for the person.
+      if (!e.repeat) void submit(text);
     }
   }
 
@@ -648,6 +668,9 @@ export function CopilotPanel({
    * message box before the question opens, because the question hands it
    * back to wherever it was when it closes: after deleting, and after keeping
    * them, that is the box.
+   *
+   * It is not offered while a reply is on its way. The reply would land after
+   * the delete, and the box, shut until it does, cannot take the keyboard.
    */
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -684,7 +707,10 @@ export function CopilotPanel({
   );
   // The chat on screen is this sitting's, or the earlier chat it carries on while that one is still there.
   const liveId = liveChatId(sessions, { sessionId, continues });
-  const own = useMemo(() => liveTurns(spoken, sessions, { sessionId, startedAt: sessionStartedAt, continues }), [spoken, sessions, sessionId, sessionStartedAt, continues]);
+  const own = useMemo(
+    () => liveTurns(spoken, sessions, { sessionId, startedAt: sessionStartedAt, continues, actor: sessionActor }),
+    [spoken, sessions, sessionId, sessionStartedAt, continues, sessionActor],
+  );
   const live = useMemo(() => (leadTurn ? [leadTurn, ...own] : own), [leadTurn, own]);
   const rows = useMemo(() => chatRows(sessions, own, liveId), [sessions, own, liveId]);
   // An earlier chat that is no longer there (the thread was cleared, or it became the current one) is not being read.
@@ -770,7 +796,7 @@ export function CopilotPanel({
                 composerRef.current?.focus();
               }}
               onRename={onRenameChat}
-              onDeleteAll={onDeleteChats ? askDelete : undefined}
+              onDeleteAll={onDeleteChats && !busy && !disabled ? askDelete : undefined}
             />
           ) : null}
         </div>
@@ -918,6 +944,7 @@ export function CopilotPanel({
                 screenResult={screenResult}
                 askingPrice={askingPrice}
                 onPick={(text, sitting) => void onPickChoice?.(text, sitting)}
+                mayPress={(choice) => choiceMayBePressed(choice, turn, own, Boolean(reading))}
                 onOpenNode={onOpenNode}
                 onOpenEvidence={onOpenEvidence}
                 onOpenDocument={onOpenDocument}
@@ -1072,7 +1099,7 @@ export function CopilotPanel({
           </>
         }
       >
-        <p className="text-[13px] text-ink-secondary">They are removed for everyone and cannot be brought back.</p>
+        <p className="text-[13px] text-ink-secondary">They are removed for everyone and cannot be brought back. The Activity list goes with them.</p>
       </Modal>
     </div>
   );

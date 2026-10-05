@@ -5,6 +5,8 @@ import { ChevronLeft, LayoutDashboard, Maximize2, MessageCircle, PanelRight, Sea
 import {
   STAGES,
   STAGE_WORD,
+  WAITING_FROM_EARLIER,
+  actorOf,
   chatLinkLabels,
   chatSessions,
   chatPlaceLabel,
@@ -25,6 +27,7 @@ import {
   waitingOnCanvas,
   type AgentStep,
   type ChatPlace,
+  type ChoicePin,
   type CockpitPathExtra,
   type CopilotTurn,
   type DdProject,
@@ -514,6 +517,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     setHeld(sittingNow);
   }
   const { id: sessionId, startedAt: sessionStartedAt, continues } = sittingNow;
+  // How this person's own turns are signed. A note the server wrote for a colleague's upload is theirs, not this chat's.
+  const myActor = me ? actorOf(me) : undefined;
   const startChat = useCallback((carryOn?: string) => setHeld(mintSitting(project.id, carryOn)), [project.id]);
 
   /*
@@ -528,7 +533,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
   const leadTurn = useMemo((): CopilotTurn | undefined => {
     // The chat on screen is this sitting and the earlier chat it carries on. What that chat left waiting is not "from earlier".
     const turns = project.conversation ?? [];
-    const onScreen = liveTurns(turns, chatSessions(turns), { sessionId, startedAt: sessionStartedAt, continues });
+    const onScreen = liveTurns(turns, chatSessions(turns), { sessionId, startedAt: sessionStartedAt, continues, actor: myActor });
     const earlier = waitingElsewhere(waiting.entries, onScreen);
     const count = earlier.reduce((n, e) => n + e.count, 0);
     if (!count) return undefined;
@@ -539,8 +544,10 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       at: sessionStartedAt,
       citedEvidenceIds: earlier.map((e) => e.evidenceId).filter((id): id is string => Boolean(id)),
       proposalIds: earlier.map((e) => e.proposalId).filter((id): id is string => Boolean(id)),
+      // It lists what waits and filed none of it. The chips under it count the papers it names by this.
+      toolCalls: [{ name: WAITING_FROM_EARLIER, summary: '' }],
     } as unknown as CopilotTurn;
-  }, [project.conversation, waiting, sessionId, sessionStartedAt, continues]);
+  }, [project.conversation, waiting, sessionId, sessionStartedAt, continues, myActor]);
   const handleAsk = useCallback(
     async (
       question: string,
@@ -552,7 +559,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
        * one the address bar still points at. A choice about a document pins
        * the document.
        */
-      pinned?: { ddId?: string; scopeId?: string; checkId?: string; evidenceId?: string },
+      pinned?: ChoicePin,
     ) => {
       abortRef.current?.abort();
       const ac = new AbortController();
@@ -560,7 +567,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       setAsking(true);
       setChatSteps([]);
       setMobileSurface('chat');
-      const sitting = pinned?.checkId || pinned?.evidenceId
+      // A choice that accepts or sets aside pins the cards and papers it means, and they go with it whole.
+      const sitting = pinned?.checkId || pinned?.evidenceId || pinned?.decision
         ? pinned
         : {
             ddId: params.ddId,
@@ -596,8 +604,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         const ask = question.trim() || (big.length && !small.length ? 'Read the filed documents' : question);
         // `viewContext` stays for a server that reads only the pane; `place` says the department, the function and the stage.
         const response = small.length
-          ? await api.projectChatFiles(project.id, { question: ask, viewContext: pane, place: here, files: small, sitting, sessionId, continues }, { onStep, onReading, signal: ac.signal })
-          : await api.projectChat(project.id, { question: ask, viewContext: pane, place: here, sitting, sessionId, continues }, { onStep, onReading, signal: ac.signal });
+          ? await api.projectChatFiles(project.id, { question: ask, viewContext: pane, place: here, files: small, sitting, sessionId, continues, sessionStartedAt }, { onStep, onReading, signal: ac.signal })
+          : await api.projectChat(project.id, { question: ask, viewContext: pane, place: here, sitting, sessionId, continues, sessionStartedAt }, { onStep, onReading, signal: ac.signal });
         // The id these turns were kept under is the sitting's from here on, so what was just said stays on screen.
         setHeld((was) => sittingKept(was, response));
         applyResult(response);
@@ -614,7 +622,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
         }
       }
     },
-    [project.id, pane, here, params.ddId, params.scopeId, searchParams, applyResult, sessionId, continues],
+    [project.id, pane, here, params.ddId, params.scopeId, searchParams, applyResult, sessionId, continues, sessionStartedAt],
   );
 
   /**
@@ -848,6 +856,7 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
     <CopilotPanel
       sessionId={sessionId}
       sessionStartedAt={sessionStartedAt}
+      sessionActor={myActor}
       continues={continues}
       place={here}
       draft={draft}

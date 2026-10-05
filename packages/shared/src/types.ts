@@ -2681,7 +2681,28 @@ export interface ChatChoice {
    * URL can never redirect an instruction to a different record. A document
    * is pinned by `evidenceId`: two papers can carry one title too.
    */
-  sitting?: { ddId?: string; scopeId?: string; checkId?: string; evidenceId?: string };
+  sitting?: ChoicePin;
+}
+
+/** What a pressed choice carries beside its sentence. */
+export interface ChoicePin {
+  ddId?: string;
+  scopeId?: string;
+  checkId?: string;
+  evidenceId?: string;
+  /**
+   * On a choice that accepts or sets aside: which of the two it does.
+   *
+   * Such a choice acts on the ids below and on nothing else. Its sentence
+   * says what was pressed and is not read: two cards can carry one title,
+   * and "the last reply" is a different reply by the time an old button is
+   * pressed. A sentence with no ids beside it does nothing.
+   */
+  decision?: 'accept' | 'aside';
+  /** The cards it accepts or sets aside. */
+  proposalIds?: string[];
+  /** The papers whose waiting values it accepts with them. */
+  evidenceIds?: string[];
 }
 
 export interface CopilotTurn {

@@ -625,6 +625,12 @@ export const projectChatBodySchema = z.object({
   sessionId: z.string().max(120).optional(),
   /** The earlier chat this sitting carries on, by its id. */
   continues: z.string().max(120).optional(),
+  /**
+   * When this sitting began. A turn the server wrote since then outside a chat
+   * request names no sitting and is on screen in this chat, so "approve all"
+   * typed under it has to find it. Read for this request and not kept.
+   */
+  sessionStartedAt: z.string().max(40).optional(),
   actor: actorSchema,
   sitting: z
     .object({
@@ -633,6 +639,10 @@ export const projectChatBodySchema = z.object({
       checkId: z.string().optional(),
       /** The document a pressed choice was offered for. */
       evidenceId: z.string().max(120).optional(),
+      /** A pressed choice that accepts or sets aside: which, and the cards and papers it names. It acts on these and reads no words. */
+      decision: z.enum(['accept', 'aside']).optional(),
+      proposalIds: z.array(z.string().max(120)).max(200).optional(),
+      evidenceIds: z.array(z.string().max(120)).max(200).optional(),
     })
     .optional(),
 });

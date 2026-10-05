@@ -8,6 +8,7 @@ export * from './cockpit';
 export * from './wizard';
 export * from './next-step';
 export * from './sitting';
+export * from './instruction';
 export * from './clarify';
 export * from './check-command';
 export * from './attribution';

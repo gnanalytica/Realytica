@@ -21,7 +21,7 @@ import type {
   Tenure,
 } from '../types';
 
-export type { ChatChoice, ChatMetric, TurnSpend } from '../types';
+export type { ChatChoice, ChatMetric, ChoicePin, TurnSpend } from '../types';
 
 import type { ProjectGraphEdgeKind, ProjectGraphLayer, ProjectGraphNodeKind } from './project-ontology';
 

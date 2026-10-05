@@ -62,6 +62,7 @@ import { absorbAnsweredGaps, factFillProposals, flagFindingProposals, matchReadT
 import type { DocumentFact } from './document-parse';
 import { documentTypeOfKind, setDocumentWorkstream } from './vault';
 import { shownWords } from './chat-places';
+import { asksAQuestion, readInstruction, wordsOf } from './instruction';
 import { setProjectDepartments } from './team';
 import { addRequest } from './project-requests';
 import { DEPARTMENT_KEYS, STAGES, stageAndStep, stageEntryStep, type DepartmentKey } from './departments';
@@ -921,31 +922,6 @@ export function rejectChatProposal(project: DdProject, proposalId: string): Chat
   return item;
 }
 
-export function matchProposal(project: DdProject, question: string): ChatProposal | undefined {
-  const open = project.chatProposals.filter((p) => p.status === 'proposed');
-  const quoted = question.match(/["“]([^"”]+)["”]/);
-  if (quoted) {
-    const needle = quoted[1].toLowerCase();
-    return open.find((p) => p.title.toLowerCase().includes(needle) || p.id.toLowerCase().includes(needle));
-  }
-  const q = question.toLowerCase();
-  const byId = open.find((p) => q.includes(p.id.toLowerCase()));
-  if (byId) return byId;
-  let best: ChatProposal | undefined;
-  let score = 0;
-  for (const p of open) {
-    const title = p.title.toLowerCase();
-    if (q.includes(title)) return p;
-    const tokens = title.split(/[^a-z0-9]+/).filter((t) => t.length >= 4);
-    const hits = tokens.filter((t) => q.includes(t)).length;
-    if (hits > score) {
-      best = p;
-      score = hits;
-    }
-  }
-  return score >= 2 ? best : undefined;
-}
-
 export function wantsWizard(question: string): boolean {
   const q = question.trim().toLowerCase();
   if (q.length === 0) return true;
@@ -972,18 +948,6 @@ export function wantsReport(q: string): boolean {
 
 export function wantsProofs(q: string): boolean {
   return /\bproofs?\b/.test(q) || /\bcite\b/.test(q) || /\bwhat supports\b/.test(q) || /\bevidence for\b/.test(q);
-}
-
-export function wantsApprove(q: string): boolean {
-  const t = q.trim().toLowerCase();
-  if (/^(yes|ok|okay|do it|go ahead)([.! ]|$)/.test(t)) return true;
-  if (/\bapprove(\s+all)?\b/.test(t)) return true;
-  if (/^(accept|commit)\b/.test(t)) return true;
-  return /\b(accept|commit) (this|all|the|it)\b/.test(t);
-}
-
-export function wantsReject(q: string): boolean {
-  return /\b(reject|skip|dismiss|no thanks)\b/.test(q);
 }
 
 function looksLikeInquiry(question: string): boolean {
@@ -1114,7 +1078,8 @@ export function interpretConversation(project: DdProject, question: string, acto
 } {
   ensureProjectShape(project);
   const q = question.trim();
-  if (looksLikeInquiry(q) || wantsApprove(q.toLowerCase()) || wantsReject(q.toLowerCase())) {
+  // A question asks for nothing to be changed, and an instruction to accept or set aside is carried out as itself.
+  if (looksLikeInquiry(q) || readInstruction(q)) {
     return { proposals: [], imperative: false };
   }
 
@@ -1421,10 +1386,31 @@ export function interpretConversation(project: DdProject, question: string, acto
     );
   }
 
-  const receivedHit = q.match(/\b(?:received|got|have|filed)\b.{0,48}/i);
-  if (receivedHit) {
+  /*
+   * "I have the encumbrance certificate": a paper the file is waiting for,
+   * said to have arrived. It is read only when the whole sentence says that
+   * and nothing else: the person or the firm has it, got it or received it,
+   * the paper is named by its title as whole words, and at most "now" or
+   * "today" follows.
+   *
+   * Found anywhere in a sentence, the same words marked a paper received
+   * that was needed ("we need to have the OC by June"), promised ("the seller
+   * will have the OC next month"), applied for ("we have filed the OC
+   * application") or not there at all ("nobody has received the OC"). Found
+   * as letters, "I have the documents now" marked the OC received, because
+   * "documents" holds "oc". It still only raises a card for a person to
+   * accept.
+   */
+  if (!asksAQuestion(q)) {
+    const said = wordsOf(q).join(' ');
     const gaps = project.evidence.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested');
-    const hit = gaps.find((g) => q.toLowerCase().includes(g.title.toLowerCase()));
+    const hit = gaps.find((g) => {
+      const title = wordsOf(g.title).join(' ');
+      return (
+        Boolean(title)
+        && new RegExp(`^(?:(?:i|we) (?:have received|have got|have|got|received)|(?:ive|weve) (?:got|received)) (?:(?:the|a|an|our|my) )?${title}(?: (?:now|today))?$`, 'u').test(said)
+      );
+    });
     if (hit) {
       out.push(
         proposal(

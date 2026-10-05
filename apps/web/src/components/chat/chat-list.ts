@@ -6,7 +6,7 @@
  * what a search finds.
  */
 
-import { can, chatPlaceWords, reachesEveryProject, type ChatSession, type ProjectChatTurn, type WaitingEntry, type WorkspaceRole } from '@realytica/shared';
+import { can, chatPlaceWords, filedByReply, reachesEveryProject, type ChatSession, type ProjectChatTurn, type WaitingEntry, type WorkspaceRole } from '@realytica/shared';
 
 export interface ChatRow {
   id: string;
@@ -29,37 +29,8 @@ export function chatDay(iso: string, now = new Date()): string {
   return day.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', ...(day.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) });
 }
 
-/**
- * The turns of the chat on screen, in the order they were said.
- *
- * It is this sitting's turns, and with them the turns of the earlier chat the
- * sitting carries on, when it carries one on. A turn the server wrote outside
- * a chat request (the note after a filed document was read) names no sitting,
- * and belongs to the chat that was open when it was written.
- */
-export function liveTurns(
-  spoken: readonly ProjectChatTurn[],
-  sessions: readonly ChatSession[],
-  sitting: { sessionId?: string; startedAt?: string; continues?: string },
-): ProjectChatTurn[] {
-  if (!sitting.sessionId) return [...spoken];
-  const live = liveChatId(sessions, sitting);
-  const chatOf = new Map<string, string>();
-  for (const session of sessions) for (const turn of session.turns) chatOf.set(turn.id, session.id);
-  // This sitting's own turns are on screen whatever chat they were grouped into. The chat it meant to carry on may be gone.
-  return spoken.filter(
-    (turn) => chatOf.get(turn.id) === live || turn.sessionId === sitting.sessionId || (!turn.sessionId && sitting.startedAt !== undefined && turn.at >= sitting.startedAt),
-  );
-}
-
-/**
- * The chat on screen, by the id the list knows it by: the earlier chat this
- * sitting carries on while that chat is still there, otherwise the sitting
- * itself. An earlier chat stops being there when the thread is cleared.
- */
-export function liveChatId(sessions: readonly ChatSession[], sitting: { sessionId?: string; continues?: string }): string | undefined {
-  return sitting.continues && sessions.some((session) => session.id === sitting.continues) ? sitting.continues : sitting.sessionId;
-}
+// Which turns are the chat on screen is asked of the same reading the chat itself uses, so the two cannot differ.
+export { liveChatId, liveTurns } from '@realytica/shared';
 
 /**
  * What is waiting that the chat on screen does not show: the cards and the
@@ -69,7 +40,8 @@ export function liveChatId(sessions: readonly ChatSession[], sitting: { sessionI
  */
 export function waitingElsewhere(entries: readonly WaitingEntry[], onScreen: readonly ProjectChatTurn[]): WaitingEntry[] {
   const cards = new Set(onScreen.flatMap((turn) => turn.proposalIds ?? []));
-  const papers = new Set(onScreen.flatMap((turn) => turn.citedEvidenceIds ?? []));
+  // The papers a reply filed are the ones it shows as waiting. One an answer only quotes is still somewhere else.
+  const papers = new Set(onScreen.flatMap((turn) => filedByReply(turn)));
   return entries.filter((entry) => (entry.proposalId ? !cards.has(entry.proposalId) : entry.evidenceId ? !papers.has(entry.evidenceId) : false));
 }
 

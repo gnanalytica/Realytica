@@ -38,6 +38,8 @@ import {
 import { decidedOnACheck, differsOnCheck, statesTheSame, surveyNumbersIn } from './document-intake';
 import type { DocumentFact } from './document-parse';
 import { acceptedFacts, liveFacts } from './fact-review';
+import { waitingFieldKeys } from './review';
+import { WAITING_FROM_EARLIER, filedByReply } from './sitting';
 import { graphImpact } from './graph-impact';
 import { CHECK_DEFINITIONS } from './libraries';
 import { checkSchema, recordAuditEvent } from './operations';
@@ -563,16 +565,110 @@ function waitingChips(project: DdProject, entries: readonly WaitingEntry[], here
 }
 
 /**
- * Everything still waiting on the project, in a sentence that says where:
- * "3 more are waiting: 2 on the Approvals documents and 1 on the Approvals
- * checks." Empty when nothing waits. It is what "approve all" says when the
- * last reply has nothing left to accept and other replies do.
+ * What is waiting, in a sentence that says where: "3 more are waiting: 2 on
+ * the Approvals documents and 1 on the Approvals checks." Empty when nothing
+ * waits.
+ *
+ * It is what an approval says of what it did not take: after accepting the
+ * last reply's, what other replies left; and when it took nothing, all of it.
+ * `more` is for the first of those, where something was just accepted or the
+ * last reply's is said to be done.
  */
-export function waitingSentence(project: DdProject, waiting: { entries: WaitingEntry[] }, here: ChatPlace = {}): string {
+export function waitingSentence(project: DdProject, waiting: { entries: readonly WaitingEntry[] }, here: ChatPlace = {}, more = true): string {
   const chips = waitingChips(project, waiting.entries, here);
   const total = chips.reduce((n, chip) => n + (chip.count ?? 0), 0);
   if (!total) return '';
-  return `${total === 1 ? '1 more is' : `${total} more are`} waiting: ${andList(chips.map((chip) => `${chip.count} ${chip.words.replace(/^waiting /, '')}`))}.`;
+  const count = `${total}${more ? ' more' : ''} ${total === 1 ? 'is' : 'are'}`;
+  return `${count} waiting: ${andList(chips.map((chip) => `${chip.count} ${chip.words.replace(/^waiting /, '')}`))}.`;
+}
+
+/** How many of the last reply's cards are offered one by one. Past that the list is a register, and the rest are said with where they wait. */
+const CARDS_OFFERED = 4;
+
+/**
+ * What a choice that accepts or sets aside sends when it is pressed.
+ *
+ * The words only say what was pressed: the choice acts on the ids it carries.
+ * They hold no card's title and none of "approve", "accept", "skip" or "ok",
+ * because the older code in production draws a stored choice as a button and
+ * reads its sentence with its own reader. That reader takes those words for
+ * an instruction, and takes "record" beside anything in quotes for a check to
+ * be recorded, which every card that records a value has in its title.
+ */
+export const CHOICE_SENTENCE = {
+  all: 'Take these from the last reply',
+  one: 'Take this one from the last reply',
+  aside: 'Leave this one aside',
+} as const;
+
+/**
+ * A card as a choice names it. A card that records several values is titled
+ * "Record 2 values on …", and two of those under one reply read alike, so the
+ * choice says which values they are.
+ */
+function choiceLabel(project: DdProject, card: ChatProposal): string {
+  if (card.kind !== 'record_check_fields') return card.title;
+  const check = project.assessments.flatMap((a) => a.scopes.flatMap((scope) => scope.checks)).find((c) => c.id === card.payload.checkId);
+  const keys = waitingFieldKeys(card);
+  if (!check || keys.length < 2) return card.title;
+  const { fields } = checkSchema(check);
+  const labels = keys.map((key) => (fields.find((f) => f.key === key)?.label ?? key).toLowerCase());
+  const named = labels.length > 3 ? [...labels.slice(0, 3), `${labels.length - 3} more`] : labels;
+  return `Record ${andList(named)} on “${check.title}”`;
+}
+
+/**
+ * The choices under a reply that took nothing: all of what the last reply
+ * left in one, and each of its cards on its own. Each carries the ids of what
+ * it means, so pressing one acts on exactly that, whatever has been said or
+ * raised since.
+ *
+ * `own` is what the reply left that this person may take: the cards, and for
+ * accepting the papers it filed that still have values waiting. Setting aside
+ * is a card at a time, so it is offered no "all". `more` says the cards past
+ * the first four, with where they wait.
+ */
+export function waitingChoices(
+  project: DdProject,
+  verb: 'accept' | 'aside',
+  cards: readonly ChatProposal[],
+  own: readonly WaitingEntry[],
+  here: ChatPlace = {},
+): { choices: ChatChoice[]; more: string } {
+  const where = (entries: readonly WaitingEntry[]) => waitingChips(project, entries, here);
+  const kind = verb === 'accept' ? 'accept' : 'set aside';
+  const choices: ChatChoice[] = [];
+  const papers = own.flatMap((entry) => (!entry.proposalId && entry.evidenceId ? [entry.evidenceId] : []));
+  // One card and nothing else is that card's own choice, and needs no second way to say it.
+  if (verb === 'accept' && (own.length > 1 || papers.length)) {
+    const chips = where(own);
+    const total = chips.reduce((n, chip) => n + (chip.count ?? 0), 0);
+    choices.push({
+      id: 'take_all',
+      label: total === 1 ? 'The one from the last reply' : `All ${total} from the last reply`,
+      detail: andList(chips.map((chip) => `${chip.count} ${chip.words.replace(/^waiting /, '')}`)),
+      send: CHOICE_SENTENCE.all,
+      kind,
+      sitting: { decision: 'accept', proposalIds: cards.map((card) => card.id), evidenceIds: papers },
+    });
+  }
+  cards.slice(0, CARDS_OFFERED).forEach((card, i) => {
+    const place = where(own.filter((entry) => entry.proposalId === card.id))[0]?.words;
+    // Two cards can read alike. The paper each came from tells them apart to a person, as the id does to the chat.
+    const from = typeof card.payload.sourceFileName === 'string' ? card.payload.sourceFileName : '';
+    const detail = [place ? `${place.charAt(0).toUpperCase()}${place.slice(1)}` : '', from ? `from ${from}` : ''].filter(Boolean).join(', ');
+    choices.push({
+      id: `take_${i}`,
+      label: choiceLabel(project, card),
+      ...(detail ? { detail: `${detail.charAt(0).toUpperCase()}${detail.slice(1)}` } : {}),
+      send: verb === 'accept' ? CHOICE_SENTENCE.one : CHOICE_SENTENCE.aside,
+      kind,
+      sitting: { decision: verb, proposalIds: [card.id] },
+    });
+  });
+  const past = cards.slice(CARDS_OFFERED);
+  const places = where(own.filter((entry) => past.some((card) => card.id === entry.proposalId))).map((chip) => chip.words.replace(/^waiting /, ''));
+  return { choices, more: past.length ? `and ${past.length} more waiting ${andList(places)}` : '' };
 }
 
 /**
@@ -592,8 +688,10 @@ export function turnChips(
   here: ChatPlace = {},
 ): TurnChip[] {
   const cards = new Set(turn.proposalIds ?? []);
-  const cited = new Set(turn.citedEvidenceIds ?? []);
-  const mine = waiting.entries.filter((e) => (e.proposalId && cards.has(e.proposalId)) || (e.kind === 'facts' && e.evidenceId && cited.has(e.evidenceId)));
+  // The values a reply left waiting are on the papers it filed. An answer that quotes a paper left nothing on it.
+  const listsEarlier = (turn.toolCalls ?? []).some((call) => call.name === WAITING_FROM_EARLIER);
+  const papers = new Set(listsEarlier ? turn.citedEvidenceIds : filedByReply(turn));
+  const mine = waiting.entries.filter((e) => (e.proposalId && cards.has(e.proposalId)) || (e.kind === 'facts' && e.evidenceId && papers.has(e.evidenceId)));
   const chips = waitingChips(project, mine, here);
   const byKey = new Map(chips.map((chip) => [chip.key, chip]));
   if (!(turn.toolCalls ?? []).some((call) => call.name === 'ingest')) return chips;

@@ -108,6 +108,10 @@ import {
   assignOwner,
   applyProjectAgentTurn,
   chatPlaceFrom,
+  CHOICE_SENTENCE,
+  NOTHING_ACCEPTED,
+  NOTHING_SET_ASIDE,
+  NOTHING_TO_READ,
   chatSessions,
   clearProjectConversation,
   renameChatSession,
@@ -1017,6 +1021,10 @@ function skipLlmForChat(result: ProjectChatResult): boolean {
      * the page references the answer was built from.
      */
     || names.has('answer_from_file')
+    // An instruction that took nothing: what waits, where, and the choices to press.
+    || names.has(NOTHING_ACCEPTED)
+    || names.has(NOTHING_SET_ASIDE)
+    || names.has(NOTHING_TO_READ)
     || names.has('clarify')
     || names.has('navigate')
     || names.has('open_sitting')
@@ -1177,9 +1185,12 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
    * upload path from storage, so a document filed before the reader existed
    * is read exactly as a new upload would be. Only what this person can see.
    */
+  // Asked to read what is filed, with nothing left to read: said in one line by the chat, and not answered as talk.
+  let nothingLeftToRead = false;
   if (READ_FILED_REQUEST.test(question)) {
     const again = asksAgain(question);
     const filed = await filedDocumentsToRead(viewFor(req, project).project, again);
+    nothingLeftToRead = filed.length === 0;
     // Past this turn's ten: said at the end, so the next turn is asked for.
     const beyond = Math.max(0, rowsToRead(viewFor(req, project).project, again).length - filed.length);
     if (filed.length) {
@@ -1201,6 +1212,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         place,
         sessionId: parsed.data.sessionId,
         continues: parsed.data.continues,
+        sessionStartedAt: parsed.data.sessionStartedAt,
         ddId: sitting?.ddId,
         scopeId: sitting?.scopeId,
         checkId: sitting?.checkId,
@@ -1228,7 +1240,9 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const unseen = withheldBriefing(seen);
   const capability = agentCapability();
   const continues = carriedChat(canvas, parsed.data.continues);
-  const deterministic = wantsDeterministicProjectChat(canvas, question, { sitting, place });
+  // Which chat this is and whose, as the page shows it: an instruction to accept answers the last reply of this one.
+  const chat = { sessionId: ownSitting(project, parsed.data.sessionId, actor), continues, startedAt: parsed.data.sessionStartedAt, actor };
+  const deterministic = nothingLeftToRead || wantsDeterministicProjectChat(canvas, question, { sitting, place, chat });
   const stream = beginNdjson(res);
   const { line, clientGone } = stream;
 
@@ -1389,6 +1403,8 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     outside: canvas !== project,
     sides,
     sitting,
+    chat,
+    nothingLeftToRead,
   });
 
   if (capability.available && !skipLlmForChat(result)) {
@@ -1715,6 +1731,8 @@ interface IngestFields {
   sessionId?: string;
   /** The earlier chat this sitting carries on. */
   continues?: string;
+  /** When this sitting began, as the page sent it. */
+  sessionStartedAt?: string;
   ddId?: unknown;
   scopeId?: unknown;
   checkId?: unknown;
@@ -1889,6 +1907,7 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
     outside: canvas !== project,
     ingest: enriched,
     sitting,
+    chat: { sessionId: ownSitting(project, fields.sessionId, actorOf(req)), continues, startedAt: fields.sessionStartedAt, actor: actorOf(req) },
     spend: readAnything ? { usd: readCostUsd, exact: readCostExact } : undefined,
   });
   sayWhatIsMissing(seen, question, result);
@@ -1924,6 +1943,7 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
     place: placeFromForm(body.place) ?? chatPlaceFrom(undefined, typeof body.viewContext === 'string' ? body.viewContext : undefined),
     sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
     continues: typeof body.continues === 'string' ? body.continues : undefined,
+    sessionStartedAt: typeof body.sessionStartedAt === 'string' ? body.sessionStartedAt.slice(0, 40) : undefined,
     ddId: body.ddId,
     scopeId: body.scopeId,
     checkId: body.checkId,
@@ -1995,7 +2015,8 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/commit', async (req,
     await ensureIdentitySiteContext(project, projectToIdentity(project), now);
   }
   const placeBefore = projectSiteQuery(project);
-  const result = applyProjectChat(project, `Approve "${item.title}"`, { actor: actorOf(req) });
+  // By its id, as a pressed choice names it. The words only say what was done, and are ones no reader takes for an instruction.
+  const result = applyProjectChat(project, CHOICE_SENTENCE.one, { actor: actorOf(req), sitting: { decision: 'accept', proposalIds: [item.id] } });
   // Approving "record the address as ..." is the moment the property moves.
   await refreshSiteContextIfMoved(project, placeBefore, new Date().toISOString());
   await rememberProject(project);
@@ -2020,7 +2041,7 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/reject', async (req,
     return;
   }
   refreshProjectDerived(project);
-  const result = applyProjectChat(project, `Skip "${item.title}"`, { actor: actorOf(req) });
+  const result = applyProjectChat(project, CHOICE_SENTENCE.aside, { actor: actorOf(req), sitting: { decision: 'aside', proposalIds: [item.id] } });
   await store.save();
   res.json({ ...result, project });
 });

@@ -5,7 +5,7 @@
 
 import { CHECK_RESULT_LABEL, SCOPE_LABEL } from './catalogs';
 import { portalForCheck, portalObtainLine } from './portals';
-import type { ChatProposal, ChatTurnPlace, CheckInstance, DdAssessment, DdProject, ProjectChatTurn, ScopeInstance } from './types';
+import type { ChatChoice, ChatProposal, ChatTurnPlace, CheckInstance, DdAssessment, DdProject, ProjectChatTurn, ScopeInstance } from './types';
 import { plural } from './text';
 import { CHECK_DEFINITIONS } from './libraries';
 import { readCheckFields, worstInsight } from './check-fields';
@@ -22,33 +22,130 @@ export function sittingChatHistory(turns: ProjectChatTurn[], limit = 8): Project
   return turns.filter((t) => !isDumpTurn(t.text)).slice(-limit);
 }
 
-export function lastAssistantTurn(project: DdProject): ProjectChatTurn | undefined {
-  for (let i = project.conversation.length - 1; i >= 0; i -= 1) {
-    if (project.conversation[i]?.role === 'assistant') return project.conversation[i];
-  }
-  return undefined;
-}
-
-/** Approve-all means this turn's cards, unless they said every/open. */
-export function approveAllMeansEveryOpen(question: string): boolean {
-  return /\b(every|entire|all open|every open)\b/i.test(question);
+/**
+ * The chat a question was asked in: its sitting, when the sitting began, the
+ * earlier chat it carries on, and whose it is. The page sends the first three
+ * with a question and none of them is kept from here.
+ */
+export interface ChatSitting {
+  sessionId?: string;
+  startedAt?: string;
+  continues?: string;
+  /** The person whose chat this is, as the turns they caused are signed. */
+  actor?: string;
 }
 
 /**
- * The cards "approve all" means: the ones the last reply raised that are still
- * open.
- *
- * A reply that raised none (an answer, a page opened) leaves it meaning every
- * open card, as it always has. A reply that raised cards of its own and has
- * none of them left open means none. Falling back to every open card there
- * accepted, after a paper was dropped, a value waiting on some other paper
- * that nobody was looking at.
+ * The chat on screen, by the id the list knows it by: the earlier chat this
+ * sitting carries on while that chat is still there, otherwise the sitting
+ * itself. An earlier chat stops being there when the thread is cleared.
  */
-export function currentTurnProposals(project: DdProject): ChatProposal[] {
-  const last = lastAssistantTurn(project);
-  const ids = new Set(last?.proposalIds ?? []);
-  const open = project.chatProposals.filter((p) => p.status === 'proposed');
-  return ids.size ? open.filter((p) => ids.has(p.id)) : open;
+export function liveChatId(sessions: readonly ChatSession[], sitting: ChatSitting): string | undefined {
+  return sitting.continues && sessions.some((session) => session.id === sitting.continues) ? sitting.continues : sitting.sessionId;
+}
+
+/**
+ * The turns of the chat on screen, in the order they were said.
+ *
+ * It is this sitting's turns, and with them the turns of the earlier chat the
+ * sitting carries on, when it carries one on. A turn the server wrote outside
+ * a chat request (the note after a filed document was read) names no sitting.
+ * It belongs to the chat that was open when it was written, and only to the
+ * person who filed the document: a colleague's upload is not something said
+ * to this person, and their "approve all" must not find it.
+ *
+ * One reading for the page and for the chat itself. They each had their own:
+ * the page showed the note in the chat on screen with its cards under it,
+ * and "approve all" typed there answered some other reply.
+ */
+export function liveTurns(spoken: readonly ProjectChatTurn[], sessions: readonly ChatSession[], sitting: ChatSitting): ProjectChatTurn[] {
+  if (!sitting.sessionId) return [...spoken];
+  const live = liveChatId(sessions, sitting);
+  const chatOf = new Map<string, string>();
+  for (const session of sessions) for (const turn of session.turns) chatOf.set(turn.id, session.id);
+  const sinceItBegan = (turn: ProjectChatTurn) =>
+    !turn.sessionId && sitting.startedAt !== undefined && turn.at >= sitting.startedAt && turn.actor !== undefined && turn.actor === sitting.actor;
+  // This sitting's own turns are on screen whatever chat they were grouped into. The chat it meant to carry on may be gone.
+  return spoken.filter((turn) => chatOf.get(turn.id) === live || turn.sessionId === sitting.sessionId || sinceItBegan(turn));
+}
+
+/**
+ * The tool a reply names when it only says that nothing was done: an
+ * instruction to accept or to set aside that took nothing, or a request to
+ * read the filed documents when none was left. Such a reply raises nothing
+ * and files nothing, so it is not what the next instruction answers.
+ */
+export const NOTHING_ACCEPTED = 'nothing_accepted';
+export const NOTHING_SET_ASIDE = 'nothing_set_aside';
+export const NOTHING_TO_READ = 'nothing_to_read';
+
+const saidNothingWasDone = (turn: ProjectChatTurn): boolean =>
+  Boolean(turn.toolCalls?.some((call) => call.name === NOTHING_ACCEPTED || call.name === NOTHING_SET_ASIDE || call.name === NOTHING_TO_READ));
+
+/**
+ * The last thing the chat said to this person, in this chat: the reply that
+ * "approve all" answers. A caller that keeps no sittings is given the last
+ * one on the thread.
+ *
+ * A work-pane edit writes its own "Recorded." into the thread, and that is
+ * not a reply to anybody. A turn of another chat, or of another person's
+ * chat, is not this chat's. And a reply that says nothing was accepted and
+ * offers what could be is not the reply to accept: read as the last one, it
+ * made the instruction that followed take nothing.
+ */
+export function lastSpokenReply(project: DdProject, chat: ChatSitting = {}): ProjectChatTurn | undefined {
+  return liveTurns(splitThread(project.conversation).conversation, chatSessions(project.conversation), chat)
+    .reverse()
+    .find((turn) => turn.role === 'assistant' && !saidNothingWasDone(turn));
+}
+
+/**
+ * The papers a reply filed: the ones it cites, when it is a reply that files
+ * (a drop, the note after a paper is read on the register, a paper given to a
+ * function). An answer cites the papers it quotes and filed none of them, so
+ * their values are not this reply's to accept or to count.
+ */
+export function filedByReply(turn: { toolCalls?: Array<{ name: string }>; citedEvidenceIds?: string[] } | undefined): string[] {
+  return turn?.toolCalls?.some((call) => call.name === 'ingest' || call.name === 'assign_document') ? (turn.citedEvidenceIds ?? []) : [];
+}
+
+/**
+ * The tool named by the line that leads a new chat with what earlier chats
+ * left waiting. It is drawn by the page and never stored, and it lists the
+ * papers and cards its chips count: none of them is one it filed or raised.
+ */
+export const WAITING_FROM_EARLIER = 'waiting_from_earlier';
+
+/**
+ * Whether a choice under a reply may be pressed.
+ *
+ * A choice that accepts or sets aside is a button only under the last thing
+ * the chat on screen said, and never in an earlier chat being read. It acts
+ * on the cards it names whenever it is pressed, so this is not what keeps it
+ * safe: it is that a button far up a thread, or in a chat from last week,
+ * reads as part of what was said then. Any other choice only asks or opens,
+ * and stays a button.
+ */
+export function choiceMayBePressed(choice: ChatChoice, turn: { id: string }, onScreen: readonly { id: string; role: string }[], readingAnEarlierChat: boolean): boolean {
+  if (!choice.sitting?.decision) return true;
+  if (readingAnEarlierChat) return false;
+  return onScreen.filter((t) => t.role === 'assistant').at(-1)?.id === turn.id;
+}
+
+/**
+ * The cards "approve all" means: the ones the last reply of this chat listed
+ * that are still open, and no others. A reply lists the cards it raised, and
+ * one that was already waiting when the reply pointed the person at it.
+ *
+ * It used to fall back to every open card on the project when that reply had
+ * raised none, or had none left. So an "approve all" typed after an answer, a
+ * page opened, or a paper that only stated a value accepted cards from other
+ * replies that nobody was looking at. What waits from other replies is said
+ * back with where it waits, and is accepted there.
+ */
+export function currentTurnProposals(project: DdProject, chat?: ChatSitting): ChatProposal[] {
+  const ids = new Set(lastSpokenReply(project, chat)?.proposalIds ?? []);
+  return project.chatProposals.filter((p) => p.status === 'proposed' && ids.has(p.id));
 }
 
 export function citeLabel(project: DdProject, id: string): string {
@@ -538,8 +635,9 @@ function fold(s: string): string {
 }
 
 // Asked as a question too: "What's next?" names no record, though a check called "What the site is next to" shares a word with it.
+// With whichever apostrophe it is typed: the product's own replies print the curly one, and people copy them.
 const TALK_SKIP =
-  /^(guide me|what'?s next|what should we do( next)?|hello|hi|hey|help|brief(ing)?|approve( all)?|skip|reject|yes|ok|okay)([.!? ]|$)/i;
+  /^(guide me|what.?s next|what should we do( next)?|hello|hi|hey|help|brief(ing)?|approve( all)?|skip|reject|yes|ok|okay)([.!? ]|$)/i;
 
 const TALK_STOP = new Set([
   'this',
@@ -1001,12 +1099,14 @@ export const DROPPED_WITHOUT_WORDS = 'I attached documents';
 function sessionTitle(turns: readonly ProjectChatTurn[]): string {
   const at = turns.findIndex((t) => t.role === 'user' && t.text.trim().length > 0);
   let text = turns[at]?.text.trim() ?? '';
-  if (!text) return 'Untitled';
-  if (text === DROPPED_WITHOUT_WORDS) {
+  // Papers dropped with no words, or filed on the register with nobody asking, are named by what was read.
+  if (!text || text === DROPPED_WITHOUT_WORDS) {
     const reply = turns.slice(at + 1).find((t) => t.role === 'assistant');
     const read = reply?.toolCalls?.some((call) => call.name === 'ingest') ? (reply.text.split('\n')[0] ?? '').trim() : '';
     // A reply that opens on why the papers could not be read is no name for a chat.
-    text = /^Read /.test(read) ? read.replace(/\.$/, '') : 'Documents dropped in';
+    if (/^Read /.test(read)) text = read.replace(/\.$/, '');
+    else if (text) text = 'Documents dropped in';
+    else return 'Untitled';
   }
   const oneLine = text.replace(/\s+/g, ' ');
   return oneLine.length > 60 ? `${oneLine.slice(0, 59).trimEnd()}…` : oneLine;

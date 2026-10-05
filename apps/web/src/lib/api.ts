@@ -8,6 +8,7 @@ import type {
   AgentStep,
   ReadingStreamEvent,
   ChatTurnPlace,
+  ChoicePin,
   CopilotTurn,
   DataSourceDescriptor,
   IngestionReport,
@@ -1044,7 +1045,9 @@ export const api = {
       sessionId?: string;
       /** The earlier chat this sitting carries on. */
       continues?: string;
-      sitting?: { ddId?: string; scopeId?: string; checkId?: string; evidenceId?: string };
+      /** When this sitting began: what the server wrote since then is in this chat too. */
+      sessionStartedAt?: string;
+      sitting?: ChoicePin;
     },
     opts?: ProjectChatListeners,
   ) =>
@@ -1075,7 +1078,8 @@ export const api = {
       actor?: string;
       sessionId?: string;
       continues?: string;
-      sitting?: { ddId?: string; scopeId?: string; checkId?: string; evidenceId?: string };
+      sessionStartedAt?: string;
+      sitting?: ChoicePin;
     },
     opts?: ProjectChatListeners,
   ) => {
@@ -1088,6 +1092,7 @@ export const api = {
     if (body.actor) form.append('actor', body.actor);
     if (body.sessionId) form.append('sessionId', body.sessionId);
     if (body.continues) form.append('continues', body.continues);
+    if (body.sessionStartedAt) form.append('sessionStartedAt', body.sessionStartedAt);
     if (body.sitting?.ddId) form.append('ddId', body.sitting.ddId);
     if (body.sitting?.scopeId) form.append('scopeId', body.sitting.scopeId);
     if (body.sitting?.checkId) form.append('checkId', body.sitting.checkId);

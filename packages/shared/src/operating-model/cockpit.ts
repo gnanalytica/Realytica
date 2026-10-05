@@ -10,9 +10,9 @@
 import { CHECK_RESULT_LABEL, REPORT_KIND_LABEL } from './catalogs';
 import { chatPlaceLabel, chatPlaceLine, functionOfDocument, functionRank, menuPlaceOfWords, openPlace, placeFromText, placeOfRecord, placeOpenedLine, stageChangedLine, type ChatPlace } from './chat-places';
 import { STAGES, STAGE_WORD, functionKey, stageAndStep, workstreamOfCheck } from './departments';
-import { asksToFileUnder, disagreementSentence, documentDisagreements, fileUnderFromText, filedGroups, filedSentence, filingChoices, offeredByFunction, offeredSentence, reachSentence, waitingSentence } from './document-filing';
+import { asksToFileUnder, disagreementSentence, documentDisagreements, fileUnderFromText, filedGroups, filedSentence, filingChoices, offeredByFunction, offeredSentence, reachSentence, waitingChoices, waitingSentence } from './document-filing';
+import { readInstruction, sameTitle, type Instruction, type InstructionVerb } from './instruction';
 import { factsAwaitingReview, proposedFacts } from './fact-review';
-import { lastAssistantTurn } from './sitting';
 import { contestedKeys, decideCheckFields, reviewFacts, waitingFieldKeys } from './review';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
@@ -35,6 +35,7 @@ import { interpretReportCommand, looksLikeReportCommand, openReportOf } from './
 import { reportSummaryLine } from './report-blocks';
 import type {
   ChatChoice,
+  ChoicePin,
   ActionRecord,
   ChatIngestFile,
   ChatMetric,
@@ -44,6 +45,7 @@ import type {
   ChatSideBundle,
   ChatTurnPlace,
   DdProject,
+  EvidenceRecord,
   FindingRecord,
   OrchestratorRun,
   ProjectChatResult,
@@ -57,15 +59,12 @@ import {
   commitChatProposal,
   createChatProposal,
   interpretConversation,
-  matchProposal,
   proposalsFromIngest,
   rejectChatProposal,
   startDdFromQuestion,
-  wantsApprove,
   wantsAssets,
   wantsDdTypes,
   wantsProofs,
-  wantsReject,
   wantsReport,
   wantsScopes,
   wantsWizard,
@@ -92,9 +91,12 @@ import {
 } from './check-command';
 import {
   DROPPED_WITHOUT_WORDS,
+  NOTHING_ACCEPTED,
+  NOTHING_SET_ASIDE,
+  NOTHING_TO_READ,
   rankTalkSittings,
-  approveAllMeansEveryOpen,
-  currentTurnProposals,
+  filedByReply,
+  lastSpokenReply,
   paneForTalk,
   sittingBrief,
   sittingCheckOf,
@@ -103,6 +105,7 @@ import {
   talkSittingFromText,
   withTalkNavigation,
   wantsCritic,
+  type ChatSitting,
   type CockpitPathExtra,
   type SittingRef,
   type TalkSitting,
@@ -591,20 +594,63 @@ export function findingSeverityRequested(question: string): FindingRecord['sever
   return hit ? (hit[1] as FindingRecord['severity']) : null;
 }
 
+/** The cards a chat may accept or set aside. An admin's card is decided by an admin, where it is shown. */
+const decidedInChat = (card: ChatProposal): boolean => !ADMIN_ONLY_PROPOSALS.has(card.kind);
+
+/** What the last reply of a chat left: the cards it listed that are still open, and the papers it filed that still have values waiting. */
+interface LeftByLastReply {
+  /** Every card it listed that is still open. */
+  cards: ChatProposal[];
+  /** The ones a chat may accept or set aside. */
+  mine: ChatProposal[];
+  rows: EvidenceRecord[];
+}
+
+function leftByLastReply(project: DdProject, chat?: ChatSitting): LeftByLastReply {
+  const reply = lastSpokenReply(project, chat);
+  const listed = new Set(reply?.proposalIds ?? []);
+  const cards = project.chatProposals.filter((p) => p.status === 'proposed' && listed.has(p.id));
+  const filed = new Set(filedByReply(reply));
+  return { cards, mine: cards.filter(decidedInChat), rows: project.evidence.filter((e) => filed.has(e.id) && proposedFacts(e).length) };
+}
+
+/**
+ * A typed sentence read as an instruction to accept or set aside, in the chat
+ * it was typed in, with what the last reply there left.
+ *
+ * A sentence that only looks like one ("ok", "skip", "approve the land use")
+ * is answered as one when the last reply left something it could have meant:
+ * nothing is taken, and the choices are offered. When the last reply left
+ * nothing it is talk. "Yes" is then an answer to whatever the chat asked, and
+ * "reject the contractor's claim" is about the project and not about a card.
+ */
+function instructionSaid(project: DdProject, sentence: string, chat?: ChatSitting): { said: Instruction; left: LeftByLastReply } | undefined {
+  // Asked before the chat itself runs, of a project as it was stored: one from before cards or a thread were kept has neither list.
+  ensureProjectShape(project);
+  const said = readInstruction(sentence);
+  if (!said) return undefined;
+  const left = leftByLastReply(project, chat);
+  if (said.form === 'unclear' && !left.mine.length && !(said.verb === 'accept' && left.rows.length)) return undefined;
+  return { said, left };
+}
+
 export function wantsDeterministicProjectChat(
   project: DdProject,
   question: string,
-  options: { ingest?: ChatIngestFile[]; sitting?: SittingRef; place?: ChatPlace } = {},
+  options: { ingest?: ChatIngestFile[]; sitting?: ChoicePin; place?: ChatPlace; chat?: ChatSitting } = {},
 ): boolean {
   if (options.ingest?.length) return true;
   const q = question.trim();
   const ql = q.toLowerCase();
   if (!q) return true;
+  // A pressed choice that accepts or sets aside acts on the ids it carries. Its sentence is not for anything to read.
+  if (options.sitting?.decision) return true;
   // A page or a stage asked for by name is a place to go, and needs no model to find.
   if (placeFromText(project, q, options.place)) return true;
   // A document given to a function by name is the person's own instruction.
   if (asksToFileUnder(project, q)) return true;
-  if (wantsApprove(ql) || wantsReject(ql)) return true;
+  // So is accepting or setting aside in one of its typed forms. It is carried out as said, or answered with what can be pressed, and no model reads it.
+  if (instructionSaid(project, q, options.chat)) return true;
   // A factual question the file itself answers is looked up, not paraphrased:
   // instant, free, and every figure carries its page.
   if (answerFromFile(project, q, options.place)) return true;
@@ -626,7 +672,7 @@ export function wantsDeterministicProjectChat(
   if (options.sitting?.checkId && looksLikeCheckRecordOnSitting(q)) return true;
   if (/\b(close|complete|done|finish)\b/.test(ql) && /\baction\b/.test(ql)) return true;
   if (/\b(close|resolve)\b/.test(ql) && /\bfinding\b/.test(ql)) return true;
-  if (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql) && !wantsApprove(ql)) return true;
+  if (/\b(mitigate|close|accept)\b/.test(ql) && /\brisk\b/.test(ql)) return true;
   if (detectChatSideIntents(q, options.sitting, project).length) return true;
   if (wantsPersonCapability(q)) return true;
   if (wantsNavigate(ql) || NAV_RULES.some((r) => r.test(ql) && /^(open|show|go to|switch to|take me|see|view)\b/.test(ql))) {
@@ -924,7 +970,7 @@ export function applyProjectChat(
     ingest?: ChatIngestFile[];
     sides?: ChatSideBundle;
     /** The check being sat on. With `evidenceId`, the document a pressed choice was offered for. */
-    sitting?: SittingRef & { evidenceId?: string };
+    sitting?: ChoicePin;
     /**
      * The page the person asked from, and the stage it is looked at in. A
      * place asked for by name opens from here, and what is missing, a summary
@@ -937,6 +983,20 @@ export function applyProjectChat(
      * function is the firm's own people's to do, on the register and here.
      */
     outside?: boolean;
+    /**
+     * The chat the question was asked in. An approval answers the last reply
+     * of this chat, and a caller that keeps no sittings is read against the
+     * last reply on the thread.
+     */
+    chat?: ChatSitting;
+    /**
+     * The sentence asked for the filed documents to be read, and none was left
+     * to read. The caller knows, because it is the one that fetches them. The
+     * reply says so and nothing else: answered as talk it became the next
+     * step with a card, and the "approve all" meant for the paper just read
+     * answered that instead.
+     */
+    nothingLeftToRead?: boolean;
     /** What reading the attached documents cost. Rendered beside the turn, as a chat turn's cost already is. */
     spend?: TurnSpend;
   } = {},
@@ -995,11 +1055,19 @@ export function applyProjectChat(
    */
   const sameAs = (p: ChatProposal) =>
     p.kind === 'record_check_fields' ? `${p.kind}:${String(p.payload.checkId)}:${JSON.stringify(p.payload.values ?? {})}` : p.title;
+  /*
+   * A card already waiting is not raised a second time, and the reply still
+   * points at it ("accept the request waiting beside it"), so it is listed
+   * with the reply's own. Left off, an "ok" typed under that reply answered a
+   * reply that had no card. The fresh ones are what comes back: they are what
+   * the caller counts and files.
+   */
   const offer = (rows: ChatProposal[]) => {
-    const openTitles = new Set(project.chatProposals.filter((p) => p.status === 'proposed').map(sameAs));
-    const fresh = rows.filter((p) => !openTitles.has(sameAs(p)));
+    const open = project.chatProposals.filter((p) => p.status === 'proposed');
+    const fresh = rows.filter((p) => !open.some((held) => sameAs(held) === sameAs(p)));
+    const waiting = open.filter((held) => rows.some((p) => sameAs(p) === sameAs(held)));
     for (const p of fresh) project.chatProposals.push(p);
-    offered = fresh;
+    offered = [...fresh, ...waiting];
     return fresh;
   };
 
@@ -1070,6 +1138,186 @@ export function applyProjectChat(
    * give, a check with a title like it, or a portal to fetch from.
    */
   const went = ingest.length ? null : placeFromText(project, q, here);
+  // The chat this was asked in, and whose it is.
+  const chat = options.chat && { ...options.chat, actor: options.chat.actor ?? options.actor };
+  // A choice that was pressed, or failing that a typed instruction. Read before this request adds its own turns to the thread.
+  const pressed = !ingest.length && options.sitting?.decision ? options.sitting : undefined;
+  const typed = ingest.length || pressed ? undefined : instructionSaid(project, q, chat);
+
+  /*
+   * Accepting and setting aside, by a typed form or by a pressed choice.
+   *
+   * Typed words do three things: take what the last reply left, take
+   * everything open when that is said in full, and take or set aside one card
+   * by its exact title in quotes. Everything else is a choice that is pressed,
+   * and a choice names what it means by id. `instruction.ts` reads the words;
+   * what each takes is decided here.
+   *
+   * "The last reply" is the last thing this chat said to the person. What it
+   * left is the cards it listed that are still open and the values waiting on
+   * the papers it filed. A paper an answer only cites is not one it filed:
+   * "approve all" typed after "which documents are on file?" took every value
+   * on every paper the answer named.
+   */
+  const openCards = () => project.chatProposals.filter((p) => p.status === 'proposed');
+
+  /** Accept these cards, and the values waiting on these papers. */
+  const acceptThese = (targets: ChatProposal[], factRows: EvidenceRecord[]) => {
+    const before = fileStanding(project);
+    let valuesAccepted = 0;
+    for (const row of factRows) {
+      valuesAccepted += reviewFacts(project, row.id, 'all', 'accept', actor).changed.length;
+      highlightIds.push(row.id);
+    }
+    const done: string[] = [];
+    /*
+     * "All" is not a choice between documents that disagree. A check value
+     * two documents state differently stays waiting on its check, where
+     * the person picks one; everything else is accepted.
+     */
+    let toPick = 0;
+    for (const item of targets) {
+      if (item.status !== 'proposed') continue;
+      if (item.kind === 'record_check_fields') {
+        const left = contestedKeys(project, item);
+        const open = waitingFieldKeys(item).filter((key) => !left.includes(key));
+        toPick += left.length;
+        if (!open.length) continue;
+        try {
+          decideCheckFields(project, item.id, open, 'accept', actor);
+        } catch {
+          continue;
+        }
+        done.push(item.title);
+        highlightIds.push(String(item.payload.checkId));
+        continue;
+      }
+      const result = commitChatProposal(project, item.id, actor);
+      done.push(`${item.title}${result.recordId ? ` → ${result.recordId}` : ''}`);
+      if (result.recordId) highlightIds.push(result.recordId);
+    }
+    const accepted = [valuesAccepted ? plural(valuesAccepted, 'value') : '', done.length ? plural(done.length, 'suggestion') : ''].filter(Boolean).join(' and ');
+    commands.push(accepted ? `Accepted ${accepted}` : 'Nothing left to accept');
+    /*
+     * A receipt, not a re-listing. The cards above have just flipped to
+     * their committed state in place, so repeating their titles — and the
+     * raw `ev_1a06…` ids, which name nothing a person recognises — said the
+     * same thing a third time in the least readable form available.
+     *
+     * What the sentence cannot say, the figures can: whether the diligence
+     * actually moved. Filing six documents against a project with no
+     * assessment leaves the pack at 0/16, and that is the fact worth putting
+     * in front of somebody who has just spent a minute approving cards.
+     */
+    assistantText = [
+      valuesAccepted ? `Accepted ${plural(valuesAccepted, 'value')} on ${plural(factRows.length, 'document')}.` : '',
+      done.length ? approvalReceipt(targets.filter((t) => t.status === 'committed')) : '',
+      toPick ? `${toPick === 1 ? 'One value the documents disagree on waits' : `${toPick} values the documents disagree on wait`} on the checks for you to pick.` : '',
+    ].filter(Boolean).join(' ');
+    /*
+     * What still waits, said before anything this reply offers of its own.
+     * An approval takes the last reply's and no other, so a value an
+     * earlier paper also states can be left waiting with its card, and a
+     * receipt that said only what was accepted read as if nothing were.
+     * A check this approval left for a person to pick is in the line above
+     * and is not counted twice.
+     */
+    const forPicking = new Set(targets.filter((t) => t.kind === 'record_check_fields').map((t) => t.id));
+    const rest = waitingSentence(
+      project,
+      { entries: waitingOnCanvas(project).entries.filter((e) => !(e.proposalId && forPicking.has(e.proposalId))) },
+      here,
+      Boolean(assistantText),
+    );
+    if (rest) assistantText = `${assistantText} ${rest}`.trim();
+    metrics = standingDelta(before, fileStanding(project));
+    toolCalls = [{ name: 'approve', summary: `${done.length} committed` }];
+    /*
+     * One card approved opens exactly what it wrote — a filed deed opens at
+     * its page. A batch opens the register it mostly wrote to, and nothing
+     * more: auto-opening the first document's viewer over a batch put a
+     * modal over the chat just as it offered the next step.
+     */
+    const lead = targets[0];
+    const extra = targets.length === 1 && lead ? extrasFromPayload(lead.payload as Record<string, unknown>) : undefined;
+    // Only document values accepted: the register they are on.
+    const pane = !targets.length ? 'evidence' : extra?.checkId ? 'scope' : paneForProposalKind(mostCommonKind(targets));
+    navigate(pane, `Opened ${pane}`, extra);
+    /*
+     * One suggestion, and only one.
+     *
+     * `projectNextStep` already decides what this file needs next and the
+     * Overview pane already renders it; chat simply never asked. Offering it
+     * as a card rather than a sentence means it is actionable where it is
+     * read, and it inherits the collapsed card treatment rather than adding
+     * another paragraph. Idle means the file needs nothing — then say nothing.
+     */
+    /*
+     * What the documents already said, offered to the checks that can now
+     * hold it. Most files arrive before the DD that asks for them: a deed
+     * read in week one states the extent the parcel check instantiated in
+     * week two is about to ask for. Offered here, the moment a DD lands,
+     * rather than making somebody re-upload or re-type what is on file.
+     */
+    const fills = pendingFactProposals(project, actor);
+    if (fills.length) {
+      offer(fills);
+      assistantText += ` ${plural(fills.length, 'check')} can take values from documents already on file; they are waiting on the checks.`;
+    }
+    const startDd = fills.length ? undefined : ddForDocumentsProposal(project, factsOnFile(project).map((row) => row.fact), actor);
+    if (startDd) {
+      offer([startDd]);
+      assistantText += ` Your documents answer checks in the ${startDd.title.replace(/^Start /, '')}; it is waiting to start under Technical DD.`;
+    }
+    const next = projectNextStep(project, actor);
+    if (next.kind !== 'idle' && next.proposals.length && !fills.length && !startDd) offer([next.proposals[0]!]);
+  };
+
+  /** Set these cards aside. */
+  const setAsideThese = (cards: ChatProposal[]) => {
+    for (const card of cards) rejectChatProposal(project, card.id);
+    commands.push(cards.length === 1 ? `Rejected “${cards[0]!.title}”` : `Rejected ${cards.length}`);
+    assistantText = cards.length === 1 ? `Skipped “${cards[0]!.title}”.` : `Skipped ${cards.length}.`;
+  };
+
+  /**
+   * The reply when nothing was taken: what waits and where, and under it the
+   * choices that would take what the last reply left. It names its own tool,
+   * so the next instruction answers the reply before this one and no model
+   * rewrites what this one said.
+   */
+  const nothingTaken = (verb: InstructionVerb, left: LeftByLastReply) => {
+    const accept = verb === 'accept';
+    const waiting = waitingOnCanvas(project);
+    const rows = accept ? left.rows : [];
+    const own = waiting.entries.filter((e) => (e.proposalId ? left.mine.some((c) => c.id === e.proposalId) : rows.some((r) => r.id === e.evidenceId)));
+    if (!waiting.entries.length) {
+      assistantText = accept ? 'Nothing waiting. Ask what’s next, or drop a document in.' : 'Nothing is waiting, so nothing was set aside.';
+    } else if (own.length) {
+      const offered = waitingChoices(project, verb, left.mine, own, here);
+      const waits = waitingSentence(project, waiting, here, false);
+      const one = waits.startsWith('1 ');
+      choices = offered.choices;
+      assistantText = [
+        accept ? 'Nothing was accepted.' : 'Nothing was set aside.',
+        waits,
+        accept
+          ? one ? 'Accept it below, or where it is shown.' : 'Pick what to accept below, or accept each where it is shown.'
+          : one ? 'Set it aside below, or where it is shown.' : 'Pick what to set aside below, or set each aside where it is shown.',
+        offered.more ? `Four from the last reply are below, ${offered.more}.` : '',
+      ].filter(Boolean).join(' ');
+    } else {
+      const waits = waitingSentence(project, waiting, here);
+      assistantText = `Nothing from the last reply is left to ${accept ? 'accept' : 'set aside'}. ${waits} ${waits.startsWith('1 ') ? 'It is' : 'Each is'} ${accept ? 'accepted' : 'set aside'} where it is shown.`;
+    }
+    toolCalls = [{ name: accept ? NOTHING_ACCEPTED : NOTHING_SET_ASIDE, summary: accept ? 'Nothing accepted' : 'Nothing set aside' }];
+  };
+
+  /** A line that says nothing was taken, and why. */
+  const refused = (verb: InstructionVerb, text: string) => {
+    assistantText = text;
+    toolCalls = [{ name: verb === 'accept' ? NOTHING_ACCEPTED : NOTHING_SET_ASIDE, summary: verb === 'accept' ? 'Nothing accepted' : 'Nothing set aside' }];
+  };
 
   if (ingest.length) {
     const prefer = options.sitting;
@@ -1133,7 +1381,8 @@ export function applyProjectChat(
       const next = projectNextStep(project, actor);
       if (next.kind !== 'idle' && next.proposals.length) {
         const filedCards = offered;
-        offered = [...filedCards, ...offer([next.proposals[0]!])];
+        offer([next.proposals[0]!]);
+        offered = [...filedCards, ...offered];
       }
     }
     /*
@@ -1226,9 +1475,10 @@ export function applyProjectChat(
     assistantText = `${heading}${extraLine ? ` ${extraLine.charAt(0).toUpperCase()}${extraLine.slice(1)}.` : ''}${filedLine}${flagLine}${differLine}${waitingLine}${reach ? `\n${reach}` : ''}`;
     /*
      * The papers this reply brought, and nothing else. "Approve all" accepts
-     * what waits on the papers the last reply cites, and the chips under a
-     * reply count them, so a paper this one only differs from is named in the
-     * words, where its link is drawn from, and is not cited.
+     * what waits on the papers a reply filed, which are the ones it cites,
+     * and the chips under a reply count them. So a paper this one only
+     * differs from is named in the words, where its link is drawn from, and
+     * is not cited.
      */
     citedEvidenceIds = [...new Set([...filedIds, ...rows.flatMap((p) => p.citedEvidenceIds ?? [])])];
     citedNodeIds = rows.flatMap((p) => p.citedNodeIds ?? []);
@@ -1245,6 +1495,30 @@ export function applyProjectChat(
     const first = groups[0];
     if (first?.fn && first.open.pane !== 'evidence') navigate(first.open.pane, `Opened ${chatPlaceLabel({ fn: first.fn })} documents`, first.open.extra);
     else navigate('evidence', 'Opened documents');
+  } else if (options.nothingLeftToRead) {
+    assistantText = 'Nothing on file is left to read.';
+    // Its own name: it raises and files nothing, so it is not the reply the next instruction answers.
+    toolCalls = [{ name: NOTHING_TO_READ, summary: 'Nothing to read' }];
+  } else if (pressed) {
+    /*
+     * A choice that was pressed. It acts on the cards and papers it names and
+     * on nothing else, and only on those still waiting: not on a title, which
+     * two cards can share, and not on "the last reply", which is another
+     * reply by the time an older button is pressed.
+     */
+    const ids = new Set(pressed.proposalIds ?? []);
+    const cards = openCards().filter((p) => ids.has(p.id) && decidedInChat(p));
+    if (pressed.decision === 'aside') {
+      if (cards.length) setAsideThese(cards);
+      else refused('aside', 'That is no longer waiting, so nothing was set aside.');
+    } else {
+      const papers = new Set(pressed.evidenceIds ?? []);
+      // An outside collaborator is offered the papers a reply to them filed. Ids put together by hand are held to the same: the thread they see is their own.
+      const theirs = options.outside ? new Set(project.conversation.flatMap((turn) => filedByReply(turn))) : undefined;
+      const rows = project.evidence.filter((e) => papers.has(e.id) && (!theirs || theirs.has(e.id)) && proposedFacts(e).length);
+      if (cards.length || rows.length) acceptThese(cards, rows);
+      else refused('accept', 'That is no longer waiting, so nothing was accepted.');
+    }
   } else if (asksToFileUnder(project, q)) {
     /*
      * "File “Survey notes” under Legal › Title": a person giving a document
@@ -1289,153 +1563,33 @@ export function applyProjectChat(
       if (went.kind === 'ask') choices = went.choices;
       toolCalls = [{ name: 'clarify', summary: went.summary }];
     }
-  } else if (wantsApprove(ql) && !registerRecordCommand) {
-    const everyOpen = approveAllMeansEveryOpen(q);
-    const saysAll = /\ball\b/.test(ql) || everyOpen;
-    const stillOpen = project.chatProposals.filter((p) => p.status === 'proposed');
-    const targets = saysAll ? (everyOpen ? stillOpen : currentTurnProposals(project)) : [matchProposal(project, q)].filter((p): p is ChatProposal => Boolean(p));
-    // One card open and a sentence that names none ("approve", "yes"): it is that card. "All" names the last reply's own, and takes no other.
-    if (!saysAll && targets.length === 0 && stillOpen.length === 1) targets.push(stillOpen[0]!);
+  } else if (typed && (typed.said.form !== 'unclear' || !registerRecordCommand)) {
     /*
-     * "Approve all" is an instruction, and it covers what a document states
-     * as well as the cards: the values waiting on the documents the last
-     * reply filed, or on every document when they said every or all open.
+     * One of the three typed forms, or a sentence that looks as if it wanted
+     * to be one. "Accept the flood risk" and "close the action" are words for
+     * the registers, and are left to them.
      */
-    const lastFiled = new Set(lastAssistantTurn(project)?.citedEvidenceIds ?? []);
-    const factRows = saysAll ? project.evidence.filter((e) => proposedFacts(e).length && (everyOpen || lastFiled.has(e.id))) : [];
-    if (targets.length === 0 && factRows.length === 0) {
-      /*
-       * "Accept" is two verbs. It approves a card, and it is also what you do
-       * to a risk you have decided to live with — so "accept the flood risk"
-       * landed here, found no card, and said "nothing to approve" while the
-       * risk stayed open. When there is no card to approve but the sentence
-       * names a register, offer that reading rather than treating the word as
-       * settled.
-       */
-      const kind: 'risk' | 'finding' | 'action' | null = /\brisks?\b/.test(ql)
-        ? 'risk'
-        : /\bfindings?\b/.test(ql)
-          ? 'finding'
-          : /\bactions?\b/.test(ql)
-            ? 'action'
-            : null;
-      if (kind) {
-        const rows = kind === 'risk' ? openRisks() : kind === 'finding' ? openFindings() : openActions();
-        const verb = kind === 'risk' ? (/\baccept/.test(ql) ? 'Accept' : 'Mitigate') : 'Close';
-        const asked = clarifyRecordCommand(project, q, kind, rows, verb);
-        assistantText = `Nothing waiting to accept.\n${asked.text}`;
-        choices = asked.choices;
-        toolCalls = [{ name: 'clarify', summary: asked.summary }];
-        navigate(kind === 'risk' ? 'risks' : kind === 'finding' ? 'findings' : 'actions', '');
-      } else {
-        // Nothing of the last reply's is left. What waits from other replies is not taken, and is said with where it waits.
-        const elsewhere = waitingSentence(project, waitingOnCanvas(project), here);
-        assistantText = elsewhere ? `Nothing from the last reply is left to accept. ${elsewhere}` : 'Nothing waiting. Ask what’s next, or drop a document in.';
-      }
+    const { said, left } = typed;
+    if (said.form === 'last') {
+      if (left.mine.length || left.rows.length) acceptThese(left.mine, left.rows);
+      else nothingTaken('accept', left);
+    } else if (said.form === 'open') {
+      // Everything open is the firm's to take. An outside collaborator sees the papers in their grant and none of the firm's cards.
+      const cards = openCards().filter(decidedInChat);
+      const rows = project.evidence.filter((e) => proposedFacts(e).length);
+      if (options.outside) refused('accept', 'Only the firm’s own people can accept everything that is open. Nothing was accepted.');
+      else if (cards.length || rows.length) acceptThese(cards, rows);
+      else nothingTaken('accept', left);
+    } else if (said.form === 'titled') {
+      // The exact title, of exactly one open card, which the last reply listed. Anything less is picked below, by id.
+      const titled = openCards().filter((p) => sameTitle(p.title, said.title));
+      const card = titled.length === 1 && left.cards.includes(titled[0]!) ? titled[0]! : undefined;
+      if (card && !decidedInChat(card)) refused(said.verb, `“${card.title}” is for a workspace admin to ${said.verb === 'accept' ? 'accept' : 'set aside'}. It waits where it is shown.`);
+      else if (!card) nothingTaken(said.verb, left);
+      else if (said.verb === 'accept') acceptThese([card], []);
+      else setAsideThese([card]);
     } else {
-      const before = fileStanding(project);
-      let valuesAccepted = 0;
-      for (const row of factRows) {
-        valuesAccepted += reviewFacts(project, row.id, 'all', 'accept', actor).changed.length;
-        highlightIds.push(row.id);
-      }
-      const done: string[] = [];
-      /*
-       * "All" is not a choice between documents that disagree. A check value
-       * two documents state differently stays waiting on its check, where
-       * the person picks one; everything else is accepted.
-       */
-      let toPick = 0;
-      for (const item of targets) {
-        if (item.status !== 'proposed') continue;
-        if (item.kind === 'record_check_fields') {
-          const left = contestedKeys(project, item);
-          const open = waitingFieldKeys(item).filter((key) => !left.includes(key));
-          toPick += left.length;
-          if (!open.length) continue;
-          try {
-            decideCheckFields(project, item.id, open, 'accept', actor);
-          } catch {
-            continue;
-          }
-          done.push(item.title);
-          highlightIds.push(String(item.payload.checkId));
-          continue;
-        }
-        // An admin's card is approved on its own, by an admin; "accept all" leaves it waiting.
-        if (ADMIN_ONLY_PROPOSALS.has(item.kind)) continue;
-        const result = commitChatProposal(project, item.id, actor);
-        done.push(`${item.title}${result.recordId ? ` → ${result.recordId}` : ''}`);
-        if (result.recordId) highlightIds.push(result.recordId);
-      }
-      const accepted = [valuesAccepted ? plural(valuesAccepted, 'value') : '', done.length ? plural(done.length, 'suggestion') : ''].filter(Boolean).join(' and ');
-      commands.push(accepted ? `Accepted ${accepted}` : 'Nothing left to accept');
-      /*
-       * A receipt, not a re-listing. The cards above have just flipped to
-       * their committed state in place, so repeating their titles — and the
-       * raw `ev_1a06…` ids, which name nothing a person recognises — said the
-       * same thing a third time in the least readable form available.
-       *
-       * What the sentence cannot say, the figures can: whether the diligence
-       * actually moved. Filing six documents against a project with no
-       * assessment leaves the pack at 0/16, and that is the fact worth putting
-       * in front of somebody who has just spent a minute approving cards.
-       */
-      assistantText = [
-        valuesAccepted ? `Accepted ${plural(valuesAccepted, 'value')} on ${plural(factRows.length, 'document')}.` : '',
-        done.length ? approvalReceipt(targets.filter((t) => t.status === 'committed')) : '',
-        toPick ? `${toPick === 1 ? 'One value the documents disagree on waits' : `${toPick} values the documents disagree on wait`} on the checks for you to pick.` : '',
-      ].filter(Boolean).join(' ');
-      metrics = standingDelta(before, fileStanding(project));
-      toolCalls = [{ name: 'approve', summary: `${done.length} committed` }];
-      /*
-       * One card approved opens exactly what it wrote — a filed deed opens at
-       * its page. A batch opens the register it mostly wrote to, and nothing
-       * more: auto-opening the first document's viewer over a batch put a
-       * modal over the chat just as it offered the next step.
-       */
-      const lead = targets[0];
-      const extra = targets.length === 1 && lead ? extrasFromPayload(lead.payload as Record<string, unknown>) : undefined;
-      // Only document values accepted: the register they are on.
-      const pane = !targets.length ? 'evidence' : extra?.checkId ? 'scope' : paneForProposalKind(mostCommonKind(targets));
-      navigate(pane, `Opened ${pane}`, extra);
-      /*
-       * One suggestion, and only one.
-       *
-       * `projectNextStep` already decides what this file needs next and the
-       * Overview pane already renders it; chat simply never asked. Offering it
-       * as a card rather than a sentence means it is actionable where it is
-       * read, and it inherits the collapsed card treatment rather than adding
-       * another paragraph. Idle means the file needs nothing — then say nothing.
-       */
-      /*
-       * What the documents already said, offered to the checks that can now
-       * hold it. Most files arrive before the DD that asks for them: a deed
-       * read in week one states the extent the parcel check instantiated in
-       * week two is about to ask for. Offered here, the moment a DD lands,
-       * rather than making somebody re-upload or re-type what is on file.
-       */
-      const fills = pendingFactProposals(project, actor);
-      if (fills.length) {
-        offer(fills);
-        assistantText += ` ${plural(fills.length, 'check')} can take values from documents already on file; they are waiting on the checks.`;
-      }
-      const startDd = fills.length ? undefined : ddForDocumentsProposal(project, factsOnFile(project).map((row) => row.fact), actor);
-      if (startDd) {
-        offer([startDd]);
-        assistantText += ` Your documents answer checks in the ${startDd.title.replace(/^Start /, '')}; it is waiting to start under Technical DD.`;
-      }
-      const next = projectNextStep(project, actor);
-      if (next.kind !== 'idle' && next.proposals.length && !fills.length && !startDd) offer([next.proposals[0]!]);
-    }
-  } else if (wantsReject(ql)) {
-    const hit = matchProposal(project, q) ?? project.chatProposals.find((p) => p.status === 'proposed');
-    if (hit) {
-      rejectChatProposal(project, hit.id);
-      commands.push(`Rejected “${hit.title}”`);
-      assistantText = `Skipped “${hit.title}”.`;
-    } else {
-      assistantText = 'No open proposal to skip.';
+      nothingTaken(said.verb, left);
     }
   } else if (wantsCritic(q)) {
     const critic = findingCriticSitting(project, actor);
@@ -2015,10 +2169,10 @@ export function applyProjectChat(
     toolCalls,
     metrics,
     spend: options.spend,
-    proposalIds: offered.map((p) => p.id),
+    proposalIds: [...new Set(offered.map((p) => p.id))],
   });
   appendTurns(project, userTurn, assistantTurn);
-  return { userTurn, assistantTurn, commands, navigations, proposals: offered, highlightIds: [...new Set(highlightIds)] };
+  return { userTurn, assistantTurn, commands, navigations, proposals: [...new Set(offered)], highlightIds: [...new Set(highlightIds)] };
 }
 
 export function clearProjectConversation(project: DdProject): void {

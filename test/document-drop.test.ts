@@ -737,7 +737,8 @@ describe('what a dropped paper disagrees with', () => {
     assert.deepEqual(chipsOf(p, out).map((c) => [c.kind, c.words, c.count]), [['waiting', 'waiting on the Title documents', 1], ['graph', 'In the graph', undefined]]);
 
     const approved = applyProjectChat(p, 'approve all');
-    assert.equal(approved.assistantTurn.text, 'Accepted 1 value on 1 document.');
+    // The receipt says what it left: the order's date, on the paper and on the check.
+    assert.equal(approved.assistantTurn.text, 'Accepted 1 value on 1 document. 2 more are waiting: 1 on the Approvals documents and 1 on the Approvals checks.');
     assert.equal(acceptedFacts(rowOf(p, 'Khata.pdf')).length, 1, 'the khata’s own value is accepted');
     assert.deepEqual(proposedFacts(order).map((f) => f.key), ['conversion_date'], 'the order’s date still waits for a person');
     assert.equal(checkOf(p, 'regulatory.land_use').fields?.conversion_date, undefined, 'and is not on the check');
@@ -752,7 +753,7 @@ describe('what a dropped paper disagrees with', () => {
     reviewFacts(p, rowOf(p, 'Khata.pdf').id, 'all', 'accept', 'tester');
 
     const out = applyProjectChat(p, 'approve all');
-    assert.equal(out.assistantTurn.text, 'Nothing from the last reply is left to accept. 2 more are waiting: 1 on the Approvals documents and 1 on the Approvals checks.');
+    assert.equal(out.assistantTurn.text, 'Nothing from the last reply is left to accept. 2 more are waiting: 1 on the Approvals documents and 1 on the Approvals checks. Each is accepted where it is shown.');
     assert.deepEqual(proposedFacts(order).map((f) => f.key), ['conversion_date'], 'nothing of another reply was taken');
     assert.equal(checkOf(p, 'regulatory.land_use').fields?.conversion_date, undefined);
     // Saying which ones is still an instruction.
@@ -760,7 +761,7 @@ describe('what a dropped paper disagrees with', () => {
     assert.equal(checkOf(p, 'regulatory.land_use').fields?.conversion_date?.value, '2019-04-02');
   });
 
-  it('takes the one open card for a word of assent, and every open card after a reply that raised none', () => {
+  it('takes no card of an earlier reply for a word of assent, nor for “approve all” after a reply that raised none', () => {
     const waitingDate = () => {
       const p = seedBdaReferenceProject();
       drop(p, paper('Conversion order.pdf', 'conversion', fact('conversion_date', 'Date of the conversion order', '2019-04-02', '2 Apr 2019')));
@@ -768,17 +769,17 @@ describe('what a dropped paper disagrees with', () => {
     };
     const dateOn = (p: DdProject) => checkOf(p, 'regulatory.land_use').fields?.conversion_date?.value;
 
-    // One card open on the project and a sentence that names none: it is that card, as it always was.
+    // The khata raised no card. A sentence that names none answers the khata's reply, and the order's card is not it.
     const assent = waitingDate();
     drop(assent, paper('Khata.pdf', 'khata', fact('pid', 'PID', '81-120-99')));
     applyProjectChat(assent, 'approve');
-    assert.equal(dateOn(assent), '2019-04-02');
+    assert.equal(dateOn(assent), undefined);
 
-    // A reply that raises no card of its own leaves "approve all" meaning every open card, as it always has.
+    // A reply that raises no card of its own leaves "approve all" nothing to take. It no longer means every open card.
     const after = waitingDate();
     applyProjectChat(after, 'open Title');
     applyProjectChat(after, 'approve all');
-    assert.equal(dateOn(after), '2019-04-02');
+    assert.equal(dateOn(after), undefined);
   });
 
   it('does not set two deeds of one chain against each other', () => {
