@@ -18,6 +18,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  addEvidence,
   applyRevenueMap,
   buildBoundary,
   clearRevenueMap,
@@ -34,6 +35,7 @@ import {
   type RevenueMapInsight,
   type RevenueMapRead,
 } from '@realytica/shared';
+import { PROJECT_RECORD_CEILING_BYTES, recordBytes, roomForRead } from '../apps/api/src/gis/revenue-map';
 
 const ORIGIN = { lat: 12.9698131, lng: 77.7499721 };
 const east = (m: number) => m / (111_320 * Math.cos((ORIGIN.lat * Math.PI) / 180));
@@ -318,5 +320,46 @@ describe('how several reads are stored', () => {
     applyRevenueMap(q, read('96', 31, '2026-10-04T07:00:00.000Z'), 'tester');
     assert.deepEqual(revenueReads(fromStore(q)).map((r) => r.surveyNo), ['95', '96']);
     assert.equal(q.revenueMaps?.length, 2, 'and the next read kept here writes them afresh');
+  });
+});
+
+describe('room on the record for a read', () => {
+  /** The record filled by what else a project holds, to within `short` bytes of what it may weigh. */
+  function filled(p: DdProject, short: number): DdProject {
+    const notes = addEvidence(p, { title: 'A long document', kind: 'document', status: 'received' }, 'tester');
+    notes.extractionNotes = 'x'.repeat(PROJECT_RECORD_CEILING_BYTES - recordBytes(p) - short);
+    return p;
+  }
+  const LATER = '2026-10-05T06:00:00.000Z';
+
+  it('weighs a parcel read again, and keeps it only at the weight it had', () => {
+    const p = filled(site(3), 150);
+    assert.ok(recordBytes(p) < PROJECT_RECORD_CEILING_BYTES);
+    // The same parcel as it was: one more line on the audit trail takes the record over, and that is not what filled it.
+    assert.deepEqual(roomForRead(p, read('72', 1, LATER)), { fits: true });
+
+    // The same parcel, come back with the outline of a reservoir it had not held.
+    const again = read('72', 1, LATER);
+    const heavier = { ...again, features: [...again.features, { id: 'ka_water:9', kind: 'state_water' as const, layerKey: 'ka_water', name: 'Reservoir', distanceM: 940, contains: false, ring: outline(900, 900, 400, 420, 77) }] };
+    const refused = roomForRead(p, heavier);
+    assert.equal(refused.fits, false);
+    assert.equal(
+      refused.fits ? '' : refused.error,
+      '3 parcels are kept on this project. Sy. 72 was read again and the fresh read is not kept: it is heavier than the read it would replace, and with it the project’s record would weigh over 2.5 MB, and a record much heavier than that stops opening. The read already kept stays as it was.',
+    );
+    assert.deepEqual(roomForRead(site(3), heavier), { fits: true }, 'on a record with room it is kept like any read');
+  });
+
+  it('says a record with no parcel kept is already too heavy to take one, and does not ask for a read to be removed', () => {
+    const p = filled(township(), 150);
+    const refused = roomForRead(p, read('71', 0));
+    assert.equal(
+      refused.fits ? '' : refused.error,
+      'No parcel is kept on this project, and its record is already too heavy to take one. Sy. 71 was read from the map and is not kept: with it the project’s record would weigh over 2.5 MB, and a record much heavier than that stops opening. It is what else the file holds that fills it.',
+    );
+    // With one kept, there is one to remove, and the words say so.
+    const one = filled(site(1), 150);
+    const second = roomForRead(one, read('72', 1));
+    assert.match(second.fits ? '' : second.error, /^1 parcel is kept on this project\. Sy\. 72 was read from the map and is not kept: .* Remove a read that is not needed to make room\.$/);
   });
 });

@@ -666,10 +666,17 @@ export interface OfferedSurveyNumber {
   accepted: boolean;
   /**
    * Set when this looks like another number the papers state, read without
-   * its stroke — "472" beside 47/2: the number it may be. It is offered,
-   * said to be doubtful, and not ticked; a person can still have it read.
+   * its stroke — "472" beside 47/2: the number it may be. Only on a reading
+   * nobody has accepted. It is offered and said to be doubtful, and like any
+   * reading that waits it is not ticked; a person can still have it read.
    */
   maybe?: string;
+  /**
+   * How the papers spell it where that is not how it is kept: "77/03" for
+   * 77/3. A map that spells the part with its zero is asked for it this way
+   * when the number as kept is not found.
+   */
+  written?: string[];
 }
 
 /**
@@ -687,10 +694,12 @@ export interface OfferedSurveyNumber {
  * as 472. Such a number is marked as a likely misreading only where the file
  * itself says so twice over: the papers state the other number, stroke and
  * all, and state no whole survey number as long as this one. A whole number
- * is what stands before a stroke, or a number written without one — unless
- * that number begins with one of those and runs on, for it may be a part
- * with its stroke lost too, and is no witness. Where either is missing the
- * number is offered as any other: nothing is guessed at.
+ * is what stands before a stroke, or a number written without one that is
+ * not itself some other stated number with its stroke taken out: 471 beside
+ * 472 says a village has numbers that long, and 472 is then a neighbour, not
+ * a misreading. Where either is missing the number is offered as any other,
+ * and so is a number a person has accepted or recorded: nothing is guessed
+ * at, and nobody's own decision is second-guessed.
  */
 export function offeredSurveyNumbers(project: DdProject): OfferedSurveyNumber[] {
   const out: OfferedSurveyNumber[] = [];
@@ -721,6 +730,7 @@ export function offeredSurveyNumbers(project: DdProject): OfferedSurveyNumber[] 
         else held.documents.push({ evidenceId: row.id, document: row.documentType ?? row.title, page: fact.page, accepted, byModel: fact.source === 'model' });
         if (accepted) held.accepted = true;
         if (piece.unreadable) continue;
+        if (piece.written && !held.written?.includes(piece.written)) held.written = [...(held.written ?? []), piece.written];
         for (const spelt of [piece.surveyNo, ...(piece.written ? [piece.written] : [])]) {
           const lost = spelt.replace(/[/-]/g, '').toUpperCase();
           if (lost !== spelt.toUpperCase() && !strokeless.has(lost)) strokeless.set(lost, held.surveyNo);
@@ -733,14 +743,14 @@ export function offeredSurveyNumbers(project: DdProject): OfferedSurveyNumber[] 
   const hasStroke = (surveyNo: string) => /[/-]/.test(surveyNo);
   const digits = (surveyNo: string) => /^\d*/.exec(surveyNo)?.[0] ?? '';
   const beforeStroke = [...new Set(numbers.filter((o) => hasStroke(o.surveyNo)).map((o) => digits(o.surveyNo.split(/[/-]/)[0] ?? '')))];
-  const runsOn = (surveyNo: string) => beforeStroke.some((base) => base && surveyNo.length > base.length && surveyNo.startsWith(base));
   const longestWhole = Math.max(
     0,
     ...beforeStroke.map((base) => base.length),
-    ...numbers.filter((o) => !hasStroke(o.surveyNo) && !runsOn(o.surveyNo)).map((o) => digits(o.surveyNo).length),
+    ...numbers.filter((o) => !hasStroke(o.surveyNo) && !strokeless.has(o.surveyNo.toUpperCase())).map((o) => digits(o.surveyNo).length),
   );
   for (const o of numbers) {
-    if (o.onProject || hasStroke(o.surveyNo)) continue;
+    // A number a person recorded or accepted is theirs, and is not doubted for them.
+    if (o.onProject || o.accepted || hasStroke(o.surveyNo)) continue;
     const other = strokeless.get(o.surveyNo.toUpperCase());
     if (other && digits(o.surveyNo).length > longestWhole) o.maybe = other;
   }
@@ -749,11 +759,12 @@ export function offeredSurveyNumbers(project: DdProject): OfferedSurveyNumber[] 
 
 /**
  * The numbers a file states, for whatever waits until each is read. A number
- * that is likely another one misread is not one of them: it is on no map,
- * and waiting for it would be waiting for ever.
+ * that is likely another one misread, and that nobody has accepted, is not
+ * one of them: it is on no map, and waiting for it would be waiting for
+ * ever. One a person accepted is a number like any other, and is waited for.
  */
 export function statedNumbers(offered: readonly OfferedSurveyNumber[]): string[] {
-  return offered.filter((o) => !o.unreadable && !o.maybe).map((o) => o.surveyNo);
+  return offered.filter((o) => !o.unreadable && !(o.maybe && !o.accepted)).map((o) => o.surveyNo);
 }
 
 export interface SurveyNumberLine {
@@ -766,6 +777,8 @@ export interface SurveyNumberLine {
   typed: boolean;
   /** The kept read that answers it. Two numbers can share one: the map may hold them as one parcel. */
   read?: RevenueMapRead;
+  /** How the papers, or the person, spelt it where that is not how it is kept: "77/03" for 77/3. */
+  written?: string[];
 }
 
 /**
@@ -785,13 +798,16 @@ export function surveyNumberLines(project: DdProject, typed = ''): SurveyNumberL
     offered,
     typed: false,
     ...(offered.unreadable ? {} : { read: revenueReadFor(reads, offered.surveyNo) }),
+    ...(offered.written?.length ? { written: [...offered.written] } : {}),
   }));
   const own: SurveyNumberLine[] = [];
   for (const piece of surveyPieces(typed)) {
     const held = stated.find((l) => surveyKey(l.surveyNo) === surveyKey(piece.surveyNo));
-    if (held) held.typed = true;
-    else if (piece.unreadable) own.push({ surveyNo: piece.surveyNo, unreadable: piece.unreadable, typed: true });
-    else own.push({ surveyNo: piece.surveyNo, typed: true, read: revenueReadFor(reads, piece.surveyNo) });
+    if (held) {
+      held.typed = true;
+      if (piece.written && !held.written?.includes(piece.written)) held.written = [...(held.written ?? []), piece.written];
+    } else if (piece.unreadable) own.push({ surveyNo: piece.surveyNo, unreadable: piece.unreadable, typed: true });
+    else own.push({ surveyNo: piece.surveyNo, typed: true, read: revenueReadFor(reads, piece.surveyNo), ...(piece.written ? { written: [piece.written] } : {}) });
   }
   const kept: SurveyNumberLine[] = [];
   for (const read of reads) {

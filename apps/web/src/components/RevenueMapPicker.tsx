@@ -4,7 +4,7 @@ import { Landmark, Square, Trash2, X } from 'lucide-react';
 import { revenueReads, surveyNumberLines, surveyPieces, type DdProject, type RevenueMapRead, type SurveyNumberLine } from '@realytica/shared';
 import { Button, Callout, Checkbox, Field, Input, Select, Spinner, cn } from './ui/kit';
 import { api } from '../lib/api';
-import { isTicked, lineDoubt, lineKey, lineSource, readInTurn, readsAgain, runPlan, settled, ticksAfter, type ReadState } from '../lib/revenue-run';
+import { absentDetail, isTicked, lineDoubt, lineKey, lineSource, readInTurn, readsAgain, runPlan, settled, ticksAfter, type ReadState } from '../lib/revenue-run';
 
 /**
  * The survey numbers, the way the revenue record keys them: state, district,
@@ -77,7 +77,7 @@ function NumberLine({
   const trouble = line.unreadable
     ? { word: 'Not read', detail: line.unreadable }
     : state?.phase === 'absent'
-      ? { word: 'Not in the published map', detail: state.near.length ? `Starts the same way: ${state.near.join(', ')}` : null }
+      ? { word: 'Not in the published map', detail: absentDetail(state) }
       : state?.phase === 'full'
         ? { word: 'Not kept', detail: state.reason }
         : state?.phase === 'failed'
@@ -320,7 +320,17 @@ export function RevenueMapPicker({ project, onRead }: { project: DdProject; onRe
         const line = run.get(key)?.line;
         const several = run.size > 1;
         if (line?.read && readsAgain(line)) return api.readRevenueMap(project.id, { parcelRef: line.read.parcelRef, several });
-        return api.readRevenueMap(project.id, { state, district, mandal, village, surveyNo: line?.surveyNo ?? '', several, unlessKept: true });
+        // The number is asked for as it is kept. Where the papers spell it another way, that goes too, to be tried if the map does not hold the first.
+        return api.readRevenueMap(project.id, {
+          state,
+          district,
+          mandal,
+          village,
+          surveyNo: line?.surveyNo ?? '',
+          ...(line?.written?.length ? { asWritten: line.written } : {}),
+          several,
+          unlessKept: true,
+        });
       },
       {
         // Lines that are one parcel, read again by one request, stand or fall together.

@@ -27,6 +27,7 @@ import {
 import {
   FULL,
   GIVE_UP_AFTER,
+  absentDetail,
   isTicked,
   lineDoubt,
   lineKey,
@@ -162,28 +163,26 @@ describe('a line of the picker', () => {
 });
 
 describe('a number that may be another one misread', () => {
-  /** A township's papers, read by a model: the parts of three survey numbers, and three numbers that have lost a stroke. */
-  function papers(review: 'proposed' | 'accepted' = 'proposed'): DdProject {
+  /** A township's papers: the parts of three survey numbers, and two numbers that look like parts with the stroke lost. */
+  function papers(review: 'proposed' | 'accepted'): DdProject {
     const p = township();
-    file(p, 'RERA certificate', [fact('survey_numbers', '77/3, 77/10, 67/1, 67/2, 6712, 47/2, 47/3, 4712, 472', { review, source: 'model' })]);
+    file(p, 'RERA certificate', [fact('survey_numbers', '77/3, 77/10, 67/1, 67/12, 6712, 47/2, 47/3, 472', { review, source: 'model' })]);
     return p;
   }
 
-  it('is not ticked, though the reading it came off is accepted, and says what it may be', () => {
-    const lines = surveyNumberLines(papers('accepted'));
+  it('waits like any reading nobody has accepted, and says what it may be', () => {
+    const lines = surveyNumberLines(papers('proposed'));
     assert.deepEqual(
       lines.map((l) => [l.surveyNo, isTicked(l, {}), l.offered?.maybe ?? null]),
       [
-        ['47/2', true, null],
-        ['47/3', true, null],
-        ['67/1', true, null],
-        ['67/2', true, null],
-        ['77/3', true, null],
-        ['77/10', true, null],
+        ['47/2', false, null],
+        ['47/3', false, null],
+        ['67/1', false, null],
+        ['67/12', false, null],
+        ['77/3', false, null],
+        ['77/10', false, null],
         ['472', false, '47/2'],
-        // Nothing on the file states 47/12 or 67/12, so nothing is guessed of these two.
-        ['4712', true, null],
-        ['6712', true, null],
+        ['6712', false, '67/12'],
       ],
     );
     assert.equal(
@@ -191,11 +190,17 @@ describe('a number that may be another one misread', () => {
       'May be Sy. 47/2 with its stroke lost in reading: the papers state that number too, and no whole survey number this long. Tick it to read it as it stands.',
     );
     assert.equal(lineDoubt(lineFor(lines, '47/2')), null);
-    assert.equal(lineDoubt(lineFor(lines, '4712')), null);
+  });
+
+  it('is a number like any other once a person has accepted it: ticked, read in a run, and not doubted', () => {
+    const lines = surveyNumberLines(papers('accepted'));
+    assert.deepEqual(lines.map((l) => [l.surveyNo, isTicked(l, {}), l.offered?.maybe ?? null]).slice(-2), [['472', true, null], ['6712', true, null]]);
+    assert.equal(lineDoubt(lineFor(lines, '472')), null);
+    assert.equal(runPlan(lines, {}).some((step) => step.line.surveyNo === '472'), true, 'a run does not skip it');
   });
 
   it('is read when a person ticks it, and says nothing more of itself once the map has answered', () => {
-    const p = papers('accepted');
+    const p = papers('proposed');
     const lines = surveyNumberLines(p);
     const doubtful = lineFor(lines, '472');
     const plan = runPlan(lines, { [lineKey(doubtful)]: true });
@@ -381,6 +386,19 @@ describe('reading several numbers in turn', () => {
       { state: (_line, state) => state && state.phase !== 'reading' && seen.push(state) },
     );
     assert.deepEqual(seen, [{ phase: 'absent', near: ['72/1'] }, { phase: 'failed', reason: 'Not responding.' }]);
+  });
+
+  it('says on the line that a number was asked for again as the papers write it', async () => {
+    const seen: ReadState[] = [];
+    await readInTurn(
+      ['77/3'],
+      async () => ({ ok: false, status: 404, error: 'Sy. 77/3 is not in the published map for Hosakere, under that spelling or as 77/03, the way it is written.', near: ['77/30'], alsoAsked: ['77/03'] }),
+      { state: (_line, state) => state && state.phase !== 'reading' && seen.push(state) },
+    );
+    assert.deepEqual(seen, [{ phase: 'absent', near: ['77/30'], alsoAsked: ['77/03'] }]);
+    assert.equal(absentDetail({ phase: 'absent', near: ['77/30'], alsoAsked: ['77/03'] }), 'Asked for again as 77/03, the way it is written, and not found so either. Starts the same way: 77/30');
+    assert.equal(absentDetail({ phase: 'absent', near: ['72/1', '72/2'] }), 'Starts the same way: 72/1, 72/2');
+    assert.equal(absentDetail({ phase: 'absent', near: [] }), null);
   });
 
   it('does not call a missing project, or a parcel no longer kept, a number missing from the map', async () => {

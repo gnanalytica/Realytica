@@ -28,6 +28,8 @@ export type RevenueReadResult =
       error: string;
       /** Present when the map does not hold the number: the numbers there that start the same way. */
       near?: string[];
+      /** The other spellings the map was asked for it under, and did not hold either: "77/03" for 77/3. */
+      alsoAsked?: string[];
       /** How many seconds the server asked to be left alone for, when it turned the request away as one too many. */
       retryAfterS?: number;
       /** The parcel was read and not kept: the project's record has no room for another. Every number after would meet the same. */
@@ -40,7 +42,7 @@ export type ReadState =
   /** The server asked for a pause before the next read, and the run is waiting it out. */
   | { phase: 'waiting'; seconds: number }
   | { phase: 'read'; surveyNo: string; areaSqm: number }
-  | { phase: 'absent'; near: string[] }
+  | { phase: 'absent'; near: string[]; alsoAsked?: string[] }
   /** Read from the map and not kept, for want of room on the file. */
   | { phase: 'full'; reason: string }
   | { phase: 'failed'; reason: string };
@@ -147,7 +149,7 @@ export async function readInTurn(
       return run(FULL);
     } else if (result.status === 404 && result.near) {
       unanswered = 0;
-      on.state(line, { phase: 'absent', near: result.near });
+      on.state(line, { phase: 'absent', near: result.near, ...(result.alsoAsked?.length ? { alsoAsked: result.alsoAsked } : {}) });
     } else {
       on.state(line, { phase: 'failed', reason: result.error });
       // The map or the server did not answer at all, as against answering no.
@@ -184,14 +186,26 @@ export function readsAgain(line: SurveyNumberLine): boolean {
 /**
  * Whether a line is ticked. A person's own tick or untick stands. A line
  * they have not touched is ticked when they typed it, or when the file
- * states it, that is accepted, and it is not yet read — unless the number
- * looks like another one misread, which waits for a person to say it is
- * wanted. A piece that is not one survey number cannot be read and is never
- * ticked.
+ * states it, that is accepted, and it is not yet read. A number that looks
+ * like another one misread is only ever a reading nobody has accepted, so it
+ * waits like any such reading; once a person accepts it, it is a number like
+ * any other. A piece that is not one survey number cannot be read and is
+ * never ticked.
  */
 export function isTicked(line: SurveyNumberLine, choices: Readonly<Record<string, boolean>>): boolean {
   if (line.unreadable) return false;
-  return choices[lineKey(line)] ?? (line.typed || (!line.read && Boolean(line.offered?.accepted) && !line.offered?.maybe));
+  return choices[lineKey(line)] ?? (line.typed || (!line.read && Boolean(line.offered?.accepted)));
+}
+
+/**
+ * What a line says under "Not in the published map": the other spelling it
+ * was asked for under, where the papers write the number another way, and
+ * the numbers the map does hold that start the same way.
+ */
+export function absentDetail(state: Extract<ReadState, { phase: 'absent' }>): string | null {
+  const spelt = state.alsoAsked?.length ? `Asked for again as ${state.alsoAsked.join(' and ')}, the way it is written, and not found so either.` : '';
+  const near = state.near.length ? `Starts the same way: ${state.near.join(', ')}` : '';
+  return [spelt, near].filter(Boolean).join(' ') || null;
 }
 
 /**

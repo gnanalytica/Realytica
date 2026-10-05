@@ -191,6 +191,27 @@ describe('the revenue-map routes, for a site on several survey numbers', () => {
     assert.deepEqual(parcelsAsked.filter((n) => n.includes('/')), [], 'the map is asked for whole numbers only');
   });
 
+  it('asks Karnataka’s map once for a number the papers spell two ways', async () => {
+    // What reading the number alone asks of the map: once to find the parcel, once to read it.
+    const alone = await seeded();
+    parcelsAsked = [];
+    await read(alone.id, '91/1', { several: true, unlessKept: true });
+    const asksForOne = [...parcelsAsked];
+
+    const p = await seeded();
+    parcelsAsked = [];
+    const found = await read(p.id, '91/1', { asWritten: ['91/01'], several: true, unlessKept: true });
+    assert.equal(found.status, 200);
+    assert.deepEqual(parcelsAsked, asksForOne, 'its map holds whole numbers: 91/1 and 91/01 are one question, asked no more often');
+    assert.deepEqual([...new Set(parcelsAsked)], ['91']);
+
+    parcelsAsked = [];
+    const missing = await read(p.id, '99/1', { asWritten: ['99/01'], several: true, unlessKept: true });
+    assert.equal(missing.status, 404);
+    assert.equal(missing.body.alsoAsked, undefined);
+    assert.deepEqual(parcelsAsked, ['99']);
+  });
+
   it('says a number is not on the map without stopping what is kept', async () => {
     const p = await seeded();
     await read(p.id, '91');

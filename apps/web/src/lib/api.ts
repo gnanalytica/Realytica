@@ -932,7 +932,7 @@ export const api = {
   readRevenueMap: async (
     projectId: string,
     body:
-      | { state: 'TS' | 'KA'; district: string; mandal: string; village: string; surveyNo: string; unlessKept?: boolean; several?: boolean }
+      | { state: 'TS' | 'KA'; district: string; mandal: string; village: string; surveyNo: string; asWritten?: string[]; unlessKept?: boolean; several?: boolean }
       | { parcelRef: string; several?: boolean },
   ): Promise<RevenueReadResult> => {
     const res = await fetchWithAuth(`${BASE}/projects/${projectId}/gis-overlay/revenue`, { method: 'POST', body: JSON.stringify(body) });
@@ -943,6 +943,7 @@ export const api = {
       already?: boolean;
       error?: string;
       near?: string[];
+      alsoAsked?: string[];
       full?: boolean;
     };
     if (res.ok && answer.read) {
@@ -955,6 +956,7 @@ export const api = {
       status: res.status,
       error: answer.error ?? `${res.status} ${res.statusText}`,
       ...(answer.near ? { near: answer.near } : {}),
+      ...(answer.alsoAsked?.length ? { alsoAsked: answer.alsoAsked } : {}),
       ...(answer.full ? { full: true } : {}),
       ...(Number.isFinite(retryAfterS) && retryAfterS > 0 ? { retryAfterS } : {}),
     };

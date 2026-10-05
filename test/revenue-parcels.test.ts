@@ -64,7 +64,7 @@ import {
   type RevenueMapInsight,
   type RevenueMapRead,
 } from '@realytica/shared';
-import { parcelAnswering, suggestRevenuePlace } from '../apps/api/src/gis/revenue-map';
+import { parcelAnswering, parcelUnderAnySpelling, spellingsToAsk, suggestRevenuePlace } from '../apps/api/src/gis/revenue-map';
 
 const ORIGIN = { lat: 12.71, lng: 77.69 };
 const NOW = new Date('2026-10-01T00:00:00Z');
@@ -272,6 +272,10 @@ describe('the survey numbers a file offers', () => {
     assert.deepEqual(surveyPieces('077/03, 77/3 & 77/030'), [{ surveyNo: '77/3', written: '077/03' }, { surveyNo: '77/30', written: '77/030' }]);
     assert.deepEqual(splitSurveyNumbers('77/0, 77/00, 70/1, 77/03A'), ['77/0', '70/1', '77/3A'], 'a zero that is the part, or ends a number, stays');
 
+    // How the papers, or the person, spelt it goes with the line, for a map that spells it that way.
+    assert.deepEqual(offered.map((o) => o.written ?? null), [['77/03'], ['77/05'], null]);
+    assert.deepEqual(surveyNumberLines(p, '078/01, 77/3').map((l) => [l.surveyNo, l.written ?? null]), [['78/1', ['078/01']], ['77/3', ['77/03']], ['77/5', ['77/05']], ['77/10', null]]);
+
     // A parcel read as 77/3 answers for 77/03, and the number is not asked of the map twice.
     applyRevenueMap(p, read('77/3', 0), 'tester');
     assert.equal(revenueReadFor(revenueReads(p), '77/03')?.surveyNo, '77/3');
@@ -291,8 +295,20 @@ describe('the survey numbers a file offers', () => {
     assert.deepEqual(numbers('67/1, 67/12, 6712'), [['67/1', null], ['67/12', null], ['6712', '67/12']]);
     // Where the papers state whole numbers as long, 472 may well be one of them.
     assert.deepEqual(numbers('47/2, 472, 118, 245/1'), [['47/2', null], ['118', null], ['245/1', null], ['472', null]]);
-    // A number that runs on from one written before a stroke is no witness that numbers are that long: 4712 does not clear 472.
-    assert.deepEqual(numbers('47/2, 47/3, 472, 4712'), [['47/2', null], ['47/3', null], ['472', '47/2'], ['4712', null]]);
+    // A neighbour is a whole number like any other, though it begins with a number written before a stroke: 471 says this
+    // village's numbers run to three digits, and 472 beside it is then a parcel, not 47/2 misread.
+    assert.deepEqual(numbers('47/2, 471, 472'), [['47/2', null], ['471', null], ['472', null]]);
+    assert.deepEqual(numbers('7/1, 71, 72, 73'), [['7/1', null], ['71', null], ['72', null], ['73', null]]);
+    assert.deepEqual(numbers('12/3, 12/4, 123, 124, 125'), [['12/3', null], ['12/4', null], ['123', null], ['124', null], ['125', null]]);
+    // Only a number that is itself another's strokeless form is no witness: 6712 and 4712 do not clear each other, or 472.
+    assert.deepEqual(numbers('47/2, 47/12, 67/12, 472, 4712, 6712'), [
+      ['47/2', null],
+      ['47/12', null],
+      ['67/12', null],
+      ['472', '47/2'],
+      ['4712', '47/12'],
+      ['6712', '67/12'],
+    ]);
     // The stroke lost from a number spelt with a zero.
     assert.deepEqual(numbers('77/03, 7703'), [['77/3', null], ['7703', '77/3']]);
 
@@ -300,6 +316,13 @@ describe('the survey numbers a file offers', () => {
     const own = township({ parcelId: 'Sy. No. 472' });
     file(own, 'RERA', 'RERA certificate', [fact('survey_numbers', '47/2 and 472', { review: 'proposed', source: 'model' })]);
     assert.deepEqual(offeredSurveyNumbers(own).map((o) => [o.surveyNo, o.maybe ?? null]), [['47/2', null], ['472', null]]);
+
+    // Nor is one a person accepted on a document, whatever another paper's reading of it still waits on.
+    const accepted = township();
+    file(accepted, 'RERA', 'RERA certificate', [fact('survey_numbers', '47/2 and 472', { review: 'proposed', source: 'model' })]);
+    assert.equal(offeredSurveyNumbers(accepted)[1]!.maybe, '47/2');
+    file(accepted, 'Sale deed', 'Sale deed', [fact('survey_numbers', '472')]);
+    assert.deepEqual(offeredSurveyNumbers(accepted).map((o) => [o.surveyNo, o.accepted, o.maybe ?? null]), [['47/2', false, null], ['472', true, null]]);
   });
 
   it('lists the numbers in the order of the numbers, the parts of one together', () => {
@@ -310,17 +333,37 @@ describe('the survey numbers a file offers', () => {
     assert.deepEqual(surveyNumberLines(p, '99, 12').map((l) => l.surveyNo), ['99', '12', '67/1', '67/2', '70', '77/3', '77/4', '77/5', '77/10', '81 to 85']);
   });
 
-  it('does not wait on a number that is likely a misreading, for what waits until every number is read', () => {
+  it('does not wait on a number that is likely a misreading and that nobody has accepted', () => {
     const p = township();
-    file(p, 'RERA', 'RERA certificate', [fact('survey_numbers', '47/2, 47/3 and 472', { source: 'model' })]);
+    file(p, 'RERA', 'RERA certificate', [fact('survey_numbers', '47/2, 47/3 and 472', { review: 'proposed', source: 'model' })]);
     file(p, 'Sale deed', 'Sale deed', [fact('extent_title', 4800)]);
-    const joined = { prohibitedRegisterUnjoined: false };
-    applyRevenueMap(p, read('47/2', 0, joined), 'tester');
-    applyRevenueMap(p, read('47/3', 80, { readAt: '2026-10-01T06:01:00.000Z', ...joined }), 'tester');
-    // 472 is on no map. The site's extent is set against the two parcels, and the register check answers for them.
+    applyRevenueMap(p, read('47/2', 0), 'tester');
+    applyRevenueMap(p, read('47/3', 80, { readAt: '2026-10-01T06:01:00.000Z' }), 'tester');
+    // 472 is on no map. The site's extent is set against the two parcels, and is not held back for a third that is not one.
     const stated = revenueExtent(p)!.documents!;
     assert.deepEqual([stated.numbers, stated.read, stated.compared?.mapSqm], [['47/2', '47/3'], 2, 4800]);
+  });
+
+  it('waits for a number a person accepted, whatever it looks like', () => {
+    // Two deeds accepted as stating Sy. 47/2 and Sy. 472: a real second parcel, though no other whole number here runs to three digits.
+    const p = township();
+    file(p, 'Sale deed A', 'Sale deed', [fact('survey_numbers', '47/2')]);
+    file(p, 'Sale deed B', 'Sale deed', [fact('survey_numbers', '472')]);
+    file(p, 'Khata', 'Khata certificate', [fact('extent_khata', 8000)]);
+    applyRevenueMap(p, read('47/2', 0, { areaSqm: 4000, prohibitedRegisterUnjoined: false }), 'tester');
+    assert.deepEqual(offeredSurveyNumbers(p).map((o) => [o.surveyNo, o.accepted, o.maybe ?? null]), [['47/2', true, null], ['472', true, null]]);
+
+    const register = lenderCheck(p, 'prohibited')!;
+    assert.deepEqual([register.verdict, register.headline], ['unknown', 'Sy. 472 not read'], 'not clear, with a parcel of the site unread');
+    const hit = compareProjectGis(p, { revenue: revenueReads(p) }).hits.find((h) => h.code === 'revenue_documents_extent')!;
+    assert.equal(hit.severity, 'info', 'not 4,000 sqm less on the map');
+    assert.equal(hit.text, 'The documents state 8,000 sqm (Khata certificate, p. 1). 1 of the 2 numbers the file states is read, so the map is not set against it yet.');
+    assert.equal(lenderCheck(p, 'extents_agree')!.headline, 'Stated once', 'nor 50% apart');
+
+    // Read, the two are the site.
+    applyRevenueMap(p, read('472', 80, { readAt: '2026-10-01T06:01:00.000Z', areaSqm: 4000, prohibitedRegisterUnjoined: false }), 'tester');
     assert.equal(lenderCheck(p, 'prohibited')!.verdict, 'clear');
+    assert.equal(lenderCheck(p, 'extents_agree')!.verdict, 'clear');
   });
 
   it('offers nothing from a reading a person set aside, or a document that was replaced', () => {
@@ -2020,5 +2063,48 @@ describe('the parcel the map answers a survey number with', () => {
     assert.equal(parcelAnswering(found('71'), '710/2'), undefined);
     assert.equal(parcelAnswering(found('711', '712'), '71'), undefined);
     assert.equal(parcelAnswering([], '71'), undefined);
+  });
+});
+
+describe('a number the state’s map spells another way than it is kept', () => {
+  /** A state's layer that matches a number by how it starts, and spells a part with its zero. */
+  function layer(holds: string[]) {
+    const asked: string[] = [];
+    const search = async (spelling: string) => {
+      asked.push(spelling);
+      return { ok: true as const, data: holds.filter((parcelNo) => parcelNo.startsWith(spelling)).map((parcelNo) => ({ parcelNo, ref: `ts:${parcelNo}` })) };
+    };
+    return { asked, search };
+  }
+
+  it('is asked for again as the paper writes it, when the number as kept is not found', async () => {
+    assert.deepEqual(spellingsToAsk('TS', '77/3', ['77/03']), ['77/3', '77/03']);
+    const zeroed = layer(['77/03', '77/04', '78']);
+    assert.deepEqual(await parcelUnderAnySpelling(spellingsToAsk('TS', '77/3', ['77/03']), zeroed.search), { found: { parcelNo: '77/03', ref: 'ts:77/03' } });
+    assert.deepEqual(zeroed.asked, ['77/3', '77/03']);
+
+    // Found as it is kept, it is asked for once.
+    const plain = layer(['77/3', '77/4']);
+    assert.deepEqual(await parcelUnderAnySpelling(spellingsToAsk('TS', '77/3', ['77/03']), plain.search), { found: { parcelNo: '77/3', ref: 'ts:77/3' } });
+    assert.deepEqual(plain.asked, ['77/3']);
+
+    // On the map under neither, it says both were asked, and what the map holds that starts as the first does.
+    const neither = layer(['77/30', '77/31']);
+    assert.deepEqual(await parcelUnderAnySpelling(spellingsToAsk('TS', '77/3', ['77/03']), neither.search), { near: ['77/30', '77/31'], alsoAsked: ['77/03'] });
+
+    // A map that does not answer the second time has not said the number is missing.
+    let times = 0;
+    const down = { ok: false as const, reason: 'http', detail: 'HTTP 503' };
+    assert.deepEqual(await parcelUnderAnySpelling(['77/3', '77/03'], async () => ((times += 1) === 1 ? { ok: true as const, data: [] as Array<{ parcelNo: string }> } : down)), { failed: down });
+  });
+
+  it('is asked of Karnataka’s map once, which takes the whole number whatever part is named', () => {
+    assert.deepEqual(spellingsToAsk('KA', '77/3', ['77/03']), ['77/3']);
+    assert.deepEqual(spellingsToAsk('KA', '77/3', ['077/03']), ['77/3', '077/03'], 'a whole number written with a zero is another question');
+  });
+
+  it('is only ever asked for under another spelling of the same number', () => {
+    assert.deepEqual(spellingsToAsk('TS', '77/3', ['78/03', '', '77/3', ' 77 / 03 ']), ['77/3', '77/03']);
+    assert.deepEqual(spellingsToAsk('TS', '77/3'), ['77/3']);
   });
 });

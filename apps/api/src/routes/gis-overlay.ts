@@ -81,7 +81,7 @@ projectGisOverlayRouter.get<ProjectParams>('/', async (req, res) => {
  * The revenue map — Kshetra's engine, on this file.
  *
  * GET    /revenue/levels?state=&district=&mandal=   the picker, one level at a time
- * POST   /revenue  { state, district, mandal, village, surveyNo, unlessKept?, several? }
+ * POST   /revenue  { state, district, mandal, village, surveyNo, asWritten?, unlessKept?, several? }
  *                  { parcelRef, several? }          a kept parcel, read afresh
  * DELETE /revenue/:parcelRef                        one parcel's read
  * DELETE /revenue                                   every read
@@ -156,6 +156,8 @@ projectGisOverlayRouter.post<ProjectParams>('/revenue', async (req, res) => {
   const mandal = str(body.mandal);
   const village = str(body.village);
   const surveyNo = str(body.surveyNo, 24).replace(/\s+/g, '');
+  // How the papers spell the number, where that is not how it is asked for first. Taken only as other spellings of it.
+  const asWritten = (Array.isArray(body.asWritten) ? body.asWritten : []).map((spelling) => str(spelling, 24).replace(/\s+/g, '')).filter(Boolean);
   if (again && !kept.includes(again)) {
     res.status(404).json({ error: 'That parcel is not kept on this project, so there is nothing to read again.' });
     return;
@@ -178,9 +180,10 @@ projectGisOverlayRouter.post<ProjectParams>('/revenue', async (req, res) => {
           kept,
           unlessKept: body.unlessKept === true,
           several: body.several === true,
+          asWritten,
         });
   if (!outcome.ok) {
-    res.status(outcome.status).json({ error: outcome.error, ...(outcome.near ? { near: outcome.near } : {}) });
+    res.status(outcome.status).json({ error: outcome.error, ...(outcome.near ? { near: outcome.near } : {}), ...(outcome.alsoAsked ? { alsoAsked: outcome.alsoAsked } : {}) });
     return;
   }
   /*
