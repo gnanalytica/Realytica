@@ -5,7 +5,7 @@
 
 import { CHECK_RESULT_LABEL, SCOPE_LABEL } from './catalogs';
 import { portalForCheck, portalObtainLine } from './portals';
-import type { ChatProposal, CheckInstance, DdAssessment, DdProject, ProjectChatTurn, ScopeInstance } from './types';
+import type { ChatProposal, ChatTurnPlace, CheckInstance, DdAssessment, DdProject, ProjectChatTurn, ScopeInstance } from './types';
 import { plural } from './text';
 import { CHECK_DEFINITIONS } from './libraries';
 import { readCheckFields, worstInsight } from './check-fields';
@@ -34,13 +34,21 @@ export function approveAllMeansEveryOpen(question: string): boolean {
   return /\b(every|entire|all open|every open)\b/i.test(question);
 }
 
+/**
+ * The cards "approve all" means: the ones the last reply raised that are still
+ * open.
+ *
+ * A reply that raised none (an answer, a page opened) leaves it meaning every
+ * open card, as it always has. A reply that raised cards of its own and has
+ * none of them left open means none. Falling back to every open card there
+ * accepted, after a paper was dropped, a value waiting on some other paper
+ * that nobody was looking at.
+ */
 export function currentTurnProposals(project: DdProject): ChatProposal[] {
   const last = lastAssistantTurn(project);
   const ids = new Set(last?.proposalIds ?? []);
   const open = project.chatProposals.filter((p) => p.status === 'proposed');
-  if (!ids.size) return open;
-  const hit = open.filter((p) => ids.has(p.id));
-  return hit.length ? hit : open;
+  return ids.size ? open.filter((p) => ids.has(p.id)) : open;
 }
 
 export function citeLabel(project: DdProject, id: string): string {
@@ -264,6 +272,11 @@ export type CockpitPathExtra = SittingRef & {
   /** A department (`legal`) or a workstream inside one (`legal.title`). */
   department?: string;
   workstream?: string;
+  /** The stage the page is looked at in, by its key. Absent leaves the stage in view as it is. */
+  stage?: string;
+  /** On a function's page: the section to bring into view, and the record to mark in it. */
+  section?: string;
+  item?: string;
 };
 
 export type TalkKind = 'check' | 'scope' | 'dd' | 'evidence' | 'finding' | 'risk' | 'action' | 'asset';
@@ -524,8 +537,9 @@ function fold(s: string): string {
   return s.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+// Asked as a question too: "What's next?" names no record, though a check called "What the site is next to" shares a word with it.
 const TALK_SKIP =
-  /^(guide me|what'?s next|what should we do( next)?|hello|hi|hey|help|brief(ing)?|approve( all)?|skip|reject|yes|ok|okay)([.! ]|$)/i;
+  /^(guide me|what'?s next|what should we do( next)?|hello|hi|hey|help|brief(ing)?|approve( all)?|skip|reject|yes|ok|okay)([.!? ]|$)/i;
 
 const TALK_STOP = new Set([
   'this',
@@ -918,6 +932,8 @@ export function sittingBrief(project: DdProject, talk: TalkSitting): string {
 
 function extraHasFocus(extra?: CockpitPathExtra): boolean {
   if (!extra) return false;
+  // A department's or a function's page asked for by name is as particular as a record: what the answer cites does not take its place.
+  if (extra.department || extra.workstream) return true;
   return Boolean(extra.checkId || extra.evidenceId || extra.findingId || extra.riskId || extra.actionId || extra.assetId || (extra.ddId && extra.scopeId));
 }
 
@@ -954,19 +970,44 @@ const SITTING_GAP_MS = 4 * 60 * 60 * 1000;
 export interface ChatSession {
   /** The stored `sessionId`, or one derived from the first turn's timestamp. */
   id: string;
-  /** Newest first within the session, as stored. */
+  /** In the order they were said. */
   turns: ProjectChatTurn[];
   startedAt: string;
   lastAt: string;
   /** What the person opened with, trimmed — the only honest name for a sitting. */
   title: string;
+  /** The name a person gave it. Where there is one it is shown in place of the title. */
+  name?: string;
+  /** The page the person was on when it began. */
+  place?: ChatTurnPlace;
 }
 
-/** The first thing a person actually said, which is what they will recognise. */
+/** The longest name a chat carries: a line in a list. */
+export const CHAT_NAME_MAX = 80;
+
+/**
+ * What a turn is kept as saying when papers were dropped in with no words.
+ * The stored words stay as they are: older code reads the same turns.
+ */
+export const DROPPED_WITHOUT_WORDS = 'I attached documents';
+
+/**
+ * The first thing a person actually said, which is what they will recognise.
+ *
+ * A chat that opens with papers dropped in has no question to be known by,
+ * and every such chat would carry the same stand-in words. It is known by
+ * what was read, which is the first line of the reply to the drop.
+ */
 function sessionTitle(turns: readonly ProjectChatTurn[]): string {
-  const asked = turns.find((t) => t.role === 'user' && t.text.trim().length > 0);
-  const text = asked?.text.trim() ?? '';
+  const at = turns.findIndex((t) => t.role === 'user' && t.text.trim().length > 0);
+  let text = turns[at]?.text.trim() ?? '';
   if (!text) return 'Untitled';
+  if (text === DROPPED_WITHOUT_WORDS) {
+    const reply = turns.slice(at + 1).find((t) => t.role === 'assistant');
+    const read = reply?.toolCalls?.some((call) => call.name === 'ingest') ? (reply.text.split('\n')[0] ?? '').trim() : '';
+    // A reply that opens on why the papers could not be read is no name for a chat.
+    text = /^Read /.test(read) ? read.replace(/\.$/, '') : 'Documents dropped in';
+  }
   const oneLine = text.replace(/\s+/g, ' ');
   return oneLine.length > 60 ? `${oneLine.slice(0, 59).trimEnd()}…` : oneLine;
 }
@@ -981,31 +1022,69 @@ function sessionTitle(turns: readonly ProjectChatTurn[]): string {
  * Turns carrying a `sessionId` group by it. Turns written before that field
  * existed group by the silences between them, so a project that predates this
  * still shows a usable history rather than one unbounded scrollback.
+ *
+ * A sitting that carries on an earlier chat (`continues`) is read as the end
+ * of that chat, not as one of its own, so a chat picked up a week later is
+ * one entry in the list. The newest is the one last spoken in.
  */
 export function chatSessions(turns: readonly ProjectChatTurn[]): ChatSession[] {
   const { conversation } = splitThread(turns);
-  const groups: ChatSession[] = [];
+  // Which chat each sitting carries on. Read before grouping, so every turn of a sitting lands in the same chat.
+  const carries = new Map<string, string>();
   for (const turn of conversation) {
-    const last = groups[groups.length - 1];
-    const sameSession = last
-      && (turn.sessionId
-        ? turn.sessionId === last.id
-        : !last.id.startsWith('ses:')
-          ? false
-          : Date.parse(turn.at) - Date.parse(last.lastAt) < SITTING_GAP_MS);
-    if (last && sameSession) {
-      last.turns.push(turn);
-      last.lastAt = turn.at;
-      continue;
-    }
-    groups.push({
-      id: turn.sessionId ?? `ses:${turn.at}`,
-      turns: [turn],
-      startedAt: turn.at,
-      lastAt: turn.at,
-      title: '',
-    });
+    if (turn.sessionId && turn.continues && turn.continues !== turn.sessionId && !carries.has(turn.sessionId)) carries.set(turn.sessionId, turn.continues);
   }
-  for (const group of groups) group.title = sessionTitle(group.turns);
-  return groups.reverse();
+  const chatOf = (sessionId: string): string => {
+    let id = sessionId;
+    // A chat can be carried on more than once. The count is there for a stored loop, which would otherwise never end.
+    for (let hops = 0; carries.has(id) && hops < 32; hops += 1) id = carries.get(id)!;
+    return id;
+  };
+  const groups: ChatSession[] = [];
+  const byId = new Map<string, ChatSession>();
+  let last: ChatSession | undefined;
+  for (const turn of conversation) {
+    const id = turn.sessionId ? chatOf(turn.sessionId) : undefined;
+    let group = id ? byId.get(id) : undefined;
+    if (!id && last?.id.startsWith('ses:') && Date.parse(turn.at) - Date.parse(last.lastAt) < SITTING_GAP_MS) group = last;
+    if (!group) {
+      group = { id: id ?? `ses:${turn.at}`, turns: [], startedAt: turn.at, lastAt: turn.at, title: '' };
+      groups.push(group);
+      byId.set(group.id, group);
+    }
+    group.turns.push(turn);
+    group.lastAt = turn.at;
+    last = group;
+  }
+  for (const group of groups) {
+    group.title = sessionTitle(group.turns);
+    const name = group.turns.find((t) => t.sessionName?.trim())?.sessionName?.trim();
+    if (name) group.name = name;
+    const place = group.turns.find((t) => t.role === 'user' && t.place)?.place;
+    if (place) group.place = place;
+  }
+  return groups
+    .map((group, at) => ({ group, at }))
+    .sort((a, b) => b.group.lastAt.localeCompare(a.group.lastAt) || b.at - a.at)
+    .map((row) => row.group);
+}
+
+/**
+ * Give a chat a name, or with an empty one hand it back to its first question.
+ *
+ * The name is kept on the chat's first turn. Whoever may read that turn may
+ * read the name, and nobody else: a name beside the project would reach every
+ * reader of the project, a collaborator included, for a chat that is not
+ * theirs. `turns` is the thread as the person renaming it sees it, so a chat
+ * they cannot see is one they cannot name.
+ */
+export function renameChatSession(turns: readonly ProjectChatTurn[], sessionId: string, name: string): ChatSession | undefined {
+  const session = chatSessions(turns).find((s) => s.id === sessionId);
+  const first = session?.turns[0];
+  if (!session || !first) return undefined;
+  const next = name.replace(/\s+/g, ' ').trim().slice(0, CHAT_NAME_MAX);
+  for (const turn of session.turns) delete turn.sessionName;
+  if (next) first.sessionName = next;
+  const { name: _was, ...rest } = session;
+  return next ? { ...rest, name: next } : rest;
 }

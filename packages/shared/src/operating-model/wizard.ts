@@ -61,6 +61,7 @@ import { connectorEvidenceInput } from './chat-sides';
 import { absorbAnsweredGaps, factFillProposals, flagFindingProposals, matchReadToRow } from './document-intake';
 import type { DocumentFact } from './document-parse';
 import { documentTypeOfKind, setDocumentWorkstream } from './vault';
+import { shownWords } from './chat-places';
 import { setProjectDepartments } from './team';
 import { addRequest } from './project-requests';
 import { DEPARTMENT_KEYS, STAGES, stageAndStep, stageEntryStep, type DepartmentKey } from './departments';
@@ -343,9 +344,24 @@ export function classifyIngestFile(
   }
 
   const gaps = openGaps(project);
+  /*
+   * A file nobody could read answers the row its name or its text names,
+   * and failing that a row a file of its kind answers. Both as whole words:
+   * matched as letters, every text named the rows "OC" and "EC" ("document",
+   * "record"), an EC answered "Court records", and a file no hint knew was
+   * matched on the stand-in title "Uploaded document", so a paper the reader
+   * could make nothing of was filed as the occupancy certificate. A kind's
+   * titles are plural where a row's is not ("Survey plans", "Survey plan"),
+   * so those two are compared without the plural.
+   */
+  const named = plainWords(hay);
+  const singular = (text: string) => plainWords(text).replace(/(\w{3})s /g, '$1 ');
+  const kinds = bestScore > 0 ? best.titles.map(singular) : [];
+  const titled = gaps.filter((gap) => plainWords(gap.title).trim());
   let byTitle = read
     ? matchReadToRow(project, read, file.kindHint)
-    : gaps.find((g) => hay.includes(g.title.toLowerCase()) || best.titles.some((t) => g.title.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(g.title.toLowerCase())));
+    : (titled.find((gap) => named.includes(plainWords(gap.title)))
+      ?? titled.find((gap) => kinds.some((kind) => singular(gap.title).includes(kind) || kind.includes(singular(gap.title)))));
   const assessmentIds = new Set<string>(byTitle?.assessmentIds ?? []);
   const scopeInstanceIds = new Set<string>(byTitle?.scopeInstanceIds ?? []);
   const checkIds = new Set<string>(byTitle?.checkIds ?? []);
@@ -558,7 +574,8 @@ export function proposalsFromIngest(
     );
     if (read) {
       const source = { fileName: file.fileName, evidenceId: classified.evidence?.id, storageKey: file.storageKey, documentLabel: read.label };
-      out.push(...factFillProposals(project, read.facts, source, actor, out));
+      // A document as it is read is the one moment its disagreement with what is recorded is worth raising.
+      out.push(...factFillProposals(project, read.facts, source, actor, out, { differences: true }));
       out.push(...flagFindingProposals(project, read.flags, source, actor, out));
     }
   }
@@ -1027,12 +1044,13 @@ function inferAssetType(name: string, extra = ''): string {
 }
 
 /** Lower case, with every run of punctuation a single space, padded so a name is found only as whole words. */
-function plainWords(text: string): string {
+export function plainWords(text: string): string {
   return ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
 }
 
 /**
- * The step a sentence names, by its own name or by the name of its stage.
+ * The step a sentence names, by its own name or by the name of its stage,
+ * with the words it was named by.
  *
  * A stage's name means the step a project enters it by: "move the project to
  * pre-construction" is Design, the first step of that stage, and never the
@@ -1044,8 +1062,12 @@ function plainWords(text: string): string {
  * "Land" and "Completed" are ordinary words ("add the land parcel", "the
  * tower completed in 2019"), so they count as a stage only where the
  * sentence ends on them or calls them a stage.
+ *
+ * The words come back with the step for a reader that has to know the
+ * sentence said nothing else: the chat goes to a stage only when the stage is
+ * all that was named.
  */
-function matchStage(text: string): LifecycleStage | undefined {
+export function stageNamed(text: string): { step: LifecycleStage; words: string } | undefined {
   const t = plainWords(text);
   const names: Array<{ name: string; step: LifecycleStage; common?: boolean }> = [
     ...STAGES.map((s) => ({ name: s.label, step: stageEntryStep(s.key), common: s.key === 'pre_development' || s.key === 'operations' })),
@@ -1054,15 +1076,20 @@ function matchStage(text: string): LifecycleStage | undefined {
       { name: s.key.replaceAll('_', ' '), step: s.key },
     ]),
   ];
-  let best: { step: LifecycleStage; length: number } | undefined;
+  let best: { step: LifecycleStage; words: string } | undefined;
   for (const { name, step, common } of names) {
     const plain = plainWords(name);
     const word = plain.trim();
     const said = common ? new RegExp(` (?:to|at|in|is) (?:the )?${word}(?: stage)? $| ${word} stage `).test(t) : t.includes(plain);
     // First found keeps a tie: the stages are listed first, so "pre construction" is the stage.
-    if (said && (!best || word.length > best.length)) best = { step, length: word.length };
+    if (said && (!best || word.length > best.words.length)) best = { step, words: word };
   }
-  return best?.step;
+  return best;
+}
+
+/** The step a sentence names. See `stageNamed`. */
+export function matchStage(text: string): LifecycleStage | undefined {
+  return stageNamed(text)?.step;
 }
 
 function matchExistingAsset(project: DdProject, text: string) {
@@ -1259,7 +1286,9 @@ export function interpretConversation(project: DdProject, question: string, acto
 
   const stage = matchStage(q);
   const stagedAsset = matchExistingAsset(project, q);
-  if (stage && /\b(stage|now|move|moved|at|to)\b/i.test(q)) {
+  // Asking to be shown a stage is looking at it. Looking moves nothing, so it proposes nothing. Read by the reader of places, so the two cannot differ.
+  const looking = Boolean(shownWords(q));
+  if (stage && !looking && /\b(stage|now|move|moved|at|to)\b/i.test(q)) {
     if (stagedAsset && stagedAsset.currentStage !== stage) {
       out.push(
         proposal(

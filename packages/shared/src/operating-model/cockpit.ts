@@ -8,7 +8,9 @@
  */
 
 import { CHECK_RESULT_LABEL, REPORT_KIND_LABEL } from './catalogs';
-import { stageAndStep } from './departments';
+import { chatPlaceLabel, chatPlaceLine, functionOfDocument, functionRank, menuPlaceOfWords, openPlace, placeFromText, placeOfRecord, placeOpenedLine, stageChangedLine, type ChatPlace } from './chat-places';
+import { STAGES, STAGE_WORD, functionKey, stageAndStep, workstreamOfCheck } from './departments';
+import { asksToFileUnder, disagreementSentence, documentDisagreements, fileUnderFromText, filedGroups, filedSentence, filingChoices, offeredByFunction, offeredSentence, reachSentence, waitingSentence } from './document-filing';
 import { factsAwaitingReview, proposedFacts } from './fact-review';
 import { lastAssistantTurn } from './sitting';
 import { contestedKeys, decideCheckFields, reviewFacts, waitingFieldKeys } from './review';
@@ -40,6 +42,7 @@ import type {
   TurnSpend,
   ChatProposalKind,
   ChatSideBundle,
+  ChatTurnPlace,
   DdProject,
   FindingRecord,
   OrchestratorRun,
@@ -88,6 +91,7 @@ import {
   resultFromLabel,
 } from './check-command';
 import {
+  DROPPED_WITHOUT_WORDS,
   rankTalkSittings,
   approveAllMeansEveryOpen,
   currentTurnProposals,
@@ -101,6 +105,7 @@ import {
   wantsCritic,
   type CockpitPathExtra,
   type SittingRef,
+  type TalkSitting,
 } from './sitting';
 
 export const PROJECT_COCKPIT_PANES = [
@@ -157,6 +162,8 @@ export interface WaitingEntry {
   evidenceId?: string;
   proposalId?: string;
   extra?: CockpitPathExtra;
+  /** The function it waits in: the one that holds the document, or the one the check sits in. */
+  fn?: string;
 }
 
 /** The order a review moves through the file: documents first, then what they answer, then everything else. */
@@ -192,17 +199,25 @@ function extraForCard(project: DdProject, card: ChatProposal): CockpitPathExtra 
  */
 export function waitingOnCanvas(project: DdProject): { total: number; byPane: Partial<Record<ProjectCockpitPane, number>>; entries: WaitingEntry[] } {
   const entries: WaitingEntry[] = [];
+  const definitions = new Map(project.assessments.flatMap((a) => a.scopes.flatMap((s) => s.checks.map((c) => [c.id, c.definitionId] as const))));
   for (const { evidence, facts } of factsAwaitingReview(project)) {
-    entries.push({ kind: 'facts', pane: 'evidence', count: facts.length, title: evidence.title, evidenceId: evidence.id, extra: { evidenceId: evidence.id } });
+    const fn = functionOfDocument(project, evidence);
+    entries.push({ kind: 'facts', pane: 'evidence', count: facts.length, title: evidence.title, evidenceId: evidence.id, extra: { evidenceId: evidence.id }, ...(fn ? { fn } : {}) });
   }
   for (const card of project.chatProposals ?? []) {
     if (card.status !== 'proposed') continue;
     const count = card.kind === 'record_check_fields' ? waitingFieldKeys(card).length : 1;
     if (!count) continue;
     const pane = card.kind === 'change_stage' && card.payload.subject === 'asset' ? 'assets' : paneForProposalKind(card.kind);
-    entries.push({ kind: card.kind, pane, count, title: card.title, proposalId: card.id, extra: extraForCard(project, card) });
+    const extra = extraForCard(project, card);
+    // A value waiting on a check waits in the function the check sits in.
+    const definition = pane === 'scope' && extra?.checkId ? definitions.get(extra.checkId) : undefined;
+    entries.push({ kind: card.kind, pane, count, title: card.title, proposalId: card.id, extra, ...(definition ? { fn: functionKey(workstreamOfCheck(definition)) } : {}) });
   }
-  entries.sort((a, b) => REVIEW_ORDER.indexOf(a.pane) - REVIEW_ORDER.indexOf(b.pane));
+  // The documents are walked a function at a time, in the menu's order, so a review opens on one function's papers
+  // and goes on to the next. Those no function holds come last.
+  const rank = (e: WaitingEntry) => (e.kind === 'facts' ? functionRank(e.fn) : 0);
+  entries.sort((a, b) => REVIEW_ORDER.indexOf(a.pane) - REVIEW_ORDER.indexOf(b.pane) || rank(a) - rank(b));
   const byPane: Partial<Record<ProjectCockpitPane, number>> = {};
   let total = 0;
   for (const e of entries) {
@@ -220,11 +235,38 @@ function withQuery(path: string, pairs: Array<[string, string | undefined]>): st
   return parts.length ? `${path}?${parts.join('&')}` : path;
 }
 
+/**
+ * The address of a page of a project.
+ *
+ * Besides the page, a link can say how to look at it: the stage, by the word
+ * an address carries, and on a function's page the part to bring into view
+ * with the record to mark there. A link that says no stage leaves the one in
+ * view as it is.
+ */
 export function cockpitPath(
   projectId: string,
   pane: ProjectCockpitPane,
   extra?: CockpitPathExtra,
 ): string {
+  const path = panePath(projectId, pane, extra);
+  const stage = STAGES.find((s) => s.key === extra?.stage);
+  const pairs: Array<[string, string | undefined]> = [
+    ['stage', stage ? STAGE_WORD[stage.key] : undefined],
+    // A part belongs to a function's page. On it a document opens as it does on the register, at the page cited.
+    ...(extra?.section
+      ? ([
+          ['part', extra.section],
+          ['item', extra.item],
+          ['evidence', extra.evidenceId],
+          ['page', extra.evidenceId ? extra.page : undefined],
+        ] as Array<[string, string | undefined]>)
+      : []),
+  ];
+  const more = withQuery('', pairs).slice(1);
+  return more ? `${path}${path.includes('?') ? '&' : '?'}${more}` : path;
+}
+
+function panePath(projectId: string, pane: ProjectCockpitPane, extra?: CockpitPathExtra): string {
   const base = `/projects/${projectId}`;
   switch (pane) {
     case 'overview':
@@ -262,9 +304,9 @@ export function cockpitPath(
         ['risk', extra?.riskId],
       ]);
     case 'decisions':
-      return `${base}/decisions`;
+      return withQuery(`${base}/decisions`, [['decision', extra?.item]]);
     case 'reports':
-      return `${base}/reports`;
+      return withQuery(`${base}/reports`, [['report', extra?.item]]);
     case 'valuation':
       return `${base}/valuation`;
     case 'graph':
@@ -303,6 +345,23 @@ export function paneFromProjectPath(pathname: string): ProjectCockpitPane {
 
 export function isProjectCockpitPane(value: string | null | undefined): value is ProjectCockpitPane {
   return Boolean(value && (PROJECT_COCKPIT_PANES as readonly string[]).includes(value));
+}
+
+/**
+ * The place a question came from, read from what the request sent.
+ *
+ * The words are checked against the menu, so a place is only ever a page that
+ * exists. A client that sends the pane alone (`viewContext`, which is all the
+ * chat used to be told) is on that pane and at no stage in particular.
+ * Nothing known in either gives no place, and the chat answers as it did
+ * before it was told.
+ */
+export function chatPlaceFrom(raw: ChatTurnPlace | undefined, viewContext?: string): ChatPlace | undefined {
+  const sent = raw?.pane;
+  const pane = isProjectCockpitPane(sent) ? sent : isProjectCockpitPane(viewContext) ? viewContext : undefined;
+  const menu = menuPlaceOfWords(raw);
+  if (!pane && !menu.department) return undefined;
+  return { ...(pane ? { pane } : {}), ...menu };
 }
 
 function nowIso(): string {
@@ -381,6 +440,20 @@ function wantsNavigate(q: string): boolean {
   return /^(open|show|go to|switch to|take me|see|view)\b/.test(q) || /\b(pane|register|canvas)\b/.test(q);
 }
 
+/**
+ * The name a sentence asked to be shown, when it asked for one thing by a
+ * name: what is left of "open Zorblax" once the verb is gone. A sentence that
+ * asks a question ("show me where we stand") or points at nothing ("open it")
+ * names nothing, and gets none.
+ */
+function unknownName(q: string): string | undefined {
+  const rest = /^(?:please\s+)?(?:open|show(?:\s+me)?|go\s+to|switch\s+to|take\s+me(?:\s+to)?|see|view)\s+(?:the\s+)?(.+?)[\s.!?]*$/i.exec(q.trim())?.[1];
+  if (!rest) return undefined;
+  const words = rest.split(/\s+/);
+  const pointing = /^(?:where|what|how|why|who|which|when|whether|if|it|this|that|these|those|here|there|me|us|we|i|you|all|everything|anything|something|more)$/i;
+  return words.length <= 4 && !words.some((w) => pointing.test(w)) ? rest : undefined;
+}
+
 function wantsPersonCapability(q: string): boolean {
   const ql = q.toLowerCase();
   if (/\borchestrat/.test(ql) && !/^(open|show|go to|switch to|see|view)\b/.test(ql)) return true;
@@ -443,7 +516,7 @@ function paneLine(project: DdProject, pane: ProjectCockpitPane): string {
   const overdue = openA.filter((a) => a.status === 'overdue' || (a.dueDate && a.dueDate < today)).length;
   switch (pane) {
     case 'evidence':
-      return `Evidence is open — ${plural(filed, 'document')} filed, ${gapCount} outstanding.`;
+      return `Documents are open — ${filed} filed, ${gapCount} outstanding.`;
     case 'findings':
       return `Findings are open — ${plural(openF.length, 'open finding')}${material ? `, ${material} material` : ''}.`;
     case 'risks':
@@ -521,16 +594,20 @@ export function findingSeverityRequested(question: string): FindingRecord['sever
 export function wantsDeterministicProjectChat(
   project: DdProject,
   question: string,
-  options: { ingest?: ChatIngestFile[]; sitting?: SittingRef } = {},
+  options: { ingest?: ChatIngestFile[]; sitting?: SittingRef; place?: ChatPlace } = {},
 ): boolean {
   if (options.ingest?.length) return true;
   const q = question.trim();
   const ql = q.toLowerCase();
   if (!q) return true;
+  // A page or a stage asked for by name is a place to go, and needs no model to find.
+  if (placeFromText(project, q, options.place)) return true;
+  // A document given to a function by name is the person's own instruction.
+  if (asksToFileUnder(project, q)) return true;
   if (wantsApprove(ql) || wantsReject(ql)) return true;
   // A factual question the file itself answers is looked up, not paraphrased:
   // instant, free, and every figure carries its page.
-  if (answerFromFile(project, q)) return true;
+  if (answerFromFile(project, q, options.place)) return true;
   if (reportKindRequested(q) || findingSeverityRequested(q)) return true;
   if (/^(?:please\s+)?add\s+(?:an?\s+)?note\b/i.test(q)) return true;
   if (/\b(?:add|log|record|create|request)\s+(?:an?\s+|the\s+)?(?:evidence|document)(?:\s+request)?\s*[:\-–]/i.test(q)) return true;
@@ -677,8 +754,10 @@ function matchTitle<T extends { title: string }>(rows: T[], question: string): T
   return best;
 }
 
-export function projectRegisterBriefing(project: DdProject, viewContext?: string): string {
+export function projectRegisterBriefing(project: DdProject, viewContext?: string, place?: ChatPlace): string {
   ensureProjectShape(project);
+  // The page by its name and stage where the request said them; the bare pane from a client that says only that.
+  const looking = chatPlaceLine(project, place) ?? viewContext;
   const next = projectNextStep(project);
   const pack = packCompleteness(project);
   const material = materialOpenFindings(project);
@@ -692,7 +771,7 @@ export function projectRegisterBriefing(project: DdProject, viewContext?: string
   const lines = [
     `Today: ${next.title}. ${next.why}`,
     `Project ${project.reference} — ${project.name}. Stage ${stageAndStep(project.currentStage)}; health ${project.health}.`,
-    viewContext ? `Reader is looking at: ${viewContext}.` : null,
+    looking ? `Reader is looking at: ${looking}.` : null,
     `Pack completeness: ${pack.percent}% (${pack.received}/${pack.total} core items${pack.missing ? `; still missing ${pack.missingTitles.slice(0, 4).join(', ')}` : ''}). Library completeness is a separate long-tail figure.`,
     material.length
       ? `Material open findings (${material.length}): ${material
@@ -776,11 +855,11 @@ export function runProjectOrchestrator(project: DdProject, actor = 'operator'): 
   return run;
 }
 
-function briefingAnswer(project: DdProject, viewContext?: string): Pick<ProjectChatTurn, 'text' | 'citedEvidenceIds' | 'citedNodeIds'> {
+function briefingAnswer(project: DdProject, viewContext?: string, place?: ChatPlace): Pick<ProjectChatTurn, 'text' | 'citedEvidenceIds' | 'citedNodeIds'> {
   const next = projectNextStep(project);
   const material = materialOpenFindings(project);
   return {
-    text: projectRegisterBriefing(project, viewContext),
+    text: projectRegisterBriefing(project, viewContext, place),
     citedEvidenceIds: packEvidence(project).pack.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested').slice(0, 8).map((g) => g.id),
     citedNodeIds: [...(next.citedNodeIds ?? []), ...material.slice(0, 8).map((f) => f.id)],
   };
@@ -844,15 +923,29 @@ export function applyProjectChat(
     viewContext?: string;
     ingest?: ChatIngestFile[];
     sides?: ChatSideBundle;
-    sitting?: SittingRef;
+    /** The check being sat on. With `evidenceId`, the document a pressed choice was offered for. */
+    sitting?: SittingRef & { evidenceId?: string };
+    /**
+     * The page the person asked from, and the stage it is looked at in. A
+     * place asked for by name opens from here, and what is missing, a summary
+     * and the findings are this page's when it is a function's or a
+     * department's. Absent, the pane in `viewContext` stands for it.
+     */
+    place?: ChatPlace;
+    /**
+     * The person asking is an outside collaborator. Giving a document to a
+     * function is the firm's own people's to do, on the register and here.
+     */
+    outside?: boolean;
     /** What reading the attached documents cost. Rendered beside the turn, as a chat turn's cost already is. */
     spend?: TurnSpend;
   } = {},
 ): ProjectChatResult {
   ensureProjectShape(project);
   const actor = options.actor ?? 'operator';
-  const q = question.trim() || (options.ingest?.length ? 'I attached documents' : '');
+  const q = question.trim() || (options.ingest?.length ? DROPPED_WITHOUT_WORDS : '');
   const ql = q.toLowerCase();
+  const here: ChatPlace = options.place ?? chatPlaceFrom(undefined, options.viewContext) ?? {};
   const userTurn = turn('user', q);
   const commands: string[] = [];
   const navigations: ProjectChatResult['navigations'] = [];
@@ -867,6 +960,18 @@ export function applyProjectChat(
   ) => {
     navigations.push({ target: pane, ...extra });
     if (label) commands.push(label);
+  };
+
+  /**
+   * A record named in the sentence, opened where it lives. A document in hand
+   * opens on the page of the function that holds it, at its documents. A
+   * check, a scope or a due diligence opens as the sitting it has always
+   * been: that is where its values are recorded.
+   */
+  const openTalk = (talk: TalkSitting, label: string) => {
+    const at = talk.kind === 'evidence' && talk.extra.evidenceId ? placeOfRecord(project, talk.extra.evidenceId, here) : undefined;
+    if (at) navigate(at.open.pane, label, { ...talk.extra, ...at.open.extra });
+    else navigate(paneForTalk(talk.kind), label, talk.extra);
   };
 
   const extrasFromPayload = (payload: Record<string, unknown> | undefined) => {
@@ -959,6 +1064,12 @@ export function applyProjectChat(
   const proposeDrafts = /\bpropose\b/.test(ql) && /\bdrafts?\b/.test(ql);
   const runValuation = /\b(run|compute|start)\b/.test(ql) && /\bvaluat/.test(ql) && !wantsProjectScreen(q);
   const ingest = options.ingest ?? [];
+  /*
+   * A page or a stage asked for by name. Read before anything that answers on
+   * topic words: "open Approvals" names a function, and is not an approval to
+   * give, a check with a title like it, or a portal to fetch from.
+   */
+  const went = ingest.length ? null : placeFromText(project, q, here);
 
   if (ingest.length) {
     const prefer = options.sitting;
@@ -1057,12 +1168,9 @@ export function applyProjectChat(
       const label = /^[A-Z][a-z]/.test(raw) ? raw.charAt(0).toLowerCase() + raw.slice(1) : raw;
       return f.read!.method === 'text' ? label : `${label} (scan, read by OCR)`;
     });
-    // Checks, not cards: two documents offering values to one check are one check.
-    const fills = new Set(rows.filter((p) => p.kind === 'record_check_fields').map((p) => String(p.payload.checkId))).size;
     const redFlags = rows.filter((p) => p.kind === 'add_finding');
     const patches = rows.filter((p) => p.kind === 'patch_project').length;
     const extras = [
-      fills ? `${plural(fills, 'check')} can take values from ${ingest.length === 1 ? 'it' : 'them'}` : '',
       patches ? `${plural(patches, 'project detail')} to fill` : '',
       ddCard ? `the ${String(ddCard.payload.name ?? ddCard.title.replace(/^Start /, ''))} is waiting to start under Technical DD, since ${ingest.length === 1 ? 'it answers' : 'they answer'} its checks` : '',
     ].filter(Boolean);
@@ -1076,44 +1184,125 @@ export function applyProjectChat(
           ? `Read ${named.join(', ')}; ${ingest.length - read.length} I couldn’t read${unread ? ` — ${oneCause ?? failures[0]!}` : ''}.`
           : unread === ingest.length
             ? `${oneCause ?? failures[0]!} Approving still files ${ingest.length === 1 ? 'it' : `all ${ingest.length}`} on the register, unread.`
-            : `Read ${plural(ingest.length - unread, 'file')}; ${unread} I couldn’t.`;
+            : `Read ${plural(ingest.length - unread, 'file')}${unread ? `; ${unread} I couldn’t` : ''}.`;
+    /*
+     * Where each paper went, said in the menu's words: the function it was
+     * filed under and the stage the project is at. A paper no function holds
+     * stays in Documents, and the functions it might belong to are offered
+     * as choices. None is picked for it.
+     */
+    const groups = filedGroups(project, filedIds, here);
+    const filedLine = groups.length ? `\n${filedSentence(project, groups, unread > 0)}` : '';
+    const loose = groups.find((g) => !g.fn);
+    const looseRow = loose ? project.evidence.find((e) => e.id === loose.ids[0]) : undefined;
+    if (looseRow && !options.outside) choices = filingChoices(project, looseRow);
+    /*
+     * Where the values go: how many are offered to checks, function by
+     * function. Counted in values and not in checks, because a value is what
+     * a person accepts.
+     */
+    const offeredLine = offeredSentence(offeredByFunction(project, rows.filter((p) => p.status === 'proposed')));
+    /*
+     * What the papers state that differs from what is already held: on a
+     * check, on the project record, or on another paper a person accepted.
+     * Said with both values and where each came from, and never settled here.
+     * On a check the new value waits beside the recorded one until a person
+     * keeps one of them.
+     */
+    const disagreements = filedIds.flatMap((evId) => {
+      const row = project.evidence.find((e) => e.id === evId);
+      return row ? documentDisagreements(project, row) : [];
+    });
+    const differLine = disagreements.length ? `\n${disagreementSentence(disagreements)}` : '';
     const waitingLine = valuesWaiting
-      ? `\n${valuesWaiting === 1 ? '1 value is waiting on the right, beside the words it came from' : `${valuesWaiting} values are waiting on the right, each beside the words it came from`}. Nothing is on the file until you accept it there.`
-      : filedIds.length
-        ? `\nFiled on the register${unread ? ', unread' : ''}.`
+      ? `\n${valuesWaiting === 1 ? '1 value is waiting on the right, beside the words it came from' : `${valuesWaiting} values are waiting on the right, each beside the words it came from`}.${offeredLine ? ` ${offeredLine}` : ''} Nothing is on the file until you accept it there.`
+      : offeredLine
+        ? `\n${offeredLine} Nothing is on the file until you accept it there.`
         : '';
+    // What else the papers reach, only when they bring something that could move a value or raise a finding.
+    // Not to an outside collaborator: what rests on a function is the firm's view of the whole project.
+    const reach = !options.outside && (valuesWaiting || redFlags.length || disagreements.length) ? reachSentence(project, filedIds) : '';
     const extraLine = extras.join('; ');
-    assistantText = `${heading}${extraLine ? ` ${extraLine.charAt(0).toUpperCase()}${extraLine.slice(1)}.` : ''}${flagLine}${waitingLine}`;
+    assistantText = `${heading}${extraLine ? ` ${extraLine.charAt(0).toUpperCase()}${extraLine.slice(1)}.` : ''}${filedLine}${flagLine}${differLine}${waitingLine}${reach ? `\n${reach}` : ''}`;
+    /*
+     * The papers this reply brought, and nothing else. "Approve all" accepts
+     * what waits on the papers the last reply cites, and the chips under a
+     * reply count them, so a paper this one only differs from is named in the
+     * words, where its link is drawn from, and is not cited.
+     */
     citedEvidenceIds = [...new Set([...filedIds, ...rows.flatMap((p) => p.citedEvidenceIds ?? [])])];
     citedNodeIds = rows.flatMap((p) => p.citedNodeIds ?? []);
     highlightIds.push(...citedEvidenceIds);
     toolCalls = [{ name: 'ingest', summary: `Filed ${plural(filedIds.length || ingest.length, 'file')}` }];
     /*
-     * The canvas opens where the documents went: the register, its new rows
-     * lit. Not at the first of them — that opens its viewer, a modal, over
-     * the values waiting to be reviewed on the desk.
+     * The canvas opens where the papers went: the page of the function the
+     * first of them was filed under, at its documents, with the new rows lit.
+     * Papers in other functions are a chip each under the reply. Where no
+     * function's page has a place for the paper, it is the register of every
+     * document, as it always was. Never at the paper itself: that opens its
+     * viewer, a modal, over the values waiting to be reviewed on the desk.
      */
-    navigate('evidence', 'Opened documents');
+    const first = groups[0];
+    if (first?.fn && first.open.pane !== 'evidence') navigate(first.open.pane, `Opened ${chatPlaceLabel({ fn: first.fn })} documents`, first.open.extra);
+    else navigate('evidence', 'Opened documents');
+  } else if (asksToFileUnder(project, q)) {
+    /*
+     * "File “Survey notes” under Legal › Title": a person giving a document
+     * to a function, in their own words or by pressing the choice a drop
+     * offered. It is their instruction, so it runs, and the way back is the
+     * undo every instruction has. An outside collaborator is told it is not
+     * theirs to do, as the register tells them.
+     */
+    const filing = options.outside
+      ? ({ kind: 'refused', text: 'Only the firm’s own people can file a document under a function. Nothing moved.' } as const)
+      : fileUnderFromText(project, q, actor, options.sitting?.evidenceId);
+    if (filing?.kind === 'filed') {
+      const at = placeOfRecord(project, filing.evidence.id, here);
+      const { evidenceId: _viewer, ...extra } = at?.open.extra ?? {};
+      if (at && at.open.pane !== 'evidence') navigate(at.open.pane, `Filed “${filing.evidence.title}” under ${filing.label}`, extra);
+      else navigate('evidence', `Filed “${filing.evidence.title}” under ${filing.label}`);
+      assistantText = `“${filing.evidence.title}” is filed under ${filing.label}.`;
+      toolCalls = [{ name: 'assign_document', summary: filing.label }];
+      citedEvidenceIds = [filing.evidence.id];
+      highlightIds.push(filing.evidence.id);
+    } else {
+      assistantText = filing?.text ?? 'Name the document and the function to file it under.';
+      if (filing?.kind === 'ask') choices = filing.choices;
+      toolCalls = [{ name: 'clarify', summary: 'Not filed' }];
+    }
+  } else if (went) {
+    /*
+     * Going somewhere changes nothing on the record, so it happens at once and
+     * the reply is one line: where it went, and the figure that matters there.
+     * A name two pages share, or a page with no work at the stage asked for,
+     * is put back to the person as a choice, and nothing moves.
+     */
+    if (went.kind === 'go') {
+      // A stage looked at is said by the stage, a page opened by the page.
+      const stage = went.stageOnly ? STAGES.find((s) => s.key === went.place.stage) : undefined;
+      const name = stage ? stage.label : chatPlaceLabel(went.place);
+      navigate(went.open.pane, stage ? `Looking at ${name}` : `Opened ${name}`, went.open.extra);
+      assistantText = placeOpenedLine(project, went, here, options.outside) ?? [paneLine(project, went.open.pane), stageChangedLine(project, went.place.stage, here)].filter(Boolean).join(' ');
+      toolCalls = [{ name: 'navigate', summary: name }];
+    } else {
+      assistantText = went.text;
+      if (went.kind === 'ask') choices = went.choices;
+      toolCalls = [{ name: 'clarify', summary: went.summary }];
+    }
   } else if (wantsApprove(ql) && !registerRecordCommand) {
     const everyOpen = approveAllMeansEveryOpen(q);
-    const targets =
-      /\ball\b/.test(ql) || everyOpen
-        ? everyOpen
-          ? project.chatProposals.filter((p) => p.status === 'proposed')
-          : currentTurnProposals(project)
-        : [matchProposal(project, q)].filter((p): p is ChatProposal => Boolean(p));
-    if (targets.length === 0 && project.chatProposals.filter((p) => p.status === 'proposed').length === 1) {
-      targets.push(project.chatProposals.find((p) => p.status === 'proposed')!);
-    }
+    const saysAll = /\ball\b/.test(ql) || everyOpen;
+    const stillOpen = project.chatProposals.filter((p) => p.status === 'proposed');
+    const targets = saysAll ? (everyOpen ? stillOpen : currentTurnProposals(project)) : [matchProposal(project, q)].filter((p): p is ChatProposal => Boolean(p));
+    // One card open and a sentence that names none ("approve", "yes"): it is that card. "All" names the last reply's own, and takes no other.
+    if (!saysAll && targets.length === 0 && stillOpen.length === 1) targets.push(stillOpen[0]!);
     /*
      * "Approve all" is an instruction, and it covers what a document states
      * as well as the cards: the values waiting on the documents the last
      * reply filed, or on every document when they said every or all open.
      */
     const lastFiled = new Set(lastAssistantTurn(project)?.citedEvidenceIds ?? []);
-    const factRows = /\ball\b/.test(ql) || everyOpen
-      ? project.evidence.filter((e) => proposedFacts(e).length && (everyOpen || lastFiled.has(e.id)))
-      : [];
+    const factRows = saysAll ? project.evidence.filter((e) => proposedFacts(e).length && (everyOpen || lastFiled.has(e.id))) : [];
     if (targets.length === 0 && factRows.length === 0) {
       /*
        * "Accept" is two verbs. It approves a card, and it is also what you do
@@ -1139,7 +1328,9 @@ export function applyProjectChat(
         toolCalls = [{ name: 'clarify', summary: asked.summary }];
         navigate(kind === 'risk' ? 'risks' : kind === 'finding' ? 'findings' : 'actions', '');
       } else {
-        assistantText = 'Nothing waiting. Ask what’s next, or drop a document in.';
+        // Nothing of the last reply's is left. What waits from other replies is not taken, and is said with where it waits.
+        const elsewhere = waitingSentence(project, waitingOnCanvas(project), here);
+        assistantText = elsewhere ? `Nothing from the last reply is left to accept. ${elsewhere}` : 'Nothing waiting. Ask what’s next, or drop a document in.';
       }
     } else {
       const before = fileStanding(project);
@@ -1522,16 +1713,23 @@ export function applyProjectChat(
        * the encumbrances check, and used to open it and describe the check —
        * when the person asked what the EC says, and the EC was on file.
        */
-      const fileAnswer = answerFromFile(project, q);
+      const fileAnswer = answerFromFile(project, q, here, { outside: options.outside });
       if (fileAnswer) {
         assistantText = fileAnswer.text;
         citedEvidenceIds = fileAnswer.citedEvidenceIds;
         citedNodeIds = fileAnswer.citedNodeIds.length ? fileAnswer.citedNodeIds : undefined;
         highlightIds.push(...fileAnswer.citedEvidenceIds, ...fileAnswer.citedNodeIds);
         toolCalls = [{ name: 'answer_from_file', summary: fileAnswer.summary }];
-        if (fileAnswer.navigate) {
-          const { pane, evidenceId, page } = fileAnswer.navigate;
-          navigate(pane, '', evidenceId ? { evidenceId, page } : undefined);
+        const to = fileAnswer.navigate;
+        if (to && 'fn' in to) {
+          // The page the answer was read from, at the part it was read from. A department switched off has no page to open.
+          const page = openPlace(project, to, undefined, here);
+          if (page.kind === 'go') navigate(page.open.pane, '', page.open.extra);
+        } else if (to) {
+          // A document quoted by its page opens on the page of the function that holds it, at that page.
+          const at = to.evidenceId ? placeOfRecord(project, to.evidenceId, here) : undefined;
+          if (at) navigate(at.open.pane, '', { ...at.open.extra, ...(to.page ? { page: to.page } : {}) });
+          else navigate(to.pane, '', to.evidenceId ? { evidenceId: to.evidenceId, page: to.page } : undefined);
         }
         if (fileAnswer.choices?.length) choices = fileAnswer.choices;
       } else if (namedSitting && !rewrite) {
@@ -1671,8 +1869,7 @@ export function applyProjectChat(
   } else if (isShow || NAV_RULES.some((r) => r.test(ql) && /^(open|show|go to|switch to|take me|see|view)\b/.test(ql))) {
     const talk = asksForPane(ql) ? undefined : sittingWithField(project, talkSittingFromText(project, q));
     if (talk) {
-      const pane = paneForTalk(talk.kind);
-      navigate(pane, `Opened ${talk.label}`, talk.extra);
+      openTalk(talk, `Opened ${talk.label}`);
       assistantText = sittingBrief(project, talk);
       citedNodeIds = talk.highlightIds;
       highlightIds.push(...talk.highlightIds);
@@ -1694,12 +1891,25 @@ export function applyProjectChat(
         choices = asked.choices;
         toolCalls = [{ name: 'clarify', summary: asked.summary }];
       } else {
-      const pane = NAV_RULES.find((r) => r.test(ql))?.pane ?? 'overview';
+      const rule = NAV_RULES.find((r) => r.test(ql));
+      const name = rule ? undefined : unknownName(q);
+      if (name) {
+        /*
+         * A name nothing answers to: no page, no stage, no record. Opening
+         * the overview for it, which is what the line below does for a
+         * sentence that names nothing, would be going somewhere the person
+         * did not ask for. So it says so, and nothing moves.
+         */
+        assistantText = `Nothing on this project is called “${name}”. Nothing moved.`;
+        toolCalls = [{ name: 'clarify', summary: 'No page by that name' }];
+      } else {
+      const pane = rule?.pane ?? 'overview';
       navigate(pane, `Opened ${pane}`);
       // One line: what opened and the figure that matters there. The full
       // register briefing used to follow — ten lines under "open the graph".
       assistantText = paneLine(project, pane);
       toolCalls = [{ name: 'navigate', summary: pane }];
+      }
       }
     }
   } else {
@@ -1753,7 +1963,7 @@ export function applyProjectChat(
       else if (wantsDdTypes(ql)) navigate('dd', '');
       else navigate(next.pane, '', next.extra);
     } else if (/\bbrief/.test(ql)) {
-      const brief = briefingAnswer(project, options.viewContext);
+      const brief = briefingAnswer(project, options.viewContext, options.place);
       assistantText = brief.text;
       citedEvidenceIds = brief.citedEvidenceIds ?? [];
       citedNodeIds = brief.citedNodeIds;
@@ -1761,8 +1971,7 @@ export function applyProjectChat(
     } else {
       const talk = sittingWithField(project, talkSittingFromText(project, q));
       if (talk) {
-        const pane = paneForTalk(talk.kind);
-        navigate(pane, '', talk.extra);
+        openTalk(talk, '');
         assistantText = sittingBrief(project, talk);
         citedNodeIds = talk.highlightIds;
         highlightIds.push(...talk.highlightIds);

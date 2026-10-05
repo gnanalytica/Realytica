@@ -1304,6 +1304,19 @@ export interface ProjectDashboard {
   capabilities: CapabilityRun[];
 }
 
+/**
+ * A page of a project, as a chat turn keeps it: the pane on screen, the
+ * department and function when the page is one of theirs, and the stage being
+ * looked at. Plain words, so a stored turn outlives a pane or a function that
+ * is later renamed: a word nothing knows is read as no place.
+ */
+export interface ChatTurnPlace {
+  pane?: string;
+  department?: string;
+  fn?: string;
+  stage?: string;
+}
+
 /** Structurally the copilot turn the cockpit chat panel already renders. */
 export interface ProjectChatTurn {
   id: string;
@@ -1387,6 +1400,29 @@ export interface ProjectChatTurn {
    * `chatSessions` groups those by the gaps between them instead.
    */
   sessionId?: string;
+  /**
+   * The chat this sitting carries on, by that chat's id.
+   *
+   * An earlier chat is picked up again in a sitting of its own, so `sessionId`
+   * stays what it has always been: one opening of the project. This says the
+   * sitting belongs to the end of an older chat, and `chatSessions` reads the
+   * two as one. A reader that does not know the field sees a new sitting.
+   */
+  continues?: string;
+  /**
+   * The name a person gave this chat. Kept on the chat's first turn, so it is
+   * seen by whoever can see the chat and nobody else. A chat without one is
+   * named by its first question.
+   */
+  sessionName?: string;
+  /**
+   * Where the person was when this was asked: the page, and the stage it was
+   * looked at in. The thread stays as a person moves through the project, so
+   * an answer given on Title is still on screen on Approvals, and this is how
+   * the thread says which page it was about. Absent on a turn written before
+   * the chat knew, and on one the file wrote itself.
+   */
+  place?: ChatTurnPlace;
   /**
    * What this turn cost to produce, when a model produced it.
    *
@@ -1649,6 +1685,14 @@ export interface ProjectChatResult {
     actionId?: string;
     assetId?: string;
     page?: string;
+    /** The department or function whose page opens, for the `department` and `workstream` panes. */
+    department?: string;
+    workstream?: string;
+    /** The stage the page is looked at in, by its key. */
+    stage?: string;
+    /** The section of a function's page to land on, and the record to mark there. */
+    section?: string;
+    item?: string;
   }[];
   proposals: ChatProposal[];
   highlightIds: string[];

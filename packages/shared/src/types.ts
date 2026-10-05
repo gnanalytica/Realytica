@@ -2678,9 +2678,10 @@ export interface ChatChoice {
    * always say which — and an option that re-asks the question it was
    * offered to answer is a loop, not a choice. Honoured only when the pinned
    * record is itself one of the candidates for what was typed, so a stale
-   * URL can never redirect an instruction to a different record.
+   * URL can never redirect an instruction to a different record. A document
+   * is pinned by `evidenceId`: two papers can carry one title too.
    */
-  sitting?: { ddId?: string; scopeId?: string; checkId?: string };
+  sitting?: { ddId?: string; scopeId?: string; checkId?: string; evidenceId?: string };
 }
 
 export interface CopilotTurn {
@@ -2714,6 +2715,8 @@ export interface CopilotTurn {
   metrics?: ChatMetric[];
   /** Which sitting this turn belongs to. See `ProjectChatTurn`. */
   sessionId?: string;
+  /** The page and stage the person was on when this was asked. See `ProjectChatTurn`. */
+  place?: { pane?: string; department?: string; fn?: string; stage?: string };
   /** What this turn cost to produce. See `ProjectChatTurn`. */
   spend?: TurnSpend;
   /** Why the question was not answered, when the text below is a fallback. See `ProjectChatTurn`. */

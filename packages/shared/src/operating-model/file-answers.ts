@@ -19,6 +19,15 @@ import { factsOnFile } from './document-intake';
 import { packCompleteness } from './operations';
 import { plural } from './text';
 import type { ChatChoice, DdProject, EvidenceRecord, FindingRecord, FindingSeverity } from './types';
+import { approvalsRegister } from './approvals';
+import { chatPlaceLabel, functionOfFinding, type ChatPlace } from './chat-places';
+import { DEPARTMENT_SHORT, menuFunctions, stageOf, workstreamDefinition, type MenuFunction } from './departments';
+import { workstreamChecks } from './engagements';
+import { progressSummary } from './progress';
+import { QUICK_VERDICT_LABEL, quickAssessment } from './quick-assessments';
+import { menuAt } from './stage-view';
+import { projectDepartments } from './team';
+import { workstreamDocuments } from './vault';
 
 export interface FileAnswer {
   text: string;
@@ -26,8 +35,12 @@ export interface FileAnswer {
   summary: string;
   citedEvidenceIds: string[];
   citedNodeIds: string[];
-  /** Where the right-hand pane should go so the source is in view. */
-  navigate?: { pane: 'evidence' | 'findings' | 'risks' | 'actions' | 'valuation' | 'overview' | 'reports'; evidenceId?: string; page?: string };
+  /**
+   * Where the right-hand pane should go so the source is in view: a register,
+   * a document at a page, or a function's page at one of its parts. An answer
+   * about the page a person is on names none, and the page stays.
+   */
+  navigate?: { pane: 'evidence' | 'findings' | 'risks' | 'actions' | 'valuation' | 'overview' | 'reports'; evidenceId?: string; page?: string } | { fn: string; section?: string };
   choices?: ChatChoice[];
 }
 
@@ -62,7 +75,11 @@ const TOPICS: Topic[] = [
   { key: 'parcel', test: /\b(?:survey\s+(?:no|number)s?|sy\.?\s*no|parcel|which\s+survey|khata\s+(?:no|number)|pid)\b/i },
   { key: 'encumbrance', test: /\b(?:encumbr\w*|mortgages?|charges?\s+on|loans?|liens?|\bec\b|hypothecat\w*|attach(?:ed|ment)|charged|clean\s+title)\b/i },
   { key: 'conversion', test: /\b(?:conver(?:t|ted|sion)|agricultural|non[\s-]?agri\w*|\bdc\s+order|land\s+use\s+change)\b/i },
-  { key: 'zoning', test: /\b(?:zon(?:e|ing)|land\s+use|\bfar\b|floor\s+area\s+ratio|master\s+plan|\brmp\b|permissible|plan\s+in\s+force)\b/i },
+  // "FAR" is the floor area ratio. "How far back does the title go" and "how far along is the work" are not about it.
+  { key: 'zoning', test: /\b(?:zon(?:e|ing)|land\s+use|(?<!\bhow\s)\bfar\b|floor\s+area\s+ratio|master\s+plan|\brmp\b|permissible|plan\s+in\s+force)\b/i },
+  // Ahead of the sanction and of what is missing: "which approvals are missing or lapsed" is about the register of approvals, not one plan and not the documents.
+  { key: 'approvals', test: /\bwhich\s+(?:approvals?|nocs?)\b|\b(?:approvals?|nocs?|clearances?)\b[^?]*\b(?:missing|lapsed|expired|expiring|in\s+force|outstanding)\b|\b(?:missing|lapsed|expired|expiring)\s+(?:approvals?|nocs?)\b/i },
+  { key: 'progress', test: /\bhow\s+far\s+along\b|\bmilestones?\b|\b(?:work|construction|site)\s+progress\b|\bpercent(?:age)?\s+complete\b|\bbehind\s+schedule\b/i },
   { key: 'sanction', test: /\b(?:sanction\w*|approved\s+plan|building\s+plan|plan\s+approval|built[\s-]?up|\boc\b|occupancy|refuge)\b/i },
   { key: 'tax', test: /\b(?:property\s+tax|tax\s+(?:paid|receipt|status)|\bsas\b|khata|dues)\b/i },
   { key: 'title', test: /\b(?:title\s+chain|chain\s+of\s+title|mother\s+deed|root\s+of\s+title|title\s+history|previous\s+owners?|how\s+far\s+back|sale\s+deed|registered)\b/i },
@@ -412,6 +429,194 @@ function joinTitles(titles: string[], budget = 170): string {
   return `${out.join('; ')}${rest ? `; and ${rest} more` : ''}`;
 }
 
+/* ==================================================================== */
+/* Answers about the page a person is on                                 */
+/* ==================================================================== */
+
+/**
+ * The page a question is about: a function, or a department with the
+ * functions it shows.
+ *
+ * "What's missing", "summarise" and "which findings are critical" mean the
+ * page a person is on when they are on a function's or a department's. The
+ * answer opens by saying so ("On Title: …"), because the thread stays when
+ * the page changes and an answer has to say what it was about.
+ */
+interface Scope {
+  label: string;
+  fns: MenuFunction[];
+}
+
+/** A question about everything, whatever page it was asked on: it names the project or the file. */
+const WHOLE_PROJECT = /\b(?:whole|entire|this|the|our)\s+(?:project|file)\b|\bacross\s+the\s+(?:project|file|departments)\b|\bproject[\s-]wide\b|\beverywhere\b|\boverall\b/i;
+
+function scopeOf(project: DdProject, question: string, here: ChatPlace | undefined): Scope | undefined {
+  if (!here?.department || WHOLE_PROJECT.test(question)) return undefined;
+  const all = menuFunctions(here.department);
+  if (here.fn) {
+    const fn = all.find((f) => f.key === here.fn);
+    return fn ? { label: chatPlaceLabel(here), fns: [fn] } : undefined;
+  }
+  // A department's Summary is about the functions it lists: those that show at the stage being looked at and are switched on.
+  const enabled = projectDepartments(project);
+  const shown = menuFunctions(here.department, menuAt(project, here.stage ?? stageOf(project.currentStage))).filter((fn) => enabled.includes(fn.department));
+  return shown.length ? { label: DEPARTMENT_SHORT[here.department], fns: shown } : undefined;
+}
+
+/**
+ * How an answer about one page opens. To an outside collaborator it says the
+ * answer is of the part of the file they were given: what is missing or in
+ * force is counted from that part, and stated bare it read as a fact about
+ * the project.
+ */
+function onPage(label: string, outside: boolean): string {
+  return outside ? `Of what you have been given, on ${label}:` : `On ${label}:`;
+}
+
+/** The answer for a function whose department is switched off on this project, or null while it is on. It is said as its page would say it, and opens nothing. */
+function switchedOff(project: DdProject, fn: string): FileAnswer | null {
+  const department = workstreamDefinition(fn)?.department;
+  if (!department || projectDepartments(project).includes(department)) return null;
+  return { text: `${chatPlaceLabel({ fn })} is switched off on this project. Departments are set on Overview.`, summary: 'Switched off', citedEvidenceIds: [], citedNodeIds: [] };
+}
+
+/** The same question, of the whole project: offered under every answer that was about one page. */
+function wholeProject(send: string): ChatChoice[] {
+  return [{ id: 'whole-project', label: 'Whole project', detail: 'The same, across every department', send, kind: 'action' }];
+}
+
+const built = (key: string): boolean => workstreamDefinition(key)?.status === 'live';
+
+function scopedChecks(project: DdProject, scope: Scope) {
+  return scope.fns.flatMap((fn) => fn.workstreams.flatMap((key) => workstreamChecks(project, key)));
+}
+
+function scopedDocuments(project: DdProject, scope: Scope): EvidenceRecord[] {
+  return scope.fns.flatMap((fn) => fn.workstreams.flatMap((key) => workstreamDocuments(project, key)));
+}
+
+function scopedFindings(project: DdProject, scope: Scope): FindingRecord[] {
+  const keys = new Set(scope.fns.map((fn) => fn.key));
+  return openFindings(project).filter((f) => keys.has(functionOfFinding(project, f) ?? ''));
+}
+
+/** A function's estimate in a few words: its headline, or that there is not enough to say. */
+function standing(project: DdProject, fn: MenuFunction): string {
+  const live = fn.workstreams.find(built);
+  if (!live) return 'not built yet';
+  const qa = quickAssessment(project, live);
+  return qa.verdict === 'insufficient' ? QUICK_VERDICT_LABEL.insufficient.toLowerCase() : /^[A-Z][a-z]/.test(qa.headline) ? qa.headline.charAt(0).toLowerCase() + qa.headline.slice(1) : qa.headline;
+}
+
+function answerSummaryOf(project: DdProject, scope: Scope, outside: boolean): FileAnswer {
+  // A function's estimate is the firm's own reading of the whole file. An outside collaborator is given the counts and not the estimate.
+  const lead = outside
+    ? ''
+    : scope.fns.length === 1
+      ? `On ${scope.label}: ${standing(project, scope.fns[0]!)}.`
+      : `On ${scope.label}: ${scope.fns.map((fn) => `${fn.label} ${fn.workstreams.some(built) ? `— ${standing(project, fn)}` : 'is not built yet'}`).join('; ')}.`;
+  const lines = lead ? [lead] : [];
+  const checks = scopedChecks(project, scope);
+  if (checks.length) {
+    const issues = checks.filter((c) => c.result === 'non_compliant' || c.result === 'partially_compliant' || c.result === 'missing_evidence').length;
+    lines.push(`${checks.filter((c) => c.result !== 'pending').length} of ${plural(checks.length, 'check')} answered${issues ? `, ${issues} with an issue` : ''}.`);
+  }
+  const papers = scopedDocuments(project, scope);
+  const expected = papers.filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested').length;
+  const filed = papers.filter((e) => e.attachments.length).length;
+  if (papers.length) lines.push(`${plural(filed, 'document')} on file${expected ? `, ${expected} still expected` : ''}.`);
+  const open = scopedFindings(project, scope);
+  const material = open.filter((f) => f.severity === 'critical' || f.severity === 'high');
+  if (open.length) lines.push(`${plural(open.length, 'open finding')}${material.length ? `, ${material.length} material — worst: ${material[0]!.title}` : ''}.`);
+  if (outside) lines[0] = `${onPage(scope.label, true)} ${lines[0] ?? 'nothing to report.'}`;
+  return {
+    text: lines.join('\n'),
+    summary: `Where ${scope.label} stands`,
+    citedEvidenceIds: [],
+    citedNodeIds: material.slice(0, 2).map((f) => f.id),
+    choices: wholeProject('Summarise the whole project'),
+  };
+}
+
+function answerMissingOf(project: DdProject, scope: Scope, outside: boolean): FileAnswer {
+  const lines: string[] = [];
+  // What each function's own estimate says would firm it up: the deeds, an approval, a milestone.
+  const needs = [...new Set(scope.fns.flatMap((fn) => fn.workstreams.filter(built).flatMap((key) => quickAssessment(project, key).gaps)))];
+  if (needs.length) lines.push(`still needs ${joinTitles(needs, 150)}.`);
+  const expected = scopedDocuments(project, scope).filter((e) => e.status === 'expected' || e.status === 'missing' || e.status === 'requested');
+  if (expected.length) lines.push(`${plural(expected.length, 'document')} expected and not in: ${joinTitles(expected.map((e) => e.title), 130)}.`);
+  const checks = scopedChecks(project, scope);
+  const pending = checks.filter((c) => c.result === 'pending').length;
+  if (pending) lines.push(`${pending} of ${plural(checks.length, 'check')} unanswered.`);
+  const none = scope.fns.some((fn) => fn.workstreams.some(built)) ? 'nothing is outstanding.' : 'not built yet, and nothing is waiting for it.';
+  const [first, ...rest] = lines.length ? lines : [none];
+  return {
+    text: [`${onPage(scope.label, outside)} ${first}`, ...rest.map((line) => line.charAt(0).toUpperCase() + line.slice(1))].join('\n'),
+    summary: `What ${scope.label} is missing`,
+    citedEvidenceIds: expected.slice(0, 6).map((e) => e.id),
+    citedNodeIds: [],
+    choices: wholeProject("What's missing on the whole project?"),
+  };
+}
+
+function answerFindingsOf(project: DdProject, scope: Scope, question: string, outside: boolean): FileAnswer {
+  const wanted = SEVERITY_ORDER.filter((s) => new RegExp(`\\b${s}\\b`, 'i').test(question));
+  const kind = wanted.length ? `${wanted.join('/')} ` : '';
+  const pick = (rows: FindingRecord[]) => rows.filter((f) => !wanted.length || wanted.includes(f.severity));
+  const here = pick(scopedFindings(project, scope));
+  const elsewhere = pick(openFindings(project)).length - here.length;
+  const titles = here.map((f) => (wanted.length === 1 ? f.title : `${f.title} (${f.severity})`));
+  return {
+    text: here.length
+      ? `${onPage(scope.label, outside)} ${plural(here.length, `open ${kind}finding`)}: ${joinTitles(titles)}.`
+      : `${onPage(scope.label, outside)} no open ${kind}findings.${elsewhere > 0 ? ` ${elsewhere} elsewhere on the project.` : ''}`,
+    summary: `Findings on ${scope.label}`,
+    citedEvidenceIds: [],
+    citedNodeIds: here.slice(0, 5).map((f) => f.id),
+    choices: wholeProject(`Which ${kind}findings are open on the whole project?`),
+  };
+}
+
+/** Where the approvals stand, from the register: how many are in force, and which have lapsed, are running out or are missing. */
+function answerApprovals(project: DdProject, outside: boolean): FileAnswer {
+  const off = switchedOff(project, 'legal.approvals');
+  if (off) return off;
+  const register = approvalsRegister(project);
+  const of = (...statuses: string[]) => register.filter((line) => statuses.includes(line.status));
+  const lapsed = of('expired');
+  const missing = of('missing');
+  const expiring = of('expiring');
+  const inForce = of('in_force', 'expiring').length;
+  const needed = inForce + lapsed.length + missing.length;
+  const lines = [needed ? `${inForce} of ${plural(needed, 'approval')} in force.` : 'No approval is on file, and none is due at the step the project is at.'];
+  if (lapsed.length) lines.push(`Lapsed: ${joinTitles(lapsed.map((line) => line.kind.label), 150)}.`);
+  if (expiring.length) lines.push(`Running out: ${joinTitles(expiring.map((line) => `${line.kind.label} (${line.daysLeft} days left)`), 150)}.`);
+  if (missing.length) lines.push(`Missing: ${joinTitles(missing.map((line) => line.kind.label), 150)}.`);
+  // The register is read from the papers on file. An outside collaborator has some of them, so the count is of those.
+  if (outside) lines[0] = `Of what you have been given: ${lines[0]!.charAt(0).toLowerCase()}${lines[0]!.slice(1)}`;
+  return {
+    text: lines.join('\n'),
+    summary: 'Approvals, from the register',
+    citedEvidenceIds: [...lapsed, ...expiring].flatMap((line) => line.held.map((h) => h.evidenceId)).slice(0, 6),
+    citedNodeIds: [],
+    navigate: { fn: 'legal.approvals', section: 'approvals' },
+  };
+}
+
+/** How far along the work is, from the milestones and the site log. */
+function answerProgress(project: DdProject, outside: boolean): FileAnswer {
+  const off = switchedOff(project, 'construction.progress');
+  if (off) return off;
+  const p = progressSummary(project);
+  if (p.percent === null) {
+    return { text: 'No milestones yet. Add them on Progress and the site log will move them.', summary: 'Progress', citedEvidenceIds: [], citedNodeIds: [], navigate: { fn: 'construction.progress', section: 'progress' } };
+  }
+  const lines = [`${outside ? 'Of what you have been given: ' : ''}${p.percent}% complete: ${p.complete} of ${plural(p.milestones, 'milestone')} done.`];
+  lines.push(p.late.length ? `Late: ${joinTitles(p.late.map((m) => `${m.name} (due ${m.plannedFinish}, at ${m.percent}%)`), 150)}.` : 'None is past its planned finish.');
+  if (p.lastEntry) lines.push(`Last site entry ${p.lastEntry.date}, by ${p.lastEntry.author}.`);
+  return { text: lines.join('\n'), summary: 'Progress, from the milestones', citedEvidenceIds: [], citedNodeIds: [], navigate: { fn: 'construction.progress', section: 'progress' } };
+}
+
 function answerFindings(project: DdProject, question: string): FileAnswer {
   const wanted = SEVERITY_ORDER.filter((s) => new RegExp(`\\b${s}\\b`, 'i').test(question));
   const open = openFindings(project).filter((f) => !wanted.length || wanted.includes(f.severity));
@@ -531,11 +736,37 @@ function fit(answer: FileAnswer | null): FileAnswer | null {
   if (!answer) return null;
   const lines = answer.text.split('\n').filter((l) => l.trim());
   if (lines.length <= 4) return answer;
-  return { ...answer, text: [...lines.slice(0, 3), lines.slice(3).join(' ')].join('\n') };
+  /*
+   * A line that opens with the flag mark is drawn as a row of its own, and
+   * only while the mark opens the line. So the lines past the fourth are
+   * folded into the plain line before them, and a flagged line is never one
+   * of the lines folded: it keeps its place, and its row.
+   */
+  const flagged = (line: string) => line.trimStart().startsWith('⚑');
+  const room = Math.max(1, 4 - lines.filter(flagged).length);
+  const out: string[] = [];
+  let plain = 0;
+  let last = -1;
+  for (const line of lines) {
+    if (flagged(line)) {
+      out.push(line);
+    } else if (plain < room) {
+      plain += 1;
+      last = out.push(line) - 1;
+    } else {
+      out[last] = `${out[last]} ${line}`;
+    }
+  }
+  return { ...answer, text: out.join('\n') };
 }
 
-export function answerFromFile(project: DdProject, question: string): FileAnswer | null {
-  return fit(answerFromFileUnfitted(project, question));
+/**
+ * `here` is the page the person asked from. On a function's or a department's
+ * page, what is missing, a summary and the findings are that page's, unless
+ * the question names the project or the file.
+ */
+export function answerFromFile(project: DdProject, question: string, here?: ChatPlace, options: { outside?: boolean } = {}): FileAnswer | null {
+  return fit(answerFromFileUnfitted(project, question, here, options.outside === true));
 }
 
 /**
@@ -569,13 +800,14 @@ function answerSuperlative(project: DdProject, q: string): FileAnswer | null {
   return { text: `The high risk “${r.title}” — the only material item open.`, summary: 'Most serious item', citedEvidenceIds: [], citedNodeIds: [r.id], navigate: { pane: 'risks' } };
 }
 
-function answerFromFileUnfitted(project: DdProject, question: string): FileAnswer | null {
+function answerFromFileUnfitted(project: DdProject, question: string, here: ChatPlace | undefined, outside: boolean): FileAnswer | null {
   const q = question.trim();
   const top = answerSuperlative(project, q);
   if (top) return top;
   if (!looksLikeFileQuestion(q)) return null;
   const topics = topicsOf(q);
   const facts = factsOnFile(project);
+  const scope = scopeOf(project, q, here);
   for (const topic of topics) {
     switch (topic) {
       case 'help':
@@ -585,7 +817,11 @@ function answerFromFileUnfitted(project: DdProject, question: string): FileAnswe
       case 'thanks':
         return { text: 'Anytime.', summary: 'Thanks', citedEvidenceIds: [], citedNodeIds: [] };
       case 'summary':
-        return answerSummary(project, facts);
+        return scope ? answerSummaryOf(project, scope, outside) : answerSummary(project, facts);
+      case 'approvals':
+        return answerApprovals(project, outside);
+      case 'progress':
+        return answerProgress(project, outside);
       case 'owner': {
         const a = answerOwner(project, facts);
         if (a) return a;
@@ -613,13 +849,13 @@ function answerFromFileUnfitted(project: DdProject, question: string): FileAnswe
       case 'value':
         return answerValue(project, facts);
       case 'findings':
-        return answerFindings(project, q);
+        return scope ? answerFindingsOf(project, scope, q, outside) : answerFindings(project, q);
       case 'risks':
         return answerRisks(project);
       case 'actions':
         return answerActions(project);
       case 'missing':
-        return answerMissing(project);
+        return scope ? answerMissingOf(project, scope, outside) : answerMissing(project);
       case 'documents':
         return answerDocuments(project);
     }

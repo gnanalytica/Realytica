@@ -24,7 +24,11 @@ import {
   rankTalkSittings,
   DD_CONNECTORS,
   DEPARTMENT_KEYS,
+  MENU_DEPARTMENTS,
   PROJECT_COCKPIT_PANES,
+  chatPlaceLabel,
+  placeOfRecord,
+  placeOfWords,
   ANSWER_SOURCES,
   engineeringSummary,
   questionStatus,
@@ -73,6 +77,7 @@ import {
   snapshotCapabilities,
   traceProjectNode,
   type ChatChoice,
+  type ChatPlace,
   type ChatProposal,
   type ChatProposalKind,
   type CockpitPathExtra,
@@ -321,6 +326,8 @@ export function createProjectTools(
   bag: ProjectAgentCollectors,
   extra?: {
     sitting?: SittingRef;
+    /** The page the person asked from: a place opened by name opens from here. */
+    place?: ChatPlace;
     graphRag?: ProjectGraphRagPort;
     lookupShelf?: (query: string, extra?: { scopeKey?: ScopeKey; checkTitle?: string }) => Promise<string>;
     /**
@@ -1108,13 +1115,17 @@ export function createProjectTools(
 
   const navigatePane = betaTool({
     name: 'navigate_pane',
-    description: 'Open a cockpit pane on the right so the person can see the DD, scope, check (field), or register you are talking about. Pass ddId/scopeId/checkId when you name a sitting.',
+    description:
+      'Open a page on the right so the person can see what you are talking about. Name a page the way the menu does: a `department` for its Summary, a `function` for its own page (Title, Approvals, Progress), or a `pane` for a place the whole project shares (evidence for Documents, findings, risks, reports, graph). `stage` looks at the project in another of its four stages and never moves the project there. Pass ddId/scopeId/checkId when you name a sitting, and evidenceId or findingId to open one record.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      required: ['pane'],
       properties: {
         pane: { type: 'string', enum: [...PROJECT_COCKPIT_PANES] },
+        department: { type: 'string', enum: [...MENU_DEPARTMENTS], description: 'legal, finance, construction (Engineering in the menu), commercial or procurement.' },
+        function: { type: 'string', description: 'A function by its key (legal.title) or its word in the menu (Title). Give the department too when two share a word, as Handover does.' },
+        stage: { type: 'string', enum: ['land', 'pre', 'build', 'done', 'live'], description: 'land, pre (Pre-construction), build (Under construction), done (Completed), or live for the stage the project is at.' },
+        section: { type: 'string', description: 'A part of a function’s page: standing, checks, documents, connections, or its own (chain, approvals, progress).' },
         ddId: { type: 'string' },
         scopeId: { type: 'string' },
         checkId: { type: 'string' },
@@ -1122,20 +1133,44 @@ export function createProjectTools(
         findingId: { type: 'string' },
       },
     } as const,
-    run: async ({ pane, ddId, scopeId, checkId, evidenceId, findingId }) => {
-      const target = pane as ProjectCockpitPane;
+    run: async ({ pane, department, function: fn, stage, section, ddId, scopeId, checkId, evidenceId, findingId }) => {
+      let target = pane as ProjectCockpitPane | undefined;
+      let place: CockpitPathExtra = {};
+      let summary: string | undefined;
+      if (department || fn || stage) {
+        const reading = placeOfWords(project, { pane: target, department, fn, stage, section }, extra?.place);
+        if (reading.kind !== 'go') {
+          // Two pages with one name, a page with no work at the stage, a department switched off: said back, and nothing opens.
+          return JSON.stringify({
+            error: reading.text,
+            ...(reading.kind === 'ask' ? { options: reading.choices.map((c) => c.label), note: 'Nothing was opened. Ask the person which one they meant.' } : {}),
+          });
+        }
+        target = reading.open.pane;
+        place = reading.open.extra;
+        summary = chatPlaceLabel(reading.place);
+      } else if (evidenceId && (!target || target === 'evidence')) {
+        // A document opens on the page of the function that holds it, as a link to it does.
+        const at = placeOfRecord(project, evidenceId, extra?.place);
+        if (at) {
+          target = at.open.pane;
+          place = at.open.extra;
+        }
+      }
+      if (!target) return JSON.stringify({ error: 'Name a pane, a department, a function or a stage.' });
       const opened = {
         target,
+        ...place,
         ...(ddId ? { ddId } : {}),
         ...(scopeId ? { scopeId } : {}),
         ...(checkId ? { checkId } : {}),
         ...(evidenceId ? { evidenceId } : {}),
         ...(findingId ? { findingId } : {}),
       };
-      if (!bag.navigations.some((n) => n.target === target && n.checkId === checkId && n.scopeId === scopeId && n.evidenceId === evidenceId && n.findingId === findingId)) {
-        bag.navigations.push(opened);
-      }
-      bag.toolCalls.push({ name: 'navigate', summary: checkId ? `${target} · check` : target });
+      const same = (n: (typeof bag.navigations)[number]) =>
+        n.target === target && n.checkId === checkId && n.scopeId === scopeId && n.evidenceId === evidenceId && n.findingId === findingId && n.department === place.department && n.workstream === place.workstream && n.stage === place.stage;
+      if (!bag.navigations.some(same)) bag.navigations.push(opened);
+      bag.toolCalls.push({ name: 'navigate', summary: summary ?? (checkId ? `${target} · check` : target) });
       return JSON.stringify({ opened });
     },
   });

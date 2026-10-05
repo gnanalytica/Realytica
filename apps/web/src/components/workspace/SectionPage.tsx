@@ -97,18 +97,20 @@ export function SectionPage({
     };
   }, [ids]);
 
-  const go = useCallback((id: string) => {
+  const go = useCallback((id: string, fromOutside = false) => {
     // Matched on the attribute's value, not through a selector: the id can come from an address, and an address can hold anything.
     const part = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-section]') ?? []).find((el) => el.dataset.section === id);
     if (!part) return;
     held.current = true;
     setCurrent(id);
     const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    part.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' });
+    // A link that marked a row inside the part lands on the row. One that marked none, or a row that is not drawn, lands on the part.
+    const row = fromOutside ? part.querySelector<HTMLElement>('[data-marked]') : null;
+    (row ?? part).scrollIntoView({ block: row ? 'center' : 'start', behavior: calm ? 'auto' : 'smooth' });
   }, []);
 
   useEffect(() => {
-    if (jump) go(jump.id);
+    if (jump) go(jump.id, true);
   }, [jump, go]);
 
   // Where the icons lie in a row, whether the row has more to show past either edge.

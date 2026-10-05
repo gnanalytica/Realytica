@@ -7,6 +7,7 @@ import type {
   AgentCapability,
   AgentStep,
   ReadingStreamEvent,
+  ChatTurnPlace,
   CopilotTurn,
   DataSourceDescriptor,
   IngestionReport,
@@ -1034,10 +1035,14 @@ export const api = {
     body: {
       question: string;
       viewContext?: string;
+      /** The page the question is asked from, and the stage it is looked at in. */
+      place?: ChatTurnPlace;
       actor?: string;
       /** The sitting these turns belong to, so history can be cut into chats. */
       sessionId?: string;
-      sitting?: { ddId?: string; scopeId?: string; checkId?: string };
+      /** The earlier chat this sitting carries on. */
+      continues?: string;
+      sitting?: { ddId?: string; scopeId?: string; checkId?: string; evidenceId?: string };
     },
     opts?: ProjectChatListeners,
   ) =>
@@ -1064,9 +1069,11 @@ export const api = {
       files: File[];
       question?: string;
       viewContext?: string;
+      place?: ChatTurnPlace;
       actor?: string;
       sessionId?: string;
-      sitting?: { ddId?: string; scopeId?: string; checkId?: string };
+      continues?: string;
+      sitting?: { ddId?: string; scopeId?: string; checkId?: string; evidenceId?: string };
     },
     opts?: ProjectChatListeners,
   ) => {
@@ -1074,8 +1081,11 @@ export const api = {
     body.files.forEach((f) => form.append('files', f));
     if (body.question) form.append('question', body.question);
     if (body.viewContext) form.append('viewContext', body.viewContext);
+    // A form carries words, so the place goes as one field of them.
+    if (body.place) form.append('place', JSON.stringify(body.place));
     if (body.actor) form.append('actor', body.actor);
     if (body.sessionId) form.append('sessionId', body.sessionId);
+    if (body.continues) form.append('continues', body.continues);
     if (body.sitting?.ddId) form.append('ddId', body.sitting.ddId);
     if (body.sitting?.scopeId) form.append('scopeId', body.sitting.scopeId);
     if (body.sitting?.checkId) form.append('checkId', body.sitting.checkId);
@@ -1109,6 +1119,9 @@ export const api = {
       body: JSON.stringify({}),
     }),
   clearProjectChat: (projectId: string) => request<void>(`/projects/${projectId}/chat`, { method: 'DELETE' }),
+  /** Name a chat. An empty name hands it back to its first question. */
+  renameChat: (projectId: string, sessionId: string, name: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/chat/sessions/${encodeURIComponent(sessionId)}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   /*
    * Deciding on the canvas. Each names what it decides by id, writes no chat
    * turn, and answers with the project as it now stands.

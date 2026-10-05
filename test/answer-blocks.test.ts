@@ -229,6 +229,40 @@ describe('blocks', () => {
     assert.equal(text((blocks[0] as Extract<Block, { kind: 'paragraph' }>).spans), 'The title chain closes from 1994 to 2019.');
   });
 
+  it('sets a flagged line apart from the prose on either side of it', () => {
+    // What a dropped paper's reply looks like: where it went, what differs, what waits.
+    const blocks = parseAnswer(
+      'Read the DC conversion order.\nFiled under Legal › Approvals, at the Land stage.\n⚑ Differs from what is on file: Survey number 118/2 against 41/3. Nothing is overwritten.\n5 values are waiting on the right.\nReaches Valuation.',
+      NO_NODES,
+    );
+    assert.deepEqual(kinds(blocks), ['paragraph', 'flag', 'paragraph']);
+    assert.equal(text((blocks[0] as Extract<Block, { kind: 'paragraph' }>).spans), 'Read the DC conversion order. Filed under Legal › Approvals, at the Land stage.');
+    // The mark is the block's, not the sentence's: it is drawn, so it is not also printed.
+    assert.equal(text((blocks[1] as Extract<Block, { kind: 'flag' }>).spans), 'Differs from what is on file: Survey number 118/2 against 41/3. Nothing is overwritten.');
+    assert.equal(text((blocks[2] as Extract<Block, { kind: 'paragraph' }>).spans), '5 values are waiting on the right. Reaches Valuation.');
+  });
+
+  it('keeps each flagged line its own', () => {
+    const blocks = parseAnswer('Two charges are open.\n⚑ Mortgage to the bank, high.\n⚑ Attachment order, critical.', NO_NODES);
+    assert.deepEqual(kinds(blocks), ['paragraph', 'flag', 'flag']);
+  });
+
+  it('keeps a citation inside a flagged line', () => {
+    const blocks = parseAnswer('⚑ The names differ [ev:ev-3].', NO_NODES);
+    assert.deepEqual(kinds(blocks), ['flag']);
+    assert.deepEqual((blocks[0] as Extract<Block, { kind: 'flag' }>).spans.map(s => s.kind), ['text', 'evidence', 'text']);
+  });
+
+  it('leaves a flag in the middle of a sentence where it was written', () => {
+    const blocks = parseAnswer('Filed the sale deed. ⚑ Charge on the land.', NO_NODES);
+    assert.deepEqual(kinds(blocks), ['paragraph']);
+    assert.equal(text((blocks[0] as Extract<Block, { kind: 'paragraph' }>).spans), 'Filed the sale deed. ⚑ Charge on the land.');
+  });
+
+  it('reads a flag with nothing after it as prose', () => {
+    assert.deepEqual(kinds(parseAnswer('⚑', NO_NODES)), ['paragraph']);
+  });
+
   it('returns a single paragraph for an unformatted answer', () => {
     // The status quo has to keep working: a model that formats nothing gets
     // exactly what it got before.

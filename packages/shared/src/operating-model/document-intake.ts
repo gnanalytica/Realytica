@@ -16,10 +16,11 @@ import { checkSchema } from './operations';
 import { acceptedFacts, liveFacts } from './fact-review';
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS } from './libraries';
 import { SCOPE_LABEL } from './catalogs';
-import { isBlank } from './check-fields';
+import { formatFieldValue, isBlank } from './check-fields';
 import { createChatProposal } from './wizard';
 import { documentAnswers, type DocumentFact, type DocumentFlag } from './document-parse';
-import type { ChatIngestFile, ChatProposal, CheckInstance, DdProject, EvidenceRecord, FindingSeverity, ScopeKey } from './types';
+import { surveyPieces } from './revenue-map';
+import type { ChatIngestFile, ChatProposal, CheckFieldDef, CheckInstance, DdProject, EvidenceRecord, FindingSeverity, ScopeKey } from './types';
 
 /* ==================================================================== */
 /* Which row                                                             */
@@ -98,8 +99,13 @@ function everyCheck(project: DdProject): SeatedCheck[] {
  * The same value already waits for this field. A DIFFERENT value is offered
  * beside it: two documents that disagree are a choice for a person, and
  * offering only whichever was read first would make it for them.
+ *
+ * "The same" is as `statesTheSame` reads it. Two papers that state one area a
+ * rounding apart would otherwise both wait on a blank field, and the check
+ * would ask a person to pick between them.
  */
-function alreadyProposed(project: DdProject, checkId: string, key: string, value: unknown, pending: ChatProposal[]): boolean {
+function alreadyProposed(project: DdProject, checkId: string, def: CheckFieldDef, value: unknown, pending: ChatProposal[]): boolean {
+  const key = def.key;
   return [...project.chatProposals, ...pending].some(
     (p) =>
       p.kind === 'record_check_fields'
@@ -109,17 +115,147 @@ function alreadyProposed(project: DdProject, checkId: string, key: string, value
       && p.payload.values !== null
       && key in (p.payload.values as Record<string, unknown>)
       && !((p.payload.decided as Record<string, string> | undefined)?.[key])
-      && String((p.payload.values as Record<string, unknown>)[key]) === String(value),
+      && statesTheSame(key, (p.payload.values as Record<string, unknown>)[key], value, isMeasure(def)),
   );
+}
+
+/**
+ * A person has already decided this value for this field: accepted it, set it
+ * aside, or kept what the check held in its place. It is not asked again.
+ */
+function alreadyDecided(project: DdProject, checkId: string, key: string, value: unknown): boolean {
+  return project.chatProposals.some(
+    (p) =>
+      p.kind === 'record_check_fields'
+      && p.payload.checkId === checkId
+      && Boolean((p.payload.decided as Record<string, string> | undefined)?.[key])
+      && String(((p.payload.values ?? {}) as Record<string, unknown>)[key]) === String(value),
+  );
+}
+
+/**
+ * How close two measures have to be to be one measure rounded twice: within
+ * one unit of each other, and within half a percent of the larger. The unit
+ * is what a paper rounds an area to. The share keeps a road nine metres wide
+ * apart from one nine and a half. Two khatas that state 11,850 and 11,900 are
+ * fifty apart, and that is two figures for a person to choose between.
+ */
+export const SAME_MEASURE_UNIT = 1;
+export const SAME_MEASURE_SHARE = 0.005;
+
+/** The units a length is written in. An area is its own kind of field. */
+const LENGTH_UNITS = new Set(['m', 'ft', 'km', 'mm', 'cm', 'sqm', 'sq ft', 'sqft', 'acres', 'guntas']);
+
+/**
+ * Whether a check's field holds a measure: an area, or a number with a unit
+ * of length. Only a measure is rounded differently from one paper to the
+ * next. A budget, a ratio, a count of units, a year and a khata number read as
+ * a number are exact, and one off is another value.
+ */
+export function isMeasure(def: Pick<CheckFieldDef, 'kind' | 'unit'>): boolean {
+  return def.kind === 'area' || LENGTH_UNITS.has((def.unit ?? '').toLowerCase());
+}
+
+/**
+ * The survey numbers a value names, as written and without their spaces:
+ * "Sy. Nos. 41/1 & 42" names 41/1 and 42, and 41A is not 41B. Read as a list
+ * of survey numbers is read everywhere else (`surveyPieces`), so a piece that
+ * is not one number names none. Nor does a run of five digits or more: that
+ * is a pin code in an address, not a parcel.
+ */
+export function surveyNumbersIn(value: unknown): string[] {
+  return surveyPieces(String(value ?? '')).flatMap((piece) => (piece.unreadable || /^\d{5,}$/.test(piece.surveyNo) ? [] : [piece.surveyNo.toUpperCase()]));
+}
+
+/**
+ * Whether a value a document states says what is already held for it.
+ *
+ * Read as a person would read the two side by side. Words are the same
+ * whatever their case, spacing or punctuation: an enum is recorded as the
+ * check spells it and stated as the document does, and "K. Ramaiah" is "K
+ * Ramaiah". Survey numbers are the same land when every number the document
+ * names is among those held: a deed for one parcel of three agrees with the
+ * list that names all three, and a paper that names a parcel the list does
+ * not have does not.
+ *
+ * `measure` says the two are measures (see `isMeasure`). Two measures are the
+ * same when they are within a unit and half a percent of each other: a khata
+ * in square feet and a deed in square metres round one area twice. Any other
+ * number is the same only when it is the same number.
+ */
+export function statesTheSame(key: string, held: unknown, stated: unknown, measure = false): boolean {
+  if (key === 'survey_numbers') {
+    const theirs = surveyNumbersIn(held);
+    const ours = surveyNumbersIn(stated);
+    if (theirs.length && ours.length) return ours.every((n) => theirs.includes(n));
+  }
+  if (measure && typeof held === 'number' && typeof stated === 'number') {
+    const apart = Math.abs(held - stated);
+    return apart < SAME_MEASURE_UNIT && apart <= SAME_MEASURE_SHARE * Math.max(Math.abs(held), Math.abs(stated));
+  }
+  // A full stop is part of a number and of nothing else.
+  const plain = (value: unknown) => String(value).toLowerCase().replace(/(?<!\d)\.|\.(?!\d)/g, ' ').replace(/[^\p{L}\p{N}.]+/gu, ' ').trim();
+  return plain(held) === plain(stated);
+}
+
+/**
+ * Whether a person has already decided this value of this paper's, on some
+ * check: accepted it, set it aside, or kept what the check held in its place.
+ * Such a value is settled for that paper, and is not called out again each
+ * time the paper is read. It is settled for no other paper: one khata's
+ * parcel set aside says nothing of the deed that states the same parcel next.
+ */
+export function decidedOnACheck(project: DdProject, key: string, value: unknown, evidence: Pick<EvidenceRecord, 'id' | 'attachments'>): boolean {
+  // A card knows its paper by the row's id, or by the file's key where the card was made before the row was.
+  const files = new Set(evidence.attachments.map((a) => a.storageKey));
+  return project.chatProposals.some(
+    (p) =>
+      p.kind === 'record_check_fields'
+      && (p.payload.sourceEvidenceId === evidence.id || (typeof p.payload.sourceStorageKey === 'string' && files.has(p.payload.sourceStorageKey)))
+      && Boolean((p.payload.decided as Record<string, string> | undefined)?.[key])
+      && String(((p.payload.values ?? {}) as Record<string, unknown>)[key]) === String(value),
+  );
+}
+
+/** Whether a check's field can hold a value: an enum takes only one of its own options, and a value the document phrases differently is quoted, not forced. */
+function fieldTakes(def: CheckFieldDef, value: unknown): boolean {
+  return !(def.kind === 'enum' && def.options?.length && !def.options.some((o) => o.toLowerCase() === String(value).toLowerCase()));
+}
+
+/**
+ * Whether a value a document states is put to a check that already holds
+ * another for the field: the two differ, the field can hold the new one, and
+ * a person has not already decided this value for this field.
+ *
+ * The card that offers such a value and the line that calls it out both ask
+ * this, so a line is never said with no card behind it, and a value a person
+ * set aside is not raised again each time the paper is read.
+ */
+export function differsOnCheck(project: DdProject, check: CheckInstance, def: CheckFieldDef, fact: DocumentFact): boolean {
+  const held = check.fields?.[fact.key];
+  if (isBlank(held) || Array.isArray(held!.value) || def.kind === 'computed') return false;
+  if (statesTheSame(fact.key, held!.value, fact.value, isMeasure(def)) || !fieldTakes(def, fact.value)) return false;
+  // On a site of several parcels the check may hold one parcel's number and the paper state another's. Where both are the
+  // project's own parcels they do not differ. A check that holds a number the project does not have is still put right.
+  const ownLand = (value: unknown) => statesTheSame(fact.key, project.parcelId, value);
+  if (fact.key === 'survey_numbers' && surveyNumbersIn(project.parcelId).length && ownLand(fact.value) && ownLand(held!.value)) return false;
+  return !alreadyDecided(project, check.id, fact.key, fact.value);
 }
 
 /**
  * Cards that fill blank check fields with what a document states.
  *
  * One card per check, carrying every value this document has for it, with
- * the page and words behind each. A field somebody already recorded is left
- * alone even when the document disagrees — the disagreement is for a person,
- * and the engine will compute it the moment both values are on the check.
+ * the page and words behind each. A field somebody already recorded is never
+ * overwritten.
+ *
+ * With `differences`, a value that disagrees with the one recorded is offered
+ * too, and the card says what is recorded and where that came from. It then
+ * waits on the check beside the recorded value, where a person keeps one or
+ * the other: accepting the card does not choose between them. That is for a
+ * document as it is read, once. Without it a recorded field is left alone, as
+ * it is when the checks are refilled from documents already on file, where
+ * the same disagreement would be raised again on every pass.
  */
 export function factFillProposals(
   project: DdProject,
@@ -127,6 +263,7 @@ export function factFillProposals(
   source: { fileName: string; evidenceId?: string; storageKey?: string; documentLabel?: string },
   actor = 'operator',
   pending: ChatProposal[] = [],
+  options: { differences?: boolean } = {},
 ): ChatProposal[] {
   if (!facts.length) return [];
   const out: ChatProposal[] = [];
@@ -136,17 +273,21 @@ export function factFillProposals(
     const values: Record<string, string | number | boolean> = {};
     const citations: Record<string, { page: number; quote: string; value: string | number | boolean }> = {};
     const lines: string[] = [];
+    const against: string[] = [];
     for (const fact of facts) {
       const def = fields.find((f) => f.key === fact.key);
       if (!def || def.kind === 'computed') continue;
-      if (!isBlank(seated.check.fields?.[fact.key])) continue;
-      if (alreadyProposed(project, seated.check.id, fact.key, fact.value, [...pending, ...out])) continue;
-      // An enum only takes one of its own options; a value the document
-      // phrases differently is quoted, not forced.
-      if (def.kind === 'enum' && def.options?.length && !def.options.some((o) => o.toLowerCase() === String(fact.value).toLowerCase())) continue;
+      const held = seated.check.fields?.[fact.key];
+      if (!isBlank(held) && !(options.differences && differsOnCheck(project, seated.check, def, fact))) continue;
+      if (alreadyProposed(project, seated.check.id, def, fact.value, [...pending, ...out])) continue;
+      if (!fieldTakes(def, fact.value)) continue;
       values[fact.key] = fact.value;
       citations[fact.key] = { page: fact.page, quote: fact.quote, value: fact.value };
       lines.push(`${def.label}: ${fact.display} — “${fact.quote}” (p.${fact.page})`);
+      if (!isBlank(held)) {
+        const from = held!.sourceEvidenceId ? project.evidence.find((e) => e.id === held!.sourceEvidenceId) : undefined;
+        against.push(`${def.label} is ${formatFieldValue(def, held)} on the check${from ? `, from ${from.documentType ?? from.title}${held!.page ? ` p.${held!.page}` : ''}` : `, recorded by ${held!.by}`}`);
+      }
     }
     const keys = Object.keys(values);
     if (!keys.length) continue;
@@ -154,8 +295,10 @@ export function factFillProposals(
       createChatProposal(
         'record_check_fields',
         `Record ${keys.length === 1 ? fields.find((f) => f.key === keys[0])!.label.toLowerCase() : `${keys.length} values`} on “${seated.check.title}”`,
-        `Read off ${source.documentLabel ? `the ${source.documentLabel.toLowerCase()}` : source.fileName}. ${lines.join(' ')}`,
-        'Writes these values onto the check, citing the document. The check result is not changed — whether it passes is still a person’s call.',
+        `Read off ${source.documentLabel ? `the ${source.documentLabel.toLowerCase()}` : source.fileName}. ${lines.join(' ')}${against.length ? ` Differs from what is recorded: ${against.join('; ')}.` : ''}`,
+        against.length
+          ? 'Writes these values onto the check, citing the document. A value that differs from the one recorded waits beside it on the check until a person keeps one. The check result is not changed.'
+          : 'Writes these values onto the check, citing the document. The check result is not changed — whether it passes is still a person’s call.',
         {
           checkId: seated.check.id,
           values,

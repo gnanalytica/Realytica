@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { FileText, Unlink, Waypoints } from 'lucide-react';
+import { FileText, Flag, Unlink, Waypoints } from 'lucide-react';
 import type { EvidenceItem } from '@realytica/shared';
 import { parseAnswer } from './answer-blocks';
 import type { Block, Inline } from './answer-blocks';
@@ -140,6 +140,18 @@ function BlockView({ block, render }: { block: Block; render: (spans: Inline[]) 
           </li>
         ))}
       </ol>
+    );
+  }
+  if (block.kind === 'flag') {
+    return (
+      // The colour of a warning, as the note under an answer with an unsupported figure wears.
+      <p className="flex gap-2 rounded-lg bg-warning/15 px-2.5 py-1.5 leading-snug ring-1 ring-inset ring-warning/45">
+        <Flag size={13} aria-hidden className="mt-[3px] shrink-0 text-warning" />
+        <span className="min-w-0">
+          <span className="sr-only">Flag: </span>
+          {render(block.spans)}
+        </span>
+      </p>
     );
   }
   if (block.kind === 'rule') {

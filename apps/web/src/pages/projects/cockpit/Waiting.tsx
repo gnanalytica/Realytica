@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, ChevronRight, FileText, Undo2, X } from 'lucide-react';
 import {
   proposalChanges,
+  turnChips,
+  type ChatPlace,
   type ChatProposal,
   type CopilotTurn,
   type DdProject,
   type ProjectCockpitPane,
+  type TurnChip,
   type WaitingEntry,
   type waitingOnCanvas,
 } from '@realytica/shared';
@@ -14,58 +17,56 @@ import { AnimatePresence, EASE_ENTER, Stagger, StaggerItem, motion } from '../..
 import { CreateWizard } from '../../../components/create/CreateWizard';
 import { specForProposal } from '../../../components/create/specs';
 import { DecideButtons } from '../../../components/review/Decide';
-import { paneLabel, tabHolding } from './rail';
+import { tabHolding } from './rail';
 
 export type Waiting = ReturnType<typeof waitingOnCanvas>;
 
-/** Where a group of waiting things is, in a few words. */
-function placeOf(pane: ProjectCockpitPane): string {
-  if (pane === 'evidence') return 'on the documents';
-  if (pane === 'scope') return 'on the checks';
-  return `under ${paneLabel(pane)}`;
-}
-
 /**
- * What a chat turn left waiting, as a way to it.
+ * The ways on from a chat turn, as chips under it.
  *
  * The chat holds no buttons that decide anything: a reply that read a deed or
- * proposed a finding says so in words, and this is the pointer to where it
- * waits — one chip per place, with how many. Gone once they are decided.
+ * proposed a finding says so in words, and these point to where it happened.
+ * What it left waiting comes first, a function at a time, with how many: a
+ * function's documents open their review, its checks open its page at the
+ * checks. After a drop, the functions its other papers went to, and the paper
+ * in the graph. A waiting chip is gone once what it counts is decided.
  */
 export function TurnWaiting({
+  project,
   turn,
   waiting,
+  here,
   onGo,
 }: {
+  project: DdProject;
   turn: CopilotTurn;
   waiting: Waiting;
-  onGo: (entry: WaitingEntry) => void;
+  /** The page on screen: a function's page opens at the stage being looked at when it shows there. */
+  here: ChatPlace;
+  onGo: (chip: TurnChip) => void;
 }) {
-  const groups = useMemo(() => {
-    const ids = new Set(turn.proposalIds ?? []);
-    const cited = new Set(turn.citedEvidenceIds ?? []);
-    const mine = waiting.entries.filter((e) => (e.proposalId && ids.has(e.proposalId)) || (e.kind === 'facts' && e.evidenceId && cited.has(e.evidenceId)));
-    const byPane = new Map<ProjectCockpitPane, { count: number; first: WaitingEntry }>();
-    for (const e of mine) {
-      const g = byPane.get(e.pane);
-      if (g) g.count += e.count;
-      else byPane.set(e.pane, { count: e.count, first: e });
-    }
-    return [...byPane.entries()];
-  }, [turn, waiting]);
-  if (!groups.length) return null;
+  const chips = useMemo(() => turnChips(project, turn, waiting, here), [project, turn, waiting, here]);
+  if (!chips.length) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      {groups.map(([pane, g]) => (
+      {chips.map((chip) => (
         <button
-          key={pane}
+          key={chip.key}
           type="button"
-          onClick={() => onGo(g.first)}
-          className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[12px] text-ink ring-1 ring-inset ring-provenance/40 hover:bg-provenance/10 coarse:min-h-11"
+          onClick={() => onGo(chip)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[12px] text-ink ring-1 ring-inset coarse:min-h-11',
+            // Blue is for what waits on a person. A chip that only goes somewhere is plain.
+            chip.kind === 'waiting' ? 'ring-provenance/40 hover:bg-provenance/10' : 'ring-[var(--ring)] hover:bg-sunken',
+          )}
         >
-          <span className="size-1.5 rounded-full bg-provenance" aria-hidden />
-          <span className="tabular-nums font-medium">{g.count}</span>
-          <span className="text-ink-secondary">waiting {placeOf(pane)}</span>
+          {chip.kind === 'waiting' ? (
+            <>
+              <span className="size-1.5 rounded-full bg-provenance" aria-hidden />
+              <span className="tabular-nums font-medium">{chip.count}</span>
+            </>
+          ) : null}
+          <span className="text-ink-secondary">{chip.words}</span>
           <ArrowRight size={12} className="text-ink-muted" aria-hidden />
         </button>
       ))}

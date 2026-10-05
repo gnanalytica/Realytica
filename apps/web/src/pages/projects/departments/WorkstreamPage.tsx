@@ -1,12 +1,13 @@
 import { useMemo } from 'react';
 import { Reveal } from '../../../lib/motion';
 import { DEPARTMENT_ICON } from '../../../components/departments/icons';
-import { Link, Navigate, useNavigate, useOutletContext, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowRight, Clock, FileStack, Gauge, GitCommitVertical, ListChecks, Milestone, Stamp, Waypoints } from 'lucide-react';
 import {
   STAGES,
   cockpitPath,
   departmentDefinition,
+  quotesForEvidence,
   stageOf,
   titleGraphFromProject,
   workstreamChecks,
@@ -29,6 +30,7 @@ import { ScheduleOfProperty } from '../../../components/ScheduleOfProperty';
 import { SectionPage, type PageSection } from '../../../components/workspace/SectionPage';
 import { exampleOfWorkstream } from '../../example/paths';
 import { WORKSTREAM_PANE } from '../cockpit/rail';
+import { EvidenceProof } from '../EvidenceProof';
 import type { ProjectOutlet } from '../ProjectLayout';
 
 /**
@@ -137,7 +139,7 @@ function TitleBody({ project, graph }: { project: DdProject; graph: ReturnType<t
 
 /** One workstream: its frame, then the work that is its own. */
 export default function WorkstreamPage() {
-  const { project, setProject, refresh, stage = stageOf(project.currentStage) } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, refresh, highlightIds, stage = stageOf(project.currentStage) } = useOutletContext<ProjectOutlet>();
   const { workstream = '' } = useParams<{ workstream: string }>();
   const nav = useWorkstreamNav(project);
   const ws = workstreamDefinition(workstream);
@@ -174,10 +176,17 @@ export default function WorkstreamPage() {
           frame={<WorkstreamFrame project={project} workstream={ws.key} setProject={setProject} />}
         />
       ) : (
-        <FunctionSections project={project} ws={ws} setProject={setProject} />
+        <FunctionSections project={project} ws={ws} setProject={setProject} highlightIds={highlightIds} />
       )}
     </div>
   );
+}
+
+/** A number for one visit to an address, so landing on the same part twice brings it into view twice. */
+function visitOf(key: string): number {
+  let n = 0;
+  for (let i = 0; i < key.length; i += 1) n = (n * 31 + key.charCodeAt(i)) | 0;
+  return n;
 }
 
 /**
@@ -187,17 +196,43 @@ export default function WorkstreamPage() {
  * The same parts in the same order for every function, with the centrepiece
  * differing: the approvals register, the progress board, the chain of title.
  * The rail names them, so a long page is one press from any of its parts.
+ *
+ * A link can land on one of them, and on one record inside it. The address
+ * says which: `part` names the part, `item` a check, an approval, a milestone
+ * or a site entry to light, and `evidence` a document to light and open at
+ * the page cited. That is how a link in a chat answer opens the page the
+ * record is on, with the record in view, and not the list of every record of
+ * its kind. The ids of the parts are the ones `functionSections` gives the
+ * chat; a test holds the two together.
  */
-function FunctionSections({ project, ws, setProject }: { project: DdProject; ws: WorkstreamDefinition; setProject: (p: DdProject) => void }) {
+function FunctionSections({ project, ws, setProject, highlightIds }: { project: DdProject; ws: WorkstreamDefinition; setProject: (p: DdProject) => void; highlightIds?: string[] }) {
   const nav = useWorkstreamNav(project);
+  const location = useLocation();
+  const [query, setQuery] = useSearchParams();
+  const part = query.get('part');
+  const item = query.get('item');
+  const openId = query.get('evidence');
+  const cited = query.get('page');
   const assessment = useQuickAssessment(project, ws.key);
   const chain = useMemo(() => (ws.key === 'legal.title' ? titleGraphFromProject(project) : null), [project, ws.key]);
+  /*
+   * A part named in the address comes into view on the visit that named it.
+   * A record marked inside it comes into view by itself, and the part then
+   * stays where that put it; a record the address names that is not drawn
+   * there still leaves the part in view.
+   */
+  const visit = visitOf(location.key);
+  const jump = useMemo(() => (part ? { id: part, at: visit } : null), [part, visit]);
+  // The documents to light: the one the address names, and the ones the chat has just filed or cited.
+  const lit = useMemo(() => [...(openId ? [openId] : []), ...(highlightIds ?? [])], [openId, highlightIds]);
+  const proof = openId ? project.evidence.find((e) => e.id === openId) : undefined;
+  const proofQuotes = useMemo(() => (proof ? quotesForEvidence(project, proof.id) : []), [proof, project]);
 
   const centre: PageSection | null =
     ws.key === 'legal.approvals'
-      ? { id: 'approvals', name: 'Approvals', icon: Stamp, body: <ApprovalsRegister project={project} onOpenDocument={nav.openDocument} /> }
+      ? { id: 'approvals', name: 'Approvals', icon: Stamp, body: <ApprovalsRegister project={project} onOpenDocument={nav.openDocument} marked={item} /> }
       : ws.key === 'construction.progress'
-        ? { id: 'progress', name: 'Progress', icon: Milestone, body: <ProgressBoard project={project} onChanged={setProject} onPairPhone={nav.pairPhone} /> }
+        ? { id: 'progress', name: 'Progress', icon: Milestone, body: <ProgressBoard project={project} onChanged={setProject} onPairPhone={nav.pairPhone} marked={item} /> }
         : chain?.nodes.length
           ? { id: 'chain', name: 'Chain of title', icon: GitCommitVertical, body: <TitleBody project={project} graph={chain} /> }
           : null;
@@ -215,8 +250,8 @@ function FunctionSections({ project, ws, setProject }: { project: DdProject; ws:
       ),
     },
     ...(centre ? [centre] : []),
-    { id: 'checks', name: 'Checks', icon: ListChecks, body: <WorkstreamChecks project={project} workstream={ws.key} onChanged={setProject} onOpenCheck={nav.openCheck} /> },
-    { id: 'documents', name: 'Documents', icon: FileStack, body: <WorkstreamDocuments project={project} workstream={ws.key} onOpenDocument={nav.openDocument} /> },
+    { id: 'checks', name: 'Checks', icon: ListChecks, body: <WorkstreamChecks project={project} workstream={ws.key} onChanged={setProject} onOpenCheck={nav.openCheck} marked={part === 'checks' ? item : null} /> },
+    { id: 'documents', name: 'Documents', icon: FileStack, body: <WorkstreamDocuments project={project} workstream={ws.key} onOpenDocument={nav.openDocument} marked={lit} landed={part === 'documents' || openId ? visit : null} /> },
     {
       id: 'connections',
       name: 'Connections',
@@ -230,5 +265,30 @@ function FunctionSections({ project, ws, setProject }: { project: DdProject; ws:
     },
   ];
 
-  return <SectionPage sections={sections} />;
+  return (
+    <>
+      <SectionPage sections={sections} jump={jump} />
+      {/* A document a link named opens over the page it belongs to, at the page cited, as it does on the register. */}
+      {proof ? (
+        <EvidenceProof
+          projectId={project.id}
+          evidence={proof}
+          file={proof.attachments[0]}
+          quotes={proofQuotes}
+          citedPage={cited ? Number(cited) || undefined : undefined}
+          onClose={() =>
+            setQuery(
+              (prev) => {
+                const next = new URLSearchParams(prev);
+                next.delete('evidence');
+                next.delete('page');
+                return next;
+              },
+              { replace: true },
+            )
+          }
+        />
+      ) : null}
+    </>
+  );
 }

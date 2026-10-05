@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
-import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, SearchX, Trash2, X } from 'lucide-react';
-import { chatSessions, groupActivity, splitThread } from '@realytica/shared';
-import type { AgentStep, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, VerificationSummary } from '@realytica/shared';
+import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, SearchX, X } from 'lucide-react';
+import { askedOn, chatSessions, groupActivity, splitThread } from '@realytica/shared';
+import type { AgentStep, ChatTurnPlace, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
-import { AiMark, Badge, Button, cn } from './ui/kit';
+import { AiMark, Badge, Button, Modal, cn } from './ui/kit';
 import { EASE_ENTER, SPRING, motion } from '../lib/motion';
 import { AnswerBody } from './chat/AnswerBody';
+import { ChatList } from './chat/ChatList';
+import { chatDay, chatRows, liveChatId, liveTurns } from './chat/chat-list';
 import { TurnVisual } from './chat/TurnVisual';
 import { relativeTime } from '../lib/format';
 
@@ -65,15 +67,18 @@ function TurnBubble({
   onOpenEvidence,
   onOpenDocument,
   extras,
+  here,
 }: {
   turn: CopilotTurn;
+  /** The page on screen. A question asked on another one says which. */
+  here?: ChatTurnPlace;
   evidence: EvidenceItem[];
   nodes?: Array<{ id: string; label: string }>;
   applied?: string[];
   screenResult?: ScreenResult;
   askingPrice?: number | null;
   /** Send a message on the person's behalf when they pick an offered choice. */
-  onPick?: (text: string, sitting?: { ddId?: string; scopeId?: string; checkId?: string }) => void;
+  onPick?: (text: string, sitting?: { ddId?: string; scopeId?: string; checkId?: string; evidenceId?: string }) => void;
   verification?: VerificationSummary;
   onOpenNode?: (nodeId: string) => void;
   onOpenEvidence?: (id: string) => void;
@@ -96,8 +101,16 @@ function TurnBubble({
   // cleanly here and never see the warning sitting on another screen.
   const flagged = findFlaggedCriticFinding(verification, 'copilot_answer', turn.id);
   if (turn.role === 'user') {
+    /*
+     * The thread stays when the page changes, so a question asked on Title
+     * and its answer are still here on Approvals. One quiet line over the
+     * question says where it was asked. A question asked on the page on
+     * screen says nothing, and that is most of them.
+     */
+    const asked = askedOn(turn.place, here);
     return (
-      <div className="flex justify-end pl-8">
+      <div className="flex flex-col items-end gap-1 pl-8">
+        {asked ? <p className="text-micro text-ink-muted">{asked}</p> : null}
         {/*
           `whitespace-pre-wrap`, which the assistant side has always had and
           this side never did — so a pasted multi-line question collapsed into
@@ -400,7 +413,7 @@ export function CopilotPanel({
   evidence,
   suggestions,
   onAsk,
-  onClear,
+  onDeleteChats,
   busy,
   disabled,
   disabledReason,
@@ -411,6 +424,13 @@ export function CopilotPanel({
   fallback,
   sessionId,
   sessionStartedAt,
+  continues,
+  place,
+  draft,
+  onDraftTaken,
+  onNewChat,
+  onContinueChat,
+  onRenameChat,
   leadTurn,
   fill,
   nodes,
@@ -433,7 +453,8 @@ export function CopilotPanel({
   evidence: EvidenceItem[];
   suggestions: string[];
   onAsk: (question: string, files?: File[]) => Promise<void> | void;
-  onClear?: () => void;
+  /** Delete every chat on the project, for everyone. Present only for somebody who may do it. It is the last line of the list of chats, and is asked about first, here. */
+  onDeleteChats?: () => Promise<void> | void;
   busy?: boolean;
   disabled?: boolean;
   disabledReason?: string;
@@ -466,6 +487,20 @@ export function CopilotPanel({
    * sitting, and still belongs in the chat the person has open.
    */
   sessionStartedAt?: string;
+  /** The earlier chat this sitting carries on, by its id: its turns are the top of the chat on screen. */
+  continues?: string;
+  /** The page on screen, so a question asked on another one can say which. */
+  place?: ChatTurnPlace;
+  /** Words to put in the message box for the person to read and send. */
+  draft?: { text: string } | null;
+  /** Called once the words are in the box, so they are handed over once and not again when this panel is drawn afresh. */
+  onDraftTaken?: () => void;
+  /** Start a chat with nothing in it. */
+  onNewChat?: () => void;
+  /** Make an earlier chat the current one: what is typed next is added to it. */
+  onContinueChat?: (sessionId: string) => void;
+  /** Name a chat. An empty name hands it back to its first question. */
+  onRenameChat?: (sessionId: string, name: string) => Promise<void> | void;
   /**
    * Shown first when present: cards still waiting from an earlier sitting,
    * so reopening a file never hides work that is one approval away.
@@ -501,7 +536,7 @@ export function CopilotPanel({
    * can carry checks with identical titles and the text alone cannot say
    * which one was on the button.
    */
-  onPickChoice?: (text: string, sitting?: { ddId?: string; scopeId?: string; checkId?: string }) => void;
+  onPickChoice?: (text: string, sitting?: { ddId?: string; scopeId?: string; checkId?: string; evidenceId?: string }) => void;
   emptyTitle?: string;
   emptyHint?: string;
   placeholder?: string;
@@ -517,6 +552,8 @@ export function CopilotPanel({
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState<File[]>([]);
+  /** An earlier chat being read, by its id; null while the current one is on screen. */
+  const [viewing, setViewing] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -542,6 +579,8 @@ export function CopilotPanel({
     setError(null);
     setText('');
     setFiles([]);
+    // What is typed goes to the current chat, so that is the one to be looking at when the answer comes.
+    setViewing(null);
     try {
       await onAsk(trimmed, attached.length ? attached : undefined);
     } catch (e) {
@@ -595,6 +634,42 @@ export function CopilotPanel({
   );
   const [tab, setTab] = useState<'chat' | 'activity'>('chat');
 
+  // Words handed in from outside wait in the box, with the keyboard on them. Sending them is the person's to do.
+  useEffect(() => {
+    if (!draft?.text) return;
+    setText(draft.text);
+    setTab('chat');
+    composerRef.current?.focus();
+    onDraftTaken?.();
+  }, [draft, onDraftTaken]);
+
+  /*
+   * Deleting every chat is asked about first. The keyboard is put in the
+   * message box before the question opens, because the question hands it
+   * back to wherever it was when it closes: after deleting, and after keeping
+   * them, that is the box.
+   */
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const askDelete = () => {
+    composerRef.current?.focus();
+    setConfirmDelete(true);
+  };
+  async function deleteChats(): Promise<void> {
+    if (!onDeleteChats) return;
+    setDeleting(true);
+    try {
+      await onDeleteChats();
+      setViewing(null);
+      setTab('chat');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The chats could not be deleted.');
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  }
+
   /*
    * The thread, cut into sittings.
    *
@@ -607,21 +682,21 @@ export function CopilotPanel({
     () => chatSessions(conversation as unknown as ProjectChatTurn[]),
     [conversation],
   );
-  const [viewing, setViewing] = useState<string | null>(null);
-  const past = useMemo(() => sessions.filter((s) => s.id !== sessionId), [sessions, sessionId]);
-  const live = useMemo(() => {
-    const own = sessionId
-      ? spoken.filter((t) => t.sessionId === sessionId || (!t.sessionId && sessionStartedAt !== undefined && t.at >= sessionStartedAt))
-      : spoken;
-    return leadTurn ? [leadTurn, ...own] : own;
-  }, [spoken, sessionId, sessionStartedAt, leadTurn]);
-  const viewed = viewing ? (sessions.find((s) => s.id === viewing)?.turns ?? []) : live;
+  // The chat on screen is this sitting's, or the earlier chat it carries on while that one is still there.
+  const liveId = liveChatId(sessions, { sessionId, continues });
+  const own = useMemo(() => liveTurns(spoken, sessions, { sessionId, startedAt: sessionStartedAt, continues }), [spoken, sessions, sessionId, sessionStartedAt, continues]);
+  const live = useMemo(() => (leadTurn ? [leadTurn, ...own] : own), [leadTurn, own]);
+  const rows = useMemo(() => chatRows(sessions, own, liveId), [sessions, own, liveId]);
+  // An earlier chat that is no longer there (the thread was cleared, or it became the current one) is not being read.
+  const reading = viewing && viewing !== liveId ? sessions.find((s) => s.id === viewing) : undefined;
+  const viewed = reading ? reading.turns : live;
 
   // Chat opens by default even when empty: it is what the composer below is
   // for, and landing on a log nobody asked for is how this started.
   const shown = (tab === 'chat' ? viewed : []) as unknown as CopilotTurn[];
 
-  const showEmptyState = shown.length === 0 && tab === 'chat' && !busy && !viewing;
+  const showEmptyState = shown.length === 0 && tab === 'chat' && !busy && !reading;
+  const current = rows.find((row) => row.current);
 
   return (
     <div className={cn('flex flex-col', compact ? 'gap-2' : 'gap-3', fill && 'h-full min-h-0')}>
@@ -640,8 +715,8 @@ export function CopilotPanel({
         fresh project there is one log and a tab bar over it would be chrome
         naming a distinction that does not exist yet.
       */}
-      {activity.length > 0 || past.length > 0 ? (
-        <div className="flex shrink-0 items-center gap-1 border-b border-hairline px-1 pb-1.5">
+      {activity.length > 0 || rows.length > 0 ? (
+        <div className="relative flex shrink-0 items-center gap-1 border-b border-hairline px-1 pb-1.5">
           {(activity.length > 0 ? (['chat', 'activity'] as const) : (['chat'] as const)).map((key) => (
             <button
               key={key}
@@ -671,49 +746,68 @@ export function CopilotPanel({
             </button>
           ))}
           {/*
-            Earlier chats, as a place to go rather than a scrollback.
+            The chats of this project, behind the one control that was the
+            list of earlier chats: this chat and the earlier ones by name,
+            "New chat" above them, and a search once there are many.
 
-            Only once there is one. A picker on a file with a single sitting
-            names a distinction that does not exist yet — the same reason the
+            Only once there is a chat to name. On a file nobody has spoken on
+            the control would open a list of nothing — the same reason the
             Chat/Activity strip waits for something to separate.
           */}
-          {past.length > 0 ? (
-            <select
-              aria-label="Earlier chats"
-              value={viewing ?? ''}
-              onChange={(e) => {
-                setViewing(e.target.value || null);
+          {rows.length > 0 && onNewChat ? (
+            <ChatList
+              rows={rows}
+              label={reading ? (reading.name ?? reading.title) : current?.named ? current.title : 'This chat'}
+              onPick={(row) => {
+                setViewing(row.current ? null : row.id);
                 setTab('chat');
               }}
-              className="ml-auto max-w-[11rem] rounded-md bg-transparent px-1.5 py-1 text-[12px] text-ink-muted hover:text-ink focus:outline-none focus-visible:ring-1 focus-visible:ring-brand"
-            >
-              <option value="">This chat</option>
-              {past.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {relativeTime(s.lastAt)} · {s.title}
-                </option>
-              ))}
-            </select>
+              onNew={() => {
+                setViewing(null);
+                setTab('chat');
+                onNewChat();
+                // A new chat is for typing in.
+                composerRef.current?.focus();
+              }}
+              onRename={onRenameChat}
+              onDeleteAll={onDeleteChats ? askDelete : undefined}
+            />
           ) : null}
         </div>
       ) : null}
-      {viewing ? (
+      {reading ? (
         /*
-          An earlier sitting is read-only in the sense that matters: what you
+          An earlier chat is read-only in the sense that matters: what you
           type still goes to the current one, so a question asked while
           reading history does not silently graft itself onto a conversation
-          that finished days ago.
+          that finished days ago. Carrying it on is a thing somebody asks for
+          by name, and it then becomes the current chat.
         */
-        <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg bg-sunken px-2.5 py-1.5">
-          <span className="min-w-0 truncate text-mini text-ink-secondary">
-            An earlier chat · {relativeTime(sessions.find((x) => x.id === viewing)?.lastAt ?? '')}
-          </span>
+        <div className="flex shrink-0 items-center gap-3 rounded-lg bg-sunken px-2.5 py-1.5">
+          <span className="min-w-0 flex-1 truncate text-mini text-ink-secondary">Earlier chat · {chatDay(reading.lastAt)}</span>
+          {onContinueChat ? (
+            <button
+              type="button"
+              onClick={() => {
+                onContinueChat(reading.id);
+                setViewing(null);
+                // The button goes with its banner. The keyboard goes to the box the chat is carried on in.
+                composerRef.current?.focus();
+              }}
+              className="shrink-0 text-mini font-medium text-brand hover:underline coarse:min-h-11"
+            >
+              Continue this chat
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={() => setViewing(null)}
-            className="shrink-0 text-mini font-medium text-brand hover:underline"
+            onClick={() => {
+              setViewing(null);
+              composerRef.current?.focus();
+            }}
+            className="shrink-0 text-mini font-medium text-ink-secondary hover:text-ink hover:underline coarse:min-h-11"
           >
-            Back to this chat
+            Back
           </button>
         </div>
       ) : null}
@@ -817,6 +911,7 @@ export function CopilotPanel({
               <TurnBubble
                 verification={verification}
                 turn={turn}
+                here={place}
                 evidence={evidence}
                 nodes={nodes}
                 applied={appliedByTurn?.[turn.id]}
@@ -922,18 +1017,6 @@ export function CopilotPanel({
                 />
               </>
             ) : null}
-            {onClear && conversation.length > 0 ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                aria-label="Clear conversation"
-                title="Clear conversation"
-                disabled={disabled || busy}
-                icon={<Trash2 size={14} />}
-                onClick={onClear}
-              />
-            ) : null}
             <span className="flex-1" />
             {onOpenCommands && !compact ? (
               <span className="hidden pr-1 text-[11px] text-ink-muted sm:inline">
@@ -969,6 +1052,28 @@ export function CopilotPanel({
         )}
       </form>
       {error ? <p className="text-xs text-critical">{error}</p> : null}
+      {/* Every chat on the project, for everyone, in one go: asked about once, with the answer that changes nothing in hand. */}
+      <Modal
+        open={confirmDelete}
+        onClose={() => {
+          if (!deleting) setConfirmDelete(false);
+        }}
+        title="Delete every chat on this project?"
+        width="sm"
+        footer={
+          <>
+            {/* The question opens with the keyboard on the answer that changes nothing. */}
+            <Button data-autofocus type="button" disabled={deleting} onClick={() => setConfirmDelete(false)}>
+              Keep them
+            </Button>
+            <Button type="button" variant="danger" loading={deleting} onClick={() => void deleteChats()}>
+              Delete all chats
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[13px] text-ink-secondary">They are removed for everyone and cannot be brought back.</p>
+      </Modal>
     </div>
   );
 }

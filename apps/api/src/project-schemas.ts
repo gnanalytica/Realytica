@@ -604,19 +604,42 @@ export const patchStatusBodySchema = z.object({
   actor: actorSchema,
 });
 
+/**
+ * The page a question was asked from: the pane, the department and function
+ * when the page is one of theirs, and the stage being looked at. Words only;
+ * the route checks them against the menu and takes none on trust.
+ */
+export const chatPlaceSchema = z.object({
+  pane: z.string().max(40).optional(),
+  department: z.string().max(40).optional(),
+  fn: z.string().max(80).optional(),
+  stage: z.string().max(40).optional(),
+});
+
 export const projectChatBodySchema = z.object({
   question: z.string().trim().min(1).max(4000),
   viewContext: z.string().max(400).optional(),
+  /** Where the person is. Absent means a client that sends the pane alone, in `viewContext`. */
+  place: chatPlaceSchema.optional(),
   /** Which sitting this belongs to. Absent means a client that predates sessions. */
   sessionId: z.string().max(120).optional(),
+  /** The earlier chat this sitting carries on, by its id. */
+  continues: z.string().max(120).optional(),
   actor: actorSchema,
   sitting: z
     .object({
       ddId: z.string().optional(),
       scopeId: z.string().optional(),
       checkId: z.string().optional(),
+      /** The document a pressed choice was offered for. */
+      evidenceId: z.string().max(120).optional(),
     })
     .optional(),
+});
+
+/** A chat's name. Empty hands the chat back to its first question. */
+export const renameChatBodySchema = z.object({
+  name: z.string().max(200),
 });
 
 export const projectChatProposalBodySchema = z.object({

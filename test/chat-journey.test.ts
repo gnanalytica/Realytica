@@ -86,12 +86,17 @@ describe('answering from the file', () => {
   it('answers "what is the encumbrance status" from the EC, not with a summary', () => {
     const out = applyProjectChat(readFile(), 'what is the encumbrance status?');
     assert.match(out.assistantTurn.text, /NOT clean/);
-    assert.ok(out.navigations.some((n) => n.target === 'evidence'), 'opens the EC');
+    // The EC is Title's paper, so it opens on Title's page, among its documents, and not in the register of every document.
+    const nav = out.navigations.at(-1);
+    assert.equal(nav?.workstream, 'legal.title');
+    assert.equal(nav?.section, 'documents');
+    assert.ok(nav?.evidenceId, 'opens the EC');
   });
 
   it('opens the source document at the page it quotes', () => {
     const out = applyProjectChat(readFile(), "what's the survey number?");
-    const nav = out.navigations.find((n) => n.target === 'evidence');
+    const nav = out.navigations.find((n) => n.target === 'workstream');
+    assert.equal(nav?.workstream, 'legal.title');
     assert.ok(nav?.evidenceId);
     assert.equal(nav?.page, '2');
   });
@@ -102,6 +107,22 @@ describe('answering from the file', () => {
       const text = applyProjectChat(project, q).assistantTurn.text;
       assert.ok(text.split('\n').filter(Boolean).length <= 4, `${q}: ${text}`);
     }
+  });
+
+  it('keeps a flagged line a line of its own when an answer is folded to four', () => {
+    const project = readFile();
+    const at = new Date().toISOString();
+    // Two more papers that name an owner, so the answer runs to five lines before it is folded.
+    for (const [title, type, name] of [['RTC extract', 'RTC (record of rights)', 'Sunrise Estates Private Limited'], ['Khata extract, earlier', 'Khata certificate and extract', 'Sunrise Estates Private Limited']] as const) {
+      const row = addEvidence(project, { title, kind: 'document', status: 'received' });
+      row.documentType = type;
+      row.attachments.push({ id: `a-${title}`, fileName: `${title}.pdf`, mimeType: 'application/pdf', sizeBytes: 1, storageKey: `k-${title}`, uploadedAt: at } as never);
+      row.facts = [fact('owner', 'Owner', name, name, 1, `Name of the owner: ${name}`)];
+    }
+    const lines = answerFromFile(project, 'who owns the property?')!.text.split('\n');
+    assert.equal(lines.length, 4, lines.join(' | '));
+    assert.match(lines[3]!, /^⚑ The names differ/, 'the flag still opens its line, so it is drawn as a row');
+    assert.match(lines[2]!, /names Sunrise Estates Private Limited \(p\.1\)\. The .+ names Sunrise Estates Private Limited/, 'the plain lines past the room are folded into the one before');
   });
 
   it('is answered here, not handed to a model', () => {

@@ -65,6 +65,8 @@ export * from './value-standing';
 export * from './comparables';
 export * from './departments';
 export * from './stage-view';
+export * from './chat-places';
+export * from './document-filing';
 export * from './engagements';
 export * from './approvals';
 export * from './progress';

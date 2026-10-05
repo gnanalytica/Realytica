@@ -107,7 +107,10 @@ import {
   setAsideWaiting,
   assignOwner,
   applyProjectAgentTurn,
+  chatPlaceFrom,
+  chatSessions,
   clearProjectConversation,
+  renameChatSession,
   extractReadableExcerpt,
   findingEvidenceBriefing,
   projectRegisterBriefing,
@@ -133,6 +136,7 @@ import {
   withheldAnswer,
   withheldBriefing,
   type ChatIngestFile,
+  type ChatPlace,
   type ReadingStreamEvent,
   type DdProject,
   type ProjectChatResult,
@@ -225,7 +229,9 @@ import {
   patchStatusBodySchema,
   patchValuationBodySchema,
   valueOffersBodySchema,
+  chatPlaceSchema,
   projectChatBodySchema,
+  renameChatBodySchema,
   projectChatProposalBodySchema,
   factReviewBodySchema,
   fieldDecisionBodySchema,
@@ -1088,10 +1094,55 @@ function sayWhatIsMissing(seen: ProjectView, question: string, result: { assista
  * silences between them instead — nothing breaks, the grouping is just
  * coarser.
  */
-function stampSession(result: { userTurn: ProjectChatTurn; assistantTurn: ProjectChatTurn }, sessionId?: string): void {
-  if (!sessionId) return;
-  result.userTurn.sessionId = sessionId;
-  result.assistantTurn.sessionId = sessionId;
+function stampSession(
+  result: { userTurn: ProjectChatTurn; assistantTurn: ProjectChatTurn },
+  sessionId?: string,
+  also: { continues?: string; place?: ChatPlace } = {},
+): void {
+  for (const turn of [result.userTurn, result.assistantTurn]) {
+    if (sessionId) turn.sessionId = sessionId;
+    // A sitting carries on an earlier chat only as a sitting: with no id of its own there is nothing to join to it.
+    if (sessionId && also.continues) turn.continues = also.continues;
+    // Where the question was asked, kept with both halves of the exchange: the thread stays when the page changes.
+    if (also.place) turn.place = also.place;
+  }
+}
+
+/**
+ * The sitting this person's turns are kept under.
+ *
+ * A sitting is one person's. Its id is minted by the page and sent with each
+ * question, so an id that another person's turns already carry is not taken
+ * as sent: this person's turns go under an id of their own, and nothing they
+ * say is read into somebody else's chat. The same id comes back each time, so
+ * their own turns still read as one sitting.
+ */
+function ownSitting(project: DdProject, sessionId: string | undefined, actor: string): string | undefined {
+  if (!sessionId) return undefined;
+  const taken = project.conversation.some((t) => t.sessionId === sessionId && t.actor !== undefined && t.actor !== actor);
+  return taken ? `${sessionId}~${fingerprint(actor).slice(0, 8)}` : sessionId;
+}
+
+/**
+ * The earlier chat a sitting carries on, when it is one this person can see.
+ *
+ * Asked of their own view of the thread, before this request adds to it. A
+ * collaborator's view holds their own turns, so they cannot join a sitting to
+ * the end of somebody else's chat by naming its id.
+ */
+function carriedChat(canvas: DdProject, id: string | undefined): string | undefined {
+  return id && chatSessions(canvas.conversation).some((s) => s.id === id) ? id : undefined;
+}
+
+/** The place a multipart request sent, as the one field a form can carry it in. */
+function placeFromForm(value: unknown): ChatPlace | undefined {
+  if (typeof value !== 'string') return undefined;
+  try {
+    const parsed = chatPlaceSchema.safeParse(JSON.parse(value));
+    return parsed.success ? chatPlaceFrom(parsed.data) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function sittingFromBody(value: unknown): SittingRef | undefined {
@@ -1119,6 +1170,8 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   }
   const question = parsed.data.question;
   const sitting = parsed.data.sitting;
+  // Where the person is: the page and its stage, or the pane alone from a client that sends no more.
+  const place = chatPlaceFrom(parsed.data.place, parsed.data.viewContext);
   /*
    * "Read the filed documents": what is already on file goes back down the
    * upload path from storage, so a document filed before the reader existed
@@ -1145,7 +1198,9 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         unreadBeyond: beyond,
         modelOnly: readHere,
         viewContext: parsed.data.viewContext,
+        place,
         sessionId: parsed.data.sessionId,
+        continues: parsed.data.continues,
         ddId: sitting?.ddId,
         scopeId: sitting?.scopeId,
         checkId: sitting?.checkId,
@@ -1172,7 +1227,8 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const turnsBefore = project.conversation.length;
   const unseen = withheldBriefing(seen);
   const capability = agentCapability();
-  const deterministic = wantsDeterministicProjectChat(canvas, question, { sitting });
+  const continues = carriedChat(canvas, parsed.data.continues);
+  const deterministic = wantsDeterministicProjectChat(canvas, question, { sitting, place });
   const stream = beginNdjson(res);
   const { line, clientGone } = stream;
 
@@ -1221,6 +1277,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         question,
         actor,
         viewContext: parsed.data.viewContext,
+        place,
         history: canvas.conversation,
         memory: [unseen, memoryText].filter(Boolean).join('\n\n') || undefined,
         sitting,
@@ -1283,7 +1340,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         ].filter((t): t is { name: string; summary: string } => Boolean(t));
         const result = applyProjectAgentTurn(canvas, question, agent);
         sayWhatIsMissing(seen, question, result);
-        stampSession(result, parsed.data.sessionId);
+        stampSession(result, ownSitting(project, parsed.data.sessionId, actor), { continues, place });
         mergeConversation(project, canvas, actor, turnsBefore);
         await store.save();
         journalTail = journalTail.then(() =>
@@ -1328,6 +1385,8 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const result = applyProjectChat(canvas, question, {
     actor,
     viewContext: parsed.data.viewContext,
+    place,
+    outside: canvas !== project,
     sides,
     sitting,
   });
@@ -1350,7 +1409,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
           ...(unseen ? [{ text: unseen }] : []),
         ],
         messages: [
-          { role: 'user', content: `Register briefing:\n${projectRegisterBriefing(canvas, parsed.data.viewContext)}` },
+          { role: 'user', content: `Register briefing:\n${projectRegisterBriefing(canvas, parsed.data.viewContext, place)}` },
           ...(restsOn ? [{ role: 'user' as const, content: `What the material findings rest on:\n${restsOn}` }] : []),
           { role: 'user', content: `Today's next step:\n${guide.text}` },
           { role: 'user', content: question },
@@ -1376,7 +1435,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     return;
   }
   sayWhatIsMissing(seen, question, result);
-  stampSession(result, parsed.data.sessionId);
+  stampSession(result, ownSitting(project, parsed.data.sessionId, actor), { continues, place });
   if (unanswered) {
     result.assistantTurn.unanswered = unanswered;
     const last = canvas.conversation[canvas.conversation.length - 1];
@@ -1651,7 +1710,11 @@ interface IngestFields {
   /** Filed documents past this turn's share, still to be read after it. */
   unreadBeyond?: number;
   viewContext?: string;
+  /** The page the documents were dropped on. */
+  place?: ChatPlace;
   sessionId?: string;
+  /** The earlier chat this sitting carries on. */
+  continues?: string;
   ddId?: unknown;
   scopeId?: unknown;
   checkId?: unknown;
@@ -1818,9 +1881,12 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
   turnsBefore = project.conversation.length;
   const question = fields.question ?? '';
   const viewContext = fields.viewContext;
+  const continues = carriedChat(canvas, fields.continues);
   const result = applyProjectChat(canvas, question, {
     actor: actorOf(req),
     viewContext,
+    place: fields.place,
+    outside: canvas !== project,
     ingest: enriched,
     sitting,
     spend: readAnything ? { usd: readCostUsd, exact: readCostExact } : undefined,
@@ -1833,7 +1899,7 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
     const last = canvas.conversation[canvas.conversation.length - 1];
     if (last?.id === result.assistantTurn.id && last !== result.assistantTurn) last.text = result.assistantTurn.text;
   }
-  stampSession(result, fields.sessionId);
+  stampSession(result, ownSitting(project, fields.sessionId, actorOf(req)), { continues, place: fields.place });
   mergeConversation(project, canvas, actorOf(req), turnsBefore);
   await store.save();
   line({ type: 'result', ...result, project: canvas });
@@ -1855,7 +1921,9 @@ projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asy
   await ingestTurn(req, res, project, files, {
     question: typeof body.question === 'string' ? body.question : '',
     viewContext: typeof body.viewContext === 'string' ? body.viewContext : undefined,
+    place: placeFromForm(body.place) ?? chatPlaceFrom(undefined, typeof body.viewContext === 'string' ? body.viewContext : undefined),
     sessionId: typeof body.sessionId === 'string' ? body.sessionId : undefined,
+    continues: typeof body.continues === 'string' ? body.continues : undefined,
     ddId: body.ddId,
     scopeId: body.scopeId,
     checkId: body.checkId,
@@ -1955,6 +2023,36 @@ projectsRouter.post('/:projectId/chat/proposals/:proposalId/reject', async (req,
   const result = applyProjectChat(project, `Skip "${item.title}"`, { actor: actorOf(req) });
   await store.save();
   res.json({ ...result, project });
+});
+
+/*
+ * A chat's name.
+ *
+ * It is kept on the chat's own first turn, and the chat is looked for in the
+ * thread as this person sees it. A collaborator's thread is their own turns,
+ * so a chat that is somebody else's is not found, and naming one writes
+ * nowhere a reader of the project would find a name that is not theirs.
+ */
+projectsRouter.patch('/:projectId/chat/sessions/:sessionId', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = renameChatBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  const renamed = renameChatSession(viewFor(req, project).project.conversation, req.params.sessionId, parsed.data.name);
+  if (!renamed) {
+    res.status(404).json({ error: 'Chat not found' });
+    return;
+  }
+  // The store writes a project only when this has moved, and a name is worth keeping.
+  project.updatedAt = new Date().toISOString();
+  await store.save();
+  res.json({ project });
 });
 
 projectsRouter.delete('/:projectId/chat', async (req, res) => {

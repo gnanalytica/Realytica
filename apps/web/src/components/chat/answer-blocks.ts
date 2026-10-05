@@ -17,7 +17,7 @@
  * Deliberately NOT markdown. Full markdown would invite links and images and
  * raw HTML from a model into a page that renders case data, and the answer to
  * "can the model emit an anchor tag" has to be no. The vocabulary here is
- * closed: headings, bullets, numbers, tables, and inline emphasis/code.
+ * closed: headings, bullets, numbers, tables, flags, and inline emphasis/code.
  */
 
 import { projectFrameNames } from '@realytica/shared';
@@ -48,6 +48,8 @@ export type Block =
   | { kind: 'bullets'; items: Inline[][] }
   | { kind: 'numbers'; items: Inline[][] }
   | { kind: 'table'; head: Inline[][]; rows: Inline[][][] }
+  /** A line that opens with the flag mark: something that differs, falls short or is at risk. */
+  | { kind: 'flag'; spans: Inline[] }
   | { kind: 'rule' };
 
 const EVIDENCE_TOKEN = /\[ev:([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/;
@@ -309,6 +311,23 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean): Bloc
     if (/^([-*_])\1{2,}$/.test(trimmed.replace(/\s+/g, ''))) {
       flush();
       blocks.push({ kind: 'rule' });
+      continue;
+    }
+
+    /*
+     * A line the answer flagged.
+     *
+     * The answers written from the file open a line with ⚑ for what a person
+     * must not miss: two papers that disagree, an extent that differs, a
+     * certificate short of its years. Joined into the prose around it, that
+     * line read as one more sentence. It is set apart instead. The mark has
+     * to open the line and have words after it: one in the middle of a
+     * sentence stays where it was written.
+     */
+    const flag = /^⚑\s*(.+)$/.exec(trimmed);
+    if (flag) {
+      flush();
+      blocks.push({ kind: 'flag', spans: parseInline(flag[1], isNode) });
       continue;
     }
 

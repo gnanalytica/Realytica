@@ -14,6 +14,7 @@ import { workspaceApi } from '../../lib/workspace-api';
 import { useAuthedUrl } from '../../lib/useAuthedUrl';
 import { useMe } from '../../lib/useMe';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Input, cn, useToast } from '../ui/kit';
+import { MARKED_ROW, useMarkedRow } from '../workspace/marked';
 
 function Ring({ percent }: { percent: number | null }) {
   const r = 34;
@@ -42,7 +43,22 @@ function Photo({ projectId, entry, index }: { projectId: string; entry: SiteLogE
   );
 }
 
-function MilestoneRow({ project, milestone, mayEdit, mayRemove, onChanged }: { project: DdProject; milestone: Milestone; mayEdit: boolean; mayRemove: boolean; onChanged: (p: DdProject) => void }) {
+function MilestoneRow({
+  project,
+  milestone,
+  mayEdit,
+  mayRemove,
+  onChanged,
+  marked,
+}: {
+  project: DdProject;
+  milestone: Milestone;
+  mayEdit: boolean;
+  mayRemove: boolean;
+  onChanged: (p: DdProject) => void;
+  /** A link named this milestone. */
+  marked: boolean;
+}) {
   const toast = useToast();
   const [value, setValue] = useState(String(milestone.percent));
   const [busy, setBusy] = useState(false);
@@ -60,7 +76,7 @@ function MilestoneRow({ project, milestone, mayEdit, mayRemove, onChanged }: { p
   }
 
   return (
-    <li className="flex flex-wrap items-center gap-3 py-2">
+    <li data-marked={marked ? '' : undefined} className={cn('flex flex-wrap items-center gap-3 px-1 py-2', marked && MARKED_ROW)}>
       <div className="min-w-[12rem] flex-1">
         <p className="text-[13px] text-ink">{milestone.name}</p>
         <p className="text-micro text-ink-muted">
@@ -109,7 +125,19 @@ function MilestoneRow({ project, milestone, mayEdit, mayRemove, onChanged }: { p
  * the project reports to, from what the site logs every day — most of it from
  * the site app, offline-first on the phone.
  */
-export function ProgressBoard({ project, onChanged, onPairPhone }: { project: DdProject; onChanged: (p: DdProject) => void; onPairPhone: () => void }) {
+export function ProgressBoard({
+  project,
+  onChanged,
+  onPairPhone,
+  marked,
+}: {
+  project: DdProject;
+  onChanged: (p: DdProject) => void;
+  onPairPhone: () => void;
+  /** A milestone or a site log entry a link named, by its id: it is lit and brought into view. */
+  marked?: string | null;
+}) {
+  const board = useMarkedRow<HTMLDivElement>(marked);
   const me = useMe();
   const toast = useToast();
   const [adding, setAdding] = useState(false);
@@ -134,7 +162,7 @@ export function ProgressBoard({ project, onChanged, onPairPhone }: { project: Dd
   }
 
   return (
-    <div className="space-y-4">
+    <div ref={board} className="space-y-4">
       {!gate.open ? (
         <Callout tone={log.length ? 'critical' : 'warning'} title={log.length ? 'Work is being logged before it is allowed' : 'Not cleared to build yet'}>
           Not on file: {gate.missing.join(', ')}. See Legal › Approvals.
@@ -176,7 +204,7 @@ export function ProgressBoard({ project, onChanged, onPairPhone }: { project: Dd
           {milestones.length ? (
             <ul className="divide-y divide-hairline">
               {milestones.map((m) => (
-                <MilestoneRow key={m.id} project={project} milestone={m} mayEdit={mayEdit} mayRemove={mayRemove} onChanged={onChanged} />
+                <MilestoneRow key={m.id} project={project} milestone={m} mayEdit={mayEdit} mayRemove={mayRemove} onChanged={onChanged} marked={m.id === marked} />
               ))}
             </ul>
           ) : (
@@ -198,7 +226,7 @@ export function ProgressBoard({ project, onChanged, onPairPhone }: { project: Dd
           {log.length ? (
             <ol className="space-y-4">
               {log.slice(0, 30).map((entry) => (
-                <li key={entry.id} className="rounded-lg bg-sunken/50 p-3">
+                <li key={entry.id} data-marked={entry.id === marked ? '' : undefined} className={cn('rounded-lg p-3', entry.id === marked ? MARKED_ROW : 'bg-sunken/50')}>
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                     <p className="font-mono text-[12px] font-semibold text-ink">{entry.date}</p>
                     <p className="text-[12px] text-ink-secondary">{entry.author}</p>

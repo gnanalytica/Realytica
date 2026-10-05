@@ -338,6 +338,54 @@ describe('the chat, which is the surface that leaks', () => {
       'the developer’s own thread must be on the file',
     );
   });
+
+  it('does not let a collaborator give a document to a function by saying so', async () => {
+    // The register keeps that for the firm's own people. The same sentence typed in the chat is no way round it.
+    const { store } = await import('../apps/api/src/store');
+    const live = store.data.projects!.find((p) => p.id === theirs.id)!;
+    const title = live.evidence.find((e) => e.id === allowed.evidenceId)!.title;
+    const given = () => live.evidence.filter((e) => e.title === title && e.workstream === 'legal.approvals');
+
+    const refused = await ask(`File “${title}” under Legal › Approvals`, sam());
+    assert.match(refused.text, /Only the firm’s own people can file a document under a function/);
+    assert.equal(given().length, 0, 'the document is where it was');
+
+    const done = await ask(`File “${title}” under Legal › Approvals`, dev());
+    assert.match(done.text, /is filed under Legal › Approvals\./);
+    assert.equal(given().length, 1, 'the developer’s own instruction runs');
+    // Put back, so the cases below read the file as it was seeded.
+    for (const row of given()) delete row.workstream;
+  });
+
+  it('keeps what one person says out of a chat that is another person’s', async () => {
+    /** Says one thing, and gives back the id the reply says the turn was kept under. */
+    const say = async (question: string, token: string, sessionId: string): Promise<string | undefined> => {
+      const res = await realFetch(`${base}/api/projects/${theirs.id}/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify({ question, sessionId }),
+      });
+      assert.equal(res.status, 200);
+      const lines = (await res.text()).split('\n').filter(Boolean).map((l) => JSON.parse(l) as { type?: string; userTurn?: { sessionId?: string } });
+      return lines.find((l) => l.type === 'result')?.userTurn?.sessionId;
+    };
+    // The page mints a sitting's id and sends it. Here the contractor sends the developer's.
+    assert.equal(await say('what is next?', dev(), 'ses_reach_1'), 'ses_reach_1', 'kept as sent for the person whose it is');
+    const kept = await say('where are we', sam(), 'ses_reach_1');
+    assert.match(kept ?? '', /^ses_reach_1~[0-9a-f]{8}$/, 'the reply tells the page the id its turns were kept under');
+    // The page takes that id, and what it sends next is kept under it as it is.
+    assert.equal(await say('and what after that', sam(), kept!), kept);
+
+    const { store } = await import('../apps/api/src/store');
+    const live = store.data.projects!.find((p) => p.id === theirs.id)!;
+    const under = live.conversation.filter((t) => t.sessionId === 'ses_reach_1');
+    assert.equal(under.length, 2, 'the developer’s exchange, and nothing else');
+    assert.ok(under.every((t) => t.actor === 'dev@builders.in'));
+    const own = live.conversation.filter((t) => t.sessionId?.startsWith('ses_reach_1~'));
+    assert.equal(own.length, 4, 'both of the contractor’s exchanges');
+    assert.ok(own.every((t) => t.actor === 'sam@site.in'));
+    assert.equal(new Set(own.map((t) => t.sessionId)).size, 1, 'kept as one sitting of their own');
+  });
 });
 
 describe('the work list, which spans every file', () => {

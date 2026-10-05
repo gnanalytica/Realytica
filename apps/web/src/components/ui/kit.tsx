@@ -1111,7 +1111,8 @@ function ModalFrame({
   // of two hundred should not be returned to the top of it.
   useEffect(() => {
     const returnTo = document.activeElement;
-    const first = panel.current?.querySelector<HTMLElement>(FOCUSABLE);
+    // A dialog may say where the keyboard starts, as a question about deleting does with the answer that changes nothing.
+    const first = panel.current?.querySelector<HTMLElement>('[data-autofocus]') ?? panel.current?.querySelector<HTMLElement>(FOCUSABLE);
     (first ?? panel.current)?.focus();
     return () => {
       if (returnTo instanceof HTMLElement && returnTo.isConnected) returnTo.focus();

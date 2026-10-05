@@ -178,7 +178,11 @@ export function RisksActions() {
 }
 
 export function DecisionRegister() {
-  const { project, setProject } = useOutletContext<ProjectOutlet>();
+  const { project, setProject, highlightIds } = useOutletContext<ProjectOutlet>();
+  const [searchParams] = useSearchParams();
+  // A decision a link named is lit, as a finding or a risk a link named is on its register.
+  const linked = searchParams.get('decision');
+  const liveIds = [...(highlightIds ?? []), ...(linked ? [linked] : [])];
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
@@ -192,8 +196,8 @@ export function DecisionRegister() {
             {project.decisions.map((d) => (
               /* Same shape, same fix — a long rationale must not relocate the
                  status dropdown. */
+              <LiveRow key={d.id} id={d.id} highlightIds={liveIds} variant="flush">
               <RegisterRow
-                key={d.id}
                 title={d.title}
                 why={d.rationale}
                 meta={<span>{DECISION_TYPE_LABEL[d.decisionType]} · {d.decisionMaker}</span>}
@@ -208,6 +212,7 @@ export function DecisionRegister() {
                   </Select>
                 }
               />
+              </LiveRow>
             ))}
           </CardBody>
         </Card>
