@@ -10,8 +10,9 @@
  * that the words of a pasted meeting go with the meeting; that "undo" typed
  * alone means the last thing this chat changed; that an undo is told to the
  * trail with the records it put something back on; that a step of a plan is
- * undone from the line that ticked it off; and that a message is its
- * author's to undo.
+ * undone from the line that ticked it off; that a message is its author's
+ * to undo; and that what another request did while a message ran is not the
+ * message's, is listed apart, and is left by its undo, files and all.
  *
  * Booted with no graph database and no model: papers are read by rule. No
  * other address can be reached. Every name and paper is invented.
@@ -223,6 +224,72 @@ describe('a pasted meeting', () => {
     assert.deepEqual([back.project.meetings ?? [], back.project.chatProposals.filter((card) => card.status === 'proposed')], [[], []]);
     assert.deepEqual(back.assistantTurn.text.split('\n'), ['Undone:', '- Kept the notes of a meeting of 3 Oct 2026.', 'The file it added is removed from storage.']);
     assert.ok(!(await inStorage(project.id, meeting.file.storageKey)), 'the words are not left in storage with nothing pointing at them');
+  });
+});
+
+describe('other work done while a message runs', () => {
+  it('is not the message’s: it is listed apart, and an undo leaves it, with its files', async () => {
+    const { store } = await import('../apps/api/src/store');
+    const { storageAdapter } = await import('../apps/api/src/storage');
+    const project = await seeded();
+    const held = await stored(project.id);
+    const khata = addEvidence(held, { title: 'Khata certificate', kind: 'document' }, LEAD);
+    khata.documentType = 'Khata certificate and extract';
+    khata.facts = [{ key: 'khata_number', label: 'Khata number', value: '112/4', display: '112/4', page: 1, quote: 'Khata No. 112/4', review: 'proposed' }];
+    await store.save();
+
+    // The message is held where it keeps the words of the notes, until a colleague's three requests from a page have landed.
+    const put = storageAdapter.putDocument.bind(storageAdapter);
+    let reached = (): void => undefined;
+    let letGo = (): void => undefined;
+    const inHand = new Promise<void>((resolve) => (reached = resolve));
+    const gate = new Promise<void>((resolve) => (letGo = resolve));
+    storageAdapter.putDocument = (async (...given: Parameters<typeof put>) => {
+      if (given[0] === project.id && given[1].endsWith('.txt')) {
+        reached();
+        await gate;
+      }
+      return put(...given);
+    }) as typeof put;
+    const notes = ['Minutes of the site meeting', 'Date: 3 October 2026', 'Present: Asha Rao, Vikram Nair', 'Decision: The compound wall will be rebuilt on the north side.', 'Action: Vikram to get the tax receipt by 20 October 2026.'].join('\n');
+    const running = say(project.id, notes);
+    let kept: Answered;
+    try {
+      await inHand;
+      const json = { method: 'POST', headers: { 'content-type': 'application/json' } };
+      const accepted = await realFetch(`${base}/api/projects/${project.id}/evidence/${khata.id}/facts/review`, { ...json, body: JSON.stringify({ keys: ['khata_number'], decision: 'accept' }) });
+      const decided = await realFetch(`${base}/api/projects/${project.id}/decisions`, { ...json, body: JSON.stringify({ title: 'Proceed to the agreement', decisionType: 'proceed', decisionMaker: 'Partner', rationale: 'The title is in order.' }) });
+      const listed = await realFetch(`${base}/api/projects/${project.id}/evidence`, { ...json, body: JSON.stringify({ title: 'Sale deed', kind: 'document' }) });
+      const deedId = (await stored(project.id)).evidence.find((row) => row.title === 'Sale deed')!.id;
+      const form = new FormData();
+      form.append('files', new Blob([await pdfOf(TAX)], { type: 'application/pdf' }), 'sale-deed.pdf');
+      form.append('targets', JSON.stringify([deedId]));
+      const filed = await realFetch(`${base}/api/projects/${project.id}/evidence/files`, { method: 'POST', body: form });
+      assert.deepEqual([accepted.status, decided.status, listed.status, filed.status].map((status) => status < 300), [true, true, true, true]);
+    } finally {
+      letGo();
+      kept = await running;
+      storageAdapter.putDocument = put;
+    }
+
+    // The reply says what the message did, and apart from it what else changed while it ran.
+    assert.deepEqual(kept.assistantTurn.changed?.lines, ['Kept the notes of a meeting of 3 Oct 2026']);
+    assert.deepEqual([...(kept.assistantTurn.changed?.meanwhile?.lines ?? [])].sort(), ['Accepted Khata number on “Khata certificate”: 112/4', 'Filed “Sale deed”', 'Recorded the decision “Proceed to the agreement”']);
+    const deedKey = kept.project.evidence.find((row) => row.title === 'Sale deed')!.attachments[0]!.storageKey;
+    // Every line the message wrote to the trail carries its request's mark, and no line written from a page carries one.
+    const trail = (await stored(project.id)).audit;
+    const marks = new Set(trail.filter((line) => line.entityType === 'meeting').map((line) => line.req));
+    assert.ok(marks.size === 1 && [...marks][0]?.startsWith('req_'), JSON.stringify([...marks]));
+    assert.ok(trail.filter((line) => ['decision', 'evidence'].includes(line.entityType)).every((line) => line.req === undefined));
+
+    const back = await undo(project.id, kept.assistantTurn);
+    assert.deepEqual(back.assistantTurn.text.split('\n'), ['Undone:', '- Kept the notes of a meeting of 3 Oct 2026.', 'The file it added is removed from storage.']);
+    const now = back.project;
+    assert.deepEqual(
+      [now.meetings ?? [], now.evidence.find((row) => row.id === khata.id)!.facts![0]!.review, now.decisions.map((decision) => decision.title), now.evidence.map((row) => row.title), await inStorage(project.id, deedKey)],
+      [[], 'accepted', ['Proceed to the agreement'], ['Khata certificate', 'Sale deed'], true],
+      'the value stays accepted, and the decision, the paper and its file stay where the colleague put them',
+    );
   });
 });
 

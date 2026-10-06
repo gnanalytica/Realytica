@@ -7,9 +7,12 @@
  * step by step when a person runs it, ticks each step off in the thread, and
  * accepts nothing it raises; that it is stopped part way with what it did
  * kept, is on the record through the ledger for a page that was never open,
- * and is taken up again from where it stopped; that a small job just runs;
- * and that a model's proposal for words the rules do not read is held to the
- * fixed kinds and still shown before it starts.
+ * and is taken up again from where it stopped; that one go at a time carries
+ * a plan out, however Run is pressed, and a go whose plan was taken up by
+ * another ends; that a plan a colleague laid out is the runner's from the
+ * moment they run it; that a small job just runs; and that a model's
+ * proposal for words the rules do not read is held to the fixed kinds and
+ * still shown before it starts.
  *
  * Booted with no graph database and no model: the papers are read by rule.
  * A model is set up for the one test that needs one, and is a script. No
@@ -266,6 +269,98 @@ describe('a plan that is stopped', () => {
     // The reader leaves a note in the thread for each go, with how many papers it was handed. Over both goes that is each paper once.
     const handed = (await stored(project.id)).conversation.flatMap((turn) => (turn.toolCalls ?? []).map((call) => /^Read (\d+) documents? filed on the register/.exec(call.summary)?.[1])).filter(Boolean);
     assert.equal(handed.reduce((sum, n) => sum + Number(n), 0), 12, 'and the ones read before were not read twice');
+  });
+});
+
+describe('one go at a time', () => {
+  /** How often each paper's file is fetched to be read, while `work` runs. `held` is called with each fetch, and may make it wait. */
+  async function fetches<T>(work: (counts: Map<string, number>) => Promise<T>, held: (nth: number) => Promise<void> = async () => undefined): Promise<{ counts: Map<string, number>; out: T }> {
+    const { storageAdapter } = await import('../apps/api/src/storage');
+    const get = storageAdapter.getDocument.bind(storageAdapter);
+    const counts = new Map<string, number>();
+    let nth = 0;
+    storageAdapter.getDocument = (async (...given: Parameters<typeof get>) => {
+      if (given[1].startsWith('paper-')) {
+        counts.set(given[1], (counts.get(given[1]) ?? 0) + 1);
+        await held((nth += 1));
+      }
+      return get(...given);
+    }) as typeof get;
+    try {
+      return { counts, out: await work(counts) };
+    } finally {
+      storageAdapter.getDocument = get;
+    }
+  }
+  const total = (counts: Map<string, number>): number => [...counts.values()].reduce((sum, n) => sum + n, 0);
+
+  it('carries a plan out once when Run is pressed twice at once', async () => {
+    const project = await filed(12);
+    const planId = (await say(project.id, 'Read the filed documents')).assistantTurn.planId!;
+    const press = (): Promise<Answered> => say(project.id, 'Run the plan', { plan: { id: planId, act: 'run' } });
+    // Each fetch takes a moment, so the go is still under way when the second press lands.
+    const { counts, out } = await fetches(() => Promise.all([press(), press()]), () => new Promise((resolve) => setTimeout(resolve, 25)));
+    assert.deepEqual([counts.size, total(counts)], [12, 12], 'each paper was fetched to be read once');
+    assert.deepEqual(out.map((reply) => reply.assistantTurn.text.split(/[.:]/)[0]).sort(), ['The plan is already running', 'The plan is done']);
+    const said = (await stored(project.id)).conversation.filter((turn) => turn.role === 'assistant').map((turn) => turn.text);
+    assert.deepEqual([said.filter((text) => text.startsWith('Step 1 of 1 done.')).length, said.filter((text) => text.startsWith('Running the plan:')).length], [1, 1], 'one go ran it and ticked it off');
+    assert.deepEqual([(await planOf(project.id, planId)).plan.status, 'runToken' in (await planOf(project.id, planId)).plan], ['done', false]);
+  });
+
+  it('ends a go whose plan was taken up by another, having read no more than it had in hand', async () => {
+    const { changeLedger } = await import('../apps/api/src/runs/journal');
+    const project = await filed(12);
+    const planId = (await say(project.id, 'Read the filed documents')).assistantTurn.planId!;
+    // The first go is held as it fetches its first paper, and meanwhile the ledger is made to say nothing has been written for six minutes:
+    // the plan reads as cut short, and Carry on is offered while the first go is still there.
+    let reached = (): void => undefined;
+    let letGo = (): void => undefined;
+    const fetching = new Promise<void>((resolve) => (reached = resolve));
+    const gate = new Promise<void>((resolve) => (letGo = resolve));
+    const { counts, out } = await fetches(
+      async () => {
+        const first = say(project.id, 'Run the plan', { plan: { id: planId, act: 'run' } });
+        await fetching;
+        await changeLedger(project.id, (ledger) => ledger.map((row) => (row.id === planId ? { ...row, updatedAt: new Date(Date.now() - 6 * 60_000).toISOString() } : row)));
+        assert.equal((await planOf(project.id, planId)).cutShort, true);
+        const second = await say(project.id, 'Carry on', { plan: { id: planId, act: 'carry_on' } });
+        letGo();
+        return { first: await first, second };
+      },
+      async (nth) => {
+        if (nth !== 1) return;
+        reached();
+        await gate;
+      },
+    );
+    assert.match(out.second.assistantTurn.text, /^The plan is done: 1 of 1 step done\./);
+    // The go that lost the plan finished the five papers it had in hand and no more: twenty-four fetches for twelve papers is what two goes side by side came to.
+    assert.ok(total(counts) <= 12 + 5 && Math.max(...counts.values()) <= 2, JSON.stringify([...counts.values()]));
+    const closing = (await stored(project.id)).conversation.filter((turn) => turn.text.startsWith('The plan is done'));
+    assert.equal(closing.length, 1, 'and only the go that has the plan says how it ended');
+    assert.equal(out.first.assistantTurn.text.startsWith('The plan is done'), false);
+    assert.equal((await planOf(project.id, planId)).plan.status, 'done');
+  });
+
+  it('makes a plan a colleague laid out the runner’s own: its lines are theirs, and theirs to undo', async () => {
+    const { changePlan } = await import('../apps/api/src/runs/plans');
+    const project = await filed(11);
+    const planId = (await say(project.id, 'Read the filed documents')).assistantTurn.planId!;
+    // Laid out by somebody else in the workspace.
+    await changePlan(project.id, planId, (plan) => {
+      plan.by = 'colleague@example.com';
+    });
+    const ran = await say(project.id, 'Run the plan', { plan: { id: planId, act: 'run' } });
+    const now = await stored(project.id);
+    const me = ran.userTurn.actor;
+    const started = now.conversation.find((turn) => turn.text.startsWith('Running the plan'))!;
+    assert.equal(started.text, 'Running the plan a colleague laid out: 1 step. It is yours from here. Each is ticked off here as it is done, and you can stop it.');
+    const tick = now.conversation.find((turn) => turn.text.startsWith('Step 1 of 1 done.'))!;
+    assert.ok(me && tick.actor === me && (await planOf(project.id, planId)).plan.by === me, 'the plan and what it says are the runner’s');
+    assert.ok(tick.changed?.kept, 'and what the step changed is kept with its line');
+    const back = await say(project.id, 'Undo that message', { undo: { turnId: tick.id } });
+    assert.match(back.assistantTurn.text, /^Undone:/);
+    assert.ok((await stored(project.id)).evidence.every((row) => !row.facts?.length), 'the runner’s undo took the readings back');
   });
 });
 

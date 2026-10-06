@@ -21,6 +21,13 @@
  * paper by its key, and everything else is a field. So a kind of record the
  * project gains later is listed and undone with no change here; only the
  * words of its line are the plain ones.
+ *
+ * The comparison finds everything that moved while the message ran, whoever
+ * moved it. A message keeps only what is its own (`ownChanges`): a thing a
+ * line of the trail written by its own request tells of, that no line written
+ * by anything else tells of, and the cards its own request raised. The rest
+ * is listed apart as having changed while it ran, and is never undone with
+ * it.
  */
 
 import { REPORT_KIND_LABEL } from './catalogs';
@@ -28,7 +35,7 @@ import { chatPlaceLabel } from './chat-places';
 import type { ChatChoice } from '../types';
 import type { DocumentFact } from './document-parse';
 import { acceptedFacts, factReview, proposedFacts } from './fact-review';
-import type { DdProject, EvidenceRecord, ProjectChatTurn } from './types';
+import type { AuditEvent, DdProject, EvidenceRecord, ProjectChatTurn } from './types';
 
 type Rec = Record<string, unknown>;
 const isRec = (value: unknown): value is Rec => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -468,12 +475,15 @@ function tell(path: string[], changes: readonly KeptChange[], before: RecordBase
   return { line: nameOf(record) ? `Changed ${title} (${where})` : `Changed ${where}` };
 }
 
-/** Every storage key a value names. */
+/** The fields a record names a file in storage by: a paper's own file, the file a questionnaire came from, and the words kept beside a voice note. */
+const FILE_KEYS = new Set(['storageKey', 'fileKey', 'wordsKey']);
+
+/** Every file in storage a value names. */
 function filesIn(value: unknown, out = new Set<string>()): Set<string> {
   if (Array.isArray(value)) for (const item of value) filesIn(item, out);
   else if (isRec(value)) {
     for (const [key, held] of Object.entries(value)) {
-      if (key === 'storageKey' && typeof held === 'string' && held) out.add(held);
+      if (FILE_KEYS.has(key) && typeof held === 'string' && held) out.add(held);
       else filesIn(held, out);
     }
   }
@@ -580,6 +590,7 @@ export function changeLines(groups: readonly Pick<KeptGroup, 'line' | 'bulk' | '
 
 /** What a reply keeps of what it changed: the lines a person reads, and whether it can still be undone. */
 export interface TurnChanged {
+  /** What the message itself changed. Empty where all that changed while it ran was other work. */
   lines: string[];
   /** How many more lines there are than are kept here. */
   more?: number;
@@ -587,12 +598,142 @@ export interface TurnChanged {
   kept?: true;
   /** It was undone: when, by whom, and how many of its things were put back. */
   undone?: { at: string; by: string; back: number; of: number };
+  /**
+   * What else changed on the record while the message ran, that is not the
+   * message's own: other work, or a change nothing ties to this message.
+   * Listed apart, and never undone with it.
+   */
+  meanwhile?: { lines: string[]; more?: number };
 }
 
-export function turnChanged(groups: readonly KeptGroup[], kept: boolean): TurnChanged | undefined {
+const fewLines = (lines: string[]): { lines: string[]; more?: number } => ({ lines: lines.slice(0, CHANGE_LINES_AT_MOST), ...(lines.length > CHANGE_LINES_AT_MOST ? { more: lines.length - CHANGE_LINES_AT_MOST } : {}) });
+
+export function turnChanged(groups: readonly KeptGroup[], kept: boolean, meanwhile: readonly KeptGroup[] = []): TurnChanged | undefined {
   const lines = changeLines(groups);
-  if (!lines.length) return undefined;
-  return { lines: lines.slice(0, CHANGE_LINES_AT_MOST), ...(lines.length > CHANGE_LINES_AT_MOST ? { more: lines.length - CHANGE_LINES_AT_MOST } : {}), ...(kept ? { kept: true } : {}) };
+  const apart = changeLines(meanwhile);
+  if (!lines.length && !apart.length) return undefined;
+  return { ...fewLines(lines), ...(kept && lines.length ? { kept: true } : {}), ...(apart.length ? { meanwhile: fewLines(apart) } : {}) };
+}
+
+/* ==================================================================== */
+/* Whose it was                                                           */
+/* ==================================================================== */
+
+/** What tells a message's changes from other work done on the project while it ran. */
+export interface ChangeWindow {
+  /** The project's own id: a line of the trail that names it is about the project itself. */
+  projectId: string;
+  /** True when anything other than the message's own request wrote to the project while it ran: its clock was moved, or its copy was replaced by the one in storage. */
+  touched: boolean;
+  /** The lines the trail gained while the message ran that the message's own request wrote. */
+  mine: readonly AuditEvent[];
+  /** The lines it gained that anything else wrote. */
+  others: readonly AuditEvent[];
+  /** The cards the message's own request raised, by their ids. */
+  raised: ReadonlySet<string>;
+  /** The ids of the records in each of the project's lists, as it stood and as it stands (`listedIds`). */
+  listed: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+const camel = (words: string): string => words.replace(/_([a-z])/g, (_all, letter: string) => letter.toUpperCase());
+
+/**
+ * The names on a group's paths. `records` are the ids of the records it is
+ * about and of the records inside them that it changed. `all` adds every
+ * field on the way, among them the keys of what a record keeps by another
+ * record's id, as the review table keeps its answers by paper.
+ */
+function namesOn(group: KeptGroup): { records: Set<string>; all: Set<string> } {
+  const segments = [group.path, ...group.changes.map((change) => change.path)].flat();
+  return { records: new Set(segments.filter((segment) => segment.startsWith('#')).map((segment) => segment.slice(1))), all: new Set(segments.map((segment) => (segment.startsWith('#') ? segment.slice(1) : segment))) };
+}
+
+/** Whether a group is a card that was raised while the message ran. */
+const cardRaised = (group: KeptGroup): boolean => group.path[0] === 'chatProposals' && group.path.length === 2 && group.changes.some((change) => change.did === 'added' && change.path.length === 2);
+
+/**
+ * Whether a line of the trail tells of the thing a group is about.
+ *
+ * It does when it names a record the group is about, or one inside it that
+ * the group changed, and when it is a change to the project's own fields
+ * that names the group's field.
+ *
+ * A line can be about more than it names, and then it is read both ways
+ * (`wide`): somebody else's line is taken to tell of all it could be about,
+ * and the message's own of no more than it names, so that a doubt never
+ * makes a change the message's. Read wide, a line tells of a group that
+ * holds anything under the id it names, a field kept by that id included;
+ * a decision about one value on a paper tells of everything on that paper;
+ * a line about a kind of record that names none of them tells of every
+ * record of that kind, since several were changed at once or the kind is
+ * kept inside one field; and a line about the project that names no field
+ * tells of every field of the project.
+ */
+function tells(line: AuditEvent, group: KeptGroup, names: ReturnType<typeof namesOn>, window: ChangeWindow, wide: boolean): boolean {
+  const named = [line.entityId, ...(line.about ?? [])].filter((id) => id && id !== window.projectId);
+  if (named.some((id) => (wide ? names.all : names.records).has(id))) {
+    if (wide || !line.factKey) return true;
+    const paper = `#${line.entityId}`;
+    return group.changes.some((change) => {
+      const at = change.path.indexOf(paper);
+      if (at === -1) return false;
+      const rest = change.path.slice(at + 1);
+      // The value itself, the whole list of values where they could not be told apart, or the paper itself added or removed.
+      return rest.length === 0 || (rest[0] === 'facts' && (rest.length === 1 || rest[1] === `#${line.factKey}`));
+    });
+  }
+  // A change to the project's own fields names them. So does an undo: all it put back, the records and the fields.
+  if (line.fields?.length || line.action === 'undo') return group.path.length === 1 && (line.fields ?? []).includes(group.path[0]!);
+  if (!wide) return false;
+  const kind = camel(line.entityType);
+  if ((group.path[0] === kind || group.path[0] === `${kind}s`) && !window.listed.get(group.path[0])?.has(line.entityId)) return true;
+  return line.entityId === window.projectId && group.path.length === 1;
+}
+
+/**
+ * A message's changes, told apart from other work done on the project while
+ * it ran.
+ *
+ * Where nothing else wrote to the project in that time, all of it is the
+ * message's: nothing else moved the project's clock, the trail gained no
+ * line from anything else, and every card that appeared is one the message
+ * raised. Every write to a project moves its clock, whether or not it
+ * leaves a line, so that is all there is to rule out.
+ *
+ * Where something else did write, a thing is the message's own only when a
+ * line its own request wrote tells of it and no line anything else wrote
+ * does, and a card only when its request raised it. Everything else is given
+ * back apart (`meanwhile`): somebody else's work, or a change nothing on the
+ * trail ties to this message. It is listed and never undone with it, so an
+ * undo cannot take back what another request did.
+ */
+export function ownChanges(groups: readonly KeptGroup[], window: ChangeWindow): { own: KeptGroup[]; meanwhile: KeptGroup[] } {
+  const raisedHere = (group: KeptGroup): boolean => window.raised.has(group.path[1]!.slice(1));
+  if (!window.touched && !window.others.length && groups.every((group) => !cardRaised(group) || raisedHere(group))) return { own: [...groups], meanwhile: [] };
+  const own: KeptGroup[] = [];
+  const meanwhile: KeptGroup[] = [];
+  for (const group of groups) {
+    const names = namesOn(group);
+    const mine = cardRaised(group)
+      ? raisedHere(group)
+      : !window.others.some((line) => tells(line, group, names, window, true)) && window.mine.some((line) => tells(line, group, names, window, false));
+    (mine ? own : meanwhile).push(group);
+  }
+  return { own, meanwhile };
+}
+
+/** The ids of the records in each of a project's lists, across the copies given: the record as it stood, and as it stands. */
+export function listedIds(...copies: ReadonlyArray<RecordBase | DdProject>): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const copy of copies) {
+    for (const [key, held] of Object.entries(copy)) {
+      if (!Array.isArray(held) || NOT_THE_RECORD.has(key)) continue;
+      const ids = out.get(key) ?? new Set<string>();
+      for (const item of held) if (isRec(item) && typeof item.id === 'string') ids.add(item.id);
+      out.set(key, ids);
+    }
+  }
+  return out;
 }
 
 /* ==================================================================== */
@@ -677,10 +818,14 @@ export interface UndoOutcome {
  * Put back what a message changed, where each thing still stands as the
  * message left it. The project is changed in place. What is left alone is
  * given back with why, and nothing that was changed again since, and nothing
- * anything else rests on, is touched.
+ * anything else rests on, is touched. `staying` names, by their keys, the
+ * things that changed while the message ran and were not its own: they are
+ * not among `groups`, and what was made for one of them stays with it.
  */
-export function undoChanges(project: DdProject, groups: readonly KeptGroup[]): UndoOutcome {
+export function undoChanges(project: DdProject, groups: readonly KeptGroup[], staying: readonly string[] = []): UndoOutcome {
   const why = new Map<string, keyof typeof WHY>();
+  // What changed while the message ran and was not its own is not put back, so nothing made for it is either.
+  const fixed = new Set(staying);
   for (const group of groups) {
     let reason = group.changes.map((change) => standing(project, change)).find(Boolean);
     if (!reason && group.left !== undefined) {
@@ -697,11 +842,11 @@ export function undoChanges(project: DdProject, groups: readonly KeptGroup[]): U
       moved = true;
     };
     // What is not listed goes back only when what it is about did: the groups it names, or with none named, every listed one.
-    const stays = (keys: readonly string[]): boolean => keys.some((key) => why.has(key));
+    const stays = (keys: readonly string[]): boolean => keys.some((key) => why.has(key) || fixed.has(key));
     const anyListedStays = groups.some((group) => !group.quiet && why.has(group.key));
     for (const group of going()) if (group.quiet && !group.needs && (group.about ? stays(group.about) : anyListedStays)) stay(group, 'quiet');
     for (const group of going()) if (!group.quiet && group.about && stays(group.about)) stay(group, 'with');
-    for (const group of going()) if (group.needs?.some((key) => why.has(key))) stay(group, 'needs');
+    for (const group of going()) if (group.needs && stays(group.needs)) stay(group, 'needs');
     // A record the message added stays while anything that would be left still names it.
     const after = recordAsItStands(project);
     backOut(after, going());

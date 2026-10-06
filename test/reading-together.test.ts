@@ -213,6 +213,21 @@ describe('papers read together', () => {
     assert.equal(proposedFacts(q.evidence.find((e) => e.attachments.some((a) => a.storageKey === 'k-khata-2'))!).length, 2);
   });
 
+  it('offer a due diligence only from what still stands on a paper’s row when the reply is written', () => {
+    const p = createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0049');
+    const fact = (key: string, value: string | number) => ({ key, label: key, value, display: String(value), page: 1, quote: `${key}: ${value}` });
+    const paper: ChatIngestFile = {
+      fileName: 'khata.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k-khata-3',
+      read: { type: 'khata', label: 'Khata certificate and extract', confidence: 0.9, method: 'text', summary: 'A khata.', facts: [fact('khata_number', '112/4'), fact('extent_khata', 1115)], flags: [], rowHints: [], scopes: [], evidenceKind: 'document' },
+    };
+    const rowId = landIngestFile(p, paper, 'tester')!;
+    // Both values are set aside on the row while the other papers of the drop are still being read.
+    reviewFacts(p, rowId, ['khata_number', 'extent_khata'], 'reject', 'tester');
+    const reply = applyProjectChat(p, '', { ingest: [{ ...paper, landed: true }] });
+    assert.doesNotMatch(reply.assistantTurn.text, /answers its checks/, 'the reply does not say the paper answers the checks of a due diligence');
+    assert.equal(p.chatProposals.some((c) => c.kind === 'start_dd' && /read from your documents/.test(c.rationale)), false, 'and none is offered from values nobody kept');
+  });
+
   it('filed on the register are each put on their row, and saved, as they are read', async () => {
     const { readOntoRegister } = await import('../apps/api/src/documents/register-read');
     const p = createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0043');

@@ -8,7 +8,9 @@
  * takes away a record that something added since rests on, removes a file
  * only when nothing points at it any more, and sends a card back to waiting
  * only together with what accepting it recorded. The clock is not a change.
- * That it is wired to the chat is proved over HTTP in
+ * A message keeps only what is its own: all of it when nothing else wrote
+ * while it ran, and otherwise what its own lines on the trail tell of and no
+ * other line does. That it is wired to the chat is proved over HTTP in
  * `turn-undo-route.test.ts`. Every name and paper is invented.
  */
 
@@ -23,11 +25,15 @@ import {
   changeLines,
   changesBetween,
   createProject,
+  listedIds,
+  logSiteEntry,
+  ownChanges,
   recordAsItStands,
   turnChanged,
   undoChanges,
   undoSaid,
   undoSentence,
+  type AuditEvent,
   type ChatProposal,
   type DdProject,
   type DocumentFact,
@@ -124,6 +130,46 @@ describe('what a message changed', () => {
   });
 });
 
+describe('whose a change is', () => {
+  it('is the message’s throughout when nothing else wrote while it ran, and otherwise only where its own lines tell of it and no other line does', () => {
+    const { project, paperId } = fixture();
+    const groups = did(project, () => {
+      // The message files a paper, accepts a value, sets the owner and raises a card. Meanwhile, from a page: a decision, a card, and an answer the review table keeps by the first paper's id.
+      addEvidence(project, { title: 'Tax receipt', kind: 'document' }, LEAD);
+      Object.assign(project.evidence[0]!.facts!.find((held) => held.key === 'khata_number')!, { review: 'accepted', decidedBy: LEAD, decidedAt: '2026-10-06T09:00:00.000Z' });
+      project.owner = 'Asha Rao';
+      project.decisions.push({ id: 'dec_1', title: 'Proceed to the agreement' } as unknown as DdProject['decisions'][number]);
+      project.reviewTable = { columns: [{ id: 'q_1', kind: 'question', question: 'Who signed it?' }], answers: { q_1: { [paperId]: { text: 'The commissioner' } } } } as unknown as DdProject['reviewTable'];
+      project.chatProposals.push(card('prop_mine'), card('prop_theirs'));
+    });
+    const filedId = project.evidence[1]!.id;
+    const line = (more: Partial<AuditEvent>): AuditEvent => ({ id: `aud_${Math.random()}`, at: '2026-10-06T09:00:00.000Z', actor: LEAD, action: 'create', entityType: 'evidence', entityId: '', ...more });
+    const quiet = { projectId: project.id, touched: false, mine: [], others: [], raised: new Set(['prop_mine', 'prop_theirs']), listed: listedIds(project) };
+    assert.equal(ownChanges(groups, quiet).meanwhile.length, 0, 'with nothing else at work, all of it is the message’s');
+
+    const told = ownChanges(groups, {
+      ...quiet,
+      touched: true,
+      raised: new Set(['prop_mine']),
+      // The message's own lines: the paper it filed, the value it accepted, and the field it set.
+      mine: [line({ entityId: filedId }), line({ action: 'accept_fact', entityId: paperId, factKey: 'khata_number' }), line({ action: 'patch', entityType: 'project', entityId: project.id, fields: ['owner'] })],
+      others: [line({ entityType: 'decision', entityId: 'dec_1' })],
+    });
+    assert.deepEqual(changeLines(told.own).sort(), ['Accepted Khata number on “Khata certificate”: 112/4', 'Listed “Tax receipt” on the register, to be got', 'Set the owner to Asha Rao']);
+    // The message's line about the first paper does not make the review table its own, though an answer there is kept by that paper's id.
+    assert.deepEqual(changeLines(told.meanwhile).sort(), ['Changed the review table', 'Recorded the decision “Proceed to the agreement”']);
+    assert.deepEqual([told.own.filter((group) => group.quiet).map((group) => group.key), told.meanwhile.filter((group) => group.quiet).map((group) => group.key)], [['chatProposals/#prop_mine'], ['chatProposals/#prop_theirs']], 'a card is the message’s only where it raised it');
+    // Somebody else's line is read the other way, for all it could be about: their decision on another value of that paper tells of every value on it.
+    const doubted = ownChanges(groups, { ...quiet, touched: true, mine: [line({ action: 'accept_fact', entityId: paperId, factKey: 'khata_number' })], others: [line({ action: 'accept_fact', entityId: paperId, factKey: 'site_area' })] });
+    assert.deepEqual(changeLines(doubted.own), []);
+
+    // What is not the message's is not put back with it, and nothing made for it is either.
+    const outcome = undoChanges(project, told.own, told.meanwhile.map((group) => group.key));
+    assert.deepEqual([project.owner, project.decisions.length, project.evidence.length, Boolean(project.reviewTable), project.chatProposals.map((held) => held.id)], [undefined, 1, 1, true, ['prop_theirs']]);
+    assert.deepEqual([outcome.left, project.evidence[0]!.facts!.find((held) => held.key === 'khata_number')!.review], [[], 'proposed']);
+  });
+});
+
 describe('undoing a message', () => {
   it('puts back each thing that still stands as the message left it, and leaves what was changed again, saying which and why', () => {
     const { project } = fixture();
@@ -182,6 +228,16 @@ describe('undoing a message', () => {
     const outcome = undoChanges(project, groups);
     assert.deepEqual([outcome.files, project.evidence.map((row) => row.title)], [['tax-key.pdf'], ['Khata certificate', 'Zoning certificate']]);
     assert.match(undoSaid(outcome), /^The file it added is removed from storage\.$/m);
+  });
+
+  it('counts among those files the one a questionnaire came from and the words kept beside a voice note', () => {
+    const { project } = fixture();
+    const groups = did(project, () => {
+      addQuestionnaire(project, { title: 'Lender’s questions', fileName: 'queries.xlsx', fileKey: 'queries-key.xlsx', parsed: { header: [], questions: [{ text: 'What is the khata number?' }] } }, LEAD);
+      logSiteEntry(project, { clientId: 'phone-1', date: '2026-10-05', workDone: 'Footing concrete poured', voiceNote: { storageKey: 'note-key.m4a', fileName: 'note.m4a', mimeType: 'audio/mp4', wordsKey: 'note-key.m4a.words.txt' } }, LEAD);
+    });
+    assert.deepEqual(undoChanges(project, groups).files.sort(), ['note-key.m4a', 'note-key.m4a.words.txt', 'queries-key.xlsx']);
+    assert.deepEqual([project.questionnaires, project.siteLog], [[], []]);
   });
 
   it('sends a card back to waiting only together with what accepting it recorded', () => {

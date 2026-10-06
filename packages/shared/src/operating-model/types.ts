@@ -1128,10 +1128,17 @@ export interface AuditEvent {
   newValue?: string;
   /** On a decision about one value read off a paper: the value's key. */
   factKey?: string;
-  /** On a change to the project's own fields: the fields it set. */
+  /** On a change to the project's own fields: the fields it set. On an undo: the fields it put back. */
   fields?: string[];
   /** On an undo: the records it put something back on, by their ids. */
   about?: string[];
+  /**
+   * On a line a chat message wrote: a mark of the one request that carried
+   * the message out, the same on every line that request wrote. A line
+   * written from a page carries none. It is how a message is kept apart from
+   * other work done while it ran (`chat-changes.ts` in the API).
+   */
+  req?: string;
 }
 
 export interface ValuationApproachResult {

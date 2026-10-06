@@ -121,7 +121,13 @@ export interface ChatPlan {
   stopAsked?: boolean;
   /** Why it stopped, where no person stopped it. */
   stoppedBecause?: string;
-  /** Who it belongs to, and the chat and page it was asked in. */
+  /**
+   * The go that is carrying it out: a mark set when a go is opened, which
+   * that go reads again as it works. A go that finds another mark there, or
+   * none, is no longer the plan's and ends without writing to it.
+   */
+  runToken?: string;
+  /** Who it belongs to: whoever laid it out, and from the moment somebody runs it or takes it up, that person. Then the chat and page it was last run from. */
   by: string;
   sessionId?: string;
   place?: ChatTurnPlace;

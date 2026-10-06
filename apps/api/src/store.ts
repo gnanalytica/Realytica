@@ -285,6 +285,14 @@ export class Store {
   data: StoreData = emptyStore();
 
   /**
+   * Told each project whose held copy has just been replaced, in place, by
+   * the one storage has (`pullProject`). The project is the same object and
+   * every list on it is a new one, so whoever watches what is written to a
+   * project's lists (`chat-changes.ts`) watches the ones that are there now.
+   */
+  onReplaced: ((project: DdProject) => void) | undefined;
+
+  /**
    * projectId -> the `updatedAt` its shard was last written from.
    *
    * A record that has not moved cannot need rewriting. It is what turns a
@@ -631,6 +639,7 @@ export class Store {
       for (const key of Object.keys(target)) delete target[key];
       Object.assign(target, stored);
       this.persistedAt.set(id, stored.updatedAt);
+      this.onReplaced?.(held);
     }
     // Newly held, replaced or the same: the copy held is the one storage has.
     this.owe(held, revision);

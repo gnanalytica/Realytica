@@ -226,6 +226,8 @@ export function projectView(project: DdProject, access: ProjectAccess): ProjectV
     reviewTable: undefined,
     // What the firm is drafting to send is its own until it sends it.
     outgoing: [],
+    // The site's own day-by-day entries, and the words of a voice note among them, are the firm's.
+    siteLog: [],
     // The trail names everybody's actions across the whole project.
     audit: [],
     // So does the last instruction somebody gave the chat, and only staff can take it back.

@@ -23,6 +23,18 @@
  * writes nothing more. The ledger reads that as cut short, and the plan is
  * taken up again from the same place: every step picks up from what the
  * record holds now, so a step half done is not done twice.
+ *
+ * One go at a time carries a plan out. A go is opened in one change of the
+ * ledger, which is where "is it running already?" is asked, and is given a
+ * mark of its own (`runToken`). It reads that mark again whenever it looks at
+ * the ledger, and writes to the ledger as each paper of a step is done. A go
+ * that finds the mark gone or changed is no longer the plan's: it was
+ * stopped where it stood, or another go took the plan up. It ends after what
+ * it has in hand and writes nothing more to the plan.
+ *
+ * Any of the workspace's own people may run or take up a plan a colleague
+ * laid out. From that moment the plan is theirs: what the go says in the
+ * thread is said as theirs, and what each step changed is theirs to undo.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -76,8 +88,8 @@ export interface PlanReply {
 export type PlanTurn =
   /** Say this, and nothing more is to be done. */
   | { say: PlanReply }
-  /** Say this, then run the plan. */
-  | { run: string; say: PlanReply }
+  /** Say this, then run the plan: the go is opened already, and `token` is its mark. */
+  | { run: string; token: string; say: PlanReply }
   /** One step, too small to plan, that the chat has no sentence of its own for: do it now and say what it did, and what of the sentence was no step. */
   | { direct: PlanStep; unread?: string[] };
 
@@ -99,6 +111,54 @@ const stands = (run: PlanRun, summary: string): PlanReply => {
   return { text: planStandsSaid(run.plan, cut), choices: planChoices(run.id, run.plan, cut), planId: run.id, summary };
 };
 
+/**
+ * Open a go of a plan as this person's: mark it running, with a mark of the
+ * go's own, in one change of the ledger. That change is where "is it running
+ * already?" is asked, so of two presses at once the second finds it running
+ * and opens nothing. The plan is this person's from here.
+ */
+async function openRun(ask: PlanAsk, planId: string): Promise<string | undefined> {
+  const token = randomUUID();
+  let opened = false;
+  await changePlan(ask.project.id, planId, (plan, kept) => {
+    if (plan.status === 'done' || plan.status === 'cancelled' || (plan.status === 'running' && !planCutShort(kept))) return false;
+    opened = true;
+    plan.status = 'running';
+    plan.runToken = token;
+    plan.by = ask.actor;
+    delete plan.stopAsked;
+    delete plan.stoppedBecause;
+    // A step a run that died left as running, or one that failed, is to do again: it picks up from what the record holds now.
+    for (const step of plan.steps) if (step.state === 'running' || step.state === 'failed') step.state = 'to_do';
+    // This go is ticked off in the chat that started it, on the page it was started from. That need not be where the plan was first asked for.
+    if (ask.chat?.sessionId) plan.sessionId = ask.chat.sessionId;
+    if (ask.place) plan.place = ask.place;
+    return undefined;
+  });
+  return opened ? token : undefined;
+}
+
+/**
+ * Stop a plan that is running. A go that is there hears it at its next look
+ * at the ledger, ends after what it has in hand, and says so. One that has
+ * gone quiet for longer than any step may take is taken for dead: the plan
+ * is stopped where it stands and is no longer that go's, so that if it is
+ * there after all it ends too, and writes nothing more to the plan.
+ */
+export async function stopPlan(projectId: string, planId: string): Promise<PlanRun | undefined> {
+  return changePlan(projectId, planId, (plan, kept) => {
+    if (plan.status !== 'running') return false;
+    if (!planCutShort(kept)) {
+      plan.stopAsked = true;
+      return undefined;
+    }
+    plan.status = 'stopped';
+    delete plan.runToken;
+    delete plan.stopAsked;
+    return undefined;
+  });
+}
+
 /** Act on a plan that exists: what a pressed choice or a typed sentence asked of it. */
 async function actOn(ask: PlanAsk, run: PlanRun, act: NonNullable<ReturnType<typeof planAct>>): Promise<PlanTurn> {
   const { project } = ask;
@@ -106,30 +166,40 @@ async function actOn(ask: PlanAsk, run: PlanRun, act: NonNullable<ReturnType<typ
   if (act.act === 'progress') return { say: stands(run, planCountSaid(run.plan)) };
   if (act.act === 'run' || act.act === 'carry_on') {
     const left = planStepsIn(run.plan).filter((step) => step.state !== 'done');
-    if (run.plan.status === 'running' && !cut) return { say: { text: `The plan is already running: ${planCountSaid(run.plan)}.`, choices: planChoices(run.id, run.plan), planId: run.id, summary: 'Plan already running' } };
+    const running = (now: PlanRun): PlanTurn => ({ say: { text: `The plan is already running: ${planCountSaid(now.plan)}.`, choices: planChoices(now.id, now.plan), planId: now.id, summary: 'Plan already running' } });
+    if (run.plan.status === 'running' && !cut) return running(run);
     if (planOver(run) || !left.length) return { say: stands(run, 'Nothing is left of the plan') };
+    const token = await openRun(ask, run.id);
+    if (!token) {
+      // Another press got there first, or the plan was cancelled in the moment between.
+      const now = (await readPlan(project.id, run.id)) ?? run;
+      return now.plan.status === 'running' ? running(now) : { say: stands(now, 'Nothing is left of the plan') };
+    }
     const again = run.plan.status !== 'shown';
-    return {
-      run: run.id,
-      say: {
-        text: again ? `Taking the plan up again: ${left.length === 1 ? '1 step is' : `${left.length} steps are`} left. Each is ticked off here as it is done.` : `Running the plan: ${left.length === 1 ? '1 step' : `${left.length} steps`}. Each is ticked off here as it is done, and you can stop it.`,
-        planId: run.id,
-        summary: again ? 'Plan taken up again' : 'Plan started',
-      },
-    };
+    const steps = left.length === 1 ? '1 step' : `${left.length} steps`;
+    // Somebody else laid it out: said, since from here it is this person's.
+    const whose = run.plan.by === ask.actor ? '' : ' It is yours from here.';
+    const text = again
+      ? `Taking ${whose ? 'up the plan a colleague started' : 'the plan up again'}: ${left.length === 1 ? '1 step is' : `${left.length} steps are`} left.${whose} Each is ticked off here as it is done.`
+      : `Running the plan${whose ? ' a colleague laid out' : ''}: ${steps}.${whose} Each is ticked off here as it is done, and you can stop it.`;
+    return { run: run.id, token, say: { text, planId: run.id, summary: again ? 'Plan taken up again' : 'Plan started' } };
   }
   if (act.act === 'cancel') {
-    if (run.plan.status === 'running' && !cut) return { say: { text: 'The plan is running. Stop it first; what is done stays done.', choices: planChoices(run.id, run.plan), planId: run.id, summary: 'Plan is running' } };
-    const next = await changePlan(project.id, run.id, (plan) => {
+    const running: PlanTurn = { say: { text: 'The plan is running. Stop it first; what is done stays done.', choices: planChoices(run.id, run.plan), planId: run.id, summary: 'Plan is running' } };
+    if (run.plan.status === 'running' && !cut) return running;
+    const next = await changePlan(project.id, run.id, (plan, kept) => {
+      if (plan.status === 'running' && !planCutShort(kept)) return false;
       plan.status = 'cancelled';
+      // A go that had gone quiet, if it is there after all, ends when it finds its mark gone.
+      delete plan.runToken;
+      return undefined;
     });
-    return { say: stands(next ?? run, 'Plan cancelled') };
+    return next?.plan.status === 'running' ? running : { say: stands(next ?? run, 'Plan cancelled') };
   }
   if (act.act === 'stop') {
-    if (run.plan.status !== 'running' || cut) return { say: stands(run, 'Plan is not running') };
-    await changePlan(project.id, run.id, (plan) => {
-      plan.stopAsked = true;
-    });
+    if (run.plan.status !== 'running') return { say: stands(run, 'Plan is not running') };
+    const next = await stopPlan(project.id, run.id);
+    if (next?.plan.status !== 'running') return { say: stands(next ?? run, 'Plan stopped') };
     return { say: { text: 'Stopping the plan once what it has in hand is done. What is done stays done, and the rest can be taken up again.', planId: run.id, summary: 'Plan asked to stop' } };
   }
   // The two that change a plan are for one that is shown and has not started.
@@ -264,49 +334,62 @@ export function planSays(project: DdProject, plan: Pick<ChatPlan, 'by' | 'sessio
 
 export interface PlanRunInput extends PlanSetting {
   planId: string;
+  /** The mark of the go that was opened for this run (`PlanTurn`). A run with any other mark does nothing. */
+  token: string;
   /** Called as each step begins, for whoever is listening. */
   onStep?: (label: string) => void;
   budgetMs?: number;
 }
 
 /**
- * Carry a plan out from where it stands: every step still to do, in order,
- * until it is done, a person stops it, a step cannot be done, or its time
- * for one go is spent. Returns the plan as it stands at the end, with the
- * turn that says so. Never throws: a step that fails is said to have failed.
+ * Carry a plan out from where it stands, as the go that was opened for it
+ * (`token`): every step still to do, in order, until it is done, a person
+ * stops it, a step cannot be done, its time for one go is spent, or the plan
+ * is found to be no longer this go's. Returns the plan as it stands at the
+ * end, with the turn that says so; nothing when the plan was never this
+ * go's, or stopped being it. Never throws: a step that fails is said to have
+ * failed.
  */
 export async function runPlan(input: PlanRunInput): Promise<{ run: PlanRun; closing: ProjectChatTurn } | undefined> {
-  const { project, planId } = input;
+  const { project, planId, token } = input;
   const began = Date.now();
   const budget = input.budgetMs ?? PLAN_RUN_BUDGET_MS;
-  const opened = await changePlan(project.id, planId, (plan) => {
-    plan.status = 'running';
-    delete plan.stopAsked;
-    delete plan.stoppedBecause;
-    // A step a run that died left as running, or one that failed, is to do again: it picks up from what the record holds now.
-    for (const step of plan.steps) if (step.state === 'running' || step.state === 'failed') step.state = 'to_do';
-    // This go is ticked off in the chat that started it, on the page it was started from. That need not be where the plan was first asked for.
-    if (input.chat?.sessionId) plan.sessionId = input.chat.sessionId;
-    if (input.place) plan.place = input.place;
-  });
-  if (!opened) return undefined;
+  const opened = await readPlan(project.id, planId);
+  if (!opened || opened.plan.runToken !== token) return undefined;
   const plan = opened.plan;
   let outOfTime = false;
+  /** Set once the plan is found to be no longer this go's: it was stopped where it stood, or another go took it up. */
+  let lost = false;
   const mustEnd = async (): Promise<boolean> => {
+    if (lost) return true;
     if (Date.now() - began > budget) {
       outOfTime = true;
       return true;
     }
-    return Boolean((await readPlan(project.id, planId))?.plan.stopAsked);
+    const now = await readPlan(project.id, planId);
+    if (now?.plan.runToken !== token) {
+      lost = true;
+      return true;
+    }
+    return Boolean(now.plan.stopAsked);
   };
-  /** Write the plan as this run has it. A stop somebody asked for meanwhile is kept, until the run has ended. */
+  /** Write the plan as this go has it, while it is this go's. A stop somebody asked for meanwhile is kept, until the go has ended. */
   const keep = async (): Promise<void> => {
+    if (lost) return;
     await changePlan(project.id, planId, (stored) => {
+      if (stored.runToken !== token) {
+        lost = true;
+        return false;
+      }
       stored.steps = structuredClone(plan.steps);
       stored.status = plan.status;
       if (plan.stoppedBecause) stored.stoppedBecause = plan.stoppedBecause;
       else delete stored.stoppedBecause;
-      if (plan.status !== 'running') delete stored.stopAsked;
+      if (plan.status !== 'running') {
+        delete stored.stopAsked;
+        delete stored.runToken;
+      }
+      return undefined;
     });
   };
   /** The turns a step leaves are the plan's: in its chat, on its page. */
@@ -368,6 +451,8 @@ export async function runPlan(input: PlanRunInput): Promise<{ run: PlanRun; clos
   plan.status = left.length ? 'stopped' : 'done';
   if (left.length && outOfTime && !plan.stoppedBecause) plan.stoppedBecause = 'It ran for as long as one go may.';
   await keep();
+  // No longer this go's plan: how it stands is not this go's to say. What its steps did is ticked off above, and stays.
+  if (lost) return undefined;
   const ended = (await readPlan(project.id, planId)) ?? { ...opened, plan };
   const closing = planSays(project, ended.plan, planStandsSaid(ended.plan), { tool: PLAN_SAID, summary: planCountSaid(ended.plan), planId, choices: planChoices(planId, ended.plan) });
   await saved();

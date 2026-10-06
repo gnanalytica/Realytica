@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { needs, principalOf } from '../auth/middleware';
 import { fireAndForget } from '../flows/triggers';
 import {
@@ -239,10 +239,10 @@ import { readLint } from '../graph/mem/read';
 import { keepThought } from '../graph/mem/thought';
 import { CHAT_MESSAGE_AT_MOST, heldFile, meetingAsk, meetingTurn, meetingWords, readDroppedNotes } from '../meetings';
 import { wordStatusReport } from '../status-report';
-import { planTurnFor, runPlan, type PlanReply, type PlanTurn } from '../runs/plan-run';
+import { planTurnFor, runPlan, stopPlan, type PlanReply, type PlanTurn } from '../runs/plan-run';
 import { runPlanStep, type PlanSetting, type StepDone } from '../runs/plan-steps';
-import { changePlan, planCutShort, planOver, plansOf, readPlan, type PlanRun } from '../runs/plans';
-import { forgetTurnChanges, keepTurnChanges, recordBefore, undoTurn } from '../chat-changes';
+import { planCutShort, planOver, plansOf, readPlan, type PlanRun } from '../runs/plans';
+import { asMessage, forgetTurnChanges, keepTurnChanges, recordBefore, undoTurn } from '../chat-changes';
 import { outgoingAskedWritten } from './outgoing';
 import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
 import {
@@ -315,6 +315,15 @@ function visible(tenantId: string): DdProject[] {
 export function findProject(id: string): DdProject | undefined {
   return projects().find((p) => p.id === id);
 }
+
+/**
+ * A chat message's request is carried out with a mark of its own in scope,
+ * so that what it writes to the trail and the cards it raises are told from
+ * other work done on the project while it runs (`chat-changes.ts`). It goes
+ * after the upload is taken in, where there is one: the reading of a
+ * request's body keeps no scope.
+ */
+const asChatMessage: RequestHandler = (req, _res, next) => asMessage(findProject(req.params.projectId ?? ''), next);
 
 /**
  * Who is doing this, for the audit trail.
@@ -1272,7 +1281,9 @@ projectsRouter.get('/:projectId/meetings/:meetingId/notes', async (req, res) => 
 /** A plan as the page draws it: its steps as they stand, whether its run was cut short, and what may be pressed. */
 function planShown(run: PlanRun): { id: string; plan: PlanRun['plan']; cutShort: boolean; over: boolean; choices: ReturnType<typeof planChoices> } {
   const cutShort = planCutShort(run);
-  return { id: run.id, plan: run.plan, cutShort, over: planOver(run), choices: planChoices(run.id, run.plan, cutShort) };
+  // The mark of the go that is carrying it out is the runner's own, and is not sent to a page.
+  const { runToken: _mark, ...plan } = run.plan;
+  return { id: run.id, plan, cutShort, over: planOver(run), choices: planChoices(run.id, run.plan, cutShort) };
 }
 
 /** The plans on a project that are not over: shown, running or stopped. The newest first. */
@@ -1308,14 +1319,8 @@ projectsRouter.post('/:projectId/plans/:planId/stop', async (req, res) => {
     res.status(404).json({ error: 'Plan not found' });
     return;
   }
-  const next =
-    run.plan.status === 'running'
-      ? await changePlan(project.id, run.id, (plan) => {
-          // A run that died is not there to hear it: the plan is stopped where it stands.
-          if (planCutShort(run)) plan.status = 'stopped';
-          else plan.stopAsked = true;
-        })
-      : run;
+  // A run that is there hears it at its next look. One that has gone quiet is stopped where it stands, and ends if it is there after all (`stopPlan`).
+  const next = run.plan.status === 'running' ? await stopPlan(project.id, run.id) : run;
   res.json(planShown(next ?? run));
 });
 
@@ -1386,7 +1391,7 @@ async function planTurn(
     res.end();
     return;
   }
-  const ended = await runPlan({ ...setting, planId: planned.run, onStep: (label) => step(label, planned.run) });
+  const ended = await runPlan({ ...setting, planId: planned.run, token: planned.token, onStep: (label) => step(label, planned.run) });
   // The page is handed the plan's last word, and the project as the run left it.
   line({ type: 'result', ...result, ...(ended ? { assistantTurn: ended.closing, commands: [`Plan: ${planCountSaid(ended.run.plan)}`] } : {}), project });
   res.end();
@@ -1434,7 +1439,7 @@ async function undoAsked(
   res.end();
 }
 
-projectsRouter.post('/:projectId/chat', async (req, res) => {
+projectsRouter.post('/:projectId/chat', asChatMessage, async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
     res.status(404).json({ error: 'Project not found' });
@@ -2807,7 +2812,7 @@ async function readAndFile(req: Request, res: Response, project: DdProject, file
   });
 }
 
-projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), async (req, res) => {
+projectsRouter.post('/:projectId/chat/files', chatUpload.array('files', 10), asChatMessage, async (req, res) => {
   const project = findProject(req.params.projectId);
   if (!project) {
     res.status(404).json({ error: 'Project not found' });

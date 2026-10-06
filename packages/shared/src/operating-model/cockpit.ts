@@ -12,7 +12,7 @@ import { chatPlaceLabel, chatPlaceLine, functionOfDocument, functionRank, menuPl
 import { STAGES, STAGE_WORD, functionKey, stageAndStep, workstreamOfCheck } from './departments';
 import { asksToFileUnder, disagreementSentence, documentDisagreements, fileUnderFromText, filedGroups, filedSentence, filingChoices, offeredByFunction, offeredSentence, reachSentence, waitingChoices, waitingSentence } from './document-filing';
 import { readInstruction, sameTitle, type Instruction, type InstructionVerb } from './instruction';
-import { factsAwaitingReview, oneAtATimeSaid, proposedFacts, standingAsRead } from './fact-review';
+import { dropAsItStands, factsAwaitingReview, oneAtATimeSaid, proposedFacts } from './fact-review';
 import { partlyReadOnFile, partlyReadSentence } from './reading-coverage';
 import { contestedKeys, decideCheckFields, fromWaitingReading, reviewFacts, waitingFieldKeys } from './review';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
@@ -1507,7 +1507,7 @@ export function applyProjectChat(
     // everything files them, starts it, and then offers its values.
     const startDd = ddForDocumentsProposal(
       project,
-      [...ingest.flatMap((f) => standingAsRead(f.read)), ...factsOnFile(project).map((row) => row.fact)],
+      [...ingest.flatMap((f) => dropAsItStands(project, f).standing), ...factsOnFile(project).map((row) => row.fact)],
       actor,
       built,
     );
@@ -1517,7 +1517,7 @@ export function applyProjectChat(
      * step. It belongs in THIS turn too, or "approve all" files the documents
      * and leaves the DD they answer one approval behind.
      */
-    const readFacts = ingest.some((f) => standingAsRead(f.read).length);
+    const readFacts = ingest.some((f) => dropAsItStands(project, f).standing.length);
     const waitingDd = !startDd && readFacts && !project.assessments.some((a) => a.status !== 'archived')
       ? project.chatProposals.find((p) => p.kind === 'start_dd' && p.status === 'proposed' && !rows.includes(p))
       : undefined;

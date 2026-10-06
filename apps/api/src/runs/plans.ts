@@ -51,15 +51,23 @@ export async function plansOf(projectId: string): Promise<PlanRun[]> {
  * Change a plan where it is kept, and give it back as it now stands. The
  * change is made to the plan as the ledger has it at that moment, so a stop
  * somebody asked for a moment ago is not written over by a runner that had
- * not heard of it.
+ * not heard of it, and of two changes that each look before they write, the
+ * second sees what the first wrote.
+ *
+ * The change is handed the record as it is kept, to tell a run that has gone
+ * quiet. One that returns `false` found the plan not as it needed it: the
+ * plan is left exactly as it was, and its last word is not moved.
  */
-export async function changePlan(projectId: string, planId: string, change: (plan: ChatPlan) => void): Promise<PlanRun | undefined> {
+export async function changePlan(projectId: string, planId: string, change: (plan: ChatPlan, kept: PlanRun) => void | false): Promise<PlanRun | undefined> {
   let changed: PlanRun | undefined;
   await changeLedger(projectId, (ledger) => {
     const held = ledger.find((row) => row.id === planId);
     if (!isPlan(held)) return ledger;
     const plan: ChatPlan = structuredClone(held.plan);
-    change(plan);
+    if (change(plan, held) === false) {
+      changed = held;
+      return ledger;
+    }
     changed = { ...held, plan, status: ledgerStatus(plan), updatedAt: new Date().toISOString() };
     return upsertRun(ledger, changed);
   });

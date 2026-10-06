@@ -20,7 +20,9 @@
  *
  * A step that works through many records does a few, saves, says how far it
  * has got, and asks whether to go on (`mustEnd`): that is where a plan stops
- * when a person stops it, with what it did kept.
+ * when a person stops it, with what it did kept. How far it has got is said
+ * to the ledger after each record and not only after each few, so a run that
+ * is slow is never taken for one that died.
  */
 
 import { agentCapability, reviewModelSetUp } from '@realytica/agents';
@@ -265,7 +267,15 @@ async function readFiled(run: StepRun): Promise<StepDone> {
     }
     if (uploads.length) {
       const before = project.conversation.length;
-      await readOntoRegister(project, uploads, actor, { landed: (file) => savedAsRead(project, file) }).catch(() => undefined);
+      let landed = 0;
+      await readOntoRegister(project, uploads, actor, {
+        landed: async (file) => {
+          await savedAsRead(project, file);
+          // Said to the ledger as each paper lands, so a batch of slow papers is not taken for a run that died.
+          landed += 1;
+          await run.progress(read.size + landed);
+        },
+      }).catch(() => undefined);
       run.wrote(project.conversation.slice(before));
       // Read means the reader put a reading on its row: it is no longer among the papers nothing has been read off.
       const still = new Set(rowsToRead(project, false).map((row) => row.id));

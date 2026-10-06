@@ -30,6 +30,7 @@ import {
   addEvidence,
   addQuestionnaire,
   createProject,
+  logSiteEntry,
   suggestFromFile,
 } from '@realytica/shared';
 
@@ -104,6 +105,17 @@ describe('a questionnaire answered from the whole file', () => {
     const copy = view(project).project;
     assert.deepEqual(copy.questionnaires, []);
     assert.equal(JSON.stringify(copy).includes('3.19 Cr'), false, 'nothing of the deed they cannot see reaches them');
+  });
+});
+
+describe('the site’s day-by-day entries', () => {
+  it('are not in an outside collaborator’s copy, whatever the grant ticks: a voice note’s words land there', () => {
+    const project = createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0062');
+    logSiteEntry(project, { clientId: 'phone-1', date: '2026-10-05', workDone: 'Footing concrete poured at grid C4', voiceNote: { storageKey: 'note-1.m4a', fileName: 'note.m4a', mimeType: 'audio/mp4', wordsKey: 'note-1.m4a.words.txt' } }, 'site@firm.in');
+    const copy = view(project, { areas: [...GRANT_AREAS] }).project;
+    assert.deepEqual(copy.siteLog, []);
+    assert.equal(JSON.stringify(copy).includes('grid C4'), false, 'nor do its words reach them any other way');
+    assert.equal(fullView(project).project.siteLog?.length, 1, 'the firm’s own people see it as it is');
   });
 });
 
