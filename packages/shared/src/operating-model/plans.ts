@@ -202,8 +202,13 @@ function wantOf(clause: string): PlanWant | undefined {
   if (KEEPS.test(said) && NOTES.test(said)) return { kind: 'keep_meeting', said };
   if (RUNS.test(said) && PLAYBOOK.test(said)) {
     const name = /^(?:run|apply)\s+(?:the\s+|my\s+|our\s+)?(.*?)\s*playbook\b/i.exec(said)?.[1]?.replace(/^["“]|["”]$/g, '').trim();
-    const only = /\bon\s+(?:all\s+)?(?:the\s+)?(.+?)\s+(?:documents?|docs|files|papers)\b/i.exec(said)?.[1]?.trim();
-    return { kind: 'run_playbook', said, ...(name ? { playbook: name } : {}), ...(only && !/^(?:filed|all|every)$/i.test(only) ? { only: only.toLowerCase() } : {}) };
+    // Which papers, where the clause says: the words between "on" and the papers, less the ones that say nothing of which.
+    const only = (/\bon\s+(.+?)\s+(?:documents?|docs|files|papers)\b/i.exec(said)?.[1] ?? '')
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((word) => word && !READ_FILLER.has(word))
+      .join(' ');
+    return { kind: 'run_playbook', said, ...(name ? { playbook: name } : {}), ...(only ? { only } : {}) };
   }
   if (asksForStatusReport(said)) return { kind: 'write_report', said, report: 'status' };
   if (MAKES.test(said) && A_REPORT.test(said)) return { kind: 'write_report', said, report: reportAsked(said) };

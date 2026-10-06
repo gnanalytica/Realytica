@@ -49,6 +49,7 @@ describe('an instruction read as steps', () => {
     assert.deepEqual(planWants('Read the title papers again').wants, [{ kind: 'read_filed', said: 'Read the title papers again', again: true, only: 'title' }]);
     assert.deepEqual(planWants('Approve all and generate the red flag report').wants.map((want) => [want.kind, want.form, want.report]), [['accept_raised', 'last', undefined], ['write_report', undefined, 'red_flag']]);
     assert.deepEqual(planWants('Run the title playbook on the legal papers').wants, [{ kind: 'run_playbook', said: 'Run the title playbook on the legal papers', playbook: 'title', only: 'legal' }]);
+    assert.deepEqual(planWants('Run the khata check playbook on the papers').wants, [{ kind: 'run_playbook', said: 'Run the khata check playbook on the papers', playbook: 'khata check' }], '“the papers” narrows nothing');
     assert.deepEqual(planWants('1. Read the filed documents\n2. Keep the notes as a meeting').wants.map((want) => want.kind), ['read_filed', 'keep_meeting']);
     assert.equal(planWants('Plan: read the filed papers').asksForPlan, true);
   });

@@ -291,6 +291,24 @@ describe('a small job', () => {
   });
 });
 
+describe('a saved playbook', () => {
+  it('is run on the papers as a step, by the review table’s own code, and its answers are on no paper’s row', async () => {
+    const saved = await realFetch(`${base}/api/libraries/review`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'playbook', name: 'Khata check', columns: [{ kind: 'question', question: 'What is the khata number?' }] }) });
+    assert.ok(saved.ok, 'the playbook is saved in the workspace’s library');
+    const project = await filed(3);
+    const shown = await say(project.id, 'Read the filed papers, then run the khata check playbook on the papers');
+    assert.deepEqual(shown.assistantTurn.text.split('\n').slice(1, 3), ['1. Read 3 filed papers.', '2. Run the playbook “Khata check” on 3 papers.']);
+    const ran = await say(project.id, 'Run the plan', { plan: { id: shown.assistantTurn.planId!, act: 'run' } });
+    assert.match(ran.assistantTurn.text, /^The plan is done: 2 of 2 steps done\.\n.*\n2\. Run the playbook “Khata check” on 3 papers\. Done: Asked the playbook “Khata check” of 3 papers\. The answers are in the review table and on no paper’s own row\./s);
+    const now = await stored(project.id);
+    assert.equal(now.reviewTable?.columns?.filter((column) => column.kind === 'question').length, 1, 'its column is on the table');
+    const kept = Object.values(now.reviewTable?.answers ?? {})[0] ?? {};
+    assert.deepEqual(Object.keys(kept).sort(), now.evidence.map((row) => row.id).sort(), 'an answer for each paper is kept in the table, under the question');
+    assert.ok(Object.values(kept).every((answer) => answer.by === 'search'), 'found by a search of its pages, with no model set up');
+    assert.ok(now.evidence.every((row) => acceptedFacts(row).length === 0), 'and nothing on a row was accepted by it');
+  });
+});
+
 describe('a model’s proposal for words the rules do not read', () => {
   it('is held to the fixed kinds, counted from the record, and shown before anything starts', async (t) => {
     // A model is set up for this test alone.
