@@ -39,6 +39,17 @@
  * `apps/api/src/graph/neo4j.ts` on `main`. They must leave every memory node
  * as it was, and this build's purge must then remove them all.
  *
+ * Last, the facts of memory, the assistant's notes and their pages, on a
+ * project of their own and through the pass the app itself runs
+ * (`syncMemory`): that what memory holds after a pass is exactly the facts
+ * the record gives, again after the record has changed, with a fact found
+ * losing the properties it no longer has; that memory says which facts it
+ * holds; that a note is kept on the page of what it is about, found by what
+ * a question is about, and trimmed to the newest; that a start-over lets go
+ * of every entry and fact and leaves notes and pages; that a writer turned
+ * away adds no note; and that the older build's sync and purge leave all of
+ * it alone.
+ *
  * The probe is not the live site and never writes as one but where it says
  * so, to its own made-up project: the mark that says the live site wrote a
  * project's memory is kept on that project's own node, which the probe
@@ -82,10 +93,20 @@ import {
   addEvidence,
   addFinding,
   createProject,
+  memFactRev,
+  memFactsRev,
+  memNear,
+  memThought,
   memoryDelta,
+  memoryFacts,
+  patchProject,
   projectLayerFor,
+  reviewFacts,
   type DdProject,
+  type DocumentFact,
   type MemEntry,
+  type MemFact,
+  type MemWatermark,
   type ProjectGraphEdge,
   type ProjectGraphNode,
 } from '@realytica/shared';
@@ -97,6 +118,8 @@ const TIMED = `${PROJECT}_timed`;
 const OTHER = `${PROJECT}_other`;
 /** A third, whose memory nothing has written before a later shape does. */
 const UNWRITTEN = `${PROJECT}_unwritten`;
+/** A fourth, for the facts of memory, the assistant's notes and their pages. */
+const FACTS = `${PROJECT}_facts`;
 /** The workspace the probe's memory is written under. No project store holds it, so nothing looks for it. */
 const TENANT = 'tnt_probe';
 
@@ -155,6 +178,35 @@ function record(): DdProject {
   addFinding(project, { title: 'Another finding', description: 'Made up.', severity: 'low', discipline: 'legal' }, 'probe@example.com');
   return project;
 }
+
+/**
+ * A made-up project with values on it of every form a fact takes: a number
+ * with a unit and a display, accepted, reopened and corrected, so it has a
+ * past; a line; a name; yes or no; two dates; and fields a person typed.
+ */
+function factsRecord(): { project: DdProject; khata: string; ec: string } {
+  const project = createProject({ name: 'Probe facts plot', type: 'residential', location: 'Northfield', city: 'Bengaluru' }, 'RYT-PROBE-F');
+  for (const event of project.audit) if (event.entityId === project.id) event.entityId = FACTS;
+  project.id = FACTS;
+  const by = 'probe@example.com';
+  const value = (key: string, held: DocumentFact['value'], display = String(held), more: Partial<DocumentFact> = {}): DocumentFact => ({ key, label: key, value: held, display, page: 2, quote: `${key}: ${display}`, review: 'proposed', ...more });
+  const khata = addEvidence(project, { title: 'A khata', kind: 'document' }, by);
+  khata.documentType = 'Khata certificate and extract';
+  khata.facts = [value('extent_khata', 1100.9, '11,850 sq ft', { unit: 'sqm' }), value('khata_number', '1234/56'), value('owner', 'A Person')];
+  reviewFacts(project, khata.id, ['extent_khata'], 'accept', by);
+  reviewFacts(project, khata.id, ['extent_khata'], 'reopen', by);
+  reviewFacts(project, khata.id, ['extent_khata'], 'accept', by, { value: 1096.2, display: '11,800 sq ft' });
+  const ec = addEvidence(project, { title: 'An encumbrance certificate', kind: 'document' }, by);
+  ec.documentType = 'Encumbrance certificate';
+  ec.facts = [value('ec_nil', true, 'yes'), value('ec_from', '2010-04-01'), value('ec_to', '2026-03-31')];
+  reviewFacts(project, ec.id, 'all', 'accept', by);
+  patchProject(project, { landAreaSqm: 1210, siteAddress: 'Plot 4, Northfield Road' }, by);
+  return { project, khata: khata.id, ec: ec.id };
+}
+
+/** Facts in one order with their properties in one order, so that two sets that say the same compare the same. */
+const canon = (facts: readonly MemFact[]): string =>
+  JSON.stringify([...facts].sort((a, b) => (a.id < b.id ? -1 : 1)).map((fact) => Object.fromEntries(Object.entries(fact).sort(([a], [b]) => (a < b ? -1 : 1)))));
 
 /** An entry made by hand, for the writes that go to the store without a record behind them. */
 function entry(projectId: string, sourceId: string): MemEntry {
@@ -218,7 +270,8 @@ async function main(): Promise<void> {
   process.env.REALYTICA_NEO4J_URL = uri;
   const { neo4jAdapter: graph, ensureNeo4jSchema, closeNeo4j } = await import('../apps/api/src/graph/neo4j');
   const { neo4jMemory: memory } = await import('../apps/api/src/graph/mem/neo4j');
-  const { writeMemory } = await import('../apps/api/src/graph/mem/write');
+  const { writeMemory, writeThought } = await import('../apps/api/src/graph/mem/write');
+  const { syncMemory } = await import('../apps/api/src/graph/mem/sync');
 
   /** The probe project's derived nodes as the database holds them, by the name each was given. */
   const stored = async (): Promise<string[] | null> => {
@@ -523,6 +576,84 @@ async function main(): Promise<void> {
     check('a project with no memory reads as one that was never told', (await memory.entries(PROJECT, 100)).length === 0 && !(await memory.watermarks([PROJECT])).has(PROJECT));
     check('and is not listed among the projects that have memory', !(await memory.projects()).some((row) => row.projectId === PROJECT));
 
+    // The facts of memory, the assistant's notes and their pages: through the pass the app itself runs, on a project of their own.
+    console.log('\nThe facts of memory, the assistant’s notes and their pages:');
+    {
+      const lived = factsRecord();
+      const known = new Map<string, MemWatermark>();
+      // A pass is bounded in time and tells what it reaches. From a machine far from the database it may take more than one to tell a whole record.
+      const pass = async () => {
+        let passed = await syncMemory({ owed: [{ project: lived.project, tenantId: TENANT }], gone: [], known, stillStored: async () => true }, memory, notLive);
+        for (let again = 0; again < 5 && passed.settled.length === 0 && passed.failed === 0; again += 1) {
+          passed = await syncMemory({ owed: [{ project: lived.project, tenantId: TENANT }], gone: [], known, stillStored: async () => true }, memory, notLive);
+        }
+        return passed;
+      };
+      const given = (): MemFact[] => memoryFacts(lived.project).held;
+      const told1 = await pass();
+      check('a pass tells a record its facts', told1.settled.length === 1 && told1.failed === 0, told1);
+      check('and memory then holds exactly the facts the record gives, each property as it was told', canon(await memory.factsOf(FACTS)) === canon(given()), [(await memory.factsOf(FACTS)).length, given().length]);
+      const index = new Map(given().map((fact) => [fact.id, memFactRev(fact)]));
+      check('each fact is listed by its id with its own digest', same([...(await memory.factIndex(FACTS))].sort(), [...index].sort()));
+      check('and memory says which facts it holds, as one digest of them all', (await memory.watermarks([FACTS])).get(FACTS)?.factsRev === memFactsRev(index), (await memory.watermarks([FACTS])).get(FACTS));
+      check('one node a fact, beside the entries and the project’s own', (await memoryNodes(FACTS)).MemFact === given().length && (await memoryNodes(FACTS)).MemProject === 1, await memoryNodes(FACTS));
+
+      // The record changes: a waiting value is accepted, so its fact changes tag and loses what only a reading has, and another is set aside, so its fact goes.
+      reviewFacts(lived.project, lived.khata, ['khata_number'], 'accept', 'probe@example.com');
+      reviewFacts(lived.project, lived.khata, ['owner'], 'reject', 'probe@example.com');
+      lived.project.updatedAt = new Date().toISOString();
+      const told2 = await pass();
+      const after = await memory.factsOf(FACTS);
+      check('after the record changes, a pass leaves memory holding exactly what the record now gives', told2.failed === 0 && canon(after) === canon(given()), [after.length, given().length]);
+      const number = after.find((fact) => fact.id.endsWith(`${lived.khata}::khata_number::a`));
+      check('a value accepted is approved, and its node has lost what only a waiting value has', number?.tag === 'approved' && number.readBy === undefined && number.stands === undefined && typeof number.by === 'string', number);
+      check('and a value set aside has no fact', !after.some((fact) => fact.id.includes(`${lived.khata}::owner::`)));
+      const made = (await pass()).made;
+      check('a record that has not changed is not written again', made <= 1 && canon(await memory.factsOf(FACTS)) === canon(given()), made);
+
+      // The assistant's notes, and the pages they are on.
+      const note = (turnId: string, said: string, aboutId: string, at: string): MemFact => memThought(FACTS, { note: said, aboutId, turnId, at, place: { department: 'legal', fn: 'legal.title' } })!;
+      const first1 = note('cht_probe_a', 'The khata is in the seller’s own name.', lived.khata, '2026-10-06T08:00:00.000Z');
+      check('a note is kept', same(await writeThought(memory, TENANT, FACTS, first1, notLive), { written: 1 }));
+      check('as a fact tagged a thought, holding its sentence and nothing a fact told from the record has', canon((await memory.factsOf(FACTS)).filter((fact) => fact.tag === 'thought')) === canon([first1]), (await memory.factsOf(FACTS)).filter((fact) => fact.tag === 'thought'));
+      check('on the page of what it is about', same((await memory.pagesOf(FACTS)).map((page) => [page.aboutId, page.notes]), [[lived.khata, 1]]) && (await memoryNodes(FACTS)).MemPage === 1, await memory.pagesOf(FACTS));
+      check('it is not among the facts told from the record, and does not move what memory says it holds', (await memory.factIndex(FACTS)).size === given().length && (await memory.watermarks([FACTS])).get(FACTS)?.factsRev === memFactsRev(new Map(given().map((fact) => [fact.id, memFactRev(fact)]))));
+      await writeThought(memory, TENANT, FACTS, note('cht_probe_b', 'The certificate covers sixteen years.', lived.ec, '2026-10-06T08:05:00.000Z'), notLive);
+      await writeThought(memory, TENANT, FACTS, note('cht_probe_c', 'The extent was corrected once.', lived.khata, '2026-10-06T08:10:00.000Z'), notLive);
+      check('a page counts its notes, and the page most lately written on comes first', same((await memory.pagesOf(FACTS)).map((page) => [page.aboutId, page.notes]), [[lived.khata, 2], [lived.ec, 1]]), await memory.pagesOf(FACTS));
+      const near = await memory.factsNear(FACTS, memNear(FACTS, [{ from: 'named', title: 'the khata', aboutIds: [lived.khata], keys: [] }]));
+      check(
+        'what a question is about finds its facts and its notes, with where memory stands, in one read',
+        near.held.every((fact) => fact.aboutId === lived.khata) && near.held.filter((fact) => fact.tag === 'thought').length === 2 && near.held.some((fact) => fact.tag === 'approved') && near.stands?.factsRev === (await memory.watermarks([FACTS])).get(FACTS)?.factsRev,
+        near.held.map((fact) => [fact.tag, fact.key]),
+      );
+      const byKey = await memory.factsNear(FACTS, { aboutIds: [], fns: [], departments: [], keys: ['ec_nil'] });
+      check('and a kind of value finds the facts under its key', same(byKey.held.map((fact) => [fact.key, fact.value]), [['ec_nil', true]]), byKey.held);
+      const moved = note('cht_probe_b', 'The certificate covers sixteen years.', lived.khata, '2026-10-06T08:05:00.000Z');
+      await writeThought(memory, TENANT, FACTS, moved, notLive);
+      check('a note written again about another thing is on that page and no longer on the first, whose page goes with its last note', same((await memory.pagesOf(FACTS)).map((page) => [page.aboutId, page.notes]), [[lived.khata, 3]]), await memory.pagesOf(FACTS));
+      await memory.think({ projectId: FACTS, tenantId: TENANT, thought: note('cht_probe_d', 'A fourth note.', lived.ec, '2026-10-06T08:20:00.000Z'), schema: MEM_SCHEMA, live: notLive, keep: 2 });
+      const kept2 = (await memory.factsOf(FACTS)).filter((fact) => fact.tag === 'thought').map((fact) => fact.source).sort();
+      check('a project keeps its newest notes, and a page with none left goes', same(kept2, ['cht_probe_c', 'cht_probe_d']) && same((await memory.pagesOf(FACTS)).map((page) => [page.aboutId, page.notes]), [[lived.ec, 1], [lived.khata, 1]]), [kept2, await memory.pagesOf(FACTS)]);
+
+      // The older build's statements, against a project whose memory holds facts, notes and pages.
+      await graph.syncProject({ projectId: FACTS, builtAt: new Date().toISOString(), revision: 1, nodes: [{ id: at('a', FACTS), kind: 'parcel', layer: 'entity', origin: 'derived', label: 'a' }], edges: [] });
+      const heldBefore = { nodes: await memoryNodes(FACTS), facts: canon(await memory.factsOf(FACTS)), pages: await memory.pagesOf(FACTS) };
+      await mainSync(FACTS, ['a', 'main-drew-this'], []);
+      await mainPurge(FACTS);
+      check('the older build’s sync and purge leave every fact, note and page as it was', same({ nodes: await memoryNodes(FACTS), facts: canon(await memory.factsOf(FACTS)), pages: await memory.pagesOf(FACTS) }, heldBefore), await memoryNodes(FACTS));
+
+      // A start-over, by a later shape on a deployment that is not the live site.
+      const later = await memory.write({ projectId: FACTS, tenantId: TENANT, from: {}, through: { schema: MEM_SCHEMA + 1, auditThrough: 'aud_later' }, entries: [entry(FACTS, 'later')], live: notLive });
+      const leftOver = await memory.factsOf(FACTS);
+      check('a start-over lets go of every entry and every fact told from the record', same(later, { written: 1 }) && (await memory.entries(FACTS, 100)).length === 1 && (await memory.factIndex(FACTS)).size === 0, [later, await memoryNodes(FACTS)]);
+      check('and leaves the notes and their pages, which nothing can tell again', leftOver.length === 2 && leftOver.every((fact) => fact.tag === 'thought') && (await memory.pagesOf(FACTS)).length === 2, await memoryNodes(FACTS));
+      const refused = await writeThought(memory, TENANT, FACTS, note('cht_probe_e', 'From an earlier build.', lived.khata, '2026-10-06T09:00:00.000Z'), notLive);
+      check('a writer the shape rule turns away adds no note', same(refused, { newer: MEM_SCHEMA + 1 }) && (await memory.factsOf(FACTS)).length === 2, refused);
+      await memory.purge(FACTS);
+      check('a purge removes the facts, the notes and the pages with the rest', same(await memoryNodes(FACTS), {}), await memoryNodes(FACTS));
+    }
+
     // How long one sync takes from here, for a project the size of a real one.
     const [nodes, links] = [200, 300];
     const timed = async (what: string, work: () => Promise<unknown>): Promise<void> => {
@@ -541,9 +672,14 @@ async function main(): Promise<void> {
     console.log(`\nOne write of memory of ${MEM_AT_MOST} entries, the most one write holds, from this machine:`);
     const many = Array.from({ length: MEM_AT_MOST }, (_, i) => entry(TIMED, `aud_${i}`));
     const through = { schema: MEM_SCHEMA, auditThrough: `aud_${MEM_AT_MOST - 1}` };
-    await timed('written for the first time (6 statements: a first write starts memory over)', () => memory.write({ projectId: TIMED, tenantId: TENANT, from: {}, through, entries: many, live: false }));
+    await timed('written for the first time (5 statements: a first write starts memory over)', () => memory.write({ projectId: TIMED, tenantId: TENANT, from: {}, through, entries: many, live: false }));
     await timed('written again, every entry already there (2 statements)', () => memory.write({ projectId: TIMED, tenantId: TENANT, from: through, through, entries: many, live: false }));
-    await timed(`started over in a later shape, ${MEM_AT_MOST} entries let go and ${MEM_AT_MOST} written (6 statements)`, () =>
+    const facts = Array.from({ length: MEM_AT_MOST }, (_, i): MemFact => ({ id: `${TIMED}::fact::ev_${i}::extent_khata::a`, tag: 'approved', key: 'extent_khata', label: STANDARD_FACT_KEYS.extent_khata!.label, value: 1000 + i, unit: 'sqm', aboutId: `ev_${i % 25}`, recordedAt: new Date().toISOString(), by: 'who_00000000000000', at: new Date().toISOString(), source: `ev_${i % 25}`, page: 1 }));
+    const withFacts = { ...through, factsRev: memFactsRev(new Map(facts.map((fact) => [fact.id, memFactRev(fact)]))) };
+    await timed(`${MEM_AT_MOST} facts written in one write, the most one holds (3 statements)`, () => memory.write({ projectId: TIMED, tenantId: TENANT, from: through, through: withFacts, entries: [], factChanges: { put: facts, drop: [] }, live: false }));
+    await timed('what a question is about read back, twenty facts of five hundred, with where memory stands (2 statements)', () => memory.factsNear(TIMED, { aboutIds: ['ev_7'], fns: [], departments: [], keys: [] }));
+    await timed('every fact listed by id with its digest', () => memory.factIndex(TIMED));
+    await timed(`started over in a later shape, ${MEM_AT_MOST} entries and ${MEM_AT_MOST} facts let go and ${MEM_AT_MOST} entries written (5 statements)`, () =>
       memory.write({ projectId: TIMED, tenantId: TENANT, from: {}, through: { ...through, schema: MEM_SCHEMA + 1 }, entries: many, live: false }),
     );
     await timed('counted, with every node in the database (5 statements)', () => memory.count(TIMED));
@@ -551,7 +687,7 @@ async function main(): Promise<void> {
     check(`and all of it is stored: ${MEM_AT_MOST} entries`, same(await memoryNodes(TIMED), { MemEntry: MEM_AT_MOST, MemProject: 1 }), await memoryNodes(TIMED));
     await timed('removed (4 statements)', () => memory.purge(TIMED));
   } finally {
-    for (const project of [PROJECT, TIMED, OTHER, `${OTHER}_away`, UNWRITTEN]) {
+    for (const project of [PROJECT, TIMED, OTHER, `${OTHER}_away`, UNWRITTEN, FACTS]) {
       await graph.purgeProject(project).catch((err: Error) => console.error(`Could not remove the graph of ${project}: ${err.message}`));
       await memory.purge(project).catch((err: Error) => console.error(`Could not remove the memory of ${project}: ${err.message}`));
     }

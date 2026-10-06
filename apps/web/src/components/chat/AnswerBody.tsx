@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { FileText, Flag, Unlink, Waypoints } from 'lucide-react';
-import type { EvidenceItem } from '@realytica/shared';
+import type { EvidenceItem, MemTagWords } from '@realytica/shared';
 import { parseAnswer } from './answer-blocks';
 import type { Block, Inline } from './answer-blocks';
 import { cn } from '../ui/kit';
@@ -24,6 +24,7 @@ export function AnswerBody({
   text,
   evidence,
   nodes,
+  memoryTags = false,
   onOpenEvidence,
   onOpenNode,
 }: {
@@ -31,14 +32,16 @@ export function AnswerBody({
   evidence: EvidenceItem[];
   /** Graph or register labels, for resolving a bracketed id to a real title. */
   nodes?: Array<{ id: string; label: string }>;
+  /** True on a turn whose memory tags the server printed from the facts it cited: only then is a tag drawn as one. */
+  memoryTags?: boolean;
   onOpenEvidence?: (id: string) => void;
   onOpenNode?: (nodeId: string) => void;
 }) {
   const nodeById = useMemo(() => new Map((nodes ?? []).map(n => [n.id, n])), [nodes]);
   const evidenceById = useMemo(() => new Map(evidence.map(e => [e.id, e])), [evidence]);
   const blocks = useMemo(
-    () => parseAnswer(text, id => nodeById.has(id)),
-    [text, nodeById],
+    () => parseAnswer(text, id => nodeById.has(id), memoryTags),
+    [text, nodeById, memoryTags],
   );
 
   const renderInline = (spans: Inline[], keyPrefix: string): ReactNode[] =>
@@ -77,6 +80,25 @@ export function AnswerBody({
           </button>
         );
       }
+      if (span.kind === 'memory') {
+        // Where the fact behind the sentence stood when it was written: a person's word, a reading nobody has decided, or the assistant's own note.
+        return (
+          <span
+            key={key}
+            title={MEMORY_TAG_SAYS[span.tag]}
+            className={cn(
+              'mx-0.5 inline-flex translate-y-[1px] items-center rounded px-1 py-px align-baseline text-[0.85em] ring-1 ring-inset',
+              span.tag === 'approved'
+                ? 'bg-good/15 text-[var(--status-good-text)] ring-good/35'
+                : span.tag === 'thought'
+                  ? 'bg-sunken text-ink-muted ring-[var(--ring)]'
+                  : 'bg-provenance/10 text-provenance-ink ring-provenance/40',
+            )}
+          >
+            {span.tag}
+          </span>
+        );
+      }
       if (span.kind === 'dangling') {
         return (
           <span
@@ -113,6 +135,14 @@ export function AnswerBody({
     </div>
   );
 }
+
+/** What each tag means, said on hover. */
+const MEMORY_TAG_SAYS: Record<MemTagWords, string> = {
+  approved: 'A person typed or accepted this.',
+  'waiting · stands': 'Read off a paper and not yet accepted. The file lets it be acted on meanwhile.',
+  waiting: 'Read off a paper or raised on a card. Nobody has accepted it yet.',
+  thought: 'The assistant’s own earlier note, not a fact of the file.',
+};
 
 function BlockView({ block, render }: { block: Block; render: (spans: Inline[]) => ReactNode[] }) {
   if (block.kind === 'heading') {

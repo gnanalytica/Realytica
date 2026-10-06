@@ -1369,6 +1369,15 @@ export interface ProjectChatTurn {
    */
   unsupportedClaims?: string[];
   /**
+   * The facts of the project's memory this answer rests on, each with the
+   * tag it had when the answer was given.
+   *
+   * Set by code from the lines the answer cited, never by a model. The tags
+   * in the text were printed from the same lines, so a page draws a tag as a
+   * tag only on a turn that has this.
+   */
+  restsOn?: Array<{ id: string; tag: 'approved' | 'proposed' | 'thought'; stands?: boolean }>;
+  /**
    * Questions the model asked beyond the first, held rather than shown.
    *
    * An interview asks one thing at a time; a turn with three questions gets

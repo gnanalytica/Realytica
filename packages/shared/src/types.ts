@@ -2732,6 +2732,8 @@ export interface CopilotTurn {
   choices?: ChatChoice[];
   /** Figures in a model answer that nothing on the file supports. See `ProjectChatTurn`. */
   unsupportedClaims?: string[];
+  /** The facts of the project's memory the answer rests on, with the tags code printed for them. See `ProjectChatTurn`. */
+  restsOn?: Array<{ id: string; tag: 'approved' | 'proposed' | 'thought'; stands?: boolean }>;
   /** What this turn changed on the file, as figures. See `ProjectChatTurn`. */
   metrics?: ChatMetric[];
   /** Which sitting this turn belongs to. See `ProjectChatTurn`. */

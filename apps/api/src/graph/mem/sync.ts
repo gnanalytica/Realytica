@@ -32,6 +32,15 @@
  * conversation never told. So before turns are told from the start, the
  * project store is asked whether it still holds this copy.
  *
+ * The facts go with the entries, in the same write. An entry is an event and
+ * is told once. A fact is what the record holds now, so each telling brings
+ * the facts memory holds to the facts this copy gives (`memoryFacts`), by
+ * the difference between the two: memory says which facts it holds as one
+ * digest, and only when that is not the digest of this copy's facts is what
+ * it holds read and compared. A copy whose facts differ with nothing new on
+ * its trail to show for it is asked about first, as a conversation told from
+ * its start is: an older copy must not take memory back.
+ *
  * Which shape of memory a deployment may write over is the store's to say
  * (`shapeRule`). The pass works it out first from where it last knew memory
  * to stand, so that a deployment the rule turns away makes no call. A
@@ -50,7 +59,20 @@
  * the graph, which is offered apart from this, goes on being drawn.
  */
 
-import { MEM_SCHEMA, memoryDelta, memoryReplay, sameMemWatermark, type DdProject, type MemWatermark } from '@realytica/shared';
+import {
+  MEM_AT_MOST,
+  MEM_SCHEMA,
+  memFactRev,
+  memFactsDiff,
+  memFactsRev,
+  memoryDelta,
+  memoryFacts,
+  memoryReplay,
+  sameMemWatermark,
+  type DdProject,
+  type MemFactsDiff,
+  type MemWatermark,
+} from '@realytica/shared';
 import { memoryPort } from './index';
 import { shapeRule, type MemoryPort, type MemWriter } from './types';
 import { memWriter, writeMemory } from './write';
@@ -158,6 +180,9 @@ export async function syncMemory(work: MemoryWork, port: MemoryPort = memoryPort
     let turnedAway = 0;
     // Whether the project store has said, in this telling, that it still holds this very copy.
     let stored = false;
+    // The facts this copy gives, and the one digest of them all. The copy does not change under a telling: one that does is left.
+    const given = memoryFacts(project).held;
+    const factsRev = memFactsRev(new Map(given.map((fact) => [fact.id, memFactRev(fact)])));
     while (turnedAway < 2) {
       // Changed in memory since it was chosen: what it holds now is not in the project store yet.
       if (project.updatedAt !== builtAt) return false;
@@ -169,16 +194,30 @@ export async function syncMemory(work: MemoryWork, port: MemoryPort = memoryPort
       const now = Date.now();
       let delta = memoryDelta(project, stands, { now });
       const behind = delta.standsDown === 'behind';
-      // Only the copy the project store holds tells everything again, or tells a conversation from its start.
-      if (!stored && (behind || (stands.turnThrough === undefined && delta.through.turnThrough !== undefined))) {
+      const factsDiffer = (stands.factsRev ?? '') !== (factsRev ?? '');
+      const trailMoves = delta.entries.length > 0 || !sameMemWatermark(delta.through, stands);
+      // Only the copy the project store holds tells everything again, tells a conversation from its start, or changes facts with nothing new on its trail.
+      if (!stored && (behind || (stands.turnThrough === undefined && delta.through.turnThrough !== undefined) || (factsDiffer && !trailMoves))) {
         if (!(await work.stillStored(project.id, builtAt))) return true;
         if (project.updatedAt !== builtAt) return false;
         stored = true;
       }
       if (behind) delta = memoryReplay(project, stands, { now });
-      if (delta.entries.length === 0 && !delta.more && sameMemWatermark(delta.through, stands)) return true;
+      if (delta.entries.length === 0 && !delta.more && sameMemWatermark(delta.through, stands) && !factsDiffer) return true;
+      // What memory holds is read only when it holds some and they are not this copy's.
+      let diff: MemFactsDiff | undefined;
+      if (factsDiffer) {
+        let index = new Map<string, string>();
+        if (stands.factsRev) {
+          passed.made += 1;
+          index = await port.factIndex(project.id);
+        }
+        diff = memFactsDiff(given, index, MEM_AT_MOST);
+      }
+      const nowHeld = diff ? memFactsRev(diff.index) : stands.factsRev;
+      const through: MemWatermark = { ...delta.through, ...(nowHeld ? { factsRev: nowHeld } : {}) };
       passed.made += 1;
-      const answer = await writeMemory(port, tenantId, stands, delta, live);
+      const answer = await writeMemory(port, tenantId, stands, { ...delta, through, ...(diff ? { factChanges: { put: diff.put, drop: diff.drop } } : {}) }, live);
       if ('newer' in answer || 'lower' in answer) return refused(project.id, answer);
       if ('full' in answer) {
         // Said once, until a write is taken again: every write would be turned away the same way.
@@ -194,8 +233,8 @@ export async function syncMemory(work: MemoryWork, port: MemoryPort = memoryPort
       }
       saidFull = false;
       // The live site's mark is set by its own write and stays under anybody else's.
-      work.known.set(project.id, { ...delta.through, ...(live || held.live ? { live: true } : {}) });
-      if (!delta.more) return true;
+      work.known.set(project.id, { ...through, ...(live || held.live ? { live: true } : {}) });
+      if (!delta.more && !diff?.more) return true;
       // A long record is told a write at a time. What this pass has no time left for, the next one tells.
       if (!waiting) return false;
     }

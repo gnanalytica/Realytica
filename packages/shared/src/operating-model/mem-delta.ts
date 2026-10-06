@@ -31,8 +31,9 @@
 
 import { menuPlaceOfWords } from './chat-places';
 import { isProjectCockpitPane } from './cockpit';
-import { STANDARD_FACT_KEYS } from './document-parse';
+import { RULES_FACT_KEYS, STANDARD_FACT_KEYS, type FactForm } from './document-parse';
 import { isPaneWriteReply } from './sitting';
+import type { MemFact } from './mem-facts';
 import type { AuditEvent, DdProject, ProjectChatTurn } from './types';
 
 /**
@@ -47,8 +48,10 @@ import type { AuditEvent, DdProject, ProjectChatTurn } from './types';
  * 2: a work-pane note is one entry of its own kind, where it was a question
  * and an answer; a map read points at a parcel only by a key of the fixed
  * form.
+ * 3: facts. Beside the entries, one node for each value the record holds
+ * about something, tagged with where it stands; see `mem-facts.ts`.
  */
-export const MEM_SCHEMA = 2;
+export const MEM_SCHEMA = 3;
 
 /**
  * How many audit events and chat turns one delta tells. A record that holds
@@ -132,6 +135,8 @@ export interface MemWatermark {
   turnThrough?: string;
   /** True when the live site wrote this project's memory. No other deployment sets it. */
   live?: boolean;
+  /** Which facts memory holds, as one digest of them all: see `memFactsRev`. Absent when it holds none. */
+  factsRev?: string;
 }
 
 export interface MemDelta {
@@ -145,11 +150,23 @@ export interface MemDelta {
   /** Kinds of entry memory lets go of before these are written. See `memoryReplay`. */
   forget?: MemEntryKind[];
   /**
+   * The facts to write and the ids of the facts to let go, to bring what
+   * memory holds to what the record gives. Set by the pass that tells
+   * memory, from `memFactsDiff`; `through.factsRev` is the digest of the
+   * facts memory holds once they are written.
+   */
+  factChanges?: { put: MemFact[]; drop: string[] };
+  /**
    * Set when nothing is to be written and why: memory was last written by a
    * newer build (`newer`), or this copy of the project does not hold the
    * event or the turn the watermark names (`behind`).
    */
   standsDown?: 'newer' | 'behind';
+}
+
+/** A short digest of some text, the same on every build: what tells two versions of a thing apart without keeping either. */
+export function memHash(text: string): string {
+  return hash53(text).toString(16).padStart(14, '0');
 }
 
 /** Bryc's cyrb53, public domain: fifty-three bits from a string, the same on every build. */
@@ -185,6 +202,11 @@ export function memWho(projectId: string, actor: string): string {
 
 /** The shape of an id this product mints or keeps: no spaces, no address. */
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:/~-]{0,199}$/;
+
+/** Whether some text has the shape of an id; see `memPointer` for an id an entry or a fact may point at. */
+export function isMemId(text: unknown): text is string {
+  return typeof text === 'string' && ID.test(text);
+}
 
 /**
  * The parts of the graph whose ids are made from words on the record, by the
@@ -244,9 +266,21 @@ export const MEM_PARCEL_REF = /^((ulb|rural):\d{1,12}|kgis:\d{10}:[0-9]{1,5}([/-
 /** The kinds of entry that point at a parcel by its key, and at nothing else. */
 const MAP_READ_KINDS: readonly MemEntryKind[] = ['map_read_kept', 'map_read_removed'];
 
+/**
+ * The keys the rules file a value under, each with its label and the form
+ * its value takes: the list a model is told (`STANDARD_FACT_KEYS`), and the
+ * rest of the rules' own keys (`RULES_FACT_KEYS`). A value under a key that
+ * is on neither has no key memory may keep.
+ */
+export function memRuleOfKey(key: unknown): { label: string; form: FactForm; choices?: readonly string[] } | undefined {
+  if (typeof key !== 'string') return undefined;
+  if (Object.hasOwn(STANDARD_FACT_KEYS, key)) return STANDARD_FACT_KEYS[key];
+  return Object.hasOwn(RULES_FACT_KEYS, key) ? RULES_FACT_KEYS[key] : undefined;
+}
+
 /** The name the fixed list of value keys gives a key, or nothing for a key that is not on it. */
 function nameOfKey(key: unknown): string | undefined {
-  return typeof key === 'string' && Object.hasOwn(STANDARD_FACT_KEYS, key) ? STANDARD_FACT_KEYS[key]!.label : undefined;
+  return memRuleOfKey(key)?.label;
 }
 
 /**
@@ -289,12 +323,22 @@ export function scrubMemEntry(projectId: string, entry: MemEntry): MemEntry | un
  * that label says which key it is; when the paper or the fact has gone since,
  * the fixed list's own labels say. Neither the label nor the value is kept.
  */
-function keyOfValue(project: DdProject, evidenceId: string, line: string | undefined): string | undefined {
+export function memKeyOfValueLine(project: DdProject, evidenceId: string, line: string | undefined): string | undefined {
   if (!line) return undefined;
   const names = (label: string): boolean => line.startsWith(`${label}: `);
   const onPaper = project.evidence.find((e) => e.id === evidenceId)?.facts?.find((fact) => names(fact.label))?.key;
   const key = onPaper ?? Object.keys(STANDARD_FACT_KEYS).find((known) => names(STANDARD_FACT_KEYS[known]!.label));
   return nameOfKey(key) ? key : undefined;
+}
+
+/**
+ * The key of the value an audit event is about. The event says, where the
+ * record writes the key on it. An event written before it did is read by its
+ * line (`memKeyOfValueLine`).
+ */
+export function memKeyOfValueEvent(project: DdProject, event: AuditEvent): string | undefined {
+  if (typeof event.factKey === 'string') return nameOfKey(event.factKey) ? event.factKey : undefined;
+  return memKeyOfValueLine(project, event.entityId, event.newValue ?? event.oldValue);
 }
 
 /** What the server reading a paper is called in an entry. */
@@ -320,20 +364,24 @@ function entriesOfEvent(project: DdProject, event: AuditEvent): MemEntry[] {
 
   if (event.entityType === 'evidence') {
     const paper = [event.entityId];
-    const value = (line: string | undefined): string | undefined => keyOfValue(project, event.entityId, line);
-    if (event.action === 'accept_fact') return [tell('value_accepted', paper, value(event.newValue))];
-    if (event.action === 'accept_fact_corrected') return [tell('value_corrected', paper, value(event.newValue))];
-    if (event.action === 'set_aside_fact') return [tell('value_set_aside', paper, value(event.oldValue))];
-    if (event.action === 'reopen_fact') return [tell('value_reopened', paper, value(event.newValue))];
+    const key = (): string | undefined => memKeyOfValueEvent(project, event);
+    if (event.action === 'accept_fact') return [tell('value_accepted', paper, key())];
+    if (event.action === 'accept_fact_corrected') return [tell('value_corrected', paper, key())];
+    if (event.action === 'set_aside_fact') return [tell('value_set_aside', paper, key())];
+    if (event.action === 'reopen_fact') return [tell('value_reopened', paper, key())];
+    // A reading the record wrote down as one: each is told, the first and every one after.
+    if (event.action === 'read') return [tell('paper_read', paper)];
     if (event.action !== 'create' && event.action !== 'upload') return [];
     const filed = tell(event.action === 'create' ? 'paper_filed' : 'file_added', paper);
     /*
-     * A paper read has no audit event of its own. It is told with the paper's
-     * filing, when the row already carries what was read off it; a paper read
-     * again later is not told at all. One entry a paper, whoever tells it.
+     * A paper read before the record wrote readings down has no event of its
+     * own. It is told with the paper's filing, when the row already carries
+     * what was read off it, and a later reading of such a paper is not told.
+     * One entry a paper, whoever tells it.
      */
     const row = project.evidence.find((e) => e.id === event.entityId);
     if (!row || (!row.readMethod && !row.facts?.length)) return [filed];
+    if ((project.audit ?? []).some((other) => other.action === 'read' && other.entityType === 'evidence' && other.entityId === row.id)) return [filed];
     return [
       filed,
       { id: `${project.id}::mem::${row.id}`, kind: 'paper_read', at: row.modelReadAt ?? event.at, by: memWho(project.id, READER), sourceId: row.id, about: paper },
@@ -495,7 +543,7 @@ export function memoryReplay(project: DdProject, watermark: MemWatermark, option
   return turnLost ? { ...delta, forget: [...MEM_TURN_KINDS] } : delta;
 }
 
-/** Whether two watermarks say the same thing. */
+/** Whether two watermarks say memory stands at the same place in the record, in the same shape. Which facts it holds is asked apart. */
 export function sameMemWatermark(a: MemWatermark, b: MemWatermark): boolean {
   return (a.schema ?? 0) === (b.schema ?? 0) && (a.auditThrough ?? '') === (b.auditThrough ?? '') && (a.turnThrough ?? '') === (b.turnThrough ?? '');
 }

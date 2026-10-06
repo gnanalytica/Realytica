@@ -4,8 +4,9 @@
  * Memory is kept in the database the graph is in, under labels of its own.
  * The live site runs a build that knows only the graph, against the same
  * database, so the first thing pinned here is that no statement of memory's
- * names the graph's label, its relationship or its marker, and that none
- * draws a relationship at all. The rest is what makes a write safe when
+ * names the graph's label, its relationship or its marker, and that the one
+ * relationship drawn is memory's own, from a note of the assistant's to the
+ * page it is on. The rest is what makes a write safe when
  * several instances make it: the project's memory node is taken first and
  * locked before it is read, the entries and the watermark go in the same
  * transaction or not at all, nothing is written when memory stands elsewhere
@@ -32,7 +33,7 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import type { Driver } from 'neo4j-driver';
-import { MEM_SCHEMA, type MemEntry } from '@realytica/shared';
+import { MEM_SCHEMA, memFactRev, type MemEntry, type MemFact } from '@realytica/shared';
 import type { MemBatch, MemoryPort } from '../apps/api/src/graph/mem/types';
 
 type Neo4jModule = typeof import('../apps/api/src/graph/neo4j');
@@ -57,7 +58,7 @@ let transactions: number;
 /** The transactions that ended with nothing written: the ones whose work threw. */
 let rolledBack: number[];
 /** Where the project's memory stands, as its node answers: a property never set comes back null. */
-let stands: { schema: number | null; auditThrough: string | null; turnThrough: string | null; live?: boolean | null };
+let stands: { schema: number | null; auditThrough: string | null; turnThrough: string | null; live?: boolean | null; factsRev?: string | null };
 /** What the reads answer. */
 let rows: Row[];
 /** Transactions still to fail before any statement of theirs runs. */
@@ -129,8 +130,8 @@ function batch(more: Partial<MemBatch> = {}): MemBatch {
   };
 }
 
-/** What a write that starts a project's memory over asks, after it has taken the node and before it writes. */
-const LET_GO = ['MemEntry', 'MemFact', 'MemPage'].map((label) => `MATCH (n:${label} { projectId: $projectId }) DETACH DELETE n`);
+/** What a write that starts a project's memory over asks, after it has taken the node and before it writes: the entries, and the facts told from the record. */
+const LET_GO = ['MATCH (n:MemEntry { projectId: $projectId }) DETACH DELETE n', "MATCH (n:MemFact { projectId: $projectId }) WHERE n.tag <> 'thought' DETACH DELETE n"];
 const MADE_AGAIN = 'MATCH (m:MemProject { id: $id }) SET m = { id: m.id, projectId: m.projectId, tenantId: m.tenantId }';
 
 /** The statements of the transactions that wrote data, leaving out the one that makes the constraints. */
@@ -176,6 +177,10 @@ describe('the memory’s own constraints', () => {
         'CREATE CONSTRAINT mem_project_id IF NOT EXISTS FOR (m:MemProject) REQUIRE m.id IS UNIQUE',
         'CREATE CONSTRAINT mem_entry_id IF NOT EXISTS FOR (e:MemEntry) REQUIRE e.id IS UNIQUE',
         'CREATE INDEX mem_entry_project IF NOT EXISTS FOR (e:MemEntry) ON (e.projectId)',
+        'CREATE CONSTRAINT mem_fact_id IF NOT EXISTS FOR (f:MemFact) REQUIRE f.id IS UNIQUE',
+        'CREATE INDEX mem_fact_project IF NOT EXISTS FOR (f:MemFact) ON (f.projectId)',
+        'CREATE CONSTRAINT mem_page_id IF NOT EXISTS FOR (p:MemPage) REQUIRE p.id IS UNIQUE',
+        'CREATE INDEX mem_page_project IF NOT EXISTS FOR (p:MemPage) ON (p.projectId)',
       ],
       'an id is unique for its label, which is what makes a merge find a node instead of making a second',
     );
@@ -216,6 +221,7 @@ describe('a write to the project’s memory', () => {
       live: null,
       auditThrough: 'aud_3',
       turnThrough: null,
+      factsRev: null,
       entries: [
         { id: `${PROJECT}::mem::aud_2`, kind: 'value_accepted', at: '2026-10-05T10:00:00.000Z', by: 'who_0123456789abcd', sourceId: 'aud_2', about: ['ev_1'], key: 'extent_khata', label: 'Extent per khata', pane: null, department: null, fn: null, stage: null },
         { id: `${PROJECT}::mem::aud_3`, kind: 'chat_asked', at: '2026-10-05T10:00:00.000Z', by: 'who_0123456789abcd', sourceId: 'aud_3', about: [], key: null, label: null, pane: 'evidence', department: null, fn: null, stage: 'pre_development' },
@@ -317,8 +323,9 @@ describe('a write to the project’s memory', () => {
       'every label memory has or is to have but the project’s own node, then that node as it was made',
     );
     assert.equal(new Set(statements.map((statement) => statement.transaction)).size, 1, 'in the transaction that writes the entries, so memory is never seen empty');
-    for (const statement of statements.slice(1, 4)) assert.deepEqual(statement.params, { projectId: PROJECT }, 'this project’s and no other’s');
-    assert.deepEqual(statements[4]!.params, { id: `${PROJECT}::mem` });
+    for (const statement of statements.slice(1, 3)) assert.deepEqual(statement.params, { projectId: PROJECT }, 'this project’s and no other’s');
+    assert.deepEqual(statements[3]!.params, { id: `${PROJECT}::mem` });
+    assert.ok(statements.slice(1, 3).every((statement) => !/MemPage/.test(statement.query)) && /tag <> 'thought'/.test(statements[2]!.query), 'the assistant’s own notes, which nothing can tell again, are left');
     assert.doesNotMatch(MADE_AGAIN, /\$projectId|\$tenantId/, 'the node keeps the project and the workspace it was made with: no write gives it another');
     assert.match(statements.at(-1)!.query, /MERGE \(e:MemEntry \{ id: entry\.id \}\)/, 'an entry the record still tells is made again after, as this build tells it');
     assert.equal(statements.at(-1)!.params.schema, MEM_SCHEMA);
@@ -388,6 +395,139 @@ describe('a write to the project’s memory', () => {
     // Anything else the database says to the same statement is a failure, as before.
     refusing = new Error('The transaction has been terminated.');
     await assert.rejects(memory.write(batch()), /terminated/);
+  });
+});
+
+describe('the facts of a write', () => {
+  const fact = (slot: string, more: Partial<MemFact> = {}): MemFact => ({
+    id: `${PROJECT}::fact::${slot}`,
+    tag: 'approved',
+    key: 'extent_khata',
+    label: 'Extent per khata',
+    value: 1100.9,
+    unit: 'sqm',
+    aboutId: 'ev_1',
+    recordedAt: '2026-10-05T10:00:00.000Z',
+    source: 'ev_1',
+    ...more,
+  });
+
+  it('are let go and written in the write’s own transaction, a fact found being replaced property for property', async () => {
+    const kept = fact('ev_1::extent_khata::a', { by: 'who_0123456789abcd', at: '2026-10-05T10:00:00.000Z', page: 2, was: [{ at: '2026-10-05T09:00:00.000Z', what: 'accepted', by: 'who_0123456789abcd', said: '11,850 sq ft' }] });
+    const foreign = fact('x', { id: 'prj-another::fact::x' });
+    const thought = fact('t', { id: `${PROJECT}::thought::t`, tag: 'thought', key: 'note', label: 'Note', value: 'a note' });
+    const through = { schema: MEM_SCHEMA, auditThrough: 'aud_3', factsRev: 'rev_after' };
+    stands = { schema: MEM_SCHEMA, auditThrough: 'aud_1', turnThrough: null, factsRev: 'rev_before' };
+    const facts = { put: [kept, foreign, thought], drop: [`${PROJECT}::fact::gone`, 'prj-another::fact::theirs'] };
+    assert.deepEqual(await memory.write(batch({ from: { auditThrough: 'aud_1', factsRev: 'rev_before' }, through, factChanges: facts })), { written: 2 });
+
+    const [claim, drop, write, put, ...rest] = written();
+    assert.deepEqual(rest, []);
+    assert.equal(new Set([claim!.transaction, drop!.transaction, write!.transaction, put!.transaction]).size, 1);
+    assert.match(claim!.query, /m\.factsRev AS factsRev/);
+    assert.equal(drop!.query, "MATCH (f:MemFact { projectId: $projectId }) WHERE f.id IN $ids AND f.tag <> 'thought' DETACH DELETE f");
+    assert.deepEqual(drop!.params, { projectId: PROJECT, ids: [`${PROJECT}::fact::gone`] }, 'this project’s facts and no other’s');
+    assert.match(write!.query, /m\.factsRev = \$factsRev/);
+    assert.equal(write!.params.factsRev, 'rev_after', 'which facts memory holds moves with them');
+    assert.match(put!.query, /UNWIND \$facts AS fact\s+MERGE \(f:MemFact \{ id: fact\.id \}\)\s+ON CREATE SET f\.projectId = \$projectId, f\.tenantId = \$tenantId\s+SET f \+= fact/);
+    const rows = put!.params.facts as Array<Record<string, unknown>>;
+    assert.deepEqual(rows.map((row) => row.id), [kept.id], 'a fact of another project is not written, and a note of the assistant’s has a way in of its own');
+    assert.deepEqual(rows[0], {
+      id: kept.id,
+      tag: 'approved',
+      key: 'extent_khata',
+      label: 'Extent per khata',
+      value: 1100.9,
+      unit: 'sqm',
+      display: null,
+      aboutId: 'ev_1',
+      department: null,
+      fn: null,
+      validFrom: null,
+      validTo: null,
+      recordedAt: '2026-10-05T10:00:00.000Z',
+      by: 'who_0123456789abcd',
+      at: '2026-10-05T10:00:00.000Z',
+      readBy: null,
+      proof: null,
+      stands: null,
+      source: 'ev_1',
+      page: 2,
+      quote: null,
+      contests: null,
+      was: ['{"at":"2026-10-05T09:00:00.000Z","what":"accepted","by":"who_0123456789abcd","said":"11,850 sq ft"}'],
+      rev: memFactRev(kept),
+    }, 'every property a fact can have, the ones it lacks as null so that a fact found loses them');
+  });
+
+  it('are not written when memory holds other facts than the writer believed', async () => {
+    stands = { schema: MEM_SCHEMA, auditThrough: 'aud_1', turnThrough: null, factsRev: 'rev_somebody_else_wrote' };
+    const answer = await memory.write(batch({ from: { auditThrough: 'aud_1', factsRev: 'rev_before' }, factChanges: { put: [fact('a')], drop: [] } }));
+    assert.deepEqual(answer, { moved: { schema: MEM_SCHEMA, auditThrough: 'aud_1', factsRev: 'rev_somebody_else_wrote' } });
+    assert.equal(written().length, 1);
+  });
+
+  it('are read back as they were written, and listed by id with each one’s digest, the assistant’s notes left out', async () => {
+    const kept = fact('ev_1::extent_khata::a', { tag: 'proposed', readBy: 'model', proof: 'page_text', stands: false, page: 3, was: [{ at: '2026-10-05T09:00:00.000Z', what: 'reopened', by: 'who_0123456789abcd' }] });
+    answering = (query) =>
+      /RETURN f \{ \.\* \} AS fact/.test(query)
+        ? [{ fact: { projectId: PROJECT, tenantId: TENANT, id: kept.id, tag: 'proposed', key: 'extent_khata', label: 'Extent per khata', value: 1100.9, unit: 'sqm', aboutId: 'ev_1', recordedAt: kept.recordedAt, readBy: 'model', proof: 'page_text', stands: false, source: 'ev_1', page: 3, was: ['{"at":"2026-10-05T09:00:00.000Z","what":"reopened","by":"who_0123456789abcd"}'], rev: 'r1' } }]
+        : [{ id: kept.id, rev: 'r1' }];
+    assert.deepEqual(await memory.factsOf(PROJECT), [kept]);
+    assert.deepEqual([...(await memory.factIndex(PROJECT))], [[kept.id, 'r1']]);
+    assert.equal(asked[1]!.query, "MATCH (f:MemFact { projectId: $projectId }) WHERE f.tag <> 'thought' RETURN f.id AS id, f.rev AS rev");
+    assert.ok(asked.every((statement) => statement.kind === 'read' && statement.params.projectId === PROJECT));
+  });
+});
+
+describe('a note of the assistant’s', () => {
+  const thought: MemFact = { id: `${PROJECT}::thought::cht_1`, tag: 'thought', key: 'note', label: 'Note', value: 'The deed names two sellers.', aboutId: 'ev_1', recordedAt: '2026-10-05T10:00:00.000Z', source: 'cht_1' };
+  const think = (more: Partial<Parameters<MemoryPort['think']>[0]> = {}) => memory.think({ projectId: PROJECT, tenantId: TENANT, thought, schema: MEM_SCHEMA, live: false, keep: 300, ...more });
+
+  it('is written with its page in one transaction that takes the project’s node first, and the oldest beyond what is kept go with it', async () => {
+    assert.deepEqual(await think(), { written: 1 });
+    const [claim, off, put, trim, empty, ...rest] = written();
+    assert.deepEqual(rest, []);
+    assert.equal(new Set([claim, off, put, trim, empty].map((statement) => statement!.transaction)).size, 1);
+    assert.match(claim!.query, /MERGE \(m:MemProject \{ id: \$id \}\)[\s\S]*SET m\.asked = \$at/, 'the node is taken, so a purge of the project waits for the note and removes it');
+    assert.equal(off!.query, 'MATCH (f:MemFact { id: $id })-[r:MEM_ON]->(:MemPage) DELETE r');
+    assert.match(put!.query, /MERGE \(p:MemPage \{ id: \$pageId \}\)\s+ON CREATE SET p\.projectId = \$projectId, p\.tenantId = \$tenantId, p\.aboutId = \$aboutId/);
+    assert.match(put!.query, /MERGE \(f:MemFact \{ id: \$id \}\)\s+ON CREATE SET f\.projectId = \$projectId, f\.tenantId = \$tenantId\s+SET f \+= \$thought\s+MERGE \(f\)-\[:MEM_ON\]->\(p\)/);
+    const { thought: stored, ...params } = put!.params as { thought: Record<string, unknown> } & Record<string, unknown>;
+    assert.deepEqual(params, { projectId: PROJECT, tenantId: TENANT, pageId: `${PROJECT}::page::ev_1`, aboutId: 'ev_1', id: thought.id });
+    assert.deepEqual([stored.id, stored.tag, stored.key, stored.value, stored.by, stored.stands], [thought.id, 'thought', 'note', thought.value, null, null]);
+    assert.match(trim!.query, /WHERE t\.tag = 'thought'\s+WITH t ORDER BY t\.recordedAt DESC, t\.id DESC\s+SKIP toInteger\(\$keep\)\s+DETACH DELETE t/);
+    assert.deepEqual(trim!.params, { projectId: PROJECT, keep: 300 });
+    assert.match(empty!.query, /MATCH \(p:MemPage \{ projectId: \$projectId \}\)\s+WHERE NOT EXISTS \{ MATCH \(p\)<-\[:MEM_ON\]-\(:MemFact\) \}\s+DETACH DELETE p/);
+  });
+
+  it('is not written by a writer the shape rule turns away, nor when what is offered is no note of this project’s', async () => {
+    stands = { schema: MEM_SCHEMA + 1, auditThrough: 'aud_1', turnThrough: null };
+    assert.deepEqual(await think(), { newer: MEM_SCHEMA + 1 });
+    stands = { schema: MEM_SCHEMA - 1, auditThrough: 'aud_1', turnThrough: null, live: true };
+    assert.deepEqual(await think(), { lower: MEM_SCHEMA - 1 });
+    stands = { schema: MEM_SCHEMA, auditThrough: 'aud_1', turnThrough: null };
+    for (const offered of [{ ...thought, tag: 'approved' as const }, { ...thought, id: `${PROJECT}::fact::ev_1::note` }, { ...thought, id: 'prj-another::thought::cht_1' }]) {
+      assert.deepEqual(await think({ thought: offered }), { written: 0 });
+    }
+    assert.equal(written().length, 5, 'each took the node and asked nothing more');
+    assert.deepEqual(rolledBack, [...new Set(written().map((statement) => statement.transaction))], 'and ended with nothing written, not even the node it took');
+  });
+
+  it('is found by what a question is about, with where memory stands, in one read; and its pages are counted', async () => {
+    answering = (query) =>
+      /RETURN f \{ \.\* \} AS fact/.test(query)
+        ? [{ fact: { ...thought, projectId: PROJECT, tenantId: TENANT, rev: 'r1' } }]
+        : /count\(t\) AS notes/.test(query)
+          ? [{ id: `${PROJECT}::page::ev_1`, aboutId: 'ev_1', updatedAt: thought.recordedAt, notes: 2 }]
+          : [{ projectId: PROJECT, schema: MEM_SCHEMA, auditThrough: 'aud_3', turnThrough: null, live: null, factsRev: 'rev_1' }];
+    const near = { aboutIds: ['ev_1'], fns: ['legal.title'], departments: [], keys: ['extent_khata'] };
+    assert.deepEqual(await memory.factsNear(PROJECT, near), { held: [thought], stands: { schema: MEM_SCHEMA, auditThrough: 'aud_3', factsRev: 'rev_1' } });
+    assert.equal(transactions, 1, 'the facts and where memory stands are one read, so they are of one moment');
+    assert.match(asked[1]!.query, /WHERE f\.aboutId IN \$aboutIds OR f\.fn IN \$fns OR f\.department IN \$departments OR f\.key IN \$keys/);
+    assert.deepEqual(asked[1]!.params, { projectId: PROJECT, ...near });
+    assert.deepEqual(await memory.pagesOf(PROJECT), [{ id: `${PROJECT}::page::ev_1`, aboutId: 'ev_1', updatedAt: thought.recordedAt, notes: 2 }]);
+    assert.ok(asked.every((statement) => statement.kind === 'read'));
   });
 });
 
@@ -477,20 +617,28 @@ describe('reading memory', () => {
 });
 
 describe('every statement memory asks', () => {
-  it('names neither the graph’s label, its relationship nor its marker, and draws no relationship', async () => {
-    await memory.write(batch({ forget: ['chat_asked', 'chat_answered'] }));
+  it('names neither the graph’s label, its relationship nor its marker, and draws no relationship but memory’s own', async () => {
+    await memory.write(batch({ forget: ['chat_asked', 'chat_answered'], factChanges: { put: [], drop: [`${PROJECT}::fact::gone`] } }));
     // And a write that starts the project's memory over.
     stands = { schema: MEM_SCHEMA - 1, auditThrough: null, turnThrough: null };
     await memory.write(batch({ from: {} }));
+    await memory.think({ projectId: PROJECT, tenantId: TENANT, thought: { id: `${PROJECT}::thought::cht_1`, tag: 'thought', key: 'note', label: 'Note', value: 'A note.', aboutId: 'ev_1', recordedAt: '2026-10-05T10:00:00.000Z', source: 'cht_1' }, schema: MEM_SCHEMA, live: false, keep: 300 });
     await memory.purge(PROJECT);
     await memory.entries(PROJECT, 10);
     await memory.watermarks([PROJECT]);
     await memory.projects();
     await memory.count(PROJECT);
-    assert.ok(asked.length >= 20);
+    await memory.factIndex(PROJECT);
+    await memory.factsOf(PROJECT);
+    await memory.factsNear(PROJECT, { aboutIds: ['ev_1'], fns: [], departments: [], keys: [] });
+    await memory.pagesOf(PROJECT);
+    assert.ok(asked.length >= 30);
     for (const { query, kind } of asked) {
       assert.doesNotMatch(query, /Ryt|RYT_EDGE|GraphSync/, 'the graph is not memory’s to touch');
-      assert.doesNotMatch(query, /-\[|\]-|-->|<--|--\(/, 'an entry points at the record by ids it holds, not by a relationship a redraw could take away');
+      // The one relationship there is joins a note to its page, and both ends are memory's.
+      const joins = [...query.matchAll(/<?-\[[^\]]*\]->?/g)].map((match) => match[0]);
+      for (const join of joins) assert.match(join, /^<?-\[r?:MEM_ON\]->?$/, 'an entry and a fact point at the record by ids they hold, not by a relationship a redraw could take away');
+      assert.doesNotMatch(query, /-->|<--|--\(/);
       // Every node a statement matches or makes is one of memory's own.
       const labels = [...query.matchAll(/\((?:[a-z]+)?:([A-Za-z]+)/g)].map((match) => match[1]!);
       for (const label of labels) assert.match(label, /^Mem(Project|Entry|Fact|Page)$/);

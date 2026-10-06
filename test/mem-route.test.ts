@@ -129,7 +129,23 @@ describe('the route that reads a project’s memory', () => {
 
   it('counts the nodes the project’s memory is, and the store holds, so that they can be watched', async () => {
     const res = await call(`/api/projects/${project.id}/memory`);
-    assert.deepEqual(res.body.nodes, { project: 3, database: 3 }, 'two entries and the node that says where memory stands, in a store that holds nothing else');
+    const facts = Number(res.body.factsHeld);
+    assert.ok(facts > 0);
+    assert.deepEqual(res.body.nodes, { project: 3 + facts, database: 3 + facts }, 'two entries, the node that says where memory stands and a node a fact, in a store that holds nothing else');
+  });
+
+  it('answers the facts memory holds, each with its tag, who approved it and what it is about', async () => {
+    const res = await call(`/api/projects/${project.id}/memory`);
+    const facts = res.body.facts as Array<{ id: string; tag: string; key: string; label: string; value: unknown; by?: string; at?: string; about: { id: string; title?: string }; source: { id: string } }>;
+    const named = facts.find((fact) => fact.key === 'project_title')!;
+    assert.deepEqual(
+      { tag: named.tag, label: named.label, value: named.value, by: named.by, about: named.about },
+      { tag: 'approved', label: 'Project name', value: 'Memory route plot', by: project.audit[0]!.actor, about: { id: project.id, title: 'Memory route plot' } },
+      'a field its maker set is approved, by the person the record names',
+    );
+    assert.deepEqual(facts.map((fact) => fact.key).sort(), ['city', 'location', 'project_status', 'project_title', 'project_type', 'stage']);
+    assert.ok(facts.every((fact) => fact.tag === 'approved' && fact.source.id === project.id));
+    assert.deepEqual(res.body.withheld, { offList: 0, notAValue: 0 });
   });
 
   it('shows how many nodes the whole database holds to the workspace’s admins, and to nobody else', async () => {
@@ -143,10 +159,10 @@ describe('the route that reads a project’s memory', () => {
         const res = await call(`/api/projects/${project.id}/memory`);
         assert.equal(res.status, 200);
         assert.equal((res.body.entries as unknown[]).length, 2, `${role} reads the project’s memory`);
-        assert.deepEqual(res.body.nodes, { project: 3 }, `and is shown its size, and not the size of every workspace’s graph and memory together (${role})`);
+        assert.deepEqual(Object.keys(res.body.nodes as object), ['project'], `and is shown its size, and not the size of every workspace’s graph and memory together (${role})`);
       }
       me.role = 'manager';
-      assert.deepEqual((await call(`/api/projects/${project.id}/memory`)).body.nodes, { project: 3, database: 3 }, 'a manager is an admin');
+      assert.deepEqual(Object.keys((await call(`/api/projects/${project.id}/memory`)).body.nodes as object), ['project', 'database'], 'a manager is an admin');
     } finally {
       me.role = 'owner';
     }

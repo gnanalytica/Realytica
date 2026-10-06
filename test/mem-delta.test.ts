@@ -81,7 +81,7 @@ const fact = (key: string, value: string | number, display = String(value)): Doc
   quote: `${key}: ${display}`,
 });
 
-/** A paper as the chat receives it, already read. */
+/** A paper as the chat receives it, already read: a khata, under the name the rules give one, so its row carries a khata's values. */
 const paper = (...facts: DocumentFact[]): ChatIngestFile => ({
   fileName: 'Certificate-scan.pdf',
   mimeType: 'application/pdf',
@@ -216,9 +216,9 @@ describe('what memory is told of a project', () => {
     assert.deepEqual(only(entries, 'file_added').about, [row.id]);
 
     const read = only(entries, 'paper_read');
-    assert.equal(read.sourceId, row.id, 'a read has no audit event: it is told from the paper');
+    assert.equal(read.sourceId, audit('read', row.id).id, 'a read is told from the line the record wrote for it');
     assert.deepEqual(read.about, [row.id]);
-    assert.equal(read.by, memWho(project.id, 'system'), 'the server read it, not a person');
+    assert.equal(read.by, memWho(project.id, audit('read', row.id).actor), 'by who had it read');
 
     const accepted = only(entries, 'value_accepted');
     assert.equal(accepted.key, 'extent_khata', 'the key of the value');
@@ -737,7 +737,7 @@ describe('the shape memory is told in', () => {
    * with the change, and only then change what is expected here.
    */
   it(`is the one schema ${MEM_SCHEMA} was pinned to`, () => {
-    assert.equal(MEM_SCHEMA, 2);
+    assert.equal(MEM_SCHEMA, 3);
     const project = createProject({ name: 'Pinned plot', type: 'residential', location: 'Northfield', city: 'Bengaluru' }, 'RYT-PIN');
     project.id = 'prj_pinned';
     const row = addEvidence(project, { title: 'Khata certificate', kind: 'document' }, LEAD);
@@ -775,7 +775,7 @@ describe('the shape memory is told in', () => {
         { id: 'prj_pinned::mem::cht_2', kind: 'edit_noted', at: '2026-10-01T09:30:00.000Z', by: 'who_1bc89fdc731661', sourceId: 'cht_2', about: ['ev_1'] },
         { id: 'prj_pinned::mem::cht_4', kind: 'edit_noted', at: '2026-10-01T09:35:00.000Z', by: 'who_1995cea6e537b6', sourceId: 'cht_4', about: [] },
       ],
-      through: { schema: 2, auditThrough: 'aud_6', turnThrough: 'cht_5' },
+      through: { schema: 3, auditThrough: 'aud_6', turnThrough: 'cht_5' },
     });
   });
 });

@@ -55,6 +55,7 @@ import {
   noteProjectEdit,
   type DdProject,
   type MemEntry,
+  type MemFact,
   type MemWatermark,
 } from '@realytica/shared';
 import type { GraphAdapter } from '../apps/api/src/graph/types';
@@ -184,9 +185,20 @@ async function rewriteIndex(change: (ids: string[]) => string[]): Promise<void> 
 
 const entriesOf = (project: DdProject | string): Promise<MemEntry[]> => memory.entries(typeof project === 'string' ? project : project.id, 10_000);
 
+/** Where a project's memory stands in the record, in which shape and whose it is. Which facts it holds is asked apart (`factsOf`). */
 async function standsAt(project: DdProject | string): Promise<MemWatermark | undefined> {
   const id = typeof project === 'string' ? project : project.id;
-  return (await memory.watermarks([id])).get(id);
+  const held = (await memory.watermarks([id])).get(id);
+  if (!held) return undefined;
+  const { factsRev: _facts, ...where } = held;
+  return where;
+}
+
+const factsOf = (project: DdProject | string): Promise<MemFact[]> => memory.factsOf(typeof project === 'string' ? project : project.id);
+
+/** Everything memory says of where it stands, the digest of its facts included: what a writer hands back to write from there. */
+async function heldAt(project: DdProject): Promise<MemWatermark> {
+  return (await memory.watermarks([project.id])).get(project.id) ?? {};
 }
 
 /** The findings memory has been told of, by the id of the finding each entry points at. */
@@ -501,11 +513,12 @@ describe('an entry told twice', () => {
     project.updatedAt = '2026-10-05T09:30:00.000Z';
     await pass([project]);
     const first = await entriesOf(project);
-    const stands = (await standsAt(project))!;
+    const stands = await heldAt(project);
     assert.equal(first.length, 2);
 
-    // The whole record again, by a writer that knows where memory stands.
-    const whole = memoryDelta(project, {});
+    // The whole record again, by a writer that knows where memory stands and leaves its facts as they are.
+    const told = memoryDelta(project, {});
+    const whole = { ...told, through: { ...told.through, factsRev: stands.factsRev } };
     assert.deepEqual(await writeMemory(memory, TENANT, stands, whole), { written: 2 });
     assert.deepEqual(await entriesOf(project), first);
 
@@ -565,19 +578,21 @@ describe('a write and where memory stands', () => {
     const project = file('Stood plot');
     raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
     await pass([project]);
-    const stood = (await standsAt(project))!;
+    const stood = await heldAt(project);
     const before_ = await entriesOf(project);
 
     raise(project, 'Boundary is open', '2026-10-05T10:00:00.000Z');
-    const next = memoryDelta(project, stood);
+    const told = memoryDelta(project, stood);
+    const next = { ...told, through: { ...told.through, factsRev: stood.factsRev } };
     assert.equal(next.entries.length, 1);
     assert.deepEqual(await writeMemory(memory, TENANT, {}, next), { moved: stood }, 'a writer that believes nothing has been told');
     assert.deepEqual(await writeMemory(memory, TENANT, { ...stood, auditThrough: 'aud_elsewhere' }, next), { moved: stood });
-    assert.deepEqual(await entriesOf(project), before_, 'neither wrote an entry');
-    assert.deepEqual(await standsAt(project), stood, 'or moved the watermark');
+    assert.deepEqual(await writeMemory(memory, TENANT, { ...stood, factsRev: 'facts_as_somebody_else_left_them' }, next), { moved: stood }, 'or that it holds other facts than it does');
+    assert.deepEqual(await entriesOf(project), before_, 'none of them wrote an entry');
+    assert.deepEqual(await heldAt(project), stood, 'or moved the watermark');
 
     assert.deepEqual(await writeMemory(memory, TENANT, stood, next), { written: 1 });
-    assert.deepEqual(await standsAt(project), next.through);
+    assert.deepEqual(await heldAt(project), next.through);
   });
 
   it('is asked again as the store says it stands, by an instance that believed otherwise', async () => {
@@ -1317,8 +1332,10 @@ describe('a memory store with no room for another node', () => {
     assert.equal(before_.project, 0);
     await pass([project]);
     const counted = await memory.count(project.id);
-    assert.equal(counted.project, 3, 'two entries, and the node that says where memory stands');
-    assert.equal(counted.database, before_.database + 3);
+    const facts = (await factsOf(project)).length;
+    assert.ok(facts > 0);
+    assert.equal(counted.project, 3 + facts, 'two entries, the node that says where memory stands, and a node a fact');
+    assert.equal(counted.database, before_.database + 3 + facts);
   });
 });
 

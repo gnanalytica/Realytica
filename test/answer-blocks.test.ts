@@ -72,6 +72,16 @@ describe('inline spans', () => {
     }
   });
 
+  it('reads a memory tag as a tag only on a turn whose tags the server printed', () => {
+    const line = 'The extent is 11,850 sq ft [approved]. Its number is 1234/56 [waiting · stands], and the seller may be a company [thought].';
+    assert.deepEqual(
+      parseInline(line, NO_NODES, true).flatMap(s => (s.kind === 'memory' ? [s.tag] : [])),
+      ['approved', 'waiting · stands', 'thought'],
+    );
+    assert.deepEqual(parseInline(line, NO_NODES).map(s => s.kind), ['text'], 'on any other turn it is words in brackets, whoever wrote them');
+    assert.deepEqual(parseAnswer('- It waits [waiting]', NO_NODES, true), [{ kind: 'bullets', items: [[{ kind: 'text', text: 'It waits ' }, { kind: 'memory', tag: 'waiting' }]] }]);
+  });
+
   it('reads bold and code', () => {
     const spans = parseInline('The **survey number** is `112/3`.', NO_NODES);
     assert.deepEqual(spans.map(s => s.kind), ['text', 'bold', 'text', 'code', 'text']);

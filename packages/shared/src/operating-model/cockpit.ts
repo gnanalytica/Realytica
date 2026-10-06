@@ -92,6 +92,7 @@ import {
 } from './check-command';
 import {
   DROPPED_WITHOUT_WORDS,
+  MEMORY_LINT,
   NOTHING_ACCEPTED,
   NOTHING_SET_ASIDE,
   NOTHING_TO_READ,
@@ -388,6 +389,7 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     toolCalls: extra.toolCalls,
     choices: extra.choices,
     unsupportedClaims: extra.unsupportedClaims,
+    restsOn: extra.restsOn,
     heldQuestions: extra.heldQuestions,
     trimmed: extra.trimmed,
     metrics: extra.metrics,
@@ -705,6 +707,8 @@ export function applyProjectAgentTurn(
     citedNodeIds?: string[];
     /** What the call cost. Rendered beside the turn, never summed in prose. */
     spend?: TurnSpend;
+    /** The facts of memory the answer cited, with the tags code printed for them. */
+    restsOn?: ProjectChatTurn['restsOn'];
   },
 ): ProjectChatResult {
   ensureProjectShape(project);
@@ -741,6 +745,7 @@ export function applyProjectAgentTurn(
     heldQuestions: brief.heldQuestions.length ? brief.heldQuestions : undefined,
     trimmed: brief.trimmed || undefined,
     unsupportedClaims: attribution.unsupported.length ? attribution.unsupported.map((c) => c.text) : undefined,
+    restsOn: agent.restsOn?.length ? agent.restsOn : undefined,
     citedEvidenceIds: [...new Set(agent.citedEvidenceIds ?? [])],
     citedNodeIds: agent.citedNodeIds ? [...new Set(agent.citedNodeIds)] : undefined,
     toolCalls: agent.toolCalls,
@@ -998,6 +1003,12 @@ export function applyProjectChat(
      * answered that instead.
      */
     nothingLeftToRead?: boolean;
+    /**
+     * The question asked what looks wrong in the project's memory, and this
+     * is the answer, in one line. The caller knows, because it is the one
+     * that can read memory. The reply says it and nothing else.
+     */
+    memoryLint?: string;
     /**
      * False where no model reader is set up. The caller knows, and the reply
      * needs it: pages this server could not read are then pages nothing here
@@ -1522,6 +1533,9 @@ export function applyProjectChat(
         ].join('\n');
     // Its own name: it raises and files nothing, so it is not the reply the next instruction answers.
     toolCalls = [{ name: NOTHING_TO_READ, summary: 'Nothing to read' }];
+  } else if (options.memoryLint) {
+    assistantText = options.memoryLint;
+    toolCalls = [{ name: MEMORY_LINT, summary: 'What looks wrong in memory' }];
   } else if (pressed) {
     /*
      * A choice that was pressed. It acts on the cards and papers it names and

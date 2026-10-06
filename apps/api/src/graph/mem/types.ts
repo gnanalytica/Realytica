@@ -5,15 +5,18 @@
  * it. The graph is a drawing of the record as it stands now: rebuilt on every
  * change, and what it no longer draws it deletes. Memory is what the project
  * has been told, event by event, and nothing a redraw may touch. So it has
- * labels of its own, `MemProject` and `MemEntry`, and never the graph's
- * `Ryt` label or its `RYT_EDGE` relationship. A build that knows only the
- * graph, and the live site runs one against this same database, reads,
- * rebuilds and purges the graph without meeting a memory node.
+ * labels of its own, `MemProject`, `MemEntry`, `MemFact` and `MemPage`, and
+ * never the graph's `Ryt` label or its `RYT_EDGE` relationship. A build that
+ * knows only the graph, and the live site runs one against this same
+ * database, reads, rebuilds and purges the graph without meeting a memory
+ * node.
  *
  * For the same reason no relationship joins memory to the graph. An entry
  * points at the record by ids held as properties and they are looked up when
  * it is read. A relationship to a graph node would go the first time a build
- * redrew the project and stopped drawing that node.
+ * redrew the project and stopped drawing that node. The one relationship
+ * memory has is its own, `MEM_ON`, from a note of the assistant's to the page
+ * memory keeps for what the note is about: both ends are memory's.
  *
  * Every memory node carries the project's id, the workspace's, and an id of
  * its own that begins with the project's and is unique for its label. A
@@ -23,7 +26,7 @@
  * Writing goes through `writeMemory` in `write.ts` and through nothing else.
  */
 
-import type { MemEntry, MemEntryKind, MemWatermark } from '@realytica/shared';
+import type { MemEntry, MemEntryKind, MemFact, MemNear, MemPage, MemWatermark } from '@realytica/shared';
 
 /** Who is writing: the shape its build writes memory in, and whether it is the live site. */
 export interface MemWriter {
@@ -43,8 +46,27 @@ export interface MemBatch {
   entries: MemEntry[];
   /** Kinds of entry the project's memory lets go of before these are written, in the same write. */
   forget?: MemEntryKind[];
+  /**
+   * The facts to write as the record now gives them, and the ids of facts to
+   * let go, in the same write. `through.factsRev` says which facts memory
+   * holds once they are, and the write goes through only if `from.factsRev`
+   * is what it holds now.
+   */
+  factChanges?: { put: MemFact[]; drop: string[] };
   /** Whether the writer is the live site. What it may write over depends on it; see `shapeRule`. */
   live: boolean;
+}
+
+/** One note of the assistant's, to be kept. It moves no watermark: a note is told from no record. */
+export interface MemThoughtBatch {
+  projectId: string;
+  tenantId: string;
+  thought: MemFact;
+  /** The shape the writer's build writes, and whether it is the live site: a writer `shapeRule` turns away adds no note either. */
+  schema: number;
+  live: boolean;
+  /** How many notes the project keeps. The oldest beyond that go in the same write. */
+  keep: number;
 }
 
 /** What became of a write. Only the first has written anything. */
@@ -91,6 +113,32 @@ export interface MemoryPort {
   /** How many nodes the project's memory is, and how many the whole database holds. */
   count(projectId: string): Promise<MemCount>;
 
+  /** The facts a project's memory was told from the record, each by its id with its digest. Not the assistant's own notes. */
+  factIndex(projectId: string): Promise<Map<string, string>>;
+
+  /** Every fact a project's memory holds, the assistant's notes among them. */
+  factsOf(projectId: string): Promise<MemFact[]>;
+
+  /**
+   * The facts a question's seeds can bring, notes among them, and where the
+   * project's memory stands, read together: the reader holds them against
+   * the record to know whether memory is behind it.
+   */
+  factsNear(projectId: string, near: MemNear): Promise<{ held: MemFact[]; stands?: MemWatermark }>;
+
+  /**
+   * Keep a note of the assistant's, on the page of what it is about.
+   *
+   * Nothing is written where the writer may not write this memory at all
+   * (`shapeRule` answers `newer` or `lower`), or the store has no room. The
+   * note is written whole or not at all, with the page it is on, and the
+   * oldest notes beyond `keep` go in the same write.
+   */
+  think(batch: MemThoughtBatch): Promise<MemWriteAnswer>;
+
+  /** The pages a project's memory keeps: one for each thing the assistant has left a note about, the one most lately written on first. */
+  pagesOf(projectId: string): Promise<MemPage[]>;
+
   /** A project's entries, newest first. */
   entries(projectId: string, limit: number): Promise<MemEntry[]>;
 
@@ -114,6 +162,21 @@ export function memProjectId(projectId: string): string {
  */
 export function ownEntries(batch: MemBatch): MemEntry[] {
   return batch.entries.filter((entry) => entry.id.startsWith(`${batch.projectId}::mem::`));
+}
+
+/** The facts of a batch a store writes and lets go: the ones told from the batch's own project's record. Held to as `ownEntries` is. */
+export function ownFacts(batch: MemBatch): { put: MemFact[]; drop: string[] } {
+  const own = (id: string): boolean => id.startsWith(`${batch.projectId}::fact::`);
+  return { put: (batch.factChanges?.put ?? []).filter((fact) => own(fact.id) && fact.tag !== 'thought'), drop: (batch.factChanges?.drop ?? []).filter(own) };
+}
+
+/**
+ * The note of a batch a store writes: one under the batch's own project's
+ * heading for notes, tagged as one. Nothing else comes in through `think`.
+ */
+export function ownThought(batch: MemThoughtBatch): MemFact | undefined {
+  const { thought } = batch;
+  return thought.tag === 'thought' && thought.id.startsWith(`${batch.projectId}::thought::`) ? thought : undefined;
 }
 
 /** What a store does with a write, given what the project's memory holds and who is writing. */
@@ -152,7 +215,9 @@ export type ShapeRuling =
  *
  * Starting over is what keeps an entry from staying as an earlier rule wrote
  * it: an entry is never rewritten, so a new shape lets the old entries go
- * and tells every event again.
+ * and tells every event again. The facts told from the record go the same
+ * way. The assistant's own notes do not: they are the one thing memory holds
+ * that the record cannot tell again, so a start-over leaves them.
  */
 export function shapeRule(held: MemWatermark, writer: MemWriter): ShapeRuling {
   const shape = held.schema ?? 0;

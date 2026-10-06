@@ -20,7 +20,7 @@
  * closed: headings, bullets, numbers, tables, flags, and inline emphasis/code.
  */
 
-import { projectFrameNames } from '@realytica/shared';
+import { MEM_TAG_WORDS, projectFrameNames, type MemTagWords } from '@realytica/shared';
 
 export type Inline =
   | { kind: 'text'; text: string }
@@ -30,6 +30,12 @@ export type Inline =
   | { kind: 'evidence'; id: string }
   /** `[dd-risk-…]` — a graph node id, rendered with its real label. */
   | { kind: 'node'; id: string }
+  /**
+   * `[approved]`, `[waiting]`, `[thought]`: where a fact of the project's
+   * memory stood when the sentence before it was written. Read only on a turn
+   * whose tags the server printed from the facts themselves.
+   */
+  | { kind: 'memory'; tag: MemTagWords }
   /**
    * A bracketed token that is plainly one of our ids and resolves to nothing.
    *
@@ -54,6 +60,7 @@ export type Block =
 
 const EVIDENCE_TOKEN = /\[ev:([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/;
 const NODE_TOKEN = /\[([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/;
+const MEMORY_TOKEN = new RegExp(`\\[(${MEM_TAG_WORDS.join('|')})\\]`);
 const BOLD = /\*\*([^*]+)\*\*/;
 const CODE = /`([^`]+)`/;
 
@@ -140,8 +147,12 @@ function stretchOf(text: string, at: number, len: number, opensLine: boolean): {
  * prose in brackets. It is a lookup against the case's own graph, not a
  * pattern — a model writing "[see above]" must not produce a chip that opens
  * nothing, and no regex can tell the two apart.
+ *
+ * `tags` says the turn's memory tags were printed by the server, from the
+ * facts the answer cited. Only then is `[approved]` a tag. On any other turn
+ * it is words in brackets, whoever wrote them.
  */
-export function parseInline(text: string, isNode: (id: string) => boolean): Inline[] {
+export function parseInline(text: string, isNode: (id: string) => boolean, tags = false): Inline[] {
   const out: Inline[] = [];
   let rest = text;
   // The frame ids taken out because nothing could name them.
@@ -159,6 +170,9 @@ export function parseInline(text: string, isNode: (id: string) => boolean): Inli
 
     const ev = EVIDENCE_TOKEN.exec(rest);
     if (ev) candidates.push({ at: ev.index, len: ev[0].length, span: { kind: 'evidence', id: ev[1] } });
+
+    const tag = tags ? MEMORY_TOKEN.exec(rest) : null;
+    if (tag) candidates.push({ at: tag.index, len: tag[0].length, span: { kind: 'memory', tag: tag[1] as MemTagWords } });
 
     const bold = BOLD.exec(rest);
     if (bold) candidates.push({ at: bold.index, len: bold[0].length, span: { kind: 'bold', text: bold[1] } });
@@ -259,14 +273,14 @@ const HEADING = /^([A-Z][^.!?]{0,60}):\s*$/;
  */
 const ATX = /^#{1,4}\s+(.+?)\s*#*$/;
 
-export function parseAnswer(text: string, isNode: (id: string) => boolean): Block[] {
+export function parseAnswer(text: string, isNode: (id: string) => boolean, tags = false): Block[] {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   const blocks: Block[] = [];
   let paragraph: string[] = [];
 
   const flush = () => {
     if (paragraph.length === 0) return;
-    blocks.push({ kind: 'paragraph', spans: parseInline(paragraph.join(' ').trim(), isNode) });
+    blocks.push({ kind: 'paragraph', spans: parseInline(paragraph.join(' ').trim(), isNode, tags) });
     paragraph = [];
   };
 
@@ -288,12 +302,12 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean): Bloc
       const rows: Inline[][][] = [];
       let j = i + 2;
       while (j < lines.length && lines[j].trim().includes('|') && lines[j].trim() !== '') {
-        rows.push(splitRow(lines[j].trim()).map(c => parseInline(c, isNode)));
+        rows.push(splitRow(lines[j].trim()).map(c => parseInline(c, isNode, tags)));
         j += 1;
       }
       if (rows.length > 0) {
         flush();
-        blocks.push({ kind: 'table', head: head.map(c => parseInline(c, isNode)), rows });
+        blocks.push({ kind: 'table', head: head.map(c => parseInline(c, isNode, tags)), rows });
         i = j - 1;
         continue;
       }
@@ -327,19 +341,19 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean): Bloc
     const flag = /^⚑\s*(.+)$/.exec(trimmed);
     if (flag) {
       flush();
-      blocks.push({ kind: 'flag', spans: parseInline(flag[1], isNode) });
+      blocks.push({ kind: 'flag', spans: parseInline(flag[1], isNode, tags) });
       continue;
     }
 
     const bullet = /^[-*•]\s+(.*)$/.exec(trimmed);
     if (bullet) {
       flush();
-      const items: Inline[][] = [parseInline(bullet[1], isNode)];
+      const items: Inline[][] = [parseInline(bullet[1], isNode, tags)];
       let j = i + 1;
       while (j < lines.length) {
         const m = /^[-*•]\s+(.*)$/.exec(lines[j].trim());
         if (!m) break;
-        items.push(parseInline(m[1], isNode));
+        items.push(parseInline(m[1], isNode, tags));
         j += 1;
       }
       blocks.push({ kind: 'bullets', items });
@@ -350,12 +364,12 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean): Bloc
     const numbered = /^(\d{1,2})[.)]\s+(.*)$/.exec(trimmed);
     if (numbered) {
       flush();
-      const items: Inline[][] = [parseInline(numbered[2], isNode)];
+      const items: Inline[][] = [parseInline(numbered[2], isNode, tags)];
       let j = i + 1;
       while (j < lines.length) {
         const m = /^(\d{1,2})[.)]\s+(.*)$/.exec(lines[j].trim());
         if (!m) break;
-        items.push(parseInline(m[2], isNode));
+        items.push(parseInline(m[2], isNode, tags));
         j += 1;
       }
       blocks.push({ kind: 'numbers', items });
@@ -366,7 +380,7 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean): Bloc
     const atx = ATX.exec(trimmed);
     if (atx) {
       flush();
-      blocks.push({ kind: 'heading', spans: parseInline(atx[1], isNode) });
+      blocks.push({ kind: 'heading', spans: parseInline(atx[1], isNode, tags) });
       continue;
     }
 
@@ -375,7 +389,7 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean): Bloc
     // nothing after is the end of a sentence, not a section title.
     if (heading && lines[i + 1] !== undefined && lines[i + 1].trim() !== '') {
       flush();
-      blocks.push({ kind: 'heading', spans: parseInline(heading[1], isNode) });
+      blocks.push({ kind: 'heading', spans: parseInline(heading[1], isNode, tags) });
       continue;
     }
 

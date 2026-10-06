@@ -112,6 +112,7 @@ import {
   CHOICE_SENTENCE,
   NOTHING_ACCEPTED,
   NOTHING_SET_ASIDE,
+  MEMORY_LINT,
   NOTHING_TO_READ,
   chatSessions,
   clearProjectConversation,
@@ -129,6 +130,10 @@ import {
   wantsDeterministicProjectChat,
   plural,
   linkRecordIds,
+  memAsksForLint,
+  memContextText,
+  memLintLine,
+  memTagsPrinted,
   unansweredReason,
   failureCause,
   noteProjectEdit,
@@ -182,7 +187,7 @@ import { memoryReadableBy, memoryStore } from '../memory';
 import { gatherChatSides, pullWebForProject } from '../project-chat-sides';
 import { ensureIdentitySiteContext, projectSiteQuery, refreshSiteContextIfMoved } from '../site-context';
 import { beginRun, listRuns } from '../runs/journal';
-import { startBackgroundRun } from '../runs/background';
+import { finishAfterReply, startBackgroundRun } from '../runs/background';
 import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
 import { mergeModelReading, needsModelReading, readIngestLocally } from '../documents/intake';
@@ -201,6 +206,9 @@ import { projectWorkspaceRouter } from './workspace';
 import { unblockerConfigured } from '../comparables/search';
 import { graphAdapter } from '../graph';
 import { PREVIEW_KEEPS_NO_GRAPH, graphAnsweredBy } from '../graph/preview';
+import { MEMORY_LINT_WAIT_MS, inTime, memoryContext } from '../graph/mem/context';
+import { readLint } from '../graph/mem/read';
+import { keepThought } from '../graph/mem/thought';
 import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
 import {
   changeStageBodySchema,
@@ -1019,6 +1027,7 @@ function skipLlmForChat(result: ProjectChatResult): boolean {
     || names.has('orchestrate')
     || names.has('project_copilot')
     || names.has('critic')
+    || names.has(MEMORY_LINT)
     /*
      * Answers already exact: read off the documents with their pages, a
      * question asked back, a pane opened. Rewriting them paid a model to lose
@@ -1240,7 +1249,17 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   const continues = carriedChat(canvas, parsed.data.continues);
   // Which chat this is and whose, as the page shows it: an instruction to accept answers the last reply of this one.
   const chat = { sessionId: ownSitting(project, parsed.data.sessionId, actor), continues, startedAt: parsed.data.sessionStartedAt, actor };
-  const deterministic = nothingLeftToRead || wantsDeterministicProjectChat(canvas, question, { sitting, place, chat });
+  /*
+   * Asked what looks wrong in the project's memory: the chat says it in one
+   * line, from a reading of memory against the record, and no model words
+   * it. For the firm's own people, who are the ones who read memory. The
+   * store is given a few seconds, because the person asked for exactly this.
+   */
+  const memoryLint =
+    seen.complete && memAsksForLint(question)
+      ? await inTime(readLint(project).then(memLintLine), MEMORY_LINT_WAIT_MS).then((said) => said ?? 'The memory store did not answer in time, so nothing could be checked.')
+      : undefined;
+  const deterministic = nothingLeftToRead || memoryLint !== undefined || wantsDeterministicProjectChat(canvas, question, { sitting, place, chat });
   const stream = beginNdjson(res);
   const { line, clientGone } = stream;
 
@@ -1284,6 +1303,14 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
       } catch {
         memoryText = '';
       }
+      /*
+       * What the project's memory holds near the question: the page, the
+       * record the sitting is on, what the question names. Read from the
+       * memory store with a short limit, and told from the record where the
+       * store is silent or behind, so the reply never waits on it. Each line
+       * is tagged by code, and the answer cites lines by their marks.
+       */
+      const remembered = await memoryContext(seen, { question, place, sitting }).catch(() => undefined);
       const agent = await runProjectChat({
         project: canvas,
         question,
@@ -1291,7 +1318,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
         viewContext: parsed.data.viewContext,
         place,
         history: canvas.conversation,
-        memory: [unseen, memoryText].filter(Boolean).join('\n\n') || undefined,
+        memory: [unseen, memoryText, remembered ? memContextText(remembered) : ''].filter(Boolean).join('\n\n') || undefined,
         sitting,
         graphRag: {
           kind: graphAdapter.kind,
@@ -1328,6 +1355,13 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
       }
       if (agent.text && !agent.text.startsWith('The project copilot is unavailable') && !agent.text.startsWith('No model endpoint')) {
         /*
+         * Each mark the answer cited becomes the tag of the fact it names,
+         * printed here from that fact, and a tag the model wrote itself is
+         * taken out. So a tag beside a statement is never a model's word for
+         * where a fact stands.
+         */
+        const printed = memTagsPrinted(agent.text, remembered);
+        /*
          * Ids out of the prose before anything else sees the answer.
          *
          * The prompt asks for titles rather than ids and a prompt is a
@@ -1336,7 +1370,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
          * transcript is stored, quoted and exported, and a fix applied at one
          * of those surfaces is a fix missing from the others.
          */
-        agent.text = linkRecordIds(canvas, agent.text);
+        agent.text = linkRecordIds(canvas, printed.text);
         /*
          * Which rung answered, said beside the answer: a free model's reply
          * and the senior model's read the same, and while the ladder is being
@@ -1350,13 +1384,24 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
               ? { name: 'basic_model', summary: 'Free model' }
               : null,
         ].filter((t): t is { name: string; summary: string } => Boolean(t));
-        const result = applyProjectAgentTurn(canvas, question, agent);
+        const result = applyProjectAgentTurn(canvas, question, { ...agent, restsOn: printed.rests });
         sayWhatIsMissing(seen, question, result);
         stampSession(result, ownSitting(project, parsed.data.sessionId, actor), { continues, place });
         mergeConversation(project, canvas, actor, turnsBefore);
         // Who asked and where is written after the turn was first saved: the record has to count as changed for that to reach storage.
         project.updatedAt = new Date().toISOString();
         await store.save();
+        /*
+         * What the assistant concluded, kept as a thought. The answer carried
+         * the note as its own last line, so no model is asked again for it,
+         * and it is kept once the reply is out, with nothing waiting on it.
+         * Not for somebody working from a grant: what is concluded from a
+         * part of the project is not written into the memory of the whole.
+         */
+        if (agent.note && seen.complete) {
+          const tenantId = project.tenantId ?? store.data.tenants?.[0]?.id ?? '';
+          finishAfterReply(keepThought(project, tenantId, { ...agent.note, turnId: result.assistantTurn.id, at: result.assistantTurn.at, place, sitting }));
+        }
         journalTail = journalTail.then(() =>
           journal.finish(
             result.assistantTurn.unsupportedClaims?.length
@@ -1405,6 +1450,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     sitting,
     chat,
     nothingLeftToRead,
+    memoryLint,
     modelReader: capability.available,
   });
 
@@ -1432,7 +1478,8 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
           { role: 'user', content: question },
         ],
       });
-      const text = linkRecordIds(canvas, textOf(llm).trim());
+      // This answer was given no lines from memory, so it rests on none: anything in it that reads as a tag is a model's word, and is taken out.
+      const text = linkRecordIds(canvas, memTagsPrinted(textOf(llm).trim(), undefined).text);
       if (text) {
         result.assistantTurn.text = text;
         result.assistantTurn.toolCalls = [{ name: 'analyst_copilot', summary: 'Answered from project registers' }];

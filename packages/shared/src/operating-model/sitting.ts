@@ -73,14 +73,17 @@ export function liveTurns(spoken: readonly ProjectChatTurn[], sessions: readonly
  * The tool a reply names when it only says that nothing was done: an
  * instruction to accept or to set aside that took nothing, or a request to
  * read the filed documents when none was left. Such a reply raises nothing
- * and files nothing, so it is not what the next instruction answers.
+ * and files nothing, so it is not what the next instruction answers. The
+ * line that says what looks wrong in the project's memory is the same: it
+ * lists, and offers nothing to accept.
  */
 export const NOTHING_ACCEPTED = 'nothing_accepted';
 export const NOTHING_SET_ASIDE = 'nothing_set_aside';
 export const NOTHING_TO_READ = 'nothing_to_read';
+export const MEMORY_LINT = 'memory_lint';
 
 const saidNothingWasDone = (turn: ProjectChatTurn): boolean =>
-  Boolean(turn.toolCalls?.some((call) => call.name === NOTHING_ACCEPTED || call.name === NOTHING_SET_ASIDE || call.name === NOTHING_TO_READ));
+  Boolean(turn.toolCalls?.some((call) => call.name === NOTHING_ACCEPTED || call.name === NOTHING_SET_ASIDE || call.name === NOTHING_TO_READ || call.name === MEMORY_LINT));
 
 /**
  * The last thing the chat said to this person, in this chat: the reply that

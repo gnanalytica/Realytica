@@ -5,14 +5,21 @@
  * whether or not it was scrubbed before: what reaches a store is an entry's
  * own properties and nothing else, with no words from a page or a chat, no
  * file, no email, and no identity number, phone number or account number in
- * its label. An entry that cannot be brought to that is left out.
+ * its label. An entry that cannot be brought to that is left out. A fact is
+ * held to its own rule the same way (`scrubMemFact`): a key on a fixed list,
+ * a value in that key's form, and nothing of what is never kept.
+ *
+ * A note of the assistant's comes in through `writeThought` and through
+ * nothing else. It is scrubbed as a note is: one sentence, tagged as a
+ * thought by `memThought` and held to that here, so nothing reaches a store
+ * through this door that is tagged as anything else.
  *
  * It writes in this build's schema and no other, and says whether the
  * writer is the live site, because what a writer may write over depends on
  * both; see `shapeRule`.
  */
 
-import { MEM_ENTRY_KINDS, MEM_SCHEMA, scrubMemEntry, type MemDelta, type MemWatermark } from '@realytica/shared';
+import { MEM_ENTRY_KINDS, MEM_SCHEMA, MEM_THOUGHTS_KEPT, scrubMemEntry, scrubMemFact, type MemDelta, type MemFact, type MemWatermark } from '@realytica/shared';
 import type { MemoryPort, MemWriteAnswer, MemWriter } from './types';
 
 /**
@@ -52,6 +59,15 @@ export async function writeMemory(
     return clean ? [clean] : [];
   });
   const forget = (delta.forget ?? []).filter((kind) => MEM_ENTRY_KINDS.includes(kind));
+  const changes = delta.factChanges;
+  const factChanges = changes && {
+    // Told from the record, so never a thought: those have a way in of their own.
+    put: changes.put.flatMap((fact) => {
+      const clean = fact.tag === 'thought' ? undefined : scrubMemFact(delta.projectId, fact);
+      return clean ? [clean] : [];
+    }),
+    drop: changes.drop.filter((id) => typeof id === 'string'),
+  };
   return port.write({
     projectId: delta.projectId,
     tenantId,
@@ -59,6 +75,24 @@ export async function writeMemory(
     through: { ...delta.through, schema: MEM_SCHEMA },
     entries,
     ...(forget.length ? { forget } : {}),
+    ...(factChanges ? { factChanges } : {}),
     live,
   });
+}
+
+/**
+ * Keep a note of the assistant's. What is offered is scrubbed again, and one
+ * that is not a note, or is under another project's id, writes nothing. The
+ * project keeps its newest `MEM_THOUGHTS_KEPT`.
+ */
+export async function writeThought(
+  port: MemoryPort,
+  tenantId: string,
+  projectId: string,
+  thought: MemFact,
+  live: boolean = memWriter().live,
+): Promise<MemWriteAnswer> {
+  const clean = thought.tag === 'thought' ? scrubMemFact(projectId, thought) : undefined;
+  if (!clean) return { written: 0 };
+  return port.think({ projectId, tenantId, thought: clean, schema: MEM_SCHEMA, live, keep: MEM_THOUGHTS_KEPT });
 }

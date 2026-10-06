@@ -83,3 +83,4 @@ export * from './questionnaire';
 export * from './observations';
 export * from './graph-impact';
 export * from './mem-delta';
+export * from './mem-all';

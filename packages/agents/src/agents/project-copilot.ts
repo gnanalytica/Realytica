@@ -8,7 +8,7 @@
  */
 
 import type { AgentStep, ChatChoice, ChatPlace, ChatProposal, CockpitPathExtra, CopilotTurn, DdProject, ProjectChatTurn, ScopeKey, SittingRef, TurnSpend, ChatWebPull } from '@realytica/shared';
-import { chatPlaceLine, sittingChatHistory, talkSittingFromText, verifyAttribution } from '@realytica/shared';
+import { MEM_ANSWER_RULES, chatPlaceLine, memNoteOfReply, sittingChatHistory, talkSittingFromText, verifyAttribution } from '@realytica/shared';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import { agentCapability, describeError } from '../client';
 import { basicChatModel } from '../config';
@@ -47,7 +47,8 @@ Hard rules:
 9. Call get_sitting when the person is on a check. Call review_findings only when they ask to criticise unevidenced findings — never record a check.
 10. Connections on this file: get_subgraph and trace_conclusion. Those hits are this project's registers, not the law. For IBBI, NBC, PTCL, Registration Act and similar, call lookup_reference — cite title and asOf, never file the URL as evidence.
 11. Gated portals (Kaveri, Bhoomi, e-Khata, BBMP tax, Fire NOC): call get_portal_route or read get_sitting.portal. Tell the person to download after login/OTP and attach the file on this check. Never claim you fetched the extract.
-12. Master plan / zoning overlay: call compare_planning. The locality pack and a geocoded pin are not the RMP sheet. Do not claim a geometric intersection with the master plan. OSM, BBMP GIS WMS lakes/parks, and OpenCity GBA wards / BBMP lakes are CONTEXT. BMRDA maps are the sitting for Harohalli. Do not overlay DPPlans, GISMaps.in, or withdrawn RMP-2031 PDFs as the plan in force. Propose obtaining the sheet or zoning certificate; never file those URLs as this project's extract.`;
+12. Master plan / zoning overlay: call compare_planning. The locality pack and a geocoded pin are not the RMP sheet. Do not claim a geometric intersection with the master plan. OSM, BBMP GIS WMS lakes/parks, and OpenCity GBA wards / BBMP lakes are CONTEXT. BMRDA maps are the sitting for Harohalli. Do not overlay DPPlans, GISMaps.in, or withdrawn RMP-2031 PDFs as the plan in force. Propose obtaining the sheet or zoning certificate; never file those URLs as this project's extract.
+13. ${MEM_ANSWER_RULES}`;
 
 export interface RunProjectCopilotParams {
   project: DdProject;
@@ -79,6 +80,12 @@ export interface RunProjectCopilotResult {
   toolCalls: { name: string; summary: string }[];
   citedEvidenceIds: string[];
   citedNodeIds: string[];
+  /**
+   * What the answer asked to be kept in the project's memory: the sentence,
+   * and the id it named as what the sentence is about. Taken off the answer's
+   * last line, so `text` does not carry it. Nothing has checked the id.
+   */
+  note?: { note: string; about?: string };
   /** What the call cost, when one was made. Absent on every failure path. */
   spend?: TurnSpend;
   /** Why the model handed the question over, when it did — the answer is then not its own. */
@@ -260,7 +267,9 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
         }
       },
     });
-    const text = answerOfLoop(written) || textOf(result).trim() || 'I looked at the project. Anything I proposed is waiting on the right.';
+    // The note the answer leaves for memory is its last line. It comes off before anything reads the answer: it is not said to the person.
+    const said = memNoteOfReply(answerOfLoop(written) || textOf(result).trim());
+    const text = said.text || 'I looked at the project. Anything I proposed is waiting on the right.';
     const cites = citeIds(text, project);
     /*
      * What the turn cost, carried out with the answer.
@@ -284,6 +293,7 @@ export async function runProjectCopilot(params: RunProjectCopilotParams): Promis
       toolCalls: bag.toolCalls.length ? bag.toolCalls : [{ name: 'project_copilot', summary: 'Thought with project tools' }],
       citedEvidenceIds: cites.citedEvidenceIds,
       citedNodeIds: cites.citedNodeIds,
+      ...(said.note ? { note: { note: said.note, ...(said.about ? { about: said.about } : {}) } } : {}),
       spend: { usd: price.costUsd, exact: price.confidence === 'exact' },
       ...(handOver.reason ? { handedOver: handOver.reason } : {}),
     };
