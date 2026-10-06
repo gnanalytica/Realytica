@@ -736,7 +736,7 @@ export function offeredSurveyNumbers(project: DdProject): OfferedSurveyNumber[] 
       const accepted = factReview(fact) === 'accepted';
       for (const piece of surveyPieces(String(fact.value))) {
         const held = offer(piece);
-        if (stands(fact)) held.stands = true;
+        if (stands(fact, row)) held.stands = true;
         const said = held.documents.find((d) => d.evidenceId === row.id);
         if (said) said.accepted = said.accepted || accepted;
         else held.documents.push({ evidenceId: row.id, document: row.documentType ?? row.title, page: fact.page, accepted, byModel: fact.source === 'model' });

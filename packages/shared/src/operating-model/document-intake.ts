@@ -13,7 +13,7 @@
  */
 
 import { checkSchema } from './operations';
-import { acceptedFacts, standingFacts, stands, waitingReadings } from './fact-review';
+import { acceptedFacts, standingFacts, settled, waitingReadings } from './fact-review';
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS } from './libraries';
 import { SCOPE_LABEL } from './catalogs';
 import { formatFieldValue, isBlank } from './check-fields';
@@ -269,7 +269,7 @@ export function factFillProposals(
   pending: ChatProposal[] = [],
   options: { differences?: boolean } = {},
 ): ChatProposal[] {
-  const facts = read.filter(stands);
+  const facts = read.filter(settled);
   if (!facts.length) return [];
   const out: ChatProposal[] = [];
   for (const seated of everyCheck(project)) {
@@ -453,7 +453,7 @@ export function ddForDocumentsProposal(
   pending: ChatProposal[] = [],
 ): ChatProposal | undefined {
   // A value that waits is not counted as waiting for a check: see `factFillProposals`.
-  const facts = read.filter(stands);
+  const facts = read.filter(settled);
   if (!facts.length) return undefined;
   if (project.assessments.some((a) => a.status !== 'archived')) return undefined;
   if ([...project.chatProposals, ...pending].some((p) => p.kind === 'start_dd' && p.status === 'proposed')) return undefined;

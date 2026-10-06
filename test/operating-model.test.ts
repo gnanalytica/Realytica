@@ -547,10 +547,12 @@ describe('project chat wizard', () => {
     const after = project.evidence.find((e) => e.id === gap!.id)!;
     assert.equal(after.status, 'received');
     assert.equal(after.attachments.length, 1);
-    assert.equal(after.quotes?.[0]?.text, 'No objection for occupancy of Tower A subject to hydrant coverage.');
+    // Words that came with the file from a reader, with no value found on a page behind them, are not the page's words:
+    // the row's quotes are cut from its facts, and this file has none.
+    assert.deepEqual(after.quotes ?? [], []);
     const checkId = (card!.payload.checkIds as string[] | undefined)?.[0] ?? after.checkIds[0];
     if (checkId) {
-      assert.ok(quotesForCheck(project, checkId).some((q) => /hydrant coverage/i.test(q.text)));
+      assert.ok(!quotesForCheck(project, checkId).some((q) => /hydrant coverage/i.test(q.text)));
     }
   });
 

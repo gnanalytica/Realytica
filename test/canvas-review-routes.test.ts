@@ -57,7 +57,7 @@ const khata: ChatIngestFile = {
   storageKey: 's3://khata-routes',
   read: {
     type: 'khata',
-    label: 'Khata certificate',
+    label: 'Khata certificate and extract',
     confidence: 0.9,
     method: 'text',
     summary: 'Khata certificate for the parcel.',

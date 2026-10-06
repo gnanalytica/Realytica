@@ -1599,7 +1599,7 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/document-type/confirm', as
   }
   try {
     assertMayWrite(req, project, [req.params.evidenceId]);
-    if (!confirmProposedType(project, req.params.evidenceId)) {
+    if (!confirmProposedType(project, req.params.evidenceId, actorOf(req))) {
       res.status(409).json({ error: 'This document has no proposed type to confirm.' });
       return;
     }
@@ -1619,7 +1619,7 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/document-type/set-aside', 
   }
   try {
     assertMayWrite(req, project, [req.params.evidenceId]);
-    if (!setAsideProposedType(project, req.params.evidenceId)) {
+    if (!setAsideProposedType(project, req.params.evidenceId, actorOf(req))) {
       res.status(409).json({ error: 'This document has no proposed type to set aside.' });
       return;
     }
@@ -1644,7 +1644,7 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/document-type/correct', as
   }
   try {
     assertMayWrite(req, project, [req.params.evidenceId]);
-    if (!correctProposedType(project, req.params.evidenceId, parsed.data.documentType)) {
+    if (!correctProposedType(project, req.params.evidenceId, parsed.data.documentType, actorOf(req))) {
       res.status(409).json({ error: 'This document has no proposed type to correct, or that is not a kind of document the register knows.' });
       return;
     }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Check, Sparkles } from 'lucide-react';
-import { proofSaid, type DocumentFact } from '@realytica/shared';
+import { otherReadingSaid, proofSaid, type DocumentFact } from '@realytica/shared';
 import { cn } from '../ui/kit';
 
 const reducedMotion = (): boolean =>
@@ -133,7 +133,7 @@ export function OtherReading({ fact }: { fact: DocumentFact }) {
     <span className="block text-micro text-provenance-ink">
       {other.source === 'model' ? 'A model read' : 'The page was read here as'} <span className="font-mono">{other.display}</span>
       {other.page ? ` on p.${other.page}` : ''}
-      {said ? ` (${said})` : ''}. The two differ; neither is taken until you keep one.
+      {said ? ` (${said})` : ''}. {otherReadingSaid(fact)}
     </span>
   );
 }

@@ -83,6 +83,8 @@ const HEADING = {
   khata: 'KHATA CERTIFICATE\nKhata No. 112/4',
   conversion: 'OFFICIAL MEMORANDUM\nConversion of agricultural land for non-agricultural purposes under Section 95 of the Karnataka Land Revenue Act',
   deed: 'SALE DEED\nThis deed of absolute sale is made and executed',
+  sanction: 'BUILDING PLAN SANCTION\nLP No. 0219/2022-23, date of sanction as below',
+  receipt: 'PROPERTY TAX RECEIPT\nSAS Application No. 2024-25-0047 for the assessment year',
   notes: 'Minutes of the meeting held on site',
 } as const;
 
@@ -577,7 +579,8 @@ describe('what a dropped paper disagrees with', () => {
     recordCheckFields(p, sanction.id, { sanctioned_far: 2.25 }, 'tester');
     assert.deepEqual([margin.fields?.gross_revenue?.value, sanction.fields?.sanctioned_far?.value], [1_200_000_000, 2.25]);
 
-    const out = drop(p, paper('Sale deed.pdf', 'deed', fact('gross_revenue', 'Gross revenue', 1_205_000_000, 'Rs 120.5 Cr'), fact('sanctioned_far', 'FAR sanctioned', 2.26, '2.26')));
+    // On the paper that carries it: a ratio sanctioned is a sanctioned plan's to state.
+    const out = drop(p, paper('Sanctioned plan.pdf', 'sanction', fact('gross_revenue', 'Gross revenue', 1_205_000_000, 'Rs 120.5 Cr'), fact('sanctioned_far', 'FAR sanctioned', 2.26, '2.26')));
     const cards = (out.proposals ?? []).filter((c) => c.kind === 'record_check_fields');
     assert.deepEqual(cards.flatMap((c) => Object.keys(c.payload.values as object)).sort(), ['gross_revenue', 'sanctioned_far'], 'each is put to its check beside the figure held');
     assert.match(out.assistantTurn.text, /⚑ Differs from what is on file: Gross revenue Rs 120\.5 Cr \(p\.1\) against [^;]+; FAR sanctioned 2\.26 \(p\.1\) against 2\.25 on \[chk_/);
@@ -723,15 +726,17 @@ describe('what a dropped paper disagrees with', () => {
 
   it('leaves the paper it differs from as it was when everything is approved', () => {
     const p = seedBdaReferenceProject();
-    drop(p, paper('Conversion order.pdf', 'conversion', fact('pid', 'PID', '81-120-12'), fact('conversion_date', 'Date of the conversion order', '2019-04-02', '2 Apr 2019')));
+    // Each value on a paper that carries it: the PID on a tax receipt and a khata, the date on the conversion order.
+    drop(p, paper('Tax receipt.pdf', 'receipt', fact('pid', 'PID', '81-120-12')), paper('Conversion order.pdf', 'conversion', fact('conversion_date', 'Date of the conversion order', '2019-04-02', '2 Apr 2019')));
     const order = rowOf(p, 'Conversion order.pdf');
-    // One value on the order is accepted. Its date is still to be decided, on the paper and on the check it would fill.
-    reviewFacts(p, order.id, ['pid'], 'accept', 'tester');
+    const receipt = rowOf(p, 'Tax receipt.pdf');
+    // The receipt's PID is accepted. The order's date is still to be decided, on the paper and on the check it would fill.
+    reviewFacts(p, receipt.id, ['pid'], 'accept', 'tester');
     assert.deepEqual(proposedFacts(order).map((f) => f.key), ['conversion_date']);
 
     // The khata states only another PID, so it leaves no card of its own open.
     const out = drop(p, paper('Khata.pdf', 'khata', fact('pid', 'PID', '81-120-99')));
-    assert.match(out.assistantTurn.text, new RegExp(`PID 81-120-99 \\(p\\.1\\) against 81-120-12 in \\[ev:${order.id}\\]`));
+    assert.match(out.assistantTurn.text, new RegExp(`PID 81-120-99 \\(p\\.1\\) against 81-120-12 in \\[ev:${receipt.id}\\]`));
     assert.ok(!p.chatProposals.some((c) => c.status === 'proposed' && out.assistantTurn.proposalIds?.includes(c.id)));
     // The chips under the reply are for the khata: nothing counts the order's date, and no chip goes to its function.
     assert.deepEqual(chipsOf(p, out).map((c) => [c.kind, c.words, c.count]), [['waiting', 'waiting on the Title documents', 1], ['graph', 'In the graph', undefined]]);

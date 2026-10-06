@@ -375,7 +375,7 @@ describe('the survey numbers a file offers', () => {
     const p = township();
     file(p, 'Sale deed A', 'Sale deed', [fact('survey_numbers', '47/2')]);
     file(p, 'Sale deed B', 'Sale deed', [fact('survey_numbers', '472')]);
-    file(p, 'Khata', 'Khata certificate', [fact('extent_khata', 8000)]);
+    file(p, 'Khata', 'Khata certificate and extract', [fact('extent_khata', 8000)]);
     applyRevenueMap(p, read('47/2', 0, { areaSqm: 4000, prohibitedRegisterUnjoined: false }), 'tester');
     assert.deepEqual(offeredSurveyNumbers(p).map((o) => [o.surveyNo, o.accepted, o.maybe ?? null]), [['47/2', true, null], ['472', true, null]]);
 
@@ -383,7 +383,7 @@ describe('the survey numbers a file offers', () => {
     assert.deepEqual([register.verdict, register.headline], ['unknown', 'Sy. 472 not read'], 'not clear, with a parcel of the site unread');
     const hit = compareProjectGis(p, { revenue: revenueReads(p) }).hits.find((h) => h.code === 'revenue_documents_extent')!;
     assert.equal(hit.severity, 'info', 'not 4,000 sqm less on the map');
-    assert.equal(hit.text, 'The documents state 8,000 sqm (Khata certificate, p. 1). 1 of the 2 numbers the file states is read, so the map is not set against it yet.');
+    assert.equal(hit.text, 'The documents state 8,000 sqm (Khata certificate and extract, p. 1). 1 of the 2 numbers the file states is read, so the map is not set against it yet.');
     assert.equal(lenderCheck(p, 'extents_agree')!.headline, 'Stated once', 'nor 50% apart');
 
     // Read, the two are the site.
@@ -394,7 +394,7 @@ describe('the survey numbers a file offers', () => {
 
   it('offers nothing from a reading a person set aside, or a document that was replaced', () => {
     const p = township();
-    file(p, 'Khata', 'Khata certificate', [fact('survey_numbers', '81', { review: 'rejected' })]);
+    file(p, 'Khata', 'Khata certificate and extract', [fact('survey_numbers', '81', { review: 'rejected' })]);
     file(p, 'Old deed', 'Sale deed', [fact('survey_numbers', '82')]).status = 'superseded';
     assert.deepEqual(offeredSurveyNumbers(p), []);
   });
@@ -1175,7 +1175,7 @@ describe('the extent, totalled', () => {
 
   it('sets the total beside the extent a document was accepted as stating, in plain numbers', () => {
     const p = threeParcels();
-    file(p, 'Khata', 'Khata certificate', [fact('extent_khata', 6750)]);
+    file(p, 'Khata', 'Khata certificate and extract', [fact('extent_khata', 6750)]);
     file(p, 'Sale deed', 'Sale deed', [fact('extent_title', 6800, { page: 3 })]);
     file(p, 'Survey sketch', 'Survey sketch', [fact('extent_survey', 5000, { review: 'proposed' })]);
     const stated = revenueExtent(p)!.documents!;
@@ -1237,7 +1237,7 @@ describe('the extent, totalled', () => {
     deed(p, '72', 3000);
     deed(p, '73', 1500);
     // The khata is for land the deeds already state: it is the same land said again, and is not added.
-    file(p, 'Khata', 'Khata certificate', [fact('survey_numbers', '71, 72 and 73'), fact('extent_khata', 6900)]);
+    file(p, 'Khata', 'Khata certificate and extract', [fact('survey_numbers', '71, 72 and 73'), fact('extent_khata', 6900)]);
     const stated = revenueExtent(p)!.documents!;
     assert.equal(stated.sources.length, 3);
     assert.equal(stated.sqm, 6900, 'not the 2,400 of whichever deed came first');
@@ -1469,13 +1469,13 @@ describe('the extent, totalled', () => {
     const p = township();
     applyRevenueMap(p, read('71', 0), 'tester');
     applyRevenueMap(p, read('72', 80, { readAt: '2026-10-01T06:01:00.000Z', areaSqm: 3000 }), 'tester');
-    file(p, 'JDA', 'Joint development agreement', [fact('survey_numbers', '71, 72 and 73', { review: 'proposed' }), fact('extent_title', 7000)]);
+    file(p, 'Deed of the three', 'Sale deed', [fact('survey_numbers', '71, 72 and 73', { review: 'proposed' }), fact('extent_title', 7000)]);
     const stated = revenueExtent(p)!.documents!;
     assert.deepEqual([stated.named, stated.numbers, stated.read, stated.compared], [true, ['71', '72', '73'], 2, null]);
     assert.equal(documentsHit(p)!.severity, 'info', 'not 1,600 sqm less on the map');
     assert.equal(
       documentsHit(p)!.text,
-      'The documents state 7,000 sqm for Sy. 71, 72 and 73 (Joint development agreement, p. 1). 2 of the 3 numbers are read, so the map is not set against it yet.',
+      'The documents state 7,000 sqm for Sy. 71, 72 and 73 (Sale deed, p. 1). 2 of the 3 numbers are read, so the map is not set against it yet.',
     );
     assert.equal(lenderCheck(p, 'extents_agree')!.headline, 'Stated once', 'nor 23% apart');
   });
@@ -1484,18 +1484,18 @@ describe('the extent, totalled', () => {
     const p = township();
     applyRevenueMap(p, read('71', 0), 'tester');
     applyRevenueMap(p, read('72', 80, { readAt: '2026-10-01T06:01:00.000Z', areaSqm: 3000 }), 'tester');
-    const jda = file(p, 'JDA', 'Joint development agreement', [fact('survey_numbers', '71, 72 and 73', { review: 'proposed', source: 'model' }), fact('extent_title', 7000)]);
+    const jda = file(p, 'Deed of the three', 'Sale deed', [fact('survey_numbers', '71, 72 and 73', { review: 'proposed', source: 'model' }), fact('extent_title', 7000)]);
     const stated = revenueExtent(p)!.documents!;
     // The numbers are not taken for the document's, and neither is their absence: the extent is not made the whole site's.
     assert.deepEqual([stated.named, stated.numbers, stated.sources[0]!.numbersWaiting, stated.compared], [true, [], true, null]);
     assert.equal(documentsHit(p)!.severity, 'info', 'not 1,600 sqm less on the map');
     assert.equal(
       documentsHit(p)!.text,
-      'The documents state 7,000 sqm (Joint development agreement, p. 1). A reading of the survey numbers it names is waiting to be accepted, so the land it is for is not told yet and the map is not set against it.',
+      'The documents state 7,000 sqm (Sale deed, p. 1). A reading of the survey numbers it names is waiting to be accepted, so the land it is for is not told yet and the map is not set against it.',
     );
     const lender = lenderCheck(p, 'extents_agree')!;
     assert.equal(lender.headline, 'Stated once', 'nor 23% apart');
-    assert.match(lender.detail, /A reading of the survey_numbers on the joint development agreement is waiting to be accepted and is not counted\./);
+    assert.match(lender.detail, /A reading of the survey_numbers on the sale deed is waiting to be accepted and is not counted\./);
     // Accepted, they are the land the extent is for, and the comparison waits only for the third parcel.
     reviewFacts(p, jda.id, ['survey_numbers'], 'accept', 'tester');
     assert.match(documentsHit(p)!.text, /for Sy\. 71, 72 and 73 .* 2 of the 3 numbers are read, so the map is not set against it yet\./);
@@ -1539,7 +1539,7 @@ describe('the extent, totalled', () => {
     // A deed, its khata and its sketch are different papers for one piece of land, and say it again while they agree.
     const papers = threeParcels();
     file(papers, 'Sale deed', 'Sale deed', [fact('extent_title', 7000)]);
-    file(papers, 'Khata', 'Khata certificate', [fact('extent_khata', 6900)]);
+    file(papers, 'Khata', 'Khata certificate and extract', [fact('extent_khata', 6900)]);
     file(papers, 'Survey sketch', 'Survey sketch', [fact('extent_survey', 7050)]);
     assert.equal(revenueExtent(papers)!.documents!.sqm, 7000);
     assert.equal(documentsHit(papers)!.text, 'The documents state 7,000 sqm (Sale deed, p. 1). The map shows 7,000 sqm: the same.');
@@ -1566,32 +1566,32 @@ describe('the extent, totalled', () => {
     assert.match(alone.detail, /The 3 documents on file state the extents of different survey numbers, 7,000 sqm in all, and nothing else states the same land, so there is nothing to compare them with\.$/);
 
     // A khata for one of those numbers is set against that number's deed, and against no other.
-    file(papers, 'Khata', 'Khata certificate', [fact('survey_numbers', '72'), fact('extent_khata', 2500)]);
+    file(papers, 'Khata', 'Khata certificate and extract', [fact('survey_numbers', '72'), fact('extent_khata', 2500)]);
     const one = lenderCheck(papers, 'extents_agree')!;
     assert.equal(one.verdict, 'blocker', '2,500 against 3,000');
-    assert.match(one.detail, /^The papers disagree on the extent: 3,000 sqm \(Sale deed p\. 1\); 2,500 sqm \(Khata certificate p\. 1\)\./);
+    assert.match(one.detail, /^The papers disagree on the extent: 3,000 sqm \(Sale deed p\. 1\); 2,500 sqm \(Khata certificate and extract p\. 1\)\./);
 
     // And a khata for all three against what the three deeds add up to.
-    file(papers, 'Khata of the whole', 'Khata certificate', [fact('survey_numbers', '71, 72 and 73', { source: 'model' }), fact('extent_khata', 7000)]);
-    assert.match(lenderCheck(papers, 'extents_agree')!.source, /^3 documents for different survey numbers, added up, Khata certificate p\. 1/);
+    file(papers, 'Khata of the whole', 'Khata certificate and extract', [fact('survey_numbers', '71, 72 and 73', { source: 'model' }), fact('extent_khata', 7000)]);
+    assert.match(lenderCheck(papers, 'extents_agree')!.source, /^3 documents for different survey numbers, added up, Khata certificate and extract p\. 1/);
   });
 
   it('still sets a paper that names no number against the one that does, as the lender’s check always has', () => {
     const p = township();
     deed(p, '71', 2400);
-    file(p, 'Khata', 'Khata certificate', [fact('extent_khata', 2900)]);
+    file(p, 'Khata', 'Khata certificate and extract', [fact('extent_khata', 2900)]);
     const check = lenderCheck(p, 'extents_agree')!;
     assert.equal(check.verdict, 'blocker', '2,400 on the deed against 2,900 on the khata');
-    assert.match(check.detail, /^The papers disagree on the extent: 2,400 sqm \(Sale deed p\. 1\); 2,900 sqm \(Khata certificate p\. 1\)\./);
+    assert.match(check.detail, /^The papers disagree on the extent: 2,400 sqm \(Sale deed p\. 1\); 2,900 sqm \(Khata certificate and extract p\. 1\)\./);
 
     // Beside deeds for several numbers it is the whole site's, set against what they add up to.
     const several = township();
     deed(several, '71', 2400);
     deed(several, '72', 3000);
-    file(several, 'Khata', 'Khata certificate', [fact('extent_khata', 5400)]);
+    file(several, 'Khata', 'Khata certificate and extract', [fact('extent_khata', 5400)]);
     const whole = lenderCheck(several, 'extents_agree')!;
     assert.equal(whole.verdict, 'clear');
-    assert.equal(whole.detail, '2 statements of the extent agree: 5,400 sqm (2 documents for different survey numbers, added up); 5,400 sqm (Khata certificate p. 1).');
+    assert.equal(whole.detail, '2 statements of the extent agree: 5,400 sqm (2 documents for different survey numbers, added up); 5,400 sqm (Khata certificate and extract p. 1).');
   });
 
   it('lets a whole survey number account for more land on the map only up to its own area', () => {

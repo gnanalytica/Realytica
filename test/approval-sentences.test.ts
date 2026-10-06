@@ -42,6 +42,7 @@ import {
   clearProjectConversation,
   commitChatProposal,
   createChatProposal,
+  createProject,
   lastSpokenReply,
   noteProjectEdit,
   parseDocumentText,
@@ -982,6 +983,14 @@ describe('a paper read where it was filed on the register', () => {
     return row;
   }
   const sitting = (actor: string, startedInMs = -1000): ChatSitting => ({ sessionId: 'ses_page', startedAt: new Date(Date.now() + startedInMs).toISOString(), actor });
+
+  it('says of one paper that it answers checks, not that they do', async () => {
+    // No diligence is running, so the reply offers the one this paper's values would fill.
+    const p = createProject({ name: 'Navilugudda land', type: 'residential', location: 'Suvarnagiri', city: 'Kadamba' }, 'RYT-0042');
+    await fileOnRegister(p, 'me@example.com');
+    assert.match(p.conversation.at(-1)!.text, /\bIt answers checks in the /);
+    assert.doesNotMatch(p.conversation.at(-1)!.text, /They answer checks/);
+  });
 
   it('is what “approve all” answers in the chat that was open', async () => {
     const p = seedBdaReferenceProject();

@@ -82,7 +82,7 @@ function plot(): DdProject {
     fact('consideration', 55000000, 3, 'proposed'),
     fact('registration_date', '2025-03-01', 1),
   ]);
-  file(p, 'Khata', 'Khata certificate', [fact('extent_khata', 1180, 1)]);
+  file(p, 'Khata', 'Khata certificate and extract', [fact('extent_khata', 1180, 1)]);
   p.revenueMap = revenueMap();
   return p;
 }
@@ -94,7 +94,7 @@ describe('what the file offers', () => {
     const offers = valueOffers(plot(), NOW).filter((o) => o.input === 'land_area');
     assert.deepEqual(offers.map((o) => [o.value, o.source.label]), [
       [1200, 'Sale deed'],
-      [1180, 'Khata certificate'],
+      [1180, 'Khata certificate and extract'],
       [1180, 'State revenue map'],
     ]);
     assert.equal(offers[0]!.source.page, 2);
@@ -132,7 +132,7 @@ describe('what the file offers', () => {
 
   it('reads a building’s age off its occupancy certificate, and its area off the sanctioned plan', () => {
     const p = createProject({ name: 'Office block', type: 'commercial', location: 'Whitefield', city: 'Bengaluru' }, 'RYT-V3');
-    file(p, 'Plan', 'Building plan approval', [fact('sanctioned_area', 4200, 4)]);
+    file(p, 'Plan', 'Sanctioned building plan', [fact('sanctioned_area', 4200, 4)]);
     file(p, 'OC', 'Occupancy certificate', [fact('oc_date', '2014-10-01', 1)]);
     file(p, 'Lease', 'Lease deed', [fact('monthly_rent', 840000, 2), fact('leased_area', 1400, 1)]);
     const offers = valueOffers(p, NOW);
@@ -229,7 +229,7 @@ describe('accepting what the file offers', () => {
 describe('a site bought to develop', () => {
   it('is a site, whatever its sanctioned plan says may be built', () => {
     const p = plot();
-    file(p, 'Plan', 'Building plan approval', [fact('sanctioned_area', 27000, 4)]);
+    file(p, 'Plan', 'Sanctioned building plan', [fact('sanctioned_area', 27000, 4)]);
     const offers = valueOffers(p, NOW);
     assert.equal(offers.find((o) => o.input === 'built_up_area'), undefined, 'the plan is what may stand, not what does');
     assert.equal(offers.find((o) => o.input === 'area_valued')?.value, 1200, 'valued on its extent');

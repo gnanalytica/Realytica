@@ -61,11 +61,20 @@ const LATLNG = /(\d{1,2}\.\d{4,})\s*[°NnSs]?\s*[,/]\s*(\d{2,3}\.\d{4,})\s*[°Ee
 /** India's bounding box, generously. Outside it, we found something else. */
 const IN_BOUNDS = { latMin: 6, latMax: 37, lngMin: 68, lngMax: 98 };
 
-/** Every scrap of text an uploaded file gives us to read. */
+/**
+ * The words this server read on the file's own pages, and nothing else.
+ *
+ * Never a model's notes or the words it quoted: those are a model's account of
+ * the paper, and a parcel or an address read out of them is a model raising a
+ * card. Its notes named a survey number OCR had misread, nothing verified it,
+ * and "approve all" set the parcel from it.
+ *
+ * And nothing from a paper this server was not sure it read (one it had a
+ * reason to send to a model): what such a paper states waits on its row for a
+ * person, and a card scraped from the same words would act on them first.
+ */
 function readable(file: ChatIngestFile): string {
-  return [file.excerpt, file.extractionNotes, ...(file.quotes ?? []).map((q) => q.text)]
-    .filter(Boolean)
-    .join('\n');
+  return file.reading?.modelReasons.length ? '' : (file.excerpt ?? '');
 }
 
 /**
@@ -207,7 +216,8 @@ export function placeProposalsFromIngest(
   for (const file of files) {
     if (parcelDone && addressDone && pointDone) break;
     const text = readable(file);
-    if (!text) continue;
+    // A value that stands on the reading is enough by itself; the page's words are the fallback for what nothing read.
+    if (!text && !standingAsRead(file.read).length) continue;
 
     if (!parcelDone) {
       /*

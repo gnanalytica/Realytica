@@ -303,6 +303,7 @@ export async function readIngestLocally(
     scopes: parsed.scopes,
     evidenceKind: parsed.evidenceKind,
   };
+  const route = routeReading({ pages: text.pageReads ?? [], texts: text.pages, withheld, read });
   return done(
     {
       ...file,
@@ -312,9 +313,11 @@ export async function readIngestLocally(
       pages: text.totalPages,
       kindHint: parsed.type === 'other' ? file.kindHint : parsed.documentKind !== 'other' ? parsed.documentKind : parsed.type,
       readFailure: undefined,
-      read,
+      // A paper there is a reason to send to a model is one this server is not sure it read: what the rules made of it waits for a
+      // person, whether or not a model then reads it (`stands`).
+      read: route.reasons.length ? { ...read, facts: facts.map((fact): DocumentFact => ({ ...fact, unsure: true })) } : read,
     },
-    routeReading({ pages: text.pageReads ?? [], texts: text.pages, withheld, read }),
+    route,
   );
 }
 
@@ -538,7 +541,7 @@ function mergeFacts(local: ChatIngestFile, model: ChatIngestFile): ChatIngestFil
       evidenceKind: 'document',
     };
   }
-  if (!extra.length) return local.read;
+  if (!extra.length) return model.modelUnverified?.length ? { ...local.read, facts: contested(local.read.facts, model.modelUnverified) } : local.read;
   const byKey = new Map(extra.map((f) => [f.key, f]));
   const facts = local.read.facts.map((fact): DocumentFact => {
     const twin = byKey.get(fact.key);
@@ -547,7 +550,26 @@ function mergeFacts(local: ChatIngestFile, model: ChatIngestFile): ChatIngestFil
     return { ...fact, otherReading: twin };
   });
   const known = new Set(facts.map((f) => f.key));
-  return { ...local.read, facts: [...facts, ...extra.filter((f) => !known.has(f.key))] };
+  return { ...local.read, facts: [...contested(facts, model.modelUnverified ?? []), ...extra.filter((f) => !known.has(f.key))] };
+}
+
+/**
+ * The rules' values, each with a model's different reading of the same thing
+ * set beside it where nothing confirmed that reading on a page.
+ *
+ * Unverified is not wrong. The rules read an earlier deed's number off a
+ * recital while the model read the right one and no page text held its words:
+ * the rules' value stood and the model's sat apart. A value another reader
+ * read differently is a choice for a person whichever of the two has its
+ * words on the page, so the model's is shown beside it, marked unverified,
+ * and neither is taken.
+ */
+function contested(facts: DocumentFact[], loose: readonly DocumentFact[]): DocumentFact[] {
+  return facts.map((fact) => {
+    if (fact.otherReading || fact.source === 'model') return fact;
+    const other = loose.find((reading) => reading.key === fact.key && !sameValue(reading.value, fact.value));
+    return other ? { ...fact, otherReading: { ...other, proof: 'unverified' } } : fact;
+  });
 }
 
 /**

@@ -39,7 +39,7 @@ import {
 } from '../packages/agents/src/agents/page-check';
 import { CUT_OFF_REASON, describeChecks, originalPage, runDocumentIntelligence } from '../packages/agents/src/agents/document-intelligence';
 import { enrichIngestWithDocumentIntelligence } from '../packages/agents/src/project/ingest-intelligence';
-import { createProject, STANDARD_FACT_KEYS, type CaseDocument, type ChatIngestFile, type PropertyIdentity } from '../packages/shared/src';
+import { acceptedOneAtATime, createProject, STANDARD_FACT_KEYS, standardFact, type CaseDocument, type ChatIngestFile, type PropertyIdentity } from '../packages/shared/src';
 
 /** Each page of the test PDF is one point wider than the last, so a reader shown one page can tell which it is. */
 const PAGE_TEXT = [
@@ -111,6 +111,21 @@ describe('a value held to the words quoted for it', () => {
     assert.equal(quoteStates({ key: 'registration_date', value: '28-06-2011' }, 'made on the 28th day of June 2011 at Bengaluru'), true, 'however the page writes the day');
     assert.equal(quoteStates({ key: 'registration_date', value: '28-06-2011' }, 'registered as document number 2811 of 2011'), false, 'digits that are not that date are not that date');
     assert.equal(quoteStates({ key: 'ec_from', value: '01-04-1994' }, 'ಶೋಧನೆಯ ಅವಧಿ: ೦೧-೦೪-೧೯೯೪ ರಿಂದ'), true, 'in whichever digits the page writes it');
+  });
+
+  it('holds an area and a width to the unit its quote writes, not to the number alone', () => {
+    // Measured by the third review: 2,450 sqm placed by the words "measuring 2,450 square feet", and taken by "accept all".
+    assert.equal(quoteStates({ key: 'extent_title', value: '2,450', unit: 'sqm' }, 'measuring 2,450 square feet'), false);
+    assert.equal(quoteStates({ key: 'extent_title', value: '2,450', unit: 'sqft' }, 'measuring 2,450 square feet'), true);
+    assert.equal(quoteStates({ key: 'extent_title', value: '12', unit: 'acres' }, 'and a second item measuring 12 guntas'), false);
+    assert.equal(quoteStates({ key: 'extent_khata', value: '1 acre' }, 'Extent held: 1 Acre 22 Guntas'), false, 'the whole measure, not its first part');
+    assert.equal(quoteStates({ key: 'road_width_ft', value: '30', unit: 'ft' }, 'abutting a road 30 metres wide'), false);
+    // Where the quote writes no unit the rules know, the figure alone is looked for, and the value is accepted one at a time.
+    const bare = { key: 'extent_khata', label: 'Extent per khata', value: 1115, unit: 'sqm', display: '1,115 sqm', page: 1, quote: 'ನಿವೇಶನದ ವಿಸ್ತೀರ್ಣ: 1,115 ಚದರ ಮೀಟರ್', source: 'model' as const, proof: 'page_text' as const };
+    assert.equal(acceptedOneAtATime(bare), true);
+    assert.equal(acceptedOneAtATime({ ...bare, quote: 'Site area: 1,115 square metres' }), false);
+    // A date, an amount and an area in Kannada digits are put in the rules' forms.
+    assert.deepEqual([standardFact('ec_to', '೩೧-೦೩-೨೦೨೪')?.value, standardFact('consideration', '೩,೧೮,೫೦,೦೦೦')?.value, standardFact('extent_khata', '೧,೧೧೫', 'sqm')?.value], ['2024-03-31', 31850000, 1115]);
   });
 
   it('holds an area, a width and a count to a figure in the quote', () => {

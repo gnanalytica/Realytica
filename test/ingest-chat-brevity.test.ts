@@ -211,7 +211,7 @@ describe('the receipt says whether the file actually moved', () => {
         file('Khata.pdf', {
           read: {
             type: 'khata',
-            label: 'Khata certificate',
+            label: 'Khata certificate and extract',
             confidence: 0.9,
             method: 'text',
             summary: 'Khata certificate for the parcel.',

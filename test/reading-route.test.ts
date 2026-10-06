@@ -21,6 +21,7 @@ import { deflateSync } from 'node:zlib';
 import { after, describe, it } from 'node:test';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import {
+  acceptedOneAtATime,
   addEvidence,
   attachEvidenceFile,
   createChatProposal,
@@ -39,7 +40,10 @@ import {
   reviewFacts,
   sentToModelLine,
   soundReading,
+  setAsideOffPaper,
+  standingAsRead,
   standingFacts,
+  waitingReadings,
   STANDARD_FACT_KEYS,
   STANDARD_PAPERS,
   standardFact,
@@ -639,8 +643,11 @@ describe('a model’s reading laid over this server’s', () => {
       local([fact('registration_date', '2003-11-18', 2), fact('extent_title', 2450, 2), fact('sub_registrar', 'Suvarnagiri', 2)]),
       model([], { modelUnverified: [loose('registration_date', '2021-07-09', 2), loose('extent_title', 2540), loose('sub_registrar', 'suvarnagiri')] }),
     );
-    assert.deepEqual(values(merged), { registration_date: ['2003-11-18', 'parser'], extent_title: [2450, 'parser'], sub_registrar: ['Suvarnagiri', 'parser'] }, 'every one of them stands, on the page OCR was unsure of too');
-    assert.deepEqual(merged.reading?.unverified?.map((f) => [f.key, f.value, f.page, f.proof]), [['registration_date', '2021-07-09', 2, 'unverified'], ['extent_title', 2540, 0, 'unverified']], 'what the model said instead is kept apart, as unverified; what it said the same is no second copy');
+    assert.deepEqual(values(merged), { registration_date: ['2003-11-18', 'parser', '2021-07-09'], extent_title: [2450, 'parser', 2540], sub_registrar: ['Suvarnagiri', 'parser'] }, 'every one of them is still the paper’s value, with what the model read instead set beside it');
+    assert.deepEqual((merged.read?.facts ?? []).map((f) => f.otherReading?.proof), ['unverified', 'unverified', undefined], 'said to be unverified');
+    assert.deepEqual(standingAsRead(merged.read).map((f) => f.key), ['sub_registrar'], 'a value another reader read differently waits for a person, verified or not');
+    assert.deepEqual((merged.read?.facts ?? []).map((f) => acceptedOneAtATime({ ...f, review: 'proposed' })), [true, true, false], 'and is kept or set aside one at a time');
+    assert.deepEqual(merged.reading?.unverified?.map((f) => [f.key, f.value, f.page, f.proof]) ?? [], [], 'shown beside the value it differs from, it is not listed a second time as unverified; what it said the same is no second copy');
     assert.equal((merged.read?.facts ?? []).some((f) => f.proof === 'unverified'), false, 'and none of it is among the facts');
   });
 
@@ -661,6 +668,22 @@ describe('a model’s reading laid over this server’s', () => {
     assert.deepEqual(values(merged), { survey_numbers: ['73/4', 'parser'], stamp_duty: [1783600, 'model'], witnessName: ['Sri Lokesh', 'model'] }, 'a deed’s own key and a key of the model’s own are kept');
     assert.equal(merged.reading?.unverified, undefined);
     assert.equal(merged.kindHint, undefined, 'and the rules’ word for what the paper is stands over the model’s');
+  });
+
+  it('lets nothing the rules read stand on a paper there is a reason to send to a model', async () => {
+    // A typed page of a sale deed, then a page nothing can be read on: the router gives a reason, with or without a model to send it to.
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([595, 842]);
+    ['SALE DEED', 'This deed of absolute sale is made and executed at Suvarnagiri.', 'SCHEDULE: all that piece of land bearing Survey No. 73/4, measuring 2,450 square metres.'].forEach((line, i) =>
+      page.drawText(line, { x: 40, y: 760 - i * 24, size: 11, font }),
+    );
+    doc.addPage([595, 842]);
+    const bytes = Buffer.from(await doc.save());
+    const here = await readIngestLocally({ fileName: 'deed.pdf', mimeType: 'application/pdf', sizeBytes: bytes.length, storageKey: 'k-deed' }, bytes);
+    assert.ok(here.reading!.modelReasons.length > 0 && here.read!.facts.length > 0, 'read in part, with values');
+    assert.deepEqual(here.read!.facts.map((f) => f.unsure), here.read!.facts.map(() => true), 'each value is marked as read off a paper this server was unsure of');
+    assert.deepEqual(standingAsRead(here.read), [], 'so none stands, and no check is offered one, until a person accepts it on the row');
   });
 
   it('counts a page as read by the model only when a value came back that was found on it', async () => {
@@ -724,19 +747,41 @@ describe('a model’s value that nobody has accepted', () => {
     const row = addEvidence(p, { title: 'Holdings extract', kind: 'document', status: 'received' });
     // A model took a holdings paper for an encumbrance certificate and read a nil result off it.
     row.facts = proposeFacts([], [stated('ec_nil', true, 'model')]);
+    row.proposedDocumentType = 'Encumbrance certificate';
     assert.deepEqual(standingFacts(row), []);
     const waiting = charges(p);
     assert.deepEqual([waiting?.verdict, waiting?.headline], ['unknown', 'A reading is waiting']);
     assert.match(waiting!.detail, /A model read “ec_nil: true”.*nobody has accepted it/);
 
+    // The kind is only a model's offer. Until a person says what the paper is, a value only that kind carries is not accepted on it.
+    assert.throws(() => reviewFacts(p, row.id, ['ec_nil'], 'accept', 'tester'), /Say what this paper is first\. A model takes it for an encumbrance certificate/);
+    assert.equal(reviewFacts(p, row.id, 'all', 'accept', 'tester').changed.length, 0, '"accept all" leaves it where it is');
+    assert.equal(row.facts[0]!.review, 'proposed');
+
+    // A person says it is not an encumbrance certificate: the model's value under that kind's key is set aside with the offer.
+    const refused = structuredClone(p);
+    const theirs = refused.evidence.find((e) => e.id === row.id)!;
+    theirs.refusedDocumentType = theirs.proposedDocumentType;
+    delete theirs.proposedDocumentType;
+    assert.deepEqual(setAsideOffPaper(theirs, 'tester').map((f) => f.key), ['ec_nil']);
+    assert.deepEqual([theirs.facts![0]!.review, standingFacts(theirs).length, waitingReadings(theirs).length], ['rejected', 0, 0]);
+    // Accepted all the same, by whatever road, it is still no reading of a paper of no kind, and the lender's line does not take it.
+    theirs.facts![0]!.review = 'accepted';
+    assert.equal(standingFacts(theirs).length, 0);
+    assert.notEqual(charges(refused)?.headline, 'Nil encumbrance');
+
+    // A person says it is one: accepted, the value answers the check as any value does.
+    row.documentType = row.proposedDocumentType;
+    delete row.proposedDocumentType;
     reviewFacts(p, row.id, ['ec_nil'], 'accept', 'tester');
     assert.equal(standingFacts(row).length, 1);
-    assert.notEqual(charges(p)?.headline, 'A reading is waiting', 'accepted by a person, it answers the check as any value does');
+    assert.equal(charges(p)?.headline, 'Nil encumbrance', 'accepted by a person on a paper of that kind, it answers the check');
   });
 
   it('is not what a check rests on while the rules’ own value stands beside it', () => {
     const p = project();
     const row = addEvidence(p, { title: 'Encumbrance certificate', kind: 'document', status: 'received' });
+    row.documentType = 'Encumbrance certificate';
     row.facts = proposeFacts([], [stated('ec_nil', false), stated('subsisting_charges', 1)]);
     assert.equal(standingFacts(row).length, 2, 'what the rules read off the page stands before anybody has looked, as it always did');
     assert.notEqual(charges(p)?.headline, 'A reading is waiting');
@@ -745,6 +790,7 @@ describe('a model’s value that nobody has accepted', () => {
   it('is kept or set aside by a person naming it, and is left out of "accept all"', () => {
     const p = project();
     const row = addEvidence(p, { title: 'Sale deed', kind: 'document', status: 'received' });
+    row.documentType = 'Sale deed';
     row.facts = proposeFacts([], [{ ...stated('survey_numbers', '73/4'), otherReading: stated('survey_numbers', '73/1', 'model') }, stated('sub_registrar', 'Suvarnagiri')]);
 
     const all = reviewFacts(p, row.id, 'all', 'accept', 'tester');

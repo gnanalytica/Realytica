@@ -231,20 +231,27 @@ describe('approvals and the construction gate', () => {
 });
 
 describe('the vault', () => {
-  it('files a document the model classified under the register’s own type', () => {
+  it('offers what a model took a document for in the register’s own words, and types the row only when a person confirms', () => {
     assert.equal(documentTypeOfKind('encumbrance_certificate'), 'Encumbrance certificate');
     assert.equal(documentTypeOfKind('sanctioned_plan_bbmp'), 'Sanctioned building plan');
     assert.equal(documentTypeOfKind('other'), undefined);
     const p = project('construction');
     // Read by the model, with nothing it could place on a page: no facts, but
-    // the model said what the document is.
-    applyProjectChat(p, '', {
-      ingest: [{ fileName: 'ECs part 1.pdf', mimeType: 'application/pdf', sizeBytes: 10, storageKey: 'k-ec-1', kindHint: 'encumbrance_certificate', extractionNotes: 'Form 15 and Form 16 encumbrance certificates.' }],
-    });
+    // the model said what the document is. The file's name says nothing of it.
+    const scan = { fileName: 'scan 0042.pdf', mimeType: 'application/pdf', sizeBytes: 10, storageKey: 'k-ec-1', kindHint: 'encumbrance_certificate', extractionNotes: 'Form 15 and Form 16 encumbrance certificates.' };
+    applyProjectChat(p, '', { ingest: [scan] });
     const row = p.evidence.find((e) => e.attachments.some((a) => a.storageKey === 'k-ec-1'))!;
-    assert.equal(row.documentType, 'Encumbrance certificate');
-    assert.equal(documentWorkstream(p, row), 'legal.title');
-    assert.deepEqual(row.facts ?? [], [], 'a type is filed; no fact is invented for it');
+    assert.equal(row.documentType, undefined, 'a model’s word for a paper types no row');
+    assert.equal(row.proposedDocumentType, 'Encumbrance certificate', 'it is an offer on the row');
+    assert.notEqual(documentWorkstream(p, row), 'legal.title', 'and files the paper under nothing until a person confirms it');
+    assert.deepEqual(row.facts ?? [], [], 'no fact is invented for it');
+
+    // A person says it is not; the same paper read again is not offered the same kind a second time.
+    row.refusedDocumentType = row.proposedDocumentType;
+    delete row.proposedDocumentType;
+    applyProjectChat(p, '', { ingest: [scan] });
+    assert.equal(row.proposedDocumentType, undefined);
+    assert.equal(row.documentType, undefined);
   });
 });
 

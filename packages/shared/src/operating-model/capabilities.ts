@@ -87,6 +87,7 @@ export function patchProject(project: DdProject, input: PatchProjectInput, actor
     entityType: 'project',
     entityId: project.id,
     newValue: input.portfolio ?? input.name,
+    fields: Object.keys(input).filter((field) => input[field as keyof PatchProjectInput] !== undefined),
   });
   return project;
 }

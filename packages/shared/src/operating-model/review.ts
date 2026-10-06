@@ -9,7 +9,7 @@
  * chat. The chat talks; the registers are where things are decided.
  */
 
-import type { DocumentFact } from './document-parse';
+import { paperCarries, type DocumentFact } from './document-parse';
 import type { ChatProposal, DdProject, EvidenceRecord } from './types';
 import { findCheck, recordAuditEvent, recordCheckFields } from './operations';
 import { isBlank } from './check-fields';
@@ -85,10 +85,22 @@ function sourceRow(project: DdProject, card: ChatProposal): EvidenceRecord | und
  * everything a reply left, is not looking at it, and leaves it waiting.
  */
 export function fromWaitingReading(project: DdProject, card: ChatProposal, key: string): boolean {
+  return waitingSource(project, card, key) !== undefined;
+}
+
+/** The reading a card's field came from, where that reading still waits on its paper. */
+function waitingSource(project: DdProject, card: ChatProposal, key: string): { row: EvidenceRecord; fact: DocumentFact } | undefined {
   const value = String(((card.payload.values ?? {}) as Record<string, unknown>)[key]);
-  return (sourceRow(project, card)?.facts ?? []).some(
-    (f) => f.key === key && factReview(f) === 'proposed' && !stands(f) && (String(f.value) === value || (f.otherReading !== undefined && String(f.otherReading.value) === value)),
+  const row = sourceRow(project, card);
+  const fact = (row?.facts ?? []).find(
+    (f) => f.key === key && factReview(f) === 'proposed' && !stands(f, row!) && (String(f.value) === value || (f.otherReading !== undefined && String(f.otherReading.value) === value)),
   );
+  return row && fact ? { row, fact } : undefined;
+}
+
+/** A kind of paper as it is said mid-sentence: "a sale deed", "an encumbrance certificate". */
+function aPaper(type: string): string {
+  return `${/^[aeiou]/i.test(type) ? 'an' : 'a'} ${/^[A-Z][a-z]/.test(type) ? type.charAt(0).toLowerCase() + type.slice(1) : type}`;
 }
 
 /**
@@ -162,6 +174,10 @@ function takeOtherReading(fact: DocumentFact): void {
  * read. Accepting it offers it, and the value kept is the one offered: a
  * card raised earlier for another reading of the same key is set aside, so
  * the check is never given a value the document no longer states.
+ *
+ * A value under a key the row's kind of paper does not carry is not accepted:
+ * it is no reading of that paper (`paperCarries`). "All" leaves it where it
+ * is; naming it says why, and what to do first.
  */
 export function reviewFacts(
   project: DdProject,
@@ -181,15 +197,22 @@ export function reviewFacts(
   if (!evidence) throw new Error('Document not found');
   const facts = evidence.facts ?? [];
   const named = (f: DocumentFact) => keys === 'all' || keys.includes(f.key);
-  const targets =
-    decision === 'reopen'
-      ? facts.filter((f) => named(f) && f.decidedAt && factReview(f) !== 'proposed')
-      : facts.filter((f) => named(f) && factReview(f) === 'proposed' && !(keys === 'all' && decision === 'accept' && acceptedOneAtATime(f)));
+  const waiting = facts.filter((f) => named(f) && factReview(f) === 'proposed' && !(keys === 'all' && decision === 'accept' && acceptedOneAtATime(f)));
+  const offPaper = decision === 'accept' ? waiting.filter((f) => !paperCarries(evidence.documentType, f.key)) : [];
+  if (offPaper.length && keys !== 'all') {
+    const offered = evidence.proposedDocumentType;
+    throw new Error(
+      offered
+        ? `Say what this paper is first. A model takes it for ${aPaper(offered)}: confirm that, or say what it is, and “${offPaper[0]!.label}” can be accepted.`
+        : `${evidence.documentType ? aPaper(evidence.documentType).replace(/^a/, 'A') : 'A paper of no kind'} does not carry “${offPaper[0]!.label}”, so it is not accepted on this row.`,
+    );
+  }
+  const targets = decision === 'reopen' ? facts.filter((f) => named(f) && f.decidedAt && factReview(f) !== 'proposed') : waiting.filter((f) => !offPaper.includes(f));
   if (!targets.length) return { evidence, changed: [] };
   const at = nowIso();
   let rows = [...facts];
   /** The values that acted on nothing until this decision: no check was offered them when they were read. */
-  const waited = new Set(decision === 'accept' ? targets.filter((f) => !stands(f)) : []);
+  const waited = new Set(decision === 'accept' ? targets.filter((f) => !stands(f, evidence)) : []);
 
   for (const fact of targets) {
     if (decision === 'accept') {
@@ -213,13 +236,14 @@ export function reviewFacts(
         entityId: evidence.id,
         oldValue: older[0] ? `${older[0].label}: ${older[0].display}` : undefined,
         newValue: `${fact.label}: ${fact.display}`,
+        factKey: fact.key,
         at,
       });
     } else if (decision === 'reject') {
       fact.review = 'rejected';
       fact.decidedBy = actor;
       fact.decidedAt = at;
-      recordAuditEvent(project, { actor, action: 'set_aside_fact', entityType: 'evidence', entityId: evidence.id, oldValue: `${fact.label}: ${fact.display}`, at });
+      recordAuditEvent(project, { actor, action: 'set_aside_fact', entityType: 'evidence', entityId: evidence.id, oldValue: `${fact.label}: ${fact.display}`, factKey: fact.key, at });
     } else {
       if (factReview(fact) === 'accepted' && fact.replaced) {
         rows.push({ ...fact.replaced });
@@ -234,7 +258,7 @@ export function reviewFacts(
       fact.review = 'proposed';
       fact.decidedBy = undefined;
       fact.decidedAt = undefined;
-      recordAuditEvent(project, { actor, action: 'reopen_fact', entityType: 'evidence', entityId: evidence.id, newValue: `${fact.label}: ${fact.display}`, at });
+      recordAuditEvent(project, { actor, action: 'reopen_fact', entityType: 'evidence', entityId: evidence.id, newValue: `${fact.label}: ${fact.display}`, factKey: fact.key, at });
     }
   }
   evidence.facts = rows;
@@ -332,6 +356,19 @@ export function decideCheckFields(
   if (!open.length) return card;
   const checkId = String(payload.checkId);
 
+  // A value whose reading still waits on its paper is decided there, where both readings and the page are: never here, one field at a time.
+  if (decision === 'accept' && !options.fromDocument) {
+    const held = open.map((k) => waitingSource(project, card, k)).find(Boolean);
+    if (held) {
+      const paper = held.row.documentType ?? held.row.title;
+      throw new Error(
+        held.fact.otherReading
+          ? `Two readers read “${held.fact.label}” differently on ${paper}. Keep one of the two on the document; the check takes what is kept there.`
+          : `“${held.fact.label}” is still waiting on ${paper}. Accept it on the document; the check takes it from there.`,
+      );
+    }
+  }
+
   if (decision === 'accept') {
     const subset = Object.fromEntries(open.map((k) => [k, overrides && k in overrides ? overrides[k] : values[k]]));
     const offered = (payload.citations ?? {}) as Record<string, { page?: number; quote?: string; value?: unknown }>;
@@ -364,7 +401,8 @@ export function decideCheckFields(
       (typeof payload.sourceEvidenceId === 'string' ? project.evidence.find((e) => e.id === payload.sourceEvidenceId) : undefined)
       ?? (storageKey ? project.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey)) : undefined);
     const stated = open.filter((k) =>
-      (row?.facts ?? []).some((f) => f.key === k && factReview(f) === 'proposed' && String(f.value) === String(overrides && k in overrides ? overrides[k] : values[k])),
+      paperCarries(row?.documentType, k)
+      && (row?.facts ?? []).some((f) => f.key === k && factReview(f) === 'proposed' && String(f.value) === String(overrides && k in overrides ? overrides[k] : values[k])),
     );
     if (row && stated.length) reviewFacts(project, row.id, stated, 'accept', actor);
   }

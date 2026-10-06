@@ -1105,6 +1105,10 @@ export interface AuditEvent {
   reason?: string;
   oldValue?: string;
   newValue?: string;
+  /** On a decision about one value read off a paper: the value's key. */
+  factKey?: string;
+  /** On a change to the project's own fields: the fields it set. */
+  fields?: string[];
 }
 
 export interface ValuationApproachResult {

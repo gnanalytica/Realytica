@@ -89,7 +89,7 @@ const paper = (...facts: DocumentFact[]): ChatIngestFile => ({
   storageKey: 's3://certificate',
   read: {
     type: 'khata',
-    label: 'Khata certificate',
+    label: 'Khata certificate and extract',
     confidence: 0.9,
     method: 'text',
     summary: 'A certificate for the parcel.',

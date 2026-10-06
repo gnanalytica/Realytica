@@ -37,7 +37,7 @@
 
 import { z } from 'zod';
 import type { AgentUsage } from '@realytica/shared';
-import { datesIn, exactValue, normalizeDigits, parseIndianDate, STANDARD_FACT_KEYS, standardFact, standardKeyForm, standardValueForms } from '@realytica/shared';
+import { datesIn, exactValue, measuresStated, normalizeDigits, parseIndianDate, STANDARD_FACT_KEYS, standardFact, standardKeyForm, standardValueForms } from '@realytica/shared';
 import { PROMPT_KEYS, resolvePrompt } from '../prompts';
 import { toolUseOf } from '../providers';
 import type { LlmContentPart, LlmProvider, LlmSchemaTool } from '../providers';
@@ -224,11 +224,15 @@ function stretchesFromNumbers(quote: string): string[] {
  * - a date: the quote states that day;
  * - an identifier: the quote writes it, whole, or one of them where the value
  *   is a list (twenty words do not hold thirteen survey numbers);
- * - an amount, an area, a width, a ratio or a count: some stretch of the
- *   quote, put in the key's own form, is the value, or every number the
- *   reader wrote for it is a number in the quote (an area whose unit is
- *   written in another script cannot be converted, and its figure can still
- *   be found).
+ * - an area or a width: where the quote writes a number with its unit, one
+ *   such measure, put in the key's own form, is the value. 2,450 sqm is not
+ *   stated by "measuring 2,450 square feet", nor 12 acres by "12 guntas".
+ *   Only where the quote writes no unit these rules know (a bare figure, a
+ *   unit in another script) is the figure alone looked for, and a value kept
+ *   on that is accepted one at a time (`acceptedOneAtATime`);
+ * - an amount, a ratio or a count: some stretch of the quote, put in the
+ *   key's own form, is the value, or every number the reader wrote for it is
+ *   a number in the quote.
  *
  * A name, a place, a yes or a no has nothing exact to hold, and passes.
  */
@@ -249,6 +253,10 @@ export function quoteStates(reading: Reading, quote: string): boolean {
   if (!form) return everyNumber;
   const wanted = standardFact(reading.key, value, reading.unit)?.value;
   if (typeof wanted !== 'number') return false;
+  if (form === 'sqm' || form === 'feet') {
+    const measures = measuresStated(reading.key, quote);
+    if (measures.length) return measures.some((measure) => sameFigure(form, measure, wanted));
+  }
   return everyNumber || stretchesFromNumbers(quote).some((stretch) => sameFigure(form, standardFact(reading.key, stretch)?.value, wanted));
 }
 

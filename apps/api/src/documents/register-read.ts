@@ -41,7 +41,9 @@ import {
   placeProposalsFromIngest,
   plural,
   proofOf,
-  proposeFacts,
+  proposeOnRow,
+  recordAuditEvent,
+  setAsideOffPaper,
   readingSaid,
   standingAsRead,
   standingFacts,
@@ -86,12 +88,14 @@ const article = (type: string): string => `${/^[aeiou]/i.test(type) ? 'an' : 'a'
  * row's type, and the row now answers whatever was waiting for that paper.
  * False when the row has no offer to confirm.
  */
-export function confirmProposedType(project: DdProject, evidenceId: string): boolean {
+export function confirmProposedType(project: DdProject, evidenceId: string, actor = 'operator'): boolean {
   const evidence = project.evidence.find((e) => e.id === evidenceId);
   if (!evidence?.proposedDocumentType) return false;
   evidence.documentType = evidence.proposedDocumentType;
   delete evidence.proposedDocumentType;
   evidence.updatedAt = new Date().toISOString();
+  recordAuditEvent(project, { actor, action: 'type_confirmed', entityType: 'evidence', entityId: evidence.id, newValue: evidence.documentType });
+  setAsideOffPaper(evidence, actor);
   absorbAnsweredGaps(project, evidence);
   return true;
 }
@@ -99,14 +103,19 @@ export function confirmProposedType(project: DdProject, evidenceId: string): boo
 /**
  * A person says the paper is not what a model took it for. The offer goes
  * and is remembered as refused, so the next reading does not make it again;
- * the row keeps whatever type it had. False when there is no offer.
+ * the row keeps whatever type it had. What the model read as values of that
+ * kind of paper is set aside with it: a nil-encumbrance answer is no reading
+ * of a paper that is not an encumbrance certificate. False when there is no
+ * offer.
  */
-export function setAsideProposedType(project: DdProject, evidenceId: string): boolean {
+export function setAsideProposedType(project: DdProject, evidenceId: string, actor = 'operator'): boolean {
   const evidence = project.evidence.find((e) => e.id === evidenceId);
   if (!evidence?.proposedDocumentType) return false;
   evidence.refusedDocumentType = evidence.proposedDocumentType;
   delete evidence.proposedDocumentType;
   evidence.updatedAt = new Date().toISOString();
+  recordAuditEvent(project, { actor, action: 'type_refused', entityType: 'evidence', entityId: evidence.id, newValue: evidence.refusedDocumentType });
+  setAsideOffPaper(evidence, actor);
   return true;
 }
 
@@ -116,16 +125,19 @@ export const DOCUMENT_TYPES: readonly string[] = Object.keys(DOCUMENT_WORKSTREAM
 /**
  * A person says what the paper is, in place of what a model took it for.
  * Their word is the row's type, and the row answers whatever was waiting for
- * that paper. False when there is no offer to correct, or the type is not one
- * the register knows.
+ * that paper. What the model read as values of the kind it took the paper
+ * for, and the paper as now named does not carry, is set aside. False when
+ * there is no offer to correct, or the type is not one the register knows.
  */
-export function correctProposedType(project: DdProject, evidenceId: string, documentType: string): boolean {
+export function correctProposedType(project: DdProject, evidenceId: string, documentType: string, actor = 'operator'): boolean {
   const evidence = project.evidence.find((e) => e.id === evidenceId);
   if (!evidence?.proposedDocumentType || !DOCUMENT_TYPES.includes(documentType)) return false;
   if (documentType !== evidence.proposedDocumentType) evidence.refusedDocumentType = evidence.proposedDocumentType;
   evidence.documentType = documentType;
   delete evidence.proposedDocumentType;
   evidence.updatedAt = new Date().toISOString();
+  recordAuditEvent(project, { actor, action: 'type_corrected', entityType: 'evidence', entityId: evidence.id, newValue: evidence.documentType });
+  setAsideOffPaper(evidence, actor);
   absorbAnsweredGaps(project, evidence);
   return true;
 }
@@ -209,8 +221,6 @@ export async function readOntoRegister(
     // Named for what the rules read it as. What a model alone took it for is offered, and names nothing until a person confirms it.
     const offered = known ? undefined : documentTypeOfKind(file.kindHint);
     const label = known ? doc.label : (evidence.documentType ?? 'document');
-    // What it states waits on the row, value by value, for a person to accept.
-    evidence.facts = proposeFacts(evidence.facts ?? [], facts);
     if (known) {
       evidence.documentType = doc.label;
       delete evidence.proposedDocumentType;
@@ -219,6 +229,11 @@ export async function readOntoRegister(
       evidence.proposedDocumentType = offered;
       proposedTypes.push(offered);
     }
+    // What it states waits on the row, value by value, for a person to accept: put there once the row says what the paper is, so
+    // a value its kind does not carry never waits.
+    evidence.facts = proposeOnRow(evidence, facts);
+    // Written down as an event of its own, so a paper read again is told as read again.
+    recordAuditEvent(project, { actor, action: 'read', entityType: 'evidence', entityId: evidence.id, newValue: `${facts.length} value(s)` });
     evidence.readMethod = doc.method;
     // The row's quotes are words found in the page's own text: never a model's wording only a second model stands behind.
     evidence.quotes = facts
@@ -272,7 +287,7 @@ export async function readOntoRegister(
   const text = [
     `Read the ${labels.length === 1 ? labels[0] : labels.join(', ')} you filed on the register.`,
     fills ? `${plural(fills, 'check')} can take values from ${labels.length === 1 ? 'it' : 'them'}.` : '',
-    startDd ? `They answer checks in the ${startDd.title.replace(/^Start /, '')}.` : '',
+    startDd ? `${labels.length === 1 ? 'It answers' : 'They answer'} checks in the ${startDd.title.replace(/^Start /, '')}.` : '',
     flagged.length ? `\n⚑ ${[...new Set(flagged)].join('; ')}.` : '',
     proposedTypes.length
       ? `\nA model takes ${proposedTypes.length === 1 ? `it for ${article(proposedTypes[0]!)}` : `them for ${proposedTypes.map(article).join(', ')}`}. That is an offer: confirm it on the row, and until then it answers no waiting row.`

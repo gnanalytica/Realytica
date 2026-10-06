@@ -23,6 +23,7 @@ import { describe, it } from 'node:test';
 import {
   DD_TYPE_DEFINITIONS,
   acceptWaiting,
+  acceptedFacts,
   acceptedOneAtATime,
   addEvidence,
   answerFromFile,
@@ -50,6 +51,7 @@ import {
   valueReadingsWaiting,
   valueSummary,
   waitingAsRead,
+  waitingReadingSaid,
   waitingReadings,
   type ChatIngestFile,
   type DdProject,
@@ -80,14 +82,14 @@ const ALLOWED: ReadonlyArray<{ file: string; has?: string; why: string }> = [
   // Deciding values is not acting on them: these accept, set aside and reopen, and whatever they accept then stands.
   { file: 'packages/shared/src/operating-model/review.ts', has: 'const facts = evidence.facts ?? [];', why: 'the values a person is deciding' },
   { file: 'packages/shared/src/operating-model/review.ts', has: 'evidence.facts = rows;', why: 'writes the decided values back to the row' },
-  { file: 'packages/shared/src/operating-model/review.ts', has: 'sourceRow(project, card)?.facts', why: 'asks whether a card’s field came from a reading that waits, so as to leave it' },
+  { file: 'packages/shared/src/operating-model/review.ts', has: 'const fact = (row?.facts ?? []).find(', why: 'asks whether a card’s field came from a reading that waits, so as to leave it' },
   { file: 'packages/shared/src/operating-model/review.ts', has: "(row?.facts ?? []).some((f) => f.key === k && factReview(f) === 'proposed'", why: 'the waiting value a person just accepted on a check is accepted on its paper too' },
 
   // Filing a reading is not acting on it: every value goes onto its row proposed, to wait there.
   { file: 'packages/shared/src/operating-model/wizard.ts', has: 'const facts = read ? read.facts :', why: 'puts the whole reading on the card that files it, in the order it was read' },
   { file: 'packages/shared/src/operating-model/wizard.ts', has: 'payload.facts', why: 'files the card’s reading on the row, each value proposed' },
   { file: 'apps/api/src/documents/register-read.ts', has: 'known ? doc.facts :', why: 'puts the whole reading on the row it was filed on, each value proposed' },
-  { file: 'apps/api/src/documents/register-read.ts', has: 'evidence.facts = proposeFacts(evidence.facts ?? [], facts);', why: 'the same, written to the row' },
+  { file: 'apps/api/src/documents/register-read.ts', has: 'evidence.facts = proposeOnRow(evidence, facts);', why: 'the same, written to the row' },
 
   // Asking whether a paper was read, or how much it has, is not reading what it states.
   { file: 'packages/shared/src/operating-model/chat-places.ts', has: '!(e.facts ?? []).length && !e.modelReadAt', why: 'counts the papers nobody has read' },
@@ -207,24 +209,41 @@ describe('what stands', () => {
   it('is what a person accepted, and what the rules read that no other reader read differently', () => {
     const rules = fact('extent_title', 'Extent per title', 2450, '2,450 sqm');
     const model = fact('ec_nil', 'Nil result', true, 'yes', byModel('page_text'));
-    const row = { facts: proposeFacts([], [rules, model, contested()]) };
+    const stamp = fact('stamp_duty', 'Stamp duty', 1783600, 'Rs 17.84 lakh', byModel('page_text'));
+    const row = { documentType: 'Sale deed', facts: proposeFacts([], [rules, stamp, contested()]) };
     assert.deepEqual(standingFacts(row).map((f) => f.key), ['extent_title']);
-    assert.deepEqual(waitingReadings(row).map((f) => f.key), ['ec_nil', 'survey_numbers'], 'a model’s value and a value two readers differ on wait');
-    assert.deepEqual(liveFacts(row).map((f) => f.key), ['extent_title', 'ec_nil', 'survey_numbers'], 'and a screen that shows what waits still sees all three');
+    assert.deepEqual(waitingReadings(row).map((f) => f.key), ['stamp_duty', 'survey_numbers'], 'a model’s value and a value two readers differ on wait');
+    assert.deepEqual(liveFacts(row).map((f) => f.key), ['extent_title', 'stamp_duty', 'survey_numbers'], 'and a screen that shows what waits still sees all three');
 
-    const accepted = { facts: row.facts.map((f) => ({ ...f, review: 'accepted' as const })) };
+    const accepted = { ...row, facts: row.facts.map((f) => ({ ...f, review: 'accepted' as const })) };
     assert.equal(standingFacts(accepted).length, 3, 'accepted, each stands whoever read it');
-    assert.equal(standingFacts({ facts: row.facts.map((f) => ({ ...f, review: 'rejected' as const })) }).length, 0);
+    assert.equal(standingFacts({ ...row, facts: row.facts.map((f) => ({ ...f, review: 'rejected' as const })) }).length, 0);
+
+    // Rule A: on a paper this server had a reason to send to a model, the rules’ own value waits too, until a person accepts it.
+    const poor = { documentType: 'Sale deed', facts: proposeFacts([], [{ ...rules, unsure: true as const }]) };
+    assert.deepEqual([standingFacts(poor).length, waitingReadings(poor).map((f) => f.key)], [0, ['extent_title']]);
+    assert.equal(acceptedOneAtATime(poor.facts[0]!), false, 'and "accept all" takes it: nobody read it differently');
+    assert.match(waitingReadingSaid(poor.facts[0]!, 'the sale deed'), /hard to read here, and nobody has accepted it/);
+    assert.equal(standingFacts({ ...poor, facts: poor.facts.map((f) => ({ ...f, review: 'accepted' as const })) }).length, 1);
+
+    // Rule C: a value under a key the row’s kind of paper does not carry is no reading of that paper, whoever accepted it.
+    const nil = { ...model, review: 'accepted' as const };
+    assert.equal(standingFacts({ documentType: 'Encumbrance certificate', facts: [nil] }).length, 1);
+    for (const documentType of [undefined, 'RTC (record of rights)', 'Legal opinion on title']) {
+      assert.deepEqual([standingFacts({ documentType, facts: [nil] }), acceptedFacts({ documentType, facts: [nil] })], [[], []], String(documentType));
+    }
+    assert.equal(waitingReadings({ proposedDocumentType: 'Encumbrance certificate', facts: [{ ...model, review: 'proposed' }] }).length, 1, 'under the kind a model offered, it waits to be decided');
+    assert.equal(waitingReadings({ refusedDocumentType: 'Encumbrance certificate', facts: [{ ...model, review: 'proposed' }] } as never).length, 0, 'and not once that offer is refused');
   });
 
   it('counts a value filed before values were decided one by one as accepted, and a reading not yet on a row as undecided', () => {
     const old = fact('ec_nil', 'Nil result', true, 'yes', { source: 'model' });
-    assert.equal(stands(old), true, 'no decision on a value on file means it came with its approved card');
+    assert.equal(stands(old, { documentType: 'Encumbrance certificate' }), true, 'no decision on a value on file means it came with its approved card');
     // The same value in a reading that is not on a row yet is one nobody has decided.
     assert.deepEqual(standingAsRead({ facts: [old] }), []);
     assert.deepEqual(waitingAsRead({ facts: [old] }), [old]);
     assert.deepEqual(standingAsRead({ facts: [contested(), fact('extent_title', 'Extent per title', 2450, '2,450 sqm')] }).map((f) => f.key), ['extent_title']);
-    assert.equal(stands(contested()), false, 'a value with another reader’s beside it and no decision was never accepted by anybody');
+    assert.equal(stands(contested(), { documentType: 'Sale deed' }), false, 'a value with another reader’s beside it and no decision was never accepted by anybody');
     assert.deepEqual(standingAsRead(undefined), []);
   });
 
@@ -430,6 +449,18 @@ describe('a value that waits', () => {
     const r = project();
     filed(r, 'Sale deed', 'Sale deed', [contested()]);
     assert.equal(answerFromFile(r, 'What is the survey number?')!.text, 'Two readers read the survey number differently on the sale deed (p.1): 73/4 and 73/1. Nobody has kept one, so it is not on file.');
+  });
+
+  it('raises no parcel or address card from a model’s notes or the words it quoted, nor from a paper this server was unsure of', () => {
+    const said = 'Encumbrance certificate for Survey No. 143/2 of Navilugudda Village, Suvarnagiri Hobli, Kadamba Taluk.';
+    const scan = { fileName: 'ec.pdf', mimeType: 'application/pdf', sizeBytes: 1, storageKey: 'k-ec' };
+    // A model's account of the paper: its notes and its quotes. Nothing verified either, and neither is the page's words.
+    assert.deepEqual(placeProposalsFromIngest(project(), [{ ...scan, extractionNotes: said, quotes: [{ text: said, page: 1 }] }], 'tester'), []);
+    // The same words read by this server on the page, surely, still raise the cards.
+    assert.deepEqual(placeProposalsFromIngest(project(), [{ ...scan, excerpt: said }], 'tester').map((c) => Object.keys(c.payload)[0]), ['parcelId', 'siteAddress']);
+    // Not from a paper it had a reason to send to a model: what that paper states waits on its row.
+    const reading: ReadingCoverage = { pagesInFile: 1, pagesRead: 1, readers: { text: 0, ocr: 1, model: 0 }, modelReasons: ['OCR was unsure of page 1.'], modelPages: [1] };
+    assert.deepEqual(placeProposalsFromIngest(project(), [{ ...scan, excerpt: said, reading }], 'tester'), []);
   });
 
   it('differs from nothing on file, fills no certified report, and names no parcel', () => {

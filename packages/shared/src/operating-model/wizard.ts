@@ -6,7 +6,7 @@
  */
 
 import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, snapshotCapabilities } from './capabilities';
-import { proofOf, proposeFacts, standingAsRead, waitingAsRead } from './fact-review';
+import { proofOf, proposeOnRow, standingAsRead, waitingAsRead } from './fact-review';
 import { screenProject } from './project-screen';
 import { DD_TYPE_DEFINITIONS } from './libraries';
 import {
@@ -22,6 +22,7 @@ import {
   createAssessment,
   ensureProjectShape,
   generateReport,
+  recordAuditEvent,
   recordCheckFields,
   editReportBlock,
   insertReportBlock,
@@ -320,7 +321,9 @@ export function classifyIngestFile(
   file: ChatIngestFile,
   prefer?: SittingRef,
 ): { hint: FileHint; evidence?: EvidenceRecord; assessmentIds: string[]; scopeInstanceIds: string[]; checkIds: string[] } {
-  const hay = `${file.fileName.replace(/[_-]+/g, ' ')} ${file.excerpt ?? ''} ${file.extractionNotes ?? ''} ${file.kindHint ?? ''}`.toLowerCase();
+  // The file's name and the words this server read on its pages. Never a model's notes or the kind it took the paper for: those
+  // are an offer for a person, and a row chosen from them is a model filing the paper.
+  const hay = `${file.fileName.replace(/[_-]+/g, ' ')} ${file.excerpt ?? ''}`.toLowerCase();
   let best: FileHint = { keys: [], kind: 'document', scopes: [], titles: ['Uploaded document'] };
   let bestScore = 0;
   /*
@@ -564,11 +567,14 @@ export function proposalsFromIngest(
           scopeInstanceIds: classified.scopeInstanceIds,
           checkIds: classified.checkIds,
           checkId: classified.checkIds[0],
-          quotes: factQuotes.length ? factQuotes : file.quotes,
+          quotes: factQuotes,
           extractionNotes: read ? read.summary : file.extractionNotes,
           readFailure: read || modelFacts.length ? undefined : file.readFailure,
           facts,
-          documentType: read?.label ?? documentTypeOfKind(file.kindHint),
+          // Typed by what the rules read it as. What only a model, or a hint that came with the file, took it for is an offer:
+          // it names nothing and answers no waiting row until a person confirms it on the row.
+          documentType: read?.label,
+          ...(read || !documentTypeOfKind(file.kindHint) ? {} : { proposedDocumentType: documentTypeOfKind(file.kindHint) }),
           readMethod: read?.method,
           ...(file.modelRead ? { modelRead: true } : {}),
         },
@@ -679,17 +685,26 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     if (quotes.length) evidence.quotes = mergeQuoteLists(evidence.quotes, quotes);
     const notes = proposalExtractionNotes(payload);
     if (notes) evidence.extractionNotes = notes;
-    // What the document states travels with it onto the row, so a check
-    // started later — and every chat answer — can read it with its page.
-    // Each value waits on the row for a person to accept it where it sits;
-    // one the row already accepts is not asked again.
-    if (Array.isArray(payload.facts) && payload.facts.length) {
-      evidence.facts = proposeFacts(evidence.facts ?? [], payload.facts as DocumentFact[]);
-    }
     if (typeof payload.documentType === 'string') {
       evidence.documentType = payload.documentType;
       // The row is typed now. What a model offered to call it before is no longer an offer waiting to be confirmed over it.
       delete evidence.proposedDocumentType;
+    } else if (
+      typeof payload.proposedDocumentType === 'string'
+      && payload.proposedDocumentType !== evidence.documentType
+      // Not an offer a person has already refused for this paper.
+      && payload.proposedDocumentType !== evidence.refusedDocumentType
+    ) {
+      evidence.proposedDocumentType = payload.proposedDocumentType;
+    }
+    // What the document states travels with it onto the row, so a check
+    // started later — and every chat answer — can read it with its page.
+    // Each value waits on the row for a person to accept it where it sits;
+    // one the row already accepts is not asked again. Put there once the row
+    // says what the paper is, so a value its kind does not carry never waits.
+    if (Array.isArray(payload.facts) && payload.facts.length) {
+      evidence.facts = proposeOnRow(evidence, payload.facts as DocumentFact[]);
+      recordAuditEvent(project, { actor, action: 'read', entityType: 'evidence', entityId: evidence.id, newValue: `${payload.facts.length} value(s)` });
     }
     if (payload.readMethod === 'text' || payload.readMethod === 'ocr' || payload.readMethod === 'mixed') evidence.readMethod = payload.readMethod;
     if (payload.modelRead === true) {
@@ -713,8 +728,10 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
       );
     }
     // A document that answers other open rows too — the DD's "Title
-    // extract" beside the pack's "Sale deed" — answers all of them.
-    absorbAnsweredGaps(project, evidence);
+    // extract" beside the pack's "Sale deed" — answers all of them. Only as
+    // the paper the rules read it as: a row typed before, by a person or an
+    // earlier reading, answered what it answers then.
+    if (typeof payload.documentType === 'string') absorbAnsweredGaps(project, evidence);
     for (const checkId of evidence.checkIds) {
       for (const assessment of project.assessments) {
         for (const scope of assessment.scopes) {

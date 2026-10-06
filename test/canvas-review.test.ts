@@ -20,6 +20,7 @@ import {
   createProject,
   decideCheckFields,
   liveFacts,
+  otherReadingSaid,
   pickCheckValue,
   proposeFacts,
   proposedFacts,
@@ -51,7 +52,7 @@ const khata = (...facts: DocumentFact[]): ChatIngestFile => ({
   storageKey: 's3://khata',
   read: {
     type: 'khata',
-    label: 'Khata certificate',
+    label: 'Khata certificate and extract',
     confidence: 0.9,
     method: 'text',
     summary: 'Khata certificate for the parcel.',
@@ -150,6 +151,23 @@ describe('accepting a value on a document', () => {
 });
 
 describe('a check’s values', () => {
+  it('are not accepted on the check while the reading they came from waits on its paper', () => {
+    const { p, row, parcel, card } = uploaded(fact('extent_khata', 11850, '11,850 sq ft'), fact('survey_numbers', '118/2'));
+    // The card was raised from the rules' reading. A later reading lays another reader's number beside it, and both wait on the paper.
+    row.facts = row.facts!.map((f) => (f.key === 'survey_numbers' ? { ...f, otherReading: { ...fact('survey_numbers', '118/7'), source: 'model' as const, proof: 'second_reader' as const } } : f));
+    assert.throws(
+      () => decideCheckFields(p, card!.id, ['survey_numbers'], 'accept', 'tester'),
+      /Two readers read “survey numbers” differently on Khata certificate and extract\. Keep one of the two on the document; the check takes what is kept there\./,
+    );
+    const onCheck = () => parcel.fields?.survey_numbers?.value;
+    assert.equal(onCheck(), undefined, 'nothing is recorded');
+    assert.equal(row.facts!.find((f) => f.key === 'survey_numbers')!.review, 'proposed', 'and the paper’s value is not accepted by the back door');
+    // Kept on the document, the check takes it from there.
+    reviewFacts(p, row.id, ['survey_numbers'], 'accept', 'tester');
+    assert.equal(onCheck(), '118/2');
+    assert.equal(otherReadingSaid(row.facts!.find((f) => f.key === 'survey_numbers')!), 'The two differ; 118/2 was kept.', 'and the line beside it says which was kept');
+  });
+
   it('are decided one field at a time, and the card closes when the last one is', () => {
     const { p, parcel, card } = uploaded(fact('extent_khata', 11850, '11,850 sq ft'), fact('survey_numbers', '118/2'));
     decideCheckFields(p, card!.id, ['survey_numbers'], 'accept', 'tester');
@@ -188,7 +206,7 @@ describe('a newer reading of the same document', () => {
 
     const facts = proposeFacts([accepted], [fact('extent_khata', 11900)]);
     assert.equal(facts.length, 2);
-    assert.deepEqual(acceptedFacts({ facts }).map((f) => f.value), [11850]);
+    assert.deepEqual(acceptedFacts({ facts, documentType: 'Khata certificate and extract' }).map((f) => f.value), [11850]);
     assert.deepEqual(proposedFacts({ facts }).map((f) => f.value), [11900]);
   });
 
@@ -265,7 +283,7 @@ describe('documents that disagree about a check', () => {
     const field = waiting.fields.find((f) => f.key === 'extent_khata')!;
     assert.deepEqual(field.values.map((v) => v.value).sort(), [11850, 11900]);
     assert.equal(field.disagree, true);
-    assert.equal(field.values[0]!.source, 'Khata certificate', 'each value names the document it was read from');
+    assert.equal(field.values[0]!.source, 'Khata certificate and extract', 'each value names the document it was read from');
   });
 
   it('never let the last document accepted overwrite the other', () => {

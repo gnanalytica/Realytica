@@ -206,7 +206,9 @@ function waitingLine(rows: Sourced[]): string {
   if (rows.length === 1) {
     return first.fact.otherReading
       ? `Two readers read the ${first.fact.label.toLowerCase()} differently on ${where}: ${first.fact.display} and ${first.fact.otherReading.display}. Nobody has kept one, so it is not on file.`
-      : `A model read ${first.fact.label.toLowerCase()} ${first.fact.display} on ${where}. Nobody has accepted it, so it is not on file.`;
+      : first.fact.source === 'model'
+        ? `A model read ${first.fact.label.toLowerCase()} ${first.fact.display} on ${where}. Nobody has accepted it, so it is not on file.`
+        : `${first.fact.label} ${first.fact.display} was read on ${where}, a paper that was hard to read here. Nobody has accepted it, so it is not on file.`;
   }
   const labels = [...new Set(rows.map((row) => row.fact.label.toLowerCase()))];
   return `${rows.length} readings are waiting to be accepted and are not on file: ${labels.slice(0, 4).join(', ')}${labels.length > 4 ? ` and ${labels.length - 4} more` : ''}.`;

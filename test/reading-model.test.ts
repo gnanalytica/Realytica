@@ -542,16 +542,18 @@ describe('the model reader, sent the pages this server could not read well', () 
     assert.ok(facts.executant!.marks?.quote.length, 'with where its words sit on the page, so they can be shown');
     assert.equal(facts.applicationNumber, undefined, 'an exact value under a key of the model’s own, on a scanned page, is nobody’s to confirm');
     assert.equal(facts.ec_to!.value, '2025-03-31', 'the rules’ date stands');
-    assert.equal(facts.ec_to!.otherReading, undefined, 'and the model’s, which the second reader read differently, is not set beside it');
-    assert.equal(facts.subsisting_charges!.otherReading, undefined, 'nor is a count its own quote does not state');
+    // A reading nothing confirmed on the page is still another reader's different reading: set beside the rules' value, marked
+    // unverified, and the rules' value waits with it for a person.
+    assert.deepEqual([facts.ec_to!.otherReading?.value, facts.ec_to!.otherReading?.proof], ['2026-03-31', 'unverified'], 'the model’s date, which the second reader read differently, is set beside it as unverified');
+    assert.deepEqual([facts.subsisting_charges!.otherReading?.value, facts.subsisting_charges!.otherReading?.proof], [2, 'unverified'], 'so is a count its own quote does not state');
     assert.equal(facts.owner, undefined, 'a key this paper does not carry is not taken');
     assert.deepEqual(
       merged.reading?.unverified?.map((f) => [f.key, f.value, f.page, f.proof]),
-      [['subsisting_charges', 2, 1, 'unverified'], ['applicationNumber', 'EC/WTF/2025/118842', 1, 'unverified'], ['ec_to', '2026-03-31', 1, 'unverified']],
-      'each is kept apart, as unverified',
+      [['applicationNumber', 'EC/WTF/2025/118842', 1, 'unverified']],
+      'what is beside no value of the rules’ is kept apart, as unverified',
     );
     assert.deepEqual([merged.reading?.pagesRead, merged.reading?.readers, merged.reading?.modelPagesSent, merged.reading?.modelPagesRead], [1, { text: 0, ocr: 1, model: 1 }, [1], [1]]);
-    assert.equal(readingLine(merged.reading), '3 values a model read could not be verified on the page, and are kept apart as unverified.');
+    assert.equal(readingLine(merged.reading), '1 value a model read could not be verified on the page, and is kept apart as unverified.');
   });
 
   it('finds a value’s words only on a page that was sent, and with the value’s own words there', async () => {
@@ -653,8 +655,11 @@ describe('the model reader, sent the pages this server could not read well', () 
     assert.equal(setAsideProposedType(refused.p, refused.row.id), true);
     assert.deepEqual([refused.row.documentType, refused.row.proposedDocumentType, refused.waiting.status], [undefined, undefined, 'missing']);
     assert.equal(setAsideProposedType(refused.p, refused.row.id), false, 'there is nothing left to set aside');
+    const ofModel = (row: typeof refused.row) => (row.facts ?? []).filter((f) => f.source === 'model').map((f) => [f.key, f.review]);
+    assert.deepEqual(ofModel(refused.row), [['ec_nil', 'rejected']], 'the nil-encumbrance answer a model read under that kind is set aside with it');
     await refused.again();
     assert.equal(refused.row.proposedDocumentType, undefined, 'an offer a person refused is not made twice');
+    assert.deepEqual(ofModel(refused.row), [['ec_nil', 'rejected']], 'and reading the paper again does not bring the value back to wait');
     assert.doesNotMatch(refused.p.conversation.at(-1)?.text ?? '', /A model takes it for/);
 
     // Corrected: the person's word is the row's type, and it answers what was waiting for that paper and nothing else.
@@ -662,6 +667,7 @@ describe('the model reader, sent the pages this server could not read well', () 
     assert.equal(correctProposedType(corrected.p, corrected.row.id, 'A paper of my own invention'), false, 'only a kind of document the register knows');
     assert.equal(correctProposedType(corrected.p, corrected.row.id, 'RTC (record of rights)'), true);
     assert.deepEqual([corrected.row.documentType, corrected.row.proposedDocumentType, corrected.waiting.status], ['RTC (record of rights)', undefined, 'missing'], 'a record of rights does not answer the row waiting for an encumbrance certificate');
+    assert.deepEqual(ofModel(corrected.row), [['ec_nil', 'rejected']], 'nor does it carry a nil-encumbrance answer: the model’s is set aside');
     assert.equal(correctProposedType(corrected.p, corrected.row.id, 'Sale deed'), false, 'with no offer waiting, there is nothing to correct here');
     kind = 'title_deed';
     paper = 'sale_deed';

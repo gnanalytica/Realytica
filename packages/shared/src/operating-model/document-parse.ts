@@ -22,6 +22,7 @@
  */
 
 import type { DocumentKind } from '../types';
+import { normalizeDigits } from '../script';
 import type { EvidenceKind, FindingSeverity, ScopeKey } from './types';
 
 /* ==================================================================== */
@@ -81,6 +82,13 @@ export interface DocumentFact {
   originalScript?: import('../script').DocScript;
   /** Who read it: this server's parser, or a model whose page was verified. */
   source?: 'parser' | 'model';
+  /**
+   * Read by the rules off a paper this server had a reason to send to a model:
+   * a page in another script, one OCR was unsure of, pages unread, a paper not
+   * recognised (the file's `reading.modelReasons`). Such a value waits for a
+   * person as a model's does, and acts on nothing until then (`stands`).
+   */
+  unsure?: true;
   /** For a model's fact, how its page was verified. */
   pageCheck?: import('../types').PageCheck;
   /**
@@ -1647,9 +1655,102 @@ export const STANDARD_FACT_KEYS: Record<string, StandardFactKey> = {
   rera_valid_until: { label: 'Registration valid until', form: 'date', papers: ['rera_registration'], says: 'the last day a RERA registration is valid' },
 };
 
+/** The rest of the keys the rules file a value under: a paper's own, on no list a model is told. Each with the name and the form the rules give it. */
+export const RULES_FACT_KEYS: Record<string, { label: string; form: FactForm }> = {
+  advocate: { label: 'Advocate', form: 'words' },
+  building_height: { label: 'Building height cleared', form: 'number' },
+  cin: { label: 'Corporate identification number', form: 'identifier' },
+  clearance_number: { label: 'Clearance number', form: 'identifier' },
+  cleared_built_up_area: { label: 'Built-up area cleared', form: 'sqm' },
+  cleared_units: { label: 'Units cleared', form: 'number' },
+  company_name: { label: 'Company', form: 'words' },
+  covered_survey_numbers: { label: 'Survey numbers covered', form: 'identifier' },
+  former_name: { label: 'Formerly', form: 'words' },
+  issued_by: { label: 'Issued by', form: 'words' },
+  issued_on: { label: 'Issued on', form: 'date' },
+  issued_to: { label: 'Issued to', form: 'words' },
+  lease_start: { label: 'Lease starts', form: 'date' },
+  leased_area: { label: 'Area let', form: 'sqm' },
+  monthly_rent: { label: 'Monthly rent', form: 'rupees' },
+  noc_reference: { label: 'Reference', form: 'identifier' },
+  oc_partial: { label: 'Partial OC only', form: 'yes_no' },
+  opinion_conditions: { label: 'Subject to', form: 'words' },
+  permissible_height: { label: 'Permissible height above ground', form: 'number' },
+  permissible_top_elevation: { label: 'Permissible top elevation', form: 'number' },
+  power_load: { label: 'Power sanctioned', form: 'number' },
+  project_name: { label: 'Project', form: 'words' },
+  registrar: { label: 'Registered with', form: 'words' },
+  rera_acknowledgement: { label: 'Application acknowledgement', form: 'identifier' },
+  rera_approved_on: { label: 'Approved on', form: 'date' },
+  root_year: { label: 'Root of title', form: 'date' },
+  site_coordinates: { label: 'Site coordinates', form: 'words' },
+  site_elevation: { label: 'Site elevation', form: 'number' },
+  subject: { label: 'Subject', form: 'words' },
+  title_conclusion: { label: 'Opinion', form: 'words' },
+  title_origin: { label: 'How title arose', form: 'words' },
+  valid_until: { label: 'Valid until', form: 'date' },
+};
+
 /** Whether a paper of this kind carries the key. A kind that is none of the standard papers carries none of them. */
 export function standardKeyFits(key: string, paper: string | null | undefined): boolean {
   return Boolean(STANDARD_FACT_KEYS[key]?.papers.includes(paper as StandardPaper));
+}
+
+/**
+ * Whether a row typed as this kind of paper carries a key: whether a value
+ * under the key, sitting on that row, is a reading of that paper at all.
+ *
+ * A standard key is carried by its papers. The rules also read a survey
+ * number off the kinds they have no parcel rule for, a lease, and a paper
+ * they did not recognise, so those carry that one key. A key that is not a
+ * standard key is a reader's own name for something and is bound to no paper.
+ *
+ * `documentType` is a row's type as the register holds it ("Sale deed"). A
+ * row with no type, or one the rules have no name for, is a paper of no kind.
+ */
+export function paperCarries(documentType: string | undefined, key: string): boolean {
+  const known = STANDARD_FACT_KEYS[key];
+  if (!known) return true;
+  const label = documentType?.toLowerCase();
+  const type = (Object.keys(PROFILES) as Array<keyof typeof PROFILES>).find((kind) => PROFILES[kind].label.toLowerCase() === label) ?? 'other';
+  if (known.papers.includes(type as StandardPaper)) return true;
+  return key === 'survey_numbers' && (type === 'lease' || !BUILDERS[type]);
+}
+
+/** A width with its unit written straight after the number, in English. */
+const LENGTH_WRITTEN = /^\d[\d,]*(?:\.\d+)?\s*(?:ft\.?|feet|foot|m\.?|mtrs?\.?|met(?:re|er)s?)(?![\p{L}\p{N}])/iu;
+
+/**
+ * Every measure some words state under a key kept as an area or a width: each
+ * number that has a unit written straight after it, in the key's own form.
+ * "2,450 square feet" is 228 sqm, "1 acre 22 guntas" is 6,273, "30 metres" is
+ * 98 ft. Empty where no number in the words carries a unit these rules know:
+ * a bare figure, or a unit written in another script.
+ */
+export function measuresStated(key: string, words: string): number[] {
+  const form = STANDARD_FACT_KEYS[key]?.form;
+  if (form !== 'sqm' && form !== 'feet') return [];
+  const text = normalise(normalizeDigits(words));
+  const out: number[] = [];
+  for (const match of text.matchAll(/(?<![\d.,/-])\d[\d,]*(?:\.\d+)?/g)) {
+    const from = text.slice(match.index);
+    if (form === 'feet') {
+      const written = LENGTH_WRITTEN.exec(from)?.[0];
+      const feet = written ? standardFact(key, written)?.value : undefined;
+      if (typeof feet === 'number') out.push(feet);
+      continue;
+    }
+    // The longest run of words from the number that is an area: "1 acre 22 guntas" before "1 acre".
+    const run = from.split(/\s+/).slice(0, 6);
+    for (let n = run.length; n >= 1; n -= 1) {
+      const sqm = areaInSqm(run.slice(0, n).join(' ').replace(/[\s.,;:)\]]+$/, ''));
+      if (sqm !== null) {
+        out.push(sqm);
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 /** How a reader that is not these rules writes a value, whichever key it is under. Said to every such reader in the same words. */
@@ -1707,7 +1808,8 @@ function bare(text: string): string {
  */
 export function standardFact(key: string, value: string, unit?: string | null): Pick<DocumentFact, 'label' | 'value' | 'unit' | 'display'> | null {
   const known = STANDARD_FACT_KEYS[key];
-  const text = normalise(value).trim();
+  // A page in Kannada writes its dates, amounts and areas in Kannada digits; the forms below are in Latin ones.
+  const text = normalise(normalizeDigits(value)).trim();
   if (!known || !text) return null;
   const { label, form, choices } = known;
   const first = /\d[\d,]*(?:\.\d+)?/.exec(text)?.[0];

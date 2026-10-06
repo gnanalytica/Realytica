@@ -420,6 +420,8 @@ export function ReadingDesk({
             <FactReviewList
               key={row.id}
               documentName={asNamed(row.documentType ?? current.label ?? 'document')}
+              documentType={row.documentType}
+              offered={Boolean(row.proposedDocumentType)}
               facts={rowFacts}
               busy={false}
               revealing={revealing}

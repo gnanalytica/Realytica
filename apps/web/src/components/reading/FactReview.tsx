@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Sparkles } from 'lucide-react';
-import { acceptedOneAtATime, factReview, oneAtATimeSaid, proofSaid, type DocumentFact, type FactReview as Review } from '@realytica/shared';
+import { acceptedOneAtATime, factReview, oneAtATimeSaid, paperCarries, proofSaid, type DocumentFact, type FactReview as Review } from '@realytica/shared';
 import { cn } from '../ui/kit';
 import { AcceptAllButton, DecideButtons, DecidedMark } from '../review/Decide';
 import { OtherReading, useTyped } from './FactRow';
@@ -204,6 +204,8 @@ function ReviewRow({
  */
 export function FactReviewList({
   documentName,
+  documentType,
+  offered,
   facts: all,
   busy,
   revealing,
@@ -212,6 +214,10 @@ export function FactReviewList({
   onDecide,
 }: {
   documentName: string;
+  /** What the row is typed as. A value under a key that kind of paper does not carry is not accepted on it. */
+  documentType?: string;
+  /** A model's offer of what the paper is, still unanswered. */
+  offered?: boolean;
   facts: DocumentFact[];
   busy: boolean;
   revealing: boolean;
@@ -272,8 +278,15 @@ export function FactReviewList({
 
   // "All" takes what a person need not look at one by one. A value two readers differ on, a model's yes or no, and an
   // exact value only a second model stands behind are left waiting, as the file leaves them.
-  const together = waiting.filter((f) => !acceptedOneAtATime(f));
-  const oneByOne = oneAtATimeSaid(waiting);
+  // Nor what the row's kind of paper does not carry: the file accepts none of it until a person says what the paper is.
+  const offPaper = waiting.filter((f) => !paperCarries(documentType, f.key));
+  const together = waiting.filter((f) => !acceptedOneAtATime(f) && !offPaper.includes(f));
+  const oneByOne = oneAtATimeSaid(waiting.filter((f) => !offPaper.includes(f)));
+  const offPaperSaid = !offPaper.length
+    ? ''
+    : offered
+      ? `${offPaper.length === 1 ? 'One value waits' : `${offPaper.length} values wait`} until you say what this paper is.`
+      : `${offPaper.length === 1 ? 'One value is' : `${offPaper.length} values are`} not what this kind of paper carries, and cannot be accepted on it.`;
   const acceptAll = () => {
     setOptimistic((prev) => ({ ...prev, ...Object.fromEntries(together.map((f) => [f.key, 'accepted' as Review])) }));
     void onDecide('all', 'accept').then((ok) => {
@@ -322,6 +335,7 @@ export function FactReviewList({
         />
       </div>
       {oneByOne ? <p className="text-micro text-ink-muted">{oneByOne}</p> : null}
+      {offPaperSaid ? <p className="text-micro text-ink-muted">{offPaperSaid}</p> : null}
       <div className="flex items-center gap-2.5" aria-hidden={facts.length === 0}>
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-sunken">
           <div
