@@ -20,7 +20,7 @@
  * closed: headings, bullets, numbers, tables, flags, and inline emphasis/code.
  */
 
-import { MEM_TAG_WORDS, projectFrameNames, type MemTagWords } from '@realytica/shared';
+import { memTagPrinted, projectFrameNames, type MemTagWords } from '@realytica/shared';
 
 export type Inline =
   | { kind: 'text'; text: string }
@@ -31,9 +31,9 @@ export type Inline =
   /** `[dd-risk-…]` — a graph node id, rendered with its real label. */
   | { kind: 'node'; id: string }
   /**
-   * `[approved]`, `[waiting]`, `[thought]`: where a fact of the project's
-   * memory stood when the sentence before it was written. Read only on a turn
-   * whose tags the server printed from the facts themselves.
+   * Where a fact of the project's memory stood when the sentence before it
+   * was written: approved, waiting, or a thought. Never read out of the
+   * text. It is placed where the turn itself says a tag was printed.
    */
   | { kind: 'memory'; tag: MemTagWords }
   /**
@@ -60,7 +60,58 @@ export type Block =
 
 const EVIDENCE_TOKEN = /\[ev:([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/;
 const NODE_TOKEN = /\[([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/;
-const MEMORY_TOKEN = new RegExp(`\\[(${MEM_TAG_WORDS.join('|')})\\]`);
+
+/**
+ * The facts a turn rests on, as the turn keeps them: each with its tag and
+ * the places in the turn's text where the server printed that tag.
+ */
+export type TagPlaces = ReadonlyArray<{ tag: 'approved' | 'proposed' | 'thought'; stands?: boolean; at?: readonly number[] }>;
+
+/**
+ * The two characters an anchor is written between, from the range Unicode
+ * leaves for private use. An anchor stands in the text, while it is parsed,
+ * for one tag at one place.
+ */
+const ANCHOR_OPEN = '\uE000';
+const ANCHOR_CLOSE = '\uE001';
+const ANCHOR = /\uE000(\d{1,4})\uE001/;
+const ANCHORS = /\uE000(\d{1,4})\uE001/g;
+
+/**
+ * A turn's text with an anchor at each place the turn says a tag was printed,
+ * and the tag each anchor is for.
+ *
+ * This is the only way a tag is drawn. The places come from the turn's own
+ * record of what it rests on, which the server sets from the facts and no
+ * model writes. A place counts only when the text there is that fact's tag
+ * as the server prints it, so a turn whose text was changed after is drawn
+ * with the words and no tag. Whatever the text itself holds of the anchor's
+ * two characters is put out of use first, without moving anything. So no
+ * text, whoever wrote it, can make a tag appear: "[approved]" typed into an
+ * answer is those ten characters.
+ */
+function anchored(text: string, places: TagPlaces | undefined): { text: string; tags: MemTagWords[] } {
+  const plain = text.replace(/[\uE000\uE001]/g, '\uFFFD');
+  const found = new Map<number, { len: number; words: MemTagWords }>();
+  for (const rest of places ?? []) {
+    const printed = memTagPrinted(rest.tag, rest.stands);
+    for (const at of rest.at ?? []) {
+      if (Number.isInteger(at) && at >= 0 && plain.startsWith(printed, at)) found.set(at, { len: printed.length, words: printed.slice(1, -1) as MemTagWords });
+    }
+  }
+  const tags: MemTagWords[] = [];
+  let out = plain;
+  let above = Infinity;
+  // From the end, so the places still to come have not moved.
+  for (const at of [...found.keys()].sort((a, b) => b - a)) {
+    const { len, words } = found.get(at)!;
+    if (at + len > above) continue;
+    out = `${out.slice(0, at)}${ANCHOR_OPEN}${tags.length}${ANCHOR_CLOSE}${out.slice(at + len)}`;
+    tags.push(words);
+    above = at;
+  }
+  return { text: out, tags };
+}
 const BOLD = /\*\*([^*]+)\*\*/;
 const CODE = /`([^`]+)`/;
 
@@ -148,11 +199,17 @@ function stretchOf(text: string, at: number, len: number, opensLine: boolean): {
  * pattern — a model writing "[see above]" must not produce a chip that opens
  * nothing, and no regex can tell the two apart.
  *
- * `tags` says the turn's memory tags were printed by the server, from the
- * facts the answer cited. Only then is `[approved]` a tag. On any other turn
- * it is words in brackets, whoever wrote them.
+ * It draws no memory tag: a tag is placed by `parseAnswer`, from the places a
+ * turn keeps, and "[approved]" in a line given to this is words in brackets.
  */
-export function parseInline(text: string, isNode: (id: string) => boolean, tags = false): Inline[] {
+export function parseInline(text: string, isNode: (id: string) => boolean): Inline[] {
+  return inline(text.replace(/[\uE000\uE001]/g, '\uFFFD'), isNode, []);
+}
+
+/** `tags` is the tag each anchor in the text is for; see `anchored`. */
+function inline(text: string, isNode: (id: string) => boolean, tags: readonly MemTagWords[]): Inline[] {
+  // An anchor caught inside bold or code is said there in words: a tag is not drawn inside another mark.
+  const worded = (words: string): string => words.replace(ANCHORS, (_whole, n: string) => `[${tags[Number(n)] ?? ''}]`);
   const out: Inline[] = [];
   let rest = text;
   // The frame ids taken out because nothing could name them.
@@ -171,14 +228,15 @@ export function parseInline(text: string, isNode: (id: string) => boolean, tags 
     const ev = EVIDENCE_TOKEN.exec(rest);
     if (ev) candidates.push({ at: ev.index, len: ev[0].length, span: { kind: 'evidence', id: ev[1] } });
 
-    const tag = tags ? MEMORY_TOKEN.exec(rest) : null;
-    if (tag) candidates.push({ at: tag.index, len: tag[0].length, span: { kind: 'memory', tag: tag[1] as MemTagWords } });
+    const anchor = tags.length ? ANCHOR.exec(rest) : null;
+    const tag = anchor ? tags[Number(anchor[1])] : undefined;
+    if (anchor && tag) candidates.push({ at: anchor.index, len: anchor[0].length, span: { kind: 'memory', tag } });
 
     const bold = BOLD.exec(rest);
-    if (bold) candidates.push({ at: bold.index, len: bold[0].length, span: { kind: 'bold', text: bold[1] } });
+    if (bold) candidates.push({ at: bold.index, len: bold[0].length, span: { kind: 'bold', text: worded(bold[1]) } });
 
     const code = CODE.exec(rest);
-    if (code) candidates.push({ at: code.index, len: code[0].length, span: { kind: 'code', text: code[1] } });
+    if (code) candidates.push({ at: code.index, len: code[0].length, span: { kind: 'code', text: worded(code[1]) } });
 
     // A frame id is looked for by its own shape, wherever it stands on the
     // line. One the graph has is a node like any other. One it does not have
@@ -273,14 +331,18 @@ const HEADING = /^([A-Z][^.!?]{0,60}):\s*$/;
  */
 const ATX = /^#{1,4}\s+(.+?)\s*#*$/;
 
-export function parseAnswer(text: string, isNode: (id: string) => boolean, tags = false): Block[] {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
+export function parseAnswer(text: string, isNode: (id: string) => boolean, places?: TagPlaces): Block[] {
+  // The places are places in the text as the turn keeps it, so the anchors go in before anything else is done to it.
+  const marked = anchored(text, places);
+  const tags = marked.tags;
+  const spansOf = (line: string) => inline(line, isNode, tags);
+  const lines = marked.text.replace(/\r\n/g, '\n').split('\n');
   const blocks: Block[] = [];
   let paragraph: string[] = [];
 
   const flush = () => {
     if (paragraph.length === 0) return;
-    blocks.push({ kind: 'paragraph', spans: parseInline(paragraph.join(' ').trim(), isNode, tags) });
+    blocks.push({ kind: 'paragraph', spans: spansOf(paragraph.join(' ').trim()) });
     paragraph = [];
   };
 
@@ -302,12 +364,12 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, tags 
       const rows: Inline[][][] = [];
       let j = i + 2;
       while (j < lines.length && lines[j].trim().includes('|') && lines[j].trim() !== '') {
-        rows.push(splitRow(lines[j].trim()).map(c => parseInline(c, isNode, tags)));
+        rows.push(splitRow(lines[j].trim()).map(c => spansOf(c)));
         j += 1;
       }
       if (rows.length > 0) {
         flush();
-        blocks.push({ kind: 'table', head: head.map(c => parseInline(c, isNode, tags)), rows });
+        blocks.push({ kind: 'table', head: head.map(c => spansOf(c)), rows });
         i = j - 1;
         continue;
       }
@@ -341,19 +403,19 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, tags 
     const flag = /^⚑\s*(.+)$/.exec(trimmed);
     if (flag) {
       flush();
-      blocks.push({ kind: 'flag', spans: parseInline(flag[1], isNode, tags) });
+      blocks.push({ kind: 'flag', spans: spansOf(flag[1]) });
       continue;
     }
 
     const bullet = /^[-*•]\s+(.*)$/.exec(trimmed);
     if (bullet) {
       flush();
-      const items: Inline[][] = [parseInline(bullet[1], isNode, tags)];
+      const items: Inline[][] = [spansOf(bullet[1])];
       let j = i + 1;
       while (j < lines.length) {
         const m = /^[-*•]\s+(.*)$/.exec(lines[j].trim());
         if (!m) break;
-        items.push(parseInline(m[1], isNode, tags));
+        items.push(spansOf(m[1]));
         j += 1;
       }
       blocks.push({ kind: 'bullets', items });
@@ -364,12 +426,12 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, tags 
     const numbered = /^(\d{1,2})[.)]\s+(.*)$/.exec(trimmed);
     if (numbered) {
       flush();
-      const items: Inline[][] = [parseInline(numbered[2], isNode, tags)];
+      const items: Inline[][] = [spansOf(numbered[2])];
       let j = i + 1;
       while (j < lines.length) {
         const m = /^(\d{1,2})[.)]\s+(.*)$/.exec(lines[j].trim());
         if (!m) break;
-        items.push(parseInline(m[2], isNode, tags));
+        items.push(spansOf(m[2]));
         j += 1;
       }
       blocks.push({ kind: 'numbers', items });
@@ -380,7 +442,7 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, tags 
     const atx = ATX.exec(trimmed);
     if (atx) {
       flush();
-      blocks.push({ kind: 'heading', spans: parseInline(atx[1], isNode, tags) });
+      blocks.push({ kind: 'heading', spans: spansOf(atx[1]) });
       continue;
     }
 
@@ -389,7 +451,7 @@ export function parseAnswer(text: string, isNode: (id: string) => boolean, tags 
     // nothing after is the end of a sentence, not a section title.
     if (heading && lines[i + 1] !== undefined && lines[i + 1].trim() !== '') {
       flush();
-      blocks.push({ kind: 'heading', spans: parseInline(heading[1], isNode, tags) });
+      blocks.push({ kind: 'heading', spans: spansOf(heading[1]) });
       continue;
     }
 

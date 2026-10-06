@@ -24,9 +24,11 @@ export interface NoteToKeep {
   /** The reply the note came with, and when it was given. */
   turnId: string;
   at: string;
-  /** The page the question was asked on, and the check the sitting was on. */
+  /** The page the question was asked on. */
   place?: MemPlace;
+  /** What the reply had to do with: the check the sitting was on, and the records the reply cited. A note is filed under one of these or under the project. */
   sitting?: { checkId?: string };
+  cited?: readonly string[];
 }
 
 /**
@@ -38,7 +40,7 @@ export async function keepThought(project: DdProject, tenantId: string, said: No
   try {
     const thought = memThought(project.id, {
       note: said.note,
-      aboutId: memThoughtAbout(project, said.about, said.sitting),
+      aboutId: memThoughtAbout(project, said.about, { sitting: said.sitting, cited: said.cited }),
       turnId: said.turnId,
       at: said.at,
       place: said.place,

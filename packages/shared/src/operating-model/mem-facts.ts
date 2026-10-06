@@ -211,6 +211,11 @@ function ruleOf(key: string, label?: string): KeyRule | undefined {
   return fields.find((field) => field.label === label) ?? fields[0];
 }
 
+/** The form the fixed lists give a key's value, or nothing for a key on none of them. `label` says which field, where several checks have one of the key. */
+export function memFormOfKey(key: string, label?: string): FactForm | undefined {
+  return ruleOf(key, label)?.form;
+}
+
 const MAIL = /@/;
 const ACCOUNT_NUMBER = /(?<![A-Za-z0-9])[A-Za-z]{5}[\s-]*\d{4}[\s-]*[A-Za-z](?![A-Za-z0-9])/;
 /** Nine digits or more with nothing between them but what a number is spaced with: an identity number, a phone number, a bank account. */

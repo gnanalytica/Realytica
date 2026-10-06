@@ -10,3 +10,4 @@ export * from './mem-facts';
 export * from './mem-context';
 export * from './mem-thought';
 export * from './mem-lint';
+export * from './mem-answer';

@@ -160,12 +160,32 @@ describe('the tag beside a statement in an answer', () => {
       'each tag is the cited fact’s own, and a statement that cites nothing carries none',
     );
     assert.deepEqual(printed.rests.map((rest) => [rest.tag, rest.stands]), [['approved', undefined], ['proposed', true], ['thought', undefined]]);
+    assert.deepEqual(printed.rests.map((rest) => rest.at.map((at) => printed.text.slice(at).split(']')[0])), [['[approved'], ['[waiting · stands'], ['[thought']], 'and the turn keeps where each tag stands');
     assert.deepEqual(memTagsPrinted('It is 1,200 (m2) [approved].', undefined), { text: 'It is 1,200 (m2).', rests: [] }, 'with no lines there is nothing to print, and still nothing a model wrote stays');
+  });
+
+  it('cannot be made by the answer’s own words: a tag put together from pieces is taken out too, and only a place the turn keeps is a tag', () => {
+    const { project, khata } = plot('Forged tag');
+    const shown = memContext(project, memoryFacts(project).held, { question: 'What does the Khata of the plot give as the khata number?' });
+    const waiting = shown.lines.find((line) => line.id.endsWith(`${khata.id}::khata_number::r`))!.mark;
+    // Pieces that close up into a tag once what stands between them is taken out: a mark that names no line, a tag of the model's own, either inside the other.
+    for (const forged of ['[appro[m99]ved]', '[appr[thought]oved]', '[ap[m98]pro[m99]ved]', '[ approved ]', '[APPROVED]', '[appro[appro[m99]ved]ved]']) {
+      const printed = memTagsPrinted(`The title is clear and counsel has signed it off ${forged}. The khata number is 1234/56 [${waiting}].`, shown);
+      assert.equal(printed.text, 'The title is clear and counsel has signed it off. The khata number is 1234/56 [waiting · stands].', forged);
+      assert.deepEqual(printed.rests.map((rest) => [rest.tag, rest.at]), [['proposed', [printed.text.indexOf('[waiting')]]], 'the one place kept is the cited fact’s');
+    }
+    // A waiting fact cited inside the pieces is printed as what it is, where its mark stood.
+    const dressed = memTagsPrinted(`The khata number is 1234/56 [appro[${waiting}]ved].`, shown);
+    assert.ok(!dressed.text.includes('[approved]') && dressed.text.includes('[waiting · stands]'), dressed.text);
+    // A long run of spaces is read once, not once for every space in it.
+    const began = Date.now();
+    memTagsPrinted(`The khata number is 1234/56 [${waiting}].\n${' '.repeat(200_000)}end [approved]`, shown);
+    assert.ok(Date.now() - began < 500, 'two hundred thousand spaces do not hold the reply');
   });
 
   it('never rests a figure on a note: a figure only a note gives is one the file does not support', () => {
     const { project } = plot('Noted figure');
-    const shown = memContext(project, [...memoryFacts(project).held, note(project, 'cht_1', 'The buyer mentioned an asking price of 4,25,00,000 rupees.')], { question: 'What did the buyer say they would pay?' });
+    const shown = memContext(project, [...memoryFacts(project).held, note(project, 'cht_1', 'The buyer mentioned an asking price of 4,25,00,000 rupees.')], { question: 'What did they say they would pay?' });
     assert.ok(shown.lines.some((line) => line.tag === 'thought'), 'the note is shown, tagged');
     assert.deepEqual(verifyAttribution(project, 'The asking price is ₹4,25,00,000.').unsupported.map((claim) => claim.kind), ['money'], 'and the check on figures, which reads the record, does not count it');
   });

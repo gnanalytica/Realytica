@@ -86,6 +86,8 @@ export interface MemContextLine {
   stands?: boolean;
   /** Which of the seeds brought it. */
   seed: number;
+  /** The id on the record of what the fact is about. */
+  aboutId: string;
   /** The line as the assistant reads it, without its mark. */
   text: string;
 }
@@ -105,16 +107,29 @@ export function memAsksAboutChange(question: string): boolean {
   return ABOUT_CHANGE.test(question);
 }
 
-/** Words too common in a label to say which key a question means. */
-const GENERIC = new Set(['number', 'date', 'from', 'with', 'this', 'that', 'what', 'when', 'paper', 'project', 'record', 'value', 'public', 'check', 'result', 'kind', 'still', 'only', 'above', 'ground']);
+/** Words too common, in a label or a question, to say which thing is meant. */
+const GENERIC = new Set([
+  ...['date', 'paper', 'project', 'record', 'value', 'public', 'check', 'result', 'kind', 'ground'],
+  ...['the', 'and', 'for', 'per', 'not', 'yet', 'any', 'all', 'has', 'was', 'are', 'who', 'how', 'its', 'our', 'you', 'can', 'did', 'does', 'have'],
+  ...['from', 'with', 'this', 'that', 'what', 'when', 'still', 'only', 'above', 'about', 'there', 'whether', 'anything', 'tell', 'show', 'give', 'say'],
+]);
 
-/** The words of some text, lower case, a plural read as its singular. */
+/** A word people say for something the fixed lists name otherwise, and the list's word for it. */
+const SAID_AS: Record<string, string> = { seller: 'vendor', buyer: 'purchaser', price: 'consideration', size: 'area', registration: 'registered' };
+
+/** The words of some text, lower case, a plural read as its singular, and a word people say read as the lists' word for it. */
 function wordsOf(text: string): string[] {
   return text
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean)
-    .map((word) => (word.length > 4 && word.endsWith('s') ? word.slice(0, -1) : word));
+    .map((word) => (word.length > 4 && word.endsWith('ies') ? `${word.slice(0, -3)}y` : word.length > 4 && word.endsWith('s') ? word.slice(0, -1) : word))
+    .map((word) => SAID_AS[word] ?? word);
+}
+
+/** The words of some text that can tell one thing from another: three letters or more, and none of the common ones. */
+export function memTellingWords(text: string): string[] {
+  return [...new Set(wordsOf(text).filter((word) => word.length >= 3 && !GENERIC.has(word)))];
 }
 
 let labelWords: Array<{ key: string; words: string[] }> | undefined;
@@ -122,7 +137,7 @@ let labelWords: Array<{ key: string; words: string[] }> | undefined;
 /** The words of each key's label that tell it from the others: every key a fact told from a paper or a field can have. */
 function keysByWord(): Array<{ key: string; words: string[] }> {
   labelWords ??= Object.entries({ ...MEM_FIELD_KEYS, ...RULES_FACT_KEYS, ...STANDARD_FACT_KEYS }).flatMap(([key, rule]) => {
-    const words = wordsOf(rule.label).filter((word) => word.length >= 4 && !GENERIC.has(word));
+    const words = memTellingWords(rule.label);
     return words.length ? [{ key, words }] : [];
   });
   return labelWords;
@@ -131,13 +146,22 @@ function keysByWord(): Array<{ key: string; words: string[] }> {
 /** How many kinds of value one question is taken to name, at most. */
 const KEYS_NAMED_AT_MOST = 6;
 
-/** The keys a question names: those whose label shares at least half its telling words with the question, the closest first. */
+/**
+ * The keys a question names, the closest first: those whose label shares at
+ * least half its telling words with the question. A label named in full
+ * counts before one named in part, and one that shares only words a label
+ * named in full already has is not named: "the land area" is the land area,
+ * and not the built-up area as well.
+ */
 function keysNamed(question: string): string[] {
   const said = new Set(wordsOf(question));
-  return keysByWord()
-    .map(({ key, words }) => ({ key, share: words.filter((word) => said.has(word)).length / words.length }))
-    .filter(({ share }) => share >= 0.5)
-    .sort((a, b) => b.share - a.share || (a.key < b.key ? -1 : 1))
+  const near = keysByWord()
+    .map(({ key, words }) => ({ key, shared: words.filter((word) => said.has(word)), of: words.length }))
+    .filter(({ shared, of }) => shared.length / of >= 0.5);
+  const inFull = new Set(near.filter(({ shared, of }) => shared.length === of).flatMap(({ shared }) => shared));
+  return near
+    .filter(({ shared, of }) => shared.length === of || shared.some((word) => !inFull.has(word)))
+    .sort((a, b) => b.shared.length / b.of - a.shared.length / a.of || (a.key < b.key ? -1 : 1))
     .slice(0, KEYS_NAMED_AT_MOST)
     .map(({ key }) => key);
 }
@@ -188,6 +212,17 @@ export function memSeeds(project: DdProject, ask: MemAsk): MemSeed[] {
     else continue;
     named += 1;
   }
+  // Papers named by their kind and not their title: "the sale deed" is every paper the register holds as one.
+  const said = new Set(wordsOf(ask.question));
+  const kinds = new Map<string, string[]>();
+  for (const row of project.evidence) if (row.documentType) kinds.set(row.documentType, [...(kinds.get(row.documentType) ?? []), row.id]);
+  for (const [kind, rows] of kinds) {
+    const telling = memTellingWords(kind);
+    const shared = telling.filter((word) => said.has(word)).length;
+    if (!shared || shared / telling.length < 0.5 || named >= RECORDS_NAMED_AT_MOST || seeds.length >= room) continue;
+    add({ from: 'named', title: kind, aboutIds: rows.slice(0, 20), keys: [] });
+    named += 1;
+  }
 
   if (keys.length) add({ from: 'named', title: 'what the question names', aboutIds: [], keys });
 
@@ -224,7 +259,7 @@ export function memIsNear(fact: MemFact, near: MemNear): boolean {
 }
 
 /** Every id a line can point at, with the words the record has for it now, keyed as memory keeps the id. */
-function titlesOf(project: DdProject): Map<string, string> {
+export function memTitles(project: DdProject): Map<string, string> {
   const titles = new Map<string, string>();
   const name = (id: string, title: string): void => {
     const pointer = memPointer(project.id, id);
@@ -290,6 +325,32 @@ function rank(fact: MemFact): number {
 const newestFirst = (a: MemFact, b: MemFact): number => (a.recordedAt === b.recordedAt ? (a.id < b.id ? -1 : 1) : a.recordedAt < b.recordedAt ? 1 : -1);
 
 /**
+ * The facts each seed brings, in the order of the seeds: at most eight a
+ * seed and forty in all, a fact once, under the first seed that takes it.
+ * On a seed, the kinds of value the question names come first, then a
+ * person's word before a reading, then the newest.
+ */
+export function memBySeed(projectId: string, facts: readonly MemFact[], seeds: readonly MemSeed[]): MemFact[][] {
+  const named = new Set(seeds.flatMap((seed) => seed.keys));
+  const taken = new Set<string>();
+  let room = MEM_CONTEXT_FACTS;
+  return seeds.map((seed) => {
+    const near = memNear(projectId, [seed]);
+    const own = facts.filter((fact) => !taken.has(fact.id) && memIsNear(fact, near));
+    // Notes take at most two of a seed's places, unless notes are what the question asked for by name.
+    const notes = own.filter((fact) => fact.tag === 'thought').sort(newestFirst).slice(0, seed.keys.includes('note') ? MEM_SEED_FACTS : MEM_SEED_THOUGHTS);
+    const held = own
+      .filter((fact) => fact.tag !== 'thought')
+      .sort((a, b) => Number(named.has(b.key)) - Number(named.has(a.key)) || rank(a) - rank(b) || newestFirst(a, b))
+      .slice(0, MEM_SEED_FACTS - notes.length);
+    const brought = [...held, ...notes].slice(0, room);
+    room -= brought.length;
+    for (const fact of brought) taken.add(fact.id);
+    return brought;
+  });
+}
+
+/**
  * The lines the assistant is shown, from the facts this reader may see.
  *
  * `project` is the record as the reader may see it: it names the seeds and
@@ -298,28 +359,17 @@ const newestFirst = (a: MemFact, b: MemFact): number => (a.recordedAt === b.reco
  */
 export function memContext(project: DdProject, facts: readonly MemFact[], ask: MemAsk, seeds: MemSeed[] = memSeeds(project, ask)): MemContext {
   const past = memAsksAboutChange(ask.question);
-  const titles = titlesOf(project);
-  const named = new Set(seeds.flatMap((seed) => seed.keys));
-  const taken = new Set<string>();
+  const titles = memTitles(project);
   const lines: MemContextLine[] = [];
-  seeds.forEach((seed, at) => {
-    const near = memNear(project.id, [seed]);
-    const own = facts.filter((fact) => !taken.has(fact.id) && memIsNear(fact, near));
-    // Notes take at most two of a seed's places, unless notes are what the question asked for by name.
-    const notes = own.filter((fact) => fact.tag === 'thought').sort(newestFirst).slice(0, seed.keys.includes('note') ? MEM_SEED_FACTS : MEM_SEED_THOUGHTS);
-    const held = own
-      .filter((fact) => fact.tag !== 'thought')
-      .sort((a, b) => Number(named.has(b.key)) - Number(named.has(a.key)) || rank(a) - rank(b) || newestFirst(a, b))
-      .slice(0, MEM_SEED_FACTS - notes.length);
-    for (const fact of [...held, ...notes]) {
-      if (lines.length >= MEM_CONTEXT_FACTS) return;
-      taken.add(fact.id);
+  memBySeed(project.id, facts, seeds).forEach((brought, at) => {
+    for (const fact of brought) {
       lines.push({
         mark: `m${lines.length + 1}`,
         id: fact.id,
         tag: fact.tag,
         ...(fact.tag === 'proposed' ? { stands: fact.stands === true } : {}),
         seed: at,
+        aboutId: fact.aboutId,
         text: lineOf(fact, titles, past),
       });
     }
@@ -349,39 +399,106 @@ export function memContextText(context: MemContext): string {
 export const MEM_ANSWER_RULES = `Memory lines: a question may come with lines from the project's memory, each with a mark (m1, m2 and on) and a tag the system set. "approved" is a value a person typed or accepted. "waiting" is a value read off a paper or raised on a card that nobody has decided; "waiting · stands" is one the file's own rule lets be acted on meanwhile. "thought" is an earlier note of yours and no fact of the file. When a sentence of your answer rests on a line, end that sentence with the line's mark in square brackets, like [m2]. Never write a tag yourself and never make up a mark: the system prints the tag where the mark stands. Say that a waiting value is not yet accepted when the answer turns on it. Never give a figure, a date or a name on the strength of a thought alone.
 Note to memory: when this turn taught you something about the project that is worth keeping and no memory line already says it, end your answer with one last line in exactly this form: "Note to memory: " and then one plain sentence of under 300 characters. When it is about one record, put that record's id in square brackets after the word memory: "Note to memory [id]: ...". Leave the line out when there is nothing worth keeping. Never put a phone number, an identity number, an account number or an email address in it.`;
 
-/** A fact an answer rests on, with the tag it had when the answer was given. */
+/**
+ * A fact an answer rests on, with the tag it had when the answer was given
+ * and where in the answer's text the tag is printed: the place of each `[`.
+ * A page draws a tag as a tag at those places and nowhere else, so nothing an
+ * answer says in words can be drawn as one.
+ */
 export interface MemRest {
   id: string;
   tag: MemFactTag;
   stands?: boolean;
+  at: number[];
 }
 
-/** A mark, or several, in square brackets. Not in round ones: "(m2)" in an answer is square metres. */
-const MARKS = /[ \t]*\[\s*(m\d{1,3}(?:\s*[,;]\s*m\d{1,3})*)\s*\]/gi;
-const OWN_TAG = /[ \t]*\[(?:approved|proposed|waiting(?:\s*[·,]\s*stands)?|thought)\]/gi;
+/**
+ * What in an answer reads as a tag or a mark: square brackets round a mark
+ * or several ("(m2)" in round ones is square metres), or round one of the
+ * words a tag is said in, whatever its case. Matched from its bracket, with
+ * no run of spaces before it to read through again and again.
+ */
+const TOKEN = /\[\s{0,3}(?:(m\d{1,3}(?:\s{0,3}[,;]\s{0,3}m\d{1,3}){0,20})|approved|proposed|waiting(?:\s{0,3}[·,]\s{0,3}stands)?|thought)\s{0,3}\]/gi;
+
+/** How many times over an answer is read for tags of its own before its square brackets are taken out altogether. */
+const OWN_TAG_PASSES = 40;
+
+/** Some text without the spaces and tabs it ends in. */
+function closedUp(text: string): string {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === ' ' || text[end - 1] === '\t')) end -= 1;
+  return end === text.length ? text : text.slice(0, end);
+}
+
+/**
+ * One reading of an answer. Each token is given to `put`, which answers what
+ * to write in its place: nothing takes it out with the spaces before it, and
+ * `undefined` leaves it as it is. `put` is told where in the new text what
+ * it writes will begin. What has been written never ends in a space, so the
+ * spaces to close up are only ever those of the stretch just before a token.
+ */
+function rewritten(text: string, put: (marks: string | undefined, at: number) => string | undefined): string {
+  const pieces: string[] = [];
+  let length = 0;
+  let from = 0;
+  for (const found of text.matchAll(TOKEN)) {
+    const end = found.index + found[0].length;
+    const before = closedUp(text.slice(from, found.index));
+    const written = put(found[1], length + before.length);
+    const piece = written === undefined ? text.slice(from, end) : before + written;
+    pieces.push(piece);
+    length += piece.length;
+    from = end;
+  }
+  pieces.push(text.slice(from));
+  return pieces.join('');
+}
 
 /**
  * An answer with its tags printed.
  *
- * Every mark the answer cites is replaced by the tag of the line it names,
- * as this file words it. A mark that names no line is taken out. A tag the
- * answer wrote itself is taken out first, so the only tags left in the text
- * are the ones printed here from a fact. `rests` is the facts cited, once
- * each, in the order they were.
+ * First everything the answer wrote that reads as a tag goes, and every mark
+ * that names no line, again and again until nothing more does: two halves of
+ * a tag with something between them close up into a tag once the something
+ * is taken out, and that one goes on the next reading. Then every mark left
+ * names a line, and the tag of that line is printed where the mark stood.
+ *
+ * `rests` is the facts cited, once each, in the order they were, with the
+ * place of every tag printed for them. The text is not changed after this:
+ * the places are places in the text as it is returned.
  */
-export function memTagsPrinted(text: string, context: Pick<MemContext, 'lines'> | undefined): { text: string; rests: MemRest[] } {
+export function memTagsPrinted(text: string, context: { lines: ReadonlyArray<Pick<MemContextLine, 'mark' | 'id' | 'tag' | 'stands'>> } | undefined): { text: string; rests: MemRest[] } {
   const byMark = new Map((context?.lines ?? []).map((line) => [line.mark, line]));
-  const rests: MemRest[] = [];
-  const printed = text.replace(OWN_TAG, '').replace(MARKS, (_whole, marks: string) => {
-    const tags: string[] = [];
-    for (const mark of marks.toLowerCase().split(/\s*[,;]\s*/)) {
-      const line = byMark.get(mark);
-      if (!line) continue;
-      if (!rests.some((rest) => rest.id === line.id)) rests.push({ id: line.id, tag: line.tag, ...(line.stands === undefined ? {} : { stands: line.stands }) });
-      const tag = memTagPrinted(line.tag, line.stands);
-      if (!tags.includes(tag)) tags.push(tag);
+  const named = (marks: string) => marks.toLowerCase().split(/\s*[,;]\s*/).flatMap((mark) => byMark.get(mark) ?? []);
+
+  let clean = text;
+  for (let pass = 0; ; pass += 1) {
+    const next = rewritten(clean, (marks) => (marks && named(marks).length ? undefined : ''));
+    if (next === clean) break;
+    clean = next;
+    // An answer built to need this many readings is not one to print tags on. Without a bracket it holds neither a tag nor a mark.
+    if (pass >= OWN_TAG_PASSES) {
+      clean = clean.replace(/[[\]]/g, '');
+      break;
     }
-    return tags.length ? ` ${tags.join(' ')}` : '';
+  }
+
+  const rests: MemRest[] = [];
+  const printed = rewritten(clean, (marks, at) => {
+    let written = '';
+    const places = new Map<string, number>();
+    for (const line of named(marks ?? '')) {
+      const tag = memTagPrinted(line.tag, line.stands);
+      // Two lines of one tag cited together are one tag printed, and both rest on it.
+      if (!places.has(tag)) {
+        places.set(tag, at + written.length + 1);
+        written += ` ${tag}`;
+      }
+      const rest = rests.find((held) => held.id === line.id);
+      if (rest) rest.at.push(places.get(tag)!);
+      else rests.push({ id: line.id, tag: line.tag, ...(line.stands === undefined ? {} : { stands: line.stands }), at: [places.get(tag)!] });
+    }
+    return written;
   });
   return { text: printed, rests };
 }

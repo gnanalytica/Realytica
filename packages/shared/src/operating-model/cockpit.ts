@@ -92,6 +92,7 @@ import {
 } from './check-command';
 import {
   DROPPED_WITHOUT_WORDS,
+  MEMORY_ANSWER,
   MEMORY_LINT,
   NOTHING_ACCEPTED,
   NOTHING_SET_ASIDE,
@@ -389,7 +390,6 @@ function turn(role: ProjectChatTurn['role'], text: string, extra: Partial<Projec
     toolCalls: extra.toolCalls,
     choices: extra.choices,
     unsupportedClaims: extra.unsupportedClaims,
-    restsOn: extra.restsOn,
     heldQuestions: extra.heldQuestions,
     trimmed: extra.trimmed,
     metrics: extra.metrics,
@@ -707,8 +707,6 @@ export function applyProjectAgentTurn(
     citedNodeIds?: string[];
     /** What the call cost. Rendered beside the turn, never summed in prose. */
     spend?: TurnSpend;
-    /** The facts of memory the answer cited, with the tags code printed for them. */
-    restsOn?: ProjectChatTurn['restsOn'];
   },
 ): ProjectChatResult {
   ensureProjectShape(project);
@@ -745,7 +743,6 @@ export function applyProjectAgentTurn(
     heldQuestions: brief.heldQuestions.length ? brief.heldQuestions : undefined,
     trimmed: brief.trimmed || undefined,
     unsupportedClaims: attribution.unsupported.length ? attribution.unsupported.map((c) => c.text) : undefined,
-    restsOn: agent.restsOn?.length ? agent.restsOn : undefined,
     citedEvidenceIds: [...new Set(agent.citedEvidenceIds ?? [])],
     citedNodeIds: agent.citedNodeIds ? [...new Set(agent.citedNodeIds)] : undefined,
     toolCalls: agent.toolCalls,
@@ -1009,6 +1006,13 @@ export function applyProjectChat(
      * that can read memory. The reply says it and nothing else.
      */
     memoryLint?: string;
+    /**
+     * The question was put to memory itself (what it holds, what was agreed,
+     * what is undecided, what changed), and this is the answer, made by the
+     * caller from the facts. The reply says it and nothing else: no rule that
+     * reads a value off the file answers in its place.
+     */
+    memoryAnswer?: string;
     /**
      * False where no model reader is set up. The caller knows, and the reply
      * needs it: pages this server could not read are then pages nothing here
@@ -1536,6 +1540,9 @@ export function applyProjectChat(
   } else if (options.memoryLint) {
     assistantText = options.memoryLint;
     toolCalls = [{ name: MEMORY_LINT, summary: 'What looks wrong in memory' }];
+  } else if (options.memoryAnswer) {
+    assistantText = options.memoryAnswer;
+    toolCalls = [{ name: MEMORY_ANSWER, summary: 'Answered from memory' }];
   } else if (pressed) {
     /*
      * A choice that was pressed. It acts on the cards and papers it names and

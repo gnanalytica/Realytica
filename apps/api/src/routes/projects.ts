@@ -112,6 +112,7 @@ import {
   CHOICE_SENTENCE,
   NOTHING_ACCEPTED,
   NOTHING_SET_ASIDE,
+  MEMORY_ANSWER,
   MEMORY_LINT,
   NOTHING_TO_READ,
   chatSessions,
@@ -131,8 +132,10 @@ import {
   plural,
   linkRecordIds,
   memAsksForLint,
+  memAsksMemory,
   memContextText,
   memLintLine,
+  memSaidUnder,
   memTagsPrinted,
   unansweredReason,
   failureCause,
@@ -149,6 +152,7 @@ import {
   type ChatPlace,
   type ReadingStreamEvent,
   type DdProject,
+  type MemAsk,
   type ProjectChatResult,
   type ProjectChatTurn,
   type ProjectView,
@@ -206,7 +210,7 @@ import { projectWorkspaceRouter } from './workspace';
 import { unblockerConfigured } from '../comparables/search';
 import { graphAdapter } from '../graph';
 import { PREVIEW_KEEPS_NO_GRAPH, graphAnsweredBy } from '../graph/preview';
-import { MEMORY_LINT_WAIT_MS, inTime, memoryContext } from '../graph/mem/context';
+import { MEMORY_LINT_WAIT_MS, inTime, memoryAnswer, memoryContext, memoryUnder } from '../graph/mem/context';
 import { readLint } from '../graph/mem/read';
 import { keepThought } from '../graph/mem/thought';
 import { ingestOpenReferences, lookupShelf, shelfStatus } from '../reference/shelf-cache';
@@ -1028,6 +1032,7 @@ function skipLlmForChat(result: ProjectChatResult): boolean {
     || names.has('project_copilot')
     || names.has('critic')
     || names.has(MEMORY_LINT)
+    || names.has(MEMORY_ANSWER)
     /*
      * Answers already exact: read off the documents with their pages, a
      * question asked back, a pane opened. Rewriting them paid a model to lose
@@ -1104,6 +1109,37 @@ function sayWhatIsMissing(seen: ProjectView, question: string, result: { assista
   if (!note) return;
   const text = result.assistantTurn.text.trim();
   result.assistantTurn.text = text ? `${note}\n\n${text}` : note;
+}
+
+/**
+ * The replies the chat gives by rule that answer nothing a fact could stand
+ * under: papers just filed, a question asked back, a page opened, a reply
+ * that says nothing was done, and what memory says of itself.
+ */
+const NO_FACTS_UNDER = new Set(['ingest', 'clarify', 'navigate', NOTHING_ACCEPTED, NOTHING_SET_ASIDE, NOTHING_TO_READ, MEMORY_LINT, MEMORY_ANSWER]);
+
+/** The replies that are about the project as a whole: where it stands, what comes next. */
+const ABOUT_THE_WHOLE = new Set(['briefing', 'next_step', 'analyst_copilot']);
+
+/**
+ * Under an answer the chat gave by rule, where its facts stand.
+ *
+ * A rule answers from the record and says nothing of what waits: asked the
+ * land area it gives the one on the project, and not the other one waiting
+ * on a card. So the facts memory holds that the question is about are said
+ * under the answer, by code, each with its tag: at most four, what waits
+ * first, and nothing when memory holds nothing about the question. Done
+ * here, once, where every such answer leaves, whichever rule gave it. Not
+ * under a reply that carried out an instruction: that one says what was done.
+ */
+async function sayWhereItStands(seen: ProjectView, ask: MemAsk, result: ProjectChatResult): Promise<void> {
+  const names = (result.assistantTurn.toolCalls ?? []).map((call) => call.name);
+  if (!ask.question.trim() || result.commands.length > 0 || names.some((name) => NO_FACTS_UNDER.has(name))) return;
+  const under = await memoryUnder(seen, ask, { whole: names.some((name) => ABOUT_THE_WHOLE.has(name)) }).catch(() => undefined);
+  if (!under) return;
+  const said = memSaidUnder(result.assistantTurn.text, under);
+  result.assistantTurn.text = said.text;
+  result.assistantTurn.restsOn = said.rests;
 }
 
 /**
@@ -1259,7 +1295,15 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     seen.complete && memAsksForLint(question)
       ? await inTime(readLint(project).then(memLintLine), MEMORY_LINT_WAIT_MS).then((said) => said ?? 'The memory store did not answer in time, so nothing could be checked.')
       : undefined;
-  const deterministic = nothingLeftToRead || memoryLint !== undefined || wantsDeterministicProjectChat(canvas, question, { sitting, place, chat });
+  /*
+   * A question put to memory itself: what it holds about something, what was
+   * agreed about it, what is still undecided, what changed. Answered by rule
+   * from the facts, and looked for before every other rule, so that one
+   * which reads a single value off the file does not answer in its place.
+   */
+  const askedOfMemory = memoryLint === undefined && !sitting?.decision ? memAsksMemory(question) : undefined;
+  const memorySaid = askedOfMemory ? await memoryAnswer(seen, askedOfMemory, { question, place, sitting }).catch(() => undefined) : undefined;
+  const deterministic = nothingLeftToRead || memoryLint !== undefined || memorySaid !== undefined || wantsDeterministicProjectChat(canvas, question, { sitting, place, chat });
   const stream = beginNdjson(res);
   const { line, clientGone } = stream;
 
@@ -1355,13 +1399,6 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
       }
       if (agent.text && !agent.text.startsWith('The project copilot is unavailable') && !agent.text.startsWith('No model endpoint')) {
         /*
-         * Each mark the answer cited becomes the tag of the fact it names,
-         * printed here from that fact, and a tag the model wrote itself is
-         * taken out. So a tag beside a statement is never a model's word for
-         * where a fact stands.
-         */
-        const printed = memTagsPrinted(agent.text, remembered);
-        /*
          * Ids out of the prose before anything else sees the answer.
          *
          * The prompt asks for titles rather than ids and a prompt is a
@@ -1370,7 +1407,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
          * transcript is stored, quoted and exported, and a fix applied at one
          * of those surfaces is a fix missing from the others.
          */
-        agent.text = linkRecordIds(canvas, printed.text);
+        agent.text = linkRecordIds(canvas, agent.text);
         /*
          * Which rung answered, said beside the answer: a free model's reply
          * and the senior model's read the same, and while the ladder is being
@@ -1384,8 +1421,21 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
               ? { name: 'basic_model', summary: 'Free model' }
               : null,
         ].filter((t): t is { name: string; summary: string } => Boolean(t));
-        const result = applyProjectAgentTurn(canvas, question, { ...agent, restsOn: printed.rests });
+        const result = applyProjectAgentTurn(canvas, question, agent);
         sayWhatIsMissing(seen, question, result);
+        /*
+         * Tags last, on the words as they are kept. Each mark the answer
+         * cited becomes the tag of the fact it names, printed here from that
+         * fact, and everything the model wrote that reads as a tag is taken
+         * out. The turn keeps the facts and the place of each tag, and a page
+         * draws a tag only at those places, so nothing a model writes can
+         * come out as one. Nothing changes the words after this.
+         */
+        const printed = memTagsPrinted(result.assistantTurn.text, remembered);
+        result.assistantTurn.text = printed.text;
+        if (printed.rests.length) result.assistantTurn.restsOn = printed.rests;
+        // A question the turn held back is kept as words: no mark and no tag is left in it.
+        if (result.assistantTurn.heldQuestions) result.assistantTurn.heldQuestions = result.assistantTurn.heldQuestions.map((held) => memTagsPrinted(held, undefined).text);
         stampSession(result, ownSitting(project, parsed.data.sessionId, actor), { continues, place });
         mergeConversation(project, canvas, actor, turnsBefore);
         // Who asked and where is written after the turn was first saved: the record has to count as changed for that to reach storage.
@@ -1400,7 +1450,10 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
          */
         if (agent.note && seen.complete) {
           const tenantId = project.tenantId ?? store.data.tenants?.[0]?.id ?? '';
-          finishAfterReply(keepThought(project, tenantId, { ...agent.note, turnId: result.assistantTurn.id, at: result.assistantTurn.at, place, sitting }));
+          // What the answer had to do with: the records it cited by id, and those its memory lines are about. A note is filed under one of these, the sitting's check, or the project.
+          const aboutOf = new Map((remembered?.lines ?? []).map((held) => [held.id, held.aboutId]));
+          const cited = [...agent.citedEvidenceIds, ...agent.citedNodeIds, ...printed.rests.flatMap((rest) => aboutOf.get(rest.id) ?? [])];
+          finishAfterReply(keepThought(project, tenantId, { ...agent.note, turnId: result.assistantTurn.id, at: result.assistantTurn.at, place, sitting, cited }));
         }
         journalTail = journalTail.then(() =>
           journal.finish(
@@ -1451,6 +1504,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     chat,
     nothingLeftToRead,
     memoryLint,
+    memoryAnswer: memorySaid?.text,
     modelReader: capability.available,
   });
 
@@ -1499,6 +1553,13 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     return;
   }
   sayWhatIsMissing(seen, question, result);
+  if (memorySaid) {
+    // The answer came from memory: the turn keeps the facts it lists, each with the place of its tag in the words as they now stand.
+    const at = result.assistantTurn.text.lastIndexOf(memorySaid.text);
+    if (at !== -1 && memorySaid.rests.length) result.assistantTurn.restsOn = memorySaid.rests.map((rest) => ({ ...rest, at: rest.at.map((place) => place + at) }));
+  } else {
+    await sayWhereItStands(seen, { question, place, sitting }, result);
+  }
   stampSession(result, ownSitting(project, parsed.data.sessionId, actor), { continues, place });
   if (unanswered) {
     result.assistantTurn.unanswered = unanswered;

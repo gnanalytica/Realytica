@@ -1370,13 +1370,15 @@ export interface ProjectChatTurn {
   unsupportedClaims?: string[];
   /**
    * The facts of the project's memory this answer rests on, each with the
-   * tag it had when the answer was given.
+   * tag it had when the answer was given, and where in `text` that tag is
+   * printed: the place of each opening bracket.
    *
-   * Set by code from the lines the answer cited, never by a model. The tags
-   * in the text were printed from the same lines, so a page draws a tag as a
-   * tag only on a turn that has this.
+   * Set by code from the facts themselves, never by a model. A page draws a
+   * tag as a tag at these places and nowhere else: bracketed words anywhere
+   * else in the text are words, whoever wrote them. A turn kept before the
+   * places were has none, and is drawn with no tag.
    */
-  restsOn?: Array<{ id: string; tag: 'approved' | 'proposed' | 'thought'; stands?: boolean }>;
+  restsOn?: Array<{ id: string; tag: 'approved' | 'proposed' | 'thought'; stands?: boolean; at?: number[] }>;
   /**
    * Questions the model asked beyond the first, held rather than shown.
    *

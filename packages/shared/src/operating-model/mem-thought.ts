@@ -15,15 +15,20 @@
  * approved or proposed by itself: a person who agrees with a note records
  * the value on the record, and the record is what tells it as a fact.
  *
- * A reply carries its note itself, as one last line in a fixed form, so
+ * A reply carries its note itself, as its last line in a fixed form, so
  * keeping a note costs no second call to a model. `memNoteOfReply` takes the
- * line off the reply before anybody reads it.
+ * line off the reply before anybody reads it. Only the last line can be the
+ * note. A line in the note's form anywhere else is the reply's own text: it
+ * may be a paper's words that the reply quotes, and a paper does not get to
+ * write into memory.
  *
  * What a thought is about is a record, and the page memory keeps for that
- * record is where its notes are found (`MemPage`).
+ * record is where its notes are found (`MemPage`). A note is filed under a
+ * record only when the reply had to do with that record (`memThoughtAbout`).
  */
 
 import { menuPlaceOfWords } from './chat-places';
+import { memTagsPrinted } from './mem-context';
 import { memPointer, type MemPlace } from './mem-delta';
 import { MEM_NOTE_LINE, scrubMemFact, type MemFact } from './mem-facts';
 import { projectRecordIds } from './project-view';
@@ -42,42 +47,65 @@ export interface MemNoteSaid {
   about?: string;
 }
 
-const NOTE_LINE = /^[ \t>*_-]*note to memory\b[ \t]*(?:\[([^\]\n]{1,200})\])?[ \t*_]*:[ \t]*(.*)$/gim;
+/**
+ * The note's form, read off one line: the words "Note to memory", the id of
+ * what it is about in square brackets if it names one, a colon, and the
+ * sentence. Emphasis marks may stand round the words. A quote mark may not
+ * stand before them, and neither may the four spaces or the tab that make a
+ * line code.
+ */
+const NOTE = /^ {0,3}[*_]{0,3}note to memory\b[ \t]{0,3}(?:\[([^\]]{1,200})\])?[ \t*_]{0,6}:[ \t*_]{0,6}(.*)$/i;
 
-/** A mark citing a memory line, or a tag, written inside a note: neither belongs in the sentence that is kept. */
-const CITED = /\s*\[(?:m\d{1,3}(?:\s*[,;]\s*m\d{1,3})*|approved|proposed|waiting(?:\s*[·,]\s*stands)?|thought)\]/gi;
+/** How much of a line is read as a note's sentence before it is cut to a note's length. */
+const NOTE_READ = 2_000;
 
 /**
- * Takes the note off a reply. Every line in the note's form is removed from
- * the text, wherever it stands, and the last of them is the note: one line,
- * its spaces closed up, cut to the length a note may be.
+ * Takes the note off a reply. The note is the reply's last line and no
+ * other, when that line has the note's form and does not stand inside a
+ * block of code. What is kept of it is one sentence: its spaces closed up,
+ * no mark or tag in it, cut to the length a note may be. A reply whose last
+ * line is not a note is returned as it came.
  */
 export function memNoteOfReply(text: string): MemNoteSaid {
-  let note: string | undefined;
-  let about: string | undefined;
-  const kept = text.replace(NOTE_LINE, (_line, id: string | undefined, said: string) => {
-    const sentence = said.replace(CITED, '').replace(/\s+/g, ' ').replace(/^[*_"“]+|[*_"”]+$/g, '').trim();
-    if (sentence) {
-      note = sentence.slice(0, MEM_NOTE_LINE);
-      about = id?.trim() || undefined;
-    }
-    return '';
-  });
-  const tidy = kept.replace(/\n{3,}/g, '\n\n').trim();
-  return { text: tidy, ...(note ? { note } : {}), ...(about ? { about } : {}) };
+  const body = text.trimEnd();
+  const cut = body.lastIndexOf('\n');
+  const above = cut === -1 ? '' : body.slice(0, cut);
+  // An odd number of fences above the line leaves it inside a block of code.
+  const fences = above.split('\n').filter((line) => line.trimStart().startsWith('```')).length;
+  const said = fences % 2 === 0 ? NOTE.exec(body.slice(cut + 1)) : null;
+  if (!said) return { text };
+  const sentence = memTagsPrinted(said[2]!.slice(0, NOTE_READ), undefined)
+    .text.replace(/\s+/g, ' ')
+    .replace(/^[*_"“ ]+|[*_"” ]+$/g, '');
+  const about = said[1]?.trim();
+  return { text: above.trimEnd(), ...(sentence ? { note: sentence.slice(0, MEM_NOTE_LINE) } : {}), ...(sentence && about ? { about } : {}) };
+}
+
+/** What a reply had to do with: the check the sitting was on, and the records the reply cited. */
+export interface MemTurnAbout {
+  sitting?: { checkId?: string };
+  cited?: readonly string[];
 }
 
 /**
- * What a note is about: the record it names, when that is a record this
- * reader's copy of the project holds, else the check the sitting is on, else
- * the project itself. `project` is the record as the reader may see it, so a
- * note is never filed under a record its writer could not see.
+ * What a note is filed under.
+ *
+ * A record the note names, when the reply had to do with that record: it is
+ * the check the sitting is on, or one the reply cited. A note that names
+ * any other record is filed under the project, because what a reply says a
+ * note is about is a model's word, and a paper quoted in the reply can put
+ * words in a model's mouth. A note that names nothing is filed under the
+ * sitting's check, or the one record the reply cited, or the project.
+ *
+ * `project` is the record as the reader may see it, so a note is never filed
+ * under a record its writer could not see.
  */
-export function memThoughtAbout(project: DdProject, named: string | undefined, sitting?: { checkId?: string }): string {
+export function memThoughtAbout(project: DdProject, named: string | undefined, turn: MemTurnAbout = {}): string {
   const held = projectRecordIds(project);
-  if (named && named !== project.id && held.has(named)) return named;
-  if (sitting?.checkId && held.has(sitting.checkId)) return sitting.checkId;
-  return project.id;
+  const sat = turn.sitting?.checkId && held.has(turn.sitting.checkId) ? turn.sitting.checkId : undefined;
+  const cited = [...new Set(turn.cited ?? [])].filter((id) => id !== project.id && held.has(id));
+  if (named) return named !== project.id && (named === sat || cited.includes(named)) ? named : project.id;
+  return sat ?? (cited.length === 1 ? cited[0]! : project.id);
 }
 
 export interface MemThoughtSaid {

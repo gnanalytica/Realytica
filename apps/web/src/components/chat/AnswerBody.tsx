@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { FileText, Flag, Unlink, Waypoints } from 'lucide-react';
 import type { EvidenceItem, MemTagWords } from '@realytica/shared';
 import { parseAnswer } from './answer-blocks';
-import type { Block, Inline } from './answer-blocks';
+import type { Block, Inline, TagPlaces } from './answer-blocks';
 import { cn } from '../ui/kit';
 
 /**
@@ -24,7 +24,7 @@ export function AnswerBody({
   text,
   evidence,
   nodes,
-  memoryTags = false,
+  rests,
   onOpenEvidence,
   onOpenNode,
 }: {
@@ -32,16 +32,16 @@ export function AnswerBody({
   evidence: EvidenceItem[];
   /** Graph or register labels, for resolving a bracketed id to a real title. */
   nodes?: Array<{ id: string; label: string }>;
-  /** True on a turn whose memory tags the server printed from the facts it cited: only then is a tag drawn as one. */
-  memoryTags?: boolean;
+  /** The facts of memory the turn rests on, with where its text prints each one's tag. A tag is drawn at those places and nowhere else. */
+  rests?: TagPlaces;
   onOpenEvidence?: (id: string) => void;
   onOpenNode?: (nodeId: string) => void;
 }) {
   const nodeById = useMemo(() => new Map((nodes ?? []).map(n => [n.id, n])), [nodes]);
   const evidenceById = useMemo(() => new Map(evidence.map(e => [e.id, e])), [evidence]);
   const blocks = useMemo(
-    () => parseAnswer(text, id => nodeById.has(id), memoryTags),
-    [text, nodeById, memoryTags],
+    () => parseAnswer(text, id => nodeById.has(id), rests),
+    [text, nodeById, rests],
   );
 
   const renderInline = (spans: Inline[], keyPrefix: string): ReactNode[] =>

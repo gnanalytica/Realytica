@@ -184,7 +184,7 @@ function TurnBubble({
           text={turn.text}
           evidence={evidence}
           nodes={nodes}
-          memoryTags={Boolean(turn.restsOn?.length)}
+          rests={turn.restsOn}
           onOpenEvidence={onOpenEvidence}
           onOpenNode={onOpenNode}
         />

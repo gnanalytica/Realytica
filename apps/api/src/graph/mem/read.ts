@@ -24,8 +24,8 @@ import {
   buildProjectGraph,
   chatLinkLabels,
   memLint,
+  memPeople,
   memPointer,
-  memWho,
   memoryFacts,
   parcelLabels,
   revenueReads,
@@ -60,9 +60,6 @@ export interface MemoryLine {
   about: Array<{ id: string; title?: string }>;
 }
 
-/** What the server is called where it, and not a person, did something. */
-const SERVER = 'system';
-
 /**
  * Every id on the record an entry can point at, with the words the record
  * has for it now, keyed as memory keeps the id: a node whose id is made from
@@ -89,27 +86,12 @@ function titlesOf(project: DdProject): Map<string, string> {
   return titles;
 }
 
-/** The people the record names, by the id memory keeps for each on this project. */
-function peopleOf(project: DdProject): Map<string, string> {
-  const people = new Map<string, string>([[memWho(project.id, SERVER), SERVER]]);
-  const named = [
-    ...(project.audit ?? []).map((event) => event.actor),
-    ...(project.conversation ?? []).map((turn) => turn.actor),
-    // Who recorded a value on a check, decided a comparable or answered a question is kept beside it, and may be on no line of the trail.
-    ...allChecks(project).flatMap((check) => Object.values(check.fields ?? {}).map((held) => held.by)),
-    ...(project.comparables ?? []).flatMap((comparable) => [comparable.addedBy, comparable.decidedBy]),
-    ...(project.questionnaires ?? []).flatMap((questionnaire) => questionnaire.questions.map((question) => question.answeredBy)),
-  ];
-  for (const actor of named) if (actor) people.set(memWho(project.id, actor), actor);
-  return people;
-}
-
 /** A project's entries, newest first, each with what it points at resolved to its title. */
 export async function readMemory(project: DdProject, limit = 50, port: MemoryPort = memoryPort): Promise<MemoryLine[]> {
   const most = Math.min(MEMORY_READ_AT_MOST, Math.max(1, Math.floor(limit) || 1));
   const entries: MemEntry[] = await port.entries(project.id, most);
   const titles = titlesOf(project);
-  const people = peopleOf(project);
+  const people = memPeople(project);
   return entries.map((entry) => {
     const by = people.get(entry.by);
     return {
@@ -155,7 +137,7 @@ export async function readFacts(project: DdProject, limit = MEMORY_FACTS_AT_MOST
   const most = Math.min(MEMORY_FACTS_AT_MOST, Math.max(1, Math.floor(limit) || 1));
   const held = await port.factsOf(project.id);
   const titles = titlesOf(project);
-  const people = peopleOf(project);
+  const people = memPeople(project);
   const titled = (id: string): { id: string; title?: string } => {
     const title = titles.get(id);
     return title ? { id, title } : { id };
