@@ -1139,12 +1139,27 @@ export const api = {
   reviewFacts: (
     projectId: string,
     evidenceId: string,
-    body: { keys: string[] | 'all'; decision: 'accept' | 'reject' | 'reopen'; edit?: { value: string | number | boolean; display: string } },
+    body: {
+      keys: string[] | 'all';
+      decision: 'accept' | 'reject' | 'reopen';
+      edit?: { value: string | number | boolean; display: string };
+      /** Keep the other reader's value for the one key named. */
+      take?: 'other';
+    },
   ) =>
     request<{ project: DdProject; changed: number }>(`/projects/${projectId}/evidence/${evidenceId}/facts/review`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  /** Confirm what a model took a filed document for, so it becomes the row's type. */
+  confirmDocumentType: (projectId: string, evidenceId: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/document-type/confirm`, { method: 'POST' }),
+  /** Refuse what a model took a filed document for. The offer goes, and is not made again for that document. */
+  setAsideDocumentType: (projectId: string, evidenceId: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/document-type/set-aside`, { method: 'POST' }),
+  /** Say what a filed document is, in place of what a model took it for. */
+  correctDocumentType: (projectId: string, evidenceId: string, documentType: string) =>
+    request<{ project: DdProject }>(`/projects/${projectId}/evidence/${evidenceId}/document-type/correct`, { method: 'POST', body: JSON.stringify({ documentType }) }),
   /** Accept or set aside values waiting on a check, a field at a time. */
   decideCheckFields: (projectId: string, proposalId: string, body: { keys: string[]; decision: 'accept' | 'reject'; values?: Record<string, unknown> }) =>
     request<{ project: DdProject }>(`/projects/${projectId}/proposals/${proposalId}/fields`, { method: 'POST', body: JSON.stringify(body) }),

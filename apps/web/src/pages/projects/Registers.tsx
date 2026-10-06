@@ -22,6 +22,7 @@ import {
   iso19650Completeness,
   iso19650Name,
   proposedFacts,
+  readingLine,
   quotesForEvidence,
   ricsConditionRating,
   type CapturePurpose,
@@ -83,6 +84,8 @@ export function EvidenceRegister() {
   // later reads as documents having gone missing.
   const [mineOnly, setMineOnly] = useState(false);
   const [proofId, setProofId] = useState<string | null>(focusId ?? null);
+  // The file of the row that was asked for by name. None means the one that was read: the row's latest.
+  const [proofFileId, setProofFileId] = useState<string | null>(null);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const scoped = assessmentId ? project.evidence.filter((e) => e.assessmentIds.includes(assessmentId)) : project.evidence;
@@ -433,9 +436,18 @@ export function EvidenceRegister() {
                     <ul className="mt-1 space-y-1">
                       {e.attachments.map((f) => (
                         <li key={f.id}>
-                          <button type="button" onClick={() => setProofId(e.id)} className="text-[12px] text-brand underline">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProofFileId(f.id);
+                              setProofId(e.id);
+                            }}
+                            className="text-[12px] text-brand underline"
+                          >
                             {f.fileName}
                           </button>
+                          {/* How much of it was read, where that was not all of it. */}
+                          {readingLine(f.reading) ? <p className="text-[11px] text-ink-muted">{readingLine(f.reading)}</p> : null}
                           {f.mimeType.startsWith('image/') ? (
                             <>
                               <CaptureStrip
@@ -471,7 +483,15 @@ export function EvidenceRegister() {
                     </button>
                   ) : null}
                   {(e.attachments ?? []).length ? (
-                    <Button size="sm" variant="ghost" aria-label={`Open the proof for ${e.title}`} onClick={() => setProofId(e.id)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`Open the proof for ${e.title}`}
+                      onClick={() => {
+                        setProofFileId(null);
+                        setProofId(e.id);
+                      }}
+                    >
                       Open proof
                     </Button>
                   ) : null}
@@ -520,11 +540,14 @@ export function EvidenceRegister() {
         <EvidenceProof
           projectId={project.id}
           evidence={proof}
-          file={proof.attachments[0]}
+          // The file asked for by name, else the one that was read: the row's values, pages and reading are the latest file's.
+          file={proof.attachments.find((a) => a.id === proofFileId) ?? proof.attachments[proof.attachments.length - 1]}
           quotes={proofQuotes}
           citedPage={focusPage ? Number(focusPage) || undefined : undefined}
+          onProject={setProject}
           onClose={() => {
             setProofId(null);
+            setProofFileId(null);
             if (focusId) {
               setSearchParams(
                 (prev) => {

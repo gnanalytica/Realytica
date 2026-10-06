@@ -41,6 +41,7 @@ import type {
   ValuationRun,
 } from './types';
 import { plural } from './text';
+import { readingWaitingFor } from './reading-coverage';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -111,6 +112,8 @@ export function attachEvidenceFile(
     // scanned deed would make "no capture facts" and "capture facts we never
     // filled in" indistinguishable, and the register renders those differently.
     ...(file.capture && Object.keys(file.capture).length ? { capture: file.capture } : {}),
+    // How much of it was read when it was dropped waits on its card, and goes onto the row with the file.
+    ...(readingWaitingFor(project, file.storageKey) ? { reading: readingWaitingFor(project, file.storageKey) } : {}),
   };
   record.attachments.push(attachment);
   record.fileName = file.fileName;

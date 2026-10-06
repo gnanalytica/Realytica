@@ -29,8 +29,18 @@ export const PROPOSAL_IDENTITY: ReadonlySet<string> = new Set([
   'citations',
   'draftIds',
   'evidenceId',
+  // What this server and a model read off the file, each value with who read
+  // it and what stands behind it. A person corrects a value where it waits on
+  // its row, and the row records that they did. Taken from a request, a
+  // model's reading could come back as one the rules made, and stand at once.
+  'facts',
   'mimeType',
+  // Whether a model read the file. This server's record of its own work.
+  'modelRead',
   'proposalId',
+  // How much of the file was read, by which reader, and what was sent to a
+  // model: this server's record of its own reading, and nobody's to send.
+  'reading',
   'reportId',
   'scopeInstanceIds',
   'sizeBytes',

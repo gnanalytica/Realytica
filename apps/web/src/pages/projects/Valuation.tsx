@@ -13,6 +13,7 @@ import {
   valueInputCheckId,
   valueInputRows,
   valueOffers,
+  valueReadingsWaiting,
   valueSummary,
   withValueOffers,
   VALUATION_RUN_STATUS_LABEL,
@@ -66,6 +67,8 @@ export default function Valuation() {
   const portalsConfigured = comparablesStatus.data ? comparablesStatus.data.configured : comparablesStatus.error ? false : null;
 
   const offers = useMemo(() => valueOffers(project), [project]);
+  // What a model read, or two readers read differently, that an input here would have been offered from. It is offered to none.
+  const readingsWaiting = useMemo(() => valueReadingsWaiting(project), [project]);
   const rows = useMemo(() => valueInputRows(project, offers), [project, offers]);
   const waiting = useMemo(() => rows.flatMap((r) => (r.waiting ? [r.waiting] : [])), [rows]);
   // While the page fills, the figure counts only what has landed so far.
@@ -289,6 +292,17 @@ export default function Valuation() {
         onAcceptAll={() => void accept(waiting.map((o) => o.id), true)}
         onRecord={() => void record()}
       />
+
+      {readingsWaiting.length ? (
+        <p className="text-[12px] text-provenance-ink">
+          {readingsWaiting.length === 1
+            ? `A reading of ${readingsWaiting[0]!.fact.label.toLowerCase()} is waiting to be accepted on ${readingsWaiting[0]!.evidence.documentType ?? readingsWaiting[0]!.evidence.title}. Until then it is offered to no input here.`
+            : `${readingsWaiting.length} readings are waiting to be accepted on the documents. Until then they are offered to no input here.`}
+          <button type="button" onClick={() => openSource(readingsWaiting[0]!.evidence.id)} className="ml-1.5 font-medium text-brand underline-offset-2 hover:underline">
+            Review
+          </button>
+        </p>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 [@container(min-width:52rem)]:grid-cols-2">
         <ValueChecks

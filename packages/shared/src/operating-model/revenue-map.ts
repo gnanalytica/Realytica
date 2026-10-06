@@ -47,7 +47,8 @@ import { buildBoundary } from '../geometry';
 import type { DdProject, EvidenceRecord } from './types';
 import { addEvidence } from './operations';
 import { SURVEY_LIST_SEPARATOR } from './document-parse';
-import { acceptedFacts, factReview, liveFacts } from './fact-review';
+import type { DocumentFact } from './document-parse';
+import { acceptedFacts, factReview, liveFacts, standingFacts, stands, waitingReadings } from './fact-review';
 
 /** Which state's layers were read. */
 export type RevenueMapState = 'TS' | 'KA';
@@ -665,6 +666,14 @@ export interface OfferedSurveyNumber {
    */
   accepted: boolean;
   /**
+   * Whether anything may rest on it: it is on the project, or a reading that
+   * stands states it (`stands`). False for a number only a model's reading
+   * states that nobody has accepted, or one two readers differ on. Such a
+   * number is offered here to be read and is counted for nothing else:
+   * nothing waits for it to be read, and no extent is taken to be for it.
+   */
+  stands: boolean;
+  /**
    * Set when this looks like another number the papers state, read without
    * its stroke — "472" beside 47/2: the number it may be. Only on a reading
    * nobody has accepted. It is offered and said to be doubtful, and like any
@@ -708,7 +717,7 @@ export function offeredSurveyNumbers(project: DdProject): OfferedSurveyNumber[] 
   const offer = (piece: SurveyPiece): OfferedSurveyNumber => {
     let held = out.find((o) => surveyKey(o.surveyNo) === surveyKey(piece.surveyNo));
     if (!held) {
-      held = { surveyNo: piece.surveyNo, ...(piece.unreadable ? { unreadable: piece.unreadable } : {}), onProject: false, documents: [], accepted: false };
+      held = { surveyNo: piece.surveyNo, ...(piece.unreadable ? { unreadable: piece.unreadable } : {}), onProject: false, documents: [], accepted: false, stands: false };
       out.push(held);
     }
     return held;
@@ -717,14 +726,17 @@ export function offeredSurveyNumbers(project: DdProject): OfferedSurveyNumber[] 
     const held = offer({ surveyNo });
     held.onProject = true;
     held.accepted = true;
+    held.stands = true;
   }
   for (const row of project.evidence ?? []) {
     if (row.status === 'superseded' || row.status === 'rejected') continue;
+    // Every reading that is not set aside: the picker shows what waits, and says of each that it does.
     for (const fact of liveFacts(row)) {
       if (!SURVEY_FACT_KEYS.includes(fact.key)) continue;
       const accepted = factReview(fact) === 'accepted';
       for (const piece of surveyPieces(String(fact.value))) {
         const held = offer(piece);
+        if (stands(fact)) held.stands = true;
         const said = held.documents.find((d) => d.evidenceId === row.id);
         if (said) said.accepted = said.accepted || accepted;
         else held.documents.push({ evidenceId: row.id, document: row.documentType ?? row.title, page: fact.page, accepted, byModel: fact.source === 'model' });
@@ -762,9 +774,13 @@ export function offeredSurveyNumbers(project: DdProject): OfferedSurveyNumber[] 
  * that is likely another one misread, and that nobody has accepted, is not
  * one of them: it is on no map, and waiting for it would be waiting for
  * ever. One a person accepted is a number like any other, and is waited for.
+ *
+ * Nor is a number that does not stand: one only a model's reading states and
+ * nobody has accepted, or one two readers differ on. It acts on nothing, so
+ * nothing is held back for it either.
  */
 export function statedNumbers(offered: readonly OfferedSurveyNumber[]): string[] {
-  return offered.filter((o) => !o.unreadable && !(o.maybe && !o.accepted)).map((o) => o.surveyNo);
+  return offered.filter((o) => o.stands && !o.unreadable && !(o.maybe && !o.accepted)).map((o) => o.surveyNo);
 }
 
 export interface SurveyNumberLine {
@@ -1125,6 +1141,33 @@ function onFile(row: EvidenceRecord): boolean {
   return row.attachments.length > 0 || row.status === 'received' || row.status === 'validated' || row.status === 'used';
 }
 
+/**
+ * The readings of an extent, or of the survey numbers one is for, that wait
+ * on a paper on file: a model's that nobody has accepted, or one two readers
+ * differ on. Counted for nothing here. Whatever sets extents against each
+ * other or against the map says that they wait.
+ */
+export function landReadingsWaiting(project: DdProject, keys: readonly string[] = [...EXTENT_FACT_KEYS, ...SURVEY_FACT_KEYS]): Array<{ evidence: EvidenceRecord; fact: DocumentFact }> {
+  return (project.evidence ?? []).filter(onFile).flatMap((evidence) => {
+    // A value a person accepted stays in force while a newer reading waits beside it: that paper's value is told.
+    const told = new Set(acceptedFacts(evidence).map((fact) => fact.key));
+    return waitingReadings(evidence)
+      .filter((fact) => keys.includes(fact.key) && !told.has(fact.key))
+      .map((fact) => ({ evidence, fact }));
+  });
+}
+
+/** Those readings in a clause: "a reading of the survey number on the sale deed is waiting to be accepted and is not counted". Empty when none wait. */
+export function landReadingsWaitingSaid(waiting: ReadonlyArray<{ evidence: EvidenceRecord; fact: DocumentFact }>): string {
+  if (!waiting.length) return '';
+  const lower = (text: string) => (/^[A-Z][a-z]/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text);
+  const first = waiting[0]!;
+  const on = lower(first.evidence.documentType ?? first.evidence.title);
+  return waiting.length === 1
+    ? `a reading of the ${lower(first.fact.label)} on the ${on} is waiting to be accepted and is not counted`
+    : `${waiting.length} readings of an extent or a survey number are waiting to be accepted and are not counted`;
+}
+
 /** What one document states the extent of its land to be, and which land it says that is. */
 export interface StatedExtent {
   evidenceId: string;
@@ -1139,7 +1182,8 @@ export interface StatedExtent {
   /**
    * The survey numbers the same document is read as stating: the ones a
    * person accepted, or, where none of its numbers is accepted yet, the ones
-   * still waiting. Empty when it states none.
+   * the rules read that still wait. Never a model's reading nobody has
+   * accepted, nor one two readers differ on. Empty when it states none.
    */
   numbers: string[];
   /** Pieces of what it states that are not one survey number — a range, two run together — as written. */
@@ -1150,6 +1194,14 @@ export interface StatedExtent {
    * least, and may be more.
    */
   atLeast: boolean;
+  /**
+   * The only reading of the numbers it names is one that waits: a model's
+   * that nobody has accepted, or one two readers differ on. Which land its
+   * extent is for is then not told yet. It is not taken to name none, which
+   * would make its extent the whole site's, and nothing is set against it
+   * until a person decides the reading.
+   */
+  numbersWaiting: boolean;
 }
 
 /**
@@ -1157,26 +1209,28 @@ export interface StatedExtent {
  * and of a kind the newest — the order the valuation takes them in — each
  * with the survey numbers that document is read as stating. One extent to a
  * document: its best. `accepted` takes only an extent a person accepted;
- * `live` takes one still waiting as well, as the lender's check of the
- * papers always has.
+ * `standing` takes one the rules read that still waits as well, as the
+ * lender's check of the papers always has. Neither takes a model's reading
+ * nobody has accepted, nor a value two readers differ on (`standingFacts`):
+ * a model's 1,115 beside a deed's 2,450 is not two papers disagreeing.
  *
  * Accepting an extent does not accept the numbers beside it — the valuation
  * accepts the one value it needs — so a document none of whose numbers is
  * accepted is still read as stating the ones that wait. Without them an
  * extent for three survey numbers looks like the extent of the whole site.
  */
-function statedExtents(project: DdProject, which: 'accepted' | 'live'): StatedExtent[] {
+function statedExtents(project: DdProject, which: 'accepted' | 'standing'): StatedExtent[] {
   const rows = (project.evidence ?? []).filter(onFile).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const out: StatedExtent[] = [];
   for (const key of EXTENT_FACT_KEYS) {
     for (const row of rows) {
       if (out.some((s) => s.evidenceId === row.id)) continue;
-      const fact = (which === 'accepted' ? acceptedFacts(row) : liveFacts(row)).find((f) => f.key === key);
+      const fact = (which === 'accepted' ? acceptedFacts(row) : standingFacts(row)).find((f) => f.key === key);
       if (!fact) continue;
       const sqm = typeof fact.value === 'number' ? fact.value : Number(String(fact.value).replace(/[,\s]/g, ''));
       if (!Number.isFinite(sqm) || sqm <= 0) continue;
       const accepted = acceptedFacts(row).filter((f) => SURVEY_FACT_KEYS.includes(f.key));
-      const stating = accepted.length ? accepted : liveFacts(row).filter((f) => SURVEY_FACT_KEYS.includes(f.key));
+      const stating = accepted.length ? accepted : standingFacts(row).filter((f) => SURVEY_FACT_KEYS.includes(f.key));
       const numbers: string[] = [];
       const unreadable: string[] = [];
       for (const piece of stating.flatMap((f) => surveyPieces(String(f.value)))) {
@@ -1194,6 +1248,7 @@ function statedExtents(project: DdProject, which: 'accepted' | 'live'): StatedEx
         sqm,
         numbers,
         unreadable,
+        numbersWaiting: !stating.length && waitingReadings(row).some((f) => SURVEY_FACT_KEYS.includes(f.key)),
         // A model reads the whole list, and a person who corrected the value wrote what they meant: only the parser's one number is a floor.
         atLeast: Boolean(only && only.key === 'survey_numbers' && only.source !== 'model' && !only.edited && numbers.length === 1 && !unreadable.length),
       });
@@ -1255,10 +1310,10 @@ function listed(parts: readonly string[]): string {
  * this cannot tell, and nothing is set against it until a person writes the
  * numbers out.
  */
-export function statedLand(project: DdProject, which: 'accepted' | 'live' = 'accepted'): StatedLand | null {
+export function statedLand(project: DdProject, which: 'accepted' | 'standing' = 'accepted'): StatedLand | null {
   const stated = statedExtents(project, which);
   if (!stated.length) return null;
-  const nameless = (s: StatedExtent) => !s.numbers.length && !s.unreadable.length;
+  const nameless = (s: StatedExtent) => !s.numbers.length && !s.unreadable.length && !s.numbersWaiting;
   const sources: StatedExtent[] = [];
   const others: StatedExtent[] = [];
   const counted = new Set<string>();
@@ -1290,8 +1345,18 @@ export function statedLand(project: DdProject, which: 'accepted' | 'live' = 'acc
         unset: 'none of them names a survey number, so they may be the same land or different land: they are neither added up nor set against the map',
       };
     }
-    // Every number the file states, accepted or still waiting: a site is not set against the map while one of them is unread.
-    return { sources, others, sqm: sources[0].sqm, from: sources[0].from, numbers: statedNumbers(offered), named: false };
+    // Every number the file states that stands, accepted or still waiting: a site is not set against the map while one of them is unread.
+    // Nor while a number is stated only by a reading that waits: the numbers the site goes by are then not all told.
+    const waits = landReadingsWaiting(project, SURVEY_FACT_KEYS);
+    return {
+      sources,
+      others,
+      sqm: sources[0].sqm,
+      from: sources[0].from,
+      numbers: statedNumbers(offered),
+      named: false,
+      ...(waits.length ? { unset: `${landReadingsWaitingSaid(waits)}, so the numbers this land goes by are not all told and the map is not set against it` } : {}),
+    };
   }
   // Told in the order the file states them, whichever document was counted first.
   const stands = (n: string) => {
@@ -1299,6 +1364,7 @@ export function statedLand(project: DdProject, which: 'accepted' | 'live' = 'acc
     return at < 0 ? offered.length : at;
   };
   const cut = sources.find((s) => s.unreadable.length);
+  const waits = sources.find((s) => s.numbersWaiting);
   return {
     sources,
     others,
@@ -1310,7 +1376,11 @@ export function statedLand(project: DdProject, which: 'accepted' | 'live' = 'acc
       ? {
           unset: `${sources.length === 1 ? 'it' : cut.from} names ${listed(cut.unreadable.map((piece) => `“${piece}”`))}, which is not read as survey numbers, so the land it is for cannot be told and the map is not set against it`,
         }
-      : {}),
+      : waits
+        ? {
+            unset: `a reading of the survey numbers ${sources.length === 1 ? 'it' : waits.from} names is waiting to be accepted, so the land it is for is not told yet and the map is not set against it`,
+          }
+        : {}),
   };
 }
 
@@ -1482,13 +1552,13 @@ function againstTheMap(
  * that parcel's own area.
  *
  * `which` is whose reading of an extent counts: one a person accepted, which
- * is what the map is set against on the screen; or one still waiting as
- * well, for the lender's check of the papers.
+ * is what the map is set against on the screen; or one the rules read that
+ * still waits as well, for the lender's check of the papers.
  */
 export function revenueExtent(
   project: DdProject,
   reads: readonly RevenueMapRead[] = revenueReads(project),
-  which: 'accepted' | 'live' = 'accepted',
+  which: 'accepted' | 'standing' = 'accepted',
 ): RevenueExtent | null {
   if (!reads.length) return null;
   const labels = parcelLabels(reads);
@@ -1526,8 +1596,8 @@ export function extentAgainstDocuments(extent: RevenueExtent): { stated: string;
     return { stated: `${listed(sources.map((s) => sqm(s.sqm)))} (${documents.from})`, verdict: documents.unset ?? '', apart: false };
   }
   // The numbers are said where the documents name them and the comparison is with those parcels, and not where a page read
-  // as naming one number is taken for all of them, nor where some of what it names could not be read.
-  const forNumbers = named && numbers.length && !compared?.everyParcel && !sources.some((s) => s.unreadable.length) ? ` for ${surveyNumbersLabel(numbers)}` : '';
+  // as naming one number is taken for all of them, nor where some of what it names could not be read or waits to be accepted.
+  const forNumbers = named && numbers.length && !compared?.everyParcel && !sources.some((s) => s.unreadable.length || s.numbersWaiting) ? ` for ${surveyNumbersLabel(numbers)}` : '';
   const stated = `${sqm(documents.sqm)}${forNumbers} (${documents.from})`;
   if (!compared) {
     if (documents.unset) return { stated, verdict: documents.unset, apart: false };

@@ -35,10 +35,12 @@ import type { DocumentFact } from './document-parse';
 import type { ValuationWorking } from './valuation-run';
 import { approachIsUsable, VALUATION_METHOD_LABEL, type ValuationMethodKey, type ValuationOutcome } from './valuation-model';
 import { formatValueInput, guidancePerSqm, valueHasBuilding } from './value-inputs';
-import { liveFacts } from './fact-review';
+import { standingFacts, waitingReadingSaid, waitingReadings } from './fact-review';
 import {
   extentAgainstDocuments,
   extentsApart,
+  landReadingsWaiting,
+  landReadingsWaitingSaid,
   offeredSurveyNumbers,
   parcelLabels,
   revenueExtent,
@@ -232,10 +234,17 @@ interface Said {
   fact: DocumentFact;
 }
 
+/**
+ * What the papers on file state under a key, for a lender's check to rest on:
+ * what a person accepted, and what the rules read off the page. Not a model's
+ * reading that nobody has accepted. That one waits, and the check it would
+ * have answered says so (`readingWaits`): "nil encumbrance" is never a
+ * model's word for a paper nobody looked at.
+ */
 function said(project: DdProject, key: string): Said[] {
   const out: Said[] = [];
   for (const row of (project.evidence ?? []).filter(onFile)) {
-    for (const fact of liveFacts(row)) if (fact.key === key) out.push({ row, fact });
+    for (const fact of standingFacts(row)) if (fact.key === key) out.push({ row, fact });
   }
   return out;
 }
@@ -270,8 +279,8 @@ function extentsAgree(project: DdProject): ValueCheck {
   const sameNumbers = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((n) => b.some((m) => one(m) === one(n)));
   const mapFrom = (parcels: number) => (parcels === 1 ? 'the state revenue map' : `the state revenue map, ${parcels} parcels added up`);
 
-  const land = statedLand(project, 'live');
-  const onMap = revenueExtent(project, revenueReads(project), 'live');
+  const land = statedLand(project, 'standing');
+  const onMap = revenueExtent(project, revenueReads(project), 'standing');
   const mapRead = Boolean(onMap && onMap.totalSqm > 0);
   /** Each group is the statements of one piece of land. */
   const groups: Statement[][] = [];
@@ -292,6 +301,8 @@ function extentsAgree(project: DdProject): ValueCheck {
     const each: Statement[][] = land.sources.length > 1 ? land.sources.map((s) => [of(s)]) : [];
     for (const other of land.others) {
       const at = land.sources.findIndex((s) => sameNumbers(s.numbers, other.numbers));
+      // Its land is named only in a reading that waits: it is compared with nothing, and the line below says a reading waits.
+      if (other.numbersWaiting) continue;
       if (other.unreadable.length) otherLand += 1;
       // A paper that names no number is taken, as it always was, to state the land the others do: all of it.
       else if (!other.numbers.length || sameNumbers(other.numbers, land.numbers)) all.push(of(other));
@@ -309,7 +320,11 @@ function extentsAgree(project: DdProject): ValueCheck {
 
   const statements = groups.flat();
   const base = { key: 'extents_agree', label: 'Extent across the documents', group: 'lender' as const, source: statements.map((s) => s.from).join(', ') || 'No extent on file' };
+  // A model's reading nobody has accepted, and one two readers differ on, are counted for nothing above. They are said.
+  const waiting = landReadingsWaiting(project);
+  const waits = landReadingsWaitingSaid(waiting);
   const aside = [
+    ...(waits ? [`${waits.charAt(0).toUpperCase()}${waits.slice(1)}.`] : []),
     ...(mapLeftOut ? [`The map is read and is not set beside ${statements.length === 1 ? 'it' : 'them'}: ${mapLeftOut}.`] : []),
     ...(otherLand ? [`${otherLand === 1 ? 'One other document states' : `${otherLand} other documents state`} an extent for land that is not the same, and ${otherLand === 1 ? 'is' : 'are'} not compared.`] : []),
   ];
@@ -325,13 +340,13 @@ function extentsAgree(project: DdProject): ValueCheck {
       ? 'None of them is on file.'
       : land && land.sqm !== null && land.sources.length > 1
         ? `The ${land.sources.length} documents on file state the extents of different survey numbers, ${formatValueInput(land.sqm, 'sqm')} in all, and nothing else states the same land, so there is nothing to compare them with.`
-        : aside.length
+        : aside.length > (waits ? 1 : 0)
           ? 'Only one of them states this land, so there is nothing to compare it with.'
           : 'Only one of them is on file, so there is nothing to compare it with.';
     return {
       ...base,
       verdict: 'unknown',
-      headline: statements.length ? 'Stated once' : 'No extent on file',
+      headline: statements.length ? 'Stated once' : waits ? 'A reading is waiting' : 'No extent on file',
       detail: ['A lender compares the extent on the title, the khata, the survey sketch and the map.', once, ...aside].join(' '),
     };
   }
@@ -518,6 +533,28 @@ function comparablesStand(project: DdProject): ValueCheck | null {
 const VERDICT_ORDER: ComplianceVerdict[] = ['blocker', 'attention', 'unknown', 'clear'];
 
 /**
+ * A check with nothing to stand on yet, where what would answer it has been
+ * read and waits: a model's reading nobody has accepted, or a value two
+ * readers differ on.
+ */
+function readingWaits(project: DdProject, key: string, label: string, facts: readonly string[]): ValueCheck | null {
+  for (const row of (project.evidence ?? []).filter(onFile)) {
+    const fact = waitingReadings(row).find((f) => facts.includes(f.key));
+    if (!fact) continue;
+    return {
+      key,
+      label,
+      group: 'lender',
+      verdict: 'unknown',
+      headline: 'A reading is waiting',
+      detail: `${waitingReadingSaid(fact, docName(row))} ${fact.otherReading ? 'Keep one' : 'Accept it or set it aside'} on the document; until then it answers nothing here.`,
+      source: `${docName(row)} p. ${fact.page}`,
+    };
+  }
+  return null;
+}
+
+/**
  * Every check on the figure: the state's title checks from the last screen,
  * then the lender's own. Worst first.
  */
@@ -531,9 +568,19 @@ export function valueChecks(project: DdProject, working: ValuationWorking, summa
     source: c.statute,
     group: 'state',
   }));
-  const lender = [extentsAgree(project), planDeviation(project), farWithin(project), chargesOnTitle(project), prohibited(project), comparablesStand(project), againstGuideline(summary), approachesAgree(working)].filter(
-    (c): c is ValueCheck => c !== null,
-  );
+  // A check with nothing to stand on, where a model has read what would answer it, says that the reading is waiting.
+  const orWaiting = (check: ValueCheck | null, key: string, label: string, facts: readonly string[]): ValueCheck | null =>
+    check && check.verdict !== 'unknown' ? check : (readingWaits(project, key, label, facts) ?? check);
+  const lender = [
+    extentsAgree(project),
+    orWaiting(planDeviation(project), 'plan_deviation', 'Built against the sanctioned plan', ['sanctioned_area']),
+    orWaiting(farWithin(project), 'far_within', 'FAR against the permitted', ['sanctioned_far', 'permissible_far']),
+    orWaiting(chargesOnTitle(project), 'charges', 'Charges on the title', ['ec_nil', 'subsisting_charges']),
+    prohibited(project),
+    comparablesStand(project),
+    againstGuideline(summary),
+    approachesAgree(working),
+  ].filter((c): c is ValueCheck => c !== null);
   return [...state, ...lender].sort((a, b) => VERDICT_ORDER.indexOf(a.verdict) - VERDICT_ORDER.indexOf(b.verdict));
 }
 

@@ -20,6 +20,11 @@
  *
  * Bounded on purpose: a 400-page bundle is read to a limit and says it was
  * cut, rather than tying a request up for minutes.
+ *
+ * And it says how each page went (`pageReads`): which reader's words stand
+ * for it, how sure OCR was, whether the scan had to be turned, and why a page
+ * was not read where it was not. A reading that says nothing of the pages it
+ * skipped looks the same as one that read them all.
  */
 
 import { createRequire } from 'node:module';
@@ -46,6 +51,29 @@ export interface DocumentText {
    * quote can be found on the page again; never stored itself.
    */
   layout?: PageLayout[];
+  /**
+   * How each page of the file was read, one entry a page, in order. Longer
+   * than `pages` when the file was cut: a page past the cut is here as unread.
+   */
+  pageReads?: PageRead[];
+}
+
+/** One page of a file: which reader's words stand for it, and how sure that reader was. */
+export interface PageRead {
+  /** 1-based. */
+  page: number;
+  /** Where its words came from. `none` means no reader here got words from it. */
+  reader: 'text' | 'ocr' | 'none';
+  /** OCR's own confidence in the page, 0..100. */
+  confidence?: number;
+  /** OCR could not make out enough of the page's words to be relied on. */
+  unsure?: boolean;
+  /** Degrees clockwise the scan was turned before it was read. */
+  turned?: 90 | 180 | 270;
+  /** The page had a text layer that was a font's private codes, not words, and it was set aside. */
+  layerDiscarded?: boolean;
+  /** Why no reader here got words from it, when none did. */
+  unread?: 'past_ocr_limit' | 'past_page_limit' | 'out_of_time' | 'nothing_legible';
 }
 
 /** One word as read, and where it sits: fractions of the page's width and height from its top left. */
@@ -55,6 +83,8 @@ export interface LayoutWord {
   y: number;
   w: number;
   h: number;
+  /** OCR's confidence in the word, 0..100. A word from a text layer carries none: it was not guessed at. */
+  confidence?: number;
 }
 
 export interface PageLayout {
@@ -237,7 +267,7 @@ function ocrWords(blocks: import('tesseract.js').Block[] | null | undefined, siz
           const text = word.text?.trim();
           if (!text) continue;
           const { x0, y0, x1, y1 } = word.bbox;
-          words.push({ text, x: x0 / size.width, y: y0 / size.height, w: (x1 - x0) / size.width, h: (y1 - y0) / size.height });
+          words.push({ text, x: x0 / size.width, y: y0 / size.height, w: (x1 - x0) / size.width, h: (y1 - y0) / size.height, confidence: word.confidence });
         }
       }
     }
@@ -386,37 +416,142 @@ const MAX_OCR_EDGE = 3_600;
  * bitmap (1 MB), anything else as greyscale, and an oversized page at half
  * size.
  */
-function toPnm(img: { width: number; height: number; kind: number; data: Uint8Array | Uint8ClampedArray }): { pnm: Buffer; width: number; height: number } {
+function toPnm(img: PageImage, turn = 0): { pnm: Buffer; width: number; height: number } {
   const { width: w, height: h, kind, data } = img;
-  const rowBytes = Math.ceil(w / 8);
-  // 1 bit per pixel, rows padded to whole bytes. pdf.js has already applied
-  // the image's decode array, so a set bit is WHITE — the same convention its
-  // own canvas painter uses. Getting it backwards hands OCR a negative.
-  const grey = (x: number, y: number): number => {
-    if (kind === 1) return ((data[y * rowBytes + (x >> 3)]! >> (7 - (x & 7))) & 1) ? 255 : 0;
-    const at = (y * w + x) * (kind === 3 ? 4 : 3);
-    return Math.round(0.299 * data[at]! + 0.587 * data[at + 1]! + 0.114 * data[at + 2]!);
-  };
   const scale = Math.max(w, h) > MAX_OCR_EDGE ? 2 : 1;
 
-  if (kind === 1 && scale === 1) {
+  if (kind === 1 && scale === 1 && turn === 0) {
     // PBM, where a set bit is BLACK: the same rows with every bit flipped.
-    const bits = Buffer.alloc(rowBytes * h);
+    const bits = Buffer.alloc(Math.ceil(w / 8) * h);
     for (let i = 0; i < bits.length; i += 1) bits[i] = ~(data[i] ?? 0xff) & 0xff;
     return { pnm: Buffer.concat([Buffer.from(`P4\n${w} ${h}\n`), bits]), width: w, height: h };
   }
 
-  const ow = Math.floor(w / scale);
-  const oh = Math.floor(h / scale);
-  const out = Buffer.alloc(ow * oh);
-  for (let y = 0; y < oh; y += 1) {
-    for (let x = 0; x < ow; x += 1) {
+  const upright = quarterTurns(greyPixels(img, scale), turn);
+  return { pnm: Buffer.concat([Buffer.from(`P5\n${upright.width} ${upright.height}\n255\n`), upright.grey]), width: upright.width, height: upright.height };
+}
+
+interface Grey {
+  grey: Buffer;
+  width: number;
+  height: number;
+}
+
+/** A page image as one grey byte a pixel, each the mean of a `scale` by `scale` block of the original. */
+function greyPixels(img: PageImage, scale: number): Grey {
+  const { width: w, kind, data } = img;
+  const rowBytes = Math.ceil(w / 8);
+  // 1 bit per pixel, rows padded to whole bytes. pdf.js has already applied
+  // the image's decode array, so a set bit is WHITE — the same convention its
+  // own canvas painter uses. Getting it backwards hands OCR a negative.
+  const at = (x: number, y: number): number => {
+    if (kind === 1) return ((data[y * rowBytes + (x >> 3)]! >> (7 - (x & 7))) & 1) ? 255 : 0;
+    const i = (y * w + x) * (kind === 3 ? 4 : 3);
+    return Math.round(0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!);
+  };
+  const width = Math.floor(w / scale);
+  const height = Math.floor(img.height / scale);
+  const grey = Buffer.alloc(width * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
       let sum = 0;
-      for (let dy = 0; dy < scale; dy += 1) for (let dx = 0; dx < scale; dx += 1) sum += grey(x * scale + dx, y * scale + dy);
-      out[y * ow + x] = Math.round(sum / (scale * scale));
+      for (let dy = 0; dy < scale; dy += 1) for (let dx = 0; dx < scale; dx += 1) sum += at(x * scale + dx, y * scale + dy);
+      grey[y * width + x] = Math.round(sum / (scale * scale));
     }
   }
-  return { pnm: Buffer.concat([Buffer.from(`P5\n${ow} ${oh}\n255\n`), out]), width: ow, height: oh };
+  return { grey, width, height };
+}
+
+/** The picture turned clockwise by a number of quarter turns. */
+function quarterTurns(from: Grey, turns: number): Grey {
+  const n = ((turns % 4) + 4) % 4;
+  if (n === 0) return from;
+  const { grey, width: w, height: h } = from;
+  const out = Buffer.alloc(w * h);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const to = n === 1 ? x * h + (h - 1 - y) : n === 2 ? (h - 1 - y) * w + (w - 1 - x) : (w - 1 - x) * h + y;
+      out[to] = grey[y * w + x]!;
+    }
+  }
+  return n === 2 ? { grey: out, width: w, height: h } : { grey: out, width: h, height: w };
+}
+
+/** A stroke with this much ink across a strip of the page (of 255) is a drawn rule: a line of writing puts far less there. */
+const RULE_INK = 80;
+/** The steps either side of a rule that carry its blur, and are left out with it. */
+const RULE_REACH = 3;
+
+/**
+ * Whether a scan's lines of writing look to run up the page instead of across
+ * it: a sheet fed through the scanner sideways.
+ *
+ * Lines of writing are stripes. Added up along a line, the ink rises and falls
+ * sharply from one line to the gap below it; added up across the lines it is
+ * nearly flat. So the page is measured both ways, and the rougher one is the
+ * way the lines run. It is done in strips, so a page a few degrees off square
+ * still shows its stripes, and on a small copy, so it costs a few milliseconds.
+ *
+ * Rules drawn on the page are stripes too, and heavier ones. Three column
+ * rules down an upright register page outweigh every line of writing across
+ * it; fed sideways the same rules run across, and it looks upright. So the
+ * page is measured a second time with its rules left out (any step that is a
+ * solid stroke, and the blur beside it), and either measure can say the lines
+ * run up.
+ *
+ * Measured, up over across, on 288 pages of the reading eval's scans, each as
+ * it stands and fed sideways both ways, in English and Kannada:
+ *
+ *                     as it is        rules left out
+ *   upright           0.11 to 0.56    0.27 to 1.57
+ *   upright, ruled    2.0 to 19.9     0.27 to 0.72
+ *   sideways          1.78 to 8.69    0.64 to 3.79
+ *   sideways, ruled   0.04 to 0.51    1.40 to 3.77
+ *
+ * Neither measure tells an upright ruled page from a sideways one, nor a
+ * poor upright scan from a sideways ruled one. So this is never what decides:
+ * a page is turned only when it also reads badly as shown (see `ocrPage`), and
+ * every upright page above read well. What this does is spare the page that
+ * reads badly for another reason (a near-empty sheet of scanner grain, a
+ * script OCR does not have) two more readings on its side, which on the
+ * eval's worst page is two and a half minutes more.
+ *
+ * It cannot tell which way up the lines are; OCR's confidence does that.
+ */
+function linesRunUp(img: PageImage): boolean {
+  const { grey, width: w, height: h } = greyPixels(img, Math.max(1, Math.round(Math.max(img.width, img.height) / 800)));
+  const STRIPS = 6;
+  /** How sharply mean ink changes from one step to the next, walking `length` steps across strips `span` wide: over every step, and with the rules left out. */
+  const roughness = (length: number, span: number, ink: (step: number, across: number) => number): { plain: number; unruled: number } => {
+    let plain = 0;
+    let unruled = 0;
+    for (let s = 0; s < STRIPS; s += 1) {
+      const from = Math.floor((s * span) / STRIPS);
+      const to = Math.floor(((s + 1) * span) / STRIPS);
+      const means: number[] = [];
+      for (let step = 0; step < length; step += 1) {
+        let sum = 0;
+        for (let across = from; across < to; across += 1) sum += ink(step, across);
+        means.push(sum / Math.max(1, to - from));
+      }
+      let before = -1;
+      let beforeUnruled = -1;
+      for (let step = 0; step < length; step += 1) {
+        const mean = means[step]!;
+        if (before >= 0) plain += (mean - before) ** 2;
+        before = mean;
+        let ruled = false;
+        for (let near = Math.max(0, step - RULE_REACH); near <= Math.min(length - 1, step + RULE_REACH) && !ruled; near += 1) ruled = means[near]! > RULE_INK;
+        if (ruled) continue;
+        if (beforeUnruled >= 0) unruled += (mean - beforeUnruled) ** 2;
+        beforeUnruled = mean;
+      }
+    }
+    return { plain: plain / Math.max(1, length), unruled: unruled / Math.max(1, length) };
+  };
+  const across = roughness(h, w, (y, x) => 255 - grey[y * w + x]!);
+  const up = roughness(w, h, (x, y) => 255 - grey[y * w + x]!);
+  return up.plain > across.plain * 1.2 || up.unruled > across.unruled * 1.3;
 }
 
 /* -------------------------------------------------------------------- */
@@ -533,34 +668,115 @@ async function recognizeWithin(worker: Worker, image: Buffer): Promise<Awaited<R
   }
 }
 
+/** Below this, OCR is guessing at a word. */
+export const WEAK_WORD_CONFIDENCE = 60;
+/**
+ * When OCR's reading of a page is not to be relied on: its confidence over the
+ * page is under the first, or more than the second share of its words are
+ * guesses. Measured on the reading eval's scans, in English and Kannada: a
+ * clean scan comes back at 92 to 95 with under 3% of its words weak; a crooked,
+ * blurred, stamped one at 77 to 87 with 6% to 27%. The share is what catches a
+ * page that is sharp except under its stamp.
+ */
+const UNSURE_PAGE_CONFIDENCE = 88;
+const UNSURE_WEAK_SHARE = 0.04;
+
+interface OcrRead {
+  text: string;
+  confidence: number;
+  /** See `UNSURE_PAGE_CONFIDENCE`. */
+  unsure: boolean;
+  words?: LayoutWord[];
+}
+
 /**
  * Text, confidence and — given the image's size — where each word is. Without
  * a size the words have nowhere to be measured against, and are left out.
  */
-async function ocrImage(
-  image: Buffer,
-  size?: { width: number; height: number } | null,
-): Promise<{ text: string; confidence: number; words?: LayoutWord[] }> {
-  const placed = (blocks: import('tesseract.js').Block[] | null | undefined) =>
-    size && size.width > 0 && size.height > 0 ? ocrWords(blocks, size) : undefined;
+async function ocrImage(image: Buffer, size?: { width: number; height: number } | null): Promise<OcrRead> {
+  const read = (data: Awaited<ReturnType<Worker['recognize']>>['data']): OcrRead => {
+    const confidence = data.confidence ?? 0;
+    // One-character scraps are specks and rules as often as words, and say nothing of the reading.
+    const words = ocrWords(data.blocks, { width: 1, height: 1 }).filter((word) => /[\p{L}\p{N}]{2}/u.test(word.text));
+    const weak = words.filter((word) => (word.confidence ?? 0) < WEAK_WORD_CONFIDENCE).length;
+    return {
+      text: data.text ?? '',
+      confidence,
+      unsure: confidence < UNSURE_PAGE_CONFIDENCE || weak > words.length * UNSURE_WEAK_SHARE,
+      words: size && size.width > 0 && size.height > 0 ? ocrWords(data.blocks, size) : undefined,
+    };
+  };
   const eng = await ocrWorker(['eng']);
-  const first = await recognizeWithin(eng, image);
-  const text = first.data.text ?? '';
-  const confidence = first.data.confidence ?? 0;
+  const first = read((await recognizeWithin(eng, image)).data);
   // Weak English on a page with real content is usually a Kannada page. Read
   // it again with both; keep whichever the engine is surer of.
-  if ((confidence < 55 || latinShare(text) < 0.5) && text.replace(/\s/g, '').length > 20) {
+  if ((first.confidence < 55 || latinShare(first.text) < 0.5) && first.text.replace(/\s/g, '').length > 20) {
     try {
       const both = await ocrWorker(['kan', 'eng']);
-      const second = await recognizeWithin(both, image);
-      if ((second.data.confidence ?? 0) > confidence) {
-        return { text: second.data.text ?? '', confidence: second.data.confidence ?? 0, words: placed(second.data.blocks) };
-      }
+      const second = read((await recognizeWithin(both, image)).data);
+      if (second.confidence > first.confidence) return second;
     } catch {
       /* the English reading stands */
     }
   }
-  return { text, confidence, words: placed(first.data.blocks) };
+  return first;
+}
+
+/** A word's box, put back where it sits on the page before the picture was turned clockwise by `turns` quarter turns. */
+function unturned(word: LayoutWord, turns: number): LayoutWord {
+  let { x, y, w, h } = word;
+  for (let n = 0; n < turns; n += 1) [x, y, w, h] = [y, 1 - x - w, h, w];
+  return { ...word, x, y, w, h };
+}
+
+/**
+ * Below this, the page as its PDF shows it did not read. Measured, on the
+ * reading eval's scans and on a register page with three to eight column
+ * rules drawn down it: every upright page read at 77 or more, clean, poor or
+ * ruled, in English and in Kannada; every page fed sideways read at 49 or
+ * less.
+ */
+const TURN_BELOW_CONFIDENCE = 65;
+
+/**
+ * OCR of one scanned page: read as its PDF shows it, and turned only where
+ * that does not read.
+ *
+ * The page is read first the way its PDF says to show it. Only where that
+ * reading is a bad one (`TURN_BELOW_CONFIDENCE`), and the page's lines look
+ * to run up it (`linesRunUp`), is it read again a quarter turn back and, if
+ * that is no better, a quarter turn the other way. The surest of the readings
+ * is kept.
+ *
+ * It takes both. The look of the lines alone is undone by rules drawn on the
+ * page: an upright register page ruled into columns looks sideways, and was
+ * read twice more on its side whenever OCR was a little unsure of it (77 to
+ * 88), eighteen seconds for a page that takes one. A reading that is merely
+ * unsure is no reason to turn a page; one that is bad is. And a bad reading
+ * alone would turn every page that reads badly for another reason.
+ */
+async function ocrPage(image: PageImage, rotate: number): Promise<OcrRead & { turned?: 90 | 180 | 270 }> {
+  const shown = ((Math.round(rotate / 90) % 4) + 4) % 4;
+  const reading = async (turn: number): Promise<OcrRead & { turn: number }> => {
+    const { pnm, width, height } = toPnm(image, turn);
+    return { ...(await ocrImage(pnm, { width, height })), turn };
+  };
+  let best = await reading(shown);
+  if (best.confidence < TURN_BELOW_CONFIDENCE && linesRunUp(image) !== (shown % 2 === 1)) {
+    for (const turn of [(shown + 3) % 4, (shown + 1) % 4]) {
+      const read = await reading(turn);
+      if (read.confidence > best.confidence) best = read;
+      // Turned the right way it reads; the other way would be upside down.
+      if (read.confidence >= TURN_BELOW_CONFIDENCE) break;
+    }
+  }
+  const { turn, ...read } = best;
+  return {
+    ...read,
+    // Boxes are kept as the page is shown, which is how it is drawn for a person to look at.
+    words: read.words?.map((word) => unturned(word, (turn - shown + 4) % 4)),
+    ...(turn ? { turned: (turn * 90) as 90 | 180 | 270 } : {}),
+  };
 }
 
 /* -------------------------------------------------------------------- */
@@ -609,7 +825,7 @@ export async function readDocumentText(
   if (lower.startsWith('text/') || lower.includes('json') || /\.(?:txt|csv|md|json)$/.test(name)) {
     const text = decodeText(bytes).slice(0, 200_000);
     return text.trim()
-      ? { pages: [text], method: 'text', ocrPages: [], totalPages: 1, truncated: false }
+      ? { pages: [text], method: 'text', ocrPages: [], totalPages: 1, truncated: false, pageReads: [{ page: 1, reader: 'text' }] }
       : empty('The file has no text in it.');
   }
 
@@ -618,9 +834,13 @@ export async function readDocumentText(
     try {
       progress('Running OCR on the image');
       options.onPage?.(1, 1);
-      const { text, confidence, words } = await ocrImage(Buffer.from(bytes), imageSize(bytes));
+      const { text, confidence, unsure, words } = await ocrImage(Buffer.from(bytes), imageSize(bytes));
       if (text.replace(/\s/g, '').length < 12) {
-        return { ...empty('No legible text was found in the image — it may be a photograph of the site rather than of a document.'), totalPages: 1 };
+        return {
+          ...empty('No legible text was found in the image — it may be a photograph of the site rather than of a document.'),
+          totalPages: 1,
+          pageReads: [{ page: 1, reader: 'none', unread: 'nothing_legible' }],
+        };
       }
       return {
         pages: [text],
@@ -630,6 +850,7 @@ export async function readDocumentText(
         totalPages: 1,
         truncated: false,
         ...(words?.length ? { layout: [{ page: 1, words }] } : {}),
+        pageReads: [{ page: 1, reader: 'ocr', confidence: Math.round(confidence), ...(unsure ? { unsure } : {}) }],
       };
     } catch {
       return empty('The image could not be read.');
@@ -654,6 +875,7 @@ export async function readDocumentText(
   const ocrPages: number[] = [];
   const confidences: number[] = [];
   const layout: PageLayout[] = [];
+  const pageReads: PageRead[] = [];
   let cut = false;
   try {
     for (let n = 1; n <= last; n += 1) {
@@ -661,6 +883,7 @@ export async function readDocumentText(
       const page = await doc.getPage(n);
       let text = '';
       let words: LayoutWord[] = [];
+      const read: PageRead = { page: n, reader: 'none' };
       try {
         const content = await page.getTextContent();
         text = pageText(content.items as Array<{ str?: string; hasEOL?: boolean; transform?: number[] }>);
@@ -678,34 +901,59 @@ export async function readDocumentText(
       if (!legibleText(text) && text.replace(/\s/g, '').length >= MIN_TEXT_CHARS) {
         text = '';
         words = [];
+        read.layerDiscarded = true;
       }
-      if (outOfTime && text.replace(/\s/g, '').length < MIN_TEXT_CHARS) cut = true;
-      if (text.replace(/\s/g, '').length < MIN_TEXT_CHARS && ocrPages.length < maxOcrPages && !outOfTime) {
+      const scanned = text.replace(/\s/g, '').length < MIN_TEXT_CHARS;
+      if (outOfTime && scanned) cut = true;
+      /** OCR was to be tried on it: it has no text layer to speak of, and neither limit was reached. */
+      const tried = scanned && ocrPages.length < maxOcrPages && !outOfTime;
+      /** The page is a picture of a page. */
+      let picture = false;
+      if (tried) {
         // No usable text layer: a scan. Read the page image instead.
         try {
           const image = await pageImage(pdfjs, page);
           if (image && image.width * image.height > 40_000) {
+            picture = true;
             progress(totalPages > 1 ? `Running OCR on page ${n} of ${totalPages}` : 'Running OCR on the scan');
-            const { pnm, width, height } = toPnm(image);
-            const read = await ocrImage(pnm, { width, height });
-            if (read.text.replace(/\s/g, '').length > text.replace(/\s/g, '').length) {
-              text = read.text.trim();
-              words = read.words ?? [];
+            const ocr = await ocrPage(image, page.rotate);
+            if (ocr.text.replace(/\s/g, '').length > text.replace(/\s/g, '').length) {
+              text = ocr.text.trim();
+              words = ocr.words ?? [];
               ocrPages.push(n);
-              confidences.push(read.confidence);
+              confidences.push(ocr.confidence);
+              read.reader = 'ocr';
+              read.confidence = Math.round(ocr.confidence);
+              if (ocr.unsure) read.unsure = true;
+              if (ocr.turned) read.turned = ocr.turned;
             }
           }
         } catch {
           /* the page stays as whatever its text layer held */
         }
       }
+      if (read.reader === 'none') {
+        /*
+         * A few words of text layer are the page's own words only where the
+         * page is not a picture. On a scan they are the scanner's footer, and
+         * counting that as the page read is how ten scanned pages with eight
+         * read came out as ten of ten. Where OCR was not tried, for want of
+         * time or past its limit, nobody looked: the page is not called read.
+         */
+        const footer = scanned && (picture || !tried);
+        if (text.trim() && !footer) read.reader = 'text';
+        else read.unread = outOfTime ? 'out_of_time' : scanned && ocrPages.length >= maxOcrPages ? 'past_ocr_limit' : 'nothing_legible';
+      }
       pages.push(text);
+      pageReads.push(read);
       if (words.length) layout.push({ page: n, words });
       page.cleanup();
     }
   } finally {
     await doc.destroy().catch(() => undefined);
   }
+  // The pages past the limit were never opened. They are in the file, and are said to be.
+  for (let n = last + 1; n <= totalPages; n += 1) pageReads.push({ page: n, reader: 'none', unread: 'past_page_limit' });
 
   const readable = pages.some((p) => p.replace(/\s/g, '').length >= 12);
   if (!readable) {
@@ -718,6 +966,7 @@ export async function readDocumentText(
       failure: cut
         ? 'The reading ran out of time before this scan was reached. Ask to read the filed documents again.'
         : 'No legible text was found — the scan may be too faint, or the pages may be drawings.',
+      pageReads,
     };
   }
   const method = ocrPages.length === 0 ? 'text' : ocrPages.length === pages.filter((p) => p.trim()).length ? 'ocr' : 'mixed';
@@ -729,5 +978,6 @@ export async function readDocumentText(
     totalPages,
     truncated: totalPages > last || cut,
     ...(layout.length ? { layout } : {}),
+    pageReads,
   };
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Check, Sparkles } from 'lucide-react';
-import type { DocumentFact } from '@realytica/shared';
+import { proofSaid, type DocumentFact } from '@realytica/shared';
 import { cn } from '../ui/kit';
 
 const reducedMotion = (): boolean =>
@@ -102,7 +102,7 @@ export function FactRow({
         ) : (
           <span
             className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-provenance/10 px-1.5 py-px text-micro font-medium text-provenance-ink"
-            title={model ? 'Read by the model' : 'Read from the page by Realytica'}
+            title={model ? `Read by the model${proofSaid(fact) ? `; ${proofSaid(fact)}` : ''}` : 'Read from the page by Realytica'}
           >
             <Sparkles size={10} aria-hidden />
             {model ? 'AI' : 'Read'}
@@ -118,6 +118,22 @@ export function FactRow({
           {fact.originalValue}
         </p>
       ) : null}
+      {model && proofSaid(fact) ? <p className="text-micro text-ink-muted">AI read · {proofSaid(fact)}</p> : null}
+      {fact.otherReading ? <OtherReading fact={fact} /> : null}
     </div>
+  );
+}
+
+/** The other reader's value for the same thing, where the two differ: shown beside it, taken by nobody. */
+export function OtherReading({ fact }: { fact: DocumentFact }) {
+  const other = fact.otherReading;
+  if (!other) return null;
+  const said = proofSaid(other);
+  return (
+    <span className="block text-micro text-provenance-ink">
+      {other.source === 'model' ? 'A model read' : 'The page was read here as'} <span className="font-mono">{other.display}</span>
+      {other.page ? ` on p.${other.page}` : ''}
+      {said ? ` (${said})` : ''}. The two differ; neither is taken until you keep one.
+    </span>
   );
 }

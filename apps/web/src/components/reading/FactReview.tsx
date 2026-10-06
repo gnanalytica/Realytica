@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Sparkles } from 'lucide-react';
-import { factReview, type DocumentFact, type FactReview as Review } from '@realytica/shared';
+import { acceptedOneAtATime, factReview, oneAtATimeSaid, proofSaid, type DocumentFact, type FactReview as Review } from '@realytica/shared';
 import { cn } from '../ui/kit';
 import { AcceptAllButton, DecideButtons, DecidedMark } from '../review/Decide';
-import { useTyped } from './FactRow';
+import { OtherReading, useTyped } from './FactRow';
 
 export type FactDecision = 'accept' | 'reject' | 'reopen';
 export type FactEdit = { value: string | number | boolean; display: string };
@@ -61,7 +61,7 @@ function ReviewRow({
   revealing: boolean;
   busy: boolean;
   onActivate: () => void;
-  onDecide: (decision: FactDecision, edit?: FactEdit) => void;
+  onDecide: (decision: FactDecision, edit?: FactEdit, take?: 'other') => void;
   onEdit: () => void;
   onEditDone: () => void;
 }) {
@@ -154,6 +154,26 @@ function ReviewRow({
             {fact.originalValue}
           </p>
         ) : null}
+        {model && proofSaid(fact) ? <p className="text-micro text-ink-muted">AI read · {proofSaid(fact)}</p> : null}
+        {fact.otherReading ? (
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <OtherReading fact={fact} />
+            {state === 'proposed' ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDecide('accept', undefined, 'other');
+                }}
+                className="rounded text-micro font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
+                aria-label={`Keep ${fact.otherReading.display} for ${fact.label} instead`}
+              >
+                Keep {fact.otherReading.display} instead
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {state === 'proposed' ? (
         <DecideButtons
@@ -198,7 +218,7 @@ export function FactReviewList({
   activeKey: string | null;
   onPoint: (fact: DocumentFact | null) => void;
   /** Resolves true once the decision is on the file; false if it was refused. */
-  onDecide: (keys: string[] | 'all', decision: FactDecision, edit?: FactEdit) => Promise<boolean>;
+  onDecide: (keys: string[] | 'all', decision: FactDecision, edit?: FactEdit, take?: 'other') => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -234,14 +254,14 @@ export function FactReviewList({
     facts.slice(from + 1).find((f) => stateOf(f) === 'proposed' && f.key !== facts[from]?.key)
     ?? facts.slice(0, from).find((f) => stateOf(f) === 'proposed');
 
-  const decide = (fact: DocumentFact, decision: FactDecision, edit?: FactEdit) => {
+  const decide = (fact: DocumentFact, decision: FactDecision, edit?: FactEdit, take?: 'other') => {
     const i = facts.findIndex((f) => f.key === fact.key);
     const next = decision === 'reopen' ? fact : nextWaiting(i);
     const shown: Review = decision === 'accept' ? 'accepted' : decision === 'reject' ? 'rejected' : 'proposed';
     setOptimistic((prev) => ({ ...prev, [fact.key]: shown }));
     if (next) onPoint(next);
     list.current?.focus({ preventScroll: true });
-    void onDecide([fact.key], decision, edit).then((ok) => {
+    void onDecide([fact.key], decision, edit, take).then((ok) => {
       if (ok) return;
       setOptimistic((prev) => {
         const { [fact.key]: _refused, ...rest } = prev;
@@ -250,8 +270,12 @@ export function FactReviewList({
     });
   };
 
+  // "All" takes what a person need not look at one by one. A value two readers differ on, a model's yes or no, and an
+  // exact value only a second model stands behind are left waiting, as the file leaves them.
+  const together = waiting.filter((f) => !acceptedOneAtATime(f));
+  const oneByOne = oneAtATimeSaid(waiting);
   const acceptAll = () => {
-    setOptimistic((prev) => ({ ...prev, ...Object.fromEntries(waiting.map((f) => [f.key, 'accepted' as Review])) }));
+    setOptimistic((prev) => ({ ...prev, ...Object.fromEntries(together.map((f) => [f.key, 'accepted' as Review])) }));
     void onDecide('all', 'accept').then((ok) => {
       if (!ok) setOptimistic({});
     });
@@ -291,12 +315,13 @@ export function FactReviewList({
           {waiting.length ? <span className="font-normal text-ink-muted"> · {waiting.length} waiting</span> : null}
         </p>
         <AcceptAllButton
-          count={waiting.length}
+          count={together.length}
           busy={busy}
-          label={`Accept the ${waiting.length === 1 ? 'value' : `${waiting.length} values`} left on the ${documentName}`}
+          label={`Accept the ${together.length === 1 ? 'value' : `${together.length} values`} on the ${documentName} that can be accepted together`}
           onAccept={acceptAll}
         />
       </div>
+      {oneByOne ? <p className="text-micro text-ink-muted">{oneByOne}</p> : null}
       <div className="flex items-center gap-2.5" aria-hidden={facts.length === 0}>
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-sunken">
           <div
@@ -337,7 +362,7 @@ export function FactReviewList({
               revealing={revealing}
               busy={busy}
               onActivate={() => onPoint(fact)}
-              onDecide={(decision, edit) => decide(fact, decision, edit)}
+              onDecide={(decision, edit, take) => decide(fact, decision, edit, take)}
               onEdit={() => setEditing(fact.key)}
               onEditDone={() => setEditing(null)}
             />

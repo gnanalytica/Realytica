@@ -36,8 +36,7 @@ import {
   type MenuFunction,
 } from './departments';
 import { decidedOnACheck, differsOnCheck, statesTheSame, surveyNumbersIn } from './document-intake';
-import type { DocumentFact } from './document-parse';
-import { acceptedFacts, liveFacts } from './fact-review';
+import { acceptedFacts, standingFacts } from './fact-review';
 import { waitingFieldKeys } from './review';
 import { WAITING_FROM_EARLIER, filedByReply } from './sitting';
 import { graphImpact } from './graph-impact';
@@ -357,9 +356,9 @@ const PARCEL_KEYS = new Set(['khata_number', 'pid', 'owner']);
 /** The extents a paper can state, each of which is compared with the land area on the project record. */
 const EXTENT_KEYS = new Set(['extent_title', 'extent_khata', 'extent_survey']);
 
-/** The survey numbers a paper says it is about, from what it states and nobody has set aside. */
-function parcelOf(evidence: EvidenceRecord, facts: readonly DocumentFact[] = liveFacts(evidence)): string[] {
-  return surveyNumbersIn(facts.find((f) => f.key === 'survey_numbers')?.value ?? '');
+/** The survey numbers a paper says it is about, from what it states that stands: not a model's reading nobody accepted, nor one two readers differ on. */
+function parcelOf(evidence: EvidenceRecord): string[] {
+  return surveyNumbersIn(standingFacts(evidence).find((f) => f.key === 'survey_numbers')?.value ?? '');
 }
 
 /**
@@ -380,11 +379,16 @@ function parcelOf(evidence: EvidenceRecord, facts: readonly DocumentFact[] = liv
  * parcel, and a paper's extent is set against the land area only when the
  * paper is about the whole site: it names the parcels the project does, or
  * names none and the project is one parcel.
+ *
+ * Only what stands on the paper is set against the file (`standingFacts`). A
+ * model's reading nobody has accepted, and a value two readers differ on,
+ * wait on the row and differ from nothing until a person decides them.
  */
-export function documentDisagreements(project: DdProject, evidence: EvidenceRecord, facts: readonly DocumentFact[] = liveFacts(evidence)): Disagreement[] {
+export function documentDisagreements(project: DdProject, evidence: EvidenceRecord): Disagreement[] {
   const out: Disagreement[] = [];
   const site = surveyNumbersIn(project.parcelId ?? '');
-  const named = parcelOf(evidence, facts);
+  const facts = standingFacts(evidence);
+  const named = parcelOf(evidence);
   const wholeSite = named.length ? named.length === site.length && named.every((n) => site.includes(n)) : site.length <= 1;
   const sameParcel = (other: EvidenceRecord): boolean => {
     const theirs = parcelOf(other);

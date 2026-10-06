@@ -104,6 +104,7 @@ import {
   pickCheckValue,
   recordAuditEvent,
   reviewFacts,
+  keepReadings,
   setAsideWaiting,
   assignOwner,
   applyProjectAgentTurn,
@@ -185,8 +186,9 @@ import { startBackgroundRun } from '../runs/background';
 import { documentDisposition, resolveServedType } from './document-file';
 import { store } from '../store';
 import { mergeModelReading, needsModelReading, readIngestLocally } from '../documents/intake';
-import { readOntoRegister, type RegisterUpload } from '../documents/register-read';
-import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS, rowsToRead } from '../documents/reread';
+import { keepPageTexts } from '../documents/page-text';
+import { confirmProposedType, correctProposedType, readOntoRegister, setAsideProposedType, type RegisterUpload } from '../documents/register-read';
+import { asksAgain, filedDocumentsToRead, READ_FILED_REQUEST, REREAD_BUDGET_MS, rowsToRead, straightToModel } from '../documents/reread';
 import { PROJECT_KEPT, removeProject } from '../project-removal';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
@@ -238,6 +240,7 @@ import {
   projectChatBodySchema,
   renameChatBodySchema,
   projectChatProposalBodySchema,
+  correctDocumentTypeBodySchema,
   factReviewBodySchema,
   fieldDecisionBodySchema,
   fieldPickBodySchema,
@@ -1190,25 +1193,19 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
   let nothingLeftToRead = false;
   if (READ_FILED_REQUEST.test(question)) {
     const again = asksAgain(question);
-    const filed = await filedDocumentsToRead(viewFor(req, project).project, again);
+    // A paper a model was to read and has not is read again, where there is a model to read it.
+    const withModel = agentCapability().available;
+    const filed = await filedDocumentsToRead(viewFor(req, project).project, again, withModel);
     nothingLeftToRead = filed.length === 0;
     // Past this turn's ten: said at the end, so the next turn is asked for.
-    const beyond = Math.max(0, rowsToRead(viewFor(req, project).project, again).length - filed.length);
+    const beyond = Math.max(0, rowsToRead(viewFor(req, project).project, again, withModel).length - filed.length);
     if (filed.length) {
-      // Documents the reader already had a turn at, and got little from, go
-      // straight to the model; asking "again" reads everything from the start.
-      const readHere = new Set(
-        again
-          ? []
-          : project.evidence
-              .filter((e) => (e.facts ?? []).length < 3 && e.attachments.length > 0)
-              .flatMap((e) => e.attachments.map((a) => a.storageKey)),
-      );
       await ingestTurn(req, res, project, filed, {
         question,
         readBudgetMs: REREAD_BUDGET_MS,
         unreadBeyond: beyond,
-        modelOnly: readHere,
+        // Which of them go to the model with nothing read here first: never one that carries a reading. See `straightToModel`.
+        modelOnly: straightToModel(project, again),
         viewContext: parsed.data.viewContext,
         place,
         sessionId: parsed.data.sessionId,
@@ -1408,6 +1405,7 @@ projectsRouter.post('/:projectId/chat', async (req, res) => {
     sitting,
     chat,
     nothingLeftToRead,
+    modelReader: capability.available,
   });
 
   if (capability.available && !skipLlmForChat(result)) {
@@ -1582,10 +1580,76 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/facts/review', async (req,
     const view = viewFor(req, project);
     const { changed } = reviewFacts(project, req.params.evidenceId, parsed.data.keys, parsed.data.decision, actorOf(req), parsed.data.edit, {
       checkWritable: view.complete ? undefined : (checkId) => view.writableCheckIds.has(checkId),
+      ...(parsed.data.take ? { take: parsed.data.take } : {}),
     });
     refreshProjectDerived(project);
     await store.save();
     res.json({ project, changed: changed.length });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** A person confirms what a model took a paper for: it becomes the row's type, and the row answers what was waiting for that paper. */
+projectsRouter.post('/:projectId/evidence/:evidenceId/document-type/confirm', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    assertMayWrite(req, project, [req.params.evidenceId]);
+    if (!confirmProposedType(project, req.params.evidenceId)) {
+      res.status(409).json({ error: 'This document has no proposed type to confirm.' });
+      return;
+    }
+    await persistPaneWrite(req, project, 'Confirmed what a document is.', { citedEvidenceIds: [req.params.evidenceId] });
+    res.json({ project });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** A person refuses what a model took a paper for: the offer goes, and is not made again for this paper. */
+projectsRouter.post('/:projectId/evidence/:evidenceId/document-type/set-aside', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  try {
+    assertMayWrite(req, project, [req.params.evidenceId]);
+    if (!setAsideProposedType(project, req.params.evidenceId)) {
+      res.status(409).json({ error: 'This document has no proposed type to set aside.' });
+      return;
+    }
+    await persistPaneWrite(req, project, 'Set aside what a model took a document for.', { citedEvidenceIds: [req.params.evidenceId] });
+    res.json({ project });
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+/** A person says what a paper is, in place of what a model took it for. */
+projectsRouter.post('/:projectId/evidence/:evidenceId/document-type/correct', async (req, res) => {
+  const project = findProject(req.params.projectId);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  const parsed = correctDocumentTypeBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    assertMayWrite(req, project, [req.params.evidenceId]);
+    if (!correctProposedType(project, req.params.evidenceId, parsed.data.documentType)) {
+      res.status(409).json({ error: 'This document has no proposed type to correct, or that is not a kind of document the register knows.' });
+      return;
+    }
+    await persistPaneWrite(req, project, 'Said what a document is.', { citedEvidenceIds: [req.params.evidenceId] });
+    res.json({ project });
   } catch (err) {
     fail(res, err);
   }
@@ -1713,6 +1777,12 @@ interface IngestUpload {
  * read of a long scan takes one to two minutes, and the turn still has to save.
  */
 const MODEL_READ_BUDGET_MS = 480_000;
+/**
+ * When every model call of a turn has ended, whatever it was doing: a read
+ * started at the last moment is cut here, and its paper is said to be unread
+ * by a model, so the turn still saves inside the function's limit.
+ */
+const MODEL_READ_STOP_MS = MODEL_READ_BUDGET_MS + 150_000;
 
 interface IngestFields {
   question?: string;
@@ -1855,6 +1925,7 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
         pageTexts: forModel.map(({ i }) => pageTexts.get(i)),
         // Leave room inside the function's ceiling for the last read and the save.
         deadline: started + MODEL_READ_BUDGET_MS,
+        stopAt: started + MODEL_READ_STOP_MS,
         // The local reading already announced each file. The model's own
         // "Reading …" would say it twice, and its failure is not news about a
         // document that was read — so only its progress passes through.
@@ -1888,10 +1959,17 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
       });
       const byIndex = new Map(forModel.map(({ i }, n) => [i, modelRead[n]]));
       enriched = ingest.map((local, i) => mergeModelReading(local, byIndex.get(i)));
+      // What the two readings come to once laid together, so the desk shows what the cards will carry and not what stood before.
+      for (const { i } of forModel) {
+        const merged = enriched[i];
+        if (merged?.read) reading({ type: 'reading', event: 'merged', key: merged.storageKey, facts: merged.read.facts });
+      }
     } catch {
       enriched = ingest;
     }
   }
+  // Each page's text beside its file, so a later question can be answered from the whole paper.
+  await keepPageTexts(project.id, enriched);
   if (clientGone()) {
     res.end();
     return;
@@ -1915,7 +1993,10 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
     sitting,
     chat: { sessionId: ownSitting(project, fields.sessionId, actorOf(req)), continues, startedAt: fields.sessionStartedAt, actor: actorOf(req) },
     spend: readAnything ? { usd: readCostUsd, exact: readCostExact } : undefined,
+    modelReader: agentCapability().available,
   });
+  // How much of each file was read goes with the file: onto its row where it has one, else onto the card that will file it.
+  keepReadings(canvas, enriched);
   sayWhatIsMissing(seen, question, result);
   unread += fields.unreadBeyond ?? 0;
   if (unread) {
@@ -1928,6 +2009,7 @@ async function ingestTurn(req: Request, res: Response, project: DdProject, files
   mergeConversation(project, canvas, actorOf(req), turnsBefore);
   // Who asked and where is written after the turn was first saved: the record has to count as changed for that to reach storage.
   project.updatedAt = new Date().toISOString();
+  if (canvas !== project) keepReadings(project, enriched);
   await store.save();
   line({ type: 'result', ...result, project: canvas });
   res.end();
@@ -2567,8 +2649,10 @@ projectsRouter.post('/:projectId/evidence/:evidenceId/files', evidenceUpload.arr
         sitePhoto: isImage && Boolean(rawPurpose || visitId),
       });
     }
+    // On the record before anything reads them: a reader that hangs must not leave a filed paper unfiled.
+    await store.save();
     // Read what was filed: facts onto the row, anything it would change as cards in chat.
-    await readOntoRegister(project, reads, actorOf(req)).catch(() => ({ read: 0 }));
+    await keepPageTexts(project.id, (await readOntoRegister(project, reads, actorOf(req)).catch(() => ({ read: 0, files: [] }))).files);
     await persistPaneWrite(req, project, `Attached ${plural(attached.length, 'file')} to evidence.`, {
       citedEvidenceIds: [req.params.evidenceId],
     });
@@ -2666,7 +2750,9 @@ projectsRouter.post('/:projectId/evidence/files', evidenceUpload.array('files', 
       );
       reads.push({ evidenceId: ids[i] as string, buffer: file.buffer, fileName: file.originalname, mimeType: file.mimetype, sizeBytes: file.size, storageKey });
     }
-    await readOntoRegister(project, reads, actorOf(req)).catch(() => ({ read: 0 }));
+    // On the record before anything reads them: a reader that hangs must not leave a filed paper unfiled.
+    await store.save();
+    await keepPageTexts(project.id, (await readOntoRegister(project, reads, actorOf(req)).catch(() => ({ read: 0, files: [] }))).files);
     const rows = new Set(ids).size;
     await persistPaneWrite(
       req,

@@ -117,6 +117,13 @@ export function applyReadingEvent(
               notes: event.notes ?? f.notes,
             },
       );
+    case 'merged':
+      // What the cards will carry: the rules' values, with a model's differing one beside it, then what only the model read.
+      return patch(session, event.key, (f) => ({
+        ...f,
+        facts: event.facts.filter((fact) => fact.source !== 'model'),
+        modelFacts: event.facts.filter((fact) => fact.source === 'model'),
+      }));
     default:
       return session;
   }

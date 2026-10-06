@@ -5,8 +5,9 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AgentRun, AgentStep, AgentUsage, CaseDocument, ChatIngestFile, DdProject, DocumentFact, ExtractedField, TurnSpend } from '@realytica/shared';
-import { failureCause, projectToIdentity } from '@realytica/shared';
-import { CUT_OFF_REASON, runDocumentIntelligence } from '../agents/document-intelligence';
+import { failureCause, projectToIdentity, STANDARD_FACT_KEYS, standardFact, standardKeyFits } from '@realytica/shared';
+import { CUT_OFF_REASON, runDocumentIntelligence, type UnconfirmedField } from '../agents/document-intelligence';
+import { quoteStates } from '../agents/page-check';
 import { priceTokens } from '../telemetry/pricing';
 
 export interface EnrichIngestParams {
@@ -42,6 +43,12 @@ export interface EnrichIngestParams {
    * next turn rather than cut off half-read with nothing saved.
    */
   deadline?: number;
+  /**
+   * No model call runs past this instant, whichever document it is for. For a
+   * request somebody is waiting on: a call still out at this time is given
+   * up, and its document keeps the reading it had, said to be unfinished.
+   */
+  stopAt?: number;
 }
 
 /**
@@ -90,31 +97,89 @@ function stubDocument(projectId: string, file: ChatIngestFile, now: string): Cas
 }
 
 /**
+ * A value that says it could not be read is not a reading. Measured on a
+ * stamped Kannada khata: the owner came back as "Smt. [name obscured by
+ * stamp]", with a quote that was on the page.
+ */
+const NOT_A_VALUE = /\[[^\]]*\]|\b(?:illegible|obscured|unreadable|unclear|not (?:legible|readable|clear))\b/i;
+
+/** How many unconfirmed values one paper keeps. Past this it is a bundle nobody will read value by value. */
+const MAX_UNVERIFIED = 20;
+
+/**
  * A model's fields as document facts, only where the field's own quote was
  * verified on a page: by a citation, or by the page check in
  * `agents/page-check`. A field with no page is a reading nobody can check
  * against the document, so it stays in the notes and out of the facts that
  * can fill a check.
+ *
+ * A field under one of the rules' own keys is taken only on a paper that
+ * carries the key (`standardKeyFits`): a model put `ec_nil` on a record of
+ * rights and an applicant under `owner`, and a key on the wrong paper answers
+ * a check it has nothing to do with. It is then put in the rules' form for
+ * the key (`STANDARD_FACT_KEYS`), so the two readings of one value can be set
+ * side by side; one that cannot be put in that form is left out.
+ *
+ * Every value that has to be exact is held to the words quoted for it,
+ * whatever placed it on its page (`quoteStates`): a date, an area, a width
+ * and a count as much as an amount or an identifier. A quote ending
+ * "31-03-2024" beside the value 31-01-2024 proves nothing, wherever it was
+ * found, and the value is unverified.
+ *
+ * Each fact says what stands behind it (`proof`). What the model read and
+ * nothing confirmed on a page is handed back apart, as `unverified`: no fact,
+ * each marked as that and carrying only the page the model named.
  */
-function factsFromFields(fields: ExtractedField[]): DocumentFact[] {
-  const facts: DocumentFact[] = [];
-  for (const f of fields) {
-    if (!f.sourcePage || !f.quote) continue;
-    if (facts.some((existing) => existing.key === f.key)) continue;
-    facts.push({
+export function factsFromFields(
+  fields: ExtractedField[],
+  unconfirmed: UnconfirmedField[],
+  paper: string | undefined,
+): { facts: DocumentFact[]; unverified: DocumentFact[] } {
+  const asFact = (f: ExtractedField, page: number): DocumentFact | null => {
+    if (!f.quote || NOT_A_VALUE.test(f.value)) return null;
+    const known = f.key in STANDARD_FACT_KEYS;
+    if (known && !standardKeyFits(f.key, paper)) return null;
+    const standard = known ? standardFact(f.key, f.value, f.unit) : undefined;
+    if (standard === null) return null;
+    return {
       key: f.key,
       label: f.label,
       value: f.value,
       ...(f.unit ? { unit: f.unit } : {}),
       display: f.unit ? `${f.value} ${f.unit}` : f.value,
-      page: f.sourcePage,
+      ...standard,
+      page,
       quote: f.quote,
       ...(f.originalValue ? { originalValue: f.originalValue, originalScript: f.originalScript } : {}),
       source: 'model',
-      ...(f.pageCheck ? { pageCheck: f.pageCheck } : {}),
-    });
+    };
+  };
+  const facts: DocumentFact[] = [];
+  /** Found on a page, and not stated by its own quote: no fact, whatever found it there. */
+  const unsupported: Array<{ field: ExtractedField; page: number }> = [];
+  for (const f of fields) {
+    if (!f.sourcePage || facts.some((existing) => existing.key === f.key)) continue;
+    const fact = asFact(f, f.sourcePage);
+    if (!fact) continue;
+    if (!quoteStates({ key: f.key, value: f.value, unit: f.unit }, f.quote ?? '')) {
+      unsupported.push({ field: f, page: f.sourcePage });
+      continue;
+    }
+    facts.push({ ...fact, ...(f.pageCheck ? { pageCheck: f.pageCheck } : {}), proof: f.pageCheck === 'page' ? 'second_reader' : 'page_text' });
   }
-  return facts;
+  const unverified: DocumentFact[] = [];
+  const loose = [
+    ...unsupported,
+    // Page 0 is no page: the model named none, and nobody found the value on one.
+    ...unconfirmed.map((field) => ({ field, page: field.namedPage ?? 0 })),
+  ];
+  for (const { field, page } of loose) {
+    if (unverified.length >= MAX_UNVERIFIED) break;
+    const fact = asFact(field, page);
+    if (!fact || unverified.some((existing) => existing.key === fact.key && String(existing.value) === String(fact.value))) continue;
+    unverified.push({ ...fact, proof: 'unverified' });
+  }
+  return { facts, unverified };
 }
 
 /**
@@ -202,6 +267,9 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
     params.onFile?.(i, 'start');
     try {
       const pageTexts = params.pageTexts?.[i];
+      // Only the pages this server could not read well itself, where it said which; see `ReadingCoverage`.
+      const only = file.reading?.modelPages;
+      const ocrPages = file.reading?.ocrPages;
       const result = await runDocumentIntelligence({
         caseId: params.project.id,
         document: stubDocument(params.project.id, file, now),
@@ -211,16 +279,35 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
         onStep: params.onStep,
         ...(pageTexts?.length ? { pageTexts } : {}),
         ...(params.deadline !== undefined ? { checkDeadline: params.deadline + PAGE_CHECK_GRACE_MS } : {}),
+        ...(params.stopAt !== undefined ? { stopAt: params.stopAt } : {}),
+        ...(only?.length ? { pages: only } : {}),
+        ...(ocrPages?.length ? { ocrPages } : {}),
       });
       reportSpend(params.onSpend, result.run, result.pageCheckUsage);
-      if (result.run.status !== 'succeeded' || result.fields.length === 0) {
+      const sent = result.pagesSent ?? [];
+      /** What the model was sent and, of that, the pages a value came back for that was found on its page. Never a page that was not sent. */
+      const answered = (found: number[]): NonNullable<ChatIngestFile['reading']> => {
+        const read = found.filter((page) => sent.includes(page));
+        return {
+          ...(file.reading ?? { pagesInFile: result.pagesInFile ?? sent.length, pagesRead: read.length, readers: { text: 0, ocr: 0, model: read.length }, modelReasons: [], modelPages: [] }),
+          modelPagesSent: sent,
+          modelPagesRead: read,
+          // The second reader ran out of time on some page: values are unverified that a minute more might have confirmed.
+          ...(result.checksCut ? { modelChecksCut: true } : {}),
+        };
+      };
+      const loose = result.run.status === 'succeeded' ? factsFromFields([], result.unconfirmed ?? [], result.paper).unverified : [];
+      if (result.run.status === 'succeeded' && result.fields.length === 0) {
+        // It answered, and gave nothing that could be kept. Said so on the reading, so the same question is not asked again.
+        console.warn('[document reader] read, and no value kept');
+        out.push({ ...file, readFailure: undefined, modelRead: true, ...(loose.length ? { modelUnverified: loose } : {}), reading: answered([]) });
+        params.onFile?.(i, 'done', out[out.length - 1]);
+        continue;
+      }
+      if (result.run.status !== 'succeeded') {
         // In the log, so a reading that failed can be told from one that read nothing.
         // The run's own error only: the model's notes can quote the document.
-        console.warn(
-          result.run.status === 'succeeded'
-            ? '[document reader] read, and no value kept'
-            : `[document reader] reading failed: ${(result.run.error ?? 'no reason given').slice(0, 300)}`,
-        );
+        console.warn(`[document reader] reading failed: ${(result.run.error ?? 'no reason given').slice(0, 300)}`);
         /*
          * Nothing was read, so nothing may be said about the contents. The
          * reason goes in `readFailure`, never in `extractionNotes` — see the
@@ -240,19 +327,31 @@ export async function enrichIngestWithDocumentIntelligence(params: EnrichIngestP
         text: f.quote ? f.quote.slice(0, 140) : clipQuote(f.label, f.value),
         page: f.sourcePage,
       }));
-      const modelFacts = factsFromFields(result.fields);
+      const { facts: modelFacts, unverified } = factsFromFields(result.fields, result.unconfirmed ?? [], result.paper);
       const pages = result.fields.reduce((max, f) => Math.max(max, f.sourcePage ?? 0), 0);
       out.push({
         ...file,
+        /*
+         * The model read it. Whatever this server said of its own attempt
+         * (`readFailure` on the row it was handed) is not the model's failure:
+         * left on, the merge took a paper the model had read for one it had
+         * failed on, and a file this server found no legible text in lost the
+         * only reading it had.
+         */
+        readFailure: undefined,
         kindHint: result.kind !== 'other' && result.kind !== 'unclassified' ? result.kind : file.kindHint,
         extractionNotes: result.notes ? clipNotes(result.notes, 400) || undefined : undefined,
         quotes,
         pages: pages || undefined,
         modelRead: true,
         ...(modelFacts.length ? { modelFacts } : {}),
+        ...(unverified.length ? { modelUnverified: unverified } : {}),
+        // Which pages the model was sent, and which of them it gave a value for that was found there, beside what this server said of its own reading.
+        reading: answered([...new Set(modelFacts.map((fact) => fact.page))].sort((a, b) => a - b)),
       });
     } catch {
-      out.push(file);
+      // Said, so the paper is known not to have been read by a model and is offered again.
+      out.push({ ...file, readFailure: readFailureReason('') });
     }
     params.onFile?.(i, 'done', out[out.length - 1]);
   }

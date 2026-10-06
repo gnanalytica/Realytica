@@ -642,6 +642,18 @@ export interface EvidenceRecord {
   /** What the document was read as — "Sale deed", "Encumbrance certificate". */
   documentType?: string;
   /**
+   * What a model took the paper for, where the rules could not say and no
+   * person has. An offer: it names nothing on the register, answers no
+   * waiting row and types no fact until a person makes it the type.
+   */
+  proposedDocumentType?: string;
+  /**
+   * An offer a person refused for this paper: set aside, or corrected to
+   * something else. The same offer is not made again when the paper is read
+   * again.
+   */
+  refusedDocumentType?: string;
+  /**
    * The workstream that owns it, when a person said so. Otherwise it is read
    * from what the document is; see `documentWorkstream`.
    */
@@ -686,6 +698,11 @@ export interface EvidenceAttachment {
   sizeBytes: number;
   storageKey: string;
   uploadedAt: string;
+  /**
+   * How much of this file was read when it was last read, by which reader,
+   * and what was sent to a model. Absent on a file read before this was kept.
+   */
+  reading?: ReadingCoverage;
   /**
    * Where and when this file claims it was captured, and who claims it.
    *
@@ -1586,6 +1603,13 @@ export type ReadingStreamEvent =
     }
   | {
       type: 'reading';
+      event: 'merged';
+      key: string;
+      /** The file's facts once the model's reading is laid over this server's: what the turn's cards will carry. */
+      facts: import('./document-parse').DocumentFact[];
+    }
+  | {
+      type: 'reading';
       event: 'model';
       key: string;
       phase: 'start' | 'done';
@@ -1633,6 +1657,13 @@ export interface ChatIngestFile {
    */
   modelRead?: boolean;
   /**
+   * What a model read and nothing could check against its page: looked for
+   * there and not found, or never looked for. No fact, and never filed as
+   * one: each carries `proof: 'unverified'` and, as its page, only the page
+   * the model named. Laid onto `reading.unverified` by the merge.
+   */
+  modelUnverified?: import('./document-parse').DocumentFact[];
+  /**
    * What reading the document on this server found — see `document-parse`.
    *
    * Present whenever the file had readable text (a text layer or OCR), with
@@ -1640,6 +1671,71 @@ export interface ChatIngestFile {
    * from; nothing here is written to a register until a card is approved.
    */
   read?: IngestRead;
+  /** How much of the file was read, by which reader, and why a model was asked. */
+  reading?: ReadingCoverage;
+}
+
+/**
+ * How much of a paper was read.
+ *
+ * A reading used to say what it found and nothing about what it never looked
+ * at: a forty-page scan read for its first eight pages looked the same as one
+ * read whole. `pagesRead` under `pagesInFile` is a paper read in part, and the
+ * two numbers are what to say ("8 of 40 pages read").
+ */
+export interface ReadingCoverage {
+  /** Pages in the file. */
+  pagesInFile: number;
+  /** Pages some reader got words from: the file's text layer, OCR, or the model reader. */
+  pagesRead: number;
+  /**
+   * Pages each reader read. A page the model reader read after OCR is counted
+   * under both, so these can add up to more than `pagesRead`.
+   */
+  readers: { text: number; ocr: number; model: number };
+  /**
+   * The 1-based pages whose words on this server are OCR's reading of a
+   * picture, not the file's own text. A value that has to be exact is not
+   * proved by a quote found among those words. Absent where none were.
+   */
+  ocrPages?: number[];
+  /**
+   * Why the paper goes to the model reader, each reason a plain sentence that
+   * can be shown as it is. Empty when this server's own reading was enough.
+   */
+  modelReasons: string[];
+  /** The 1-based pages those reasons are about: the ones the model reader is asked to read. */
+  modelPages: number[];
+  /**
+   * The pages that left this server for the model reader. Usually
+   * `modelPages`. Fewer where the file was too heavy to send and only its
+   * two ends went; more where the file could not be cut and went whole.
+   * Absent until any were sent.
+   */
+  modelPagesSent?: number[];
+  /**
+   * Of the pages sent, those a value came back for that was found on the
+   * page. Set, even when empty, once the model reader has answered; absent
+   * while it has not, which is when the paper is worth reading again.
+   */
+  modelPagesRead?: number[];
+  /** Why the model reader, when asked, returned nothing, in plain words. Absent when it answered or was not asked. */
+  modelFailure?: string;
+  /**
+   * The model reader answered, and the time allowed ran out before a second
+   * model had read every value's page: values that might have been confirmed
+   * are unverified for want of time. Such a paper is worth reading again.
+   * Absent when every page that needed a second reading got one.
+   */
+  modelChecksCut?: boolean;
+  /** Why pages went unread on this server, in plain words: "only the first 8 scanned pages of a file are read here". */
+  unreadWhy?: string;
+  /**
+   * What the model reader read and nothing could check against its page.
+   * Not facts: nothing here answers a check or is compared with anything. A
+   * person can see them, each marked unverified, and look at the page.
+   */
+  unverified?: import('./document-parse').DocumentFact[];
 }
 
 export interface IngestRead {

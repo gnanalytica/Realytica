@@ -196,6 +196,16 @@ export interface LlmRequest {
   toolChoice?: LlmToolChoice;
   /** Reasoning effort, where the provider exposes one. Dropped, with a gap, where it does not. */
   effort?: 'low' | 'medium' | 'high';
+  /**
+   * How long the call may take, start to finish, in milliseconds. Past it the
+   * call is abandoned and throws, saying it timed out.
+   *
+   * The SDK's own patience is ten minutes, and it counts to the first byte of
+   * an answer, not the last. A request that somebody is waiting on cannot be
+   * held that long by an endpoint that has gone quiet: a register upload was,
+   * for over 150 seconds, with its file not yet saved.
+   */
+  timeoutMs?: number;
 }
 
 /**

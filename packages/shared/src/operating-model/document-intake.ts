@@ -13,7 +13,7 @@
  */
 
 import { checkSchema } from './operations';
-import { acceptedFacts, liveFacts } from './fact-review';
+import { acceptedFacts, standingFacts, stands, waitingReadings } from './fact-review';
 import { CHECK_DEFINITIONS, DD_TYPE_DEFINITIONS } from './libraries';
 import { SCOPE_LABEL } from './catalogs';
 import { formatFieldValue, isBlank } from './check-fields';
@@ -256,15 +256,20 @@ export function differsOnCheck(project: DdProject, check: CheckInstance, def: Ch
  * document as it is read, once. Without it a recorded field is left alone, as
  * it is when the checks are refilled from documents already on file, where
  * the same disagreement would be raised again on every pass.
+ *
+ * Whatever it is handed, a value that waits is offered to no check: a model's
+ * reading nobody has accepted, or one two readers differ on (`stands`). A
+ * caller hands it a paper's standing values; this is the second lock.
  */
 export function factFillProposals(
   project: DdProject,
-  facts: readonly DocumentFact[],
+  read: readonly DocumentFact[],
   source: { fileName: string; evidenceId?: string; storageKey?: string; documentLabel?: string },
   actor = 'operator',
   pending: ChatProposal[] = [],
   options: { differences?: boolean } = {},
 ): ChatProposal[] {
+  const facts = read.filter(stands);
   if (!facts.length) return [];
   const out: ChatProposal[] = [];
   for (const seated of everyCheck(project)) {
@@ -376,16 +381,26 @@ function severityWord(severity: FindingSeverity): string {
 /* ==================================================================== */
 
 /**
- * Every fact on the register, newest document first.
+ * Every fact on the register that stands, newest document first.
  *
  * What a chat answer reads, and what a newly started DD is offered: the
  * extent a deed stated in week one is still true when the parcel check is
- * instantiated in week two.
+ * instantiated in week two. A model's reading nobody has accepted, and a
+ * value two readers differ on, are not on file: they wait
+ * (`readingsWaitingOnFile`), and an answer says so.
  */
 export function factsOnFile(project: DdProject): Array<{ fact: DocumentFact; evidence: EvidenceRecord }> {
   const out: Array<{ fact: DocumentFact; evidence: EvidenceRecord }> = [];
-  const rows = [...project.evidence].filter((e) => liveFacts(e).length).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  for (const evidence of rows) for (const fact of liveFacts(evidence)) out.push({ fact, evidence });
+  const rows = [...project.evidence].filter((e) => standingFacts(e).length).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  for (const evidence of rows) for (const fact of standingFacts(evidence)) out.push({ fact, evidence });
+  return out;
+}
+
+/** Every reading that waits on a paper still relied on and acts on nothing, newest document first. */
+export function readingsWaitingOnFile(project: DdProject): Array<{ fact: DocumentFact; evidence: EvidenceRecord }> {
+  const out: Array<{ fact: DocumentFact; evidence: EvidenceRecord }> = [];
+  const rows = [...project.evidence].filter((e) => e.status !== 'superseded' && e.status !== 'rejected').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  for (const evidence of rows) for (const fact of waitingReadings(evidence)) out.push({ fact, evidence });
   return out;
 }
 
@@ -433,10 +448,12 @@ export function pendingFactProposals(project: DdProject, actor = 'operator', pen
  */
 export function ddForDocumentsProposal(
   project: DdProject,
-  facts: readonly DocumentFact[],
+  read: readonly DocumentFact[],
   actor = 'operator',
   pending: ChatProposal[] = [],
 ): ChatProposal | undefined {
+  // A value that waits is not counted as waiting for a check: see `factFillProposals`.
+  const facts = read.filter(stands);
   if (!facts.length) return undefined;
   if (project.assessments.some((a) => a.status !== 'archived')) return undefined;
   if ([...project.chatProposals, ...pending].some((p) => p.kind === 'start_dd' && p.status === 'proposed')) return undefined;

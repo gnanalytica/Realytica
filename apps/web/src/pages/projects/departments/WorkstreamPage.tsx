@@ -273,9 +273,11 @@ function FunctionSections({ project, ws, setProject, highlightIds }: { project: 
         <EvidenceProof
           projectId={project.id}
           evidence={proof}
-          file={proof.attachments[0]}
+          // The file that was read: the row's values, pages and reading are the latest file's.
+          file={proof.attachments[proof.attachments.length - 1]}
           quotes={proofQuotes}
           citedPage={cited ? Number(cited) || undefined : undefined}
+          onProject={setProject}
           onClose={() =>
             setQuery(
               (prev) => {

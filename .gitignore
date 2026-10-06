@@ -20,3 +20,4 @@ coverage/
 
 # Human-graded calibration labels may describe real runs on real properties.
 evals/calibration/labels.jsonl
+.env*

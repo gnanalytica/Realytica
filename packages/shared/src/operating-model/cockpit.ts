@@ -12,8 +12,9 @@ import { chatPlaceLabel, chatPlaceLine, functionOfDocument, functionRank, menuPl
 import { STAGES, STAGE_WORD, functionKey, stageAndStep, workstreamOfCheck } from './departments';
 import { asksToFileUnder, disagreementSentence, documentDisagreements, fileUnderFromText, filedGroups, filedSentence, filingChoices, offeredByFunction, offeredSentence, reachSentence, waitingChoices, waitingSentence } from './document-filing';
 import { readInstruction, sameTitle, type Instruction, type InstructionVerb } from './instruction';
-import { factsAwaitingReview, proposedFacts } from './fact-review';
-import { contestedKeys, decideCheckFields, reviewFacts, waitingFieldKeys } from './review';
+import { factsAwaitingReview, oneAtATimeSaid, proposedFacts, standingAsRead } from './fact-review';
+import { partlyReadOnFile, partlyReadSentence } from './reading-coverage';
+import { contestedKeys, decideCheckFields, fromWaitingReading, reviewFacts, waitingFieldKeys } from './review';
 import { createValuationRun, proposeAiDrafts, snapshotCapabilities } from './capabilities';
 import { proposeProjectScreen, wantsProjectScreen } from './project-screen';
 import {
@@ -997,6 +998,13 @@ export function applyProjectChat(
      * answered that instead.
      */
     nothingLeftToRead?: boolean;
+    /**
+     * False where no model reader is set up. The caller knows, and the reply
+     * needs it: pages this server could not read are then pages nothing here
+     * can read, and "ask again" would be advice that leads nowhere. Absent
+     * means one is.
+     */
+    modelReader?: boolean;
     /** What reading the attached documents cost. Rendered beside the turn, as a chat turn's cost already is. */
     spend?: TurnSpend;
   } = {},
@@ -1179,8 +1187,10 @@ export function applyProjectChat(
     for (const item of targets) {
       if (item.status !== 'proposed') continue;
       if (item.kind === 'record_check_fields') {
-        const left = contestedKeys(project, item);
-        const open = waitingFieldKeys(item).filter((key) => !left.includes(key));
+        // A value read from a reading that still waits on its paper is decided there, by a person who names it.
+        const there = waitingFieldKeys(item).filter((key) => fromWaitingReading(project, item, key));
+        const left = contestedKeys(project, item).filter((key) => !there.includes(key));
+        const open = waitingFieldKeys(item).filter((key) => !left.includes(key) && !there.includes(key));
         toPick += left.length;
         if (!open.length) continue;
         try {
@@ -1213,6 +1223,8 @@ export function applyProjectChat(
       valuesAccepted ? `Accepted ${plural(valuesAccepted, 'value')} on ${plural(factRows.length, 'document')}.` : '',
       done.length ? approvalReceipt(targets.filter((t) => t.status === 'committed')) : '',
       toPick ? `${toPick === 1 ? 'One value the documents disagree on waits' : `${toPick} values the documents disagree on wait`} on the checks for you to pick.` : '',
+      // "All" is not looking at each: a value two readers differ on, a model's yes or no, and an exact value only a second model stands behind stay.
+      oneAtATimeSaid(factRows.flatMap((row) => proposedFacts(row))),
     ].filter(Boolean).join(' ');
     /*
      * What still waits, said before anything this reply offers of its own.
@@ -1335,7 +1347,7 @@ export function applyProjectChat(
     // everything files them, starts it, and then offers its values.
     const startDd = ddForDocumentsProposal(
       project,
-      [...ingest.flatMap((f) => f.read?.facts ?? []), ...factsOnFile(project).map((row) => row.fact)],
+      [...ingest.flatMap((f) => standingAsRead(f.read)), ...factsOnFile(project).map((row) => row.fact)],
       actor,
       built,
     );
@@ -1345,7 +1357,7 @@ export function applyProjectChat(
      * step. It belongs in THIS turn too, or "approve all" files the documents
      * and leaves the DD they answer one approval behind.
      */
-    const readFacts = ingest.some((f) => (f.read?.facts ?? []).length);
+    const readFacts = ingest.some((f) => standingAsRead(f.read).length);
     const waitingDd = !startDd && readFacts && !project.assessments.some((a) => a.status !== 'archived')
       ? project.chatProposals.find((p) => p.kind === 'start_dd' && p.status === 'proposed' && !rows.includes(p))
       : undefined;
@@ -1460,6 +1472,7 @@ export function applyProjectChat(
      */
     const disagreements = filedIds.flatMap((evId) => {
       const row = project.evidence.find((e) => e.id === evId);
+      // What a model read and nobody has accepted is not set against the file: it waits.
       return row ? documentDisagreements(project, row) : [];
     });
     const differLine = disagreements.length ? `\n${disagreementSentence(disagreements)}` : '';
@@ -1473,6 +1486,7 @@ export function applyProjectChat(
     const reach = !options.outside && (valuesWaiting || redFlags.length || disagreements.length) ? reachSentence(project, filedIds) : '';
     const extraLine = extras.join('; ');
     assistantText = `${heading}${extraLine ? ` ${extraLine.charAt(0).toUpperCase()}${extraLine.slice(1)}.` : ''}${filedLine}${flagLine}${differLine}${waitingLine}${reach ? `\n${reach}` : ''}`;
+    assistantText += partlyReadSentence(ingest, options.modelReader !== false);
     /*
      * The papers this reply brought, and nothing else. "Approve all" accepts
      * what waits on the papers a reply filed, which are the ones it cites,
@@ -1496,7 +1510,16 @@ export function applyProjectChat(
     if (first?.fn && first.open.pane !== 'evidence') navigate(first.open.pane, `Opened ${chatPlaceLabel({ fn: first.fn })} documents`, first.open.extra);
     else navigate('evidence', 'Opened documents');
   } else if (options.nothingLeftToRead) {
-    assistantText = 'Nothing on file is left to read.';
+    // Nothing this turn can read is not everything read: a paper with pages nobody read is said, with why.
+    const partly = partlyReadOnFile(project);
+    assistantText = !partly.length
+      ? 'Nothing on file is left to read.'
+      : [
+          options.modelReader === false
+            ? 'Nothing more can be read here: no model reader is set up. Pages are still unread or unsure:'
+            : 'Nothing on file is left to read. Pages are still unread or unsure:',
+          ...partly,
+        ].join('\n');
     // Its own name: it raises and files nothing, so it is not the reply the next instruction answers.
     toolCalls = [{ name: NOTHING_TO_READ, summary: 'Nothing to read' }];
   } else if (pressed) {

@@ -230,10 +230,10 @@ export function ReadingDesk({
    * stood before the later one.
    */
   const queue = useRef<Promise<unknown>>(Promise.resolve());
-  function decide(row: EvidenceRecord, keys: string[] | 'all', decision: FactDecision, edit?: FactEdit): Promise<boolean> {
+  function decide(row: EvidenceRecord, keys: string[] | 'all', decision: FactDecision, edit?: FactEdit, take?: 'other'): Promise<boolean> {
     const run = queue.current.then(async () => {
       try {
-        const { project: next } = await api.reviewFacts(projectId, row.id, { keys, decision, edit });
+        const { project: next } = await api.reviewFacts(projectId, row.id, { keys, decision, edit, ...(take ? { take } : {}) });
         onDecided(next);
         return true;
       } catch (e) {
@@ -425,7 +425,7 @@ export function ReadingDesk({
               revealing={revealing}
               activeKey={pointed?.key ?? null}
               onPoint={(f) => onFocus(f ? { key: current.key, fact: f } : null)}
-              onDecide={(keys, decision, edit) => decide(row, keys, decision, edit)}
+              onDecide={(keys, decision, edit, take) => decide(row, keys, decision, edit, take)}
             />
           ) : facts.length ? (
             <div className="flex flex-col gap-1.5" onMouseLeave={() => onFocus(null)}>

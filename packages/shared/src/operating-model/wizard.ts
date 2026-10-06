@@ -6,7 +6,7 @@
  */
 
 import { attachEvidenceFile, commitAiDraft, createValuationRun, patchProject, snapshotCapabilities } from './capabilities';
-import { proposeFacts } from './fact-review';
+import { proofOf, proposeFacts, standingAsRead, waitingAsRead } from './fact-review';
 import { screenProject } from './project-screen';
 import { DD_TYPE_DEFINITIONS } from './libraries';
 import {
@@ -462,13 +462,17 @@ function ingestRationale(file: ChatIngestFile, scopeNames: string[]): string {
    */
   if (file.read && file.read.type !== 'other') {
     const how = file.read.method === 'text' ? '' : ` Read by OCR${file.read.ocrConfidence ? ` (${file.read.ocrConfidence}% confidence)` : ''}.`;
-    const facts = file.read.facts
-      .filter((f) => !f.key.startsWith('boundary_'))
-      .slice(0, 6)
-      .map((f) => `${f.label} ${f.display} (p.${f.page})`)
-      .join('; ');
+    const said = (list: DocumentFact[], room: number) =>
+      list
+        .filter((f) => !f.key.startsWith('boundary_'))
+        .slice(0, room)
+        .map((f) => `${f.label} ${f.display} (p.${f.page})`);
+    const stated = said(standingAsRead(file.read), 6);
+    // A model's reading, or one two readers differ on, is said as what it is: waiting.
+    const waiting = said(waitingAsRead(file.read), 6 - stated.length);
+    const facts = `${stated.length ? ` ${stated.join('; ')}.` : ''}${waiting.length ? ` Waiting to be accepted: ${waiting.join('; ')}.` : ''}`;
     const flags = file.read.flags.length ? ` ⚑ ${file.read.flags.map((f) => f.title).join('; ')}.` : '';
-    return clip(`${file.read.summary}.${how}${facts ? ` ${facts}.` : ''}${flags}${scopeNames.length ? ` Links to ${scopeNames.join(', ')}.` : ''}`, 700);
+    return clip(`${file.read.summary}.${how}${facts}${flags}${scopeNames.length ? ` Links to ${scopeNames.join(', ')}.` : ''}`, 700);
   }
   if (file.readFailure) return file.readFailure;
   const quotes = (file.quotes ?? [])
@@ -522,17 +526,19 @@ export function proposalsFromIngest(
      * reader gave it. The type guards a classification made from a filename,
      * not values a page was checked for.
      */
-    const modelFacts = read ? [] : (file.read?.facts ?? []).filter((f) => f.source === 'model');
+    const modelFacts = read ? [] : waitingAsRead(file.read).filter((f) => f.source === 'model');
+    // Every value read goes onto the row, in the order it was read, and each waits there for a person. That is filing the reading, not acting on it.
     const facts = read ? read.facts : modelFacts.length ? modelFacts : undefined;
     const kind = classified.evidence?.title ?? classified.hint.titles[0] ?? 'new evidence';
     /*
      * A read document is named for what it is; a new row gets the document's
      * own label rather than a filename with its underscores turned to
      * spaces. Quotes come from the facts, so the row carries the words its
-     * values were read from.
+     * values were read from: words found in the page's own text, never a
+     * model's wording that only a second model stands behind.
      */
     const factQuotes = (facts ?? [])
-      .filter((f) => !f.key.startsWith('boundary_'))
+      .filter((f) => !f.key.startsWith('boundary_') && (f.source !== 'model' || proofOf(f) === 'page_text'))
       .slice(0, 6)
       .map((f) => ({ text: `${f.label}: ${f.quote}`.slice(0, 240), page: f.page }));
     out.push(
@@ -576,7 +582,8 @@ export function proposalsFromIngest(
     if (read) {
       const source = { fileName: file.fileName, evidenceId: classified.evidence?.id, storageKey: file.storageKey, documentLabel: read.label };
       // A document as it is read is the one moment its disagreement with what is recorded is worth raising.
-      out.push(...factFillProposals(project, read.facts, source, actor, out, { differences: true }));
+      // To the checks go the values that stand. A model's, and one two readers differ on, wait on the row.
+      out.push(...factFillProposals(project, standingAsRead(read), source, actor, out, { differences: true }));
       out.push(...flagFindingProposals(project, read.flags, source, actor, out));
     }
   }
@@ -679,7 +686,11 @@ export function commitChatProposal(project: DdProject, proposalId: string, actor
     if (Array.isArray(payload.facts) && payload.facts.length) {
       evidence.facts = proposeFacts(evidence.facts ?? [], payload.facts as DocumentFact[]);
     }
-    if (typeof payload.documentType === 'string') evidence.documentType = payload.documentType;
+    if (typeof payload.documentType === 'string') {
+      evidence.documentType = payload.documentType;
+      // The row is typed now. What a model offered to call it before is no longer an offer waiting to be confirmed over it.
+      delete evidence.proposedDocumentType;
+    }
     if (payload.readMethod === 'text' || payload.readMethod === 'ocr' || payload.readMethod === 'mixed') evidence.readMethod = payload.readMethod;
     if (payload.modelRead === true) {
       evidence.modelReadAt = nowIso();

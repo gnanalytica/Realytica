@@ -18,6 +18,7 @@ export * from './text';
 export * from './proposal-diff';
 export * from './place-extract';
 export * from './document-parse';
+export * from './reading-coverage';
 export * from './document-intake';
 export * from './file-answers';
 export * from './run-ledger';

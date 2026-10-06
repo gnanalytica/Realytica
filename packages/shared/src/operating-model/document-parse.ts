@@ -84,12 +84,15 @@ export interface DocumentFact {
   /** For a model's fact, how its page was verified. */
   pageCheck?: import('../types').PageCheck;
   /**
-   * What stands behind a model's value, for a screen to say: its quote is in
-   * the words this server read from the page; a second reader, shown the page
-   * alone, copied the same words off it; or neither, and the value is the
-   * model's word for it. Absent on a value the rules read, whose words are
-   * the page's own. An unverified value is never among a paper's facts: it is
-   * kept apart, on the reading (`ReadingCoverage.unverified`).
+   * What stands behind a model's value, for a screen to say and for
+   * acceptance to weigh: its words, the value's own among them, are in the
+   * words this server read from the page (`page_text`); a second model,
+   * shown the page alone and asked for the value by its name, read the same
+   * value (`second_reader`), which is two models agreeing and weaker than
+   * the page's text; or neither (`unverified`). Absent on a value the rules
+   * read, whose words are the page's own. An unverified value is never among
+   * a paper's facts: it is kept apart, on the reading
+   * (`ReadingCoverage.unverified`).
    */
   proof?: FactProof;
   /**
@@ -127,7 +130,7 @@ export interface DocumentFact {
 
 export type FactReview = 'proposed' | 'accepted' | 'rejected';
 
-export type FactProof = 'page_text' | 'page_image' | 'unverified';
+export type FactProof = 'page_text' | 'second_reader' | 'unverified';
 
 /** A box on a page, each side a fraction of the page's width or height from its top left. */
 export interface MarkRect {
@@ -586,6 +589,20 @@ export function parseIndianDate(raw: string): string | null {
 }
 
 const DATE = `(?:${DATE_SOURCE})`;
+
+/**
+ * Every date a stretch of words states, each as YYYY-MM-DD, in the forms
+ * `parseIndianDate` reads. For holding a date to the words quoted for it: a
+ * quote that ends "31-03-2024" states that day and no other.
+ */
+export function datesIn(text: string): string[] {
+  const out: string[] = [];
+  for (const match of normalise(text).matchAll(new RegExp(DATE, 'gi'))) {
+    const iso = parseIndianDate(match[0]);
+    if (iso && !out.includes(iso)) out.push(iso);
+  }
+  return out;
+}
 
 function displayDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
@@ -1635,13 +1652,20 @@ export function standardKeyFits(key: string, paper: string | null | undefined): 
   return Boolean(STANDARD_FACT_KEYS[key]?.papers.includes(paper as StandardPaper));
 }
 
+/** How a reader that is not these rules writes a value, whichever key it is under. Said to every such reader in the same words. */
+export function standardValueForms(): string {
+  return (
+    'Dates as DD-MM-YYYY. An amount as its digits in rupees. An area or a width as the number in "value" and its unit, in English, ' +
+    'in "unit" (sqm, sqft, acres, guntas, ft, m); acres and guntas together as "1 acre 22 guntas". A count as a number. Yes or no as "yes" or "no".'
+  );
+}
+
 /** The standard keys as a reader is told them: how to use them and write a value, the keys each paper carries, then what each key means. */
 export function standardKeyGuide(): string {
   const how =
     'Say in "paper" which of the papers below the document is, or "other". Use only that paper\'s keys, each for exactly what it says; ' +
     'anything else the document states keeps a key of your own. ' +
-    'Dates as DD-MM-YYYY. An amount as its digits in rupees. An area or a width as the number in "value" and its unit, in English, ' +
-    'in "unit" (sqm, sqft, acres, guntas, ft, m); acres and guntas together as "1 acre 22 guntas". A count as a number. Yes or no as "yes" or "no".';
+    standardValueForms();
   const carried = STANDARD_PAPERS.map((paper) => `  - ${paper} (${PROFILES[paper].label}): ${Object.keys(STANDARD_FACT_KEYS).filter((key) => standardKeyFits(key, paper)).join(', ')}`);
   const keys = Object.entries(STANDARD_FACT_KEYS).map(([key, k]) => `  - ${key}: ${k.says}${k.choices ? `; one of: ${k.choices.join(', ')}` : ''}`);
   return [how, '  The papers and the keys each carries:', ...carried, '  What each key means:', ...keys].join('\n');

@@ -45,11 +45,13 @@ import {
   revenueReadFor,
   revenueReads,
   revenueSiteBrief,
+  reviewFacts,
   runProjectScreen,
   runValuationApproaches,
   siteFrame,
   siteRevenueFeatures,
   splitSurveyNumbers,
+  statedNumbers,
   surveyNumberLines,
   surveyPieces,
   valueChecks,
@@ -335,13 +337,37 @@ describe('the survey numbers a file offers', () => {
 
   it('does not wait on a number that is likely a misreading and that nobody has accepted', () => {
     const p = township();
-    file(p, 'RERA', 'RERA certificate', [fact('survey_numbers', '47/2, 47/3 and 472', { review: 'proposed', source: 'model' })]);
+    // Read off the page by this server's rules, and waiting: such a reading stands, and its numbers are waited for.
+    file(p, 'RERA', 'RERA certificate', [fact('survey_numbers', '47/2, 47/3 and 472', { review: 'proposed' })]);
     file(p, 'Sale deed', 'Sale deed', [fact('extent_title', 4800)]);
     applyRevenueMap(p, read('47/2', 0), 'tester');
     applyRevenueMap(p, read('47/3', 80, { readAt: '2026-10-01T06:01:00.000Z' }), 'tester');
     // 472 is on no map. The site's extent is set against the two parcels, and is not held back for a third that is not one.
     const stated = revenueExtent(p)!.documents!;
     assert.deepEqual([stated.numbers, stated.read, stated.compared?.mapSqm], [['47/2', '47/3'], 2, 4800]);
+  });
+
+  it('counts a number only a model read for nothing until a person accepts it, and says a reading is waiting', () => {
+    const p = township();
+    file(p, 'RERA', 'RERA certificate', [fact('survey_numbers', '47/2 and 47/3', { review: 'proposed', source: 'model' })]);
+    file(p, 'Sale deed', 'Sale deed', [fact('extent_title', 4800)]);
+    applyRevenueMap(p, read('47/2', 0), 'tester');
+    applyRevenueMap(p, read('47/3', 80, { readAt: '2026-10-01T06:01:00.000Z' }), 'tester');
+    // Offered in the picker, as what it is, and standing for nothing.
+    assert.deepEqual(offeredSurveyNumbers(p).map((o) => [o.surveyNo, o.stands, o.documents[0]?.byModel]), [['47/2', false, true], ['47/3', false, true]]);
+    assert.deepEqual(statedNumbers(offeredSurveyNumbers(p)), [], 'nothing is waited for on a model’s word');
+    // The site's extent is not set against the map while the numbers the site goes by rest on a reading nobody accepted.
+    const stated = revenueExtent(p)!.documents!;
+    assert.equal(stated.compared, null);
+    assert.equal(stated.unset, 'a reading of the survey_numbers on the RERA certificate is waiting to be accepted and is not counted, so the numbers this land goes by are not all told and the map is not set against it');
+    assert.equal(
+      extentAgainstDocuments(revenueExtent(p)!)!.verdict,
+      stated.unset,
+      'and that is what the brief says in place of a comparison',
+    );
+    // Accepted, the numbers are the file's, and the comparison is made.
+    reviewFacts(p, p.evidence[0]!.id, ['survey_numbers'], 'accept', 'tester');
+    assert.deepEqual([revenueExtent(p)!.documents!.unset, revenueExtent(p)!.documents!.compared?.mapSqm], [undefined, 4800]);
   });
 
   it('waits for a number a person accepted, whatever it looks like', () => {
@@ -1258,8 +1284,8 @@ describe('the extent, totalled', () => {
     applyRevenueMap(waiting, read('71', 0), 'tester');
     applyRevenueMap(waiting, read('72', 80, { readAt: '2026-10-01T06:01:00.000Z', areaSqm: 3000 }), 'tester');
     file(waiting, 'Sale deed', 'Sale deed', [
-      fact('survey_numbers', '71, 72 and 73', { review: 'proposed', source: 'model' }),
-      fact('extent_title', 7000, { review: 'proposed', source: 'model' }),
+      fact('survey_numbers', '71, 72 and 73', { review: 'proposed' }),
+      fact('extent_title', 7000, { review: 'proposed' }),
     ]);
     assert.equal(documentsHit(waiting), undefined, 'the map is set only against an extent a person has accepted');
     assert.equal(lenderCheck(waiting, 'extents_agree')!.headline, 'Stated once', 'and two parcels added up are not called 23% short of a deed for three');
@@ -1267,9 +1293,20 @@ describe('the extent, totalled', () => {
     // One parcel beside one waiting reading is compared, as it was before parcels were kept.
     const one = township();
     applyRevenueMap(one, read('71', 0), 'tester');
-    file(one, 'Sale deed', 'Sale deed', [fact('extent_title', 2400, { review: 'proposed', source: 'model' })]);
+    file(one, 'Sale deed', 'Sale deed', [fact('extent_title', 2400, { review: 'proposed' })]);
     assert.equal(lenderCheck(one, 'extents_agree')!.verdict, 'clear');
     assert.match(lenderCheck(one, 'extents_agree')!.source, /the state revenue map$/);
+
+    // Not a model's reading. Nobody has accepted it, so it is no paper beside the map: it waits, and the check says so.
+    const model = township();
+    applyRevenueMap(model, read('71', 0), 'tester');
+    file(model, 'Sale deed', 'Sale deed', [fact('extent_title', 1100, { review: 'proposed', source: 'model' })]);
+    const waits = lenderCheck(model, 'extents_agree')!;
+    assert.deepEqual([waits.verdict, waits.headline], ['unknown', 'Stated once'], '1,100 beside the map’s 2,400 is not 54% apart while it is a model’s word');
+    assert.match(waits.detail, /A reading of the extent_title on the sale deed is waiting to be accepted and is not counted\./);
+    assert.match(waits.source, /^the state revenue map$/);
+    reviewFacts(model, model.evidence.find((e) => e.documentType === 'Sale deed')!.id, ['extent_title'], 'accept', 'tester');
+    assert.equal(lenderCheck(model, 'extents_agree')!.verdict, 'blocker', 'accepted, it is a paper like any other');
 
     // And several parcels with no document beside them are the one statement there is.
     const alone = threeParcels();
@@ -1432,7 +1469,7 @@ describe('the extent, totalled', () => {
     const p = township();
     applyRevenueMap(p, read('71', 0), 'tester');
     applyRevenueMap(p, read('72', 80, { readAt: '2026-10-01T06:01:00.000Z', areaSqm: 3000 }), 'tester');
-    file(p, 'JDA', 'Joint development agreement', [fact('survey_numbers', '71, 72 and 73', { review: 'proposed', source: 'model' }), fact('extent_title', 7000)]);
+    file(p, 'JDA', 'Joint development agreement', [fact('survey_numbers', '71, 72 and 73', { review: 'proposed' }), fact('extent_title', 7000)]);
     const stated = revenueExtent(p)!.documents!;
     assert.deepEqual([stated.named, stated.numbers, stated.read, stated.compared], [true, ['71', '72', '73'], 2, null]);
     assert.equal(documentsHit(p)!.severity, 'info', 'not 1,600 sqm less on the map');
@@ -1441,6 +1478,27 @@ describe('the extent, totalled', () => {
       'The documents state 7,000 sqm for Sy. 71, 72 and 73 (Joint development agreement, p. 1). 2 of the 3 numbers are read, so the map is not set against it yet.',
     );
     assert.equal(lenderCheck(p, 'extents_agree')!.headline, 'Stated once', 'nor 23% apart');
+  });
+
+  it('sets an accepted extent against nothing while its document’s numbers are a model’s reading nobody accepted', () => {
+    const p = township();
+    applyRevenueMap(p, read('71', 0), 'tester');
+    applyRevenueMap(p, read('72', 80, { readAt: '2026-10-01T06:01:00.000Z', areaSqm: 3000 }), 'tester');
+    const jda = file(p, 'JDA', 'Joint development agreement', [fact('survey_numbers', '71, 72 and 73', { review: 'proposed', source: 'model' }), fact('extent_title', 7000)]);
+    const stated = revenueExtent(p)!.documents!;
+    // The numbers are not taken for the document's, and neither is their absence: the extent is not made the whole site's.
+    assert.deepEqual([stated.named, stated.numbers, stated.sources[0]!.numbersWaiting, stated.compared], [true, [], true, null]);
+    assert.equal(documentsHit(p)!.severity, 'info', 'not 1,600 sqm less on the map');
+    assert.equal(
+      documentsHit(p)!.text,
+      'The documents state 7,000 sqm (Joint development agreement, p. 1). A reading of the survey numbers it names is waiting to be accepted, so the land it is for is not told yet and the map is not set against it.',
+    );
+    const lender = lenderCheck(p, 'extents_agree')!;
+    assert.equal(lender.headline, 'Stated once', 'nor 23% apart');
+    assert.match(lender.detail, /A reading of the survey_numbers on the joint development agreement is waiting to be accepted and is not counted\./);
+    // Accepted, they are the land the extent is for, and the comparison waits only for the third parcel.
+    reviewFacts(p, jda.id, ['survey_numbers'], 'accept', 'tester');
+    assert.match(documentsHit(p)!.text, /for Sy\. 71, 72 and 73 .* 2 of the 3 numbers are read, so the map is not set against it yet\./);
   });
 
   it('adds up three deeds whose extents are accepted and whose numbers still wait', () => {

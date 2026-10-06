@@ -464,11 +464,34 @@ class AnthropicProvider implements LlmProvider {
     const startedAt = Date.now();
     let firstTokenAt: number | undefined;
 
-    const stream = client.beta.messages.stream(params as unknown as StreamParams);
-    stream.on('streamEvent', event => {
-      if (firstTokenAt === undefined && event.type === 'content_block_delta') firstTokenAt = Date.now();
-    });
-    const message = assertAnswered(await stream.finalMessage(), req.model);
+    /*
+     * A deadline of the caller's own, kept here and not left to the SDK: its
+     * timeout is counted afresh for every retry and stops counting once an
+     * answer has begun, so an endpoint that sends a first byte and then
+     * nothing would still be waited on for good. The one signal covers the
+     * whole call, retries and stream alike.
+     */
+    const limit = req.timeoutMs;
+    const controller = limit === undefined ? undefined : new AbortController();
+    const timer = controller ? setTimeout(() => controller.abort(), Math.max(1, limit!)) : undefined;
+    let message;
+    try {
+      const stream = client.beta.messages.stream(
+        params as unknown as StreamParams,
+        controller ? { signal: controller.signal } : undefined,
+      );
+      stream.on('streamEvent', event => {
+        if (firstTokenAt === undefined && event.type === 'content_block_delta') firstTokenAt = Date.now();
+      });
+      message = assertAnswered(await stream.finalMessage(), req.model);
+    } catch (e) {
+      if (controller?.signal.aborted) {
+        throw new ProviderCallError(`The model endpoint did not answer within ${Math.max(1, Math.round(limit! / 1000))} seconds, so the call timed out.`);
+      }
+      throw e;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     const content = toContentBlocks(message.content);
 
     return {

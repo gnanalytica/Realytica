@@ -31,6 +31,7 @@
 
 import type { ChatIngestFile, ChatProposal, DdProject, PatchProjectInput } from './types';
 import { createChatProposal } from './wizard';
+import { standingAsRead, waitingAsRead } from './fact-review';
 
 /**
  * A Karnataka survey number, introduced by a survey word.
@@ -217,8 +218,11 @@ export function placeProposalsFromIngest(
        * keeps returning to; the scrape is the fallback for a file nothing
        * read.
        */
-      const read = file.read?.facts.find((f) => f.key === 'survey_numbers');
-      const numbers = read ? String(read.value).split(/\s*,\s*/).filter(Boolean) : extractSurveyNumbers(text);
+      const read = standingAsRead(file.read).find((f) => f.key === 'survey_numbers');
+      // Two readers differ on which number this paper is about. Nothing is proposed from it until a person keeps one:
+      // scraping the page would only be this server's reader again, taken for the answer.
+      const differs = waitingAsRead(file.read).some((f) => f.key === 'survey_numbers' && f.otherReading);
+      const numbers = differs ? [] : read ? String(read.value).split(/\s*,\s*/).filter(Boolean) : extractSurveyNumbers(text);
       if (numbers.length > 0) {
         const parcelId = formatParcelId(numbers);
         const patch: PatchProjectInput = { parcelId };

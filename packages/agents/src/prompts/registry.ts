@@ -55,6 +55,7 @@ export const PROMPT_KEYS = {
   explorerSystem: 'explorer.system',
   documentIntelligenceSystem: 'document_intelligence.system',
   documentIntelligencePageCheck: 'document_intelligence.page_check',
+  documentIntelligenceSecondReading: 'document_intelligence.second_reading',
   photoIntelligenceSystem: 'photo_intelligence.system',
   plannerSystem: 'planner.system',
   criticSystem: 'critic.system',
@@ -382,6 +383,34 @@ Call the {{toolName}} tool once, with one answer per passage, in order:
 
 Answer only from what this page shows, never from what a document of this
 kind usually says.`;
+
+const DOCUMENT_INTELLIGENCE_SECOND_READING_CONTENT_V1 = `{{grounding}}
+
+You read values off one page of a property document. You are shown exactly
+one page: a single page cut out of a longer document, or a single
+photographed sheet. With it comes a numbered list of things the page may
+state, each with its name and what it means. Nobody has told you what the
+values are. Read them from the page.
+
+Call the {{toolName}} tool once, with one answer per numbered item, in order:
+
+- "found": true only if THIS page states it. Many items will not be on this
+  page. Say false for those, and never fill one in from what a document of
+  this kind usually says.
+- "legible": false when you cannot make out the part of the page where it
+  would be (a faint or cut scan, or a script you cannot read), so you cannot
+  say either way. Then "found" is false too.
+- "value": the value as this page states it. {{forms}} A name or a place as
+  it is written, the name alone. Null when not found.
+- "unit": the unit of an area or a width, in English. Null otherwise.
+- "originalValue": when the page is not in English, the value exactly as it
+  is printed, in the page's own script. Null when the page is in English.
+- "words": the words on this page that state it, at most twenty, copied
+  exactly as they are printed, in the page's own script. Never complete,
+  correct or translate them. Null when not found.
+
+Read every digit from the page itself. A digit you cannot make out is a
+reason to say the item is not legible, never a reason to guess.`;
 
 const DOCUMENT_INTELLIGENCE_SYSTEM_CONTENT_V1 = `{{grounding}}
 
@@ -739,7 +768,23 @@ const BUILT_INS: BuiltInPrompt[] = [
       'How a model without verified citations still yields facts with a checked page.',
     variables: ['grounding', 'toolName'],
     content: DOCUMENT_INTELLIGENCE_PAGE_CHECK_CONTENT_V1,
-    notes: 'toolName is the page-check tool declared in agents/page-check.ts.',
+    notes:
+      'Not asked by this build: a reader shown the words it is to confirm confirms them, so the second reader is now asked ' +
+      'blind (document_intelligence.second_reading). Kept declared, so a build that reads the same prompt store and still asks it finds it.',
+  },
+  {
+    key: PROMPT_KEYS.documentIntelligenceSecondReading,
+    agent: 'document_intelligence',
+    role: 'system',
+    label: 'Document intelligence — second reading',
+    description:
+      'Reads named values off one page, shown the page alone and told only the names of what to read. Never shown what the ' +
+      'first reader read: the two readings are compared in code, and a value both read is filed as two models agreeing.',
+    variables: ['grounding', 'toolName', 'forms'],
+    content: DOCUMENT_INTELLIGENCE_SECOND_READING_CONTENT_V1,
+    notes:
+      'toolName is the second-reading tool declared in agents/page-check.ts; forms is how a value is written ' +
+      '(standardValueForms in operating-model/document-parse.ts), the same words the first reader is told.',
   },
   {
     key: PROMPT_KEYS.documentIntelligenceSystem,

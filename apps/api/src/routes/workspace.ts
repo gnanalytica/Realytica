@@ -105,6 +105,7 @@ import { store } from '../store';
 import { storageAdapter } from '../storage';
 import { documentKey } from '../storage/types';
 import { graphAdapter } from '../graph';
+import { keepPageTexts } from '../documents/page-text';
 import { readOntoRegister } from '../documents/register-read';
 import { docxOutline } from '../documents/docx-outline';
 import { departmentKeySchema, engagementPatchSchema, engagementSchema } from '../project-schemas';
@@ -822,9 +823,14 @@ projectWorkspaceRouter.post<Params & { uploadId: string }>('/uploads/:uploadId/c
   const storageKey = documentKey({ id: randomUUID(), fileName: upload.fileName });
   await storageAdapter.putDocument(project.id, storageKey, bytes, upload.contentType);
   attachEvidenceFile(project, evidenceId, { fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey, capture: {} }, actor);
+  // On the record before anything reads it: a reader that hangs must not leave a filed paper unfiled.
+  touch(project);
+  await store.save();
   // A large scan is read for as long as a request can wait; asking the chat to
   // read the filed documents carries on from there, with a model if one is set.
-  await readOntoRegister(project, [{ evidenceId, buffer: bytes, fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey }], actor, { deadline: Date.now() + READ_BUDGET_MS }).catch(() => ({ read: 0 }));
+  const reading = await readOntoRegister(project, [{ evidenceId, buffer: bytes, fileName: upload.fileName, mimeType: upload.contentType, sizeBytes: bytes.length, storageKey }], actor, { deadline: Date.now() + READ_BUDGET_MS }).catch(() => ({ read: 0, files: [] }));
+  // Each page's text beside the file, so a later question can be answered from it.
+  await keepPageTexts(project.id, reading.files);
   noteProjectEdit(project, `Filed ${upload.fileName} (${(bytes.length / 1048576).toFixed(1)} MB) in the vault.`, { citedEvidenceIds: [evidenceId], actor });
   touch(project);
   await store.save();

@@ -15,7 +15,7 @@
  */
 
 import type { DocumentFact } from './document-parse';
-import { factsOnFile } from './document-intake';
+import { factsOnFile, readingsWaitingOnFile } from './document-intake';
 import { packCompleteness } from './operations';
 import { plural } from './text';
 import type { ChatChoice, DdProject, EvidenceRecord, FindingRecord, FindingSeverity } from './types';
@@ -177,6 +177,55 @@ function sourcesOf(rows: Sourced[]): { citedEvidenceIds: string[]; navigate?: Fi
 
 function nothingYet(what: string, document: string): string {
   return `Nothing on file states ${what} yet. Drop the ${document} into the chat and I'll read it.`;
+}
+
+/**
+ * The values each answer is made from. A reading of one of them that waits
+ * on a paper (a model's that nobody has accepted, or one two readers differ
+ * on) is not on file and is in no answer. It is said beside the answer, as
+ * what it is, so "nothing on file states the extent" is never said of a paper
+ * whose extent is read and waiting.
+ */
+const TOPIC_KEYS: Record<string, readonly string[]> = {
+  owner: ['purchaser', 'vendor', 'owner'],
+  extent: ['extent_title', 'extent_khata', 'extent_survey', 'sanctioned_extent'],
+  parcel: ['survey_numbers', 'khata_number', 'pid'],
+  encumbrance: ['ec_from', 'ec_to', 'ec_nil', 'subsisting_charges'],
+  conversion: ['conversion_status', 'conversion_date', 'order_number', 'converted_use'],
+  zoning: ['zoning', 'permissible_far', 'plan_in_force', 'sanctioned_far'],
+  sanction: ['sanction_date', 'sanctioned_area', 'sanctioned_far', 'sanction_number', 'oc_issued'],
+  tax: ['tax_paid', 'tax_year', 'tax_paid_on', 'khata_type'],
+  title: ['root_year', 'registration_date', 'title_origin', 'document_number'],
+  value: ['consideration'],
+};
+
+/** What waits, in a line: the reading, where it is, and that it is not on file. */
+function waitingLine(rows: Sourced[]): string {
+  const first = rows[0]!;
+  const where = `the ${sourceName(first.evidence)} (p.${first.fact.page})`;
+  if (rows.length === 1) {
+    return first.fact.otherReading
+      ? `Two readers read the ${first.fact.label.toLowerCase()} differently on ${where}: ${first.fact.display} and ${first.fact.otherReading.display}. Nobody has kept one, so it is not on file.`
+      : `A model read ${first.fact.label.toLowerCase()} ${first.fact.display} on ${where}. Nobody has accepted it, so it is not on file.`;
+  }
+  const labels = [...new Set(rows.map((row) => row.fact.label.toLowerCase()))];
+  return `${rows.length} readings are waiting to be accepted and are not on file: ${labels.slice(0, 4).join(', ')}${labels.length > 4 ? ` and ${labels.length - 4} more` : ''}.`;
+}
+
+/** An answer with what waits for its topic said after it; or, where the answer was that nothing is on file, said in its place. */
+function withWaiting(project: DdProject, topic: string, answer: FileAnswer | null): FileAnswer | null {
+  const keys = TOPIC_KEYS[topic];
+  const waiting = keys ? readingsWaitingOnFile(project).filter((row) => keys.includes(row.fact.key)) : [];
+  if (!waiting.length) return answer;
+  const line = waitingLine(waiting);
+  const lead = waiting[0]!;
+  const open: FileAnswer['navigate'] = { pane: 'evidence', evidenceId: lead.evidence.id, page: String(lead.fact.page) };
+  const ids = [...new Set(waiting.map((row) => row.evidence.id))];
+  // "Nothing on file states it yet. Drop the paper in" is the wrong thing to say of a paper that is in, read, and waiting.
+  if (!answer || (!answer.citedEvidenceIds.length && /not on file$/.test(answer.summary))) {
+    return { text: line, summary: 'A reading is waiting', citedEvidenceIds: ids, citedNodeIds: answer?.citedNodeIds ?? [], navigate: open };
+  }
+  return { ...answer, text: `${answer.text}\n${line}`, citedEvidenceIds: [...new Set([...answer.citedEvidenceIds, ...ids])], navigate: answer.navigate ?? open };
 }
 
 /* ==================================================================== */
@@ -823,31 +872,29 @@ function answerFromFileUnfitted(project: DdProject, question: string, here: Chat
       case 'progress':
         return answerProgress(project, outside);
       case 'owner': {
-        const a = answerOwner(project, facts);
+        const a = withWaiting(project, topic, answerOwner(project, facts));
         if (a) return a;
         break;
       }
       case 'extent':
-        return answerExtent(project, facts);
+        return withWaiting(project, topic, answerExtent(project, facts));
       case 'parcel':
-        return answerParcel(project, facts);
-      case 'encumbrance': {
-        const a = answerEncumbrance(project, facts);
-        if (a) return a;
-        return null;
-      }
+        return withWaiting(project, topic, answerParcel(project, facts));
+      case 'encumbrance':
+        // No EC on file and none waiting: the portal routes answer this better.
+        return withWaiting(project, topic, answerEncumbrance(project, facts));
       case 'conversion':
-        return answerConversion(facts);
+        return withWaiting(project, topic, answerConversion(facts));
       case 'zoning':
-        return answerZoning(project, facts);
+        return withWaiting(project, topic, answerZoning(project, facts));
       case 'sanction':
-        return answerSanction(project, facts);
+        return withWaiting(project, topic, answerSanction(project, facts));
       case 'tax':
-        return answerTax(facts);
+        return withWaiting(project, topic, answerTax(facts));
       case 'title':
-        return answerTitle(facts);
+        return withWaiting(project, topic, answerTitle(facts));
       case 'value':
-        return answerValue(project, facts);
+        return withWaiting(project, topic, answerValue(project, facts));
       case 'findings':
         return scope ? answerFindingsOf(project, scope, q, outside) : answerFindings(project, q);
       case 'risks':

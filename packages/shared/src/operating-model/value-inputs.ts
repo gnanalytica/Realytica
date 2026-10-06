@@ -37,7 +37,7 @@ import type { CheckInstance, DdAssessment, DdProject, EvidenceRecord } from './t
 import type { DocumentFact } from './document-parse';
 import { CHECK_FIELDS } from './check-schemas';
 import { isBlank } from './check-fields';
-import { factReview, liveFacts } from './fact-review';
+import { factReview, standingFacts, waitingReadings } from './fact-review';
 import { createAssessment, recordAuditEvent, recordCheckFields } from './operations';
 import { patchProject } from './capabilities';
 import {
@@ -204,14 +204,42 @@ interface Stated {
   fact: DocumentFact;
 }
 
-/** Every number a document on file states under `key`, newest document first. */
+/**
+ * Every number a document on file states under `key`, newest document first.
+ * What stands only (`standingFacts`): a model's reading nobody has accepted,
+ * and a value two readers differ on, are offered to no input. They wait
+ * (`valueReadingsWaiting`), and the page says so.
+ */
 function stated(project: DdProject, key: string): Stated[] {
   const out: Stated[] = [];
   for (const row of project.evidence ?? []) {
     if (!onFile(row)) continue;
-    for (const fact of liveFacts(row)) if (fact.key === key) out.push({ row, fact });
+    for (const fact of standingFacts(row)) if (fact.key === key) out.push({ row, fact });
   }
   return out.sort((a, b) => b.row.createdAt.localeCompare(a.row.createdAt));
+}
+
+/** The keys an input here is read from, or whether there is a building is told by. */
+const VALUE_FACT_KEYS = new Set([
+  'extent_title',
+  'extent_survey',
+  'extent_khata',
+  'sanctioned_extent',
+  'sanctioned_area',
+  'cleared_built_up_area',
+  'consideration',
+  'registration_date',
+  'monthly_rent',
+  'leased_area',
+  'oc_date',
+  'oc_issued',
+]);
+
+/** The readings an input would have been offered from, that wait on their papers and are offered to nothing. */
+export function valueReadingsWaiting(project: DdProject): Array<{ evidence: EvidenceRecord; fact: DocumentFact }> {
+  return (project.evidence ?? [])
+    .filter(onFile)
+    .flatMap((evidence) => waitingReadings(evidence).filter((fact) => VALUE_FACT_KEYS.has(fact.key)).map((fact) => ({ evidence, fact })));
 }
 
 function numberOf(fact: DocumentFact): number | null {
@@ -282,7 +310,7 @@ export interface OwnSale {
 export function ownSales(project: DdProject, now = new Date()): OwnSale[] {
   const out: OwnSale[] = [];
   for (const row of (project.evidence ?? []).filter(onFile)) {
-    const facts = liveFacts(row);
+    const facts = standingFacts(row);
     const consideration = facts.find((f) => f.key === 'consideration');
     const extent = facts.find((f) => f.key === 'extent_title');
     const registered = facts.find((f) => f.key === 'registration_date');
@@ -442,7 +470,7 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
   if (!building) {
     for (const sale of ownSales(project, now).filter((x) => x.recent)) {
       const row = project.evidence.find((e) => e.id === sale.evidenceId)!;
-      const consideration = liveFacts(row).find((f) => f.key === 'consideration')!;
+      const consideration = standingFacts(row).find((f) => f.key === 'consideration')!;
       add(
         'rate_per_sqm',
         sale.ratePerSqm,
@@ -540,7 +568,7 @@ export function valueOffers(project: DdProject, now = new Date()): ValueOffer[] 
   /* ---- income: the lease on file --------------------------------------- */
 
   for (const row of (project.evidence ?? []).filter(onFile)) {
-    const facts = liveFacts(row);
+    const facts = standingFacts(row);
     const rent = facts.find((f) => f.key === 'monthly_rent');
     const let_ = facts.find((f) => f.key === 'leased_area');
     const area = let_ ? numberOf(let_) : null;
@@ -826,7 +854,8 @@ export function acceptValueOffers(project: DdProject, ids: readonly string[], ac
       // The document is accepted as stating what was just recorded from it.
       for (const read of offer.facts ?? []) {
         const row = project.evidence.find((e) => e.id === read.evidenceId);
-        const fact = row?.facts?.find((f) => f.key === read.key);
+        // The value the offer was read from: one that stands, since no other is offered.
+        const fact = row ? standingFacts(row).find((f) => f.key === read.key) : undefined;
         if (row && fact && factReview(fact) === 'proposed') reviewFacts(project, row.id, [fact.key], 'accept', actor);
       }
       seen.add(offer.input);

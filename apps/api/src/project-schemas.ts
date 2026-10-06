@@ -685,6 +685,13 @@ export const factReviewBodySchema = z.object({
       display: z.string().min(1).max(2000),
     })
     .optional(),
+  /** Keep the other reader's value for the one key named, where two readers read it differently. */
+  take: z.literal('other').optional(),
+});
+
+/** What a person says a paper is, in place of what a model took it for. */
+export const correctDocumentTypeBodySchema = z.object({
+  documentType: z.string().min(1).max(120),
 });
 
 /** A decision on a check's waiting values, a field at a time. */

@@ -13,9 +13,9 @@ import type { DocumentFact } from './document-parse';
 import type { ChatProposal, DdProject, EvidenceRecord } from './types';
 import { findCheck, recordAuditEvent, recordCheckFields } from './operations';
 import { isBlank } from './check-fields';
-import { factReview } from './fact-review';
+import { acceptedOneAtATime, factReview, stands } from './fact-review';
 import { commitChatProposal, rejectChatProposal } from './wizard';
-import { pendingFactProposals } from './document-intake';
+import { decidedOnACheck, factFillProposals, pendingFactProposals } from './document-intake';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -54,6 +54,43 @@ function fieldsCarrying(card: ChatProposal, fact: DocumentFact): string[] {
   return Object.keys(values).filter((key) => !decided[key] && key === fact.key);
 }
 
+/** What the page was read as for this fact, whatever a person corrected it to. */
+function asRead(fact: DocumentFact): DocumentFact['value'] {
+  return fact.readAs ? fact.readAs.value : fact.value;
+}
+
+/**
+ * Whether a card's waiting field holds the reading this fact is. A card is
+ * raised with one reading's value, and the fact under the same key may since
+ * have become another: the other reader's value was kept, or the paper was
+ * read again. Such a field is the old reading's, not this one's.
+ */
+function holdsThisReading(card: ChatProposal, fact: DocumentFact): boolean {
+  return String(((card.payload.values ?? {}) as Record<string, unknown>)[fact.key]) === String(asRead(fact));
+}
+
+/** The paper a check-values card was read from: by its row, or by the stored file where the card was raised before the row was. */
+function sourceRow(project: DdProject, card: ChatProposal): EvidenceRecord | undefined {
+  const storageKey = typeof card.payload.sourceStorageKey === 'string' ? card.payload.sourceStorageKey : undefined;
+  return (
+    (typeof card.payload.sourceEvidenceId === 'string' ? project.evidence.find((e) => e.id === card.payload.sourceEvidenceId) : undefined)
+    ?? (storageKey ? project.evidence.find((e) => e.attachments.some((a) => a.storageKey === storageKey)) : undefined)
+  );
+}
+
+/**
+ * Whether a card's field came from a reading that still waits on its paper: a
+ * model's value nobody has accepted, or one two readers differ on. Such a
+ * field is decided where the reading is. Accepting everything on a card, or
+ * everything a reply left, is not looking at it, and leaves it waiting.
+ */
+export function fromWaitingReading(project: DdProject, card: ChatProposal, key: string): boolean {
+  const value = String(((card.payload.values ?? {}) as Record<string, unknown>)[key]);
+  return (sourceRow(project, card)?.facts ?? []).some(
+    (f) => f.key === key && factReview(f) === 'proposed' && !stands(f) && (String(f.value) === value || (f.otherReading !== undefined && String(f.otherReading.value) === value)),
+  );
+}
+
 /**
  * Whether recording this card's value for `key` would settle something a
  * person has not: the check already holds a different value, or another
@@ -89,6 +126,18 @@ export function contestedKeys(project: DdProject, card: ChatProposal): string[] 
 }
 
 /**
+ * The other reader's value put in this one's place, and this one kept beside
+ * it as the reading that was not chosen. The fact is changed where it stands,
+ * so whatever already points at it still does.
+ */
+function takeOtherReading(fact: DocumentFact): void {
+  const { otherReading: other, ...mine } = fact;
+  if (!other) return;
+  for (const key of Object.keys(fact)) delete (fact as unknown as Record<string, unknown>)[key];
+  Object.assign(fact, other, { review: mine.review, otherReading: { ...mine, review: undefined, decidedBy: undefined, decidedAt: undefined, replaced: undefined } });
+}
+
+/**
  * Accept, set aside, or reopen values on one document.
  *
  * `keys` names facts by key; `'all'` is every value still waiting on it. An
@@ -101,6 +150,18 @@ export function contestedKeys(project: DdProject, card: ChatProposal): string[] 
  * those fields aside. A check value that will not record — a field that needs
  * proof the value lacks — stays waiting on its check rather than failing the
  * document's decision.
+ *
+ * A value two readers read differently (`otherReading`) is a choice, and only
+ * a person naming that value makes it: accepting it by its key keeps this
+ * server's reading, `take: 'other'` keeps the other reader's, and "all"
+ * leaves it waiting, since nobody looked at it. "All" leaves a model's yes or
+ * no waiting too, and a model's exact value with only a second model's
+ * reading behind it (`acceptedOneAtATime`).
+ *
+ * A value that did not stand until now was offered to no check when it was
+ * read. Accepting it offers it, and the value kept is the one offered: a
+ * card raised earlier for another reading of the same key is set aside, so
+ * the check is never given a value the document no longer states.
  */
 export function reviewFacts(
   project: DdProject,
@@ -112,6 +173,8 @@ export function reviewFacts(
   options: {
     /** Whether this person may record values on a check. A contractor's decision stops at the checks in their grant. */
     checkWritable?: (checkId: string) => boolean;
+    /** Keep the other reader's value for the one key named, in place of this server's. */
+    take?: 'other';
   } = {},
 ): { evidence: EvidenceRecord; changed: DocumentFact[] } {
   const evidence = project.evidence.find((e) => e.id === evidenceId);
@@ -121,13 +184,16 @@ export function reviewFacts(
   const targets =
     decision === 'reopen'
       ? facts.filter((f) => named(f) && f.decidedAt && factReview(f) !== 'proposed')
-      : facts.filter((f) => named(f) && factReview(f) === 'proposed');
+      : facts.filter((f) => named(f) && factReview(f) === 'proposed' && !(keys === 'all' && decision === 'accept' && acceptedOneAtATime(f)));
   if (!targets.length) return { evidence, changed: [] };
   const at = nowIso();
   let rows = [...facts];
+  /** The values that acted on nothing until this decision: no check was offered them when they were read. */
+  const waited = new Set(decision === 'accept' ? targets.filter((f) => !stands(f)) : []);
 
   for (const fact of targets) {
     if (decision === 'accept') {
+      if (options.take === 'other' && targets.length === 1) takeOtherReading(fact);
       const older = rows.filter((o) => o !== fact && o.key === fact.key && factReview(o) === 'accepted');
       rows = rows.filter((o) => !older.includes(o));
       if (older[0]) fact.replaced = { ...older[0], replaced: undefined };
@@ -173,6 +239,29 @@ export function reviewFacts(
   }
   evidence.facts = rows;
   evidence.updatedAt = at;
+
+  // Offered to the checks now: what was offered to none when it was read, because it waited.
+  if (decision === 'accept') {
+    const offer: DocumentFact[] = [];
+    for (const fact of targets) {
+      // No check was offered a value that waited. A check offered another reading of this key was not offered this one either.
+      let unoffered = waited.has(fact);
+      for (const card of fillsFrom(project, evidence)) {
+        const stale = fieldsCarrying(card, fact).filter(() => !holdsThisReading(card, fact));
+        if (!stale.length) continue;
+        unoffered = true;
+        // The other reading's card is set aside where it waits, by whoever may decide that check.
+        if (!options.checkWritable || options.checkWritable(String(card.payload.checkId))) decideCheckFields(project, card.id, stale, 'reject', actor, undefined, { fromDocument: true });
+      }
+      // As the value kept and with its own page and words, unless a person already decided it on a check.
+      if (unoffered && !decidedOnACheck(project, fact.key, asRead(fact), evidence)) offer.push(fact.readAs ? { ...fact, value: fact.readAs.value, display: fact.readAs.display } : fact);
+    }
+    // One card a check, carrying every value this decision brought it, as a reading does.
+    if (offer.length) {
+      const source = { fileName: evidence.attachments[0]?.fileName ?? evidence.title, evidenceId: evidence.id, documentLabel: evidence.documentType ?? evidence.title };
+      project.chatProposals.push(...factFillProposals(project, offer, source, actor, [], { differences: true }));
+    }
+  }
 
   // The same value, waiting on the checks it answers.
   if (decision !== 'reopen') {
@@ -387,7 +476,8 @@ export function acceptWaiting(project: DdProject, proposalId: string, actor: str
   if (!card) throw new Error('Nothing waiting by that id');
   if (card.kind === 'record_check_fields') {
     // Values the documents disagree on stay waiting for the picker: accepting the card is not choosing between them.
-    const open = waitingFieldKeys(card).filter((key) => !contested(project, card, key));
+    // So does a value read from a reading that still waits on its paper: that one is decided there.
+    const open = waitingFieldKeys(card).filter((key) => !contested(project, card, key) && !fromWaitingReading(project, card, key));
     const decided = open.length ? decideCheckFields(project, proposalId, open, 'accept', actor) : card;
     return { proposal: decided, recordId: String(card.payload.checkId), offered: [] };
   }

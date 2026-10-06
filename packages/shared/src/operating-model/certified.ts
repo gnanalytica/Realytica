@@ -14,6 +14,7 @@
 
 import type { DdProject } from './types';
 import { recordAuditEvent } from './operations';
+import { standingFacts } from './fact-review';
 import { workstreamDefinition } from './departments';
 import { quickAssessment, snapshotOf, type QuickSnapshot, type QuickVerdict } from './quick-assessments';
 
@@ -185,7 +186,8 @@ const SIGNER_BY_TYPE: Record<string, { workstream: string; profession: string }>
 export function certifiedReadout(project: DdProject, evidenceId: string): CertifiedReadout {
   const evidence = project.evidence.find((e) => e.id === evidenceId);
   if (!evidence) throw new Error('No document by that id.');
-  const facts = evidence.facts ?? [];
+  // What stands on the paper: a reading that waits, or one a person set aside, fills in nothing here.
+  const facts = standingFacts(evidence);
   const fact = (...keys: string[]) => facts.find((f) => keys.includes(f.key));
   const sources: CertifiedReadout['sources'] = [];
   const take = (field: string, f: ReturnType<typeof fact>) => {

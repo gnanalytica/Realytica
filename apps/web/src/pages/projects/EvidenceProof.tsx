@@ -1,7 +1,9 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Download, FileWarning } from 'lucide-react';
-import { factReview, type DocumentFact, type EvidenceAttachment, type EvidenceRecord, type FactMarks } from '@realytica/shared';
+import { DOCUMENT_WORKSTREAM, factReview, proofSaid, readingLine, sentToModelLine, soundReading, type DdProject, type DocumentFact, type EvidenceAttachment, type EvidenceRecord, type FactMarks } from '@realytica/shared';
+import { OtherReading } from '../../components/reading/FactRow';
 import { Button, cn, useToast } from '../../components/ui/kit';
+import { api } from '../../lib/api';
 import { fetchEvidenceFile, renderKindFor, saveEvidenceFile, type DocumentSourceState } from '../../components/viewer/source';
 
 /*
@@ -22,6 +24,7 @@ export function EvidenceProof({
   citedPage,
   highlightTerm,
   onClose,
+  onProject,
 }: {
   projectId: string;
   evidence: EvidenceRecord;
@@ -30,8 +33,11 @@ export function EvidenceProof({
   citedPage?: number;
   highlightTerm?: string;
   onClose: () => void;
+  /** The project as it stands after something here changed it: a type confirmed. */
+  onProject?: (next: DdProject) => void;
 }) {
   const [state, setState] = useState<DocumentSourceState>({ status: 'loading' });
+  const [confirming, setConfirming] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -70,6 +76,23 @@ export function EvidenceProof({
   const term = marks ? undefined : shown?.quote ?? highlightTerm ?? quotes?.[0]?.text ?? evidence.quotes?.[0]?.text;
   const shownQuotes = quotes?.length ? quotes : evidence.quotes;
   const facts = evidence.facts ?? [];
+  // How much of this file was read, and what a model read on it that nothing stands behind. Only a reading that is sound is drawn.
+  const reading = soundReading(file?.reading);
+  const coverage = [readingLine(reading), sentToModelLine(reading)].filter(Boolean).join(' ');
+  const unverified = reading?.unverified ?? [];
+  const beside = facts.length > 0 || unverified.length > 0;
+  const offered = evidence.proposedDocumentType;
+  // The row's values are read from its latest file. Shown beside an earlier one, that is said.
+  const readFrom = evidence.attachments[evidence.attachments.length - 1];
+  const otherFile = file && readFrom && readFrom.id !== file.id && facts.length > 0 ? readFrom.fileName : undefined;
+  /** One of the three things a person can say of the model's offer, then the project as it stands. */
+  const decideType = (act: Promise<{ project: DdProject }>, failed: string) => {
+    setConfirming(true);
+    void act
+      .then(({ project }) => onProject?.(project))
+      .catch((e: unknown) => toast(e instanceof Error ? e.message : failed, 'critical'))
+      .finally(() => setConfirming(false));
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4">
@@ -79,7 +102,7 @@ export function EvidenceProof({
         aria-modal="true"
         className={cn(
           'relative z-10 flex max-h-[min(92dvh,56rem)] w-full flex-col overflow-hidden rounded-xl bg-surface shadow-pop ring-1 ring-[var(--ring)]',
-          facts.length ? 'max-w-6xl' : 'max-w-4xl',
+          beside ? 'max-w-6xl' : 'max-w-4xl',
         )}
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline px-4 py-3">
@@ -90,6 +113,51 @@ export function EvidenceProof({
               {evidence.documentType ? ` · read as ${evidence.documentType}` : ''}
               {evidence.readMethod === 'ocr' ? ' · from a scan' : ''}
             </p>
+            {offered ? (
+              <p className="text-[12px] text-provenance-ink">
+                A model takes this for {/^[aeiou]/i.test(offered) ? 'an' : 'a'} {offered.toLowerCase()}. Nobody has confirmed that, so it answers no waiting row.
+                {onProject ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={confirming}
+                      onClick={() => decideType(api.confirmDocumentType(projectId, evidence.id), 'The type could not be confirmed')}
+                      className="ml-1.5 font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
+                    >
+                      Confirm it is
+                    </button>
+                    <button
+                      type="button"
+                      disabled={confirming}
+                      onClick={() => decideType(api.setAsideDocumentType(projectId, evidence.id), 'The offer could not be set aside')}
+                      className="ml-2 font-medium text-brand underline-offset-2 hover:underline disabled:opacity-50"
+                    >
+                      It is not
+                    </button>
+                    <select
+                      aria-label="Say what this document is instead"
+                      disabled={confirming}
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) decideType(api.correctDocumentType(projectId, evidence.id, e.target.value), 'The type could not be set');
+                      }}
+                      className="ml-2 max-w-[11rem] rounded-md bg-surface px-1.5 py-0.5 text-[12px] text-ink ring-1 ring-inset ring-[var(--ring)] disabled:opacity-50"
+                    >
+                      <option value="">It is something else…</option>
+                      {Object.keys(DOCUMENT_WORKSTREAM)
+                        .filter((type) => type !== offered)
+                        .map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                    </select>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+            {coverage ? <p className="text-[12px] text-ink-muted">{coverage}</p> : null}
+            {otherFile ? <p className="text-[12px] text-ink-muted">The values beside it were read from {otherFile}, the latest file on this row.</p> : null}
           </div>
           <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
             {file ? (
@@ -119,11 +187,11 @@ export function EvidenceProof({
             ))}
           </div>
         ) : null}
-        <div className={cn('flex min-h-0 flex-1 flex-col', facts.length && 'md:flex-row')}>
+        <div className={cn('flex min-h-0 flex-1 flex-col', beside && 'md:flex-row')}>
           <div className="min-h-[18rem] min-w-0 flex-1 overflow-hidden bg-sunken">
             <ProofBody state={state} fileName={file?.fileName ?? evidence.title} citedPage={page} highlightTerm={term} marks={marks} />
           </div>
-          {facts.length ? (
+          {beside ? (
             <aside
               aria-label="What this document states"
               className="max-h-[40dvh] shrink-0 overflow-y-auto border-t border-hairline md:max-h-none md:w-[22rem] md:border-l md:border-t-0"
@@ -131,7 +199,9 @@ export function EvidenceProof({
               <div className="sticky top-0 border-b border-hairline bg-surface px-4 py-2.5">
                 <p className="text-[12px] font-semibold text-ink">What this document states</p>
                 <p className="text-[11px] text-ink-muted">
-                  {facts.length} fact{facts.length === 1 ? '' : 's'}, each with its page and its own words. Pick one to see it.
+                  {facts.length
+                    ? `${facts.length} fact${facts.length === 1 ? '' : 's'}, each with its page and its own words. Pick one to see it.`
+                    : 'Nothing was read from it that could be found on a page.'}
                 </p>
               </div>
               <ul className="divide-y divide-hairline">
@@ -174,11 +244,32 @@ export function EvidenceProof({
                           </span>
                         ) : null}
                         <span className="mt-1 block text-[11px] leading-snug text-ink-muted">“{fact.quote}”</span>
+                        {/* What stands behind a model's value: its words in the page's text, or copied off the page by a second reader. */}
+                        {proofSaid(fact) ? <span className="mt-0.5 block text-[10px] text-ink-muted first-letter:uppercase">{proofSaid(fact)}</span> : null}
+                        {fact.otherReading && review === 'proposed' ? <OtherReading fact={fact} /> : null}
                       </button>
                     </li>
                   );
                 })}
               </ul>
+              {unverified.length ? (
+                <div className="border-t border-hairline px-4 py-2.5">
+                  <p className="text-[12px] font-semibold text-ink">Read by a model, unverified</p>
+                  <p className="text-[11px] text-ink-muted">
+                    Nothing stands behind these: a second model read the page differently or could not be asked, or the words quoted for a value do not state it. They are no part of
+                    what the document is taken to state.
+                  </p>
+                  <ul className="mt-1.5 space-y-1.5">
+                    {unverified.map((loose, i) => (
+                      <li key={`${loose.key}:${i}`} className="text-[12px] text-ink-secondary">
+                        <span className="text-ink-muted">{loose.label}:</span> <span className="font-mono">{loose.display}</span>
+                        <span className="font-mono text-[10px] text-ink-muted"> · {loose.page ? `said to be on p.${loose.page}` : 'no page named'} · unverified</span>
+                        <span className="block text-[11px] leading-snug text-ink-muted">“{loose.quote}”</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </aside>
           ) : null}
         </div>
