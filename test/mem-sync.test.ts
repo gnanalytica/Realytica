@@ -12,8 +12,9 @@
  * A write goes through only if memory stands where the writer believed. A
  * copy older than the one memory was told from tells nothing, and a record
  * that has lost what memory was told from is told whole. Which shape of
- * memory a deployment may write over: a later one is left alone, an earlier
- * one is started over, every entry let go and the whole record told again,
+ * memory a deployment may write over: a later one is left alone, which is
+ * said once in the log, an earlier one is started over, every entry let go
+ * and the whole record told again,
  * by the live site always and by any other deployment only where the live
  * site has not written, and the live site starts over whatever it did not
  * write itself. A long record is told a write at a time. A question is told
@@ -719,6 +720,41 @@ describe('a memory written in a later shape', () => {
     assert.equal(known.has(project.id), false, 'what it believed is not kept');
     assert.deepEqual(await standsAt(project), later);
     assert.deepEqual(await entriesOf(project), [], 'and nothing was written');
+  });
+
+  it('is said once in the log, however many projects and passes, and on the live site it is said that it was put back', async () => {
+    // A shape no other test here writes, so the line is this test's to hear first.
+    const later = MEM_SCHEMA + 2;
+    const leftBy = async (name: string, live: boolean): Promise<DdProject> => {
+      const project = file(name);
+      raise(project, 'Extent differs', '2026-10-05T09:00:00.000Z');
+      assert.deepEqual(await memory.write({ projectId: project.id, tenantId: TENANT, from: {}, through: { schema: later, auditThrough: 'aud_later' }, entries: [], live }), { written: 0 });
+      return project;
+    };
+    // Two projects a preview of a later branch told first.
+    const projects = [await leftBy('First later shape plot', false), await leftBy('Second later shape plot', false)];
+    const warned = mock.method(console, 'warn', () => {});
+    try {
+      const first = await pass(projects);
+      assert.deepEqual([first.settled.length, first.failed], [2, 0]);
+      await pass(projects);
+      const lines = said(warned, /^\[memory\]/);
+      assert.equal(lines.length, 1, 'once, though it is true of two projects on two passes');
+      assert.ok(lines[0]!.includes(`in an earlier shape (${MEM_SCHEMA}) than a project's memory holds (${later}), and stands down: nothing is written for such projects`), lines[0]);
+      assert.doesNotMatch(lines[0]!, /live site/, 'a preview is not told it is the live site');
+
+      // The live site, put back to an earlier build: the later build of it wrote this project's memory.
+      const ours = await leftBy('Put back plot', true);
+      const back = await pass([ours], { live: true });
+      await pass([ours], { live: true });
+      assert.deepEqual([back.settled.length, back.failed], [1, 0], 'it stands down as any earlier build does');
+      const putBack = said(warned, /^\[memory\]/).slice(1);
+      assert.equal(putBack.length, 1, 'and says so once, in words of its own');
+      assert.match(putBack[0]!, /stands down: nothing is written for such projects\. This is the live site, so a later build of it wrote them: it has been put back to an earlier one$/);
+    } finally {
+      warned.mock.restore();
+    }
+    for (const project of projects) assert.deepEqual(await entriesOf(project), [], 'and nothing was written');
   });
 
   it('is asked about again the next time the project is told: standing down is not kept', async () => {

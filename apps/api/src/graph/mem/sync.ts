@@ -38,13 +38,16 @@
  * refusal is never kept: the next pass over the project asks the store
  * again.
  *
- * Two answers from the store are not failures and are said once in the log,
- * not once a pass. A deployment that is not the live site is told that the
- * live site wrote a project's memory in an earlier shape: there is nothing
- * for it to tell until the live site has raised it. And a store with no room
- * for another node says so: nothing more is written until a write is taken
- * again, and the graph, which is offered apart from this, goes on being
- * drawn.
+ * Three answers from the store are not failures and are said once in the
+ * log, not once a pass. A deployment that is not the live site is told that
+ * the live site wrote a project's memory in an earlier shape: there is
+ * nothing for it to tell until the live site has raised it. A deployment
+ * that finds a later shape than its own stands down, and says so, because
+ * from then on it writes nothing for that project: one preview of a later
+ * branch is enough to stop an earlier one, and a live site put back to an
+ * earlier build stops the same way. And a store with no room for another
+ * node says so: nothing more is written until a write is taken again, and
+ * the graph, which is offered apart from this, goes on being drawn.
  */
 
 import { MEM_SCHEMA, memoryDelta, memoryReplay, sameMemWatermark, type DdProject, type MemWatermark } from '@realytica/shared';
@@ -92,8 +95,14 @@ export interface MemoryPassed {
 /** Whether the log has been told, since the last write that was taken, that the store has no room. */
 let saidFull = false;
 
-/** Whether the log has been told that the live site wrote some projects' memory in an earlier shape than this deployment writes. */
-let saidLower = false;
+/** What the log has been told of the shapes this deployment may not write over. Each line is said once, however many projects and passes it is true of. */
+const saidOfShapes = new Set<string>();
+
+function sayOnce(line: string): void {
+  if (saidOfShapes.has(line)) return;
+  saidOfShapes.add(line);
+  console.warn(line);
+}
 
 /**
  * One pass over what memory is owed.
@@ -127,12 +136,18 @@ export async function syncMemory(work: MemoryWork, port: MemoryPort = memoryPort
    */
   const refused = (projectId: string, ruling: { newer: number } | { lower: number }): true => {
     work.known.delete(projectId);
-    // Not this deployment's to tell until the live site has raised the shape: said once, and not an error.
-    if ('lower' in ruling && !saidLower) {
-      console.warn(
+    if ('lower' in ruling) {
+      // Not this deployment's to tell until the live site has raised the shape: not an error.
+      sayOnce(
         `[memory] this deployment writes memory in a later shape (${MEM_SCHEMA}) than the live site wrote a project's memory in (${ruling.lower}), and only the live site raises its own: nothing is written for such projects`,
       );
-      saidLower = true;
+    } else {
+      // Not an error either, and nothing puts it right but a deployment in that shape: the live site stands down only to what a later build of itself wrote.
+      sayOnce(
+        `[memory] this deployment writes memory in an earlier shape (${MEM_SCHEMA}) than a project's memory holds (${ruling.newer}), and stands down: nothing is written for such projects${
+          live ? '. This is the live site, so a later build of it wrote them: it has been put back to an earlier one' : ''
+        }`,
+      );
     }
     return true;
   };

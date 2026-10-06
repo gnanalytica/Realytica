@@ -19,6 +19,17 @@
  * behind it. And a project put back because its documents would not go is
  * read from storage again as any other is.
  *
+ * Nor is a document written back. A save of the project that is on its way
+ * to storage when the removal is asked for is let land first, and a save
+ * does not begin a write of a project taken off since it began: a removal
+ * never answers that the project is gone while its document is in storage
+ * and nothing lists it. Once the removal has ended the instance lets go of
+ * the project. Its document can still come back, saved by another instance
+ * that held a change, and then this instance reads the project as it reads
+ * any other and removes it when asked again; only a read that began before
+ * the removal ended is not believed. And kept means kept: a removal that
+ * took the project's own document before it failed writes it again.
+ *
  * Run against the app's own store, the real filesystem store and the files
  * the graph and memory are kept in on a machine with no graph database, in a
  * temporary directory.
@@ -36,6 +47,7 @@ type RemovalModule = typeof import('../apps/api/src/project-removal');
 let root: string;
 let dataDir: string;
 let store: typeof import('../apps/api/src/store').store;
+let Store: typeof import('../apps/api/src/store').Store;
 let storage: typeof import('../apps/api/src/storage').storageAdapter;
 let graph: typeof import('../apps/api/src/graph').graphAdapter;
 let memory: typeof import('../apps/api/src/graph/mem').memoryPort;
@@ -48,6 +60,7 @@ before(async () => {
   const storeModule = await import('../apps/api/src/store');
   await storeModule.initStore();
   store = storeModule.store;
+  Store = storeModule.Store;
   dataDir = storeModule.DATA_DIR;
   ({ storageAdapter: storage } = await import('../apps/api/src/storage'));
   ({ graphAdapter: graph } = await import('../apps/api/src/graph'));
@@ -103,6 +116,33 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
     resolve = yes;
   });
   return { promise, resolve };
+}
+
+/** Lets what is already runnable run, timers aside. */
+const turn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+/** A change to a project that its instance has not written yet. */
+function edit(project: DdProject, title: string, at: string) {
+  const finding = addFinding(project, { title, description: 'Made up.', severity: 'low', discipline: 'legal' }, 'lead@example.com');
+  project.updatedAt = at;
+  return finding;
+}
+
+let ahead = 0;
+
+/**
+ * Reads the workspace from storage, as the request after next does. The
+ * store reads it for a request at most once in two seconds, so the clock is
+ * put on by a minute for the read, further each time.
+ */
+async function readWorkspace(): Promise<void> {
+  ahead += 60_000;
+  mock.timers.enable({ apis: ['Date'], now: Date.now() + ahead });
+  try {
+    await store.syncIndex();
+  } finally {
+    mock.timers.reset();
+  }
 }
 
 /**
@@ -189,7 +229,7 @@ describe('a request about a project that arrives while its documents are going',
       await store.syncProject(project.id, { force: true });
       assert.equal(listed(project), false, 'the project was read, and not listed again');
       const before = reads.mock.callCount();
-      await store.syncIndex();
+      await readWorkspace();
       assert.ok(reads.mock.callCount() > before, 'the workspace was read, with the index still naming the project');
       assert.equal(listed(project), false, 'and that did not list it again either');
       // A second request for the removal finds nothing to remove.
@@ -243,5 +283,368 @@ describe('a request about a project that arrives while its documents are going',
     await store.graphCaughtUp();
     assert.equal(listed(project), false);
     assert.equal(await indexed(project), false);
+  });
+});
+
+describe('a save of the project that is under way when its removal is asked for', () => {
+  it('is let land before the documents are removed, so that no document is left for a project nothing lists', async () => {
+    const project = await filed('Being saved');
+    const put = storage.putDocument.bind(storage);
+    const reached = deferred();
+    const gate = deferred();
+    let held = false;
+    const slow = mock.method(storage, 'putDocument', async (...args: Parameters<typeof storage.putDocument>) => {
+      // The first write of the project's document is kept on its way to storage.
+      if (args[0] === project.id && args[1] === 'project.json' && !held) {
+        held = true;
+        reached.resolve();
+        await gate.promise;
+      }
+      return put(...args);
+    });
+    const removals = mock.method(storage, 'deleteCaseDocuments');
+    let outcome: string | undefined;
+    try {
+      // An edit's save, begun.
+      edit(project, 'An edit', '2026-10-06T12:00:00.000Z');
+      const saving = store.save();
+      await reached.promise;
+      // The removal is asked for while that write is out.
+      const removal = removeProject(project.id).then((answer) => {
+        outcome = answer;
+      });
+      for (let i = 0; i < 20; i += 1) await turn();
+      assert.equal(outcome, undefined, 'the removal has not answered');
+      assert.equal(removals.mock.callCount(), 0, 'and has removed nothing: the write would have landed after it');
+      assert.equal(listed(project), false, 'though the project is off the list from the moment it was asked for');
+
+      gate.resolve();
+      await removal;
+      await saving;
+    } finally {
+      gate.resolve();
+      slow.mock.restore();
+      removals.mock.restore();
+    }
+    await store.graphCaughtUp();
+
+    assert.equal(outcome, 'removed');
+    assert.equal(await documentThere(project), false, 'the write landed, and went with the rest');
+    assert.equal(listed(project), false);
+    assert.equal(await indexed(project), false);
+    assert.equal(await remembered(project), 0);
+  });
+
+  it('is waited for with every other write of the project that is out, when two saves overlap', async () => {
+    // Two saves of one project, each with its write on the way. Whichever lands first, the removal waits for the other.
+    for (const landsFirst of [0, 1] as const) {
+      const project = await filed(`Saved twice at once, write ${landsFirst + 1} lands first`);
+      const put = storage.putDocument.bind(storage);
+      const reached = [deferred(), deferred()];
+      const gates = [deferred(), deferred()];
+      let writes = 0;
+      const slow = mock.method(storage, 'putDocument', async (...args: Parameters<typeof storage.putDocument>) => {
+        if (args[0] === project.id && args[1] === 'project.json' && writes < 2) {
+          const mine = writes;
+          writes += 1;
+          reached[mine]!.resolve();
+          await gates[mine]!.promise;
+        }
+        return put(...args);
+      });
+      const removals = mock.method(storage, 'deleteCaseDocuments');
+      let outcome: string | undefined;
+      try {
+        edit(project, 'An edit', '2026-10-06T12:00:00.000Z');
+        const first = store.save();
+        await reached[0]!.promise;
+        edit(project, 'Another edit', '2026-10-06T12:00:01.000Z');
+        const second = store.save();
+        await reached[1]!.promise;
+
+        // One of the two lands. The removal is asked for with the other still out.
+        gates[landsFirst]!.resolve();
+        for (let i = 0; i < 20; i += 1) await turn();
+        const removal = removeProject(project.id).then((answer) => {
+          outcome = answer;
+        });
+        for (let i = 0; i < 20; i += 1) await turn();
+        assert.equal(removals.mock.callCount(), 0, 'one write has landed and the other is still out: nothing is removed yet');
+        assert.equal(outcome, undefined);
+
+        gates[1 - landsFirst]!.resolve();
+        await removal;
+        await Promise.all([first, second]);
+      } finally {
+        for (const gate of gates) gate.resolve();
+        slow.mock.restore();
+        removals.mock.restore();
+      }
+      await store.graphCaughtUp();
+      assert.equal(outcome, 'removed');
+      assert.equal(await documentThere(project), false, 'both landed before the documents went');
+      assert.equal(await indexed(project), false);
+    }
+  });
+
+  it('does not begin a write of the project once it has been taken off the list', async () => {
+    const first = await filed('Written first');
+    const second = await filed('Removed meanwhile');
+    const put = storage.putDocument.bind(storage);
+    const reached = deferred();
+    const gate = deferred();
+    let held = false;
+    const wrote: string[] = [];
+    const slow = mock.method(storage, 'putDocument', async (...args: Parameters<typeof storage.putDocument>) => {
+      if (args[1] === 'project.json') wrote.push(args[0]);
+      if (args[0] === first.id && args[1] === 'project.json' && !held) {
+        held = true;
+        reached.resolve();
+        await gate.promise;
+      }
+      return put(...args);
+    });
+    try {
+      // One save with two projects to write. It is still writing the first when the second is removed, start to end.
+      edit(first, 'An edit', '2026-10-06T12:00:00.000Z');
+      edit(second, 'An edit', '2026-10-06T12:00:00.000Z');
+      const saving = store.save();
+      await reached.promise;
+      assert.equal(await removeProject(second.id), 'removed');
+      assert.equal(await documentThere(second), false);
+
+      gate.resolve();
+      await saving;
+    } finally {
+      gate.resolve();
+      slow.mock.restore();
+    }
+    await store.graphCaughtUp();
+
+    assert.ok(!wrote.includes(second.id), 'the save that had it to write came to it after it was taken off, and left it');
+    assert.equal(await documentThere(second), false, 'so nothing wrote the document back');
+    assert.ok(await documentThere(first), 'and the project it was writing is written');
+    assert.equal(await indexed(second), false);
+  });
+});
+
+describe('a project whose removal has ended', () => {
+  /** Another instance that holds the project with a change it has not written. */
+  async function heldElsewhere(project: DdProject) {
+    const other = new Store();
+    await other.init();
+    const theirs = other.data.projects!.find((held) => held.id === project.id)!;
+    const unsaved = edit(theirs, 'Not written yet', '2026-10-06T12:00:00.000Z');
+    return { other, unsaved };
+  }
+
+  it('is let go of: saved back by another instance, it is read as any other project and removed when asked again', async () => {
+    const project = await filed('Held elsewhere');
+    const { other, unsaved } = await heldElsewhere(project);
+
+    assert.equal(await removeProject(project.id), 'removed');
+    await store.graphCaughtUp();
+    assert.equal(await documentThere(project), false);
+
+    // Nothing in storage says the project was removed. The other instance saves its change, and the document is back.
+    await other.save();
+    await other.graphCaughtUp();
+    assert.ok(await documentThere(project));
+    assert.equal(listed(project), false, 'nothing has asked this instance for it yet');
+
+    // A request about the project reaches this instance, and reads it from storage as every request does.
+    await store.syncProject(project.id, { force: true });
+    assert.ok(listed(project), 'the project came back with its document');
+    const back = store.data.projects!.find((held) => held.id === project.id)!;
+    assert.ok(back.findings.some((finding) => finding.id === unsaved.id), 'as the other instance saved it');
+    // The index does not name it. This instance's next save names it there again.
+    assert.equal(await indexed(project), false);
+    await store.save();
+    await store.graphCaughtUp();
+    assert.ok(await indexed(project));
+
+    // Asked to remove it a second time, it does.
+    assert.equal(await removeProject(project.id), 'removed');
+    await store.graphCaughtUp();
+    assert.equal(await documentThere(project), false);
+    assert.equal(await indexed(project), false);
+    assert.equal(listed(project), false);
+    assert.equal(await remembered(project), 0);
+  });
+
+  it('is listed again by a read of the workspace too, once the index names it again', async () => {
+    const project = await filed('Named again');
+    const { other } = await heldElsewhere(project);
+    assert.equal(await removeProject(project.id), 'removed');
+    // The other instance saves its change, reads the workspace, and its next save names the project in the index.
+    await other.save();
+    await other.syncIndex();
+    await other.save();
+    await other.graphCaughtUp();
+    assert.ok(await indexed(project));
+
+    await readWorkspace();
+    assert.ok(listed(project), 'this instance lists what the index names and storage holds');
+    await store.graphCaughtUp();
+    assert.equal(await removeProject(project.id), 'removed');
+    await store.graphCaughtUp();
+  });
+
+  it('is not listed by a read of storage that began before the removal ended', async () => {
+    const project = await filed('Read across the removal');
+    const read = storage.getDocument.bind(storage);
+    const reached = deferred();
+    const gate = deferred();
+    let held = false;
+    const slow = mock.method(storage, 'getDocument', async (caseId: string, key: string) => {
+      const bytes = await read(caseId, key);
+      // The first read of the project's document has it, and is kept from answering.
+      if (caseId === project.id && key === 'project.json' && !held) {
+        held = true;
+        reached.resolve();
+        await gate.promise;
+      }
+      return bytes;
+    });
+    try {
+      // A request about the project reads it, and the removal begins and ends before storage has answered the read.
+      const reading = store.syncProject(project.id, { force: true });
+      await reached.promise;
+      assert.equal(await removeProject(project.id), 'removed');
+      assert.equal(await documentThere(project), false);
+      gate.resolve();
+      await reading;
+    } finally {
+      gate.resolve();
+      slow.mock.restore();
+    }
+    assert.equal(listed(project), false, 'what that read found was a document on its way out');
+    await store.save();
+    await store.graphCaughtUp();
+    assert.equal(await indexed(project), false, 'and nothing names the project again');
+  });
+
+  it('nor by a read of the workspace that began before it ended', async () => {
+    const project = await filed('Workspace read across the removal');
+    const read = storage.getDocument.bind(storage);
+    const reached = deferred();
+    const gate = deferred();
+    let held = false;
+    const slow = mock.method(storage, 'getDocument', async (caseId: string, key: string) => {
+      const bytes = await read(caseId, key);
+      if (caseId === project.id && key === 'project.json' && !held) {
+        held = true;
+        reached.resolve();
+        await gate.promise;
+      }
+      return bytes;
+    });
+    // The removal is under way, its documents still in storage and the index still naming the project.
+    const going = await removing(project);
+    try {
+      // The workspace is read: the index names a project this instance does not list, so its document is read.
+      const reading = readWorkspace();
+      await reached.promise;
+      // The removal ends before storage has answered that read.
+      going.end();
+      assert.equal(await going.outcome, 'removed');
+      gate.resolve();
+      await reading;
+    } finally {
+      going.end();
+      gate.resolve();
+      going.restore();
+      slow.mock.restore();
+    }
+    assert.equal(listed(project), false);
+    await store.save();
+    await store.graphCaughtUp();
+    assert.equal(await indexed(project), false);
+    assert.equal(await documentThere(project), false);
+  });
+
+  it('is still taken out of the index by the next save, when the save that ended its removal failed', async () => {
+    const project = await filed('Index not written');
+    const write = storage.writeStore.bind(storage);
+    let down = true;
+    const failing = mock.method(storage, 'writeStore', async (...args: Parameters<typeof storage.writeStore>) => {
+      if (down) throw new Error('storage did not answer');
+      return write(...args);
+    });
+    try {
+      await assert.rejects(removeProject(project.id), /storage did not answer/);
+      assert.equal(await documentThere(project), false, 'its documents are gone');
+      assert.ok(await indexed(project), 'and the index still names it');
+      // The workspace is read before the next save, as it is before every request.
+      await readWorkspace();
+      assert.equal(listed(project), false);
+      down = false;
+      await store.save();
+    } finally {
+      failing.mock.restore();
+    }
+    await store.graphCaughtUp();
+    assert.equal(await indexed(project), false, 'the next save takes it out');
+  });
+});
+
+describe('a removal that took the project’s own document and then failed', () => {
+  /** Storage that removes the project's document, and then fails. */
+  const partWay = () =>
+    mock.method(storage, 'deleteCaseDocuments', async (caseId: string) => {
+      await storage.deleteDocument(caseId, 'project.json');
+      throw new Error('storage failed part-way');
+    });
+
+  it('writes the document again before it says the project was kept', async () => {
+    const project = await filed('Half removed');
+    const warned = mock.method(console, 'warn', () => {});
+    const failing = partWay();
+    try {
+      assert.equal(await removeProject(project.id), 'kept');
+    } finally {
+      failing.mock.restore();
+      warned.mock.restore();
+    }
+    await store.graphCaughtUp();
+    assert.ok(listed(project));
+    assert.ok(granted(project));
+    assert.ok(await documentThere(project), 'kept means kept in storage too');
+    assert.ok(await indexed(project));
+
+    // An instance that starts now lists it, which it could not without the document.
+    const cold = new Store();
+    await cold.init();
+    assert.ok(cold.data.projects!.some((held) => held.id === project.id));
+  });
+
+  it('leaves the writing to the next save when storage will not take the document either', async () => {
+    const project = await filed('Half removed, storage down');
+    const warned = mock.method(console, 'warn', () => {});
+    const failing = partWay();
+    const put = storage.putDocument.bind(storage);
+    let down = true;
+    const refusing = mock.method(storage, 'putDocument', async (...args: Parameters<typeof storage.putDocument>) => {
+      if (down && args[1] === 'project.json') throw new Error('storage did not answer');
+      return put(...args);
+    });
+    try {
+      assert.equal(await removeProject(project.id), 'kept', 'the answer is the same: the project is still here');
+      assert.ok(listed(project));
+      assert.equal(await documentThere(project), false);
+      const lines = warned.mock.calls.map((call) => String(call.arguments[0])).filter((line) => line.startsWith('[projects]'));
+      assert.equal(lines.length, 2, 'that its documents would not go, and that it could not be written again');
+      assert.match(lines[1]!, /could not write .* again after its removal failed: storage did not answer/);
+
+      // The project counts as unsaved, so any save by this instance writes it.
+      down = false;
+      await store.save();
+    } finally {
+      refusing.mock.restore();
+      failing.mock.restore();
+      warned.mock.restore();
+    }
+    await store.graphCaughtUp();
+    assert.ok(await documentThere(project));
   });
 });

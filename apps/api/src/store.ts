@@ -399,10 +399,28 @@ export class Store {
   private readonly memoryLooks: MemoryLooks = { seenGone: new Set(), from: 0 };
 
   /**
-   * Projects this instance has taken off its list to remove; see `takeOff`.
-   * No read of storage lists one of them again.
+   * Projects this instance has taken off its list and is removing: from
+   * `takeOff` until the removal has ended (`letGo`) or failed (`putBack`).
+   * No read of storage lists one of them meanwhile.
    */
   private removing = new Set<string>();
+
+  /**
+   * How many removals this instance has ended, and for each project it has
+   * removed, the count as its removal ended. It tells a read of storage that
+   * began before a project's removal ended from one that began after: what
+   * the first found is a document on its way out, and what the second finds
+   * is a document that came back.
+   */
+  private removalsEnded = 0;
+  private removedAt = new Map<string, number>();
+
+  /**
+   * projectId -> the writes of its document this instance has begun and
+   * storage has not answered yet, as one promise that settles when all of
+   * them have. A removal waits on it; see `written`.
+   */
+  private writing = new Map<string, Promise<void>>();
 
   /** Load persisted state via the active adapter. Must be awaited once at
    * boot, before any route handler runs — after that, `data` is
@@ -498,10 +516,10 @@ export class Store {
     const projects = this.data.projects ?? (this.data.projects = []);
     const held = new Set(projects.map((project) => project.id));
     const missing = [...stored].filter((id) => !held.has(id));
+    const began = this.removalsEnded;
     const shards = (await Promise.all(missing.map((id) => this.readShard(id)))).filter((shard): shard is Shard => shard !== null);
     for (const { project, revision } of shards) {
-      // Not one this instance is removing: what was read is a document on its way out.
-      if (this.removing.has(project.id) || projects.some((other) => other.id === project.id)) continue;
+      if (!this.mayList(project.id, began) || projects.some((other) => other.id === project.id)) continue;
       projects.push(project);
       this.persistedAt.set(project.id, project.updatedAt);
       this.owe(project, revision);
@@ -595,14 +613,14 @@ export class Store {
   }
 
   private async pullProject(id: string): Promise<void> {
+    const began = this.removalsEnded;
     const shard = await this.readShard(id);
     if (!shard) return;
     const { project: stored, revision } = shard;
     const projects = this.data.projects ?? (this.data.projects = []);
     let held = projects.find((project) => project.id === id);
     if (!held) {
-      // Not one this instance is removing: what was read is a document on its way out.
-      if (this.removing.has(id)) return;
+      if (!this.mayList(id, began)) return;
       held = stored;
       projects.push(stored);
       this.persistedAt.set(id, stored.updatedAt);
@@ -626,9 +644,9 @@ export class Store {
    * about the project go on arriving while it is. Each reads the project
    * from storage first. One that found the document still there put the
    * project back on the list, and the removal ended with the project listed,
-   * in the index and served, and no document behind it. So from here on no
-   * read of storage lists the project again, on this instance, unless the
-   * removal fails and it is put back.
+   * in the index and served, and no document behind it. So from here until
+   * the removal has ended (`letGo`) or failed (`putBack`), no read of storage
+   * lists the project on this instance, and no save writes its document.
    */
   takeOff(projectId: string): { project: DdProject; at: number } | undefined {
     const projects = this.data.projects ?? [];
@@ -638,10 +656,52 @@ export class Store {
     return { project: projects.splice(at, 1)[0]!, at };
   }
 
-  /** Put back a project that was taken off and could not be removed, where it stood. Storage is read for it again. */
+  /**
+   * Put back a project that was taken off and could not be removed, where
+   * it stood. Storage is read for it again.
+   *
+   * And it counts as unsaved. A removal that failed may have taken the
+   * project's own document before it did, and a project kept on this
+   * instance with no document in storage is one no other instance lists:
+   * the next save writes it again.
+   */
   putBack(taken: { project: DdProject; at: number }): void {
     this.removing.delete(taken.project.id);
+    this.persistedAt.delete(taken.project.id);
     (this.data.projects ?? (this.data.projects = [])).splice(taken.at, 0, taken.project);
+  }
+
+  /**
+   * The removal of a project has ended: its documents are out of storage and
+   * a save has taken it out of the index. This instance lets go of it.
+   *
+   * Nothing in storage says a project was removed, so its document can come
+   * back: another instance that still held the project, with a change not
+   * yet written, saves it. A read of storage that begins from here on lists
+   * what it finds, which is how this instance comes to hold such a project
+   * again, to serve it and to remove it when asked a second time. A read
+   * that began before this does not: what it found was on its way out.
+   */
+  letGo(projectId: string): void {
+    if (!this.removing.delete(projectId)) return;
+    this.removalsEnded += 1;
+    this.removedAt.set(projectId, this.removalsEnded);
+  }
+
+  /** Whether a read of storage that began when `began` removals had ended may put this project on the list; see `letGo`. */
+  private mayList(id: string, began: number): boolean {
+    return !this.removing.has(id) && (this.removedAt.get(id) ?? 0) <= began;
+  }
+
+  /**
+   * Settles once storage has answered every write of this project's document
+   * that this instance has begun. A removal waits here before it removes the
+   * documents: a write already on its way would otherwise land after them,
+   * and leave a document in storage for a project nothing lists. It never
+   * rejects: whether a write went through is its own save's to know.
+   */
+  async written(projectId: string): Promise<void> {
+    while (this.writing.has(projectId)) await this.writing.get(projectId);
   }
 
   /**
@@ -818,16 +878,24 @@ export class Store {
       }
     }
     for (const project of changed) {
+      // Off the list since this save began: it is being removed, or has been, and its document is not written back.
+      if (!(this.data.projects ?? []).includes(project)) continue;
       // See `revisions`. Raised before the write is awaited, so a save that
       // overlaps this one takes a higher number still.
       const revision = Math.max((this.revisions.get(project.id) ?? 0) + 1, Date.now());
       this.revisions.set(project.id, revision);
-      await storageAdapter.putDocument(
+      const put = storageAdapter.putDocument(
         project.id,
         PROJECT_KEY,
         Buffer.from(JSON.stringify({ ...project, [REVISION_KEY]: revision })),
         'application/json',
       );
+      // Said to be on its way until storage answers, with any other write of the same document still out; see `written`.
+      const out: Promise<void> = Promise.allSettled([this.writing.get(project.id), put]).then(() => {
+        if (this.writing.get(project.id) === out) this.writing.delete(project.id);
+      });
+      this.writing.set(project.id, out);
+      await put;
       this.persistedAt.set(project.id, project.updatedAt);
       this.graphOwed.set(project.id, revision);
       this.memoryOwed.add(project.id);
