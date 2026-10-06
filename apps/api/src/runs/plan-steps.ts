@@ -236,13 +236,13 @@ async function savedAsRead(project: DdProject, file: Parameters<typeof keepPageT
 
 async function readFiled(run: StepRun): Promise<StepDone> {
   const { project, step, actor } = run;
-  /** The papers handed to the reader in this go. Each is handed once: one it could not read is left for the next go, not read twice. */
-  const handed = new Set<string>();
-  /** Those of them the reader put a reading on. */
-  const read = new Set<string>();
+  /** The papers this step has read, in this go and any before it. */
+  const read = new Set<string>(step.readIds ?? []);
+  /** The papers handed to the reader in this go, and those read before it. Each is handed once: one it could not read is left for the next go, not read twice. */
+  const handed = new Set<string>(read);
+  let unread = 0;
   const said = (complete: boolean): StepDone => {
     const waiting = project.evidence.filter((row) => read.has(row.id)).reduce((sum, row) => sum + proposedFacts(row).length, 0);
-    const unread = handed.size - read.size;
     return {
       said: `Read ${plural(read.size, 'filed paper')}${unread > 0 ? `; ${unread} could not be read` : ''}. ${waiting ? `${plural(waiting, 'value')} ${waiting === 1 ? 'waits' : 'wait'} on ${read.size === 1 ? 'it' : 'them'} to be accepted.` : 'Nothing they state is waiting.'}`,
       did: read.size,
@@ -261,17 +261,23 @@ async function readFiled(run: StepRun): Promise<StepDone> {
       const file = row.attachments[row.attachments.length - 1]!;
       const buffer = await storageAdapter.getDocument(project.id, file.storageKey).catch(() => null);
       if (buffer) uploads.push({ evidenceId: row.id, buffer, fileName: file.fileName, mimeType: file.mimeType, sizeBytes: file.sizeBytes || buffer.length, storageKey: file.storageKey });
+      else unread += 1;
     }
     if (uploads.length) {
       const before = project.conversation.length;
       await readOntoRegister(project, uploads, actor, { landed: (file) => savedAsRead(project, file) }).catch(() => undefined);
       run.wrote(project.conversation.slice(before));
       // Read means the reader put a reading on its row: it is no longer among the papers nothing has been read off.
-      const unread = new Set(rowsToRead(project, false).map((row) => row.id));
-      for (const upload of uploads) if (!unread.has(upload.evidenceId)) read.add(upload.evidenceId);
+      const still = new Set(rowsToRead(project, false).map((row) => row.id));
+      for (const upload of uploads) {
+        if (still.has(upload.evidenceId)) unread += 1;
+        else read.add(upload.evidenceId);
+      }
       project.updatedAt = new Date().toISOString();
       await store.save();
     }
+    // Kept on the step as it goes, so a go that is stopped or cut short is taken up from here.
+    step.readIds = [...read];
     await run.progress(read.size);
   }
 }

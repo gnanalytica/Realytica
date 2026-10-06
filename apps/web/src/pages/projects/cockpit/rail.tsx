@@ -457,10 +457,12 @@ export function CockpitPaneStrip({
   wrap?: boolean;
 }) {
   const badges = { overdue, pendingDrafts };
+  const me = useMe();
   const at = useMemo(() => menuAt(project, stage), [project, stage]);
   const { department: menu, fn } = menuPlaceOf(pane, { department, workstream });
   const here = menu ? null : tabHolding(pane).section;
-  const tabs = here ? here.tabs.filter((t) => !HIDDEN_TABS.has(t.pane) || t.pane === pane) : [];
+  // What goes out is the workspace's own people's: somebody working from a grant is not shown the tab.
+  const tabs = here ? here.tabs.filter((t) => (!HIDDEN_TABS.has(t.pane) || t.pane === pane) && (t.pane !== 'outgoing' || !me || reachesEveryProject(me.role))) : [];
   const assess = here?.key === 'registers' && (pane === 'dd' || pane === 'scope') && project.assessments.length > 0;
 
   const second = menu ? (

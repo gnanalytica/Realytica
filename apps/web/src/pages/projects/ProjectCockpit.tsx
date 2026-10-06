@@ -577,8 +577,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       setAsking(true);
       setChatSteps([]);
       setMobileSurface('chat');
-      // A choice that accepts or sets aside pins the cards and papers it means, and they go with it whole.
-      const sitting = pinned?.checkId || pinned?.evidenceId || pinned?.decision
+      // A choice that accepts or sets aside pins the cards and papers it means, and one under a plan pins the plan. They go with it whole.
+      const sitting = pinned?.checkId || pinned?.evidenceId || pinned?.decision || pinned?.plan
         ? pinned
         : {
             ddId: params.ddId,
@@ -901,6 +901,8 @@ export default function ProjectCockpit({ outlet }: { outlet: ProjectOutlet }) {
       steps={chatSteps}
       nodes={nodeLabels}
       onPickChoice={(text, pinned) => void handleAsk(text, undefined, pinned)}
+      // A plan that moved while this page only watched it: the thread is read again. A read that fails leaves the page as it is.
+      plans={{ projectId: project.id, onChanged: () => void api.getProject(project.id).then(setProject, () => undefined) }}
       screenResult={project.lastScreenResult}
       askingPrice={project.budget ?? null}
       onCancel={asking ? () => abortRef.current?.abort() : undefined}

@@ -21,6 +21,7 @@ import {
   isPlanned,
   planAct,
   planChoices,
+  planListedIn,
   planMayBeAsked,
   planPlaceOf,
   planShownSaid,
@@ -58,10 +59,19 @@ describe('an instruction read as steps', () => {
     for (const asked of ['What is the status of the khata?', 'How far along is the work?', 'Summarise this file']) assert.deepEqual(planWants(asked).wants, [], asked);
   });
 
+  it('reads on its own what is asked in the same breath, so a step never swallows it', () => {
+    const read = planWants('Go through everything on file, fill what you can in the lender’s questionnaire and tell the owner where we are. Thanks!');
+    assert.deepEqual(read.wants, [{ kind: 'suggest_answers', said: 'fill what you can in the lender’s questionnaire' }]);
+    assert.deepEqual(read.unread, ['Go through everything on file', 'tell the owner where we are'], 'and a word of thanks is no part of the job');
+    assert.deepEqual(planWants('Generate the open risk and action report').wants.map((want) => want.report), ['open_risk_action'], 'an “and” inside the name of a thing splits nothing');
+  });
+
   it('names a page of the menu only by its own word, and never by a guess', () => {
     assert.deepEqual(planPlaceOf('title'), { fn: 'legal.title' });
     assert.deepEqual(planPlaceOf('the legal'), { department: 'legal' });
     assert.equal(planPlaceOf('important'), undefined);
+    assert.equal(planPlaceOf('title see what the lender can take'), undefined, 'words that say more than the page name none');
+    assert.deepEqual(planWants('Read the title papers again, see what the questionnaire can take from them'), { wants: [{ kind: 'read_filed', said: 'Read the title papers again', again: true, only: 'title' }], unread: ['see what the questionnaire can take from them'], asksForPlan: false });
   });
 
   it('may be a job for a model to lay out only when it is an instruction that names two kinds of thing', () => {
@@ -119,6 +129,19 @@ describe('a plan as it is said', () => {
       'Say “carry on with the plan” to take up what is left.',
     ]);
     assert.deepEqual(planChoices('run_1', stopped).map((choice) => choice.sitting?.plan?.act), ['carry_on', 'cancel']);
+    // A page that draws the plan under these words lists its steps again only once the plan has moved on from them.
+    assert.equal(planListedIn(planStandsSaid(stopped), stopped), true);
+    assert.equal(planListedIn(planShownSaid(shown), stopped), false, 'said before it ran');
+  });
+
+  it('says a cancelled plan in a line when nothing of it ran, and what was not run when some did', () => {
+    assert.equal(planStandsSaid(plan(shown.steps, { status: 'cancelled' })), 'The plan is cancelled. Nothing was done.');
+    const part = plan([{ ...shown.steps[0]!, state: 'done', said: 'Read 14 filed papers. Nothing they state is waiting.' }, shown.steps[1]!], { status: 'cancelled' });
+    assert.deepEqual(planStandsSaid(part).split('\n'), [
+      'The plan was cancelled: 1 of 2 steps done. What was done stays done.',
+      '1. Read 14 filed papers. Done: Read 14 filed papers. Nothing they state is waiting.',
+      '2. Suggest answers to 60 questions from the file. Not run.',
+    ]);
   });
 });
 

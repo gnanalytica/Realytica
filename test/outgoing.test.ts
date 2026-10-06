@@ -35,6 +35,7 @@ import {
   projectView,
   proposeFacts,
   readOutgoingAsk,
+  removeOutgoing,
   reopenOutgoing,
   setOutgoingBody,
   setTeamMember,
@@ -190,24 +191,27 @@ describe('minutes', () => {
     assert.equal(
       draft.body,
       [
-        'Present: Asha Rao, Ravi Kumar.',
+        'Present: Asha Rao, Ravi Kumar. [1]',
         '',
         'Decided',
-        '1. Use the survey of 2019. [1]',
+        '1. Use the survey of 2019. [2]',
         '',
         'To be done',
-        '1. Collect the tax receipts. On: Ravi Kumar. By: 10 Oct 2026. (waiting to be accepted on the record) [2]',
+        '1. Collect the tax receipts. On: Ravi Kumar. By: 10 Oct 2026. (waiting to be accepted on the record) [3]',
         '',
         'Left open',
-        '1. Whether to apply for the khata transfer now. (waiting to be accepted on the record) [3]',
+        '1. Whether to apply for the khata transfer now. (waiting to be accepted on the record) [4]',
       ].join('\n'),
     );
+    // The notes say "by 10 October" and name no year. The day the meeting keeps is part of what the source gives, so the line holds to it.
     assert.deepEqual(draft.sources.map((source) => [source.n, source.says, source.quote, source.waiting]), [
-      [1, 'Decided: Use the survey of 2019', 'Decision: use the survey of 2019', undefined],
-      [2, 'To be done: Collect the tax receipts', 'Action: Ravi to collect the tax receipts by 10 October', true],
-      [3, 'Left open: Whether to apply for the khata transfer now', 'Open: whether to apply for the khata transfer now', true],
+      [1, 'Present: Asha Rao, Ravi Kumar', undefined, undefined],
+      [2, 'Decided: Use the survey of 2019', 'Decision: use the survey of 2019', undefined],
+      [3, 'To be done: Collect the tax receipts. On: Ravi Kumar. By: 10 Oct 2026.', 'Action: Ravi to collect the tax receipts by 10 October', true],
+      [4, 'Left open: Whether to apply for the khata transfer now', 'Open: whether to apply for the khata transfer now', true],
     ]);
-    assert.deepEqual(outgoingStatements(draft.body, draft.sources).map((s) => [s.heading, s.own, s.unheld]).filter(([, own, unheld]) => own || unheld), [[false, true, false]], 'only the line of who was there has no mark');
+    assert.deepEqual(outgoingStatements(draft.body, draft.sources).filter((s) => s.own || s.unheld), [], 'every line of minutes rests on the meeting and holds to it');
+    assert.deepEqual(outgoingNeeds(p, draft), [], 'so minutes can be approved as code made them');
   });
 });
 
@@ -224,6 +228,8 @@ describe('a draft', () => {
     assert.deepEqual([draft.ref, draft.dated, draft.subject, draft.written, draft.to], ['RYT-0042/OUT/1', '2026-10-06', 'Request for the khata extract', 'model', 'The Tahsildar, Suvarnagiri']);
     assert.deepEqual(p.audit.filter((e) => e.entityType === 'outgoing').map((e) => [e.action, e.entityId, e.newValue]), [['outgoing_drafted', draft.id, 'Letter: Request for the khata extract']]);
     assert.equal(startOutgoing(p, { kind: 'rfi', topic: 'on the revised drawings' }, 'asha@firm.test').ref, 'RYT-0042/OUT/2');
+    // Started from the paper with no words to go on, a request is named after the paper.
+    assert.equal(startOutgoing(p, { kind: 'rfi', about: { kind: 'paper', id: row.id } }, 'asha@firm.test').subject, 'Request for information: Sale deed 2021');
     assert.throws(() => startOutgoing(p, { kind: 'reply' }, 'asha@firm.test'), /answers a paper/);
     assert.throws(() => startOutgoing(p, { kind: 'minutes' }, 'asha@firm.test'), /of a meeting/);
   });
@@ -262,6 +268,11 @@ describe('a draft', () => {
         ['outgoing_reopened', 'asha@firm.test', 'draft'],
       ],
     );
+
+    // Taken off the file, it is gone from the drafts and the trail says what it was.
+    removeOutgoing(p, draft.id, 'ravi@firm.test');
+    assert.deepEqual(p.outgoing, []);
+    assert.deepEqual(p.audit.filter((e) => e.action === 'outgoing_removed').map((e) => [e.actor, e.entityId, e.oldValue]), [['ravi@firm.test', draft.id, 'Letter: The registration']]);
   });
 
   it('is not approved while a statement is marked with what no longer stands, or writes a figure its source does not', () => {

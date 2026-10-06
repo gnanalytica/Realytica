@@ -107,8 +107,8 @@ interface Answered {
 }
 
 /** Say something to the chat, or press a choice: the reply, and the lines it sent as it worked. `onStep` is told each line as it arrives. */
-async function say(projectId: string, question: string, sitting?: ChatChoice['sitting'], onStep?: (label: string) => void): Promise<Answered> {
-  const res = await realFetch(`${base}/api/projects/${projectId}/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question, ...(sitting ? { sitting } : {}) }) });
+async function say(projectId: string, question: string, sitting?: ChatChoice['sitting'], onStep?: (label: string) => void, sessionId?: string): Promise<Answered> {
+  const res = await realFetch(`${base}/api/projects/${projectId}/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question, ...(sitting ? { sitting } : {}), ...(sessionId ? { sessionId } : {}) }) });
   assert.equal(res.status, 200);
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
@@ -254,11 +254,18 @@ describe('a plan that is stopped', () => {
     assert.deepEqual(runs.runs.filter((run) => run.id === planId).map((run) => [run.state, run.line]), [['waiting', 'Plan — 0 of 1 step(s) done, stopped. It can be taken up again from the chat.']]);
   });
 
-  it('is taken up again from where it stopped', async () => {
-    const again = await say(project.id, 'Carry on with the plan');
+  it('is taken up again from where it stopped, and ticked off in the chat that took it up', async () => {
+    // Taken up from a chat opened later: the page was closed and opened again.
+    const again = await say(project.id, 'Carry on with the plan', undefined, undefined, 'sit_later');
     assert.match(again.assistantTurn.text, /^The plan is done: 1 of 1 step done\./);
+    const ticks = (await stored(project.id)).conversation.filter((turn) => turn.toolCalls?.some((call) => call.name === 'plan_step'));
+    assert.deepEqual([ticks.at(-1)!.sessionId, again.assistantTurn.sessionId], ['sit_later', 'sit_later'], 'this go is said where the person is, not in the chat the plan was first asked in');
     assert.equal((await stored(project.id)).evidence.filter((row) => row.facts?.length).length, 12, 'the papers left were read');
-    assert.equal((await planOf(project.id, planId)).plan.steps[0]!.did, 12 - did, 'and the ones read before were not read twice');
+    const step = (await planOf(project.id, planId)).plan.steps[0]!;
+    assert.deepEqual([step.did, new Set(step.readIds).size, step.said?.split('.')[0]], [12, 12, 'Read 12 filed papers'], 'the step says what it read in all');
+    // The reader leaves a note in the thread for each go, with how many papers it was handed. Over both goes that is each paper once.
+    const handed = (await stored(project.id)).conversation.flatMap((turn) => (turn.toolCalls ?? []).map((call) => /^Read (\d+) documents? filed on the register/.exec(call.summary)?.[1])).filter(Boolean);
+    assert.equal(handed.reduce((sum, n) => sum + Number(n), 0), 12, 'and the ones read before were not read twice');
   });
 });
 
@@ -274,6 +281,13 @@ describe('a small job', () => {
     assert.equal(suggested.assistantTurn.planId, undefined);
     assert.match(suggested.assistantTurn.text, /^Suggested answers to \d+ questions? from what stands on the file\./);
     assert.deepEqual(((await (await realFetch(`${base}/api/projects/${project.id}/plans`)).json()) as { plans: unknown[] }).plans, []);
+  });
+
+  it('says back what its sentence asked for beside the one step', async () => {
+    const project = await filed(1);
+    const done = await say(project.id, 'Suggest answers to the questionnaire and tell the owner we are done');
+    assert.equal(done.assistantTurn.planId, undefined, 'one small step: no plan');
+    assert.deepEqual(done.assistantTurn.text.split('\n').slice(1), ['Nothing was done about: “tell the owner we are done”.']);
   });
 });
 
@@ -308,5 +322,34 @@ describe('a model’s proposal for words the rules do not read', () => {
     const plan = (await planOf(project.id, shown.assistantTurn.planId!)).plan;
     assert.deepEqual([plan.status, plan.byModel, plan.steps.map((step) => step.kind)], ['shown', true, ['read_filed', 'suggest_answers', 'write_report']]);
     assert.ok((await stored(project.id)).evidence.every((row) => !row.facts?.length), 'and nothing has started');
+  });
+
+  it('places what the rules could not, keeps what they read, and is not taken where it leaves out a step they read', async (t) => {
+    const env = { REALYTICA_BASE_URL: MODEL_BASE, REALYTICA_API_KEY: 'test-key', REALYTICA_MODEL_JUDGMENT: 'vendor/senior' };
+    Object.assign(process.env, env);
+    t.after(() => {
+      for (const name of Object.keys(env)) delete process.env[name];
+    });
+    const none = { only: null, again: null, form: null, report: null, period: null, playbook: null };
+    const project = await filed(12, 12);
+    const instruction = 'Read the title papers again, see what the lender’s questionnaire can take from them and tell the owner where we stand';
+
+    // The rules read the first clause and no more. A model lays out all three, and says nothing of which papers.
+    proposes = [{ ...none, kind: 'read_filed' }, { ...none, kind: 'suggest_answers' }, { ...none, kind: 'write_report', report: 'status', period: 'for September 2026' }];
+    const placed = await say(project.id, instruction);
+    assert.deepEqual(placed.assistantTurn.text.split('\n').slice(1, 4), ['1. Read 12 filed papers again, only Title.', '2. Suggest answers to 3 questions from the file.', '3. Write the status for September 2026.']);
+    assert.ok(!placed.assistantTurn.text.includes('No step was made of'));
+
+    // A proposal that drops the reading the rules read is not taken: their reading stands, and the rest is said back.
+    proposes = [{ ...none, kind: 'suggest_answers' }, { ...none, kind: 'write_report', report: 'status', period: 'for September 2026' }];
+    const kept = await say(project.id, instruction);
+    assert.deepEqual(kept.assistantTurn.text.split('\n').slice(0, 3), [
+      'That touches a lot, so nothing has started. The plan:',
+      '1. Read 12 filed papers again, only Title.',
+      'No step was made of: “see what the lender’s questionnaire can take from them”, “tell the owner where we stand”.',
+    ]);
+    assert.equal((await planOf(project.id, kept.assistantTurn.planId!)).plan.byModel, undefined);
+    // The plan shown before it was never run: it gave way to this one, so one plan waits and not two.
+    assert.equal((await planOf(project.id, placed.assistantTurn.planId!)).plan.status, 'cancelled');
   });
 });

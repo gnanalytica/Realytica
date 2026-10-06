@@ -170,7 +170,7 @@ function decisionSource(decision: DecisionRecord): Raw | undefined {
 
 function actionSource(action: ActionRecord): Raw {
   const stands = action.status === 'closed' ? 'Done' : action.status === 'overdue' ? 'Overdue' : 'Open';
-  return { kind: 'action', id: action.id, title: 'Action', says: `${action.title}. On ${action.owner || 'nobody named'}${action.dueDate ? `, due ${meetingDay(action.dueDate)}` : ''}. ${stands}.` };
+  return { kind: 'action', id: action.id, title: 'Action', says: `${action.title}${/[.?!]$/.test(action.title) ? '' : '.'} On ${action.owner || 'nobody named'}${action.dueDate ? `, due ${meetingDay(action.dueDate)}` : ''}. ${stands}.` };
 }
 
 /** What a paper states that may be acted on, each value with its page and its words. Read through the one rule for that (`standingFacts`). */
@@ -188,11 +188,19 @@ function names(words: ReadonlySet<string>, title: string): boolean {
   return shared > 0 && shared >= Math.min(2, own.length);
 }
 
+/** Who a meeting's notes say was there, as a source gives it and as the minutes say it. */
+const presentSaid = (meeting: Pick<MeetingRecord, 'attendees'>): string => `Present: ${meeting.attendees.join(', ')}`;
+
+/** Who an action of a meeting is on and by when, as the meeting keeps them. */
+const onAndBy = (item: MeetingItem): string => `On: ${item.owner ?? 'nobody named'}. By: ${item.dueDate ? meetingDay(item.dueDate) : 'no date given'}.`;
+
 function itemSource(project: DdProject, meeting: MeetingRecord, item: MeetingItem): Raw | undefined {
   const { standing } = meetingItemStands(project, item);
   if (standing === 'set_aside') return undefined;
   const what = item.kind === 'decision' ? 'Decided' : item.kind === 'action' ? 'To be done' : 'Left open';
-  return { kind: 'meeting', id: meeting.id, itemId: item.id, title: meeting.title, says: `${what}: ${item.text}`, quote: item.quote, ...(standing === 'waiting' ? { waiting: true as const } : {}) };
+  // An action gives who it is on and by when as the meeting keeps them: the notes may say "by Friday", and the minutes say the day.
+  const says = `${what}: ${item.text}${item.kind === 'action' ? `${/[.?!]$/.test(item.text) ? '' : '.'} ${onAndBy(item)}` : ''}`;
+  return { kind: 'meeting', id: meeting.id, itemId: item.id, title: meeting.title, says, quote: item.quote, ...(standing === 'waiting' ? { waiting: true as const } : {}) };
 }
 
 /**
@@ -215,6 +223,8 @@ export function outgoingSources(project: DdProject, about: OutgoingAbout | undef
   }
   if (about?.kind === 'meeting') {
     const meeting = meetingsHeld(project).find((held) => held.id === about.id);
+    // Who was there is the meeting's own, with no item of the notes to it.
+    if (meeting?.attendees.length) raw.push({ kind: 'meeting', id: meeting.id, title: meeting.title, says: presentSaid(meeting) });
     for (const item of meeting?.items ?? []) raw.push(...[itemSource(project, meeting!, item)].flatMap((source) => source ?? []));
   }
   if (about?.kind === 'action') {
@@ -296,9 +306,10 @@ export function outgoingSourceStands(project: DdProject, source: OutgoingSource)
   }
   if (source.kind === 'decision') return project.decisions.some((decision) => decision.id === source.id && DECIDED[decision.status] !== undefined);
   if (source.kind === 'action') return project.actions.some((action) => action.id === source.id);
-  const item = meetingsHeld(project)
-    .find((meeting) => meeting.id === source.id)
-    ?.items.find((held) => held.id === source.itemId);
+  const meeting = meetingsHeld(project).find((held) => held.id === source.id);
+  if (!meeting) return false;
+  if (!source.itemId) return presentSaid(meeting) === source.says;
+  const item = meeting.items.find((held) => held.id === source.itemId);
   return Boolean(item) && meetingItemStands(project, item!).standing !== 'set_aside';
 }
 
@@ -436,7 +447,8 @@ export function outgoingBodyHeld(said: unknown, sources: readonly OutgoingSource
 /**
  * The minutes of a meeting the project keeps: who was there, what was
  * decided, what is to be done by whom and by when, and what was left open,
- * each item marked with the words of the notes it came from. An item nobody
+ * each line marked with what the meeting keeps for it, and each item with
+ * the words of the notes it came from. An item nobody
  * has accepted on the record is said to be waiting. One a person set aside is
  * left out. No model words any of it, so none is added and none is dropped.
  */
@@ -445,13 +457,14 @@ function minutesBody(meeting: MeetingRecord, sources: readonly OutgoingSource[])
   const waits = (source: OutgoingSource) => (source.waiting ? ' (waiting to be accepted on the record)' : '');
   const closed = (text: string) => (/[.?!]$/.test(text) ? text : `${text}.`);
   const parts: string[] = [];
-  if (meeting.attendees.length) parts.push(`Present: ${meeting.attendees.join(', ')}.`);
+  const present = sources.find((source) => source.kind === 'meeting' && !source.itemId);
+  if (present) parts.push(`${presentSaid(meeting)}. [${present.n}]`);
   const decided = of('decision');
   if (decided.length) parts.push(['Decided', ...decided.map(({ item, source }, at) => `${at + 1}. ${closed(item.text)}${waits(source)} [${source.n}]`)].join('\n'));
   const todo = of('action');
   if (todo.length) {
     parts.push(
-      ['To be done', ...todo.map(({ item, source }, at) => `${at + 1}. ${closed(item.text)} On: ${item.owner ?? 'nobody named'}. By: ${item.dueDate ? meetingDay(item.dueDate) : 'no date given'}.${waits(source)} [${source.n}]`)].join('\n'),
+      ['To be done', ...todo.map(({ item, source }, at) => `${at + 1}. ${closed(item.text)} ${onAndBy(item)}${waits(source)} [${source.n}]`)].join('\n'),
     );
   }
   const open = of('open');
@@ -497,7 +510,8 @@ function subjectFrom(kind: OutgoingKind, topic: string): string {
   const words = topic.replace(/[.!?]+$/, '').trim();
   const request = /^(?:asking|requesting)\s+(?:them\s+|him\s+|her\s+)?(?:for\s+)?/i.exec(words);
   const rest = (request ? words.slice(request[0].length) : words.replace(/^(?:about|regarding|on|re|for|that|saying)\s+/i, '')).trim();
-  if (kind === 'rfi') return rest ? `Request for information: ${rest.replace(/^the\s+/i, '')}` : 'Request for information';
+  // With no words to go on, a request is named after the paper or the action it is about: the caller's to say.
+  if (kind === 'rfi') return rest ? `Request for information: ${rest.replace(/^the\s+/i, '')}` : '';
   if (request && rest) return `Request for ${rest}`;
   return capital(rest);
 }
@@ -840,12 +854,9 @@ export function outgoingSaid(project: DdProject, draft: OutgoingDraft, how: { mo
     lines.push(
       `${plural(statements.length - own, 'statement rests', 'statements rest')} on the record${own ? `, and ${own === 1 ? '1 is' : `${own} are`} the drafter’s own to check` : ''}.${waiting ? ` ${waiting === 1 ? '1 item is' : `${waiting} items are`} still waiting to be accepted, and the minutes say so.` : ''}`,
     );
-  } else if (how.failed) {
-    lines.push(`The model did not answer, so nothing was written. ${plural(draft.sources.length, 'source is', 'sources are')} laid out to write from.`);
-  } else if (how.model === false) {
-    lines.push(`No model is set up, so nothing was written. ${plural(draft.sources.length, 'source is', 'sources are')} laid out to write from.`);
   } else {
-    lines.push(`${plural(draft.sources.length, 'source', 'sources')} from the record ${draft.sources.length === 1 ? 'is' : 'are'} laid out for it.`);
+    const laid = draft.sources.length ? `${plural(draft.sources.length, 'source is', 'sources are')} laid out to write from.` : 'Nothing on the record was found for it.';
+    lines.push(how.failed ? `The model did not answer, so nothing was written. ${laid}` : how.model === false ? `No model is set up, so nothing was written. ${laid}` : laid);
   }
   if (!draft.to.trim()) lines.push('It does not say who it goes to yet.');
   lines.push('It is a draft: nothing goes out until a lead or a signer approves it.');

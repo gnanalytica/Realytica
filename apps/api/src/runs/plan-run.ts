@@ -77,8 +77,8 @@ export type PlanTurn =
   | { say: PlanReply }
   /** Say this, then run the plan. */
   | { run: string; say: PlanReply }
-  /** One step, too small to plan, that the chat has no sentence of its own for: do it now and say what it did. */
-  | { direct: PlanStep };
+  /** One step, too small to plan, that the chat has no sentence of its own for: do it now and say what it did, and what of the sentence was no step. */
+  | { direct: PlanStep; unread?: string[] };
 
 export interface PlanAsk extends PlanSetting {
   question: string;
@@ -92,7 +92,7 @@ export interface PlanAsk extends PlanSetting {
 
 const WHAT_A_PLAN_CAN = 'A plan can read the filed papers, accept what the last reply raised, suggest answers to a questionnaire from the file, write a report or the status, keep the notes of a meeting, and run a saved playbook on papers.';
 
-const shown = (run: PlanRun): PlanReply => ({ text: planShownSaid(run.plan), choices: planChoices(run.id, run.plan), planId: run.id, summary: `A plan of ${planStepsIn(run.plan).length} step(s), not started` });
+const shown = (run: PlanRun): PlanReply => ({ text: planShownSaid(run.plan), choices: planChoices(run.id, run.plan), planId: run.id, summary: `A plan of ${planStepsIn(run.plan).length === 1 ? '1 step' : `${planStepsIn(run.plan).length} steps`}, not started` });
 const stands = (run: PlanRun, summary: string): PlanReply => {
   const cut = planCutShort(run);
   return { text: planStandsSaid(run.plan, cut), choices: planChoices(run.id, run.plan, cut), planId: run.id, summary };
@@ -181,23 +181,34 @@ export async function planTurnFor(ask: PlanAsk): Promise<PlanTurn | undefined> {
   const said = mine ? planAct(question, mine.plan, planCutShort(mine)) : undefined;
   if (mine && said) return actOn(ask, mine, said);
 
-  // A new job. The rules read its steps; where they read none and it may still be one, a model may propose them, held to the list.
+  // A new job. The rules read its steps. Where they read none and it may still be one, or read some and could place only part of
+  // the sentence, a model may lay the whole of it out, held to the list.
   const { wants, unread, asksForPlan } = planWants(question);
   let chosen: PlanWant[] = wants;
   let byModel = false;
-  if (!wants.length && ask.modelAvailable && (asksForPlan || planMayBeAsked(question))) {
-    chosen = planWantsHeld(await proposePlanByModel({ instruction: question, caseId: project.id }));
-    byModel = chosen.length > 0;
+  if (ask.modelAvailable && (wants.length ? unread.length > 0 : asksForPlan || planMayBeAsked(question))) {
+    const proposed = planWantsHeld(await proposePlanByModel({ instruction: question, caseId: project.id }));
+    // Its plan is taken only where it places more of the sentence than the rules did and leaves out no kind of step they read.
+    // A step the rules read keeps what they read beside it (which papers, which report): the model only adds what they could not place.
+    const kinds = new Set(proposed.map((want) => want.kind));
+    if (proposed.length > wants.length && wants.every((want) => kinds.has(want.kind))) {
+      const read = [...wants];
+      chosen = proposed.map((want) => {
+        const at = read.findIndex((held) => held.kind === want.kind);
+        return at === -1 ? want : read.splice(at, 1)[0]!;
+      });
+      byModel = true;
+    }
   }
   // What the rules could make no step of. Where a model laid the steps out it read the whole instruction, and nothing is left over.
   const over = byModel ? [] : unread;
   if (!chosen.length) return asksForPlan ? { say: { text: `I could not make a plan of that. ${WHAT_A_PLAN_CAN}`, summary: 'No plan made' } } : undefined;
 
   const { steps, nothing } = await planStepsFor(ask, chosen);
-  const asked = asksForPlan || byModel || chosen.length > 1 || over.length > 0;
+  const asked = asksForPlan || byModel || chosen.length > 1;
   if (!steps.length) return asked ? { say: { text: [`There is nothing for a plan to do: ${nothing.join(' ')}`, ...(over.length ? [`No step was made of: ${over.map((words) => `“${words}”`).join(', ')}.`] : [])].join('\n'), summary: 'Nothing to plan' } } : undefined;
 
-  if (isPlanned(steps, asksForPlan || byModel || over.length > 0)) {
+  if (isPlanned(steps, asksForPlan || byModel)) {
     const plan: ChatPlan = {
       asked: question.slice(0, 300),
       status: 'shown',
@@ -209,6 +220,14 @@ export async function planTurnFor(ask: PlanAsk): Promise<PlanTurn | undefined> {
       ...(ask.turnPlace ? { place: ask.turnPlace } : {}),
       ...(byModel ? { byModel: true } : {}),
     };
+    // A plan this person was shown and never ran gives way to the new one. One that was started and stopped has work done, and stays to be taken up.
+    for (const old of await plansOf(project.id)) {
+      if (old.plan.by === actor && old.plan.status === 'shown') {
+        await changePlan(project.id, old.id, (held) => {
+          held.status = 'cancelled';
+        });
+      }
+    }
     return { say: shown(await createPlan(project.id, plan)) };
   }
 
@@ -216,7 +235,7 @@ export async function planTurnFor(ask: PlanAsk): Promise<PlanTurn | undefined> {
   const step = steps[0]!;
   if (step.kind === 'accept_raised' || step.kind === 'write_report' || step.kind === 'keep_meeting') return undefined;
   if (step.kind === 'read_filed' && READ_FILED_REQUEST.test(question)) return undefined;
-  return { direct: step };
+  return { direct: step, ...(over.length ? { unread: over.slice(0, 6) } : {}) };
 }
 
 /* ==================================================================== */
@@ -265,6 +284,9 @@ export async function runPlan(input: PlanRunInput): Promise<{ run: PlanRun; clos
     delete plan.stoppedBecause;
     // A step a run that died left as running, or one that failed, is to do again: it picks up from what the record holds now.
     for (const step of plan.steps) if (step.state === 'running' || step.state === 'failed') step.state = 'to_do';
+    // This go is ticked off in the chat that started it, on the page it was started from. That need not be where the plan was first asked for.
+    if (input.chat?.sessionId) plan.sessionId = input.chat.sessionId;
+    if (input.place) plan.place = input.place;
   });
   if (!opened) return undefined;
   const plan = opened.plan;

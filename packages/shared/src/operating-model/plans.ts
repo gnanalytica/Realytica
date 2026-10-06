@@ -89,6 +89,8 @@ export interface PlanStep {
   /** For accepting: the cards it names, as they stood when the plan was made. It accepts these and no card raised since. */
   proposalIds?: string[];
   questionnaireIds?: string[];
+  /** For reading: the papers this step has read so far, in any go. One taken up again does not read them a second time, and says how many it has read in all. */
+  readIds?: string[];
   report?: ReportKind;
   period?: StatusPeriod;
   audience?: string;
@@ -137,6 +139,16 @@ const PLAN_LEAD = /^(?:please\s+)?(?:plan|make (?:me )?a plan|draw up a plan|wor
 const CLAUSE_LEAD = /^(?:[-*•]\s*|\d{1,2}[.)]\s*|(?:and|then|first|next|finally|lastly|after that|afterwards|please|also)[,\s]+)+/i;
 /** The verbs a step's sentence opens with. A clause is split off only before one of them. */
 const STEP_VERB = String.raw`(?:re-?read|read|accept|approve|suggest|draft|answer|fill(?: in)?|complete|write|generate|prepare|make|create|produce|keep|run|apply)`;
+
+/**
+ * Verbs that open something else a person may ask for in the same breath. A
+ * clause is split off before one of these too. What follows is then read on
+ * its own, and where it is no step it is said back in its own words, not
+ * swallowed by the step before it.
+ */
+const OTHER_VERB = String.raw`(?:tell|send|give|let|inform|email|share|notify|summari[sz]e|go through|look|sort|ask|remind|see|find|work out|compare|explain|flag|highlight|update\s+(?:the|me|us|him|her|them|everyone))`;
+/** A clause that asks for nothing: a word of thanks at the end of an instruction. */
+const COURTESY = /^(?:thanks|thank you|many thanks|cheers|ta|ok|okay|please)\b.{0,20}$/i;
 
 const READS = /^(?:re-?read|read)\b/i;
 const PAPERS = /\b(?:documents?|docs|files|papers)\b/i;
@@ -203,9 +215,11 @@ function wantOf(clause: string): PlanWant | undefined {
  *
  * The sentence is cut into clauses at "then", at a line or a full stop, and
  * at a comma or an "and" that stands before one of the verbs a step opens
- * with. Each clause is one step of the fixed kinds or it is none, and what
- * is none is given back in its own words (`unread`). `asksForPlan` says the
- * person asked to be shown a plan, however small the job.
+ * with, or before a verb that opens something else a person may ask for
+ * ("and tell the owner"). Each clause is one step of the fixed kinds or it
+ * is none, and what is none is given back in its own words (`unread`).
+ * `asksForPlan` says the person asked to be shown a plan, however small the
+ * job.
  */
 export function planWants(question: string): { wants: PlanWant[]; unread: string[]; asksForPlan: boolean } {
   const q = question.trim();
@@ -214,16 +228,25 @@ export function planWants(question: string): { wants: PlanWant[]; unread: string
   const body = q.replace(PLAN_LEAD, '');
   const clauses = body
     .split(/\n+|;|(?<=[.!])\s+(?=\p{Lu})/u)
-    .flatMap((piece) => piece.split(new RegExp(String.raw`,?\s+(?:and\s+)?then\s+|,\s*(?:and\s+)?(?=${STEP_VERB}\b)|\s+and\s+(?=${STEP_VERB}\b)`, 'i')))
+    .flatMap((piece) => piece.split(new RegExp(String.raw`,?\s+(?:and\s+)?then\s+|,\s*(?:and\s+)?(?=(?:${STEP_VERB}|${OTHER_VERB})\b)|\s+and\s+(?=(?:${STEP_VERB}|${OTHER_VERB})\b)`, 'i')))
     .map((clause) => clause.replace(CLAUSE_LEAD, '').trim())
-    .filter(Boolean);
+    .filter((clause) => clause && !COURTESY.test(clause));
   const wants: PlanWant[] = [];
   const unread: string[] = [];
-  for (const clause of clauses) {
+  const read = (clause: string): void => {
     const want = wantOf(clause);
+    // A clause about reading says which papers and no more. Where it goes on past a comma to something that names no page, the rest is read on its own.
+    const cut = want?.kind === 'read_filed' && want.only && !planPlaceOf(want.only) ? clause.indexOf(',') : -1;
+    if (cut > 0) {
+      read(clause.slice(0, cut));
+      const rest = clause.slice(cut + 1).replace(CLAUSE_LEAD, '').trim();
+      if (rest && !COURTESY.test(rest)) read(rest);
+      return;
+    }
     if (want && wants.length < PLAN_STEPS_AT_MOST) wants.push(want);
     else unread.push(clause.replace(/[.!\s]+$/, ''));
-  }
+  };
+  clauses.forEach(read);
   return { wants, unread, asksForPlan };
 }
 
@@ -243,16 +266,23 @@ export function planMayBeAsked(question: string): boolean {
   return JOB_NOUNS.filter((noun) => noun.test(q)).length >= 2;
 }
 
+/** Words that may stand beside the name of a page and say nothing more. */
+const PLACE_FILLER = new Set('the a an of and page pages section department side function work related'.split(' '));
+
 /**
  * The page of the menu some words name: a function by its one word ("title",
  * "approvals"), or a department ("legal"). Nothing when they name neither,
- * or more than one: a step is never narrowed by a guess.
+ * or more than one, or say anything beside the name: a step is never
+ * narrowed by a guess, and words that ask for something else are never read
+ * as which papers.
  */
 export function planPlaceOf(words: string): { fn?: string; department?: string } | undefined {
   const said = new Set(words.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean));
   if (!said.size) return undefined;
   const fns = MENU_DEPARTMENTS.flatMap((menu) => menuFunctions(menu)).filter((fn) => said.has(fn.label.toLowerCase()));
   const departments = MENU_DEPARTMENTS.filter((menu) => said.has(DEPARTMENT_SHORT[menu].toLowerCase()));
+  const names = new Set([...fns.map((fn) => fn.label.toLowerCase()), ...departments.map((menu) => DEPARTMENT_SHORT[menu].toLowerCase())]);
+  if ([...said].some((word) => !names.has(word) && !PLACE_FILLER.has(word))) return undefined;
   // A function's word that several departments use ("Quality") is that function only where its department is named too.
   const narrowed = departments.length === 1 ? fns.filter((fn) => fn.department === departments[0] || fns.length === 1) : fns;
   if (narrowed.length === 1) return { fn: narrowed[0]!.key };
@@ -350,9 +380,29 @@ function stepLines(plan: ChatPlan): string[] {
     if (step.state === 'out') return [];
     n += 1;
     const stands =
-      plan.status === 'shown' ? '' : step.state === 'done' ? ` Done: ${step.said ?? ''}` : step.state === 'failed' ? ` Not done: ${step.said ?? ''}` : step.said ? ` Part done: ${step.said}` : ' Left.';
+      plan.status === 'shown'
+        ? ''
+        : step.state === 'done'
+          ? ` Done: ${step.said ?? ''}`
+          : step.state === 'failed'
+            ? ` Not done: ${step.said ?? ''}`
+            : step.said
+              ? ` Part done: ${step.said}`
+              : plan.status === 'cancelled'
+                ? ' Not run.'
+                : ' Left.';
     return [`${n}. ${step.label}.${stands}`.replace(/\.\.$/, '.').trimEnd()];
   });
+}
+
+/**
+ * Whether a reply's words already list a plan's steps as they stand now. A
+ * page that draws the plan under the reply does not list them a second time.
+ * False for a plan that has moved on since the reply was written.
+ */
+export function planListedIn(text: string, plan: ChatPlan): boolean {
+  const lines = stepLines(plan);
+  return lines.length > 0 && lines.every((line) => text.includes(line));
 }
 
 /** The sentences a person presses or types to act on a plan. A pressed one carries the plan's id beside it. */
@@ -387,6 +437,8 @@ export function planChoices(planId: string, plan: ChatPlan, interrupted = false)
 
 /** What the chat says when a plan has ended, was stopped, or is asked how far it has got. */
 export function planStandsSaid(plan: ChatPlan, interrupted = false): string {
+  // A plan cancelled before any of it ran: there is nothing to list.
+  if (plan.status === 'cancelled' && !plan.steps.some((step) => step.state === 'done' || step.said)) return 'The plan is cancelled. Nothing was done.';
   const head =
     plan.status === 'done'
       ? `The plan is done: ${planCountSaid(plan)}.`

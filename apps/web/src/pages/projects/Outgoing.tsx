@@ -315,7 +315,7 @@ export default function OutgoingPage() {
                 <Input value={asking.to} onChange={(e) => setAsking({ ...asking, to: e.target.value })} maxLength={120} placeholder="Who it goes to" />
               </Field>
               <Field label="What it is about" hint="Decisions, actions and values the words name are laid out as its sources.">
-                <Input value={asking.topic} onChange={(e) => setAsking({ ...asking, topic: e.target.value })} maxLength={OUTGOING_SUBJECT} placeholder={asking.kind === 'rfi' ? 'the revised drawings' : 'asking for the khata extract'} />
+                <Input value={asking.topic} onChange={(e) => setAsking({ ...asking, topic: e.target.value })} maxLength={OUTGOING_SUBJECT} placeholder={asking.kind === 'rfi' ? 'the revised drawings' : asking.kind === 'reply' ? 'the points to answer' : 'asking for the khata extract'} />
               </Field>
             </>
           )}
@@ -586,9 +586,8 @@ export default function OutgoingPage() {
                   <div className="space-y-2">
                     <p className="text-[13px] font-medium text-ink">The body is not written yet.</p>
                     <p className="text-[13px] text-ink-secondary">
-                      {model
-                        ? `${plural(draft.sources.length, 'source is', 'sources are')} laid out below. A model can write it from them, or you can.`
-                        : `No model is set up, so it is yours to write. ${plural(draft.sources.length, 'source is', 'sources are')} laid out below to write from.`}
+                      {model ? 'A model can write it from the record, or you can. ' : 'No model is set up, so it is yours to write. '}
+                      {draft.sources.length ? `${plural(draft.sources.length, 'source is', 'sources are')} laid out below to write from.` : 'Nothing on the record was found for it.'}
                     </p>
                     {mayDraft ? (
                       <div className="flex flex-wrap items-center gap-2">

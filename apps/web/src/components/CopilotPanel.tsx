@@ -3,13 +3,14 @@ import { AttachControls, type VoiceInfo } from './chat/AttachControls';
 import { TooLargeToSend } from '../lib/site-capture';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { AlertCircle, ArrowUp, CheckCircle2, Info, Lock, MessageCircle, Paperclip, SearchX, X } from 'lucide-react';
-import { askedOn, chatSessions, choiceMayBePressed, groupActivity, splitThread } from '@realytica/shared';
+import { PLAN_STEP, askedOn, chatSessions, choiceMayBePressed, groupActivity, splitThread } from '@realytica/shared';
 import type { AgentStep, ChatChoice, ChatTurnPlace, ChoicePin, CopilotTurn, EvidenceItem, ProjectChatTurn, ScreenResult, TurnSpend, VerificationSummary } from '@realytica/shared';
 import { CriticFlagBanner, findFlaggedCriticFinding } from './VerificationPanel';
 import { AiMark, Badge, Button, Modal, cn } from './ui/kit';
 import { EASE_ENTER, SPRING, motion } from '../lib/motion';
 import { AnswerBody } from './chat/AnswerBody';
 import { ChatList } from './chat/ChatList';
+import { PlanCard, openPlans, stopPlan, type PlanShown } from './chat/PlanCard';
 import { chatDay, chatRows, liveChatId, liveTurns } from './chat/chat-list';
 import { TurnVisual } from './chat/TurnVisual';
 import { relativeTime } from '../lib/format';
@@ -71,8 +72,14 @@ function TurnBubble({
   onOpenDocument,
   extras,
   here,
+  plansDrawn,
+  under,
 }: {
   turn: CopilotTurn;
+  /** Drawn under the reply's words, where its choices are: the plan it names, as the plan stands now. */
+  under?: ReactNode;
+  /** A plan is drawn as a card with its own buttons, as the plan stands now. The choices a reply offered for it then are not drawn too. */
+  plansDrawn?: boolean;
   /** The page on screen. A question asked on another one says which. */
   here?: ChatTurnPlace;
   evidence: EvidenceItem[];
@@ -105,6 +112,7 @@ function TurnBubble({
   // in the verification panel would let someone read an unsupported answer
   // cleanly here and never see the warning sitting on another screen.
   const flagged = findFlaggedCriticFinding(verification, 'copilot_answer', turn.id);
+  const choices = plansDrawn ? turn.choices?.filter((choice) => !choice.sitting?.plan) : turn.choices;
   if (turn.role === 'user') {
     /*
      * The thread stays when the page changes, so a question asked on Title
@@ -266,7 +274,7 @@ function TurnBubble({
             {turn.unsupportedClaims.length === 1 ? ' it' : ' them'} as unverified until evidence lands.
           </p>
         ) : null}
-        {turn.choices && turn.choices.length > 0 && onPick ? (
+        {choices && choices.length > 0 && onPick ? (
           /*
            * Options offered because the message did not resolve to one thing.
            * Rendered as buttons rather than a list in the prose because the
@@ -276,7 +284,7 @@ function TurnBubble({
            * its own.
            */
           <ul className="mt-2 flex flex-col gap-1.5">
-            {turn.choices.map((choice) =>
+            {choices.map((choice) =>
               mayPress && !mayPress(choice) ? (
                 /*
                  * A choice that accepts or sets aside, under a reply that is
@@ -314,6 +322,7 @@ function TurnBubble({
             )}
           </ul>
         ) : null}
+        {under}
         {applied && applied.length > 0 ? (
           <div className="mt-2 rounded-lg bg-good/10 px-2.5 py-2 ring-1 ring-inset ring-good/25">
             <div className="flex items-center gap-1.5 text-mini font-semibold text-good">
@@ -469,8 +478,15 @@ export function CopilotPanel({
   compact,
   onCancel,
   dock,
+  plans,
 }: {
   conversation: CopilotTurn[];
+  /**
+   * Draw plans in this chat: the project they are kept on, and what to do
+   * when one moved while this page was only watching it (the thread then has
+   * turns this page has not got).
+   */
+  plans?: { projectId: string; onChanged?: () => void };
   evidence: EvidenceItem[];
   suggestions: string[];
   onAsk: (question: string, files?: File[]) => Promise<void> | void;
@@ -731,6 +747,66 @@ export function CopilotPanel({
   // for, and landing on a log nobody asked for is how this started.
   const shown = (tab === 'chat' ? viewed : []) as unknown as CopilotTurn[];
 
+  /*
+   * Plans. One that is not over is read from the project's run ledger when
+   * the chat opens and whenever the thread changes. A plan is drawn once:
+   * under the last reply on screen that names it, or, where no reply on
+   * screen does, at the top of this chat. The second place is what a person
+   * who closed the page part way through a run comes back to.
+   */
+  const planProject = plans?.projectId;
+  const [openNow, setOpenNow] = useState<PlanShown[]>([]);
+  useEffect(() => {
+    if (!planProject) return;
+    let live = true;
+    openPlans(planProject).then(
+      // One this page has shown stays when it ends, so a plan watched to its end says it is done and does not vanish.
+      (got) => live && setOpenNow((was) => [...got.plans, ...was.filter((seen) => !got.plans.some((open) => open.id === seen.id))]),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [planProject, conversation.length, busy]);
+  const planUnder = useMemo(() => {
+    const at = new Map<string, string>();
+    const named = new Set<string>();
+    for (const turn of [...shown].reverse()) {
+      if (turn.role !== 'assistant' || !turn.planId || named.has(turn.planId)) continue;
+      named.add(turn.planId);
+      at.set(turn.id, turn.planId);
+    }
+    return { at, named };
+    // `shown` is the chat on screen: this one, or the earlier one being read.
+  }, [shown]);
+  // A plan of this person's that no reply on screen names. Somebody else's is in their chat, not this one.
+  const planLead = tab === 'chat' && !reading ? openNow.filter((open) => !planUnder.named.has(open.id) && (!sessionActor || open.plan.by === sessionActor)) : [];
+  const planStepsSeen = (steps ?? []).filter((step) => step.toolName === PLAN_STEP);
+  // The plan this request is carrying out, named by its steps as they arrive. Stop then stops the plan, and the reply still comes with what was done.
+  const planInHand = busy && planProject ? planStepsSeen.at(-1)?.detail : undefined;
+  const [planStopAsked, setPlanStopAsked] = useState(false);
+  useEffect(() => {
+    if (!busy) setPlanStopAsked(false);
+  }, [busy]);
+  const planFresh = `${conversation.length}:${busy ? 1 : 0}:${planStepsSeen.length}`;
+  const planCard = (planId: string, more: { said?: string; lead?: boolean; initial?: PlanShown }): ReactNode =>
+    planProject ? (
+      <PlanCard
+        key={planId}
+        projectId={planProject}
+        planId={planId}
+        initial={more.initial ?? openNow.find((open) => open.id === planId)}
+        said={more.said}
+        lead={more.lead}
+        busy={busy}
+        readOnly={Boolean(reading)}
+        fresh={planFresh}
+        onPick={(text, pin) => void onPickChoice?.(text, pin)}
+        onChanged={plans?.onChanged}
+      />
+    ) : null;
+  const planLeadCards = planLead.length ? <div className="flex flex-col gap-2">{planLead.map((open) => planCard(open.id, { lead: true, initial: open }))}</div> : null;
+
   const showEmptyState = shown.length === 0 && tab === 'chat' && !busy && !reading;
   const current = rows.find((row) => row.current);
 
@@ -875,6 +951,7 @@ export function CopilotPanel({
             belongs, which is above the content rather than around it.
           */
           <div className={cn('flex flex-1 flex-col justify-end gap-3', compact ? 'py-3' : 'py-6')}>
+            {planLeadCards}
             <div className="flex items-center gap-2.5">
               <AiMark size="md" />
               <div className="min-w-0">
@@ -936,6 +1013,7 @@ export function CopilotPanel({
           </ol>
         ) : (
           <>
+            {planLeadCards}
             {shown.map((turn) => (
               /*
                 `animate-rise-in` on each turn, which the design system
@@ -959,6 +1037,8 @@ export function CopilotPanel({
                 onOpenEvidence={onOpenEvidence}
                 onOpenDocument={onOpenDocument}
                 extras={renderTurnExtras?.(turn)}
+                plansDrawn={Boolean(planProject)}
+                under={planUnder.at.has(turn.id) ? planCard(planUnder.at.get(turn.id)!, { said: turn.text }) : undefined}
               />
               </div>
             ))}
@@ -1037,7 +1117,21 @@ export function CopilotPanel({
                 <kbd className="font-mono">/</kbd> for commands
               </span>
             ) : null}
-            {busy && onCancel ? (
+            {planInHand && planProject ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={planStopAsked}
+                aria-label="Stop the plan"
+                onClick={() => {
+                  setPlanStopAsked(true);
+                  stopPlan(planProject, planInHand).catch(() => setPlanStopAsked(false));
+                }}
+              >
+                {planStopAsked ? 'Stopping' : 'Stop'}
+              </Button>
+            ) : busy && onCancel ? (
               <Button type="button" variant="secondary" size="sm" onClick={onCancel} aria-label="Stop">
                 Stop
               </Button>

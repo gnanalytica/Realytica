@@ -1329,7 +1329,9 @@ async function planTurn(
   refreshProjectDerived(project);
   const { line } = beginNdjson(res);
   const { setting } = asked;
-  const step = (label: string): void => line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label } satisfies AgentStep });
+  // A step of a plan that is running names the plan, so the page knows which one this request is carrying out.
+  const step = (label: string, planId?: string): void =>
+    line({ type: 'step', step: { id: randomUUID(), at: new Date().toISOString(), kind: 'tool_call', label, ...(planId ? { toolName: PLAN_STEP, detail: planId } : {}) } satisfies AgentStep });
   const say = (reply: Pick<PlanReply, 'text' | 'choices' | 'summary' | 'planId'>, tool: string, commands: string[] = []): ProjectChatResult => {
     const result = applyProjectChat(project, asked.question, { actor: setting.actor, viewContext: asked.viewContext, place: asked.place, chat: setting.chat, reply: { text: reply.text, choices: reply.choices, tool, summary: reply.summary, commands } });
     if (reply.planId) result.assistantTurn.planId = reply.planId;
@@ -1352,7 +1354,9 @@ async function planTurn(
     }
     // What the step itself left in the thread comes after the question it answers, and before what the chat says of it.
     const left = project.conversation.splice(before);
-    const result = say({ text: done.said, summary: planned.direct.label }, PLAN_STEP, done.did ? [planned.direct.label] : []);
+    // What the sentence asked for beside the step is said back, so nothing a person typed goes unanswered without a word.
+    const beside = planned.unread?.length ? `\nNothing was done about: ${planned.unread.map((words) => `“${words}”`).join(', ')}.` : '';
+    const result = say({ text: `${done.said}${beside}`, summary: planned.direct.label }, PLAN_STEP, done.did ? [planned.direct.label] : []);
     for (const turn of left) {
       if (!turn.sessionId && asked.sessionId) turn.sessionId = asked.sessionId;
       if (!turn.place && asked.place) turn.place = asked.place;
@@ -1371,7 +1375,7 @@ async function planTurn(
     res.end();
     return;
   }
-  const ended = await runPlan({ ...setting, planId: planned.run, onStep: step });
+  const ended = await runPlan({ ...setting, planId: planned.run, onStep: (label) => step(label, planned.run) });
   // The page is handed the plan's last word, and the project as the run left it.
   line({ type: 'result', ...result, ...(ended ? { assistantTurn: ended.closing, commands: [`Plan: ${planCountSaid(ended.run.plan)}`] } : {}), project });
   res.end();
